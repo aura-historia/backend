@@ -3,7 +3,6 @@ use common::{
     batch::Batch,
     domain::{Domain, NoDomainError},
     price::domain::{FxRate, MonetaryAmountOverflowError},
-    shop_id::ShopIdentifier,
 };
 use shop::core::shop::Shop;
 use shop::dynamodb::repository::ShopDynamoDbRepository;
@@ -73,7 +72,7 @@ impl<'a, T: FxRate + Sync> ProductCommandEnrichmentService
     for ProductCommandEnrichmentServiceImpl<'a, T>
 {
     async fn enrich_shop(&self, commands: Vec<PipedProductCommand>) -> EnrichProductCommandsOutput {
-        let shop_identifiers = commands
+        let shop_ids = commands
             .iter()
             .map(|cmd| cmd.url.clone())
             .filter_map(|url |{
@@ -85,12 +84,11 @@ impl<'a, T: FxRate + Sync> ProductCommandEnrichmentService
                     },
                 }
             })
-            .map(ShopIdentifier::from)
             .collect::<HashSet<_>>();
-        let mut shops: HashMap<Domain, Shop> = HashMap::with_capacity(shop_identifiers.len());
+        let mut shops: HashMap<Domain, Shop> = HashMap::with_capacity(shop_ids.len());
         let mut unprocessed_shops = HashSet::new();
 
-        for batch in Batch::chunked_from(shop_identifiers.into_iter()) {
+        for batch in Batch::chunked_from(shop_ids.into_iter()) {
             match self.shop_dynamodb_repository.get_shop_records(&batch).await {
                 Ok(res) => {
                     if let Some(unprocessed) = res.unprocessed {

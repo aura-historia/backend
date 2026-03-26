@@ -1,37 +1,24 @@
 use crate::{
     core::shop::Shop,
-    dynamodb::{
-        repository::ShopDynamoDbRepository,
-        shop_record::{ShopRecord, mk_pk_as_shop_domain},
-        shop_record_update::ShopRecordUpdate,
-    },
+    dynamodb::{repository::ShopDynamoDbRepository, shop_record_update::ShopRecordUpdate},
     service::command::{CreateShopCommand, UpdateShopCommand},
 };
 use aws_sdk_dynamodb::error::SdkError;
-use common::{
-    batch::{Batch, BatchConstructionError},
-    shop_id::{ShopId, ShopIdentifier},
-    shop_name::ShopName,
-    slug_id::SlugId,
-};
-use std::collections::HashMap;
+use common::{shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use time::OffsetDateTime;
 use tracing::info;
 
 #[derive(Debug, thiserror::Error)]
 #[allow(clippy::large_enum_variant)]
 pub enum CommandShopError {
-    #[error("Shop with identifier '{0}' not found")]
-    ShopNotFound(ShopIdentifier),
-
-    #[error("Shop with name '{0}' exists already - a domain of the shop is already registered.")]
-    ShopDomainExistsAlready(ShopName),
+    #[error("Shop with id '{0}' not found")]
+    ShopNotFound(ShopId),
 
     #[error("Shop with name '{0}' exists already - the shop-slug '{1}' is already registered.")]
     ShopSlugExistsAlready(ShopName, SlugId<0>),
 
-    #[error("Shop can only have 100 URLs but was given more: '{0}'")]
-    ShopCanOnlyHave100Urls(#[from] BatchConstructionError<100>),
+    #[error("Shop must have at least one domain")]
+    ShopDomainsEmpty,
 
     #[error(
         "Did not succeed checking existence of shop due to DynamoDB Batch-Response containing unprocessed items"
@@ -41,12 +28,6 @@ pub enum CommandShopError {
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
     SdkGetItemError(#[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>),
 
-    #[error("Encountered DynamoDB TransactWriteItemsError for TransactWriteItems: {0}")]
-    SdkTransactWriteItemsError(
-        #[from]
-        SdkError<aws_sdk_dynamodb::operation::transact_write_items::TransactWriteItemsError>,
-    ),
-
     #[error("Encountered DynamoDB SdkError for BatchGetItem: {0}")]
     SdkBatchGetItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError>,
@@ -54,6 +35,12 @@ pub enum CommandShopError {
 
     #[error("Encountered DynamoDB SdkError for Query: {0}")]
     SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError>),
+
+    #[error("Encountered DynamoDB SdkError for PutItem: {0}")]
+    SdkPutItemError(#[from] SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError>),
+
+    #[error("Encountered DynamoDB SdkError for UpdateItem: {0}")]
+    SdkUpdateItemError(#[from] SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError>),
 }
 
 #[cfg(feature = "data")]
@@ -61,7 +48,7 @@ pub mod api {
     use crate::service::command_service::CommandShopError;
     use common::api::error::ApiError;
     use common::api::error_code::{
-        SHOP_EXISTS_ALREADY, SHOP_NOT_FOUND, SHOP_TOO_MANY_DOMAINS, UNPROCESSED_ITEMS,
+        NO_DOMAIN, SHOP_EXISTS_ALREADY, SHOP_NOT_FOUND, UNPROCESSED_ITEMS,
     };
 
     impl From<CommandShopError> for ApiError {
@@ -70,22 +57,20 @@ pub mod api {
                 CommandShopError::ShopNotFound(_) => {
                     ApiError::not_found(SHOP_NOT_FOUND, Box::new(err))
                 }
-                CommandShopError::ShopDomainExistsAlready(_) => {
-                    ApiError::conflict(SHOP_EXISTS_ALREADY, Box::new(err))
-                }
                 CommandShopError::ShopSlugExistsAlready(_, _) => {
                     ApiError::conflict(SHOP_EXISTS_ALREADY, Box::new(err))
                 }
-                CommandShopError::ShopCanOnlyHave100Urls(_) => {
-                    ApiError::bad_request(SHOP_TOO_MANY_DOMAINS, Box::new(err))
+                CommandShopError::ShopDomainsEmpty => {
+                    ApiError::bad_request(NO_DOMAIN, Box::new(err))
                 }
                 CommandShopError::SdkBatchGetItemUnprocessed => {
                     ApiError::service_unavailable(UNPROCESSED_ITEMS, Box::new(err))
                 }
                 CommandShopError::SdkGetItemError(err) => err.into(),
-                CommandShopError::SdkTransactWriteItemsError(err) => err.into(),
                 CommandShopError::SdkBatchGetItemError(err) => err.into(),
                 CommandShopError::SdkQueryError(err) => err.into(),
+                CommandShopError::SdkPutItemError(err) => err.into(),
+                CommandShopError::SdkUpdateItemError(err) => err.into(),
             }
         }
     }
@@ -97,7 +82,7 @@ pub trait CommandShopService {
     async fn create(&self, command: CreateShopCommand) -> Result<Shop, CommandShopError>;
     async fn update(
         &self,
-        shop_identifier: &ShopIdentifier,
+        shop_id: &ShopId,
         command: UpdateShopCommand,
     ) -> Result<Shop, CommandShopError>;
 }
@@ -124,19 +109,8 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             ));
         }
 
-        let shop_identifiers = Batch::try_from_iter(
-            command
-                .domains
-                .clone()
-                .into_iter()
-                .map(ShopIdentifier::from),
-        )?;
-        let get_res = self.repository.get_shop_records(&shop_identifiers).await?;
-        if get_res.unprocessed.is_some() {
-            return Err(CommandShopError::SdkBatchGetItemUnprocessed);
-        }
-        if !get_res.items.is_empty() {
-            return Err(CommandShopError::ShopDomainExistsAlready(command.name));
+        if command.domains.is_empty() {
+            return Err(CommandShopError::ShopDomainsEmpty);
         }
 
         let shop = Shop {
@@ -149,13 +123,8 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };
-        let mut shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
-        shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop.clone()));
 
-        let _ = self
-            .repository
-            .put_shop_records_transact(shop_records)
-            .await?;
+        let _ = self.repository.put_shop_record(shop.clone().into()).await?;
 
         info!(shopId = %shop.shop_id, name = %shop.name, slug = %shop.shop_slug_id, domains = ?shop.domains, "Created Shop.");
 
@@ -164,129 +133,38 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
 
     async fn update(
         &self,
-        shop_identifier: &ShopIdentifier,
+        shop_id: &ShopId,
         command: UpdateShopCommand,
     ) -> Result<Shop, CommandShopError> {
-        let shop_record = match shop_identifier {
-            ShopIdentifier::ShopId(shop_id) => self.repository.get_shop_record_by_id(shop_id),
-            ShopIdentifier::ShopDomain(domain) => self.repository.get_shop_record_by_domain(domain),
-        }
-        .await?
-        .ok_or_else(|| CommandShopError::ShopNotFound(shop_identifier.clone()))?;
+        let shop_record = self
+            .repository
+            .get_shop_record(shop_id)
+            .await?
+            .ok_or_else(|| CommandShopError::ShopNotFound(*shop_id))?;
 
         if command.is_empty() {
             return Ok(shop_record.into());
         }
 
-        let mut existing_shop_identifiers = shop_record
-            .domains
-            .clone()
-            .into_iter()
-            .map(ShopIdentifier::from)
-            .collect::<Vec<_>>();
-        existing_shop_identifiers.push(ShopIdentifier::from(shop_record.shop_id));
-        let existing_shop_identifiers = Batch::try_from(existing_shop_identifiers)?;
-        let existing_shop_records = self
-            .repository
-            .get_shop_records(&existing_shop_identifiers)
-            .await?;
-        if existing_shop_records.unprocessed.is_some() {
-            return Err(CommandShopError::SdkBatchGetItemUnprocessed);
-        }
-
-        let update_record = ShopRecordUpdate {
+        let update = ShopRecordUpdate {
             shop_type: command.shop_type.map(Into::into),
             domains: command.domains.clone(),
             image: command.image.clone(),
             updated: OffsetDateTime::now_utc(),
         };
-
-        let mut put = vec![];
-        let mut update = HashMap::new();
-        let mut delete = vec![];
-        for existing_shop_record in existing_shop_records.items {
-            match existing_shop_record.domain {
-                None => {
-                    // is a Shop-Id-Record
-                    update.insert(
-                        ShopIdentifier::from(existing_shop_record.shop_id),
-                        update_record.clone(),
-                    );
-                }
-                Some(url) => {
-                    // is a Shop-Domain-Record
-                    match update_record.domains {
-                        None => {
-                            // domains don't change => no new/deleted shop-records, just update
-                            update.insert(ShopIdentifier::from(url), update_record.clone());
-                        }
-                        Some(ref domains) => {
-                            // domains change => possible new/deleted shop-records
-                            if domains.contains(&url) {
-                                // existing record will exist further
-                                update.insert(ShopIdentifier::from(url), update_record.clone());
-                            } else {
-                                // record exists no more after update
-                                delete.push(ShopIdentifier::from(url));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        let new_domains = update_record
-            .domains
-            .clone()
-            .unwrap_or_default()
-            .into_iter()
-            .map(ShopIdentifier::from)
-            .filter(|shop_identifier| {
-                !update.contains_key(shop_identifier) && !delete.contains(shop_identifier)
-            })
-            .filter_map(|shop_identifier| match shop_identifier {
-                ShopIdentifier::ShopId(_) => None,
-                ShopIdentifier::ShopDomain(url) => Some(url),
-            });
-        for new_domain in new_domains {
-            let new_shop_domain_record = ShopRecord {
-                pk: mk_pk_as_shop_domain(&new_domain),
-                sk: "shop#details".to_owned(),
-                gsi2_pk: None,
-                gsi2_sk: None,
-                shop_id: shop_record.shop_id,
-                shop_slug_id: shop_record.shop_slug_id.clone(),
-                name: shop_record.name.clone(),
-                shop_type: update_record.shop_type.unwrap_or(shop_record.shop_type),
-                domain: Some(new_domain),
-                domains: update_record
-                    .domains
-                    .clone()
-                    .unwrap_or(shop_record.domains.clone()),
-                image: update_record.image.clone().or(shop_record.image.clone()),
-                created: OffsetDateTime::now_utc(),
-                updated: OffsetDateTime::now_utc(),
-            };
-            put.push(new_shop_domain_record);
-        }
-
-        let _ = self.repository.transact_write(put, update, delete).await?;
+        let shop_record = self
+            .repository
+            .update_shop_record(shop_id, update)
+            .await?
+            .ok_or_else(|| {
+                CommandShopError::SdkUpdateItemError(SdkError::construction_failure(
+                    "failed retrieving new shop on update",
+                ))
+            })?;
 
         info!(shopId = %shop_record.shop_id, name = %shop_record.name, slug = %shop_record.shop_slug_id, payload = ?command, "Updated Shop.");
 
-        Ok(Shop {
-            shop_id: shop_record.shop_id,
-            shop_slug_id: shop_record.shop_slug_id,
-            name: shop_record.name,
-            shop_type: update_record
-                .shop_type
-                .map(Into::into)
-                .unwrap_or(shop_record.shop_type.into()),
-            domains: update_record.domains.unwrap_or(shop_record.domains),
-            image: update_record.image.or(shop_record.image),
-            created: shop_record.created,
-            updated: OffsetDateTime::now_utc(),
-        })
+        Ok(shop_record.into())
     }
 }
 
@@ -303,9 +181,8 @@ mod tests {
         use aws_sdk_dynamodb::{
             config::http::HttpResponse,
             error::{ConnectorError, SdkError},
-            operation::transact_write_items::TransactWriteItemsOutput,
+            operation::put_item::PutItemOutput,
         };
-        use common::{batch::dynamodb::BatchGetItemResult, domain::Domain};
         use fake::{Fake, Faker};
         use std::collections::HashSet;
 
@@ -349,76 +226,21 @@ mod tests {
             let actual = service.create(cmd).await;
 
             assert!(actual.is_err());
+            match actual.unwrap_err() {
+                CommandShopError::ShopDomainsEmpty => {}
+                other => panic!("Expected 'CommandShopError::ShopDomainsEmpty'. Got '{other}'"),
+            }
         }
 
-        #[rstest::rstest]
-        #[case(101)]
-        #[case(110)]
-        #[case(142)]
-        #[case(169)]
-        #[case(1234)]
         #[tokio::test]
-        #[trace]
-        async fn should_err_when_shop_domains_more_than_100(#[case] count: usize) {
+        async fn should_create_shop_when_slug_not_exists() {
             let mut shop_repository = MockShopDynamoDbRepository::default();
             shop_repository
                 .expect_query_shop_id()
                 .return_once(|_| Box::pin(async { Ok(None) }));
-            let service = CommandShopServiceImpl::new(&shop_repository);
-            let create_cmd = CreateShopCommand {
-                name: Faker.fake(),
-                shop_type: Faker.fake(),
-                domains: (0..count)
-                    .map(|i| Domain::try_from(format!("https://foo-{i}.com")).unwrap())
-                    .collect(),
-                image: None,
-            };
-            let actual = service.create(create_cmd).await;
-
-            assert!(actual.is_err());
-        }
-
-        #[tokio::test]
-        async fn should_err_when_unprocessed() {
-            let mut shop_repository = MockShopDynamoDbRepository::default();
             shop_repository
-                .expect_query_shop_id()
-                .return_once(|_| Box::pin(async { Ok(None) }));
-            shop_repository.expect_get_shop_records().return_once(|_| {
-                Box::pin(async {
-                    Ok(BatchGetItemResult {
-                        items: vec![],
-                        unprocessed: Some(Faker.fake()),
-                    })
-                })
-            });
-
-            let service = CommandShopServiceImpl::new(&shop_repository);
-            let create_cmd: CreateShopCommand = Faker.fake();
-            let actual = service.create(create_cmd.clone()).await;
-
-            assert!(actual.is_err());
-        }
-
-        #[tokio::test]
-        async fn should_create_shop_when_not_exists_and_none_unprocessed() {
-            let mut shop_repository = MockShopDynamoDbRepository::default();
-            shop_repository
-                .expect_query_shop_id()
-                .return_once(|_| Box::pin(async { Ok(None) }));
-            shop_repository.expect_get_shop_records().return_once(|_| {
-                Box::pin(async {
-                    Ok(BatchGetItemResult {
-                        items: vec![],
-                        unprocessed: None,
-                    })
-                })
-            });
-            shop_repository
-                .expect_put_shop_records_transact()
-                .return_once(|_| {
-                    Box::pin(async { Ok(TransactWriteItemsOutput::builder().build()) })
-                });
+                .expect_put_shop_record()
+                .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
 
             let service = CommandShopServiceImpl::new(&shop_repository);
 
@@ -429,37 +251,6 @@ mod tests {
             assert_eq!(create_cmd.shop_type, actual.shop_type);
             assert_eq!(create_cmd.image, actual.image);
             assert_eq!(create_cmd.domains, actual.domains);
-        }
-
-        #[tokio::test]
-        async fn should_transact_put_n_plus_1_records() {
-            let mut shop_repository = MockShopDynamoDbRepository::default();
-            shop_repository
-                .expect_query_shop_id()
-                .return_once(|_| Box::pin(async { Ok(None) }));
-            shop_repository.expect_get_shop_records().return_once(|_| {
-                Box::pin(async {
-                    Ok(BatchGetItemResult {
-                        items: vec![],
-                        unprocessed: None,
-                    })
-                })
-            });
-
-            let create_cmd: CreateShopCommand = Faker.fake();
-            let create_cmd_clone: CreateShopCommand = create_cmd.clone();
-            shop_repository
-                .expect_put_shop_records_transact()
-                .return_once(move |cmd| {
-                    Box::pin(async move {
-                        assert_eq!(create_cmd_clone.domains.len() + 1, cmd.len());
-                        Ok(TransactWriteItemsOutput::builder().build())
-                    })
-                });
-
-            let service = CommandShopServiceImpl::new(&shop_repository);
-
-            let _ = service.create(create_cmd.clone()).await.unwrap();
         }
 
         #[tokio::test]
@@ -504,21 +295,19 @@ mod tests {
                 HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
             ))]
         #[case::service_error(SdkError::service_error(
-                aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError::unhandled("Something went wrong"),
+                aws_sdk_dynamodb::operation::put_item::PutItemError::unhandled("Something went wrong"),
                 HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
             ))]
         #[trace]
-        async fn should_propagate_sdk_error_for_batch_get(
-            #[case] expected: SdkError<
-                aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError,
-            >,
+        async fn should_propagate_sdk_error_for_put_item(
+            #[case] expected: SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError>,
         ) {
             let mut shop_repository = MockShopDynamoDbRepository::default();
             shop_repository
                 .expect_query_shop_id()
                 .return_once(|_| Box::pin(async { Ok(None) }));
             shop_repository
-                .expect_get_shop_records()
+                .expect_put_shop_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
             let service = CommandShopServiceImpl::new(&shop_repository);
 
@@ -526,53 +315,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                CommandShopError::SdkBatchGetItemError(_) => {}
-                _ => panic!("expected CommandShopError::SdkBatchGetItemError"),
-            }
-        }
-
-        #[tokio::test]
-        #[rstest::rstest]
-        #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
-        #[case::timeout(SdkError::timeout_error("Something went wrong"))]
-        #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
-        #[case::response_error(SdkError::response_error(
-                "Something went wrong",
-                HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
-            ))]
-        #[case::service_error(SdkError::service_error(
-                aws_sdk_dynamodb::operation::transact_write_items::TransactWriteItemsError::unhandled("Something went wrong"),
-                HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
-            ))]
-        #[trace]
-        async fn should_propagate_sdk_error_for_transact_write(
-            #[case] expected: SdkError<
-                aws_sdk_dynamodb::operation::transact_write_items::TransactWriteItemsError,
-            >,
-        ) {
-            let mut shop_repository = MockShopDynamoDbRepository::default();
-            shop_repository
-                .expect_query_shop_id()
-                .return_once(|_| Box::pin(async { Ok(None) }));
-            shop_repository.expect_get_shop_records().return_once(|_| {
-                Box::pin(async {
-                    Ok(BatchGetItemResult {
-                        items: vec![],
-                        unprocessed: None,
-                    })
-                })
-            });
-            shop_repository
-                .expect_put_shop_records_transact()
-                .return_once(|_| Box::pin(async { Err(expected) }));
-            let service = CommandShopServiceImpl::new(&shop_repository);
-
-            let actual = service.create(Faker.fake()).await;
-
-            assert!(actual.is_err());
-            match actual.unwrap_err() {
-                CommandShopError::SdkTransactWriteItemsError(_) => {}
-                _ => panic!("expected CommandShopError::SdkTransactWriteItemsError"),
+                CommandShopError::SdkPutItemError(_) => {}
+                _ => panic!("expected CommandShopError::SdkPutItemError"),
             }
         }
     }
@@ -586,30 +330,49 @@ mod tests {
             },
             service::{
                 command::UpdateShopCommand,
-                command_service::{CommandShopService, CommandShopServiceImpl},
+                command_service::{CommandShopError, CommandShopService, CommandShopServiceImpl},
             },
         };
-        use aws_sdk_dynamodb::operation::transact_write_items::TransactWriteItemsOutput;
-        use common::{
-            batch::dynamodb::BatchGetItemResult, domain::Domain, shop_id::ShopIdentifier,
+        use aws_sdk_dynamodb::{
+            config::http::HttpResponse,
+            error::{ConnectorError, SdkError},
         };
+        use common::{domain::Domain, shop_id::ShopId};
         use fake::{Fake, Faker};
-        use std::collections::HashSet;
+
         use url::Url;
 
         #[tokio::test]
-        async fn should_no_op_when_command_is_empty_for_shop_identifier_id() {
+        async fn should_err_when_shop_not_found() {
+            let mut shop_repository = MockShopDynamoDbRepository::default();
+            shop_repository
+                .expect_get_shop_record()
+                .return_once(|_| Box::pin(async { Ok(None) }));
+            let service = CommandShopServiceImpl::new(&shop_repository);
+
+            let actual = service.update(&ShopId::new(), Default::default()).await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                CommandShopError::ShopNotFound(_) => {}
+                other => panic!("Expected 'CommandShopError::ShopNotFound'. Got '{other}'"),
+            }
+        }
+
+        #[tokio::test]
+        async fn should_no_op_when_command_is_empty() {
             let expected = Faker.fake::<Shop>();
-            let shop_record = ShopRecord::from_shop_as_shop_id_record(expected.clone());
+            let shop_record = ShopRecord::from(expected.clone());
 
             let mut shop_repository = MockShopDynamoDbRepository::default();
             shop_repository
-                .expect_get_shop_record_by_id()
+                .expect_get_shop_record()
                 .return_once(move |_| Box::pin(async move { Ok(Some(shop_record)) }));
+            shop_repository.expect_update_shop_record().never();
 
             let service = CommandShopServiceImpl::new(&shop_repository);
             let actual = service
-                .update(&ShopIdentifier::from(expected.shop_id), Default::default())
+                .update(&expected.shop_id, Default::default())
                 .await
                 .unwrap();
 
@@ -617,199 +380,192 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn should_no_op_when_command_is_empty_for_shop_identifier_domain() {
-            let mut expected = Faker.fake::<Shop>();
-            expected.domains = [Domain::try_from("https://foo.bar").unwrap()].into();
-            let shop_record = ShopRecord::clone_from_shop_as_shop_domain_records(&expected)
-                .first()
-                .unwrap()
-                .clone();
-
-            let mut shop_repository = MockShopDynamoDbRepository::default();
-            shop_repository
-                .expect_get_shop_record_by_domain()
-                .return_once(move |_| Box::pin(async move { Ok(Some(shop_record)) }));
-
-            let service = CommandShopServiceImpl::new(&shop_repository);
-            let actual = service
-                .update(
-                    &ShopIdentifier::from(Domain::try_from("https://foo.bar").unwrap()),
-                    Default::default(),
-                )
-                .await
-                .unwrap();
-
-            assert_eq!(expected, actual);
-        }
-
-        #[tokio::test]
-        async fn should_update_for_shop_identifier_id_when_just_update() {
+        async fn should_update_image_when_image_command() {
             let shop = Faker.fake::<Shop>();
-            let shop_record = ShopRecord::from_shop_as_shop_id_record(shop.clone());
-            let shop_identifiers = shop_record.shop_identifiers();
-            let mut shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
-            shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop.clone()));
+            let shop_record = ShopRecord::from(shop.clone());
+            let new_image_url = Url::parse("https://hanses.shoppy/img/foo").unwrap();
+            let mut updated_shop = shop.clone();
+            updated_shop.image = Some(new_image_url.clone());
+            let updated_record = ShopRecord::from(updated_shop);
 
             let mut shop_repository = MockShopDynamoDbRepository::default();
             shop_repository
-                .expect_get_shop_record_by_id()
+                .expect_get_shop_record()
                 .return_once(move |_| Box::pin(async move { Ok(Some(shop_record)) }));
-            shop_repository
-                .expect_get_shop_records()
-                .return_once(move |_| {
-                    Box::pin(async move {
-                        Ok(BatchGetItemResult {
-                            items: shop_records,
-                            unprocessed: None,
-                        })
-                    })
-                });
-            shop_repository
-                .expect_transact_write()
-                .return_once(move |put, update, delete| {
-                    assert!(update.values().all(|update_record: &ShopRecordUpdate| {
-                        update_record.shop_type.is_none()
-                            && update_record.domains.is_none()
-                            && update_record.image
-                                == Some(Url::parse("https://hanses.shoppy/img/foo").unwrap())
-                    }));
-                    assert!(put.is_empty());
-                    assert!(delete.is_empty());
+            shop_repository.expect_update_shop_record().return_once(
+                move |_, update: ShopRecordUpdate| {
+                    assert!(update.shop_type.is_none());
+                    assert!(update.domains.is_none());
                     assert_eq!(
-                        shop_identifiers,
-                        update.keys().cloned().collect::<HashSet<_>>()
+                        update.image,
+                        Some(Url::parse("https://hanses.shoppy/img/foo").unwrap())
                     );
-                    Box::pin(async { Ok(TransactWriteItemsOutput::builder().build()) })
-                });
+                    Box::pin(async move { Ok(Some(updated_record)) })
+                },
+            );
 
             let service = CommandShopServiceImpl::new(&shop_repository);
             let cmd = UpdateShopCommand {
                 shop_type: None,
                 domains: None,
-                image: Some(Url::parse("https://hanses.shoppy/img/foo").unwrap()),
+                image: Some(new_image_url),
             };
-            let actual = service
-                .update(&ShopIdentifier::from(shop.shop_id), cmd)
-                .await
-                .unwrap();
+            let actual = service.update(&shop.shop_id, cmd).await.unwrap();
 
             assert_eq!(
                 "https://hanses.shoppy/img/foo",
                 actual.image.unwrap().to_string()
-            )
+            );
         }
 
         #[tokio::test]
-        async fn should_update_for_shop_identifier_id_when_put() {
+        async fn should_update_domains_when_domain_added() {
             let shop = Faker.fake::<Shop>();
-            let shop_record = ShopRecord::from_shop_as_shop_id_record(shop.clone());
-            let shop_identifiers = shop_record.shop_identifiers();
-            let mut shop_domains = shop_record.domains.clone();
-            let mut shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
-            shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop.clone()));
+            let shop_record = ShopRecord::from(shop.clone());
+            let mut new_domains = shop.domains.clone();
+            new_domains.insert(Domain::try_from("https://what-da-helly.com/").unwrap());
 
+            let mut updated_shop = shop.clone();
+            updated_shop.domains = new_domains.clone();
+            let updated_record = ShopRecord::from(updated_shop);
+
+            let expected_domains = new_domains.clone();
             let mut shop_repository = MockShopDynamoDbRepository::default();
             shop_repository
-                .expect_get_shop_record_by_id()
+                .expect_get_shop_record()
                 .return_once(move |_| Box::pin(async move { Ok(Some(shop_record)) }));
-            shop_repository
-                .expect_get_shop_records()
-                .return_once(move |_| {
-                    Box::pin(async move {
-                        Ok(BatchGetItemResult {
-                            items: shop_records,
-                            unprocessed: None,
-                        })
-                    })
-                });
-            shop_repository
-                .expect_transact_write()
-                .return_once(move |put, update, delete| {
-                    assert!(update.values().all(|update_record: &ShopRecordUpdate| {
-                        update_record
-                            .domains
-                            .clone()
-                            .unwrap()
-                            .iter()
-                            .any(|domain| domain.as_str() == "what-da-helly.com")
-                    }));
-                    assert_eq!(1, put.len());
-                    assert_eq!(
-                        "what-da-helly.com",
-                        put.first().unwrap().clone().domain.unwrap().as_str()
-                    );
-                    assert!(delete.is_empty());
-                    assert_eq!(
-                        shop_identifiers,
-                        update.keys().cloned().collect::<HashSet<_>>()
-                    );
-                    Box::pin(async { Ok(TransactWriteItemsOutput::builder().build()) })
-                });
+            shop_repository.expect_update_shop_record().return_once(
+                move |_, update: ShopRecordUpdate| {
+                    assert_eq!(update.domains, Some(expected_domains));
+                    assert!(update.shop_type.is_none());
+                    assert!(update.image.is_none());
+                    Box::pin(async move { Ok(Some(updated_record)) })
+                },
+            );
 
-            shop_domains.insert(Domain::try_from("https://what-da-helly.com/").unwrap());
             let cmd = UpdateShopCommand {
                 shop_type: None,
-                domains: Some(shop_domains.clone()),
+                domains: Some(new_domains.clone()),
                 image: None,
             };
             let service = CommandShopServiceImpl::new(&shop_repository);
-            let actual = service
-                .update(&ShopIdentifier::from(shop.shop_id), cmd)
-                .await
-                .unwrap();
+            let actual = service.update(&shop.shop_id, cmd).await.unwrap();
 
-            assert_eq!(shop_domains, actual.domains);
+            assert_eq!(new_domains, actual.domains);
         }
 
         #[tokio::test]
-        async fn should_update_for_shop_identifier_id_when_delete() {
-            let shop = Faker.fake::<Shop>();
-            let shop_record = ShopRecord::from_shop_as_shop_id_record(shop.clone());
-            let shop_identifiers = shop_record.shop_identifiers();
-            let mut shop_domains = shop_record.domains.clone();
-            let mut shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
-            shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop.clone()));
+        async fn should_update_domains_when_domain_removed() {
+            let mut shop = Faker.fake::<Shop>();
+            shop.domains
+                .insert(Domain::try_from("https://extra-one.com/").unwrap());
+            shop.domains
+                .insert(Domain::try_from("https://to-be-removed.com/").unwrap());
 
+            let shop_record = ShopRecord::from(shop.clone());
+            let mut reduced_domains = shop.domains.clone();
+            reduced_domains.remove(&Domain::try_from("https://to-be-removed.com/").unwrap());
+
+            let mut updated_shop = shop.clone();
+            updated_shop.domains = reduced_domains.clone();
+            let updated_record = ShopRecord::from(updated_shop);
+
+            let expected_domains = reduced_domains.clone();
             let mut shop_repository = MockShopDynamoDbRepository::default();
             shop_repository
-                .expect_get_shop_record_by_id()
+                .expect_get_shop_record()
                 .return_once(move |_| Box::pin(async move { Ok(Some(shop_record)) }));
-            shop_repository
-                .expect_get_shop_records()
-                .return_once(move |_| {
-                    Box::pin(async move {
-                        Ok(BatchGetItemResult {
-                            items: shop_records,
-                            unprocessed: None,
-                        })
-                    })
-                });
-            shop_repository
-                .expect_transact_write()
-                .return_once(move |put, update, delete| {
-                    assert_eq!(1, delete.len());
-                    assert!(put.is_empty());
-                    assert_eq!(shop_identifiers.len() - 1, update.keys().len());
-                    Box::pin(async { Ok(TransactWriteItemsOutput::builder().build()) })
-                });
 
-            shop_domains = shop_domains
-                .clone()
-                .into_iter()
-                .take(shop_domains.len() - 1)
-                .collect::<HashSet<_>>();
+            shop_repository.expect_update_shop_record().return_once(
+                move |_, update: ShopRecordUpdate| {
+                    assert_eq!(update.domains, Some(expected_domains));
+                    assert!(update.shop_type.is_none());
+                    assert!(update.image.is_none());
+                    Box::pin(async move { Ok(Some(updated_record)) })
+                },
+            );
+
             let cmd = UpdateShopCommand {
                 shop_type: None,
-                domains: Some(shop_domains.clone()),
+                domains: Some(reduced_domains.clone()),
                 image: None,
             };
             let service = CommandShopServiceImpl::new(&shop_repository);
-            let actual = service
-                .update(&ShopIdentifier::from(shop.shop_id), cmd)
-                .await
-                .unwrap();
+            let actual = service.update(&shop.shop_id, cmd).await.unwrap();
 
-            assert_eq!(shop_domains, actual.domains);
+            assert_eq!(reduced_domains, actual.domains);
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(SdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(SdkError::response_error(
+                "Something went wrong",
+                HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+            ))]
+        #[case::service_error(SdkError::service_error(
+                aws_sdk_dynamodb::operation::get_item::GetItemError::unhandled("Something went wrong"),
+                HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+            ))]
+        #[trace]
+        async fn should_propagate_sdk_error_for_get_item(
+            #[case] expected: SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>,
+        ) {
+            let mut shop_repository = MockShopDynamoDbRepository::default();
+            shop_repository
+                .expect_get_shop_record()
+                .return_once(|_| Box::pin(async { Err(expected) }));
+            let service = CommandShopServiceImpl::new(&shop_repository);
+
+            let actual = service.update(&ShopId::new(), Default::default()).await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                CommandShopError::SdkGetItemError(_) => {}
+                _ => panic!("expected CommandShopError::SdkGetItemError"),
+            }
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(SdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(SdkError::response_error(
+                "Something went wrong",
+                HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+            ))]
+        #[case::service_error(SdkError::service_error(
+                aws_sdk_dynamodb::operation::update_item::UpdateItemError::unhandled("Something went wrong"),
+                HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+            ))]
+        #[trace]
+        async fn should_propagate_sdk_error_for_update_item(
+            #[case] expected: SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError>,
+        ) {
+            let mut shop_repository = MockShopDynamoDbRepository::default();
+            shop_repository
+                .expect_get_shop_record()
+                .return_once(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
+            shop_repository
+                .expect_update_shop_record()
+                .return_once(|_, _| Box::pin(async { Err(expected) }));
+            let service = CommandShopServiceImpl::new(&shop_repository);
+
+            let cmd = UpdateShopCommand {
+                shop_type: None,
+                domains: None,
+                image: Some(Url::parse("https://example.com/img").unwrap()),
+            };
+            let actual = service.update(&ShopId::new(), cmd).await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                CommandShopError::SdkUpdateItemError(_) => {}
+                _ => panic!("expected CommandShopError::SdkUpdateItemError"),
+            }
         }
     }
 }

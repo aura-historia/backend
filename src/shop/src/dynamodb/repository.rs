@@ -1,5 +1,5 @@
 use crate::dynamodb::{
-    shop_record::{self, ShopRecord, mk_pk, mk_pk_as_shop_domain, mk_pk_as_shop_id},
+    shop_record::{self, ShopRecord, mk_pk, mk_sk},
     shop_record_update::ShopRecordUpdate,
 };
 use aws_sdk_dynamodb::{
@@ -11,15 +11,14 @@ use aws_sdk_dynamodb::{
         get_item::GetItemError,
         put_item::{PutItemError, PutItemOutput},
         query::QueryError,
-        transact_write_items::{TransactWriteItemsError, TransactWriteItemsOutput},
+        update_item::UpdateItemError,
     },
-    types::{AttributeValue, Delete, KeysAndAttributes, Put, TransactWriteItem, Update},
+    types::{AttributeValue, KeysAndAttributes, ReturnValue},
 };
 use common::{
     batch::{Batch, dynamodb::BatchGetItemResult},
-    domain::Domain,
     dynamodb_update::DynamoDbUpdate,
-    shop_id::{ShopId, ShopIdentifier},
+    shop_id::ShopId,
     slug_id::SlugId,
 };
 use std::collections::HashMap;
@@ -33,22 +32,15 @@ pub trait ShopDynamoDbRepository {
         record: ShopRecord,
     ) -> Result<PutItemOutput, SdkError<PutItemError, HttpResponse>>;
 
-    async fn put_shop_records_transact(
-        &self,
-        records: Vec<ShopRecord>,
-    ) -> Result<TransactWriteItemsOutput, SdkError<TransactWriteItemsError, HttpResponse>> {
-        self.transact_write(records, Default::default(), Default::default())
-            .await
-    }
-
-    async fn get_shop_record_by_id(
+    async fn update_shop_record(
         &self,
         shop_id: &ShopId,
-    ) -> Result<Option<ShopRecord>, SdkError<GetItemError, HttpResponse>>;
+        update: ShopRecordUpdate,
+    ) -> Result<Option<ShopRecord>, SdkError<UpdateItemError>>;
 
-    async fn get_shop_record_by_domain(
+    async fn get_shop_record(
         &self,
-        shop_domain: &Domain,
+        shop_id: &ShopId,
     ) -> Result<Option<ShopRecord>, SdkError<GetItemError, HttpResponse>>;
 
     async fn query_shop_id(
@@ -58,18 +50,8 @@ pub trait ShopDynamoDbRepository {
 
     async fn get_shop_records(
         &self,
-        shop_identifiers: &Batch<ShopIdentifier, 100>,
-    ) -> Result<
-        BatchGetItemResult<ShopRecord, ShopIdentifier>,
-        SdkError<BatchGetItemError, HttpResponse>,
-    >;
-
-    async fn transact_write(
-        &self,
-        put: Vec<ShopRecord>,
-        update: HashMap<ShopIdentifier, ShopRecordUpdate>,
-        delete: Vec<ShopIdentifier>,
-    ) -> Result<TransactWriteItemsOutput, SdkError<TransactWriteItemsError, HttpResponse>>;
+        shop_ids: &Batch<ShopId, 100>,
+    ) -> Result<BatchGetItemResult<ShopRecord, ShopId>, SdkError<BatchGetItemError, HttpResponse>>;
 }
 
 #[derive(Debug, Clone)]
@@ -102,85 +84,44 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
             .await
     }
 
-    async fn transact_write(
+    async fn update_shop_record(
         &self,
-        put: Vec<ShopRecord>,
-        update: HashMap<ShopIdentifier, ShopRecordUpdate>,
-        delete: Vec<ShopIdentifier>,
-    ) -> Result<TransactWriteItemsOutput, SdkError<TransactWriteItemsError, HttpResponse>> {
-        let mut payloads: Vec<TransactWriteItem> = put
-            .into_iter()
-            .map(|record| {
-                let shop_id = record.shop_id;
-                serde_dynamo::to_item(record).map(|item| (shop_id, item))
-            })
-            .collect::<Result<Vec<_>, serde_dynamo::Error>>()
-            .map_err(SdkError::construction_failure)?
-            .into_iter()
-            .map(|(shop_id, item)| {
-                TransactWriteItem::builder()
-                    .put(
-                        Put::builder()
-                            .table_name(&self.table)
-                            .set_item(Some(item))
-                            .condition_expression("(attribute_not_exists(#pk) AND attribute_not_exists(#sk)) OR #shop_id = :shop_id")
-                            .expression_attribute_names("#pk", "pk")
-                            .expression_attribute_names("#sk", "sk")
-                            .expression_attribute_names("#shop_id", "shop_id")
-                            .expression_attribute_values(":shop_id", AttributeValue::S(shop_id.to_string()))
-                            .build()
-                            .expect("shouldn't fail because 'table_name' and 'item' have been set"),
-                    )
-                    .build()
-            })
-            .collect();
-
-        for (shop_identifier, update) in update {
-            let update_expr = update
-                .into_update_expr()
-                .map_err(SdkError::construction_failure)?;
-            let payload =
-                TransactWriteItem::builder()
-                    .update(
-                        Update::builder()
-                            .table_name(&self.table)
-                            .key(
-                                "pk",
-                                AttributeValue::S(mk_pk(&shop_identifier)),
-                            )
-                            .key("sk", AttributeValue::S("shop#details".to_owned()))
-                            .update_expression(update_expr.update_expr)
-                            .set_expression_attribute_names(Some(update_expr.expr_attr_names))
-                            .set_expression_attribute_values(Some(update_expr.expr_attr_values))
-                            .build()
-                            .expect("shouldn't fail because 'table_name', 'update_expression' and 'key' have been set"),
-                    )
-                    .build();
-            payloads.push(payload);
-        }
-
-        for shop_identifier in delete {
-            let payload = TransactWriteItem::builder()
-                .delete(
-                    Delete::builder()
-                        .table_name(&self.table)
-                        .key("pk", AttributeValue::S(mk_pk(&shop_identifier)))
-                        .key("sk", AttributeValue::S("shop#details".to_owned()))
-                        .build()
-                        .expect("shouldn't fail because 'table_name' and 'key' have been set"),
-                )
-                .build();
-            payloads.push(payload);
-        }
+        shop_id: &ShopId,
+        update: ShopRecordUpdate,
+    ) -> Result<Option<ShopRecord>, SdkError<UpdateItemError>> {
+        let update_expr = update.into_update_expr()?;
 
         self.client
-            .transact_write_items()
-            .set_transact_items(Some(payloads))
+            .update_item()
+            .table_name(&self.table)
+            .key("pk", AttributeValue::S(mk_pk(shop_id)))
+            .key("sk", AttributeValue::S(mk_sk().to_owned()))
+            .update_expression(update_expr.update_expr)
+            .set_expression_attribute_names(Some(update_expr.expr_attr_names))
+            .set_expression_attribute_values(Some(update_expr.expr_attr_values))
+            .return_values(ReturnValue::AllNew)
             .send()
             .await
+            .map(|output| output.attributes)
+            .map(|attr_opt| {
+                attr_opt
+                    .map(serde_dynamo::from_item)
+                    .and_then(|record_res| match record_res {
+                        Ok(search_filter_record) => Some(search_filter_record),
+                        Err(err) => {
+                            error!(
+                                shopId = %shop_id,
+                                error = %err,
+                                type = %std::any::type_name::<ShopRecord>(),
+                                "Failed deserializing ShopRecord."
+                            );
+                            None
+                        }
+                    })
+            })
     }
 
-    async fn get_shop_record_by_id(
+    async fn get_shop_record(
         &self,
         shop_id: &ShopId,
     ) -> Result<Option<ShopRecord>, SdkError<GetItemError, HttpResponse>> {
@@ -188,7 +129,7 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
             .client
             .get_item()
             .table_name(&self.table)
-            .key("pk", AttributeValue::S(mk_pk_as_shop_id(shop_id)))
+            .key("pk", AttributeValue::S(mk_pk(shop_id)))
             .key("sk", AttributeValue::S("shop#details".to_owned()))
             .send()
             .await?
@@ -196,31 +137,6 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
             .map(serde_dynamo::from_item::<_, ShopRecord>)
             .and_then(|shop_record_res| match shop_record_res {
                 Ok(shop_record) => Some(shop_record),
-                Err(err) => {
-                    error!(error = %err, type = %std::any::type_name::<ShopRecord>(), "Failed deserializing.");
-                    None
-                }
-            });
-
-        Ok(rec)
-    }
-
-    async fn get_shop_record_by_domain(
-        &self,
-        shop_domain: &Domain,
-    ) -> Result<Option<ShopRecord>, SdkError<GetItemError, HttpResponse>> {
-        let rec = self
-            .client
-            .get_item()
-            .table_name(&self.table)
-            .key("pk", AttributeValue::S(mk_pk_as_shop_domain(shop_domain)))
-            .key("sk", AttributeValue::S("shop#details".to_owned()))
-            .send()
-            .await?
-            .item
-            .map(serde_dynamo::from_item::<_, ShopRecord>)
-            .and_then(|product_record_res| match product_record_res {
-                Ok(product_record) => Some(product_record),
                 Err(err) => {
                     error!(error = %err, type = %std::any::type_name::<ShopRecord>(), "Failed deserializing.");
                     None
@@ -282,13 +198,11 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
 
     async fn get_shop_records(
         &self,
-        shop_identifiers: &Batch<ShopIdentifier, 100>,
-    ) -> Result<
-        BatchGetItemResult<ShopRecord, ShopIdentifier>,
-        SdkError<BatchGetItemError, HttpResponse>,
-    > {
+        shop_ids: &Batch<ShopId, 100>,
+    ) -> Result<BatchGetItemResult<ShopRecord, ShopId>, SdkError<BatchGetItemError, HttpResponse>>
+    {
         let mut failed = Vec::new();
-        let keys = shop_identifiers
+        let keys = shop_ids
             .iter()
             .map(|shop_identifier| {
                 let mut columns = HashMap::with_capacity(2);
@@ -336,7 +250,7 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
             .map(|keys_and_attributes| keys_and_attributes.keys)
             .unwrap_or_default()
             .into_iter()
-            .filter_map(extract_shop_identifier)
+            .filter_map(extract_shop_id)
             .collect::<Vec<_>>();
 
         let batch_result = BatchGetItemResult {
@@ -355,27 +269,17 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
     }
 }
 
-fn extract_shop_identifier(attr_map: HashMap<String, AttributeValue>) -> Option<ShopIdentifier> {
+fn extract_shop_id(attr_map: HashMap<String, AttributeValue>) -> Option<ShopId> {
     let mut attr_map = attr_map;
     match attr_map.remove("pk") {
         Some(AttributeValue::S(mut key)) => {
             let shop_id_pat = "shop#shop_id#";
-            let shop_domain_pat = "shop#domain#";
             if key.starts_with(shop_id_pat) {
                 let shop_id_str = key.split_off(shop_id_pat.len());
                 match ShopId::try_from(&shop_id_str) {
-                    Ok(shop_id) => Some(ShopIdentifier::ShopId(shop_id)),
+                    Ok(shop_id) => Some(shop_id),
                     Err(err) => {
                         error!(error = %err, "Failed parsing extracted ShopId '{shop_id_str}'. This is a bug.");
-                        None
-                    }
-                }
-            } else if key.starts_with(shop_domain_pat) {
-                let shop_domain_str = key.split_off(shop_domain_pat.len());
-                match Domain::try_from(shop_domain_str.as_str()) {
-                    Ok(domain) => Some(ShopIdentifier::ShopDomain(domain)),
-                    Err(err) => {
-                        error!(error = %err, "Failed parsing extracted ShopDomain '{shop_domain_str}'. This is a bug.");
                         None
                     }
                 }
@@ -397,29 +301,23 @@ fn extract_shop_identifier(attr_map: HashMap<String, AttributeValue>) -> Option<
 
 #[cfg(test)]
 mod tests {
-    use rstest;
-
-    use crate::dynamodb::repository::extract_shop_identifier;
+    use crate::dynamodb::repository::extract_shop_id;
     use aws_sdk_dynamodb::types::AttributeValue;
-    use common::{
-        domain::Domain,
-        shop_id::{ShopId, ShopIdentifier},
-    };
+    use common::shop_id::ShopId;
+    use rstest;
     use std::collections::HashMap;
 
     #[rstest::rstest]
     #[case([].into(), None)]
     #[case([("pk".into(), AttributeValue::S("foo".into()))].into(), None)]
     #[case([("pk".into(), AttributeValue::S("shop#shop_id#bar".into()))].into(), None)]
-    #[case([("pk".into(), AttributeValue::S("shop#domain#baz".into()))].into(), None)]
-    #[case([("pk".into(), AttributeValue::S("shop#shop_id#2a48a17b-cc4f-4489-83cf-f3f215711047".into()))].into(), Some(ShopId::try_from("2a48a17b-cc4f-4489-83cf-f3f215711047").unwrap().into()))]
-    #[case([("pk".into(), AttributeValue::S("shop#domain#https://foo.bar".into()))].into(), Some(Domain::try_from("https://foo.bar").unwrap().into()))]
+    #[case([("pk".into(), AttributeValue::S("shop#shop_id#2a48a17b-cc4f-4489-83cf-f3f215711047".into()))].into(), Some(ShopId::try_from("2a48a17b-cc4f-4489-83cf-f3f215711047").unwrap()))]
     #[trace]
-    fn should_extract_shop_identifier(
+    fn should_extract_shop_id(
         #[case] attr_map: HashMap<String, AttributeValue>,
-        #[case] expected: Option<ShopIdentifier>,
+        #[case] expected: Option<ShopId>,
     ) {
-        let actual = extract_shop_identifier(attr_map);
+        let actual = extract_shop_id(attr_map);
 
         assert_eq!(expected, actual);
     }
