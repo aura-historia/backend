@@ -1552,6 +1552,40 @@ async fn should_materialize_product_in_opensearch_for_create_product_command() {
     loop {
         refresh_index("products").await;
         let hit = os_repository
+            .search_product_documents(
+                &ProductSearch {
+                    language: common::language::domain::Language::En,
+                    currency: common::currency::domain::Currency::Eur,
+                    product_query: Some("Exactly the expected title".try_into().unwrap()),
+                    category_id: Default::default(),
+                    period_id: Default::default(),
+                    shop_name_query: Default::default(),
+                    exclude_shop_name_query: Default::default(),
+                    shop_type_query: Default::default(),
+                    price_query: None,
+                    state_query: Default::default(),
+                    origin_year_query: None,
+                    authenticity_query: Default::default(),
+                    condition_query: Default::default(),
+                    provenance_query: Default::default(),
+                    restoration_query: Default::default(),
+                    auction_start_query: None,
+                    auction_end_query: None,
+                    created_query: None,
+                    updated_query: None,
+                },
+                &Sort {
+                    sort: SortProductField::Score,
+                    order: SortOrder::Desc,
+                },
+                &None,
+            )
+            .await
+            .unwrap()
+            .hits
+            .hits
+            .into_iter()
+            .next();
 
         if let Some(hit) = hit {
             assert_eq!(shop.shop_id, hit.source.shop_id);
