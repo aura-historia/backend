@@ -7,35 +7,13 @@ pub enum NotificationReasonRecord {
     WatchlistStateChanged,
     WatchlistPriceChanged,
     SearchFilterMatch,
-    // Backward-compatible variants for reading existing DynamoDB records
-    WatchlistStateListed,
-    WatchlistStateAvailable,
-    WatchlistStateReserved,
-    WatchlistStateSold,
-    WatchlistStateRemoved,
-    WatchlistStateUnknown,
-    WatchlistPriceDiscovered,
-    WatchlistPriceDropped,
-    WatchlistPriceIncreased,
-    WatchlistPriceRemoved,
 }
 
 impl NotificationReasonRecord {
     pub fn is_watchlist(&self) -> bool {
         matches!(
             self,
-            Self::WatchlistStateChanged
-                | Self::WatchlistPriceChanged
-                | Self::WatchlistStateListed
-                | Self::WatchlistStateAvailable
-                | Self::WatchlistStateReserved
-                | Self::WatchlistStateSold
-                | Self::WatchlistStateRemoved
-                | Self::WatchlistStateUnknown
-                | Self::WatchlistPriceDiscovered
-                | Self::WatchlistPriceDropped
-                | Self::WatchlistPriceIncreased
-                | Self::WatchlistPriceRemoved
+            Self::WatchlistStateChanged | Self::WatchlistPriceChanged
         )
     }
 

@@ -806,13 +806,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                         auction_end: record.auction_end,
                     })
                 }
-                ProductDomainEventTypeRecord::DomainStateChanged
-                | ProductDomainEventTypeRecord::DomainStateListed
-                | ProductDomainEventTypeRecord::DomainStateAvailable
-                | ProductDomainEventTypeRecord::DomainStateReserved
-                | ProductDomainEventTypeRecord::DomainStateSold
-                | ProductDomainEventTypeRecord::DomainStateRemoved
-                | ProductDomainEventTypeRecord::DomainStateUnknown => {
+                ProductDomainEventTypeRecord::DomainStateChanged => {
                     ProductDomainEventPayload::StateChanged(ProductStateChangeDomainEventPayload {
                         shop_id,
                         shops_product_id,
@@ -828,11 +822,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                         )?,
                     })
                 }
-                ProductDomainEventTypeRecord::DomainPriceChanged
-                | ProductDomainEventTypeRecord::DomainPriceDiscovered
-                | ProductDomainEventTypeRecord::DomainPriceDropped
-                | ProductDomainEventTypeRecord::DomainPriceIncreased
-                | ProductDomainEventTypeRecord::DomainPriceRemoved => {
+                ProductDomainEventTypeRecord::DomainPriceChanged => {
                     ProductDomainEventPayload::PriceChanged(ProductPriceChangeDomainEventPayload {
                         shop_id,
                         shops_product_id,
