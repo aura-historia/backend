@@ -39,22 +39,37 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
 
     fn enrich_price(&self, cmd: &mut CreateProductCommand) {
         if let Some(price) = &cmd.native_price {
-            cmd.other_price = self
+            match self
                 .fx_rate
                 .exchange_all(price.currency, price.monetary_amount)
-                .unwrap_or_default();
+            {
+                Ok(other) => cmd.other_price = other,
+                Err(err) => {
+                    error!(error = %err, "Failed to convert native_price. Defaulting to empty.")
+                }
+            }
         }
         if let Some(price) = &cmd.native_price_estimate_min {
-            cmd.other_price_estimate_min = self
+            match self
                 .fx_rate
                 .exchange_all(price.currency, price.monetary_amount)
-                .unwrap_or_default();
+            {
+                Ok(other) => cmd.other_price_estimate_min = other,
+                Err(err) => {
+                    error!(error = %err, "Failed to convert native_price_estimate_min. Defaulting to empty.")
+                }
+            }
         }
         if let Some(price) = &cmd.native_price_estimate_max {
-            cmd.other_price_estimate_max = self
+            match self
                 .fx_rate
                 .exchange_all(price.currency, price.monetary_amount)
-                .unwrap_or_default();
+            {
+                Ok(other) => cmd.other_price_estimate_max = other,
+                Err(err) => {
+                    error!(error = %err, "Failed to convert native_price_estimate_max. Defaulting to empty.")
+                }
+            }
         }
     }
 
@@ -140,14 +155,12 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
 
                     for record in records.items {
                         let key = record.key();
-                        if let Some(_cmd) = working.remove(&key) {
+                        if working.remove(&key).is_some() {
                             error!(
                                 shopId = %key.shop_id,
                                 shopsProductId = %key.shops_product_id,
                                 "Product already exists. Cannot create."
                             );
-                            // Already-existing products are not failures — they are silently skipped
-                            // because the caller may retry a batch that partially succeeded.
                         }
                     }
 
@@ -221,6 +234,8 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
 
                     let events = determine_update_events(&mut working, records.items, self.fx_rate);
 
+                    // Remaining items in `working` are products not found in DynamoDB —
+                    // `determine_update_events` removes matched keys.
                     for (key, cmd) in &working {
                         error!(
                             shopId = %key.shop_id,
