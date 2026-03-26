@@ -75,6 +75,43 @@ pub struct PipedProductCommand {
     pub auction_end: Option<OffsetDateTime>,
 }
 
+#[cfg(feature = "data")]
+impl From<crate::data::put_data::PutProductData> for PipedProductCommand {
+    fn from(data: crate::data::put_data::PutProductData) -> Self {
+        use crate::core::product_image::ProductImage;
+        use crate::core::prohibited_content::ProhibitedContent;
+
+        PipedProductCommand {
+            shop_id: None,
+            shops_product_id: data.shops_product_id,
+            shop_name: None,
+            shop_type: None,
+            native_title: data.title.into(),
+            other_title: Default::default(),
+            native_description: data.description.map(Localized::from),
+            other_description: Default::default(),
+            native_price: data.price.map(Price::from),
+            other_price: Default::default(),
+            native_price_estimate_min: data.price_estimate_min.map(Price::from),
+            other_price_estimate_min: Default::default(),
+            native_price_estimate_max: data.price_estimate_max.map(Price::from),
+            other_price_estimate_max: Default::default(),
+            state: data.state.into(),
+            url: data.url,
+            images: data
+                .images
+                .into_iter()
+                .map(|url| ProductImage {
+                    url,
+                    prohibited_content: ProhibitedContent::Unknown,
+                })
+                .collect(),
+            auction_start: data.auction_start,
+            auction_end: data.auction_end,
+        }
+    }
+}
+
 impl TryFrom<PipedProductCommand> for UpsertProductCommand {
     type Error = MissingRequiredField;
 

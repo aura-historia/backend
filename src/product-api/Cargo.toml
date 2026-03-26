@@ -10,7 +10,6 @@ product-watchlist = { workspace = true, features = ["data", "service", "dynamodb
 product-personalization = { workspace = true }
 notification = { workspace = true, features = ["service"] }
 user = { workspace = true, features = ["dynamodb", "service"] }
-shop = { workspace = true, features = ["dynamodb"] }
 cognito = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
@@ -19,20 +18,18 @@ aws_lambda_events = { workspace = true, features = ["apigw"] }
 lambda_runtime = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }
 serde_qs = { workspace = true }
 http = { workspace = true }
 url = { workspace = true }
 time = { workspace = true }
-thiserror = { workspace = true }
-fxrate = { workspace = true }
 
 [dev-dependencies]
 product = { workspace = true, features = ["test-data"] }
 product-watchlist = { workspace = true, features = ["test-data"] }
 notification = { workspace = true, features = ["test-data"] }
 user = { workspace = true, features = ["test-data"] }
+shop = { workspace = true, features = ["data"] }
 test-api = { workspace = true, features = ["api-gateway", "dynamodb", "opensearch", "sqs"] }
 serial_test = { workspace = true }
 rstest = { workspace = true }
