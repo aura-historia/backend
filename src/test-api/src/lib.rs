@@ -14,6 +14,7 @@ mod rds;
 mod s3;
 #[cfg(feature = "ses")]
 mod ses;
+mod signal;
 #[cfg(feature = "sqs")]
 mod sqs;
 

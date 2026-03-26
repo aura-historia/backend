@@ -1,8 +1,8 @@
 use aws_tests_common::get_cfn_output;
 use common::{
-    api::collection::PutCollectionData,
     language::domain::Language,
     pagination::cursor::Cursor,
+    price::domain::FixedFxRate,
     sort::{Sort, SortOrder},
     year::Year,
 };
@@ -26,6 +26,13 @@ use product::{
         product_update_document::ProductUpdateDocument,
         repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl},
     },
+    service::{
+        enrichment_service::{
+            ProductCommandEnrichmentService, ProductCommandEnrichmentServiceImpl,
+        },
+        product_command::{PipedProductCommand, UpsertProductCommand},
+        upsert_service::{UpsertProductsService, UpsertProductsServiceImpl},
+    },
 };
 use product_classification::category::{
     core::Category,
@@ -39,17 +46,14 @@ use product_classification::period::{
     opensearch_repository::PeriodOpenSearchRepositoryImpl,
     service::{PeriodService, PeriodServiceImpl},
 };
-use shop::data::{get_shop_data::GetShopData, post_shop_data::PostShopData};
+use shop::{
+    data::get_shop_data::GetShopData,
+    dynamodb::repository::ShopDynamoDbRepositoryImpl,
+    service::command_service::{CommandShopService, CommandShopServiceImpl},
+};
 use staging_tests::get_dynamodb_client;
 use std::{collections::HashMap, time::Duration};
 use time::OffsetDateTime;
-
-fn http_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .user_agent("aura-historia-staging-data")
-        .build()
-        .unwrap()
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -62,10 +66,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+async fn upsert_products(put_products: Vec<PutProductData>) {
+    let stack = get_cfn_output();
+    let dynamodb_client = get_dynamodb_client().await;
+    let product_repository =
+        ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let shop_repository =
+        ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let fx_rate = FixedFxRate();
+    let enrichment_service = ProductCommandEnrichmentServiceImpl::new(&shop_repository, &fx_rate);
+    let upsert_service = UpsertProductsServiceImpl::new(&product_repository, &fx_rate);
+
+    let commands: Vec<PipedProductCommand> = put_products
+        .into_iter()
+        .map(PipedProductCommand::from)
+        .collect();
+    let enriched = enrichment_service.enrich(commands).await;
+    assert!(
+        enriched.failed.is_empty(),
+        "Enrichment failed for some products"
+    );
+    assert!(
+        enriched.unprocessed.is_empty(),
+        "Some products were not enriched"
+    );
+
+    let upsert_commands: Vec<UpsertProductCommand> = enriched
+        .enriched
+        .into_iter()
+        .map(|cmd| UpsertProductCommand::try_from(cmd).unwrap())
+        .collect();
+    let result = upsert_service.upsert(upsert_commands).await;
+    assert!(
+        result.unprocessed.is_empty(),
+        "Some products were not upserted"
+    );
+}
+
 async fn populate_products(shops: Vec<GetShopData>) {
     println!("Populating products...");
-    let stack = get_cfn_output();
-    let put_products_url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
 
     let shop_domains = shops
         .into_iter()
@@ -79,21 +118,12 @@ async fn populate_products(shops: Vec<GetShopData>) {
         product.url.set_host(Some(host.as_str())).unwrap();
     }
 
-    let mut payload = PutCollectionData {
-        items: products.clone(),
-    };
-    let response = http_client()
-        .put(&put_products_url)
-        .json(&payload)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, response.status());
+    upsert_products(products.clone()).await;
     tokio::time::sleep(Duration::from_secs(30)).await;
 
     // put updates
     for i in 0..10 {
-        for product in &mut payload.items {
+        for product in &mut products {
             if rand::random_range(0..3) < 1 {
                 product.state = Faker.fake();
             }
@@ -101,16 +131,7 @@ async fn populate_products(shops: Vec<GetShopData>) {
                 product.price = Some(Faker.fake());
             }
         }
-        let collection = PutCollectionData {
-            items: payload.items.clone(),
-        };
-        let response = http_client()
-            .put(&put_products_url)
-            .json(&collection)
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(200, response.status());
+        upsert_products(products.clone()).await;
         tokio::time::sleep(Duration::from_secs(30)).await;
         println!("Finished products' update-iteration {i}.");
     }
@@ -317,23 +338,15 @@ async fn populate_products(shops: Vec<GetShopData>) {
 async fn populate_shops() -> Vec<GetShopData> {
     println!("Populating shops...");
     let stack = get_cfn_output();
+    let dynamodb_client = get_dynamodb_client().await;
+    let shop_repository =
+        ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let command_service = CommandShopServiceImpl::new(&shop_repository);
 
-    let http = http_client();
-    let post_shop_url = format!("{}/api/v1/shops", stack.api_gateway_endpoint_url);
     let mut shops = vec![];
     for _ in 0..42 {
-        let mut post_shop_data = Faker.fake::<PostShopData>();
-        post_shop_data.domains.insert(Faker.fake());
-        let shop = http
-            .post(&post_shop_url)
-            .json(&post_shop_data)
-            .send()
-            .await
-            .unwrap()
-            .json::<GetShopData>()
-            .await
-            .unwrap();
-        shops.push(shop);
+        let shop = command_service.create(Faker.fake()).await.unwrap();
+        shops.push(GetShopData::from(shop));
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
 

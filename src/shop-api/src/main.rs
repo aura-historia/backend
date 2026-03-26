@@ -5,7 +5,6 @@ use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
 use shop::opensearch::repository::ShopOpenSearchRepositoryImpl;
-use shop::service::command_service::CommandShopServiceImpl;
 use shop::service::get_service::GetShopServiceImpl;
 use shop::service::query_service::QueryShopServiceImpl;
 use shop_api::handler;
@@ -28,19 +27,11 @@ async fn main() -> Result<(), Error> {
     let shop_opensearch_repository = ShopOpenSearchRepositoryImpl::new(&opensearch);
     let query_shop_service = QueryShopServiceImpl::new(&shop_opensearch_repository);
 
-    let command_shop_service = CommandShopServiceImpl::new(&shop_dynamodb_repository);
-
     debug!("Lambda initialized.");
 
     run(service_fn(
         |event: LambdaEvent<ApiGatewayV2httpRequest>| async {
-            handler(
-                event,
-                &get_shop_service,
-                &query_shop_service,
-                &command_shop_service,
-            )
-            .await
+            handler(event, &get_shop_service, &query_shop_service).await
         },
     ))
     .await

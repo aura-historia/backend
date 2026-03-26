@@ -516,7 +516,7 @@ jobs:
 
   aws-cfn-deploy:
     name: Deploy & initialize CFN-Stack
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop')
+    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop') && always() }}
     needs:
       [cfn-lint, aws-push-lambda, aws-push-ec2-x86, aws-push-mail-templates]
     environment:
@@ -553,7 +553,7 @@ jobs:
 
   aws-smoking-test:
     name: AWS Smoking-Test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/prod'
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/prod' && always() }}
     needs: aws-cfn-deploy
     runs-on: ubuntu-latest
     permissions:
@@ -595,7 +595,7 @@ jobs:
 
   aws-put-staging-test-data:
     name: AWS Populate Test-Data
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' && always() }}
     needs: aws-cfn-deploy
     permissions:
       contents: read

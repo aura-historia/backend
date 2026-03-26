@@ -628,12 +628,6 @@ Resources:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/shops/{shopId}/products/{shopsProductId}/similar"
       Target: !Sub "integrations/${ProductApiLambdaIntegration}"
-  ProductApiPutProductRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "PUT /api/v1/products"
-      Target: !Sub "integrations/${ProductApiLambdaIntegration}"
   ProductApiSearchProductRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -1007,24 +1001,6 @@ Resources:
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/by-slug/shops/{shopSlugId}"
-      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
-  ShopApiPatchShopByIdRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "PATCH /api/v1/shops/{shopId}"
-      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
-  ShopApiPatchShopByDomainRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "PATCH /api/v1/by-domain/shops/{shopDomain}"
-      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
-  ShopApiPostShopRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "POST /api/v1/shops"
       Target: !Sub "integrations/${ShopApiLambdaIntegration}"
   ShopApiSearchRoute:
     Type: AWS::ApiGatewayV2::Route
