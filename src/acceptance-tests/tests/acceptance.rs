@@ -24,7 +24,8 @@ use notification::{
 };
 use notification_api::notification_get::EventIdCursoredData;
 use opensearch::GetParts;
-use product::data::{get_data::GetProductData, user_state_data::ProductUserStateData};
+use product::data::get_data::GetProductData;
+use product::data::user_state_data::ProductUserStateData;
 use product::{
     core::{
         product_event::{
@@ -40,7 +41,6 @@ use product::{
         },
         prohibited_content::{ProhibitedContent, ProhibitedContentReason},
     },
-    data::{product_state_data::ProductStateData, put_data::PutProductData},
     dynamodb::{
         product_event_record::ProductEventRecord,
         product_image_record::ProductImageRecord,
@@ -51,7 +51,7 @@ use product::{
     },
     service::{
         command_service::{CommandProductService, CommandProductServiceImpl},
-        product_command::{CreateProductCommand, PipedProductCommand},
+        product_command::CreateProductCommand,
     },
 };
 use product_watchlist::dynamodb::repository::{
@@ -1136,7 +1136,7 @@ async fn prepare_test_shop() -> Shop {
     shop
 }
 
-async fn upsert_products(put_products: Vec<PutProductData>) {
+async fn upsert_products(commands: Vec<CreateProductCommand>) {
     let stack = get_cfn_output();
     let dynamodb_client = get_dynamodb_client().await;
     let product_repository =
@@ -1144,11 +1144,6 @@ async fn upsert_products(put_products: Vec<PutProductData>) {
     let fx_rate = FixedFxRate();
     let command_service = CommandProductServiceImpl::new(&product_repository, &fx_rate);
 
-    let commands: Vec<CreateProductCommand> = put_products
-        .into_iter()
-        .map(PipedProductCommand::from)
-        .map(|cmd| CreateProductCommand::try_from(cmd).unwrap())
-        .collect();
     let result = command_service.create(commands).await;
     assert!(result.is_empty(), "Some products failed to create");
 }
@@ -1239,13 +1234,12 @@ async fn wait_until_document_deleted(user_search_filter_id: impl Into<String>) {
 async fn should_materialize_product_in_dynamodb_when_put_new_item() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
-    let mut put_product_data: PutProductData = Faker.fake();
-    put_product_data
-        .url
-        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
-        .unwrap();
+    let mut create_cmd: CreateProductCommand = Faker.fake();
+    create_cmd.shop_id = shop.shop_id;
+    create_cmd.shop_name = shop.name.clone();
+    create_cmd.shop_type = shop.shop_type;
 
-    upsert_products(vec![put_product_data.clone()]).await;
+    upsert_products(vec![create_cmd.clone()]).await;
 
     let repository = ProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -1254,24 +1248,21 @@ async fn should_materialize_product_in_dynamodb_when_put_new_item() {
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let materialized = repository
-            .get_product_record(&shop.shop_id, &put_product_data.shops_product_id)
+            .get_product_record(&shop.shop_id, &create_cmd.shops_product_id)
             .await
             .unwrap();
 
         if let Some(materialized) = materialized {
             assert_eq!(shop.shop_id, materialized.shop_id);
-            assert_eq!(
-                put_product_data.shops_product_id,
-                materialized.shops_product_id
-            );
-            assert_eq!(put_product_data.url, materialized.url);
+            assert_eq!(create_cmd.shops_product_id, materialized.shops_product_id);
+            assert_eq!(create_cmd.url, materialized.url);
             break;
         }
 
         if Instant::now() >= deadline {
             panic!(
                 "Timeout: ProductRecord for shop '{}' / product '{}' not found in DynamoDB after 60s",
-                shop.shop_id, put_product_data.shops_product_id
+                shop.shop_id, create_cmd.shops_product_id
             );
         }
         tokio::time::sleep(Duration::from_secs(5)).await;
@@ -1301,48 +1292,39 @@ async fn should_materialize_product_in_dynamodb_for_domain_event() {
     assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
     tokio::time::sleep(Duration::from_secs(3)).await;
 
-    let new_state = match materialized_old.state {
-        ProductStateRecord::Available => ProductStateData::Sold,
-        _ => ProductStateData::Available,
+    let new_state: ProductState = match materialized_old.state {
+        ProductStateRecord::Available => ProductState::Sold,
+        _ => ProductState::Available,
     };
-    let put_product_data = PutProductData {
-        shops_product_id: materialized_old.shops_product_id,
-        title: Faker.fake(),
-        description: None,
-        price: None,
-        price_estimate_min: Faker.fake(),
-        price_estimate_max: Faker.fake(),
-        state: new_state,
-        url: materialized_old.url,
-        images: materialized_old.images.into_iter().map(|i| i.url).collect(),
-        auction_start: None,
-        auction_end: None,
-    };
+    let mut create_cmd: CreateProductCommand = Faker.fake();
+    create_cmd.shop_id = shop.shop_id;
+    create_cmd.shop_name = shop.name.clone();
+    create_cmd.shop_type = shop.shop_type;
+    create_cmd.shops_product_id = materialized_old.shops_product_id;
+    create_cmd.state = new_state;
+    create_cmd.url = materialized_old.url;
 
-    upsert_products(vec![put_product_data.clone()]).await;
+    upsert_products(vec![create_cmd.clone()]).await;
 
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let materialized = repository
-            .get_product_record(&shop.shop_id, &put_product_data.shops_product_id)
+            .get_product_record(&shop.shop_id, &create_cmd.shops_product_id)
             .await
             .unwrap();
 
         if let Some(materialized) = materialized
-            && ProductState::from(new_state) == ProductState::from(materialized.state)
+            && new_state == ProductState::from(materialized.state)
         {
             assert_eq!(shop.shop_id, materialized.shop_id);
-            assert_eq!(
-                ProductState::from(new_state),
-                ProductState::from(materialized.state)
-            );
+            assert_eq!(new_state, ProductState::from(materialized.state));
             break;
         }
 
         if Instant::now() >= deadline {
             panic!(
                 "Timeout: ProductRecord for shop '{}' / product '{}' not updated with expected state after 60s",
-                shop.shop_id, put_product_data.shops_product_id
+                shop.shop_id, create_cmd.shops_product_id
             );
         }
         tokio::time::sleep(Duration::from_secs(5)).await;
@@ -2064,12 +2046,11 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     let shop = prepare_test_shop().await;
 
     // Create product
-    let mut put_product_data: PutProductData = Faker.fake();
-    put_product_data
-        .url
-        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
-        .unwrap();
-    upsert_products(vec![put_product_data.clone()]).await;
+    let mut create_cmd: CreateProductCommand = Faker.fake();
+    create_cmd.shop_id = shop.shop_id;
+    create_cmd.shop_name = shop.name.clone();
+    create_cmd.shop_type = shop.shop_type;
+    upsert_products(vec![create_cmd.clone()]).await;
     tokio::time::sleep(Duration::from_secs(45)).await;
 
     let product_repository = ProductDynamoDbRepositoryImpl::new(
@@ -2078,7 +2059,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     );
     assert!(
         product_repository
-            .get_product_record(&shop.shop_id, &put_product_data.shops_product_id)
+            .get_product_record(&shop.shop_id, &create_cmd.shops_product_id)
             .await
             .unwrap()
             .is_some()
@@ -2117,7 +2098,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
         .post(post_url)
         .json(&ProductKeyData {
             shop_id: shop.shop_id,
-            shops_product_id: put_product_data.shops_product_id.clone(),
+            shops_product_id: create_cmd.shops_product_id.clone(),
         })
         .bearer_auth(&user.access_token)
         .send()
@@ -2129,7 +2110,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     // Enable notifications
     let patch_url = format!(
         "{}/api/v1/me/watchlist/{}/{}",
-        stack.api_gateway_endpoint_url, shop.shop_id, put_product_data.shops_product_id
+        stack.api_gateway_endpoint_url, shop.shop_id, create_cmd.shops_product_id
     );
     let patch_response = reqwest::Client::new()
         .patch(patch_url)
@@ -2160,12 +2141,12 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     tokio::time::sleep(Duration::from_secs(10)).await;
 
     // Update product state to trigger notification
-    put_product_data.state = if matches!(put_product_data.state, ProductStateData::Available) {
-        ProductStateData::Sold
+    create_cmd.state = if matches!(create_cmd.state, ProductState::Available) {
+        ProductState::Sold
     } else {
-        ProductStateData::Available
+        ProductState::Available
     };
-    upsert_products(vec![put_product_data.clone()]).await;
+    upsert_products(vec![create_cmd.clone()]).await;
 
     assert!(wait_for_ses_email("Statusänderung", Duration::from_secs(120)).await);
 }

@@ -13,7 +13,6 @@ use fake::{
 use opensearch::indices::IndicesRefreshParts;
 use product::{
     core::sort_product_field::SortProductField,
-    data::put_data::PutProductData,
     dynamodb::{
         authenticity_record::AuthenticityRecord,
         condition_record::ConditionRecord,
@@ -28,7 +27,7 @@ use product::{
     },
     service::{
         command_service::{CommandProductService, CommandProductServiceImpl},
-        product_command::{CreateProductCommand, PipedProductCommand},
+        product_command::CreateProductCommand,
     },
 };
 use product_classification::category::{
@@ -44,6 +43,7 @@ use product_classification::period::{
     service::{PeriodService, PeriodServiceImpl},
 };
 use shop::{
+    core::shop_type::ShopType,
     data::get_shop_data::GetShopData,
     dynamodb::repository::ShopDynamoDbRepositoryImpl,
     service::command_service::{CommandShopService, CommandShopServiceImpl},
@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn upsert_products(put_products: Vec<PutProductData>) {
+async fn upsert_products(commands: Vec<CreateProductCommand>) {
     let stack = get_cfn_output();
     let dynamodb_client = get_dynamodb_client().await;
     let product_repository =
@@ -71,11 +71,6 @@ async fn upsert_products(put_products: Vec<PutProductData>) {
     let fx_rate = FixedFxRate();
     let command_service = CommandProductServiceImpl::new(&product_repository, &fx_rate);
 
-    let commands: Vec<CreateProductCommand> = put_products
-        .into_iter()
-        .map(PipedProductCommand::from)
-        .map(|cmd| CreateProductCommand::try_from(cmd).unwrap())
-        .collect();
     let result = command_service.create(commands).await;
     assert!(result.is_empty(), "Some products failed to create");
 }
@@ -83,16 +78,17 @@ async fn upsert_products(put_products: Vec<PutProductData>) {
 async fn populate_products(shops: Vec<GetShopData>) {
     println!("Populating products...");
 
-    let shop_domains = shops
-        .into_iter()
-        .flat_map(|shop| shop.domains)
-        .collect::<Vec<_>>();
+    let shop_names: Vec<_> = shops.iter().map(|s| s.name.clone()).collect();
+    let shop_types: Vec<_> = shops.iter().map(|s| ShopType::from(s.shop_type)).collect();
+    let shop_ids: Vec<_> = shops.iter().map(|s| s.shop_id).collect();
 
     // create products
-    let mut products = fake::vec![PutProductData; 142];
+    let mut products = fake::vec![CreateProductCommand; 142];
     for product in &mut products {
-        let host = shop_domains.choose(&mut fake::rand::rng()).unwrap().clone();
-        product.url.set_host(Some(host.as_str())).unwrap();
+        let idx = rand::random_range(0..shop_ids.len());
+        product.shop_id = shop_ids[idx];
+        product.shop_name = shop_names[idx].clone();
+        product.shop_type = shop_types[idx];
     }
 
     upsert_products(products.clone()).await;
@@ -105,7 +101,7 @@ async fn populate_products(shops: Vec<GetShopData>) {
                 product.state = Faker.fake();
             }
             if rand::random_range(0..3) < 2 {
-                product.price = Some(Faker.fake());
+                product.native_price = Some(Faker.fake());
             }
         }
         upsert_products(products.clone()).await;
