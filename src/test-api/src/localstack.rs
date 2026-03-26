@@ -116,10 +116,13 @@ extern "C" fn cleanup() {
     }
 }
 
+/// Installs cleanup hooks so that the LocalStack container is removed both on normal
+/// process exit (`atexit`) and on an interrupted exit (`SIGINT` / `SIGTERM`).
 fn install_cleanup() {
     static INIT: std::sync::Once = std::sync::Once::new();
-    INIT.call_once(|| unsafe {
-        libc::atexit(cleanup);
+    INIT.call_once(|| {
+        unsafe { libc::atexit(cleanup) };
+        crate::signal::register_signal_cleanup(|| cleanup());
     });
 }
 

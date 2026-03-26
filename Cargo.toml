@@ -126,6 +126,7 @@ product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lam
 itertools = "0.14.0"
 lambda_runtime = "1.1.2"
 libc = "0.2.183"
+ctrlc = { version = "3.5.2", features = ["termination"] }
 mockall = "0.14.0"
 mrml = { version = "5.1.0", default-features = false, features = ["parse", "render"] }
 opensearch = { version = "2.4.0", default-features = false, features = [
@@ -144,7 +145,7 @@ serde_qs = "1.1.0"
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "time", "json", "macros"] }
 serde_fields = "0.1.0"
 serial_test = "3.4.0"
-sha2 = "0.10.9"
+sha2 = "0.11.0"
 aws-tests = { path = "src/aws-tests" }
 aws-tests-common = { path = "src/aws-tests/src/aws-tests-common" }
 smoking-tests = { path = "src/aws-tests/src/smoking-tests" }
