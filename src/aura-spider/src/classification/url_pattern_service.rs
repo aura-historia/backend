@@ -17,8 +17,7 @@ pub trait UrlPatternService: Send + Sync {
     ///
     /// Returns `None` when no pattern has been stored yet or when the stored
     /// value is `NULL` in the database.
-    async fn load_pattern_for_shop(&self, shop_id: &ShopId)
-    -> Result<Option<Regex>, SpiderError>;
+    async fn load_pattern_for_shop(&self, shop_id: &ShopId) -> Result<Option<Regex>, SpiderError>;
 
     /// Persists `pattern` for `shop_id` with its `shop_url` origin as domain.
     async fn save_pattern_for_shop(
@@ -69,10 +68,7 @@ impl UrlPatternServiceImpl {
 
 #[async_trait::async_trait]
 impl UrlPatternService for UrlPatternServiceImpl {
-    async fn load_pattern_for_shop(
-        &self,
-        shop_id: &ShopId,
-    ) -> Result<Option<Regex>, SpiderError> {
+    async fn load_pattern_for_shop(&self, shop_id: &ShopId) -> Result<Option<Regex>, SpiderError> {
         let record = self.repository.find_pattern(shop_id).await?;
 
         let Some(record) = record else {
@@ -118,13 +114,18 @@ impl UrlPatternService for UrlPatternServiceImpl {
 
     async fn mark_as_crawled(&self, shop_id: &ShopId, shop_url: &str) -> Result<(), SpiderError> {
         let extracted_domain = extract_shop_base_url(shop_url)?;
-        self.repository.mark_as_crawled(shop_id, &extracted_domain).await?;
+        self.repository
+            .mark_as_crawled(shop_id, &extracted_domain)
+            .await?;
         Ok(())
     }
 
     async fn try_lock_shop(&self, shop_id: &ShopId, shop_url: &str) -> Result<bool, SpiderError> {
         let extracted_domain = extract_shop_base_url(shop_url)?;
-        Ok(self.repository.try_lock_shop(shop_id, &extracted_domain).await?)
+        Ok(self
+            .repository
+            .try_lock_shop(shop_id, &extracted_domain)
+            .await?)
     }
 
     async fn unlock_shop(&self, shop_id: &ShopId) -> Result<(), SpiderError> {
@@ -160,9 +161,7 @@ mod service_tests {
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 
         let shop_id = uuid::Uuid::new_v4().into();
-        let result = service
-            .load_pattern_for_shop(&shop_id)
-            .await;
+        let result = service.load_pattern_for_shop(&shop_id).await;
         assert!(result.is_ok());
         let pattern = result.unwrap();
         assert!(pattern.is_some());
@@ -180,9 +179,7 @@ mod service_tests {
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 
         let shop_id = uuid::Uuid::new_v4().into();
-        let result = service
-            .load_pattern_for_shop(&shop_id)
-            .await;
+        let result = service.load_pattern_for_shop(&shop_id).await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
     }
@@ -231,5 +228,53 @@ mod service_tests {
         let pattern = result.unwrap();
         assert!(pattern.is_some());
         assert_eq!(pattern.unwrap().as_str(), "/product/");
+    }
+
+    #[tokio::test]
+    async fn should_mark_as_crawled_in_repo() {
+        let mut mock_repo = MockShopUrlPatternRepository::new();
+        mock_repo
+            .expect_mark_as_crawled()
+            .returning(|_, _| Box::pin(async { Ok(()) }));
+
+        let mock_client = MockPatternInferenceClient::new();
+        let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
+
+        let shop_id = uuid::Uuid::new_v4().into();
+        let result = service
+            .mark_as_crawled(&shop_id, "https://example.com")
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn should_try_lock_shop_in_repo() {
+        let mut mock_repo = MockShopUrlPatternRepository::new();
+        mock_repo
+            .expect_try_lock_shop()
+            .returning(|_, _| Box::pin(async { Ok(true) }));
+
+        let mock_client = MockPatternInferenceClient::new();
+        let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
+
+        let shop_id = uuid::Uuid::new_v4().into();
+        let result = service.try_lock_shop(&shop_id, "https://example.com").await;
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[tokio::test]
+    async fn should_unlock_shop_in_repo() {
+        let mut mock_repo = MockShopUrlPatternRepository::new();
+        mock_repo
+            .expect_unlock_shop()
+            .returning(|_| Box::pin(async { Ok(()) }));
+
+        let mock_client = MockPatternInferenceClient::new();
+        let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
+
+        let shop_id = uuid::Uuid::new_v4().into();
+        let result = service.unlock_shop(&shop_id).await;
+        assert!(result.is_ok());
     }
 }

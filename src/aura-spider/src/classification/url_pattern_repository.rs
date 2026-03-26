@@ -60,13 +60,20 @@ pub trait ShopUrlPatternRepository: Send + Sync {
     /// update `pattern` and `updated`, leaving `created` untouched.
     ///
     /// Passing `None` explicitly clears the pattern for the given shop.
-    async fn save_pattern(&self, shop_id: &ShopId, shop_domain: &str, pattern: Option<&str>) -> Result<(), sqlx::Error>;
+    async fn save_pattern(
+        &self,
+        shop_id: &ShopId,
+        shop_domain: &str,
+        pattern: Option<&str>,
+    ) -> Result<(), sqlx::Error>;
 
     /// Marks the shop as having been crawled now.
-    async fn mark_as_crawled(&self, shop_id: &ShopId, shop_domain: &str) -> Result<(), sqlx::Error>;
+    async fn mark_as_crawled(&self, shop_id: &ShopId, shop_domain: &str)
+    -> Result<(), sqlx::Error>;
 
     /// Attempts to acquire an application-level lock for the shop.
-    async fn try_lock_shop(&self, shop_id: &ShopId, shop_domain: &str) -> Result<bool, sqlx::Error>;
+    async fn try_lock_shop(&self, shop_id: &ShopId, shop_domain: &str)
+    -> Result<bool, sqlx::Error>;
 
     /// Releases the application-level lock for the shop.
     async fn unlock_shop(&self, shop_id: &ShopId) -> Result<(), sqlx::Error>;
@@ -102,7 +109,12 @@ impl ShopUrlPatternRepository for ShopUrlPatternRepositoryImpl {
         .await
     }
 
-    async fn save_pattern(&self, shop_id: &ShopId, shop_domain: &str, pattern: Option<&str>) -> Result<(), sqlx::Error> {
+    async fn save_pattern(
+        &self,
+        shop_id: &ShopId,
+        shop_domain: &str,
+        pattern: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
         let shop_id_uuid: uuid::Uuid = (*shop_id).into();
         sqlx::query(
             "INSERT INTO spider_shop_pattern (shop_id, shop_domain, url_pattern, created, updated)
@@ -122,7 +134,11 @@ impl ShopUrlPatternRepository for ShopUrlPatternRepositoryImpl {
         Ok(())
     }
 
-    async fn mark_as_crawled(&self, shop_id: &ShopId, shop_domain: &str) -> Result<(), sqlx::Error> {
+    async fn mark_as_crawled(
+        &self,
+        shop_id: &ShopId,
+        shop_domain: &str,
+    ) -> Result<(), sqlx::Error> {
         let shop_id_uuid: uuid::Uuid = (*shop_id).into();
         sqlx::query(
             "INSERT INTO spider_shop_pattern (shop_id, shop_domain, last_crawled, created, updated)
@@ -141,7 +157,11 @@ impl ShopUrlPatternRepository for ShopUrlPatternRepositoryImpl {
         Ok(())
     }
 
-    async fn try_lock_shop(&self, shop_id: &ShopId, shop_domain: &str) -> Result<bool, sqlx::Error> {
+    async fn try_lock_shop(
+        &self,
+        shop_id: &ShopId,
+        shop_domain: &str,
+    ) -> Result<bool, sqlx::Error> {
         let shop_id_uuid: uuid::Uuid = (*shop_id).into();
         sqlx::query(
             "INSERT INTO spider_shop_pattern (shop_id, shop_domain, created, updated)

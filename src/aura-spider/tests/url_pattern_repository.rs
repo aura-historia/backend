@@ -20,10 +20,7 @@ async fn should_return_none_when_no_pattern_exists_for_find() {
     let repository = ShopUrlPatternRepositoryImpl::new(pool);
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
 
-    let result = repository
-        .find_pattern(&shop_id)
-        .await
-        .unwrap();
+    let result = repository.find_pattern(&shop_id).await.unwrap();
 
     assert!(result.is_none());
 }
@@ -124,7 +121,10 @@ async fn should_allow_clearing_pattern() {
         .unwrap();
 
     // Explicitly clear pattern
-    repository.save_pattern(&shop_id, shop_domain, None).await.unwrap();
+    repository
+        .save_pattern(&shop_id, shop_domain, None)
+        .await
+        .unwrap();
 
     let returned = repository.find_pattern(&shop_id).await.unwrap().unwrap();
 
@@ -147,7 +147,10 @@ async fn should_mark_pattern_as_crawled() {
     let shop_domain = "mark-example.com";
 
     // Mark as crawled directly without a pattern
-    repository.mark_as_crawled(&shop_id, shop_domain).await.unwrap();
+    repository
+        .mark_as_crawled(&shop_id, shop_domain)
+        .await
+        .unwrap();
 
     let record = repository.find_pattern(&shop_id).await.unwrap().unwrap();
     assert!(record.last_crawled.is_some());
@@ -156,7 +159,10 @@ async fn should_mark_pattern_as_crawled() {
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
 
     // Mark again
-    repository.mark_as_crawled(&shop_id, shop_domain).await.unwrap();
+    repository
+        .mark_as_crawled(&shop_id, shop_domain)
+        .await
+        .unwrap();
 
     let record2 = repository.find_pattern(&shop_id).await.unwrap().unwrap();
     assert!(record2.last_crawled.unwrap() > record.last_crawled.unwrap());
@@ -175,14 +181,23 @@ async fn should_lock_and_unlock_shop() {
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
     let shop_domain = "lock-example.com";
 
-    let first_lock = repository.try_lock_shop(&shop_id, shop_domain).await.unwrap();
-    let second_lock = repository.try_lock_shop(&shop_id, shop_domain).await.unwrap();
+    let first_lock = repository
+        .try_lock_shop(&shop_id, shop_domain)
+        .await
+        .unwrap();
+    let second_lock = repository
+        .try_lock_shop(&shop_id, shop_domain)
+        .await
+        .unwrap();
 
     assert!(first_lock);
     assert!(!second_lock);
 
     repository.unlock_shop(&shop_id).await.unwrap();
 
-    let lock_after_unlock = repository.try_lock_shop(&shop_id, shop_domain).await.unwrap();
+    let lock_after_unlock = repository
+        .try_lock_shop(&shop_id, shop_domain)
+        .await
+        .unwrap();
     assert!(lock_after_unlock);
 }

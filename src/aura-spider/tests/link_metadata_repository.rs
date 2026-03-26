@@ -11,11 +11,13 @@ const RDS: Rds = Rds {
 
 async fn insert_shop_dummy(pool: &sqlx::PgPool, shop_id: &ShopId) {
     let shop_id_uuid: uuid::Uuid = (*shop_id).into();
-    sqlx::query("INSERT INTO spider_shop_pattern (shop_id, shop_domain) VALUES ($1, 'example.com')")
-        .bind(shop_id_uuid)
-        .execute(pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO spider_shop_pattern (shop_id, shop_domain) VALUES ($1, 'example.com')",
+    )
+    .bind(shop_id_uuid)
+    .execute(pool)
+    .await
+    .unwrap();
 }
 
 // ---------------------------------------------------------------------------

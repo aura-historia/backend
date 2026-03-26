@@ -29,13 +29,13 @@ use aura_spider::error::SpiderError;
 use aura_spider::service::{
     SpiderRunResult, SpiderService, SpiderServiceConfig, SpiderServiceImpl,
 };
+use common::shop_id::ShopId;
 use sqlx::PgPool;
 use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
 use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres as PgImage;
 use tracing::{Level, error, info};
-use common::shop_id::ShopId;
 
 const DEFAULT_SHOP_URL: &str = "https://www.christies.com/en";
 const DEFAULT_CLASSIFY_THRESHOLD: usize = 200;
@@ -90,7 +90,10 @@ async fn main() {
     );
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    match spider.run(&shop_id, &shop_url, DEFAULT_CLASSIFY_THRESHOLD).await {
+    match spider
+        .run(&shop_id, &shop_url, DEFAULT_CLASSIFY_THRESHOLD)
+        .await
+    {
         Ok(result) => {
             info!(
                 linkCount = result.total_links,

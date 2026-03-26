@@ -1,9 +1,9 @@
+use common::shop_id::ShopId;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use time::OffsetDateTime;
 use tracing::{debug, info, warn};
-use common::shop_id::ShopId;
 
 use crate::classification::link_metadata_repository::LinkMetadataRepository;
 use crate::classification::url_classification_service::matches_product_pattern;
@@ -202,7 +202,11 @@ impl SpiderService for SpiderServiceImpl {
             "Configured one-time classification threshold"
         );
 
-        if !self.pattern_service.try_lock_shop(shop_id, shop_url).await? {
+        if !self
+            .pattern_service
+            .try_lock_shop(shop_id, shop_url)
+            .await?
+        {
             warn!(shopUrl = %shop_url, "Shop is already being crawled by another worker");
             return Ok(SpiderRunResult {
                 total_links: 0,
@@ -495,14 +499,20 @@ mod service_tests {
 
     fn setup_mock_mark_as_crawled(mock: &mut MockUrlPatternService, shop_url: &'static str) {
         mock.expect_mark_as_crawled()
-            .with(mockall::predicate::always(), mockall::predicate::eq(shop_url))
+            .with(
+                mockall::predicate::always(),
+                mockall::predicate::eq(shop_url),
+            )
             .times(1)
             .returning(|_, _| Box::pin(async { Ok(()) }));
     }
 
     fn setup_mock_lock_lifecycle(mock: &mut MockUrlPatternService, shop_url: &'static str) {
         mock.expect_try_lock_shop()
-            .with(mockall::predicate::always(), mockall::predicate::eq(shop_url))
+            .with(
+                mockall::predicate::always(),
+                mockall::predicate::eq(shop_url),
+            )
             .times(1)
             .returning(|_, _| Box::pin(async { Ok(true) }));
 
