@@ -356,7 +356,6 @@ name = "aura-historia-parent"
 version = "0.1.0"
 dependencies = [
  "acceptance-tests",
- "aura-scraper",
  "aws-tests",
  "cognito",
  "cognito-post-confirmation",
