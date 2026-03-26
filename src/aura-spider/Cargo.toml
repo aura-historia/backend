@@ -25,6 +25,8 @@ testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true, features = ["postgres"] }
 sha2 = { workspace = true }
 url-normalize = { workspace = true }
+uuid = { workspace = true }
+common = { workspace = true }
 
 [dev-dependencies]
 test-api = { workspace = true, features = ["rds"] }
