@@ -58,16 +58,17 @@ async fn should_return_records_only_for_target_user(#[case] scan_index_forward: 
 async fn should_sort_by_time_aka_uuidv7_asc_when_scan_index_forward_true() {
     let repository = get_repository().await;
     let user_id = UserId::new();
-    let mut records = fake::vec![UserSearchFilterRecord; 100];
-    for record in &mut records {
+    let mut records = Vec::with_capacity(100);
+    for _ in 0..100 {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        let mut record = Faker.fake::<UserSearchFilterRecord>();
         record.pk = mk_pk(&user_id);
         record.user_id = user_id;
-    }
-    for record in records.iter() {
         let _ = repository
             .put_user_search_filter_record(record.clone())
             .await
             .unwrap();
+        records.push(record);
     }
 
     records.sort_by(|l, r| l.created.cmp(&r.created));
@@ -84,16 +85,17 @@ async fn should_sort_by_time_aka_uuidv7_asc_when_scan_index_forward_true() {
 async fn should_sort_by_time_aka_uuidv7_desc_when_scan_index_forward_false() {
     let repository = get_repository().await;
     let user_id = UserId::new();
-    let mut records = fake::vec![UserSearchFilterRecord; 100];
-    for record in &mut records {
+    let mut records = Vec::with_capacity(100);
+    for _ in 0..100 {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        let mut record = Faker.fake::<UserSearchFilterRecord>();
         record.pk = mk_pk(&user_id);
         record.user_id = user_id;
-    }
-    for record in records.iter() {
         let _ = repository
             .put_user_search_filter_record(record.clone())
             .await
             .unwrap();
+        records.push(record);
     }
 
     records.sort_by(|l, r| l.created.cmp(&r.created).reverse());
