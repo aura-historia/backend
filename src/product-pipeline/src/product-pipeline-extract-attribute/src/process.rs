@@ -28,7 +28,17 @@ impl PipeProcessor for AttributeExtractionPipeProcesserImpl {
         let count = ins.len();
         let mut successes = Vec::with_capacity(2 * count);
         let mut failures = HashSet::new();
-        let batches: Vec<Batch<Product, 8>> = Batch::chunked_from(ins.into_iter());
+        // Sort by text length so each batch contains items of similar length,
+        // reducing padding overhead in transformer models.
+        let mut sorted_ins = ins;
+        sorted_ins.sort_by_key(|product| {
+            product.native_title.payload.len()
+                + product
+                    .native_description
+                    .as_ref()
+                    .map_or(0, |d| d.payload.len())
+        });
+        let batches: Vec<Batch<Product, 8>> = Batch::chunked_from(sorted_ins.into_iter());
 
         for in_batch in batches {
             let input_batch_iter = in_batch.iter().map(|product| {
