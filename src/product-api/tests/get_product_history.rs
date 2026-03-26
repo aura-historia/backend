@@ -43,18 +43,18 @@ async fn should_respond_200() {
         aggregate_id: record.product_id,
         event_id: event_1_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceDropped(
+        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceChanged(
             ProductPriceChangeDomainEventPayload {
                 shop_id: record.shop_id,
                 shops_product_id: record.shops_product_id.clone(),
-                new_native_price: event_1_price,
+                new_native_price: Some(event_1_price),
                 new_other_price: FixedFxRate()
                     .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
                     .unwrap(),
-                old_native_price: Price {
+                old_native_price: Some(Price {
                     monetary_amount: 100000u64.into(),
                     currency: Currency::Eur,
-                },
+                }),
                 old_other_price: FixedFxRate()
                     .exchange_all(Currency::Eur, 100000u64.into())
                     .unwrap(),
@@ -67,11 +67,12 @@ async fn should_respond_200() {
         aggregate_id: record.product_id,
         event_id: event_2_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateRemoved(
+        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateChanged(
             ProductStateChangeDomainEventPayload {
                 shop_id: record.shop_id,
                 shops_product_id: record.shops_product_id.clone(),
                 old_state: ProductState::Sold,
+                new_state: ProductState::Removed,
             },
         )),
     };

@@ -15,7 +15,6 @@ use common::slug_id::SlugId;
 use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
 use time::OffsetDateTime;
-use tracing::error;
 use url::Url;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
