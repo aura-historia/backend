@@ -859,6 +859,26 @@ mod tests {
         let _ = SpiderHtmlFetcher::new();
     }
 
+    #[tokio::test]
+    async fn should_fail_gracefully_when_fetching_invalid_url() {
+        let fetcher = SpiderHtmlFetcher::new();
+        // Use a port that is highly unlikely to have a web server running
+        let url = Url::parse("http://127.0.0.1:1/nonexistent").unwrap();
+
+        let result = fetcher.fetch(&url).await;
+
+        assert!(
+            result.is_err(),
+            "Fetching from an invalid server should return an error"
+        );
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("Spider could not fetch HTML"),
+            "Error message should match the fetcher's custom error: {}",
+            err_msg
+        );
+    }
+
     // -----------------------------------------------------------------------
     // ScraperServiceImpl constructor
     // -----------------------------------------------------------------------
