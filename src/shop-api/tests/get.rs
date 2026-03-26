@@ -4,7 +4,7 @@ use shop::{
     data::get_shop_data::GetShopData,
     dynamodb::repository::ShopDynamoDbRepositoryImpl,
     service::{
-        command_service::{CommandShopService, CommandShopServiceImpl, MockCommandShopService},
+        command_service::{CommandShopService, CommandShopServiceImpl},
         get_service::GetShopServiceImpl,
         query_service::MockQueryShopService,
     },
@@ -33,7 +33,6 @@ async fn should_200_respond_shop_for_id() {
         lambda_event,
         &get_service,
         &MockQueryShopService::default(),
-        &MockCommandShopService::default(),
     )
     .await
     .unwrap();
@@ -66,7 +65,6 @@ async fn should_200_respond_shop_for_domain() {
         lambda_event,
         &get_service,
         &MockQueryShopService::default(),
-        &MockCommandShopService::default(),
     )
     .await
     .unwrap();
@@ -96,7 +94,6 @@ async fn should_200_respond_shop_for_slug() {
         lambda_event,
         &get_service,
         &MockQueryShopService::default(),
-        &MockCommandShopService::default(),
     )
     .await
     .unwrap();

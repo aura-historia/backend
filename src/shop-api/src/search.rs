@@ -91,7 +91,6 @@ pub async fn handle(
 }
 
 #[cfg(test)]
-#[allow(clippy::too_many_arguments)]
 mod tests {
     use crate::handle;
     use common::pagination::cursor::{Cursor, CursoredResult};
@@ -100,7 +99,6 @@ mod tests {
     use lambda_runtime::LambdaEvent;
     use shop::core::shop::Shop;
     use shop::data::shop_search_data::ShopSearchData;
-    use shop::service::command_service::MockCommandShopService;
     use shop::service::get_service::MockGetShopService;
     use shop::service::query_service::MockQueryShopService;
     use test_api::ApiGatewayV2httpRequestProxy;
@@ -143,7 +141,6 @@ mod tests {
             lambda_event,
             &MockGetShopService::default(),
             &service,
-            &MockCommandShopService::default(),
         )
         .await
         .unwrap();
@@ -182,7 +179,6 @@ mod tests {
             lambda_event,
             &MockGetShopService::default(),
             &service,
-            &MockCommandShopService::default(),
         )
         .await
         .unwrap();
@@ -227,7 +223,6 @@ mod tests {
             lambda_event,
             &MockGetShopService::default(),
             &service,
-            &MockCommandShopService::default(),
         )
         .await
         .unwrap();

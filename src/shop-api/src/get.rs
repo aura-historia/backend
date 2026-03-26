@@ -60,7 +60,6 @@ mod tests {
     use http::header::{CACHE_CONTROL, LAST_MODIFIED};
     use lambda_runtime::LambdaEvent;
     use shop::core::shop::Shop;
-    use shop::service::command_service::MockCommandShopService;
     use shop::service::get_service::{GetShopError, MockGetShopService};
     use shop::service::query_service::MockQueryShopService;
     use test_api::ApiGatewayV2httpRequestProxy;
@@ -88,7 +87,6 @@ mod tests {
             lambda_event,
             &service,
             &MockQueryShopService::default(),
-            &MockCommandShopService::default(),
         )
         .await
         .unwrap();
@@ -120,7 +118,6 @@ mod tests {
             lambda_event,
             &service,
             &MockQueryShopService::default(),
-            &MockCommandShopService::default(),
         )
         .await
         .unwrap();
@@ -147,7 +144,6 @@ mod tests {
             lambda_event,
             &service,
             &MockQueryShopService::default(),
-            &MockCommandShopService::default(),
         )
         .await
         .unwrap_err();
@@ -170,7 +166,6 @@ mod tests {
             lambda_event,
             &service,
             &MockQueryShopService::default(),
-            &MockCommandShopService::default(),
         )
         .await
         .unwrap_err();
@@ -201,7 +196,6 @@ mod tests {
             lambda_event,
             &service,
             &MockQueryShopService::default(),
-            &MockCommandShopService::default(),
         )
         .await
         .unwrap_err();
@@ -231,7 +225,6 @@ mod tests {
             lambda_event,
             &service,
             &MockQueryShopService::default(),
-            &MockCommandShopService::default(),
         )
         .await
         .unwrap_err();
@@ -259,7 +252,6 @@ mod tests {
             lambda_event,
             &service,
             &MockQueryShopService::default(),
-            &MockCommandShopService::default(),
         )
         .await
         .unwrap();

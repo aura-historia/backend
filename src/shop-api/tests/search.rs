@@ -3,7 +3,6 @@ use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use shop::data::{get_shop_data::GetShopData, shop_search_data::ShopSearchData};
 use shop::opensearch::repository::{ShopOpenSearchRepository, ShopOpenSearchRepositoryImpl};
-use shop::service::command_service::MockCommandShopService;
 use shop::service::get_service::MockGetShopService;
 use shop::service::query_service::QueryShopServiceImpl;
 use shop_api::handle;
@@ -50,7 +49,6 @@ async fn should_follow_up_search_after_query(
         lambda_event,
         &MockGetShopService::default(),
         &service,
-        &MockCommandShopService::default(),
     )
     .await
     .unwrap();
@@ -82,7 +80,6 @@ async fn should_follow_up_search_after_query(
         lambda_event,
         &MockGetShopService::default(),
         &service,
-        &MockCommandShopService::default(),
     )
     .await
     .unwrap();
@@ -142,7 +139,6 @@ async fn should_200_when_shop_type_query(
         lambda_event,
         &MockGetShopService::default(),
         &service,
-        &MockCommandShopService::default(),
     )
     .await
     .unwrap();
