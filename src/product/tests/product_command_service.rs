@@ -159,6 +159,6 @@ async fn should_write_product_updates_when_all_exist_and_actual_changes() {
         .unwrap()
         .iter()
         .filter_map(|record| record.get(ProductDomainEventRecordSerdeField::EventType.as_str()))
-        .all(|val| val.as_s().unwrap() == "DOMAIN_STATE_AVAILABLE");
+        .all(|val| val.as_s().unwrap() == "DOMAIN_STATE_CHANGE");
     assert!(all_event_records_update_state_available);
 }
