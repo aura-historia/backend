@@ -71,14 +71,17 @@ fn should_query_watchlist_records_when_lower_bounded_created_for_scan_index_true
     let repository = get_repository().await;
     let user_id = UserId::new();
 
-    let mut records = fake::vec![WatchlistProductRecord; 42];
-    for record in &mut records {
+    let mut records = Vec::with_capacity(42);
+    for _ in 0..42 {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        let mut record = Faker.fake::<WatchlistProductRecord>();
         record.pk = mk_pk(&user_id);
         record.user_id = user_id;
         let _ = repository
             .put_watchlist_record(record.clone())
             .await
             .unwrap();
+        records.push(record);
     }
 
     let expected = records.clone().into_iter().skip(37).collect::<Vec<_>>();
@@ -102,14 +105,17 @@ fn should_query_watchlist_records_when_higher_bounded_created_for_scan_index_fal
     let repository = get_repository().await;
     let user_id = UserId::new();
 
-    let mut records = fake::vec![WatchlistProductRecord; 42];
-    for record in &mut records {
+    let mut records = Vec::with_capacity(42);
+    for _ in 0..42 {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        let mut record = Faker.fake::<WatchlistProductRecord>();
         record.pk = mk_pk(&user_id);
         record.user_id = user_id;
         let _ = repository
             .put_watchlist_record(record.clone())
             .await
             .unwrap();
+        records.push(record);
     }
 
     let expected = records
@@ -138,14 +144,17 @@ fn should_query_watchlist_records_when_not_bound_created_for_scan_index_true() {
     let repository = get_repository().await;
     let user_id = UserId::new();
 
-    let mut records = fake::vec![WatchlistProductRecord; 42];
-    for record in &mut records {
+    let mut records = Vec::with_capacity(42);
+    for _ in 0..42 {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        let mut record = Faker.fake::<WatchlistProductRecord>();
         record.pk = mk_pk(&user_id);
         record.user_id = user_id;
         let _ = repository
             .put_watchlist_record(record.clone())
             .await
             .unwrap();
+        records.push(record);
     }
 
     let actual = repository
@@ -167,14 +176,17 @@ fn should_query_watchlist_records_and_respect_limit_for_scan_index_true() {
     let repository = get_repository().await;
     let user_id = UserId::new();
 
-    let mut records = fake::vec![WatchlistProductRecord; 42];
-    for record in &mut records {
+    let mut records = Vec::with_capacity(42);
+    for _ in 0..42 {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        let mut record = Faker.fake::<WatchlistProductRecord>();
         record.pk = mk_pk(&user_id);
         record.user_id = user_id;
         let _ = repository
             .put_watchlist_record(record.clone())
             .await
             .unwrap();
+        records.push(record);
     }
 
     let actual = repository
@@ -198,14 +210,17 @@ fn should_query_watchlist_records_and_respect_limit_for_scan_index_false() {
     let repository = get_repository().await;
     let user_id = UserId::new();
 
-    let mut records = fake::vec![WatchlistProductRecord; 42];
-    for record in &mut records {
+    let mut records = Vec::with_capacity(42);
+    for _ in 0..42 {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        let mut record = Faker.fake::<WatchlistProductRecord>();
         record.pk = mk_pk(&user_id);
         record.user_id = user_id;
         let _ = repository
             .put_watchlist_record(record.clone())
             .await
             .unwrap();
+        records.push(record);
     }
 
     let actual = repository
