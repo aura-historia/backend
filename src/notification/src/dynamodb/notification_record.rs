@@ -146,6 +146,8 @@ pub fn mk_lsi1_sk(
     let format_watchlist: fn(&NotificationId) -> String =
         |notification_id| format!("user#notification#watchlist#{notification_id}");
     match notification_reason {
+        NotificationReasonRecord::WatchlistStateChanged => format_watchlist(notification_id),
+        NotificationReasonRecord::WatchlistPriceChanged => format_watchlist(notification_id),
         NotificationReasonRecord::WatchlistStateListed => format_watchlist(notification_id),
         NotificationReasonRecord::WatchlistStateAvailable => format_watchlist(notification_id),
         NotificationReasonRecord::WatchlistStateReserved => format_watchlist(notification_id),
@@ -178,35 +180,12 @@ fn derive_notification_reason(
     watchlist_payload: &NotificationWatchlistPayload,
 ) -> NotificationReasonRecord {
     match watchlist_payload {
-        NotificationWatchlistPayload::PriceChange {
-            old_price,
-            new_price,
-        } => {
-            let old_eur = old_price.get(&Currency::Eur).copied();
-            let new_eur = new_price.get(&Currency::Eur).copied();
-            match (old_eur, new_eur) {
-                (None, Some(_)) => NotificationReasonRecord::WatchlistPriceDiscovered,
-                (Some(_), None) => NotificationReasonRecord::WatchlistPriceRemoved,
-                (Some(old), Some(new)) => {
-                    let old_val: u64 = old.into();
-                    let new_val: u64 = new.into();
-                    if new_val < old_val {
-                        NotificationReasonRecord::WatchlistPriceDropped
-                    } else {
-                        NotificationReasonRecord::WatchlistPriceIncreased
-                    }
-                }
-                (None, None) => NotificationReasonRecord::WatchlistPriceDiscovered,
-            }
+        NotificationWatchlistPayload::PriceChange { .. } => {
+            NotificationReasonRecord::WatchlistPriceChanged
         }
-        NotificationWatchlistPayload::StateChange { new_state, .. } => match new_state {
-            ProductState::Listed => NotificationReasonRecord::WatchlistStateListed,
-            ProductState::Available => NotificationReasonRecord::WatchlistStateAvailable,
-            ProductState::Reserved => NotificationReasonRecord::WatchlistStateReserved,
-            ProductState::Sold => NotificationReasonRecord::WatchlistStateSold,
-            ProductState::Removed => NotificationReasonRecord::WatchlistStateRemoved,
-            ProductState::Unknown => NotificationReasonRecord::WatchlistStateUnknown,
-        },
+        NotificationWatchlistPayload::StateChange { .. } => {
+            NotificationReasonRecord::WatchlistStateChanged
+        }
     }
 }
 

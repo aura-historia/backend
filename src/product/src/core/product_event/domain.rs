@@ -102,7 +102,8 @@ impl ProductDomainEventPayload {
                 let old_price = match payload.old_native_price {
                     Some(old_native_price) => {
                         let mut old_prices = payload.old_other_price;
-                        old_prices.insert(old_native_price.currency, old_native_price.monetary_amount);
+                        old_prices
+                            .insert(old_native_price.currency, old_native_price.monetary_amount);
                         Currency::resolve(&[*currency], old_prices)
                     }
                     None => None,
@@ -110,7 +111,8 @@ impl ProductDomainEventPayload {
                 let new_price = match payload.new_native_price {
                     Some(new_native_price) => {
                         let mut new_prices = payload.new_other_price;
-                        new_prices.insert(new_native_price.currency, new_native_price.monetary_amount);
+                        new_prices
+                            .insert(new_native_price.currency, new_native_price.monetary_amount);
                         Currency::resolve(&[*currency], new_prices)
                     }
                     None => None,
@@ -247,7 +249,6 @@ impl ProductCommonEventPayload for ProductPriceChangeDomainEventPayload {
         &self.shops_product_id
     }
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]

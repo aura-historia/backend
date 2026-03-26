@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum NotificationReasonRecord {
+    WatchlistStateChanged,
+    WatchlistPriceChanged,
+    SearchFilterMatch,
+    // Backward-compatible variants for reading existing DynamoDB records
     WatchlistStateListed,
     WatchlistStateAvailable,
     WatchlistStateReserved,
@@ -14,14 +18,15 @@ pub enum NotificationReasonRecord {
     WatchlistPriceDropped,
     WatchlistPriceIncreased,
     WatchlistPriceRemoved,
-    SearchFilterMatch,
 }
 
 impl NotificationReasonRecord {
     pub fn is_watchlist(&self) -> bool {
         matches!(
             self,
-            Self::WatchlistStateListed
+            Self::WatchlistStateChanged
+                | Self::WatchlistPriceChanged
+                | Self::WatchlistStateListed
                 | Self::WatchlistStateAvailable
                 | Self::WatchlistStateReserved
                 | Self::WatchlistStateSold

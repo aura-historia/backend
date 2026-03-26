@@ -2309,18 +2309,16 @@ mod tests {
 
             let event = make_event(
                 &product,
-                ProductEventPayload::ProductDomainEvent(
-                    ProductDomainEventPayload::PriceChanged(
-                        ProductPriceChangeDomainEventPayload {
-                            shop_id: product.shop_id,
-                            shops_product_id: product.shops_product_id.clone(),
-                            old_native_price: None,
-                            old_other_price: HashMap::new(),
-                            new_native_price: Some(price),
-                            new_other_price: other_price.clone(),
-                        },
-                    ),
-                ),
+                ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceChanged(
+                    ProductPriceChangeDomainEventPayload {
+                        shop_id: product.shop_id,
+                        shops_product_id: product.shops_product_id.clone(),
+                        old_native_price: None,
+                        old_other_price: HashMap::new(),
+                        new_native_price: Some(price),
+                        new_other_price: other_price.clone(),
+                    },
+                )),
             );
 
             product.apply(event);

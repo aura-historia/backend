@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProductDomainEventTypeRecord {
     DomainCreated,
+    DomainStateChanged,
+    DomainPriceChanged,
+    // Backward-compatible variants for reading existing DynamoDB records
     DomainStateListed,
     DomainStateAvailable,
     DomainStateReserved,
@@ -18,39 +21,41 @@ pub enum ProductDomainEventTypeRecord {
     DomainPriceRemoved,
 }
 
+impl ProductDomainEventTypeRecord {
+    pub fn is_state_changed(&self) -> bool {
+        matches!(
+            self,
+            Self::DomainStateChanged
+                | Self::DomainStateListed
+                | Self::DomainStateAvailable
+                | Self::DomainStateReserved
+                | Self::DomainStateSold
+                | Self::DomainStateRemoved
+                | Self::DomainStateUnknown
+        )
+    }
+
+    pub fn is_price_changed(&self) -> bool {
+        matches!(
+            self,
+            Self::DomainPriceChanged
+                | Self::DomainPriceDiscovered
+                | Self::DomainPriceDropped
+                | Self::DomainPriceIncreased
+                | Self::DomainPriceRemoved
+        )
+    }
+}
+
 impl From<&ProductDomainEventPayload> for ProductDomainEventTypeRecord {
     fn from(domain: &ProductDomainEventPayload) -> Self {
         match domain {
             ProductDomainEventPayload::Created(_) => ProductDomainEventTypeRecord::DomainCreated,
-            ProductDomainEventPayload::StateListed(_) => {
-                ProductDomainEventTypeRecord::DomainStateListed
+            ProductDomainEventPayload::StateChanged(_) => {
+                ProductDomainEventTypeRecord::DomainStateChanged
             }
-            ProductDomainEventPayload::StateAvailable(_) => {
-                ProductDomainEventTypeRecord::DomainStateAvailable
-            }
-            ProductDomainEventPayload::StateReserved(_) => {
-                ProductDomainEventTypeRecord::DomainStateReserved
-            }
-            ProductDomainEventPayload::StateSold(_) => {
-                ProductDomainEventTypeRecord::DomainStateSold
-            }
-            ProductDomainEventPayload::StateRemoved(_) => {
-                ProductDomainEventTypeRecord::DomainStateRemoved
-            }
-            ProductDomainEventPayload::StateUnknown(_) => {
-                ProductDomainEventTypeRecord::DomainStateUnknown
-            }
-            ProductDomainEventPayload::PriceDiscovered(_) => {
-                ProductDomainEventTypeRecord::DomainPriceDiscovered
-            }
-            ProductDomainEventPayload::PriceDropped(_) => {
-                ProductDomainEventTypeRecord::DomainPriceDropped
-            }
-            ProductDomainEventPayload::PriceIncreased(_) => {
-                ProductDomainEventTypeRecord::DomainPriceIncreased
-            }
-            ProductDomainEventPayload::PriceRemoved(_) => {
-                ProductDomainEventTypeRecord::DomainPriceRemoved
+            ProductDomainEventPayload::PriceChanged(_) => {
+                ProductDomainEventTypeRecord::DomainPriceChanged
             }
         }
     }
@@ -64,6 +69,14 @@ mod tests {
     #[rstest]
     #[trace]
     #[case(ProductDomainEventTypeRecord::DomainCreated, "\"DOMAIN_CREATED\"")]
+    #[case(
+        ProductDomainEventTypeRecord::DomainStateChanged,
+        "\"DOMAIN_STATE_CHANGED\""
+    )]
+    #[case(
+        ProductDomainEventTypeRecord::DomainPriceChanged,
+        "\"DOMAIN_PRICE_CHANGED\""
+    )]
     #[case(
         ProductDomainEventTypeRecord::DomainStateListed,
         "\"DOMAIN_STATE_LISTED\""
@@ -97,6 +110,10 @@ mod tests {
         ProductDomainEventTypeRecord::DomainPriceIncreased,
         "\"DOMAIN_PRICE_INCREASED\""
     )]
+    #[case(
+        ProductDomainEventTypeRecord::DomainPriceRemoved,
+        "\"DOMAIN_PRICE_REMOVED\""
+    )]
     fn should_serialize_product_event_type_record_in_screaming_snake_case(
         #[case] product_state_record: ProductDomainEventTypeRecord,
         #[case] expected: &str,
@@ -108,6 +125,14 @@ mod tests {
     #[rstest]
     #[trace]
     #[case("\"DOMAIN_CREATED\"", ProductDomainEventTypeRecord::DomainCreated)]
+    #[case(
+        "\"DOMAIN_STATE_CHANGED\"",
+        ProductDomainEventTypeRecord::DomainStateChanged
+    )]
+    #[case(
+        "\"DOMAIN_PRICE_CHANGED\"",
+        ProductDomainEventTypeRecord::DomainPriceChanged
+    )]
     #[case(
         "\"DOMAIN_STATE_LISTED\"",
         ProductDomainEventTypeRecord::DomainStateListed
@@ -140,6 +165,10 @@ mod tests {
     #[case(
         "\"DOMAIN_PRICE_INCREASED\"",
         ProductDomainEventTypeRecord::DomainPriceIncreased
+    )]
+    #[case(
+        "\"DOMAIN_PRICE_REMOVED\"",
+        ProductDomainEventTypeRecord::DomainPriceRemoved
     )]
     fn should_deserialize_product_event_type_record_in_screaming_snake_case(
         #[case] currency: &str,
