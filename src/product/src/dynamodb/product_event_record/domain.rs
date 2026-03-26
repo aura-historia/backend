@@ -1,8 +1,7 @@
 use crate::core::product_event::ProductDomainEvent;
 use crate::core::product_event::domain::{
     ProductCommonEventPayload, ProductCreatedDomainEventPayload, ProductDomainEventPayload,
-    ProductPriceChangeDomainEventPayload, ProductPriceDiscoveryDomainEventPayload,
-    ProductPriceRemovedDomainEventPayload, ProductStateChangeDomainEventPayload,
+    ProductPriceChangeDomainEventPayload, ProductStateChangeDomainEventPayload,
 };
 use crate::core::product_image::ProductImage;
 use crate::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
@@ -434,8 +433,8 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                     timestamp: domain.timestamp,
                 }
             }
-            ProductDomainEventPayload::StateListed(payload) => mk_state_event_record(
-                ProductStateRecord::Listed,
+            ProductDomainEventPayload::StateChanged(payload) => mk_state_event_record(
+                payload.new_state.into(),
                 payload.old_state.into(),
                 pk,
                 sk,
@@ -446,152 +445,7 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                 shops_product_id,
                 domain.timestamp,
             ),
-            ProductDomainEventPayload::StateReserved(payload) => mk_state_event_record(
-                ProductStateRecord::Reserved,
-                payload.old_state.into(),
-                pk,
-                sk,
-                product_id,
-                event_id,
-                event_type,
-                shop_id,
-                shops_product_id,
-                domain.timestamp,
-            ),
-            ProductDomainEventPayload::StateAvailable(payload) => mk_state_event_record(
-                ProductStateRecord::Available,
-                payload.old_state.into(),
-                pk,
-                sk,
-                product_id,
-                event_id,
-                event_type,
-                shop_id,
-                shops_product_id,
-                domain.timestamp,
-            ),
-            ProductDomainEventPayload::StateSold(payload) => mk_state_event_record(
-                ProductStateRecord::Sold,
-                payload.old_state.into(),
-                pk,
-                sk,
-                product_id,
-                event_id,
-                event_type,
-                shop_id,
-                shops_product_id,
-                domain.timestamp,
-            ),
-            ProductDomainEventPayload::StateRemoved(payload) => mk_state_event_record(
-                ProductStateRecord::Removed,
-                payload.old_state.into(),
-                pk,
-                sk,
-                product_id,
-                event_id,
-                event_type,
-                shop_id,
-                shops_product_id,
-                domain.timestamp,
-            ),
-            ProductDomainEventPayload::StateUnknown(payload) => mk_state_event_record(
-                ProductStateRecord::Unknown,
-                payload.old_state.into(),
-                pk,
-                sk,
-                product_id,
-                event_id,
-                event_type,
-                shop_id,
-                shops_product_id,
-                domain.timestamp,
-            ),
-            ProductDomainEventPayload::PriceDiscovered(payload) => ProductDomainEventRecord {
-                pk,
-                sk,
-                product_id,
-                product_slug_id: None,
-                shop_slug_id: None,
-                event_id,
-                event_type,
-                event_type_schema_version: 0,
-                shop_id,
-                shops_product_id,
-                shop_name: None,
-                shop_type: None,
-                title_native: None,
-                title_de: None,
-                title_en: None,
-                title_fr: None,
-                title_es: None,
-                title_it: None,
-                description_native: None,
-                description_de: None,
-                description_en: None,
-                description_fr: None,
-                description_es: None,
-                description_it: None,
-                new_price_native: Some(payload.native_price.into()),
-                new_price_eur: payload
-                    .other_price
-                    .get(&Currency::Eur)
-                    .copied()
-                    .map(u64::from),
-                new_price_usd: payload
-                    .other_price
-                    .get(&Currency::Usd)
-                    .copied()
-                    .map(u64::from),
-                new_price_gbp: payload
-                    .other_price
-                    .get(&Currency::Gbp)
-                    .copied()
-                    .map(u64::from),
-                new_price_aud: payload
-                    .other_price
-                    .get(&Currency::Aud)
-                    .copied()
-                    .map(u64::from),
-                new_price_cad: payload
-                    .other_price
-                    .get(&Currency::Cad)
-                    .copied()
-                    .map(u64::from),
-                new_price_nzd: payload
-                    .other_price
-                    .get(&Currency::Nzd)
-                    .copied()
-                    .map(u64::from),
-                new_price_estimate_min_native: None,
-                new_price_estimate_min_eur: None,
-                new_price_estimate_min_usd: None,
-                new_price_estimate_min_gbp: None,
-                new_price_estimate_min_aud: None,
-                new_price_estimate_min_cad: None,
-                new_price_estimate_min_nzd: None,
-                new_price_estimate_max_native: None,
-                new_price_estimate_max_eur: None,
-                new_price_estimate_max_usd: None,
-                new_price_estimate_max_gbp: None,
-                new_price_estimate_max_aud: None,
-                new_price_estimate_max_cad: None,
-                new_price_estimate_max_nzd: None,
-                old_price_native: None,
-                old_price_eur: None,
-                old_price_usd: None,
-                old_price_gbp: None,
-                old_price_aud: None,
-                old_price_cad: None,
-                old_price_nzd: None,
-                new_state: None,
-                old_state: None,
-                url: None,
-                images: None,
-                auction_start: None,
-                auction_end: None,
-                timestamp: domain.timestamp,
-            },
-            ProductDomainEventPayload::PriceIncreased(payload) => mk_price_change_event_record(
+            ProductDomainEventPayload::PriceChanged(payload) => mk_price_change_event_record(
                 payload,
                 pk,
                 sk,
@@ -602,102 +456,6 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                 shops_product_id,
                 domain.timestamp,
             ),
-            ProductDomainEventPayload::PriceDropped(payload) => mk_price_change_event_record(
-                payload,
-                pk,
-                sk,
-                product_id,
-                event_id,
-                event_type,
-                shop_id,
-                shops_product_id,
-                domain.timestamp,
-            ),
-            ProductDomainEventPayload::PriceRemoved(payload) => ProductDomainEventRecord {
-                pk,
-                sk,
-                product_id,
-                shop_slug_id: None,
-                product_slug_id: None,
-                event_id,
-                event_type,
-                event_type_schema_version: 0,
-                shop_id,
-                shops_product_id,
-                shop_name: None,
-                shop_type: None,
-                title_native: None,
-                title_de: None,
-                title_en: None,
-                title_fr: None,
-                title_es: None,
-                title_it: None,
-                description_native: None,
-                description_de: None,
-                description_en: None,
-                description_fr: None,
-                description_es: None,
-                description_it: None,
-                new_price_native: None,
-                new_price_eur: None,
-                new_price_usd: None,
-                new_price_gbp: None,
-                new_price_aud: None,
-                new_price_cad: None,
-                new_price_nzd: None,
-                new_price_estimate_min_native: None,
-                new_price_estimate_min_eur: None,
-                new_price_estimate_min_usd: None,
-                new_price_estimate_min_gbp: None,
-                new_price_estimate_min_aud: None,
-                new_price_estimate_min_cad: None,
-                new_price_estimate_min_nzd: None,
-                new_price_estimate_max_native: None,
-                new_price_estimate_max_eur: None,
-                new_price_estimate_max_usd: None,
-                new_price_estimate_max_gbp: None,
-                new_price_estimate_max_aud: None,
-                new_price_estimate_max_cad: None,
-                new_price_estimate_max_nzd: None,
-                old_price_native: Some(payload.old_native_price.into()),
-                old_price_eur: payload
-                    .old_other_price
-                    .get(&Currency::Eur)
-                    .copied()
-                    .map(u64::from),
-                old_price_usd: payload
-                    .old_other_price
-                    .get(&Currency::Usd)
-                    .copied()
-                    .map(u64::from),
-                old_price_gbp: payload
-                    .old_other_price
-                    .get(&Currency::Gbp)
-                    .copied()
-                    .map(u64::from),
-                old_price_aud: payload
-                    .old_other_price
-                    .get(&Currency::Aud)
-                    .copied()
-                    .map(u64::from),
-                old_price_cad: payload
-                    .old_other_price
-                    .get(&Currency::Cad)
-                    .copied()
-                    .map(u64::from),
-                old_price_nzd: payload
-                    .old_other_price
-                    .get(&Currency::Nzd)
-                    .copied()
-                    .map(u64::from),
-                new_state: None,
-                old_state: None,
-                url: None,
-                images: None,
-                auction_start: None,
-                auction_end: None,
-                timestamp: domain.timestamp,
-            },
         }
     }
 }
@@ -780,7 +538,7 @@ fn mk_state_event_record(
 
 #[allow(clippy::too_many_arguments)]
 fn mk_price_change_event_record(
-    product_price_change_event_payload: ProductPriceChangeDomainEventPayload,
+    payload: ProductPriceChangeDomainEventPayload,
     pk: String,
     sk: String,
     product_id: ProductId,
@@ -815,33 +573,33 @@ fn mk_price_change_event_record(
         description_fr: None,
         description_es: None,
         description_it: None,
-        new_price_native: Some(product_price_change_event_payload.new_native_price.into()),
-        new_price_eur: product_price_change_event_payload
+        new_price_native: payload.new_native_price.map(PriceRecord::from),
+        new_price_eur: payload
             .new_other_price
             .get(&Currency::Eur)
             .copied()
             .map(u64::from),
-        new_price_usd: product_price_change_event_payload
+        new_price_usd: payload
             .new_other_price
             .get(&Currency::Usd)
             .copied()
             .map(u64::from),
-        new_price_gbp: product_price_change_event_payload
+        new_price_gbp: payload
             .new_other_price
             .get(&Currency::Gbp)
             .copied()
             .map(u64::from),
-        new_price_aud: product_price_change_event_payload
+        new_price_aud: payload
             .new_other_price
             .get(&Currency::Aud)
             .copied()
             .map(u64::from),
-        new_price_cad: product_price_change_event_payload
+        new_price_cad: payload
             .new_other_price
             .get(&Currency::Cad)
             .copied()
             .map(u64::from),
-        new_price_nzd: product_price_change_event_payload
+        new_price_nzd: payload
             .new_other_price
             .get(&Currency::Nzd)
             .copied()
@@ -860,33 +618,33 @@ fn mk_price_change_event_record(
         new_price_estimate_max_aud: None,
         new_price_estimate_max_cad: None,
         new_price_estimate_max_nzd: None,
-        old_price_native: Some(product_price_change_event_payload.old_native_price.into()),
-        old_price_eur: product_price_change_event_payload
+        old_price_native: payload.old_native_price.map(PriceRecord::from),
+        old_price_eur: payload
             .old_other_price
             .get(&Currency::Eur)
             .copied()
             .map(u64::from),
-        old_price_usd: product_price_change_event_payload
+        old_price_usd: payload
             .old_other_price
             .get(&Currency::Usd)
             .copied()
             .map(u64::from),
-        old_price_gbp: product_price_change_event_payload
+        old_price_gbp: payload
             .old_other_price
             .get(&Currency::Gbp)
             .copied()
             .map(u64::from),
-        old_price_aud: product_price_change_event_payload
+        old_price_aud: payload
             .old_other_price
             .get(&Currency::Aud)
             .copied()
             .map(u64::from),
-        old_price_cad: product_price_change_event_payload
+        old_price_cad: payload
             .old_other_price
             .get(&Currency::Cad)
             .copied()
             .map(u64::from),
-        old_price_nzd: product_price_change_event_payload
+        old_price_nzd: payload
             .old_other_price
             .get(&Currency::Nzd)
             .copied()
@@ -1048,8 +806,8 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                         auction_end: record.auction_end,
                     })
                 }
-                ProductDomainEventTypeRecord::DomainStateListed => {
-                    ProductDomainEventPayload::StateListed(ProductStateChangeDomainEventPayload {
+                ProductDomainEventTypeRecord::DomainStateChanged => {
+                    ProductDomainEventPayload::StateChanged(ProductStateChangeDomainEventPayload {
                         shop_id,
                         shops_product_id,
                         old_state: record.old_state.map(ProductState::from).ok_or(
@@ -1057,126 +815,20 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                                 field!(old_state@ProductDomainEventRecord),
                             ),
                         )?,
-                    })
-                }
-                ProductDomainEventTypeRecord::DomainStateAvailable => {
-                    ProductDomainEventPayload::StateAvailable(
-                        ProductStateChangeDomainEventPayload {
-                            shop_id,
-                            shops_product_id,
-                            old_state: record.old_state.map(ProductState::from).ok_or(
-                                MissingPersistenceField::new(
-                                    field!(old_state@ProductDomainEventRecord),
-                                ),
-                            )?,
-                        },
-                    )
-                }
-                ProductDomainEventTypeRecord::DomainStateReserved => {
-                    ProductDomainEventPayload::StateReserved(ProductStateChangeDomainEventPayload {
-                        shop_id,
-                        shops_product_id,
-                        old_state: record.old_state.map(ProductState::from).ok_or(
+                        new_state: record.new_state.map(ProductState::from).ok_or(
                             MissingPersistenceField::new(
-                                field!(old_state@ProductDomainEventRecord),
+                                field!(new_state@ProductDomainEventRecord),
                             ),
                         )?,
                     })
                 }
-                ProductDomainEventTypeRecord::DomainStateSold => {
-                    ProductDomainEventPayload::StateSold(ProductStateChangeDomainEventPayload {
+                ProductDomainEventTypeRecord::DomainPriceChanged => {
+                    ProductDomainEventPayload::PriceChanged(ProductPriceChangeDomainEventPayload {
                         shop_id,
                         shops_product_id,
-                        old_state: record.old_state.map(ProductState::from).ok_or(
-                            MissingPersistenceField::new(
-                                field!(old_state@ProductDomainEventRecord),
-                            ),
-                        )?,
-                    })
-                }
-                ProductDomainEventTypeRecord::DomainStateRemoved => {
-                    ProductDomainEventPayload::StateRemoved(ProductStateChangeDomainEventPayload {
-                        shop_id,
-                        shops_product_id,
-                        old_state: record.old_state.map(ProductState::from).ok_or(
-                            MissingPersistenceField::new(
-                                field!(old_state@ProductDomainEventRecord),
-                            ),
-                        )?,
-                    })
-                }
-                ProductDomainEventTypeRecord::DomainStateUnknown => {
-                    ProductDomainEventPayload::StateUnknown(ProductStateChangeDomainEventPayload {
-                        shop_id,
-                        shops_product_id,
-                        old_state: record.old_state.map(ProductState::from).ok_or(
-                            MissingPersistenceField::new(
-                                field!(old_state@ProductDomainEventRecord),
-                            ),
-                        )?,
-                    })
-                }
-                ProductDomainEventTypeRecord::DomainPriceDiscovered => {
-                    ProductDomainEventPayload::PriceDiscovered(
-                        ProductPriceDiscoveryDomainEventPayload {
-                            shop_id,
-                            shops_product_id,
-                            native_price: record.new_price_native.map(Price::from).ok_or(
-                                MissingPersistenceField::new(
-                                    field!(new_price_native@ProductDomainEventRecord),
-                                ),
-                            )?,
-                            other_price: new_other_price,
-                        },
-                    )
-                }
-                ProductDomainEventTypeRecord::DomainPriceDropped => {
-                    ProductDomainEventPayload::PriceDropped(ProductPriceChangeDomainEventPayload {
-                        shop_id,
-                        shops_product_id,
-                        new_native_price: record.new_price_native.map(Price::from).ok_or(
-                            MissingPersistenceField::new(
-                                field!(new_price_native@ProductDomainEventRecord),
-                            ),
-                        )?,
+                        new_native_price: record.new_price_native.map(Price::from),
                         new_other_price,
-                        old_native_price: record.old_price_native.map(Price::from).ok_or(
-                            MissingPersistenceField::new(
-                                field!(old_price_native@ProductDomainEventRecord),
-                            ),
-                        )?,
-                        old_other_price,
-                    })
-                }
-                ProductDomainEventTypeRecord::DomainPriceIncreased => {
-                    ProductDomainEventPayload::PriceIncreased(
-                        ProductPriceChangeDomainEventPayload {
-                            shop_id,
-                            shops_product_id,
-                            new_native_price: record.new_price_native.map(Price::from).ok_or(
-                                MissingPersistenceField::new(
-                                    field!(new_price_native@ProductDomainEventRecord),
-                                ),
-                            )?,
-                            new_other_price,
-                            old_native_price: record.old_price_native.map(Price::from).ok_or(
-                                MissingPersistenceField::new(
-                                    field!(old_price_native@ProductDomainEventRecord),
-                                ),
-                            )?,
-                            old_other_price,
-                        },
-                    )
-                }
-                ProductDomainEventTypeRecord::DomainPriceRemoved => {
-                    ProductDomainEventPayload::PriceRemoved(ProductPriceRemovedDomainEventPayload {
-                        shop_id,
-                        shops_product_id,
-                        old_native_price: record.old_price_native.map(Price::from).ok_or(
-                            MissingPersistenceField::new(
-                                field!(old_price_native@ProductDomainEventRecord),
-                            ),
-                        )?,
+                        old_native_price: record.old_price_native.map(Price::from),
                         old_other_price,
                     })
                 }

@@ -94,58 +94,14 @@ fn mk_notification_payload(
         ProductDomainEventPayload::Created(payload) => {
             mk_created_watchlist_notification_payload(product, payload)
         }
-        ProductDomainEventPayload::StateListed(payload) => {
-            mk_state_change_watchlist_notification_payload(product, payload, &ProductState::Listed)
+        ProductDomainEventPayload::StateChanged(payload) => {
+            mk_state_change_watchlist_notification_payload(product, payload, &payload.new_state)
         }
-        ProductDomainEventPayload::StateAvailable(payload) => {
-            mk_state_change_watchlist_notification_payload(
-                product,
-                payload,
-                &ProductState::Available,
-            )
-        }
-        ProductDomainEventPayload::StateReserved(payload) => {
-            mk_state_change_watchlist_notification_payload(
-                product,
-                payload,
-                &ProductState::Reserved,
-            )
-        }
-        ProductDomainEventPayload::StateSold(payload) => {
-            mk_state_change_watchlist_notification_payload(product, payload, &ProductState::Sold)
-        }
-        ProductDomainEventPayload::StateRemoved(payload) => {
-            mk_state_change_watchlist_notification_payload(product, payload, &ProductState::Removed)
-        }
-        ProductDomainEventPayload::StateUnknown(payload) => {
-            mk_state_change_watchlist_notification_payload(product, payload, &ProductState::Unknown)
-        }
-        ProductDomainEventPayload::PriceDiscovered(payload) => {
-            mk_price_change_watchlist_notification_payload(
-                product,
-                Default::default(),
-                payload.prices(),
-            )
-        }
-        ProductDomainEventPayload::PriceDropped(payload) => {
+        ProductDomainEventPayload::PriceChanged(payload) => {
             mk_price_change_watchlist_notification_payload(
                 product,
                 payload.old_prices(),
                 payload.new_prices(),
-            )
-        }
-        ProductDomainEventPayload::PriceIncreased(payload) => {
-            mk_price_change_watchlist_notification_payload(
-                product,
-                payload.old_prices(),
-                payload.new_prices(),
-            )
-        }
-        ProductDomainEventPayload::PriceRemoved(payload) => {
-            mk_price_change_watchlist_notification_payload(
-                product,
-                payload.old_prices(),
-                Default::default(),
             )
         }
     }
@@ -222,8 +178,7 @@ mod tests {
     use product::core::product::Product;
     use product::core::product_event::domain::{
         ProductCreatedDomainEventPayload, ProductDomainEventPayload,
-        ProductPriceChangeDomainEventPayload, ProductPriceDiscoveryDomainEventPayload,
-        ProductPriceRemovedDomainEventPayload, ProductStateChangeDomainEventPayload,
+        ProductPriceChangeDomainEventPayload, ProductStateChangeDomainEventPayload,
     };
     use product::service::get_service::{GetProductError, MockGetProductService};
     use product_watchlist::service::product_watchlist_service::{
@@ -242,11 +197,6 @@ mod tests {
             timestamp: OffsetDateTime::now_utc(),
             payload,
         }
-    }
-
-    fn make_state_change_payload(old_state: ProductState) -> ProductStateChangeDomainEventPayload {
-        let base: ProductStateChangeDomainEventPayload = Faker.fake();
-        ProductStateChangeDomainEventPayload { old_state, ..base }
     }
 
     fn extract_watchlist_payload(cmd: &CreateNotificationCommand) -> &NotificationWatchlistPayload {
@@ -307,7 +257,7 @@ mod tests {
         let svc =
             ProductEventWatchlistNotificationsServiceImpl::new(&watchlist_mock, &get_product_mock);
 
-        let event = make_event(ProductDomainEventPayload::StateListed(Faker.fake()));
+        let event = make_event(ProductDomainEventPayload::StateChanged(Faker.fake()));
 
         let result = svc.determine_notification_commands(event).await;
 
@@ -342,7 +292,7 @@ mod tests {
         let svc =
             ProductEventWatchlistNotificationsServiceImpl::new(&watchlist_mock, &get_product_mock);
 
-        let event = make_event(ProductDomainEventPayload::StateListed(Faker.fake()));
+        let event = make_event(ProductDomainEventPayload::StateChanged(Faker.fake()));
 
         let result = svc
             .determine_notification_commands(event)
@@ -416,43 +366,23 @@ mod tests {
     // ---------------------------------------------------------------------------
 
     #[rstest::rstest]
-    #[case::listed(
-        ProductState::Available,
-        ProductDomainEventPayload::StateListed as fn(ProductStateChangeDomainEventPayload) -> ProductDomainEventPayload,
-        ProductState::Listed,
-    )]
-    #[case::available(
-        ProductState::Listed,
-        ProductDomainEventPayload::StateAvailable as fn(ProductStateChangeDomainEventPayload) -> ProductDomainEventPayload,
-        ProductState::Available,
-    )]
-    #[case::reserved(
-        ProductState::Listed,
-        ProductDomainEventPayload::StateReserved as fn(ProductStateChangeDomainEventPayload) -> ProductDomainEventPayload,
-        ProductState::Reserved,
-    )]
-    #[case::sold(
-        ProductState::Reserved,
-        ProductDomainEventPayload::StateSold as fn(ProductStateChangeDomainEventPayload) -> ProductDomainEventPayload,
-        ProductState::Sold,
-    )]
-    #[case::removed(
-        ProductState::Listed,
-        ProductDomainEventPayload::StateRemoved as fn(ProductStateChangeDomainEventPayload) -> ProductDomainEventPayload,
-        ProductState::Removed,
-    )]
-    #[case::unknown(
-        ProductState::Listed,
-        ProductDomainEventPayload::StateUnknown as fn(ProductStateChangeDomainEventPayload) -> ProductDomainEventPayload,
-        ProductState::Unknown,
-    )]
+    #[case::listed(ProductState::Available, ProductState::Listed)]
+    #[case::available(ProductState::Listed, ProductState::Available)]
+    #[case::reserved(ProductState::Listed, ProductState::Reserved)]
+    #[case::sold(ProductState::Reserved, ProductState::Sold)]
+    #[case::removed(ProductState::Listed, ProductState::Removed)]
+    #[case::unknown(ProductState::Listed, ProductState::Unknown)]
     #[tokio::test]
     async fn should_map_state_event_to_state_change_notification_when_state_variant(
         #[case] old_state: ProductState,
-        #[case] variant_ctor: fn(ProductStateChangeDomainEventPayload) -> ProductDomainEventPayload,
-        #[case] expected_new_state: ProductState,
+        #[case] new_state: ProductState,
     ) {
-        let state_payload = make_state_change_payload(old_state);
+        let base: ProductStateChangeDomainEventPayload = Faker.fake();
+        let state_payload = ProductStateChangeDomainEventPayload {
+            old_state,
+            new_state,
+            ..base
+        };
 
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
@@ -467,7 +397,7 @@ mod tests {
         let svc =
             ProductEventWatchlistNotificationsServiceImpl::new(&watchlist_mock, &get_product_mock);
 
-        let event = make_event(variant_ctor(state_payload));
+        let event = make_event(ProductDomainEventPayload::StateChanged(state_payload));
 
         let mut result = svc
             .determine_notification_commands(event)
@@ -483,11 +413,11 @@ mod tests {
                 NotificationWatchlistPayload::StateChange {
                     old_state: actual_old,
                     new_state: actual_new,
-                } if *actual_old == old_state && *actual_new == expected_new_state
+                } if *actual_old == old_state && *actual_new == new_state
             ),
             "expected StateChange {{ old_state: {:?}, new_state: {:?} }}, got {:?}",
             old_state,
-            expected_new_state,
+            new_state,
             extract_watchlist_payload(&cmd)
         );
     }
@@ -498,8 +428,13 @@ mod tests {
 
     #[tokio::test]
     async fn should_map_price_discovered_to_price_change_notification_with_empty_old_price() {
-        let price_payload: ProductPriceDiscoveryDomainEventPayload = Faker.fake();
-        let expected_new_prices = price_payload.prices();
+        let base: ProductPriceChangeDomainEventPayload = Faker.fake();
+        let price_payload = ProductPriceChangeDomainEventPayload {
+            old_native_price: None,
+            old_other_price: HashMap::new(),
+            ..base
+        };
+        let expected_new_prices = price_payload.new_prices();
 
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
@@ -514,7 +449,7 @@ mod tests {
         let svc =
             ProductEventWatchlistNotificationsServiceImpl::new(&watchlist_mock, &get_product_mock);
 
-        let event = make_event(ProductDomainEventPayload::PriceDiscovered(price_payload));
+        let event = make_event(ProductDomainEventPayload::PriceChanged(price_payload));
 
         let mut result = svc
             .determine_notification_commands(event)
@@ -558,7 +493,7 @@ mod tests {
         let svc =
             ProductEventWatchlistNotificationsServiceImpl::new(&watchlist_mock, &get_product_mock);
 
-        let event = make_event(ProductDomainEventPayload::PriceDropped(price_payload));
+        let event = make_event(ProductDomainEventPayload::PriceChanged(price_payload));
 
         let mut result = svc
             .determine_notification_commands(event)
@@ -602,7 +537,7 @@ mod tests {
         let svc =
             ProductEventWatchlistNotificationsServiceImpl::new(&watchlist_mock, &get_product_mock);
 
-        let event = make_event(ProductDomainEventPayload::PriceIncreased(price_payload));
+        let event = make_event(ProductDomainEventPayload::PriceChanged(price_payload));
 
         let mut result = svc
             .determine_notification_commands(event)
@@ -629,7 +564,12 @@ mod tests {
 
     #[tokio::test]
     async fn should_map_price_removed_to_price_change_notification_with_empty_new_price() {
-        let price_payload: ProductPriceRemovedDomainEventPayload = Faker.fake();
+        let base: ProductPriceChangeDomainEventPayload = Faker.fake();
+        let price_payload = ProductPriceChangeDomainEventPayload {
+            new_native_price: None,
+            new_other_price: HashMap::new(),
+            ..base
+        };
         let expected_old_prices = price_payload.old_prices();
 
         let mut watchlist_mock = MockProductWatchListService::new();
@@ -645,7 +585,7 @@ mod tests {
         let svc =
             ProductEventWatchlistNotificationsServiceImpl::new(&watchlist_mock, &get_product_mock);
 
-        let event = make_event(ProductDomainEventPayload::PriceRemoved(price_payload));
+        let event = make_event(ProductDomainEventPayload::PriceChanged(price_payload));
 
         let mut result = svc
             .determine_notification_commands(event)
@@ -695,7 +635,7 @@ mod tests {
         let svc =
             ProductEventWatchlistNotificationsServiceImpl::new(&watchlist_mock, &get_product_mock);
 
-        let event = make_event(ProductDomainEventPayload::StateListed(Faker.fake()));
+        let event = make_event(ProductDomainEventPayload::StateChanged(Faker.fake()));
 
         let mut result = svc
             .determine_notification_commands(event)
@@ -750,7 +690,7 @@ mod tests {
         let svc =
             ProductEventWatchlistNotificationsServiceImpl::new(&watchlist_mock, &get_product_mock);
 
-        let event = make_event(ProductDomainEventPayload::StateListed(Faker.fake()));
+        let event = make_event(ProductDomainEventPayload::StateChanged(Faker.fake()));
 
         let result = svc.determine_notification_commands(event).await;
 
@@ -787,7 +727,7 @@ mod tests {
         let svc =
             ProductEventWatchlistNotificationsServiceImpl::new(&watchlist_mock, &get_product_mock);
 
-        let event = make_event(ProductDomainEventPayload::StateListed(Faker.fake()));
+        let event = make_event(ProductDomainEventPayload::StateChanged(Faker.fake()));
 
         let result = svc.determine_notification_commands(event).await;
 
