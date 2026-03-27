@@ -6,9 +6,7 @@ use crate::{
     service::command::UpdateWatchlistProductCommand,
     service::sort_watchlist_product_field::SortWatchlistProductField,
 };
-use aws_sdk_dynamodb::{
-    config::http::HttpResponse, error::SdkError, operation::put_item::PutItemError,
-};
+use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::slug_id::SlugId;
 use common::{
     pagination::cursor::{Cursor, CursoredResult},
@@ -239,8 +237,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
         let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(user_id),
             sk: mk_sk(shop_id, shops_product_id),
-            lsi1_sk: mk_lsi1_sk(&now)
-                .map_err::<SdkError<PutItemError>, _>(SdkError::construction_failure)?,
+            lsi1_sk: mk_lsi1_sk(&now),
             gsi1_pk: mk_gsi1_pk(&product_record.product_id),
             gsi1_sk: mk_gsi1_sk(user_id),
             user_id: *user_id,

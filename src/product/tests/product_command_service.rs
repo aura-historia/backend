@@ -1,5 +1,7 @@
 use common::{
-    has_key::HasKey, price::domain::FixedFxRate, product_id::ProductKey,
+    has_key::HasKey,
+    price::domain::{FixedFxRate, FxRate},
+    product_id::ProductKey,
     product_state::domain::ProductState,
 };
 use fake::{Fake, Faker};
@@ -17,6 +19,41 @@ use product::service::{
 use std::collections::HashMap;
 use test_api::*;
 
+/// Creates a `ProductRecord` from a `CreateProductCommand` with correctly
+/// computed `other_price` via `FixedFxRate`, so subsequent updates with the
+/// same `native_price` do not spuriously generate price-change events.
+fn make_product_record(cmd: &CreateProductCommand) -> ProductRecord {
+    let other_price = cmd
+        .native_price
+        .and_then(|p| {
+            FixedFxRate()
+                .exchange_all(p.currency, p.monetary_amount)
+                .ok()
+        })
+        .unwrap_or_default();
+    let event_record: ProductDomainEventRecord = Product::create(
+        cmd.shop_id,
+        cmd.shops_product_id.clone(),
+        cmd.shop_name.clone(),
+        cmd.shop_type,
+        cmd.native_title.clone(),
+        cmd.native_description.clone(),
+        cmd.native_price,
+        other_price,
+        None,
+        Default::default(),
+        None,
+        Default::default(),
+        cmd.state,
+        cmd.url.clone(),
+        cmd.images.clone(),
+        cmd.auction_start,
+        cmd.auction_end,
+    )
+    .into();
+    event_record.try_into().unwrap()
+}
+
 #[localstack_test(services = [DynamoDB()])]
 async fn should_write_all_products_to_dynamodb_as_created_when_none_exist() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -26,7 +63,7 @@ async fn should_write_all_products_to_dynamodb_as_created_when_none_exist() {
     let failures = service.create(commands.clone()).await;
     assert!(failures.is_empty());
 
-    let all_event_records_created = get_dynamodb_client()
+    let items = get_dynamodb_client()
         .await
         .scan()
         .table_name("table_1")
@@ -34,17 +71,19 @@ async fn should_write_all_products_to_dynamodb_as_created_when_none_exist() {
         .await
         .unwrap()
         .items
-        .unwrap()
+        .unwrap_or_default();
+
+    let event_count = items
         .iter()
-        .all(|record| {
-            record
-                .get(ProductDomainEventRecordSerdeField::EventType.as_str())
-                .unwrap()
-                .as_s()
-                .unwrap()
-                == "DOMAIN_CREATED"
-        });
-    assert!(all_event_records_created);
+        .filter(|r| r.contains_key(ProductDomainEventRecordSerdeField::EventType.as_str()))
+        .count();
+    assert_eq!(543, event_count);
+
+    let all_created = items
+        .iter()
+        .filter_map(|record| record.get(ProductDomainEventRecordSerdeField::EventType.as_str()))
+        .all(|val| val.as_s().unwrap() == "DOMAIN_CREATED");
+    assert!(all_created);
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -52,16 +91,31 @@ async fn should_not_create_duplicate_products_when_already_exist() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = CommandProductServiceImpl::new(&repository, &FixedFxRate());
 
-    let cmds = fake::vec![CreateProductCommand; 400];
-    // First create
-    let failures = service.create(cmds.clone()).await;
+    // Simulate already-materialized products by writing ProductRecord items directly.
+    // The create service checks for ProductRecord existence (not event records) to
+    // determine whether a product already exists.
+    let existing_cmds = fake::vec![CreateProductCommand; 5];
+    for cmd in &existing_cmds {
+        let product_record = make_product_record(cmd);
+        let unprocessed = repository
+            .put_product_records([product_record].into())
+            .await
+            .unwrap()
+            .unprocessed_items
+            .unwrap_or_default();
+        assert!(unprocessed.is_empty());
+    }
+
+    // New products that do not yet have a ProductRecord in the table.
+    let new_cmds = fake::vec![CreateProductCommand; 3];
+
+    let mut all_cmds = existing_cmds.clone();
+    all_cmds.extend(new_cmds.clone());
+
+    let failures = service.create(all_cmds).await;
     assert!(failures.is_empty());
 
-    // Second create of the same products should not fail but should skip existing
-    let failures = service.create(cmds).await;
-    assert!(failures.is_empty());
-
-    let actual_records = get_dynamodb_client()
+    let items = get_dynamodb_client()
         .await
         .scan()
         .table_name("table_1")
@@ -69,10 +123,21 @@ async fn should_not_create_duplicate_products_when_already_exist() {
         .await
         .unwrap()
         .items
-        .unwrap_or_default()
-        .len();
-    // Only the original create events should exist
-    assert_eq!(400, actual_records);
+        .unwrap_or_default();
+
+    // Only 3 event records should have been written (for the 3 new products).
+    let event_count = items
+        .iter()
+        .filter(|r| r.contains_key(ProductDomainEventRecordSerdeField::EventType.as_str()))
+        .count();
+    assert_eq!(3, event_count);
+
+    // All 3 event records must be creation events.
+    let all_created = items
+        .iter()
+        .filter_map(|r| r.get(ProductDomainEventRecordSerdeField::EventType.as_str()))
+        .all(|val| val.as_s().unwrap() == "DOMAIN_CREATED");
+    assert!(all_created);
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -81,44 +146,25 @@ async fn should_write_no_product_update_events_when_all_exist_and_no_changes() {
     let service = CommandProductServiceImpl::new(&repository, &FixedFxRate());
 
     let cmds = fake::vec![CreateProductCommand; 400];
-    for cmd in cmds.clone() {
-        let event_record: ProductDomainEventRecord = Product::create(
-            cmd.shop_id,
-            cmd.shops_product_id,
-            cmd.shop_name,
-            cmd.shop_type,
-            cmd.native_title,
-            cmd.native_description,
-            cmd.native_price,
-            Default::default(),
-            None,
-            Default::default(),
-            None,
-            Default::default(),
-            cmd.state,
-            cmd.url,
-            cmd.images,
-            cmd.auction_start,
-            cmd.auction_end,
-        )
-        .into();
-        let product_record: ProductRecord = event_record.try_into().unwrap();
+    for cmd in &cmds {
+        let product_record = make_product_record(cmd);
         let unprocessed = repository
             .put_product_records([product_record].into())
             .await
             .unwrap()
             .unprocessed_items
             .unwrap_or_default();
-        assert!(unprocessed.is_empty())
+        assert!(unprocessed.is_empty());
     }
 
+    // Update with the exact same price and state — no changes should be detected.
     let update_cmds: HashMap<ProductKey, UpdateProductCommand> = cmds
-        .into_iter()
+        .iter()
         .map(|cmd| {
             (
                 ProductKey {
                     shop_id: cmd.shop_id,
-                    shops_product_id: cmd.shops_product_id,
+                    shops_product_id: cmd.shops_product_id.clone(),
                 },
                 UpdateProductCommand {
                     native_price: cmd.native_price,
@@ -130,7 +176,8 @@ async fn should_write_no_product_update_events_when_all_exist_and_no_changes() {
 
     let failures = service.update(update_cmds).await;
     assert!(failures.is_empty());
-    let actual_records = get_dynamodb_client()
+
+    let items = get_dynamodb_client()
         .await
         .scan()
         .table_name("table_1")
@@ -138,9 +185,15 @@ async fn should_write_no_product_update_events_when_all_exist_and_no_changes() {
         .await
         .unwrap()
         .items
-        .unwrap_or_default()
-        .len();
-    assert_eq!(400, actual_records); // just the existing materialized ones
+        .unwrap_or_default();
+
+    // No event records should have been written — only the original 400 product records.
+    let event_count = items
+        .iter()
+        .filter(|r| r.contains_key(ProductDomainEventRecordSerdeField::EventType.as_str()))
+        .count();
+    assert_eq!(0, event_count);
+    assert_eq!(400, items.len());
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -149,44 +202,26 @@ async fn should_write_product_updates_when_all_exist_and_actual_changes() {
     let service = CommandProductServiceImpl::new(&repository, &FixedFxRate());
 
     let cmds = fake::vec![CreateProductCommand; 400];
-    for cmd in cmds.clone() {
-        let event_record: ProductDomainEventRecord = Product::create(
-            cmd.shop_id,
-            cmd.shops_product_id,
-            cmd.shop_name,
-            cmd.shop_type,
-            cmd.native_title,
-            cmd.native_description,
-            cmd.native_price,
-            Default::default(),
-            None,
-            Default::default(),
-            None,
-            Default::default(),
-            cmd.state,
-            cmd.url,
-            cmd.images,
-            cmd.auction_start,
-            cmd.auction_end,
-        )
-        .into();
-        let product_record: ProductRecord = event_record.try_into().unwrap();
+    for cmd in &cmds {
+        let product_record = make_product_record(cmd);
         let unprocessed = repository
             .put_product_records([product_record].into())
             .await
             .unwrap()
             .unprocessed_items
             .unwrap_or_default();
-        assert!(unprocessed.is_empty())
+        assert!(unprocessed.is_empty());
     }
 
+    // Update state to Available — products not already in Available will generate events.
+    // Keep native_price unchanged so no price-change events are emitted.
     let update_cmds: HashMap<ProductKey, UpdateProductCommand> = cmds
-        .into_iter()
+        .iter()
         .map(|cmd| {
             (
                 ProductKey {
                     shop_id: cmd.shop_id,
-                    shops_product_id: cmd.shops_product_id,
+                    shops_product_id: cmd.shops_product_id.clone(),
                 },
                 UpdateProductCommand {
                     native_price: cmd.native_price,
@@ -199,7 +234,7 @@ async fn should_write_product_updates_when_all_exist_and_actual_changes() {
     let failures = service.update(update_cmds).await;
     assert!(failures.is_empty());
 
-    let all_event_records_update_state_available = get_dynamodb_client()
+    let items = get_dynamodb_client()
         .await
         .scan()
         .table_name("table_1")
@@ -207,11 +242,14 @@ async fn should_write_product_updates_when_all_exist_and_actual_changes() {
         .await
         .unwrap()
         .items
-        .unwrap()
+        .unwrap_or_default();
+
+    // Every event record written must be a state-change event (no price-change events).
+    let all_event_records_are_state_changed = items
         .iter()
         .filter_map(|record| record.get(ProductDomainEventRecordSerdeField::EventType.as_str()))
         .all(|val| val.as_s().unwrap() == "DOMAIN_STATE_CHANGED");
-    assert!(all_event_records_update_state_available);
+    assert!(all_event_records_are_state_changed);
 }
 
 #[localstack_test(services = [DynamoDB()])]
