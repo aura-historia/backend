@@ -71,7 +71,7 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
                             })
                             .collect(),
                         Err(err) => {
-                            warn!(error = ?err, "Failed to load periods for classification cache.");
+                            warn!(error = ?err, "Failed to load periods for classification cache. Period classification will be skipped.");
                             Vec::new()
                         }
                     };
@@ -92,7 +92,7 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
                         })
                         .collect(),
                     Err(err) => {
-                        warn!(error = ?err, "Failed to load categories for classification cache.");
+                        warn!(error = ?err, "Failed to load categories for classification cache. Category classification will be skipped.");
                         Vec::new()
                     }
                 };
