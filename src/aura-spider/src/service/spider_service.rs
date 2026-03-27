@@ -91,7 +91,11 @@ impl SpiderServiceImpl {
     ) -> Result<usize, SpiderError> {
         let count = buffer
             .iter()
-            .filter(|p| pattern.as_ref().is_some_and(|regex| p.url.matches_pattern(regex)))
+            .filter(|p| {
+                pattern
+                    .as_ref()
+                    .is_some_and(|regex| p.url.matches_pattern(regex))
+            })
             .count();
         self.persist_link_metadata_batch(shop_id, buffer, pattern)
             .await?;
