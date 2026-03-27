@@ -65,12 +65,22 @@ const NAZI_KEYWORDS: &[&str] = &[
     "germania nazista",
 ];
 
-/// Returns `true` when the text contains a standalone occurrence of the
-/// given keyword – that is, the keyword is surrounded by word-boundaries or
-/// string edges.  The check is case-insensitive.
+/// Returns `true` when the lowercased `text` contains the given `keyword`
+/// surrounded by non-alphanumeric boundaries (or string edges), preventing
+/// partial-word false positives (e.g. "nsdap" must not match "nsdapper").
 fn contains_keyword(text: &str, keyword: &str) -> bool {
-    // Both sides lowered so comparison is case-insensitive.
-    text.contains(keyword)
+    let mut start = 0;
+    while let Some(pos) = text[start..].find(keyword) {
+        let abs = start + pos;
+        let before_ok = abs == 0 || !text.as_bytes()[abs - 1].is_ascii_alphanumeric();
+        let end = abs + keyword.len();
+        let after_ok = end == text.len() || !text.as_bytes()[end].is_ascii_alphanumeric();
+        if before_ok && after_ok {
+            return true;
+        }
+        start = abs + 1;
+    }
+    false
 }
 
 /// Analyses the product text and decides on a `ProhibitedContent` flag for
@@ -612,6 +622,14 @@ mod tests {
                 cmd.images[0].prohibited_content,
                 ProhibitedContent::NaziGermany
             );
+        }
+
+        #[test]
+        fn should_not_flag_when_keyword_is_substring_of_another_word() {
+            let mut cmd = cmd_with("Some nsdapping decoration", None);
+            cmd.images = make_images(1);
+            super::classify_images(&mut cmd);
+            assert_eq!(cmd.images[0].prohibited_content, ProhibitedContent::None);
         }
     }
 
