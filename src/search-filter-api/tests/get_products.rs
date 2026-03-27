@@ -104,7 +104,7 @@ async fn seed_match_records(
                 &product_record.shop_id,
                 &product_record.shops_product_id,
             ),
-            lsi1_sk: mk_lsi1_sk(&created).unwrap(),
+            lsi1_sk: mk_lsi1_sk(&created),
             user_id: *user_id,
             user_search_filter_id: *search_filter_id,
             shop_id: product_record.shop_id,

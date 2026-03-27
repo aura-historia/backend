@@ -19,6 +19,33 @@ use product::service::{
 use std::collections::HashMap;
 use test_api::*;
 
+/// Scans all items across all pages from `table_1`.
+///
+/// DynamoDB returns at most 1 MB per `scan` call.  Tests that write hundreds
+/// of large records must paginate to collect every item; a single-page scan
+/// silently truncates the result set and causes flaky count assertions.
+async fn scan_all_items() -> Vec<HashMap<String, aws_sdk_dynamodb::types::AttributeValue>> {
+    let client = get_dynamodb_client().await;
+    let mut all_items = Vec::new();
+    let mut exclusive_start_key: Option<HashMap<String, aws_sdk_dynamodb::types::AttributeValue>> =
+        None;
+
+    loop {
+        let mut req = client.scan().table_name("table_1");
+        if let Some(start_key) = exclusive_start_key {
+            req = req.set_exclusive_start_key(Some(start_key));
+        }
+        let output = req.send().await.unwrap();
+        all_items.extend(output.items.unwrap_or_default());
+        exclusive_start_key = output.last_evaluated_key;
+        if exclusive_start_key.is_none() {
+            break;
+        }
+    }
+
+    all_items
+}
+
 /// Creates a `ProductRecord` from a `CreateProductCommand` with correctly
 /// computed `other_price` via `FixedFxRate`, so subsequent updates with the
 /// same `native_price` do not spuriously generate price-change events.
@@ -63,15 +90,7 @@ async fn should_write_all_products_to_dynamodb_as_created_when_none_exist() {
     let failures = service.create(commands.clone()).await;
     assert!(failures.is_empty());
 
-    let items = get_dynamodb_client()
-        .await
-        .scan()
-        .table_name("table_1")
-        .send()
-        .await
-        .unwrap()
-        .items
-        .unwrap_or_default();
+    let items = scan_all_items().await;
 
     let event_count = items
         .iter()
@@ -115,15 +134,7 @@ async fn should_not_create_duplicate_products_when_already_exist() {
     let failures = service.create(all_cmds).await;
     assert!(failures.is_empty());
 
-    let items = get_dynamodb_client()
-        .await
-        .scan()
-        .table_name("table_1")
-        .send()
-        .await
-        .unwrap()
-        .items
-        .unwrap_or_default();
+    let items = scan_all_items().await;
 
     // Only 3 event records should have been written (for the 3 new products).
     let event_count = items
@@ -177,15 +188,7 @@ async fn should_write_no_product_update_events_when_all_exist_and_no_changes() {
     let failures = service.update(update_cmds).await;
     assert!(failures.is_empty());
 
-    let items = get_dynamodb_client()
-        .await
-        .scan()
-        .table_name("table_1")
-        .send()
-        .await
-        .unwrap()
-        .items
-        .unwrap_or_default();
+    let items = scan_all_items().await;
 
     // No event records should have been written — only the original 400 product records.
     let event_count = items
@@ -234,15 +237,7 @@ async fn should_write_product_updates_when_all_exist_and_actual_changes() {
     let failures = service.update(update_cmds).await;
     assert!(failures.is_empty());
 
-    let items = get_dynamodb_client()
-        .await
-        .scan()
-        .table_name("table_1")
-        .send()
-        .await
-        .unwrap()
-        .items
-        .unwrap_or_default();
+    let items = scan_all_items().await;
 
     // Every event record written must be a state-change event (no price-change events).
     let all_event_records_are_state_changed = items

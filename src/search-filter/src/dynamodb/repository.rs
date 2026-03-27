@@ -121,15 +121,13 @@ fn compute_lsi1_sk_bounds(
 
     if scan_index_forward {
         let lower = match cursor.search_after {
-            Some(created) => match_record::mk_lsi1_sk(&(created + Duration::NANOSECOND))
-                .map_err(SdkError::construction_failure)?,
+            Some(created) => match_record::mk_lsi1_sk(&(created + Duration::NANOSECOND)),
             None => match_record::LSI1_SK_LOWER_BOUND.to_string(),
         };
         Ok((lower, match_record::LSI1_SK_UPPER_BOUND.to_string()))
     } else {
         let upper = match cursor.search_after {
-            Some(created) => match_record::mk_lsi1_sk(&(created - Duration::NANOSECOND))
-                .map_err(SdkError::construction_failure)?,
+            Some(created) => match_record::mk_lsi1_sk(&(created - Duration::NANOSECOND)),
             None => match_record::LSI1_SK_UPPER_BOUND.to_string(),
         };
         Ok((match_record::LSI1_SK_LOWER_BOUND.to_string(), upper))
