@@ -55,6 +55,8 @@ use product::{
         product_command::{CreateProductCommand, UpdateProductCommand},
     },
 };
+use product_classification::category::service::MockCategoryService;
+use product_classification::period::service::MockPeriodService;
 use product_watchlist::dynamodb::repository::{
     WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
 };
@@ -1137,7 +1139,20 @@ async fn create_products(commands: Vec<CreateProductCommand>) {
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
     let fx_rate = FixedFxRate();
-    let command_service = CommandProductServiceImpl::new(&product_repository, &fx_rate);
+    let mut period_service = MockPeriodService::default();
+    period_service
+        .expect_find_periods()
+        .returning(|| Box::pin(async { Ok(vec![]) }));
+    let mut category_service = MockCategoryService::default();
+    category_service
+        .expect_find_categories()
+        .returning(|| Box::pin(async { Ok(vec![]) }));
+    let command_service = CommandProductServiceImpl::new(
+        &product_repository,
+        &fx_rate,
+        &period_service,
+        &category_service,
+    );
 
     let result = command_service.create(commands).await;
     assert!(result.is_empty(), "Some products failed to create");
@@ -1149,7 +1164,20 @@ async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
     let fx_rate = FixedFxRate();
-    let command_service = CommandProductServiceImpl::new(&product_repository, &fx_rate);
+    let mut period_service = MockPeriodService::default();
+    period_service
+        .expect_find_periods()
+        .returning(|| Box::pin(async { Ok(vec![]) }));
+    let mut category_service = MockCategoryService::default();
+    category_service
+        .expect_find_categories()
+        .returning(|| Box::pin(async { Ok(vec![]) }));
+    let command_service = CommandProductServiceImpl::new(
+        &product_repository,
+        &fx_rate,
+        &period_service,
+        &category_service,
+    );
 
     let result = command_service.update(commands).await;
     assert!(result.is_empty(), "Some products failed to update");

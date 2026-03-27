@@ -5224,6 +5224,7 @@ dependencies = [
  "once_cell",
  "opensearch",
  "product",
+ "product-classification",
  "regex",
  "rstest",
  "serde",

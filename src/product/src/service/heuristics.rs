@@ -412,20 +412,40 @@ pub fn enrich_restoration(cmd: &mut CreateProductCommand) {
 }
 
 // ---------------------------------------------------------------------------
-// classify_period & classify_category (require OpenSearch IDs – no-op)
+// classify_period & classify_category – keyword matching from pre-loaded data
 // ---------------------------------------------------------------------------
 
-/// Period classification requires matching against `PeriodDocument` records
-/// stored in OpenSearch (each carrying its own `PeriodId`).  Without an
-/// OpenSearch query we cannot reliably map keywords to database IDs, so this
-/// function is intentionally a no-op.  The heavy ML/AI pipeline will perform
-/// the full classification asynchronously.
-pub fn classify_period(_cmd: &mut CreateProductCommand) {}
+/// Matches the product **title** (not description) against a pre-built keyword
+/// index.  Each entry maps a lowercased keyword to a `PeriodId`.  The index is
+/// sorted longest-keyword-first so the most specific match wins.
+pub fn classify_period(
+    cmd: &mut CreateProductCommand,
+    period_keywords: &[(String, common::period_key::PeriodId)],
+) {
+    let title = cmd.native_title.payload.as_ref().to_lowercase();
+    for (keyword, period_id) in period_keywords {
+        if title.contains(keyword.as_str()) {
+            cmd.period_id = Some(period_id.clone());
+            return;
+        }
+    }
+}
 
-/// Category classification requires matching against `CategoryDocument`
-/// records stored in OpenSearch (each carrying its own `CategoryId`).
-/// Same reasoning as [`classify_period`] — intentionally a no-op here.
-pub fn classify_category(_cmd: &mut CreateProductCommand) {}
+/// Matches the product **title** (not description) against a pre-built keyword
+/// index.  Each entry maps a lowercased keyword to a `CategoryId`.  The index
+/// is sorted longest-keyword-first so the most specific match wins.
+pub fn classify_category(
+    cmd: &mut CreateProductCommand,
+    category_keywords: &[(String, common::category_key::CategoryId)],
+) {
+    let title = cmd.native_title.payload.as_ref().to_lowercase();
+    for (keyword, category_id) in category_keywords {
+        if title.contains(keyword.as_str()) {
+            cmd.category_id = Some(category_id.clone());
+            return;
+        }
+    }
+}
 
 // ===========================================================================
 // Tests
@@ -1242,27 +1262,146 @@ mod tests {
     }
 
     // =======================================================================
-    // classify_period & classify_category (no-op)
+    // classify_period & classify_category
     // =======================================================================
 
     mod classify_period {
         use super::*;
+        use common::period_key::PeriodId;
+
+        fn period_index() -> Vec<(String, PeriodId)> {
+            vec![
+                ("baroque".into(), PeriodId::raw("period-baroque")),
+                ("barock".into(), PeriodId::raw("period-baroque")),
+                (
+                    "baroque tardif".into(),
+                    PeriodId::raw("period-late-baroque"),
+                ),
+                ("spätbarock".into(), PeriodId::raw("period-late-baroque")),
+                ("renaissance".into(), PeriodId::raw("period-renaissance")),
+                ("art deco".into(), PeriodId::raw("period-art-deco")),
+                ("art déco".into(), PeriodId::raw("period-art-deco")),
+                ("jugendstil".into(), PeriodId::raw("period-art-nouveau")),
+                ("art nouveau".into(), PeriodId::raw("period-art-nouveau")),
+            ]
+        }
 
         #[test]
-        fn should_not_set_period_id_without_opensearch() {
+        fn should_classify_period_when_title_contains_keyword() {
+            let mut cmd = cmd_with("Barocker Schrank aus Süddeutschland", None);
+            super::classify_period(&mut cmd, &period_index());
+            assert_eq!(cmd.period_id, Some(PeriodId::raw("period-baroque")));
+        }
+
+        #[test]
+        fn should_classify_period_for_english_keyword() {
+            let mut cmd = cmd_with("Baroque cabinet from France", None);
+            super::classify_period(&mut cmd, &period_index());
+            assert_eq!(cmd.period_id, Some(PeriodId::raw("period-baroque")));
+        }
+
+        #[test]
+        fn should_prefer_longer_keyword_match_for_specificity() {
+            let mut cmd = cmd_with("Kommode Spätbarock", None);
+            let mut index = period_index();
+            // Sort longest-first so "spätbarock" matches before "barock"
+            index.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+            super::classify_period(&mut cmd, &index);
+            assert_eq!(cmd.period_id, Some(PeriodId::raw("period-late-baroque")));
+        }
+
+        #[test]
+        fn should_not_set_period_when_no_keyword_matches() {
+            let mut cmd = cmd_with("Antiker Tisch aus dem 18. Jahrhundert", None);
+            super::classify_period(&mut cmd, &period_index());
+            assert_eq!(cmd.period_id, None);
+        }
+
+        #[test]
+        fn should_not_set_period_when_index_is_empty() {
             let mut cmd = cmd_with("Barocker Schrank", None);
-            super::classify_period(&mut cmd);
+            super::classify_period(&mut cmd, &[]);
+            assert_eq!(cmd.period_id, None);
+        }
+
+        #[test]
+        fn should_match_case_insensitively() {
+            let mut cmd = cmd_with("ART DECO Lampe", None);
+            super::classify_period(&mut cmd, &period_index());
+            assert_eq!(cmd.period_id, Some(PeriodId::raw("period-art-deco")));
+        }
+
+        #[test]
+        fn should_only_match_title_not_description() {
+            let mut cmd = cmd_with("Antiker Tisch", Some("Im Stil des Barock"));
+            super::classify_period(&mut cmd, &period_index());
             assert_eq!(cmd.period_id, None);
         }
     }
 
     mod classify_category {
         use super::*;
+        use common::category_key::CategoryId;
+
+        fn category_index() -> Vec<(String, CategoryId)> {
+            vec![
+                ("gemälde".into(), CategoryId::raw("cat-paintings")),
+                ("painting".into(), CategoryId::raw("cat-paintings")),
+                ("peinture".into(), CategoryId::raw("cat-paintings")),
+                ("schrank".into(), CategoryId::raw("cat-furniture")),
+                ("cabinet".into(), CategoryId::raw("cat-furniture")),
+                ("armoire".into(), CategoryId::raw("cat-furniture")),
+                ("skulptur".into(), CategoryId::raw("cat-sculpture")),
+                ("sculpture".into(), CategoryId::raw("cat-sculpture")),
+            ]
+        }
 
         #[test]
-        fn should_not_set_category_id_without_opensearch() {
-            let mut cmd = cmd_with("Antiker Schrank", None);
-            super::classify_category(&mut cmd);
+        fn should_classify_category_when_title_contains_keyword() {
+            let mut cmd = cmd_with("Barocker Schrank aus dem 18. Jahrhundert", None);
+            super::classify_category(&mut cmd, &category_index());
+            assert_eq!(cmd.category_id, Some(CategoryId::raw("cat-furniture")));
+        }
+
+        #[test]
+        fn should_classify_category_for_english_keyword() {
+            let mut cmd = cmd_with("Antique oil painting from 1850", None);
+            super::classify_category(&mut cmd, &category_index());
+            assert_eq!(cmd.category_id, Some(CategoryId::raw("cat-paintings")));
+        }
+
+        #[test]
+        fn should_classify_category_for_french_keyword() {
+            let mut cmd = cmd_with("Ancienne armoire en chêne", None);
+            super::classify_category(&mut cmd, &category_index());
+            assert_eq!(cmd.category_id, Some(CategoryId::raw("cat-furniture")));
+        }
+
+        #[test]
+        fn should_not_set_category_when_no_keyword_matches() {
+            let mut cmd = cmd_with("Antiker Gegenstand", None);
+            super::classify_category(&mut cmd, &category_index());
+            assert_eq!(cmd.category_id, None);
+        }
+
+        #[test]
+        fn should_not_set_category_when_index_is_empty() {
+            let mut cmd = cmd_with("Gemälde aus dem 18. Jahrhundert", None);
+            super::classify_category(&mut cmd, &[]);
+            assert_eq!(cmd.category_id, None);
+        }
+
+        #[test]
+        fn should_match_case_insensitively() {
+            let mut cmd = cmd_with("Antike SKULPTUR aus Bronze", None);
+            super::classify_category(&mut cmd, &category_index());
+            assert_eq!(cmd.category_id, Some(CategoryId::raw("cat-sculpture")));
+        }
+
+        #[test]
+        fn should_only_match_title_not_description() {
+            let mut cmd = cmd_with("Antiker Gegenstand", Some("Dies ist ein Gemälde"));
+            super::classify_category(&mut cmd, &category_index());
             assert_eq!(cmd.category_id, None);
         }
     }
