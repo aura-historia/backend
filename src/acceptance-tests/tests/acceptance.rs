@@ -71,13 +71,8 @@ use search_filter_api::{
     post_types::PostUserSearchFilterData,
 };
 use serde::de::DeserializeOwned;
-use shop::{
-    core::shop::Shop,
-    dynamodb::{
-        repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
-        shop_record::ShopRecord,
-    },
-};
+use shop::dynamodb::repository::ShopDynamoDbRepository;
+use shop::{core::shop::Shop, dynamodb::repository::ShopDynamoDbRepositoryImpl};
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 use test_api::*;
@@ -1129,10 +1124,8 @@ async fn prepare_test_shop() -> Shop {
     let shop = Faker.fake::<Shop>();
     let dynamodb_repository =
         ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
-    let mut shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
-    shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop.clone()));
     dynamodb_repository
-        .put_shop_records_transact(shop_records)
+        .put_shop_record(shop.clone().into())
         .await
         .unwrap();
     shop
