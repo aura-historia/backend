@@ -2,6 +2,7 @@ use regex::Regex;
 use std::collections::HashSet;
 use tracing::{debug, info, warn};
 
+use aura_scraper::css_selector::product_schema_service::strip_markdown_json_embedding;
 use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -83,16 +84,11 @@ impl UrlClassificationServiceImpl {
             .reasoning(true)
             .timeout_seconds(180)
             .validator(|res| {
-                let cleaned = res
-                    .replace("```json", "")
-                    .replace("```JSON", "")
-                    .replace("```", "")
-                    .trim()
-                    .to_string();
-                serde_json::from_str::<PatternResponse>(&cleaned)
+                serde_json::from_str::<PatternResponse>(strip_markdown_json_embedding(res))
                     .map(|_| ())
                     .map_err(|err| err.to_string())
             })
+            .validator_attempts(3)
             .build()?;
 
         Ok(Self { llm })
@@ -137,15 +133,9 @@ impl UrlClassificationServiceImpl {
     }
 
     fn parse_pattern_response(response_text: &str) -> Result<Option<String>, SpiderError> {
-        let cleaned = response_text
-            .replace("```json", "")
-            .replace("```JSON", "")
-            .replace("```", "")
-            .trim()
-            .to_string();
-
-        let parsed: PatternResponse = serde_json::from_str(&cleaned)
-            .map_err(|e| SpiderError::Gemini(format!("Failed to parse response: {}", e)))?;
+        let parsed: PatternResponse =
+            serde_json::from_str(strip_markdown_json_embedding(response_text))
+                .map_err(|e| SpiderError::Gemini(format!("Failed to parse response: {}", e)))?;
 
         let pattern = parsed.pattern.trim().to_string();
 

@@ -5,6 +5,7 @@ use spider::tokio;
 use spider::website::Website;
 use tokio::sync::mpsc;
 
+use crate::classification::link_metadata_repository::MainHash;
 use crate::error::SpiderError;
 use crate::utils::url::CrawledUrl;
 
@@ -22,8 +23,8 @@ const BLACKLIST_URL_SUBSTRINGS: &[&str] = &[
 /// Single crawled page represented by its normalized URL.
 #[derive(Debug, Clone)]
 pub struct CrawledPage {
-    pub url: String,
-    pub main_hash: String,
+    pub url: CrawledUrl,
+    pub main_hash: MainHash,
 }
 
 fn is_junk_url(url: &str) -> bool {
@@ -39,12 +40,12 @@ fn build_blacklist_url_patterns() -> Vec<CompactString> {
         .collect()
 }
 
-fn hash_main_fragment(html: &str, fallback: &str) -> String {
+fn hash_main_fragment(html: &str, fallback: &str) -> MainHash {
     let content_to_hash = extract_main_fragment(html).unwrap_or(fallback);
     let mut hasher = Sha256::new();
     hasher.update(content_to_hash.as_bytes());
     let digest = hasher.finalize();
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+    MainHash(digest.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 fn find_case_insensitive(text: &str, search: &str) -> Option<usize> {
@@ -151,14 +152,16 @@ impl Spider for SpiderImpl {
                 }
 
                 let normalized = if let Ok(parsed) = url::Url::parse(raw_url) {
-                    CrawledUrl::new(parsed).to_string()
+                    CrawledUrl::new(parsed)
                 } else {
-                    raw_url.trim().trim_end_matches('/').to_string()
+                    continue;
                 };
 
-                if !bloom.check(&normalized) {
-                    let main_hash = hash_main_fragment(&page.get_html(), &normalized);
-                    bloom.set(&normalized);
+                let normalized_str = normalized.to_string();
+
+                if !bloom.check(&normalized_str) {
+                    let main_hash = hash_main_fragment(&page.get_html(), &normalized_str);
+                    bloom.set(&normalized_str);
 
                     if tx
                         .send(CrawledPage {
@@ -216,23 +219,23 @@ mod tests {
     #[test]
     fn should_store_url_when_creating_crawled_page_for_product_path() {
         let page = CrawledPage {
-            url: "https://example.com/product/1".to_string(),
-            main_hash: "abc123".to_string(),
+            url: CrawledUrl::new(url::Url::parse("https://example.com/product/1").unwrap()),
+            main_hash: MainHash("abc123".to_string()),
         };
 
-        assert_eq!(page.url, "https://example.com/product/1");
-        assert_eq!(page.main_hash, "abc123");
+        assert_eq!(page.url.to_string(), "https://example.com/product/1");
+        assert_eq!(page.main_hash.0, "abc123");
     }
 
     #[test]
     fn should_store_url_when_creating_crawled_page_for_non_product_path() {
         let page = CrawledPage {
-            url: "https://example.com/about".to_string(),
-            main_hash: "def456".to_string(),
+            url: CrawledUrl::new(url::Url::parse("https://example.com/about").unwrap()),
+            main_hash: MainHash("def456".to_string()),
         };
 
-        assert_eq!(page.url, "https://example.com/about");
-        assert_eq!(page.main_hash, "def456");
+        assert_eq!(page.url.to_string(), "https://example.com/about");
+        assert_eq!(page.main_hash.0, "def456");
     }
 
     #[test]
@@ -252,6 +255,6 @@ mod tests {
         let hash = hash_main_fragment(html, fallback);
         let fallback_hash = hash_main_fragment("", fallback);
 
-        assert_eq!(hash, fallback_hash);
+        assert_eq!(hash.0, fallback_hash.0);
     }
 }

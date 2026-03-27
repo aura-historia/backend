@@ -57,23 +57,19 @@ impl SpiderServiceImpl {
             return Ok(0);
         }
 
-        use crate::classification::link_metadata_repository::MainHash;
-
         let mut urls = Vec::with_capacity(pages.len());
         let mut classes = Vec::with_capacity(pages.len());
         let mut hashes = Vec::with_capacity(pages.len());
 
         for page in pages {
-            if let Ok(url) = url::Url::parse(&page.url) {
-                urls.push(url);
+            urls.push(page.url.0.clone());
 
-                let class_str = classify_link(&page.url, pattern).as_str();
-                let class = std::str::FromStr::from_str(class_str)
-                    .unwrap_or(crate::domain::LinkClass::Other);
-                classes.push(class);
+            let class_str = classify_link(page.url.0.as_str(), pattern).as_str();
+            let class =
+                std::str::FromStr::from_str(class_str).unwrap_or(crate::domain::LinkClass::Other);
+            classes.push(class);
 
-                hashes.push(MainHash(page.main_hash.clone()));
-            }
+            hashes.push(page.main_hash.clone());
         }
 
         if !urls.is_empty() {
@@ -95,14 +91,7 @@ impl SpiderServiceImpl {
     ) -> Result<usize, SpiderError> {
         let count = buffer
             .iter()
-            .filter(|p| {
-                if let Some(regex) = pattern {
-                    if let Ok(parsed) = Url::parse(&p.url) {
-                        return CrawledUrl::new(parsed).matches_pattern(regex);
-                    }
-                }
-                false
-            })
+            .filter(|p| pattern.as_ref().is_some_and(|regex| p.url.matches_pattern(regex)))
             .count();
         self.persist_link_metadata_batch(shop_id, buffer, pattern)
             .await?;
@@ -166,7 +155,7 @@ impl SpiderService for SpiderServiceImpl {
                 total_crawled += 1;
 
                 if inference_sample.len() < self.config.max_sample_urls {
-                    inference_sample.push(page.url.clone());
+                    inference_sample.push(page.url.to_string());
                 }
 
                 page_buffer.push(page.clone());
@@ -191,10 +180,10 @@ impl SpiderService for SpiderServiceImpl {
                         let matched_count = inference_sample
                             .iter()
                             .filter(|url| {
-                                if let Some(regex) = &pattern {
-                                    if let Ok(parsed) = Url::parse(url) {
-                                        return CrawledUrl::new(parsed).matches_pattern(regex);
-                                    }
+                                if let Some(regex) = &pattern
+                                    && let Ok(parsed) = Url::parse(url)
+                                {
+                                    return CrawledUrl::new(parsed).matches_pattern(regex);
                                 }
                                 false
                             })
@@ -211,33 +200,33 @@ impl SpiderService for SpiderServiceImpl {
                 }
 
                 if classification_done {
-                    if let Some(last_url) = inference_sample.last().or(Some(&page.url)) {
-                        let is_match = if let Some(regex) = &pattern {
-                            if let Ok(parsed) = Url::parse(last_url) {
-                                CrawledUrl::new(parsed).matches_pattern(regex)
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        };
+                    let current_url = page.url.to_string();
+                    let last_url = inference_sample.last().unwrap_or(&current_url);
+                    let is_match = if let Some(regex) = &pattern
+                        && let Ok(parsed) = Url::parse(last_url)
+                    {
+                        CrawledUrl::new(parsed).matches_pattern(regex)
+                    } else {
+                        false
+                    };
 
-                        if is_match {
-                            debug!(index = total_crawled, url = %last_url, "URL matches product pattern");
-                        } else {
-                            debug!(
-                                index = total_crawled,
-                                url = %last_url,
-                                "URL does not match product pattern"
-                            );
-                        }
+                    if is_match {
+                        debug!(index = total_crawled, url = %last_url, "URL matches product pattern");
+                    } else {
+                        debug!(
+                            index = total_crawled,
+                            url = %last_url,
+                            "URL does not match product pattern"
+                        );
                     }
 
                     if page_buffer.len() >= self.config.db_batch_size {
                         products_found +=
                             self.process_buffer(&mut page_buffer, shop_id, &pattern).await?;
                     }
-                } else if let Some(last_url) = inference_sample.last().or(Some(&page.url)) {
+                } else {
+                    let current_url = page.url.to_string();
+                    let last_url = inference_sample.last().unwrap_or(&current_url);
                     debug!(index = total_crawled, url = %last_url, "Crawled URL");
                 }
 
@@ -270,10 +259,10 @@ impl SpiderService for SpiderServiceImpl {
                     let matched_count = inference_sample
                         .iter()
                         .filter(|url| {
-                            if let Some(regex) = &pattern {
-                                if let Ok(parsed) = Url::parse(url) {
-                                    return CrawledUrl::new(parsed).matches_pattern(regex);
-                                }
+                            if let Some(regex) = &pattern
+                                && let Ok(parsed) = Url::parse(url)
+                            {
+                                return CrawledUrl::new(parsed).matches_pattern(regex);
                             }
                             false
                         })
@@ -304,10 +293,10 @@ impl SpiderService for SpiderServiceImpl {
                     let matched_count = inference_sample
                         .iter()
                         .filter(|url| {
-                            if let Some(regex) = &pattern {
-                                if let Ok(parsed) = Url::parse(url) {
-                                    return CrawledUrl::new(parsed).matches_pattern(regex);
-                                }
+                            if let Some(regex) = &pattern
+                                && let Ok(parsed) = Url::parse(url)
+                            {
+                                return CrawledUrl::new(parsed).matches_pattern(regex);
                             }
                             false
                         })
@@ -352,12 +341,11 @@ impl SpiderService for SpiderServiceImpl {
 }
 
 fn classify_link(url: &str, product_pattern: &Option<Regex>) -> LinkClass {
-    if let Some(regex) = product_pattern {
-        if let Ok(parsed) = Url::parse(url) {
-            if CrawledUrl::new(parsed).matches_pattern(regex) {
-                return LinkClass::Product;
-            }
-        }
+    if let Some(regex) = product_pattern
+        && let Ok(parsed) = Url::parse(url)
+        && CrawledUrl::new(parsed).matches_pattern(regex)
+    {
+        return LinkClass::Product;
     }
 
     let lower = url.to_ascii_lowercase();
@@ -444,6 +432,7 @@ mod tests {
 #[cfg(test)]
 mod service_tests {
     use super::*;
+    use crate::classification::link_metadata_repository::MainHash;
     use crate::classification::link_metadata_repository::MockLinkMetadataRepository;
     use crate::classification::url_pattern_service::MockUrlPatternService;
     use crate::discovery::website_spider::MockSpider;
@@ -499,15 +488,17 @@ mod service_tests {
                 tokio::spawn(async move {
                     tx_clone
                         .send(CrawledPage {
-                            url: "https://example.com/product/1".to_string(),
-                            main_hash: "hash1".to_string(),
+                            url: CrawledUrl::new(
+                                Url::parse("https://example.com/product/1").unwrap(),
+                            ),
+                            main_hash: MainHash("hash1".to_string()),
                         })
                         .await
                         .unwrap();
                     tx_clone
                         .send(CrawledPage {
-                            url: "https://example.com/about".to_string(),
-                            main_hash: "hash2".to_string(),
+                            url: CrawledUrl::new(Url::parse("https://example.com/about").unwrap()),
+                            main_hash: MainHash("hash2".to_string()),
                         })
                         .await
                         .unwrap();
@@ -560,8 +551,10 @@ mod service_tests {
                 tokio::spawn(async move {
                     tx_clone
                         .send(CrawledPage {
-                            url: "https://example.com/product/1".to_string(),
-                            main_hash: "hash1".to_string(),
+                            url: CrawledUrl::new(
+                                Url::parse("https://example.com/product/1").unwrap(),
+                            ),
+                            main_hash: MainHash("hash1".to_string()),
                         })
                         .await
                         .unwrap();
@@ -615,8 +608,8 @@ mod service_tests {
                 tokio::spawn(async move {
                     tx_clone
                         .send(CrawledPage {
-                            url: "https://example.com/item/1".to_string(),
-                            main_hash: "hash1".to_string(),
+                            url: CrawledUrl::new(Url::parse("https://example.com/item/1").unwrap()),
+                            main_hash: MainHash("hash1".to_string()),
                         })
                         .await
                         .unwrap();
