@@ -5,6 +5,7 @@
 //! runs can skip the classification step and use the cached pattern directly.
 
 use async_trait::async_trait;
+use common::domain::Domain;
 use common::shop_id::ShopId;
 use sqlx::{FromRow, PgPool, Row};
 use time::OffsetDateTime;
@@ -15,7 +16,7 @@ pub struct ShopUrlPatternRecord {
     /// The unique shop identifier used as the primary key.
     pub shop_id: ShopId,
     /// The domain of the shop.
-    pub shop_domain: String,
+    pub shop_domain: Domain,
     /// The stored regex pattern, if any has been confirmed for this shop.
     pub url_pattern: Option<String>,
     /// When the shop was last crawled successfully.
@@ -29,9 +30,13 @@ pub struct ShopUrlPatternRecord {
 impl FromRow<'_, sqlx::postgres::PgRow> for ShopUrlPatternRecord {
     fn from_row(row: &sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         let shop_id: uuid::Uuid = row.try_get("shop_id")?;
+        let shop_domain_str: String = row.try_get("shop_domain")?;
+        let shop_domain =
+            Domain::try_from(shop_domain_str).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+
         Ok(Self {
             shop_id: shop_id.into(),
-            shop_domain: row.try_get("shop_domain")?,
+            shop_domain,
             url_pattern: row.try_get("url_pattern")?,
             last_crawled: row.try_get("last_crawled")?,
             created: row.try_get("created")?,
@@ -63,17 +68,23 @@ pub trait ShopUrlPatternRepository: Send + Sync {
     async fn save_pattern(
         &self,
         shop_id: &ShopId,
-        shop_domain: &str,
+        shop_domain: &Domain,
         pattern: Option<&str>,
     ) -> Result<(), sqlx::Error>;
 
     /// Marks the shop as having been crawled now.
-    async fn mark_as_crawled(&self, shop_id: &ShopId, shop_domain: &str)
-    -> Result<(), sqlx::Error>;
+    async fn mark_as_crawled(
+        &self,
+        shop_id: &ShopId,
+        shop_domain: &Domain,
+    ) -> Result<(), sqlx::Error>;
 
     /// Attempts to acquire an application-level lock for the shop.
-    async fn try_lock_shop(&self, shop_id: &ShopId, shop_domain: &str)
-    -> Result<bool, sqlx::Error>;
+    async fn try_lock_shop(
+        &self,
+        shop_id: &ShopId,
+        shop_domain: &Domain,
+    ) -> Result<bool, sqlx::Error>;
 
     /// Releases the application-level lock for the shop.
     async fn unlock_shop(&self, shop_id: &ShopId) -> Result<(), sqlx::Error>;
@@ -112,7 +123,7 @@ impl ShopUrlPatternRepository for ShopUrlPatternRepositoryImpl {
     async fn save_pattern(
         &self,
         shop_id: &ShopId,
-        shop_domain: &str,
+        shop_domain: &Domain,
         pattern: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         let shop_id_uuid: uuid::Uuid = (*shop_id).into();
@@ -126,7 +137,7 @@ impl ShopUrlPatternRepository for ShopUrlPatternRepositoryImpl {
                  updated = NOW()",
         )
         .bind(shop_id_uuid)
-        .bind(shop_domain)
+        .bind(shop_domain.as_str())
         .bind(pattern)
         .execute(&self.pool)
         .await?;
@@ -137,7 +148,7 @@ impl ShopUrlPatternRepository for ShopUrlPatternRepositoryImpl {
     async fn mark_as_crawled(
         &self,
         shop_id: &ShopId,
-        shop_domain: &str,
+        shop_domain: &Domain,
     ) -> Result<(), sqlx::Error> {
         let shop_id_uuid: uuid::Uuid = (*shop_id).into();
         sqlx::query(
@@ -150,7 +161,7 @@ impl ShopUrlPatternRepository for ShopUrlPatternRepositoryImpl {
                  updated = NOW()",
         )
         .bind(shop_id_uuid)
-        .bind(shop_domain)
+        .bind(shop_domain.as_str())
         .execute(&self.pool)
         .await?;
 
@@ -160,7 +171,7 @@ impl ShopUrlPatternRepository for ShopUrlPatternRepositoryImpl {
     async fn try_lock_shop(
         &self,
         shop_id: &ShopId,
-        shop_domain: &str,
+        shop_domain: &Domain,
     ) -> Result<bool, sqlx::Error> {
         let shop_id_uuid: uuid::Uuid = (*shop_id).into();
         sqlx::query(
@@ -169,7 +180,7 @@ impl ShopUrlPatternRepository for ShopUrlPatternRepositoryImpl {
              ON CONFLICT (shop_id) DO UPDATE SET shop_domain = EXCLUDED.shop_domain",
         )
         .bind(shop_id_uuid)
-        .bind(shop_domain)
+        .bind(shop_domain.as_str())
         .execute(&self.pool)
         .await?;
 

@@ -1,6 +1,7 @@
 use aura_spider::classification::url_pattern_repository::{
     ShopUrlPatternRepository, ShopUrlPatternRepositoryImpl,
 };
+use common::domain::Domain;
 use common::shop_id::ShopId;
 
 use test_api::*;
@@ -31,11 +32,11 @@ async fn should_return_pattern_when_exists_for_find() {
     let pool = get_postgres_client().await;
     let repository = ShopUrlPatternRepositoryImpl::new(pool.clone());
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_domain = "example.com";
+    let shop_domain = Domain::try_from("example.com").unwrap();
     let pattern = r"/product/\d+";
 
     repository
-        .save_pattern(&shop_id, shop_domain, Some(pattern))
+        .save_pattern(&shop_id, &shop_domain, Some(pattern))
         .await
         .unwrap();
 
@@ -57,11 +58,11 @@ async fn should_persist_and_return_pattern_for_insert() {
     let repository = ShopUrlPatternRepositoryImpl::new(pool);
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_domain = "insert-example.com";
+    let shop_domain = Domain::try_from("insert-example.com").unwrap();
     let pattern = r"/item/\w+";
 
     repository
-        .save_pattern(&shop_id, shop_domain, Some(pattern))
+        .save_pattern(&shop_id, &shop_domain, Some(pattern))
         .await
         .unwrap();
 
@@ -79,11 +80,11 @@ async fn should_preserve_created_and_updated_timestamps_for_insert() {
     let repository = ShopUrlPatternRepositoryImpl::new(pool);
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_domain = "ts-example.com";
+    let shop_domain = Domain::try_from("ts-example.com").unwrap();
     let pattern = "/ts-item";
 
     repository
-        .save_pattern(&shop_id, shop_domain, Some(pattern))
+        .save_pattern(&shop_id, &shop_domain, Some(pattern))
         .await
         .unwrap();
     let record1 = repository.find_pattern(&shop_id).await.unwrap().unwrap();
@@ -91,7 +92,7 @@ async fn should_preserve_created_and_updated_timestamps_for_insert() {
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
 
     repository
-        .save_pattern(&shop_id, shop_domain, Some("/ts-item-new"))
+        .save_pattern(&shop_id, &shop_domain, Some("/ts-item-new"))
         .await
         .unwrap();
     let record2 = repository.find_pattern(&shop_id).await.unwrap().unwrap();
@@ -113,16 +114,16 @@ async fn should_allow_clearing_pattern() {
     let repository = ShopUrlPatternRepositoryImpl::new(pool);
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_domain = "clear-example.com";
+    let shop_domain = Domain::try_from("clear-example.com").unwrap();
 
     repository
-        .save_pattern(&shop_id, shop_domain, Some("/clear-item"))
+        .save_pattern(&shop_id, &shop_domain, Some("/clear-item"))
         .await
         .unwrap();
 
     // Explicitly clear pattern
     repository
-        .save_pattern(&shop_id, shop_domain, None)
+        .save_pattern(&shop_id, &shop_domain, None)
         .await
         .unwrap();
 
@@ -144,11 +145,11 @@ async fn should_mark_pattern_as_crawled() {
     let repository = ShopUrlPatternRepositoryImpl::new(pool);
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_domain = "mark-example.com";
+    let shop_domain = Domain::try_from("mark-example.com").unwrap();
 
     // Mark as crawled directly without a pattern
     repository
-        .mark_as_crawled(&shop_id, shop_domain)
+        .mark_as_crawled(&shop_id, &shop_domain)
         .await
         .unwrap();
 
@@ -160,7 +161,7 @@ async fn should_mark_pattern_as_crawled() {
 
     // Mark again
     repository
-        .mark_as_crawled(&shop_id, shop_domain)
+        .mark_as_crawled(&shop_id, &shop_domain)
         .await
         .unwrap();
 
@@ -179,14 +180,14 @@ async fn should_lock_and_unlock_shop() {
     let repository = ShopUrlPatternRepositoryImpl::new(pool);
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_domain = "lock-example.com";
+    let shop_domain = Domain::try_from("lock-example.com").unwrap();
 
     let first_lock = repository
-        .try_lock_shop(&shop_id, shop_domain)
+        .try_lock_shop(&shop_id, &shop_domain)
         .await
         .unwrap();
     let second_lock = repository
-        .try_lock_shop(&shop_id, shop_domain)
+        .try_lock_shop(&shop_id, &shop_domain)
         .await
         .unwrap();
 
@@ -196,7 +197,7 @@ async fn should_lock_and_unlock_shop() {
     repository.unlock_shop(&shop_id).await.unwrap();
 
     let lock_after_unlock = repository
-        .try_lock_shop(&shop_id, shop_domain)
+        .try_lock_shop(&shop_id, &shop_domain)
         .await
         .unwrap();
     assert!(lock_after_unlock);

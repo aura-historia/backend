@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+schemars = { workspace = true }
 spider = { version = "2", features = ["regex"] }
 tokio = { workspace = true, features = ["full"] }
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }

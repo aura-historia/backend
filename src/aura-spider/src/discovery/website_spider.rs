@@ -6,7 +6,7 @@ use spider::website::Website;
 use tokio::sync::mpsc;
 
 use crate::error::SpiderError;
-use crate::utils::url::clean_and_normalize_url;
+use crate::utils::url::CrawledUrl;
 
 const BLACKLIST_URL_SUBSTRINGS: &[&str] = &[
     "cart",
@@ -89,28 +89,28 @@ impl Default for CrawlerConfig {
 
 #[async_trait::async_trait]
 #[mockall::automock]
-pub trait Crawler: Send + Sync {
+pub trait Spider: Send + Sync {
     async fn crawl(&self, shop_url: &str) -> Result<mpsc::Receiver<CrawledPage>, SpiderError>;
 }
 
-pub struct SpiderCrawler {
+pub struct SpiderImpl {
     config: CrawlerConfig,
 }
 
-impl SpiderCrawler {
+impl SpiderImpl {
     pub fn new(config: CrawlerConfig) -> Self {
         Self { config }
     }
 }
 
-impl Default for SpiderCrawler {
+impl Default for SpiderImpl {
     fn default() -> Self {
         Self::new(CrawlerConfig::default())
     }
 }
 
 #[async_trait::async_trait]
-impl Crawler for SpiderCrawler {
+impl Spider for SpiderImpl {
     async fn crawl(&self, shop_url: &str) -> Result<mpsc::Receiver<CrawledPage>, SpiderError> {
         let (tx, rx) = mpsc::channel(self.config.channel_size);
 
@@ -150,7 +150,11 @@ impl Crawler for SpiderCrawler {
                     continue;
                 }
 
-                let normalized = clean_and_normalize_url(raw_url);
+                let normalized = if let Ok(parsed) = url::Url::parse(raw_url) {
+                    CrawledUrl::new(parsed).to_string()
+                } else {
+                    raw_url.trim().trim_end_matches('/').to_string()
+                };
 
                 if !bloom.check(&normalized) {
                     let main_hash = hash_main_fragment(&page.get_html(), &normalized);

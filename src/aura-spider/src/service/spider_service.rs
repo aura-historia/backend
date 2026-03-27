@@ -1,99 +1,18 @@
 use common::shop_id::ShopId;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+
 use std::sync::Arc;
-use time::OffsetDateTime;
+
 use tracing::{debug, info, warn};
 
 use crate::classification::link_metadata_repository::LinkMetadataRepository;
-use crate::classification::url_classification_service::matches_product_pattern;
 use crate::classification::url_pattern_service::UrlPatternService;
-use crate::discovery::website_spider::{CrawledPage, Crawler};
+use crate::discovery::website_spider::{CrawledPage, Spider};
 use crate::error::SpiderError;
+use crate::utils::url::CrawledUrl;
+use url::Url;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum LinkClass {
-    Product,
-    Category,
-    Imprint,
-    Info,
-    Other,
-}
-
-impl LinkClass {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            LinkClass::Product => "product",
-            LinkClass::Category => "category",
-            LinkClass::Imprint => "imprint",
-            LinkClass::Info => "info",
-            LinkClass::Other => "other",
-        }
-    }
-
-    pub fn from_db(value: &str) -> Self {
-        match value {
-            "product" => LinkClass::Product,
-            "category" => LinkClass::Category,
-            "imprint" => LinkClass::Imprint,
-            "info" => LinkClass::Info,
-            _ => LinkClass::Other,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ProductState {
-    Listed,
-    Available,
-    Reserved,
-    Sold,
-    Removed,
-    Unknown,
-}
-
-impl ProductState {
-    pub fn from_db(value: &str) -> Self {
-        match value {
-            "LISTED" => ProductState::Listed,
-            "AVAILABLE" => ProductState::Available,
-            "RESERVED" => ProductState::Reserved,
-            "SOLD" => ProductState::Sold,
-            "REMOVED" => ProductState::Removed,
-            _ => ProductState::Unknown,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CrawledLinkMetadata {
-    pub url: String,
-    pub class: LinkClass,
-    pub hash: String,
-    pub state: ProductState,
-
-    #[serde(
-        with = "time::serde::rfc3339::option",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub last_scraped: Option<OffsetDateTime>,
-
-    #[serde(with = "time::serde::rfc3339")]
-    pub created: OffsetDateTime,
-
-    #[serde(with = "time::serde::rfc3339")]
-    pub updated: OffsetDateTime,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SpiderRunResult {
-    pub total_links: usize,
-    pub product_urls_count: usize,
-    pub product_pattern: Option<String>,
-}
+use crate::domain::{LinkClass, SpiderRunResult, SpiderServiceConfig};
 
 #[async_trait::async_trait]
 #[mockall::automock]
@@ -106,24 +25,9 @@ pub trait SpiderService: Send + Sync {
     ) -> Result<SpiderRunResult, SpiderError>;
 }
 
-#[derive(Debug, Clone)]
-pub struct SpiderServiceConfig {
-    pub db_batch_size: usize,
-    pub max_sample_urls: usize,
-}
-
-impl Default for SpiderServiceConfig {
-    fn default() -> Self {
-        Self {
-            db_batch_size: 100,
-            max_sample_urls: 500,
-        }
-    }
-}
-
 pub struct SpiderServiceImpl {
     config: SpiderServiceConfig,
-    crawler: Box<dyn Crawler>,
+    spider: Box<dyn Spider>,
     pattern_service: Box<dyn UrlPatternService>,
     link_metadata_repository: Arc<dyn LinkMetadataRepository>,
 }
@@ -131,13 +35,13 @@ pub struct SpiderServiceImpl {
 impl SpiderServiceImpl {
     pub fn new(
         config: SpiderServiceConfig,
-        crawler: Box<dyn Crawler>,
+        spider: Box<dyn Spider>,
         pattern_service: Box<dyn UrlPatternService>,
         link_metadata_repository: Arc<dyn LinkMetadataRepository>,
     ) -> Self {
         Self {
             config,
-            crawler,
+            spider,
             pattern_service,
             link_metadata_repository,
         }
@@ -153,22 +57,34 @@ impl SpiderServiceImpl {
             return Ok(0);
         }
 
+        use crate::classification::link_metadata_repository::MainHash;
+
         let mut urls = Vec::with_capacity(pages.len());
         let mut classes = Vec::with_capacity(pages.len());
         let mut hashes = Vec::with_capacity(pages.len());
 
         for page in pages {
-            urls.push(page.url.clone());
-            classes.push(classify_link(&page.url, pattern).as_str().to_string());
-            hashes.push(page.main_hash.clone());
+            if let Ok(url) = url::Url::parse(&page.url) {
+                urls.push(url);
+
+                let class_str = classify_link(&page.url, pattern).as_str();
+                let class = std::str::FromStr::from_str(class_str)
+                    .unwrap_or(crate::domain::LinkClass::Other);
+                classes.push(class);
+
+                hashes.push(MainHash(page.main_hash.clone()));
+            }
         }
 
-        let records = self
-            .link_metadata_repository
-            .upsert_links_batch(shop_id, &urls, &classes, &hashes)
-            .await?;
-
-        Ok(records.len())
+        if !urls.is_empty() {
+            let records = self
+                .link_metadata_repository
+                .upsert_links_batch(shop_id, &urls, &classes, &hashes)
+                .await?;
+            Ok(records.len())
+        } else {
+            Ok(0)
+        }
     }
 
     async fn process_buffer(
@@ -179,7 +95,14 @@ impl SpiderServiceImpl {
     ) -> Result<usize, SpiderError> {
         let count = buffer
             .iter()
-            .filter(|p| matches_product_pattern(pattern, &p.url))
+            .filter(|p| {
+                if let Some(regex) = pattern {
+                    if let Ok(parsed) = Url::parse(&p.url) {
+                        return CrawledUrl::new(parsed).matches_pattern(regex);
+                    }
+                }
+                false
+            })
             .count();
         self.persist_link_metadata_batch(shop_id, buffer, pattern)
             .await?;
@@ -216,7 +139,7 @@ impl SpiderService for SpiderServiceImpl {
         }
 
         let run_result = async {
-            let mut crawl_rx = self.crawler.crawl(shop_url).await?;
+            let mut crawl_rx = self.spider.crawl(shop_url).await?;
 
             let mut total_crawled: usize = 0;
             let mut products_found: usize = 0;
@@ -267,7 +190,14 @@ impl SpiderService for SpiderServiceImpl {
                     } else {
                         let matched_count = inference_sample
                             .iter()
-                            .filter(|url| matches_product_pattern(&pattern, url))
+                            .filter(|url| {
+                                if let Some(regex) = &pattern {
+                                    if let Ok(parsed) = Url::parse(url) {
+                                        return CrawledUrl::new(parsed).matches_pattern(regex);
+                                    }
+                                }
+                                false
+                            })
                             .count();
                         info!(
                             matchedCount = matched_count,
@@ -282,7 +212,17 @@ impl SpiderService for SpiderServiceImpl {
 
                 if classification_done {
                     if let Some(last_url) = inference_sample.last().or(Some(&page.url)) {
-                        if matches_product_pattern(&pattern, last_url) {
+                        let is_match = if let Some(regex) = &pattern {
+                            if let Ok(parsed) = Url::parse(last_url) {
+                                CrawledUrl::new(parsed).matches_pattern(regex)
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        if is_match {
                             debug!(index = total_crawled, url = %last_url, "URL matches product pattern");
                         } else {
                             debug!(
@@ -329,7 +269,14 @@ impl SpiderService for SpiderServiceImpl {
                 } else {
                     let matched_count = inference_sample
                         .iter()
-                        .filter(|url| matches_product_pattern(&pattern, url))
+                        .filter(|url| {
+                            if let Some(regex) = &pattern {
+                                if let Ok(parsed) = Url::parse(url) {
+                                    return CrawledUrl::new(parsed).matches_pattern(regex);
+                                }
+                            }
+                            false
+                        })
                         .count();
                     info!(
                         matchedCount = matched_count,
@@ -356,7 +303,14 @@ impl SpiderService for SpiderServiceImpl {
                 } else {
                     let matched_count = inference_sample
                         .iter()
-                        .filter(|url| matches_product_pattern(&pattern, url))
+                        .filter(|url| {
+                            if let Some(regex) = &pattern {
+                                if let Ok(parsed) = Url::parse(url) {
+                                    return CrawledUrl::new(parsed).matches_pattern(regex);
+                                }
+                            }
+                            false
+                        })
                         .count();
                     info!(
                         matchedCount = matched_count,
@@ -387,7 +341,7 @@ impl SpiderService for SpiderServiceImpl {
                 product_pattern,
             })
         }
-        .await;
+            .await;
 
         if let Err(error) = self.pattern_service.unlock_shop(shop_id).await {
             warn!(shopUrl = %shop_url, error = %error, "Failed to release shop crawl lock");
@@ -398,8 +352,12 @@ impl SpiderService for SpiderServiceImpl {
 }
 
 fn classify_link(url: &str, product_pattern: &Option<Regex>) -> LinkClass {
-    if matches_product_pattern(product_pattern, url) {
-        return LinkClass::Product;
+    if let Some(regex) = product_pattern {
+        if let Ok(parsed) = Url::parse(url) {
+            if CrawledUrl::new(parsed).matches_pattern(regex) {
+                return LinkClass::Product;
+            }
+        }
     }
 
     let lower = url.to_ascii_lowercase();
@@ -488,7 +446,7 @@ mod service_tests {
     use super::*;
     use crate::classification::link_metadata_repository::MockLinkMetadataRepository;
     use crate::classification::url_pattern_service::MockUrlPatternService;
-    use crate::discovery::website_spider::MockCrawler;
+    use crate::discovery::website_spider::MockSpider;
     use tokio::sync::mpsc;
 
     fn setup_mock_link_repo(mock: &mut MockLinkMetadataRepository, call_count: usize) {
@@ -524,14 +482,14 @@ mod service_tests {
 
     #[tokio::test]
     async fn should_run_spider_and_classify_urls() {
-        let mut mock_crawler = MockCrawler::new();
+        let mut mock_spider = MockSpider::new();
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_link_repo = MockLinkMetadataRepository::new();
 
         let shop_id: ShopId = uuid::Uuid::new_v4().into();
         let shop_url = "https://example.com";
 
-        mock_crawler
+        mock_spider
             .expect_crawl()
             .with(mockall::predicate::eq(shop_url))
             .returning(move |_| {
@@ -572,7 +530,7 @@ mod service_tests {
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
-            Box::new(mock_crawler),
+            Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_link_repo),
         );
@@ -586,14 +544,14 @@ mod service_tests {
 
     #[tokio::test]
     async fn should_classify_at_end_if_threshold_not_reached() {
-        let mut mock_crawler = MockCrawler::new();
+        let mut mock_spider = MockSpider::new();
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_link_repo = MockLinkMetadataRepository::new();
 
         let shop_id: ShopId = uuid::Uuid::new_v4().into();
         let shop_url = "https://example.com";
 
-        mock_crawler
+        mock_spider
             .expect_crawl()
             .with(mockall::predicate::eq(shop_url))
             .returning(move |_| {
@@ -628,7 +586,7 @@ mod service_tests {
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
-            Box::new(mock_crawler),
+            Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_link_repo),
         );
@@ -641,14 +599,14 @@ mod service_tests {
 
     #[tokio::test]
     async fn should_reclassify_if_persisted_pattern_fails() {
-        let mut mock_crawler = MockCrawler::new();
+        let mut mock_spider = MockSpider::new();
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_link_repo = MockLinkMetadataRepository::new();
 
         let shop_id: ShopId = uuid::Uuid::new_v4().into();
         let shop_url = "https://example.com";
 
-        mock_crawler
+        mock_spider
             .expect_crawl()
             .with(mockall::predicate::eq(shop_url))
             .returning(move |_| {
@@ -684,7 +642,7 @@ mod service_tests {
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
-            Box::new(mock_crawler),
+            Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_link_repo),
         );

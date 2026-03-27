@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS spider_link (
     CHECK (char_length(main_hash) = 64),
     CHECK (link_class IN ('product', 'category', 'imprint', 'info', 'other')),
     CHECK (state IN ('LISTED', 'AVAILABLE', 'RESERVED', 'SOLD', 'REMOVED', 'UNKNOWN')),
-    PRIMARY KEY (shop_id, url)
+    PRIMARY KEY (url)
 );
 
 CREATE INDEX IF NOT EXISTS spider_link_class_last_scraped_idx ON spider_link (link_class, last_scraped);

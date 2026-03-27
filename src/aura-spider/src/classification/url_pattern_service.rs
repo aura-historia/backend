@@ -3,8 +3,7 @@ use std::sync::Arc;
 use regex::Regex;
 use tracing::info;
 
-use crate::classification::gemini_client::PatternInferenceClient;
-use crate::classification::url_classification_service::find_product_url_pattern;
+use crate::classification::url_classification_service::UrlClassificationService;
 use crate::classification::url_pattern_repository::ShopUrlPatternRepository;
 use crate::error::SpiderError;
 use crate::utils::url::extract_shop_base_url;
@@ -51,17 +50,17 @@ pub trait UrlPatternService: Send + Sync {
 
 pub struct UrlPatternServiceImpl {
     repository: Arc<dyn ShopUrlPatternRepository>,
-    inference_client: Box<dyn PatternInferenceClient>,
+    classification_service: Box<dyn UrlClassificationService>,
 }
 
 impl UrlPatternServiceImpl {
     pub fn new(
         repository: Arc<dyn ShopUrlPatternRepository>,
-        inference_client: Box<dyn PatternInferenceClient>,
+        classification_service: Box<dyn UrlClassificationService>,
     ) -> Self {
         Self {
             repository,
-            inference_client,
+            classification_service,
         }
     }
 }
@@ -102,7 +101,10 @@ impl UrlPatternService for UrlPatternServiceImpl {
         shop_url: &str,
         urls: &[String],
     ) -> Result<Option<Regex>, SpiderError> {
-        let pattern = find_product_url_pattern(self.inference_client.as_ref(), urls).await?;
+        let pattern = self
+            .classification_service
+            .find_product_url_pattern(urls)
+            .await?;
 
         if let Some(ref p) = pattern {
             self.save_pattern_for_shop(shop_id, shop_url, p).await?;
@@ -137,7 +139,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
 #[cfg(test)]
 mod service_tests {
     use super::*;
-    use crate::classification::gemini_client::MockPatternInferenceClient;
+
     use crate::classification::url_pattern_repository::MockShopUrlPatternRepository;
     use crate::classification::url_pattern_repository::ShopUrlPatternRecord;
 
@@ -148,7 +150,7 @@ mod service_tests {
             Box::pin(async {
                 Ok(Some(ShopUrlPatternRecord {
                     shop_id: uuid::Uuid::new_v4().into(),
-                    shop_domain: "example.com".to_string(),
+                    shop_domain: common::domain::Domain::try_from("example.com").unwrap(),
                     url_pattern: Some("/product/".to_string()),
                     last_crawled: None,
                     created: time::OffsetDateTime::now_utc(),
@@ -157,7 +159,8 @@ mod service_tests {
             })
         });
 
-        let mock_client = MockPatternInferenceClient::new();
+        let mock_client =
+            crate::classification::url_classification_service::MockUrlClassificationService::new();
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 
         let shop_id = uuid::Uuid::new_v4().into();
@@ -175,7 +178,8 @@ mod service_tests {
             .expect_find_pattern()
             .returning(|_| Box::pin(async { Ok(None) }));
 
-        let mock_client = MockPatternInferenceClient::new();
+        let mock_client =
+            crate::classification::url_classification_service::MockUrlClassificationService::new();
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 
         let shop_id = uuid::Uuid::new_v4().into();
@@ -191,7 +195,8 @@ mod service_tests {
             .expect_save_pattern()
             .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
-        let mock_client = MockPatternInferenceClient::new();
+        let mock_client =
+            crate::classification::url_classification_service::MockUrlClassificationService::new();
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 
         let regex = Regex::new("/product/").unwrap();
@@ -209,10 +214,11 @@ mod service_tests {
             .expect_save_pattern()
             .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
-        let mut mock_client = MockPatternInferenceClient::new();
+        let mut mock_client =
+            crate::classification::url_classification_service::MockUrlClassificationService::new();
         mock_client
-            .expect_infer_product_url_pattern()
-            .returning(|_| Box::pin(async { Ok(Some("/product/".to_string())) }));
+            .expect_find_product_url_pattern()
+            .returning(|_| Box::pin(async { Ok(Some(Regex::new("/product/").unwrap())) }));
 
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 
@@ -237,7 +243,8 @@ mod service_tests {
             .expect_mark_as_crawled()
             .returning(|_, _| Box::pin(async { Ok(()) }));
 
-        let mock_client = MockPatternInferenceClient::new();
+        let mock_client =
+            crate::classification::url_classification_service::MockUrlClassificationService::new();
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 
         let shop_id = uuid::Uuid::new_v4().into();
@@ -254,7 +261,8 @@ mod service_tests {
             .expect_try_lock_shop()
             .returning(|_, _| Box::pin(async { Ok(true) }));
 
-        let mock_client = MockPatternInferenceClient::new();
+        let mock_client =
+            crate::classification::url_classification_service::MockUrlClassificationService::new();
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 
         let shop_id = uuid::Uuid::new_v4().into();
@@ -270,7 +278,8 @@ mod service_tests {
             .expect_unlock_shop()
             .returning(|_| Box::pin(async { Ok(()) }));
 
-        let mock_client = MockPatternInferenceClient::new();
+        let mock_client =
+            crate::classification::url_classification_service::MockUrlClassificationService::new();
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 
         let shop_id = uuid::Uuid::new_v4().into();

@@ -20,15 +20,15 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
-use aura_spider::classification::gemini_client::GeminiClient;
+use aura_spider::SpiderRunResult;
 use aura_spider::classification::link_metadata_repository::LinkMetadataRepositoryImpl;
+use aura_spider::classification::url_classification_service::UrlClassificationServiceImpl;
 use aura_spider::classification::url_pattern_repository::ShopUrlPatternRepositoryImpl;
 use aura_spider::classification::url_pattern_service::UrlPatternServiceImpl;
-use aura_spider::discovery::website_spider::SpiderCrawler;
+use aura_spider::discovery::website_spider::SpiderImpl;
+use aura_spider::domain::SpiderServiceConfig;
 use aura_spider::error::SpiderError;
-use aura_spider::service::{
-    SpiderRunResult, SpiderService, SpiderServiceConfig, SpiderServiceImpl,
-};
+use aura_spider::service::{SpiderService, SpiderServiceImpl};
 use common::shop_id::ShopId;
 use sqlx::PgPool;
 use testcontainers::ImageExt;
@@ -75,11 +75,18 @@ async fn main() {
     let pattern_repository = build_pattern_repository(pool.clone());
     let link_repository = build_link_repository(pool.clone());
 
-    let crawler = Box::new(SpiderCrawler::default());
-    let gemini_client = Box::new(GeminiClient::new(api_key));
+    let crawler = Box::new(SpiderImpl::default());
+    let llm_builder = llm::builder::LLMBuilder::new()
+        .backend(llm::builder::LLMBackend::Google)
+        .api_key(&api_key)
+        .model("gemini-3.1-flash-lite-preview");
+    let classification_service = Box::new(
+        UrlClassificationServiceImpl::new(llm_builder)
+            .expect("Failed to initialize UrlClassificationService"),
+    );
     let pattern_service = Box::new(UrlPatternServiceImpl::new(
         pattern_repository.clone(),
-        gemini_client,
+        classification_service,
     ));
 
     let spider = SpiderServiceImpl::new(
