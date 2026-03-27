@@ -86,7 +86,7 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
         let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(&user_id),
             sk: mk_sk(&product_record.shop_id, &product_record.shops_product_id),
-            lsi1_sk: mk_lsi1_sk(&created).unwrap(),
+            lsi1_sk: mk_lsi1_sk(&created),
             user_id,
             gsi1_pk: mk_gsi1_pk(&product_record.product_id),
             gsi1_sk: mk_gsi1_sk(&user_id),
@@ -182,7 +182,7 @@ async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
         let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(&user_id),
             sk: mk_sk(&product_record.shop_id, &product_record.shops_product_id),
-            lsi1_sk: mk_lsi1_sk(&created).unwrap(),
+            lsi1_sk: mk_lsi1_sk(&created),
             user_id,
             gsi1_pk: mk_gsi1_pk(&product_record.product_id),
             gsi1_sk: mk_gsi1_sk(&user_id),

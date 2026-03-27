@@ -5,10 +5,11 @@ use common::{
     currency::{data::CurrencyData, domain::Currency},
     event::Event,
     event_id::EventId,
+    has_key::HasKey,
     language::data::LanguageData,
     pagination::{cursor::api::TimeCursoredData, page::api::PaginatedData},
     price::domain::{FixedFxRate, FxRate, Price},
-    product_id::api::ProductKeyData,
+    product_id::{ProductKey, api::ProductKeyData},
     product_state::domain::ProductState,
     user_id::UserId,
 };
@@ -24,7 +25,8 @@ use notification::{
 };
 use notification_api::notification_get::EventIdCursoredData;
 use opensearch::GetParts;
-use product::data::{get_data::GetProductData, user_state_data::ProductUserStateData};
+use product::data::get_data::GetProductData;
+use product::data::user_state_data::ProductUserStateData;
 use product::{
     core::{
         product_event::{
@@ -40,7 +42,6 @@ use product::{
         },
         prohibited_content::{ProhibitedContent, ProhibitedContentReason},
     },
-    data::{product_state_data::ProductStateData, put_data::PutProductData},
     dynamodb::{
         product_event_record::ProductEventRecord,
         product_image_record::ProductImageRecord,
@@ -50,11 +51,8 @@ use product::{
         repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
     },
     service::{
-        enrichment_service::{
-            ProductCommandEnrichmentService, ProductCommandEnrichmentServiceImpl,
-        },
-        product_command::{PipedProductCommand, UpsertProductCommand},
-        upsert_service::{UpsertProductsService, UpsertProductsServiceImpl},
+        command_service::{CommandProductService, CommandProductServiceImpl},
+        product_command::{CreateProductCommand, UpdateProductCommand},
     },
 };
 use product_watchlist::dynamodb::repository::{
@@ -73,13 +71,9 @@ use search_filter_api::{
     post_types::PostUserSearchFilterData,
 };
 use serde::de::DeserializeOwned;
-use shop::{
-    core::shop::Shop,
-    dynamodb::{
-        repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
-        shop_record::ShopRecord,
-    },
-};
+use shop::dynamodb::repository::ShopDynamoDbRepository;
+use shop::{core::shop::Shop, dynamodb::repository::ShopDynamoDbRepositoryImpl};
+use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 use test_api::*;
 use time::OffsetDateTime;
@@ -1130,50 +1124,35 @@ async fn prepare_test_shop() -> Shop {
     let shop = Faker.fake::<Shop>();
     let dynamodb_repository =
         ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
-    let mut shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
-    shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop.clone()));
     dynamodb_repository
-        .put_shop_records_transact(shop_records)
+        .put_shop_record(shop.clone().into())
         .await
         .unwrap();
     shop
 }
 
-async fn upsert_products(put_products: Vec<PutProductData>) {
+async fn create_products(commands: Vec<CreateProductCommand>) {
     let stack = get_cfn_output();
     let dynamodb_client = get_dynamodb_client().await;
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
-    let shop_repository =
-        ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
     let fx_rate = FixedFxRate();
-    let enrichment_service = ProductCommandEnrichmentServiceImpl::new(&shop_repository, &fx_rate);
-    let upsert_service = UpsertProductsServiceImpl::new(&product_repository, &fx_rate);
+    let command_service = CommandProductServiceImpl::new(&product_repository, &fx_rate);
 
-    let commands: Vec<PipedProductCommand> = put_products
-        .into_iter()
-        .map(PipedProductCommand::from)
-        .collect();
-    let enriched = enrichment_service.enrich(commands).await;
-    assert!(
-        enriched.failed.is_empty(),
-        "Enrichment failed for some products"
-    );
-    assert!(
-        enriched.unprocessed.is_empty(),
-        "Some products were not enriched"
-    );
+    let result = command_service.create(commands).await;
+    assert!(result.is_empty(), "Some products failed to create");
+}
 
-    let upsert_commands: Vec<UpsertProductCommand> = enriched
-        .enriched
-        .into_iter()
-        .map(|cmd| UpsertProductCommand::try_from(cmd).unwrap())
-        .collect();
-    let result = upsert_service.upsert(upsert_commands).await;
-    assert!(
-        result.unprocessed.is_empty(),
-        "Some products were not upserted"
-    );
+async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
+    let stack = get_cfn_output();
+    let dynamodb_client = get_dynamodb_client().await;
+    let product_repository =
+        ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let fx_rate = FixedFxRate();
+    let command_service = CommandProductServiceImpl::new(&product_repository, &fx_rate);
+
+    let result = command_service.update(commands).await;
+    assert!(result.is_empty(), "Some products failed to update");
 }
 
 /// Polls OpenSearch until a document with the given `id` appears in `index`, issuing an explicit
@@ -1262,13 +1241,12 @@ async fn wait_until_document_deleted(user_search_filter_id: impl Into<String>) {
 async fn should_materialize_product_in_dynamodb_when_put_new_item() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
-    let mut put_product_data: PutProductData = Faker.fake();
-    put_product_data
-        .url
-        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
-        .unwrap();
+    let mut create_cmd: CreateProductCommand = Faker.fake();
+    create_cmd.shop_id = shop.shop_id;
+    create_cmd.shop_name = shop.name.clone();
+    create_cmd.shop_type = shop.shop_type;
 
-    upsert_products(vec![put_product_data.clone()]).await;
+    create_products(vec![create_cmd.clone()]).await;
 
     let repository = ProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -1277,24 +1255,21 @@ async fn should_materialize_product_in_dynamodb_when_put_new_item() {
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let materialized = repository
-            .get_product_record(&shop.shop_id, &put_product_data.shops_product_id)
+            .get_product_record(&shop.shop_id, &create_cmd.shops_product_id)
             .await
             .unwrap();
 
         if let Some(materialized) = materialized {
             assert_eq!(shop.shop_id, materialized.shop_id);
-            assert_eq!(
-                put_product_data.shops_product_id,
-                materialized.shops_product_id
-            );
-            assert_eq!(put_product_data.url, materialized.url);
+            assert_eq!(create_cmd.shops_product_id, materialized.shops_product_id);
+            assert_eq!(create_cmd.url, materialized.url);
             break;
         }
 
         if Instant::now() >= deadline {
             panic!(
                 "Timeout: ProductRecord for shop '{}' / product '{}' not found in DynamoDB after 60s",
-                shop.shop_id, put_product_data.shops_product_id
+                shop.shop_id, create_cmd.shops_product_id
             );
         }
         tokio::time::sleep(Duration::from_secs(5)).await;
@@ -1324,48 +1299,40 @@ async fn should_materialize_product_in_dynamodb_for_domain_event() {
     assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
     tokio::time::sleep(Duration::from_secs(3)).await;
 
-    let new_state = match materialized_old.state {
-        ProductStateRecord::Available => ProductStateData::Sold,
-        _ => ProductStateData::Available,
+    let new_state: ProductState = match materialized_old.state {
+        ProductStateRecord::Available => ProductState::Sold,
+        _ => ProductState::Available,
     };
-    let put_product_data = PutProductData {
-        shops_product_id: materialized_old.shops_product_id,
-        title: Faker.fake(),
-        description: None,
-        price: None,
-        price_estimate_min: Faker.fake(),
-        price_estimate_max: Faker.fake(),
-        state: new_state,
-        url: materialized_old.url,
-        images: materialized_old.images.into_iter().map(|i| i.url).collect(),
-        auction_start: None,
-        auction_end: None,
+    let product_key = ProductKey {
+        shop_id: shop.shop_id,
+        shops_product_id: materialized_old.shops_product_id.clone(),
+    };
+    let update_cmd = UpdateProductCommand {
+        native_price: None,
+        state: Some(new_state),
     };
 
-    upsert_products(vec![put_product_data.clone()]).await;
+    update_products(HashMap::from([(product_key.clone(), update_cmd)])).await;
 
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let materialized = repository
-            .get_product_record(&shop.shop_id, &put_product_data.shops_product_id)
+            .get_product_record(&shop.shop_id, &materialized_old.shops_product_id)
             .await
             .unwrap();
 
         if let Some(materialized) = materialized
-            && ProductState::from(new_state) == ProductState::from(materialized.state)
+            && new_state == ProductState::from(materialized.state)
         {
             assert_eq!(shop.shop_id, materialized.shop_id);
-            assert_eq!(
-                ProductState::from(new_state),
-                ProductState::from(materialized.state)
-            );
+            assert_eq!(new_state, ProductState::from(materialized.state));
             break;
         }
 
         if Instant::now() >= deadline {
             panic!(
                 "Timeout: ProductRecord for shop '{}' / product '{}' not updated with expected state after 60s",
-                shop.shop_id, put_product_data.shops_product_id
+                shop.shop_id, materialized_old.shops_product_id
             );
         }
         tokio::time::sleep(Duration::from_secs(5)).await;
@@ -2087,12 +2054,11 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     let shop = prepare_test_shop().await;
 
     // Create product
-    let mut put_product_data: PutProductData = Faker.fake();
-    put_product_data
-        .url
-        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
-        .unwrap();
-    upsert_products(vec![put_product_data.clone()]).await;
+    let mut create_cmd: CreateProductCommand = Faker.fake();
+    create_cmd.shop_id = shop.shop_id;
+    create_cmd.shop_name = shop.name.clone();
+    create_cmd.shop_type = shop.shop_type;
+    create_products(vec![create_cmd.clone()]).await;
     tokio::time::sleep(Duration::from_secs(45)).await;
 
     let product_repository = ProductDynamoDbRepositoryImpl::new(
@@ -2101,7 +2067,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     );
     assert!(
         product_repository
-            .get_product_record(&shop.shop_id, &put_product_data.shops_product_id)
+            .get_product_record(&shop.shop_id, &create_cmd.shops_product_id)
             .await
             .unwrap()
             .is_some()
@@ -2140,7 +2106,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
         .post(post_url)
         .json(&ProductKeyData {
             shop_id: shop.shop_id,
-            shops_product_id: put_product_data.shops_product_id.clone(),
+            shops_product_id: create_cmd.shops_product_id.clone(),
         })
         .bearer_auth(&user.access_token)
         .send()
@@ -2152,7 +2118,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     // Enable notifications
     let patch_url = format!(
         "{}/api/v1/me/watchlist/{}/{}",
-        stack.api_gateway_endpoint_url, shop.shop_id, put_product_data.shops_product_id
+        stack.api_gateway_endpoint_url, shop.shop_id, create_cmd.shops_product_id
     );
     let patch_response = reqwest::Client::new()
         .patch(patch_url)
@@ -2183,12 +2149,19 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     tokio::time::sleep(Duration::from_secs(10)).await;
 
     // Update product state to trigger notification
-    put_product_data.state = if matches!(put_product_data.state, ProductStateData::Available) {
-        ProductStateData::Sold
+    let new_state = if matches!(create_cmd.state, ProductState::Available) {
+        ProductState::Sold
     } else {
-        ProductStateData::Available
+        ProductState::Available
     };
-    upsert_products(vec![put_product_data.clone()]).await;
+    update_products(HashMap::from([(
+        create_cmd.key(),
+        UpdateProductCommand {
+            native_price: None,
+            state: Some(new_state),
+        },
+    )]))
+    .await;
 
     assert!(wait_for_ses_email("Statusänderung", Duration::from_secs(120)).await);
 }
