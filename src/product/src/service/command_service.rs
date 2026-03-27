@@ -2,6 +2,7 @@ use crate::core::product::Product;
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::repository::{ProductDynamoDbRepository, extract_product_key};
+use crate::service::heuristics;
 use crate::service::product_command::{CreateProductCommand, UpdateProductCommand};
 use async_trait::async_trait;
 use common::batch::Batch;
@@ -75,21 +76,15 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
 
     async fn persist_events<C>(
         &self,
-        events: Vec<ProductDomainEventRecord>,
+        events: Vec<ProductEventRecord>,
         key_cmds: &mut HashMap<ProductKey, C>,
     ) -> Vec<(ProductKey, C)> {
         let mut failures = Vec::new();
         for batch in Batch::<_, 25>::chunked_from(events.into_iter()) {
-            let product_keys = batch
-                .iter()
-                .map(|event| ProductKey {
-                    shop_id: event.shop_id,
-                    shops_product_id: event.shops_product_id.clone(),
-                })
-                .collect::<Vec<_>>();
+            let product_keys = batch.iter().map(|event| event.key()).collect::<Vec<_>>();
             let res = self
                 .dynamodb_repository
-                .put_product_event_records(batch.map(ProductEventRecord::from))
+                .put_product_event_records(batch)
                 .await;
             match res {
                 Ok(output) => {
@@ -164,28 +159,38 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                         }
                     }
 
-                    let events: Vec<ProductDomainEventRecord> = working
+                    let events: Vec<ProductEventRecord> = working
                         .into_values()
                         .map(|mut cmd| {
                             self.enrich_price(&mut cmd);
-                            ProductDomainEventRecord::from(Product::create(
-                                cmd.shop_id,
-                                cmd.shops_product_id,
-                                cmd.shop_name,
-                                cmd.shop_type,
-                                cmd.native_title,
-                                cmd.native_description,
-                                cmd.native_price,
-                                cmd.other_price,
-                                cmd.native_price_estimate_min,
-                                cmd.other_price_estimate_min,
-                                cmd.native_price_estimate_max,
-                                cmd.other_price_estimate_max,
-                                cmd.state,
-                                cmd.url,
-                                cmd.images,
-                                cmd.auction_start,
-                                cmd.auction_end,
+                            heuristics::classify_images(&mut cmd);
+                            heuristics::enrich_origin_year(&mut cmd);
+                            heuristics::enrich_authenticity(&mut cmd);
+                            heuristics::enrich_condition(&mut cmd);
+                            heuristics::enrich_provenance(&mut cmd);
+                            heuristics::enrich_restoration(&mut cmd);
+                            heuristics::classify_period(&mut cmd);
+                            heuristics::classify_category(&mut cmd);
+                            ProductEventRecord::Domain(ProductDomainEventRecord::from(
+                                Product::create(
+                                    cmd.shop_id,
+                                    cmd.shops_product_id,
+                                    cmd.shop_name,
+                                    cmd.shop_type,
+                                    cmd.native_title,
+                                    cmd.native_description,
+                                    cmd.native_price,
+                                    cmd.other_price,
+                                    cmd.native_price_estimate_min,
+                                    cmd.other_price_estimate_min,
+                                    cmd.native_price_estimate_max,
+                                    cmd.other_price_estimate_max,
+                                    cmd.state,
+                                    cmd.url,
+                                    cmd.images,
+                                    cmd.auction_start,
+                                    cmd.auction_end,
+                                ),
                             ))
                         })
                         .collect();
@@ -233,6 +238,8 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                     }
 
                     let events = determine_update_events(&mut working, records.items, self.fx_rate);
+                    let events: Vec<ProductEventRecord> =
+                        events.into_iter().map(ProductEventRecord::from).collect();
 
                     // Remaining items in `working` are products not found in DynamoDB —
                     // `determine_update_events` removes matched keys.

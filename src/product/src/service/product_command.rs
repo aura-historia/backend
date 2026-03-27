@@ -1,10 +1,17 @@
+use crate::core::authenticity::Authenticity;
+use crate::core::condition::Condition;
 use crate::core::description::Description;
+use crate::core::origin_year::OriginYear;
 use crate::core::product_image::ProductImage;
+use crate::core::provenance::Provenance;
+use crate::core::restoration::Restoration;
 use crate::core::title::Title;
+use common::category_key::CategoryId;
 use common::currency::domain::Currency;
 use common::has_key::HasKey;
 use common::language::domain::Language;
 use common::localized::Localized;
+use common::period_key::PeriodId;
 use common::price::domain::{MonetaryAmount, Price};
 use common::product_id::ProductKey;
 use common::product_state::domain::ProductState;
@@ -37,6 +44,13 @@ pub struct CreateProductCommand {
     pub images: Vec<ProductImage>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
+    pub origin_year: Option<OriginYear>,
+    pub authenticity: Authenticity,
+    pub condition: Condition,
+    pub provenance: Provenance,
+    pub restoration: Restoration,
+    pub category_id: Option<CategoryId>,
+    pub period_id: Option<PeriodId>,
 }
 
 impl HasKey for CreateProductCommand {
@@ -113,6 +127,13 @@ mod faker {
                 } else {
                     None
                 },
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                category_id: None,
+                period_id: None,
             }
         }
     }
