@@ -273,7 +273,9 @@ fn determine_update_events(
             if let Some(price_event) = product.new_price(cmd.native_price, fx_rate) {
                 events.push(ProductDomainEventRecord::from(price_event));
             }
-            if let Some(state_event) = product.change_state(cmd.state) {
+            if let Some(new_state) = cmd.state
+                && let Some(state_event) = product.change_state(new_state)
+            {
                 events.push(ProductDomainEventRecord::from(state_event));
             }
         }
@@ -304,14 +306,14 @@ mod tests {
             let product1 = Product::from(record1.clone());
             let cmd1 = UpdateProductCommand {
                 native_price: product1.native_price,
-                state: product1.state,
+                state: Some(product1.state),
             };
 
             let record2 = Faker.fake::<ProductRecord>();
             let product2 = Product::from(record2.clone());
             let cmd2 = UpdateProductCommand {
                 native_price: product2.native_price,
-                state: product2.state,
+                state: Some(product2.state),
             };
 
             let mut working = HashMap::from([(product1.key(), cmd1), (product2.key(), cmd2)]);
@@ -328,18 +330,18 @@ mod tests {
             let product1 = Product::from(record1.clone());
             let cmd1 = UpdateProductCommand {
                 native_price: Some(Faker.fake()),
-                state: product1.state,
+                state: Some(product1.state),
             };
 
             let record2 = Faker.fake::<ProductRecord>();
             let product2 = Product::from(record2.clone());
             let cmd2 = UpdateProductCommand {
                 native_price: Some(Faker.fake()),
-                state: if matches!(product2.state, ProductState::Available) {
+                state: Some(if matches!(product2.state, ProductState::Available) {
                     ProductState::Removed
                 } else {
                     ProductState::Available
-                },
+                }),
             };
 
             let mut working = HashMap::from([(product1.key(), cmd1), (product2.key(), cmd2)]);
@@ -356,14 +358,14 @@ mod tests {
             let product1 = Product::from(record1.clone());
             let cmd1 = UpdateProductCommand {
                 native_price: Some(Faker.fake()),
-                state: product1.state,
+                state: Some(product1.state),
             };
 
             let record2 = Faker.fake::<ProductRecord>();
             let product2 = Product::from(record2.clone());
             let cmd2 = UpdateProductCommand {
                 native_price: product2.native_price,
-                state: product2.state,
+                state: Some(product2.state),
             };
 
             let mut working = HashMap::from([(product1.key(), cmd1), (product2.key(), cmd2)]);
@@ -379,7 +381,7 @@ mod tests {
             let product = Faker.fake::<Product>();
             let cmd = UpdateProductCommand {
                 native_price: Some(Faker.fake()),
-                state: ProductState::Available,
+                state: Some(ProductState::Available),
             };
 
             let mut working = HashMap::from([(product.key(), cmd.clone())]);
@@ -622,11 +624,11 @@ mod tests {
             let key = product.key();
             let cmd = UpdateProductCommand {
                 native_price: Some(Faker.fake()),
-                state: if matches!(product.state, ProductState::Available) {
+                state: Some(if matches!(product.state, ProductState::Available) {
                     ProductState::Removed
                 } else {
                     ProductState::Available
-                },
+                }),
             };
 
             let mut repository = MockProductDynamoDbRepository::default();
@@ -719,7 +721,7 @@ mod tests {
             let key = product.key();
             let cmd = UpdateProductCommand {
                 native_price: product.native_price,
-                state: product.state,
+                state: Some(product.state),
             };
 
             let mut repository = MockProductDynamoDbRepository::default();

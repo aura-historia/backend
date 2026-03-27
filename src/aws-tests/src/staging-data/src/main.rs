@@ -1,8 +1,10 @@
 use aws_tests_common::get_cfn_output;
 use common::{
+    has_key::HasKey,
     language::domain::Language,
     pagination::cursor::Cursor,
     price::domain::FixedFxRate,
+    product_id::ProductKey,
     sort::{Sort, SortOrder},
     year::Year,
 };
@@ -27,7 +29,7 @@ use product::{
     },
     service::{
         command_service::{CommandProductService, CommandProductServiceImpl},
-        product_command::CreateProductCommand,
+        product_command::{CreateProductCommand, UpdateProductCommand},
     },
 };
 use product_classification::category::{
@@ -63,7 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn upsert_products(commands: Vec<CreateProductCommand>) {
+async fn create_products(commands: Vec<CreateProductCommand>) {
     let stack = get_cfn_output();
     let dynamodb_client = get_dynamodb_client().await;
     let product_repository =
@@ -73,6 +75,18 @@ async fn upsert_products(commands: Vec<CreateProductCommand>) {
 
     let result = command_service.create(commands).await;
     assert!(result.is_empty(), "Some products failed to create");
+}
+
+async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
+    let stack = get_cfn_output();
+    let dynamodb_client = get_dynamodb_client().await;
+    let product_repository =
+        ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let fx_rate = FixedFxRate();
+    let command_service = CommandProductServiceImpl::new(&product_repository, &fx_rate);
+
+    let result = command_service.update(commands).await;
+    assert!(result.is_empty(), "Some products failed to update");
 }
 
 async fn populate_products(shops: Vec<GetShopData>) {
@@ -91,20 +105,34 @@ async fn populate_products(shops: Vec<GetShopData>) {
         product.shop_type = shop_types[idx];
     }
 
-    upsert_products(products.clone()).await;
+    create_products(products.clone()).await;
     tokio::time::sleep(Duration::from_secs(30)).await;
 
     // put updates
     for i in 0..10 {
-        for product in &mut products {
-            if rand::random_range(0..3) < 1 {
-                product.state = Faker.fake();
-            }
-            if rand::random_range(0..3) < 2 {
-                product.native_price = Some(Faker.fake());
+        let mut update_cmds: HashMap<ProductKey, UpdateProductCommand> = HashMap::new();
+        for product in &products {
+            let state = if rand::random_range(0..3) < 1 {
+                Some(Faker.fake())
+            } else {
+                None
+            };
+            let native_price = if rand::random_range(0..3) < 2 {
+                Some(Faker.fake())
+            } else {
+                None
+            };
+            if state.is_some() || native_price.is_some() {
+                update_cmds.insert(
+                    product.key(),
+                    UpdateProductCommand {
+                        native_price,
+                        state,
+                    },
+                );
             }
         }
-        upsert_products(products.clone()).await;
+        update_products(update_cmds).await;
         tokio::time::sleep(Duration::from_secs(30)).await;
         println!("Finished products' update-iteration {i}.");
     }

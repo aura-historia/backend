@@ -122,7 +122,7 @@ async fn should_write_no_product_update_events_when_all_exist_and_no_changes() {
                 },
                 UpdateProductCommand {
                     native_price: cmd.native_price,
-                    state: cmd.state,
+                    state: Some(cmd.state),
                 },
             )
         })
@@ -190,7 +190,7 @@ async fn should_write_product_updates_when_all_exist_and_actual_changes() {
                 },
                 UpdateProductCommand {
                     native_price: cmd.native_price,
-                    state: ProductState::Available,
+                    state: Some(ProductState::Available),
                 },
             )
         })
@@ -226,7 +226,7 @@ async fn should_return_failures_when_updating_non_existent_products() {
                 cmd.key(),
                 UpdateProductCommand {
                     native_price: cmd.native_price,
-                    state: cmd.state,
+                    state: Some(cmd.state),
                 },
             )
         })

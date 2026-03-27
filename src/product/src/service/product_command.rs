@@ -53,7 +53,7 @@ impl HasKey for CreateProductCommand {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpdateProductCommand {
     pub native_price: Option<Price>,
-    pub state: ProductState,
+    pub state: Option<ProductState>,
 }
 
 #[cfg(feature = "test-data")]
