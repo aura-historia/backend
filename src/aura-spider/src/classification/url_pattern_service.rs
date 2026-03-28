@@ -1,13 +1,33 @@
 use std::sync::Arc;
 
 use regex::Regex;
+use thiserror::Error;
 use tracing::info;
 
-use crate::classification::url_classification_service::UrlClassificationService;
+use crate::classification::url_classification_service::{
+    UrlClassificationError, UrlClassificationService,
+};
 use crate::classification::url_pattern_repository::ShopUrlPatternRepository;
-use crate::error::SpiderError;
 use crate::utils::url::extract_shop_base_url;
 use common::shop_id::ShopId;
+
+#[derive(Debug, Error)]
+pub enum UrlPatternServiceError {
+    #[error("Invalid shop URL '{shop_url}': {source}")]
+    InvalidShopUrl {
+        shop_url: String,
+        source: common::domain::NoDomainError,
+    },
+
+    #[error(transparent)]
+    Repository(#[from] sqlx::Error),
+
+    #[error(transparent)]
+    Regex(#[from] regex::Error),
+
+    #[error(transparent)]
+    Classification(#[from] UrlClassificationError),
+}
 
 #[async_trait::async_trait]
 #[mockall::automock]
@@ -16,7 +36,10 @@ pub trait UrlPatternService: Send + Sync {
     ///
     /// Returns `None` when no pattern has been stored yet or when the stored
     /// value is `NULL` in the database.
-    async fn load_pattern_for_shop(&self, shop_id: &ShopId) -> Result<Option<Regex>, SpiderError>;
+    async fn load_pattern_for_shop(
+        &self,
+        shop_id: &ShopId,
+    ) -> Result<Option<Regex>, UrlPatternServiceError>;
 
     /// Persists `pattern` for `shop_id` with its `shop_url` origin as domain.
     async fn save_pattern_for_shop(
@@ -24,7 +47,7 @@ pub trait UrlPatternService: Send + Sync {
         shop_id: &ShopId,
         shop_url: &str,
         pattern: &Regex,
-    ) -> Result<(), SpiderError>;
+    ) -> Result<(), UrlPatternServiceError>;
 
     /// Asks the inference client to classify a product URL pattern from `urls`, persists the
     /// result when one is found, and returns it.
@@ -36,16 +59,24 @@ pub trait UrlPatternService: Send + Sync {
         shop_id: &ShopId,
         shop_url: &str,
         urls: &[String],
-    ) -> Result<Option<Regex>, SpiderError>;
+    ) -> Result<Option<Regex>, UrlPatternServiceError>;
 
     /// Marks the shop as crawled now.
-    async fn mark_as_crawled(&self, shop_id: &ShopId, shop_url: &str) -> Result<(), SpiderError>;
+    async fn mark_as_crawled(
+        &self,
+        shop_id: &ShopId,
+        shop_url: &str,
+    ) -> Result<(), UrlPatternServiceError>;
 
     /// Attempts to acquire a lock for this shop crawl.
-    async fn try_lock_shop(&self, shop_id: &ShopId, shop_url: &str) -> Result<bool, SpiderError>;
+    async fn try_lock_shop(
+        &self,
+        shop_id: &ShopId,
+        shop_url: &str,
+    ) -> Result<bool, UrlPatternServiceError>;
 
     /// Releases a previously acquired shop crawl lock.
-    async fn unlock_shop(&self, shop_id: &ShopId) -> Result<(), SpiderError>;
+    async fn unlock_shop(&self, shop_id: &ShopId) -> Result<(), UrlPatternServiceError>;
 }
 
 pub struct UrlPatternServiceImpl {
@@ -67,7 +98,10 @@ impl UrlPatternServiceImpl {
 
 #[async_trait::async_trait]
 impl UrlPatternService for UrlPatternServiceImpl {
-    async fn load_pattern_for_shop(&self, shop_id: &ShopId) -> Result<Option<Regex>, SpiderError> {
+    async fn load_pattern_for_shop(
+        &self,
+        shop_id: &ShopId,
+    ) -> Result<Option<Regex>, UrlPatternServiceError> {
         let record = self.repository.find_pattern(shop_id).await?;
 
         let Some(record) = record else {
@@ -87,8 +121,13 @@ impl UrlPatternService for UrlPatternServiceImpl {
         shop_id: &ShopId,
         shop_url: &str,
         pattern: &Regex,
-    ) -> Result<(), SpiderError> {
-        let extracted_domain = extract_shop_base_url(shop_url)?;
+    ) -> Result<(), UrlPatternServiceError> {
+        let extracted_domain = extract_shop_base_url(shop_url).map_err(|error| {
+            UrlPatternServiceError::InvalidShopUrl {
+                shop_url: shop_url.to_string(),
+                source: error,
+            }
+        })?;
         self.repository
             .save_pattern(shop_id, &extracted_domain, Some(pattern.as_str()))
             .await?;
@@ -100,7 +139,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
         shop_id: &ShopId,
         shop_url: &str,
         urls: &[String],
-    ) -> Result<Option<Regex>, SpiderError> {
+    ) -> Result<Option<Regex>, UrlPatternServiceError> {
         let pattern = self
             .classification_service
             .find_product_url_pattern(urls)
@@ -114,23 +153,41 @@ impl UrlPatternService for UrlPatternServiceImpl {
         Ok(pattern)
     }
 
-    async fn mark_as_crawled(&self, shop_id: &ShopId, shop_url: &str) -> Result<(), SpiderError> {
-        let extracted_domain = extract_shop_base_url(shop_url)?;
+    async fn mark_as_crawled(
+        &self,
+        shop_id: &ShopId,
+        shop_url: &str,
+    ) -> Result<(), UrlPatternServiceError> {
+        let extracted_domain = extract_shop_base_url(shop_url).map_err(|error| {
+            UrlPatternServiceError::InvalidShopUrl {
+                shop_url: shop_url.to_string(),
+                source: error,
+            }
+        })?;
         self.repository
             .mark_as_crawled(shop_id, &extracted_domain)
             .await?;
         Ok(())
     }
 
-    async fn try_lock_shop(&self, shop_id: &ShopId, shop_url: &str) -> Result<bool, SpiderError> {
-        let extracted_domain = extract_shop_base_url(shop_url)?;
+    async fn try_lock_shop(
+        &self,
+        shop_id: &ShopId,
+        shop_url: &str,
+    ) -> Result<bool, UrlPatternServiceError> {
+        let extracted_domain = extract_shop_base_url(shop_url).map_err(|error| {
+            UrlPatternServiceError::InvalidShopUrl {
+                shop_url: shop_url.to_string(),
+                source: error,
+            }
+        })?;
         Ok(self
             .repository
             .try_lock_shop(shop_id, &extracted_domain)
             .await?)
     }
 
-    async fn unlock_shop(&self, shop_id: &ShopId) -> Result<(), SpiderError> {
+    async fn unlock_shop(&self, shop_id: &ShopId) -> Result<(), UrlPatternServiceError> {
         self.repository.unlock_shop(shop_id).await?;
         Ok(())
     }

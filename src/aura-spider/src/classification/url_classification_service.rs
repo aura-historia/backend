@@ -6,8 +6,8 @@ use aura_scraper::css_selector::product_schema_service::strip_markdown_json_embe
 use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-use crate::error::SpiderError;
 use crate::utils::url::CrawledUrl;
 
 const SAMPLE_LIMIT: usize = 20;
@@ -24,12 +24,24 @@ pub trait UrlClassificationService: Send + Sync {
     async fn find_product_url_pattern(
         &self,
         all_urls: &[String],
-    ) -> Result<Option<Regex>, SpiderError>;
+    ) -> Result<Option<Regex>, UrlClassificationError>;
     fn filter_product_urls(
         &self,
         pattern: &Regex,
         all_urls: &[String],
-    ) -> Result<Vec<CrawledUrl>, SpiderError>;
+    ) -> Result<Vec<CrawledUrl>, UrlClassificationError>;
+}
+
+#[derive(Debug, Error)]
+pub enum UrlClassificationError {
+    #[error("LLM classification error: {0}")]
+    Llm(String),
+
+    #[error(transparent)]
+    Regex(#[from] regex::Error),
+
+    #[error("No product pages found: {0}")]
+    NoProducts(String),
 }
 
 pub struct UrlClassificationServiceImpl {
@@ -132,10 +144,13 @@ impl UrlClassificationServiceImpl {
         )
     }
 
-    fn parse_pattern_response(response_text: &str) -> Result<Option<String>, SpiderError> {
+    fn parse_pattern_response(
+        response_text: &str,
+    ) -> Result<Option<String>, UrlClassificationError> {
         let parsed: PatternResponse =
-            serde_json::from_str(strip_markdown_json_embedding(response_text))
-                .map_err(|e| SpiderError::Gemini(format!("Failed to parse response: {}", e)))?;
+            serde_json::from_str(strip_markdown_json_embedding(response_text)).map_err(|e| {
+                UrlClassificationError::Llm(format!("Failed to parse response: {}", e))
+            })?;
 
         let pattern = parsed.pattern.trim().to_string();
 
@@ -154,7 +169,7 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
     async fn find_product_url_pattern(
         &self,
         all_urls: &[String],
-    ) -> Result<Option<Regex>, SpiderError> {
+    ) -> Result<Option<Regex>, UrlClassificationError> {
         info!(urlCount = all_urls.len(), "Analyzing crawled URLs with LLM");
 
         let prompt = Self::build_prompt(all_urls);
@@ -162,12 +177,17 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
 
         let response = match self.llm.chat(&messages).await {
             Ok(r) => r,
-            Err(e) => return Err(SpiderError::Gemini(format!("LLM chat error: {}", e))),
+            Err(e) => {
+                return Err(UrlClassificationError::Llm(format!(
+                    "LLM chat error: {}",
+                    e
+                )));
+            }
         };
 
-        let response_text = response
-            .text()
-            .ok_or_else(|| SpiderError::Gemini("LLM returned no text response".to_string()))?;
+        let response_text = response.text().ok_or_else(|| {
+            UrlClassificationError::Llm("LLM returned no text response".to_string())
+        })?;
 
         match Self::parse_pattern_response(&response_text) {
             Ok(Some(pattern)) => match Regex::new(&pattern) {
@@ -196,7 +216,7 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
         &self,
         pattern: &Regex,
         all_urls: &[String],
-    ) -> Result<Vec<CrawledUrl>, SpiderError> {
+    ) -> Result<Vec<CrawledUrl>, UrlClassificationError> {
         info!(
             urlCount = all_urls.len(),
             "Applying URL pattern to crawled URLs"
@@ -215,7 +235,7 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
         debug!(matchCount = matches.len(), "Finished applying URL pattern");
 
         if matches.is_empty() {
-            return Err(SpiderError::NoProducts(
+            return Err(UrlClassificationError::NoProducts(
                 "Gemini pattern matched 0 URLs".to_string(),
             ));
         }

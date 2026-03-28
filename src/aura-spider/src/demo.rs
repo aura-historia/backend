@@ -21,21 +21,46 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use aura_spider::SpiderRunResult;
-use aura_spider::classification::link_metadata_repository::LinkMetadataRepositoryImpl;
 use aura_spider::classification::url_classification_service::UrlClassificationServiceImpl;
+use aura_spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
 use aura_spider::classification::url_pattern_repository::ShopUrlPatternRepositoryImpl;
+use aura_spider::classification::url_pattern_service::UrlPatternServiceError;
 use aura_spider::classification::url_pattern_service::UrlPatternServiceImpl;
+use aura_spider::discovery::website_spider::SpiderDiscoveryError;
 use aura_spider::discovery::website_spider::SpiderImpl;
-use aura_spider::domain::SpiderServiceConfig;
-use aura_spider::error::SpiderError;
-use aura_spider::service::{SpiderService, SpiderServiceImpl};
+use aura_spider::service::{SpiderService, SpiderServiceConfig, SpiderServiceImpl};
 use common::shop_id::ShopId;
 use sqlx::PgPool;
 use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
 use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres as PgImage;
+use thiserror::Error;
 use tracing::{Level, error, info};
+
+#[derive(Debug, Error)]
+enum DemoError {
+    #[error("Demo error: {0}")]
+    Demo(String),
+
+    #[error(transparent)]
+    EnvVar(#[from] std::env::VarError),
+
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+
+    #[error(transparent)]
+    Database(#[from] sqlx::Error),
+
+    #[error(transparent)]
+    Discovery(#[from] SpiderDiscoveryError),
+
+    #[error(transparent)]
+    UrlPattern(#[from] UrlPatternServiceError),
+
+    #[error(transparent)]
+    SpiderService(#[from] aura_spider::SpiderServiceError),
+}
 
 const DEFAULT_SHOP_URL: &str = "https://www.christies.com/en";
 const DEFAULT_CLASSIFY_THRESHOLD: usize = 200;
@@ -73,7 +98,7 @@ async fn main() {
     }
 
     let pattern_repository = build_pattern_repository(pool.clone());
-    let link_repository = build_link_repository(pool.clone());
+    let url_repository = build_url_repository(pool.clone());
 
     let crawler = Box::new(SpiderImpl::default());
     let llm_builder = llm::builder::LLMBuilder::new()
@@ -91,16 +116,14 @@ async fn main() {
 
     let spider = SpiderServiceImpl::new(
         SpiderServiceConfig::default(),
+        shop_url.clone(),
         crawler,
         pattern_service,
-        link_repository,
+        url_repository,
     );
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    match spider
-        .run(&shop_id, &shop_url, DEFAULT_CLASSIFY_THRESHOLD)
-        .await
-    {
+    match spider.run(&shop_id, DEFAULT_CLASSIFY_THRESHOLD).await {
         Ok(result) => {
             info!(
                 linkCount = result.total_links,
@@ -127,7 +150,7 @@ fn read_shop_url() -> String {
     ensure_scheme(&raw_url)
 }
 
-fn read_api_key() -> Result<String, SpiderError> {
+fn read_api_key() -> Result<String, DemoError> {
     Ok(env::var("GEMINI_API_KEY")?)
 }
 
@@ -135,23 +158,22 @@ fn build_pattern_repository(pool: PgPool) -> Arc<ShopUrlPatternRepositoryImpl> {
     Arc::new(ShopUrlPatternRepositoryImpl::new(pool))
 }
 
-fn build_link_repository(pool: PgPool) -> Arc<LinkMetadataRepositoryImpl> {
-    Arc::new(LinkMetadataRepositoryImpl::new(pool))
+fn build_url_repository(pool: PgPool) -> Arc<UrlMetadataRepositoryImpl> {
+    Arc::new(UrlMetadataRepositoryImpl::new(pool))
 }
 
-async fn apply_schema(pool: &PgPool) -> Result<(), SpiderError> {
+async fn apply_schema(pool: &PgPool) -> Result<(), DemoError> {
     let workspace_root = env!("CARGO_WORKSPACE_DIR");
     let sql_path = std::path::Path::new(workspace_root).join("src/aura-spider/sql/schema.sql");
 
-    let sql = std::fs::read_to_string(&sql_path).map_err(SpiderError::Io)?;
+    let sql = std::fs::read_to_string(&sql_path)?;
     sqlx::raw_sql(&sql).execute(pool).await?;
 
     info!(path = %sql_path.display(), "Applied spider demo schema");
     Ok(())
 }
 
-async fn start_postgres() -> Result<(testcontainers::ContainerAsync<PgImage>, PgPool), SpiderError>
-{
+async fn start_postgres() -> Result<(testcontainers::ContainerAsync<PgImage>, PgPool), DemoError> {
     let _ = Command::new("docker")
         .args(["rm", "-f", DEMO_CONTAINER_NAME])
         .output();
@@ -166,9 +188,7 @@ async fn start_postgres() -> Result<(testcontainers::ContainerAsync<PgImage>, Pg
         .with_mapped_port(POSTGRES_PORT, POSTGRES_PORT.tcp())
         .start()
         .await
-        .map_err(|error| {
-            SpiderError::Spider(format!("Failed to start Postgres container: {error}"))
-        })?;
+        .map_err(|error| DemoError::Demo(format!("Failed to start Postgres container: {error}")))?;
 
     let connection_string = format!(
         "postgres://{POSTGRES_USER}:{POSTGRES_PASSWORD}@localhost:{POSTGRES_PORT}/{POSTGRES_DB}"
@@ -190,7 +210,7 @@ async fn start_postgres() -> Result<(testcontainers::ContainerAsync<PgImage>, Pg
                 delay = (delay * 2).min(Duration::from_secs(2));
             }
             Err(error) => {
-                return Err(SpiderError::Spider(format!(
+                return Err(DemoError::Demo(format!(
                     "Could not connect to Postgres after {attempt} attempts: {error}"
                 )));
             }

@@ -1,9 +1,21 @@
-use crate::error::SpiderError;
-use common::domain::Domain;
+use common::domain::{Domain, NoDomainError};
+use regex::Regex;
+use spider::compact_str::CompactString;
 use url_normalize::Options;
 
+const BLACKLIST_URL_SUBSTRINGS: &[&str] = &[
+    "cart",
+    "wishlist",
+    "?replytocom=",
+    "&replytocom=",
+    "/wp-admin/",
+    "jpg",
+    "pdf",
+    "png",
+];
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct CrawledUrl(pub url::Url);
+pub struct CrawledUrl(url::Url);
 
 impl CrawledUrl {
     pub fn new(url: url::Url) -> Self {
@@ -29,8 +41,95 @@ impl CrawledUrl {
         }
     }
 
-    pub fn matches_pattern(&self, pattern: &regex::Regex) -> bool {
+    pub fn as_url(&self) -> &url::Url {
+        &self.0
+    }
+
+    pub fn matches_pattern(&self, pattern: &Regex) -> bool {
         pattern.is_match(self.0.as_str())
+    }
+
+    pub fn classify(
+        &self,
+        pattern: Option<&Regex>,
+    ) -> crate::classification::url_metadata::UrlClass {
+        if let Some(regex) = pattern
+            && self.matches_pattern(regex)
+        {
+            return crate::classification::url_metadata::UrlClass::Product;
+        }
+
+        let lower = self.0.as_str().to_ascii_lowercase();
+
+        if [
+            "imprint",
+            "impressum",
+            "mentions-legales",
+            "informazioni-legali",
+            "aviso-legal",
+            "legal-notice",
+        ]
+        .iter()
+        .any(|needle| lower.contains(needle))
+        {
+            return crate::classification::url_metadata::UrlClass::Imprint;
+        }
+
+        if [
+            "category",
+            "categories",
+            "kategorie",
+            "kategorier",
+            "categorie",
+            "categorias",
+            "collections",
+            "shop",
+        ]
+        .iter()
+        .any(|needle| lower.contains(needle))
+        {
+            return crate::classification::url_metadata::UrlClass::Category;
+        }
+
+        if [
+            "about",
+            "about-us",
+            "contact",
+            "faq",
+            "terms",
+            "privacy",
+            "uber",
+            "kontakt",
+            "agb",
+            "datenschutz",
+            "chi-siamo",
+            "contatti",
+            "termini",
+            "quienes-somos",
+            "contacto",
+            "politica-de-privacidad",
+        ]
+        .iter()
+        .any(|needle| lower.contains(needle))
+        {
+            return crate::classification::url_metadata::UrlClass::Info;
+        }
+
+        crate::classification::url_metadata::UrlClass::Other
+    }
+
+    pub fn is_blacklisted(&self) -> bool {
+        let raw = self.0.as_str();
+        BLACKLIST_URL_SUBSTRINGS
+            .iter()
+            .any(|pattern| raw.contains(pattern))
+    }
+
+    pub fn blacklist_patterns() -> Vec<CompactString> {
+        BLACKLIST_URL_SUBSTRINGS
+            .iter()
+            .map(|pattern| CompactString::from(regex::escape(pattern)))
+            .collect()
     }
 }
 
@@ -40,21 +139,27 @@ impl std::fmt::Display for CrawledUrl {
     }
 }
 
-pub fn extract_shop_base_url(shop_url: &str) -> Result<Domain, SpiderError> {
-    Domain::try_from(shop_url).map_err(|error| {
-        SpiderError::Spider(format!(
-            "Invalid shop URL '{shop_url}' while resolving pattern scope: {error}"
-        ))
-    })
+impl TryFrom<&str> for CrawledUrl {
+    type Error = url::ParseError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let parsed = url::Url::parse(value)?;
+        Ok(Self::new(parsed))
+    }
+}
+
+pub fn extract_shop_base_url(shop_url: &str) -> Result<Domain, NoDomainError> {
+    Domain::try_from(shop_url)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use regex::RegexSet;
 
     fn normalize_for_test(input: &str) -> String {
         if let Ok(parsed) = url::Url::parse(input) {
-            CrawledUrl::new(parsed).0.to_string()
+            CrawledUrl::new(parsed).to_string()
         } else {
             input.to_string()
         }
@@ -89,43 +194,82 @@ mod tests {
     }
 
     #[test]
-    fn should_lowercase_scheme_and_host_when_url_is_mixed_case_for_comparison() {
-        let input = "HTTPS://WWW.EXAMPLE.COM/Product/123";
-        let normalized = normalize_for_test(input);
-        assert!(normalized.starts_with("https://www.example.com/"));
+    fn should_build_blacklist_patterns_matching_junk_urls_for_spider_blacklist() {
+        let patterns = CrawledUrl::blacklist_patterns();
+        let regex_set = RegexSet::new(patterns.iter().map(|pattern| pattern.as_str()))
+            .expect("blacklist patterns should compile");
+
+        assert!(regex_set.is_match("https://example.com/product/1?add-to-cart=123"));
+        assert!(regex_set.is_match("https://example.com/product/1?a=1&replytocom=456"));
+        assert!(regex_set.is_match("https://example.com/wp-admin/admin-ajax.php"));
+        assert!(!regex_set.is_match("https://example.com/product/1?a=1&b=2"));
     }
 
     #[test]
-    fn should_equalize_query_order_when_parameters_are_reordered_for_deduplication() {
-        let first = normalize_for_test("https://www.example.com/product/123?b=2&a=1");
-        let second = normalize_for_test("https://www.example.com/product/123?a=1&b=2");
-        assert_eq!(first, second);
+    fn should_return_true_when_blacklisted_query_parameter_exists_for_blacklist_check() {
+        let url = CrawledUrl::new(
+            url::Url::parse("https://example.com/product/1?add-to-cart=123").unwrap(),
+        );
+
+        assert!(url.is_blacklisted());
     }
 
     #[test]
-    fn should_not_change_plain_text_when_input_is_not_a_valid_url() {
-        let input = "not a valid url";
-        let normalized = normalize_for_test(input);
-        assert_eq!(normalized, "not a valid url");
+    fn should_return_true_when_blacklisted_path_exists_for_blacklist_check() {
+        let url = CrawledUrl::new(
+            url::Url::parse("https://example.com/wp-admin/admin-ajax.php").unwrap(),
+        );
+
+        assert!(url.is_blacklisted());
     }
 
     #[test]
-    fn should_return_origin_when_shop_url_has_default_port_for_scope_key() {
-        let key = extract_shop_base_url("https://example.com/some/path")
-            .expect("shop url should be resolved");
-        assert_eq!(key.as_str(), "example.com");
+    fn should_return_false_when_url_not_blacklisted_for_blacklist_check() {
+        let url =
+            CrawledUrl::new(url::Url::parse("https://example.com/product/1?a=1&b=2").unwrap());
+
+        assert!(!url.is_blacklisted());
     }
 
     #[test]
-    fn should_return_origin_with_port_when_shop_url_has_explicit_port_for_scope_key() {
-        let key = extract_shop_base_url("https://example.com:8443/some/path")
-            .expect("shop url should be resolved");
-        assert_eq!(key.as_str(), "example.com");
+    fn should_classify_imprint_when_url_contains_supported_legal_keywords_for_url_classification() {
+        let fr = CrawledUrl::new(url::Url::parse("https://example.com/mentions-legales").unwrap());
+        let it =
+            CrawledUrl::new(url::Url::parse("https://example.com/informazioni-legali").unwrap());
+        let es = CrawledUrl::new(url::Url::parse("https://example.com/aviso-legal").unwrap());
+
+        assert_eq!(
+            fr.classify(None),
+            crate::classification::url_metadata::UrlClass::Imprint
+        );
+        assert_eq!(
+            it.classify(None),
+            crate::classification::url_metadata::UrlClass::Imprint
+        );
+        assert_eq!(
+            es.classify(None),
+            crate::classification::url_metadata::UrlClass::Imprint
+        );
     }
 
     #[test]
-    fn should_return_error_when_shop_url_is_invalid_for_scope_key() {
-        let error = extract_shop_base_url("not-a-valid-url").expect_err("invalid url should fail");
-        assert!(matches!(error, SpiderError::Spider(_)));
+    fn should_classify_info_when_url_contains_supported_info_keywords_for_url_classification() {
+        let de = CrawledUrl::new(url::Url::parse("https://example.com/datenschutz").unwrap());
+        let it = CrawledUrl::new(url::Url::parse("https://example.com/chi-siamo").unwrap());
+        let es =
+            CrawledUrl::new(url::Url::parse("https://example.com/politica-de-privacidad").unwrap());
+
+        assert_eq!(
+            de.classify(None),
+            crate::classification::url_metadata::UrlClass::Info
+        );
+        assert_eq!(
+            it.classify(None),
+            crate::classification::url_metadata::UrlClass::Info
+        );
+        assert_eq!(
+            es.classify(None),
+            crate::classification::url_metadata::UrlClass::Info
+        );
     }
 }

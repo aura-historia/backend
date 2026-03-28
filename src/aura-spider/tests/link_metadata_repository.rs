@@ -1,7 +1,7 @@
-use aura_spider::classification::link_metadata_repository::{
-    LinkMetadataRepository, LinkMetadataRepositoryImpl, MainHash,
+use aura_spider::classification::url_metadata::{UrlClass, UrlState};
+use aura_spider::classification::url_metadata_repository::{
+    MainHash, UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
-use aura_spider::domain::{LinkClass, LinkState};
 use common::shop_id::ShopId;
 use test_api::*;
 
@@ -14,7 +14,7 @@ use url::Url;
 #[localstack_test(services = [RDS])]
 async fn should_insert_new_link_when_url_does_not_exist() {
     let pool = get_postgres_client().await;
-    let repository = LinkMetadataRepositoryImpl::new(pool.clone());
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
     let shop_id_uuid: uuid::Uuid = shop_id.into();
@@ -27,25 +27,25 @@ async fn should_insert_new_link_when_url_does_not_exist() {
     .await
     .unwrap();
     let url = Url::parse("https://example.com/product/123").unwrap();
-    let link_class = LinkClass::Product;
+    let url_class = UrlClass::Product;
     let main_hash = MainHash("a".repeat(64));
 
     let result = repository
-        .upsert_link(&shop_id, &url, &link_class, &main_hash)
+        .upsert_link(&shop_id, &url, &url_class, &main_hash)
         .await
         .unwrap();
 
     assert_eq!(result.url, url);
-    assert_eq!(result.link_class, link_class);
+    assert_eq!(result.url_class, url_class);
     assert_eq!(result.main_hash, main_hash);
-    assert_eq!(result.state, LinkState::Unknown);
+    assert_eq!(result.state, UrlState::Unknown);
 }
 
 #[serial_test::serial]
 #[localstack_test(services = [RDS])]
 async fn should_update_existing_link_when_url_already_exists() {
     let pool = get_postgres_client().await;
-    let repository = LinkMetadataRepositoryImpl::new(pool.clone());
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
     let shop_id_uuid: uuid::Uuid = shop_id.into();
@@ -58,7 +58,7 @@ async fn should_update_existing_link_when_url_already_exists() {
     .await
     .unwrap();
     let url = Url::parse("https://example.com/product/123").unwrap();
-    let old_class = LinkClass::Other;
+    let old_class = UrlClass::Other;
     let old_hash = MainHash("o".repeat(64));
 
     repository
@@ -66,7 +66,7 @@ async fn should_update_existing_link_when_url_already_exists() {
         .await
         .unwrap();
 
-    let new_class = LinkClass::Product;
+    let new_class = UrlClass::Product;
     let new_hash = MainHash("n".repeat(64));
 
     let result2 = repository
@@ -75,16 +75,16 @@ async fn should_update_existing_link_when_url_already_exists() {
         .unwrap();
 
     assert_eq!(result2.url, url);
-    assert_eq!(result2.link_class, new_class);
+    assert_eq!(result2.url_class, new_class);
     assert_eq!(result2.main_hash, new_hash);
-    assert_eq!(result2.state, LinkState::Unknown);
+    assert_eq!(result2.state, UrlState::Unknown);
 }
 
 #[serial_test::serial]
 #[localstack_test(services = [RDS])]
 async fn should_update_last_scraped_timestamp_when_marking_as_scraped() {
     let pool = get_postgres_client().await;
-    let repository = LinkMetadataRepositoryImpl::new(pool.clone());
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
     let shop_id_uuid: uuid::Uuid = shop_id.into();
@@ -97,11 +97,11 @@ async fn should_update_last_scraped_timestamp_when_marking_as_scraped() {
     .await
     .unwrap();
     let url = Url::parse("https://example.com/product/123").unwrap();
-    let link_class = LinkClass::Product;
+    let url_class = UrlClass::Product;
     let main_hash = MainHash("a".repeat(64));
 
     repository
-        .upsert_link(&shop_id, &url, &link_class, &main_hash)
+        .upsert_link(&shop_id, &url, &url_class, &main_hash)
         .await
         .unwrap();
 
@@ -114,7 +114,7 @@ async fn should_update_last_scraped_timestamp_when_marking_as_scraped() {
 #[localstack_test(services = [RDS])]
 async fn should_update_state_when_setting_new_state() {
     let pool = get_postgres_client().await;
-    let repository = LinkMetadataRepositoryImpl::new(pool.clone());
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
     let shop_id_uuid: uuid::Uuid = shop_id.into();
@@ -127,29 +127,29 @@ async fn should_update_state_when_setting_new_state() {
     .await
     .unwrap();
     let url = Url::parse("https://example.com/product/123").unwrap();
-    let link_class = LinkClass::Product;
+    let url_class = UrlClass::Product;
     let main_hash = MainHash("a".repeat(64));
 
     let result = repository
-        .upsert_link(&shop_id, &url, &link_class, &main_hash)
+        .upsert_link(&shop_id, &url, &url_class, &main_hash)
         .await
         .unwrap();
 
-    assert_eq!(result.state, LinkState::Unknown);
+    assert_eq!(result.state, UrlState::Unknown);
 
     let marked = repository
-        .set_state(&shop_id, &url, &LinkState::Sold)
+        .set_state(&shop_id, &url, &UrlState::Sold)
         .await
         .unwrap();
 
-    assert_eq!(marked.state, LinkState::Sold);
+    assert_eq!(marked.state, UrlState::Sold);
 }
 
 #[serial_test::serial]
 #[localstack_test(services = [RDS])]
 async fn should_upsert_multiple_links_when_inserting_batch() {
     let pool = get_postgres_client().await;
-    let repository = LinkMetadataRepositoryImpl::new(pool.clone());
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
     let shop_id_uuid: uuid::Uuid = shop_id.into();
@@ -165,7 +165,7 @@ async fn should_upsert_multiple_links_when_inserting_batch() {
         Url::parse("https://example.com/product/1").unwrap(),
         Url::parse("https://example.com/product/2").unwrap(),
     ];
-    let classes = vec![LinkClass::Product, LinkClass::Product];
+    let classes = vec![UrlClass::Product, UrlClass::Product];
     let hashes = vec![MainHash("a".repeat(64)), MainHash("b".repeat(64))];
 
     let inserted = repository

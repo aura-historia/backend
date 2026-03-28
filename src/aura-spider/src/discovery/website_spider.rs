@@ -1,24 +1,12 @@
 use bloomfilter::Bloom;
 use sha2::{Digest, Sha256};
-use spider::compact_str::CompactString;
 use spider::tokio;
 use spider::website::Website;
+use thiserror::Error;
 use tokio::sync::mpsc;
 
-use crate::classification::link_metadata_repository::MainHash;
-use crate::error::SpiderError;
+use crate::classification::url_metadata_repository::MainHash;
 use crate::utils::url::CrawledUrl;
-
-const BLACKLIST_URL_SUBSTRINGS: &[&str] = &[
-    "cart",
-    "wishlist",
-    "?replytocom=",
-    "&replytocom=",
-    "/wp-admin/",
-    "jpg",
-    "pdf",
-    "png",
-];
 
 /// Single crawled page represented by its normalized URL.
 #[derive(Debug, Clone)]
@@ -27,17 +15,10 @@ pub struct CrawledPage {
     pub main_hash: MainHash,
 }
 
-fn is_junk_url(url: &str) -> bool {
-    BLACKLIST_URL_SUBSTRINGS
-        .iter()
-        .any(|pattern| url.contains(pattern))
-}
-
-fn build_blacklist_url_patterns() -> Vec<CompactString> {
-    BLACKLIST_URL_SUBSTRINGS
-        .iter()
-        .map(|pattern| CompactString::from(regex::escape(pattern)))
-        .collect()
+#[derive(Debug, Error)]
+pub enum SpiderDiscoveryError {
+    #[error("Spider discovery error: {0}")]
+    Discovery(String),
 }
 
 fn hash_main_fragment(html: &str, fallback: &str) -> MainHash {
@@ -91,7 +72,10 @@ impl Default for CrawlerConfig {
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait Spider: Send + Sync {
-    async fn crawl(&self, shop_url: &str) -> Result<mpsc::Receiver<CrawledPage>, SpiderError>;
+    async fn crawl(
+        &self,
+        shop_url: &str,
+    ) -> Result<mpsc::Receiver<CrawledPage>, SpiderDiscoveryError>;
 }
 
 pub struct SpiderImpl {
@@ -112,12 +96,15 @@ impl Default for SpiderImpl {
 
 #[async_trait::async_trait]
 impl Spider for SpiderImpl {
-    async fn crawl(&self, shop_url: &str) -> Result<mpsc::Receiver<CrawledPage>, SpiderError> {
+    async fn crawl(
+        &self,
+        shop_url: &str,
+    ) -> Result<mpsc::Receiver<CrawledPage>, SpiderDiscoveryError> {
         let (tx, rx) = mpsc::channel(self.config.channel_size);
 
         let mut website = Website::new(shop_url);
 
-        let blacklist_regex = build_blacklist_url_patterns();
+        let blacklist_regex = CrawledUrl::blacklist_patterns();
 
         website
             .with_blacklist_url(Some(blacklist_regex))
@@ -132,7 +119,7 @@ impl Spider for SpiderImpl {
 
         let mut spider_rx = website
             .subscribe(512)
-            .ok_or_else(|| SpiderError::Spider("Failed to subscribe".to_string()))?;
+            .ok_or_else(|| SpiderDiscoveryError::Discovery("Failed to subscribe".to_string()))?;
 
         tokio::spawn(async move {
             website.crawl().await;
@@ -147,15 +134,15 @@ impl Spider for SpiderImpl {
             while let Ok(page) = spider_rx.recv().await {
                 let raw_url = page.get_url();
 
-                if is_junk_url(raw_url) {
-                    continue;
-                }
-
                 let normalized = if let Ok(parsed) = url::Url::parse(raw_url) {
                     CrawledUrl::new(parsed)
                 } else {
                     continue;
                 };
+
+                if normalized.is_blacklisted() {
+                    continue;
+                }
 
                 let normalized_str = normalized.to_string();
 
@@ -184,37 +171,6 @@ impl Spider for SpiderImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use regex::RegexSet;
-
-    #[test]
-    fn should_build_blacklist_patterns_matching_junk_urls_for_spider_blacklist() {
-        let patterns = build_blacklist_url_patterns();
-        let regex_set = RegexSet::new(patterns.iter().map(|pattern| pattern.as_str()))
-            .expect("blacklist patterns should compile");
-
-        assert!(regex_set.is_match("https://example.com/product/1?add-to-cart=123"));
-        assert!(regex_set.is_match("https://example.com/product/1?a=1&replytocom=456"));
-        assert!(regex_set.is_match("https://example.com/wp-admin/admin-ajax.php"));
-        assert!(!regex_set.is_match("https://example.com/product/1?a=1&b=2"));
-    }
-
-    #[test]
-    fn should_return_true_when_url_contains_junk_query_parameter() {
-        assert!(is_junk_url("https://example.com/product/1?add-to-cart=123"));
-        assert!(is_junk_url(
-            "https://example.com/product/1?a=1&replytocom=456"
-        ));
-    }
-
-    #[test]
-    fn should_return_true_when_url_contains_junk_path() {
-        assert!(is_junk_url("https://example.com/wp-admin/admin-ajax.php"));
-    }
-
-    #[test]
-    fn should_return_false_when_url_is_regular_product_url() {
-        assert!(!is_junk_url("https://example.com/product/1?a=1&b=2"));
-    }
 
     #[test]
     fn should_store_url_when_creating_crawled_page_for_product_path() {
