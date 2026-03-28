@@ -2747,6 +2747,104 @@ async fn should_respond_200_for_product_history() {
     assert_eq!("STATE_CHANGED", history[1]["eventType"]);
 }
 
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_personalized_when_authenticated_and_product_exists_for_ids() {
+    let user = create_random_test_user().await;
+
+    let repository = ProductDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &get_cfn_output().dynamodb_table_1_name,
+    );
+    let record = Faker.fake::<ProductRecord>();
+    let insert_res = repository
+        .put_product_records([record.clone()].into())
+        .await
+        .unwrap();
+    assert!(insert_res.unprocessed_items.unwrap().is_empty());
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    let url = format!(
+        "{}/api/v1/shops/{}/products/{}?currency=GBP",
+        get_cfn_output().api_gateway_endpoint_url,
+        record.shop_id,
+        record.shops_product_id
+    );
+    let response = reqwest::Client::new()
+        .get(url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(record.shop_id.to_string(), body["item"]["shopId"]);
+    assert_eq!(
+        record.shops_product_id.to_string(),
+        body["item"]["shopsProductId"]
+    );
+    assert_eq!(record.product_id.to_string(), body["item"]["productId"]);
+    assert!(
+        !body["userState"]["watchlist"]["watching"]
+            .as_bool()
+            .unwrap()
+    );
+    assert!(
+        !body["userState"]["watchlist"]["notifications"]
+            .as_bool()
+            .unwrap()
+    );
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_personalized_when_authenticated_and_product_exists_for_slug_ids() {
+    let user = create_random_test_user().await;
+
+    let repository = ProductDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &get_cfn_output().dynamodb_table_1_name,
+    );
+    let record = Faker.fake::<ProductRecord>();
+    let insert_res = repository
+        .put_product_records([record.clone()].into())
+        .await
+        .unwrap();
+    assert!(insert_res.unprocessed_items.unwrap().is_empty());
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    let url = format!(
+        "{}/api/v1/by-slug/shops/{}/products/{}?currency=GBP",
+        get_cfn_output().api_gateway_endpoint_url,
+        record.shop_slug_id,
+        record.product_slug_id
+    );
+    let response = reqwest::Client::new()
+        .get(url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(record.shop_id.to_string(), body["item"]["shopId"]);
+    assert_eq!(
+        record.shops_product_id.to_string(),
+        body["item"]["shopsProductId"]
+    );
+    assert_eq!(record.product_id.to_string(), body["item"]["productId"]);
+    assert!(
+        !body["userState"]["watchlist"]["watching"]
+            .as_bool()
+            .unwrap()
+    );
+    assert!(
+        !body["userState"]["watchlist"]["notifications"]
+            .as_bool()
+            .unwrap()
+    );
+}
+
 // ---------------------------------------------------------------------------
 // API: Product search
 // Verifies OpenSearch query routing, watchlist personalization for auth users,

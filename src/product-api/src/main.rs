@@ -1,6 +1,6 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
-use cognito::access_token_verifier_service::AccessTokenVerifierServiceImpl;
+use cognito::load_access_token_verifier_service;
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use notification::dynamodb::repository::NotificationDynamoDbRepositoryImpl;
@@ -74,12 +74,8 @@ async fn main() -> Result<(), Error> {
         &user_service,
     );
 
-    let access_token_verifier_service = AccessTokenVerifierServiceImpl::new(
-        "eu-central-1",
-        &user_pool_id,
-        user_pool_client_ids.as_slice(),
-    )
-    .expect("shouldn't fail creating 'AccessTokenVerifierServiceImpl'");
+    let access_token_verifier_service =
+        load_access_token_verifier_service(&user_pool_id, &user_pool_client_ids);
 
     debug!("Lambda initialized.");
 
