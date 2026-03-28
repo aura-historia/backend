@@ -3563,7 +3563,12 @@ async fn should_get_all_search_filters_when_authorized() {
         get_dynamodb_client().await,
         &get_cfn_output().dynamodb_table_1_name,
     );
-    let service = UserSearchFilterServiceImpl::new(&repository);
+    let user_repository = UserDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &get_cfn_output().dynamodb_table_1_name,
+    );
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
     let user = create_random_test_user().await;
     let expected1 = Faker.fake::<product::core::product_search::ProductSearch>();
@@ -3571,11 +3576,11 @@ async fn should_get_all_search_filters_when_authorized() {
     let expected2 = Faker.fake::<product::core::product_search::ProductSearch>();
     let expected2_name = Faker.fake::<UserSearchFilterName>();
     service
-        .save_user_search_filter(&user.sub.into(), expected1_name.clone(), expected1.clone())
+        .create_user_search_filter(&user.sub.into(), expected1_name.clone(), expected1.clone())
         .await
         .unwrap();
     service
-        .save_user_search_filter(&user.sub.into(), expected2_name.clone(), expected2.clone())
+        .create_user_search_filter(&user.sub.into(), expected2_name.clone(), expected2.clone())
         .await
         .unwrap();
 
@@ -3722,11 +3727,16 @@ async fn should_get_search_filter_products_when_authorized() {
         get_dynamodb_client().await,
         &get_cfn_output().dynamodb_table_1_name,
     );
-    let service = UserSearchFilterServiceImpl::new(&repository);
+    let user_repository = UserDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &get_cfn_output().dynamodb_table_1_name,
+    );
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
     let user = create_random_test_user().await;
     let search_filter = service
-        .save_user_search_filter(
+        .create_user_search_filter(
             &user.sub.into(),
             Faker.fake(),
             Faker.fake::<product::core::product_search::ProductSearch>(),

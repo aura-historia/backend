@@ -1,34 +1,53 @@
-use common::user_id::UserId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use product::core::product_search::ProductSearch;
 use product::service::get_service::MockGetProductService;
 use product_personalization::service::MockProductPersonalizationService;
+use search_filter::core::user_search_filter::UserSearchFilter;
 use search_filter::core::user_search_filter_id::UserSearchFilterId;
-use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
-use search_filter::service::user_search_filter_service::{
-    UserSearchFilterService, UserSearchFilterServiceImpl,
+use search_filter::dynamodb::repository::{
+    UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
 };
+use search_filter::service::user_search_filter_service::UserSearchFilterServiceImpl;
 use search_filter_api::handle;
 use test_api::*;
+use user::service::user_service::UserService;
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_return_actual_search_filters_sorted_oldest_for_order_asc() {
     let repository =
         UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = UserSearchFilterServiceImpl::new(&repository);
+    let user_repository = user::dynamodb::repository::UserDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        "table_1",
+    );
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
     let get_product_service = MockGetProductService::default();
     let personalization_service = MockProductPersonalizationService::default();
 
-    let user_id = UserId::new();
+    let user_id = user_service
+        .create_user(Faker.fake())
+        .await
+        .unwrap()
+        .user_id;
     let mut expected = vec![];
     for search_filter in fake::vec![ProductSearch; 81] {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        let saved = service
-            .save_user_search_filter(&user_id, Faker.fake(), search_filter)
+        let filter = UserSearchFilter {
+            user_id,
+            user_search_filter_id: UserSearchFilterId::new(),
+            name: Faker.fake(),
+            notifications: true,
+            search: search_filter,
+            created: time::OffsetDateTime::now_utc(),
+            updated: time::OffsetDateTime::now_utc(),
+        };
+        repository
+            .put_user_search_filter_record(filter.clone().into())
             .await
             .unwrap();
-        expected.push(saved);
+        expected.push(filter);
     }
     expected.sort_by(|l, r| l.created.cmp(&r.created));
     let expected: Vec<UserSearchFilterId> = expected
@@ -77,19 +96,37 @@ async fn should_return_actual_search_filters_sorted_oldest_for_order_asc() {
 async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
     let repository =
         UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = UserSearchFilterServiceImpl::new(&repository);
+    let user_repository = user::dynamodb::repository::UserDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        "table_1",
+    );
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
     let get_product_service = MockGetProductService::default();
     let personalization_service = MockProductPersonalizationService::default();
 
-    let user_id = UserId::new();
+    let user_id = user_service
+        .create_user(Faker.fake())
+        .await
+        .unwrap()
+        .user_id;
     let mut expected = vec![];
     for search_filter in fake::vec![ProductSearch; 81] {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        let saved = service
-            .save_user_search_filter(&user_id, Faker.fake(), search_filter)
+        let filter = UserSearchFilter {
+            user_id,
+            user_search_filter_id: UserSearchFilterId::new(),
+            name: Faker.fake(),
+            notifications: true,
+            search: search_filter,
+            created: time::OffsetDateTime::now_utc(),
+            updated: time::OffsetDateTime::now_utc(),
+        };
+        repository
+            .put_user_search_filter_record(filter.clone().into())
             .await
             .unwrap();
-        expected.push(saved);
+        expected.push(filter);
     }
     expected.sort_by(|l, r| l.created.cmp(&r.created).reverse());
     let expected: Vec<UserSearchFilterId> = expected

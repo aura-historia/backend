@@ -53,7 +53,8 @@ async fn should_200_when_sort_created_asc() {
         &notification_service,
         &user_service,
     );
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
+    let service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
@@ -159,7 +160,8 @@ async fn should_200_when_sort_created_asc_search_after() {
         &notification_service,
         &user_service,
     );
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
+    let service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
@@ -275,7 +277,8 @@ async fn should_200_when_sort_created_desc() {
         &notification_service,
         &user_service,
     );
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
+    let service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
@@ -382,7 +385,8 @@ async fn should_200_when_sort_created_desc_search_after() {
         &notification_service,
         &user_service,
     );
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
+    let service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
@@ -530,7 +534,8 @@ async fn should_respond_200_and_respect_language_query_param(
         &notification_service,
         &user_service,
     );
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
+    let service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
 
     let mut product_records = fake::vec![ProductRecord; 23];
     for product_record in &mut product_records {

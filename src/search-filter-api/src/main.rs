@@ -54,7 +54,7 @@ async fn main() -> Result<(), Error> {
         &user_service,
     );
 
-    let service = UserSearchFilterServiceImpl::new(&repository);
+    let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
     debug!("Lambda initialized.");
 

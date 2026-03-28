@@ -1,3 +1,4 @@
+use crate::core::tier::UserTier;
 use crate::core::user::User;
 use crate::dynamodb::repository::UserDynamoDbRepository;
 use crate::dynamodb::user_record_update::UserRecordUpdate;
@@ -100,6 +101,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                     language: None,
                     currency: None,
                     prohibited_content_consent: false,
+                    tier: UserTier::Free,
                     created: now,
                     updated: now,
                 };

@@ -1038,6 +1038,7 @@ mod tests {
             language: Some(Language::En),
             currency: Some(Currency::Eur),
             prohibited_content_consent: false,
+            tier: user::core::tier::UserTier::Free,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -1997,6 +1998,7 @@ mod tests {
                 language: None,
                 currency: None,
                 prohibited_content_consent: false,
+                tier: user::core::tier::UserTier::Free,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };

@@ -10,16 +10,13 @@ use product::dynamodb::{
 };
 use product::service::get_service::GetProductServiceImpl;
 use product_personalization::service::ProductPersonalizationServiceImpl;
+use product_watchlist::dynamodb::record::{mk_gsi1_pk, mk_gsi1_sk};
 use product_watchlist::{
     dynamodb::record::{WatchlistProductRecord, mk_lsi1_sk, mk_pk, mk_sk},
     dynamodb::repository::{
         WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
     },
     service::product_watchlist_service::ProductWatchListServiceImpl,
-};
-use product_watchlist::{
-    dynamodb::record::{mk_gsi1_pk, mk_gsi1_sk},
-    service::product_watchlist_service::MAX_WATCHLIST_QUOTA,
 };
 use product_watchlist_api::watchlist_post::handle;
 use test_api::*;
@@ -59,9 +56,11 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
         &notification_service,
         &user_service,
     );
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
+    let service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
 
-    let product_records = fake::vec![ProductRecord; MAX_WATCHLIST_QUOTA - 1];
+    let product_records =
+        fake::vec![ProductRecord; user::core::tier::UserTier::Free.watchlist_limit() - 1];
     let put_res = product_repository
         .put_product_records(product_records.clone().try_into().unwrap())
         .await
@@ -137,6 +136,10 @@ async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
+    user_repository
+        .put_user_record(user_record.clone())
+        .await
+        .unwrap();
     let get_product_service = GetProductServiceImpl::new(&product_repository);
     let noop_ses = NoopSesAdapter;
     let noop_s3 = NoopS3Adapter;
@@ -155,9 +158,11 @@ async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
         &notification_service,
         &user_service,
     );
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
+    let service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
 
-    let product_records = fake::vec![ProductRecord; MAX_WATCHLIST_QUOTA];
+    let product_records =
+        fake::vec![ProductRecord; user::core::tier::UserTier::Free.watchlist_limit()];
     let put_res = product_repository
         .put_product_records(product_records.clone().try_into().unwrap())
         .await
