@@ -2870,7 +2870,7 @@ Resources:
   ProductPipelineClassifyDynamoDbProductEventRecordCreatedEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: "ddb-product-embed-product-pipeline-classify-dev"
+      Name: "ddb-product-embed-product-pipeline-classify-product-dev"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
