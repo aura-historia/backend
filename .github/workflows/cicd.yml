@@ -404,8 +404,7 @@ jobs:
     strategy:
       matrix:
         crate:
-          - src/product-pipeline/src/product-pipeline-classify-category
-          - src/product-pipeline/src/product-pipeline-classify-period
+          - src/product-pipeline/src/product-pipeline-classify
           - src/product-pipeline/src/product-pipeline-embed-text
           - src/product-pipeline/src/product-pipeline-extract-attribute
           - src/product-pipeline/src/product-pipeline-translate

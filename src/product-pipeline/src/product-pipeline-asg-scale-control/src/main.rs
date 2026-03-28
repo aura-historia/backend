@@ -43,25 +43,14 @@ async fn main() -> Result<(), Error> {
             ),
         },
         SqsAsgComponent {
-            sqs_url: std::env::var("PRODUCT_PIPELINE_CLASSIFY_CATEGORY_SQS_URL").expect(
-                "shouldn't fail loading env-var 'PRODUCT_PIPELINE_CLASSIFY_CATEGORY_SQS_URL'",
+            sqs_url: std::env::var("PRODUCT_PIPELINE_CLASSIFY_SQS_URL").expect(
+                "shouldn't fail loading env-var 'PRODUCT_PIPELINE_CLASSIFY_SQS_URL'",
             ),
-            queue_name: std::env::var("PRODUCT_PIPELINE_CLASSIFY_CATEGORY_SQS_NAME").expect(
-                "shouldn't fail loading env-var 'PRODUCT_PIPELINE_CLASSIFY_CATEGORY_SQS_NAME'",
+            queue_name: std::env::var("PRODUCT_PIPELINE_CLASSIFY_SQS_NAME").expect(
+                "shouldn't fail loading env-var 'PRODUCT_PIPELINE_CLASSIFY_SQS_NAME'",
             ),
-            asg_name: std::env::var("PRODUCT_PIPELINE_CLASSIFY_CATEGORY_ASG_NAME").expect(
-                "shouldn't fail loading env-var 'PRODUCT_PIPELINE_CLASSIFY_CATEGORY_ASG_NAME'",
-            ),
-        },
-        SqsAsgComponent {
-            sqs_url: std::env::var("PRODUCT_PIPELINE_CLASSIFY_PERIOD_SQS_URL").expect(
-                "shouldn't fail loading env-var 'PRODUCT_PIPELINE_CLASSIFY_PERIOD_SQS_URL'",
-            ),
-            queue_name: std::env::var("PRODUCT_PIPELINE_CLASSIFY_PERIOD_SQS_NAME").expect(
-                "shouldn't fail loading env-var 'PRODUCT_PIPELINE_CLASSIFY_PERIOD_SQS_NAME'",
-            ),
-            asg_name: std::env::var("PRODUCT_PIPELINE_CLASSIFY_PERIOD_ASG_NAME").expect(
-                "shouldn't fail loading env-var 'PRODUCT_PIPELINE_CLASSIFY_PERIOD_ASG_NAME'",
+            asg_name: std::env::var("PRODUCT_PIPELINE_CLASSIFY_ASG_NAME").expect(
+                "shouldn't fail loading env-var 'PRODUCT_PIPELINE_CLASSIFY_ASG_NAME'",
             ),
         },
     ];

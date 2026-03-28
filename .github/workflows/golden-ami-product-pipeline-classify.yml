@@ -1,19 +1,19 @@
-name: Build Golden AMI for product-pipeline-classify-category
+name: Build Golden AMI for product-pipeline-classify
 
 on:
   push:
     branches: [prod, develop]
     paths:
-      - ".github/workflows/golden-ami-product-pipeline-classify-category.yml"
+      - ".github/workflows/golden-ami-product-pipeline-classify.yml"
       - "cfn/golden-ami.yaml"
-      - "ami/product-pipeline-classify-category.yml"
-      - "src/product-pipeline/src/product-pipeline-classify-category/python/requirements.txt"
+      - "ami/product-pipeline-classify.yml"
+      - "src/product-pipeline/src/product-pipeline-classify/python/requirements.txt"
   pull_request:
     paths:
-      - ".github/workflows/golden-ami-product-pipeline-classify-category.yml"
+      - ".github/workflows/golden-ami-product-pipeline-classify.yml"
       - "cfn/golden-ami.yaml"
-      - "ami/product-pipeline-classify-category.yml"
-      - "src/product-pipeline/src/product-pipeline-classify-category/python/requirements.txt"
+      - "ami/product-pipeline-classify.yml"
+      - "src/product-pipeline/src/product-pipeline-classify/python/requirements.txt"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -57,8 +57,8 @@ jobs:
     strategy:
       matrix:
         resource:
-          - src/product-pipeline/src/product-pipeline-classify-category/python/requirements.txt
-          - ami/product-pipeline-classify-category.yml
+          - src/product-pipeline/src/product-pipeline-classify/python/requirements.txt
+          - ami/product-pipeline-classify.yml
     steps:
       - uses: actions/checkout@v6
 
@@ -99,7 +99,7 @@ jobs:
         run: |
           VERSION="$(date -u +'%Y.%m%d.%H%M%S')"
           aws cloudformation deploy \
-            --stack-name ${{ env.STAGE }}-imagebuilder-product-pipeline-classify-category \
+            --stack-name ${{ env.STAGE }}-imagebuilder-product-pipeline-classify \
             --template-file cfn/golden-ami.yaml \
             --s3-bucket ${{ vars.S3_CFN_ARTIFACTS_BUCKET_NAME }} \
             --s3-prefix ${{ env.STAGE }} \
@@ -107,16 +107,16 @@ jobs:
             --parameter-overrides \
                 Version=$VERSION \
                 Stage=${{ env.STAGE }} \
-                ImageName="product-pipeline-classify-category" \
+                ImageName="product-pipeline-classify" \
                 ResourceBucket=${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }} \
-                ImageBuilderComponentS3BlobUrl="s3://${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}/${{ env.STAGE }}/ami/product-pipeline-classify-category.yml" \
+                ImageBuilderComponentS3BlobUrl="s3://${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}/${{ env.STAGE }}/ami/product-pipeline-classify.yml" \
                 ParentAmi="{{resolve:ssm:/aws/service/deeplearning/ami/x86_64/oss-nvidia-driver-gpu-pytorch-2.9-ubuntu-24.04/latest/ami-id}}"
 
       - name: Get Image Pipeline ARN
         id: get_pipeline_arn
         run: |
           PIPELINE_ARN=$(aws cloudformation describe-stacks \
-            --stack-name ${{ env.STAGE }}-imagebuilder-product-pipeline-classify-category \
+            --stack-name ${{ env.STAGE }}-imagebuilder-product-pipeline-classify \
             --query "Stacks[0].Outputs[?OutputKey=='ImagePipelineArn'].OutputValue" \
             --output text)
 
@@ -176,7 +176,7 @@ jobs:
       - name: Store AMI ID in SSM Parameter Store
         run: |
           aws ssm put-parameter \
-            --name /amis/${{ env.STAGE }}/product-pipeline-classify-category/latest \
+            --name /amis/${{ env.STAGE }}/product-pipeline-classify/latest \
             --value ${{ steps.get_ami.outputs.ami_id }} \
             --type String \
             --overwrite
