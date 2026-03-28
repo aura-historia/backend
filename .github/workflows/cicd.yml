@@ -297,7 +297,6 @@ jobs:
   aws-push-lambda:
     name: Push Lambda to S3 ${{ matrix.crate }}
     if: github.event_name == 'push' && (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop')
-    needs: [unit-test, integration-test, test-product-pipeline, acceptance-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -382,7 +381,6 @@ jobs:
   aws-push-ec2-x86:
     name: Push EC2 to S3 ${{ matrix.crate }}
     if: github.event_name == 'push' && (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop')
-    needs: [unit-test, integration-test, test-product-pipeline, acceptance-test]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -433,7 +431,6 @@ jobs:
   aws-push-mail-templates:
     name: Compile & push Mail-Templates to S3 ${{ matrix.resource }}
     if: github.event_name == 'push' && (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop')
-    needs: [unit-test, integration-test, test-product-pipeline, acceptance-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
