@@ -64,7 +64,8 @@ async fn should_respond_with_patched_notifications(
         &notification_service,
         &user_service,
     );
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
+    let service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
 
     let user_record = Faker.fake::<UserRecord>();
     let _ = user_repository

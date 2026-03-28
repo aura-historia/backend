@@ -52,9 +52,9 @@ async fn main() -> Result<(), Error> {
     let s3_adapter = S3AdapterImpl::new(&s3_client);
 
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let watchlist_service =
-        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
     let user_service = UserServiceImpl::new(&user_repository);
+    let watchlist_service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
 
     let notification_service = NotificationServiceImpl::new(
         &notification_repository,

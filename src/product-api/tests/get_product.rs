@@ -263,9 +263,9 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let watchlist_service =
-        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
     let user_service = UserServiceImpl::new(&user_repository);
+    let watchlist_service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
     let mut notification_service = MockNotificationService::default();
     notification_service
         .expect_find_notifications_by_product()

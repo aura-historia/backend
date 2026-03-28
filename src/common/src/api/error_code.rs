@@ -50,6 +50,7 @@ pub const UNPROCESSED_AFTER_MAX_RETRIES: ApiErrorCode =
 pub const UNPROCESSED_ITEMS: ApiErrorCode = ApiErrorCode("UNPROCESSED_ITEMS");
 
 pub const WATCHLIST_QUOTA_EXCEEDED: ApiErrorCode = ApiErrorCode("WATCHLIST_QUOTA_EXCEEDED");
+pub const SEARCH_FILTER_QUOTA_EXCEEDED: ApiErrorCode = ApiErrorCode("SEARCH_FILTER_QUOTA_EXCEEDED");
 
 impl Display for ApiErrorCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

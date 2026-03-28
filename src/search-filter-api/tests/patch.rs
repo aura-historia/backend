@@ -1,6 +1,5 @@
 use common::query::range_query::RangeQuery;
 use common::shop_name::ShopName;
-use common::user_id::UserId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use product::core::product_search::ProductSearch;
@@ -14,18 +13,28 @@ use search_filter::service::user_search_filter_service::{
 use search_filter_api::handle;
 use search_filter_api::patch_types::{PatchProductSearchData, PatchUserSearchFilterData};
 use test_api::*;
+use user::service::user_service::UserService;
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_update_search_filter() {
     let repository =
         UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = UserSearchFilterServiceImpl::new(&repository);
+    let user_repository = user::dynamodb::repository::UserDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        "table_1",
+    );
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
     let get_product_service = MockGetProductService::default();
     let personalization_service = MockProductPersonalizationService::default();
 
-    let user_id = UserId::new();
+    let user_id = user_service
+        .create_user(Faker.fake())
+        .await
+        .unwrap()
+        .user_id;
     let initial = service
-        .save_user_search_filter(&user_id, Faker.fake(), Faker.fake::<ProductSearch>())
+        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake::<ProductSearch>())
         .await
         .unwrap();
 
