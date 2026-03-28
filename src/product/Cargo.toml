@@ -31,6 +31,7 @@ itertools = { workspace = true, optional = true }
 strum = { workspace = true, optional = true }
 strum_macros = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
+product-classification = { workspace = true, optional = true }
 
 [dev-dependencies]
 aws-config = { workspace = true }
@@ -46,6 +47,6 @@ data = ["common/api", "shop/data"]
 dynamodb = ["aws-sdk-dynamodb", "serde_dynamo", "common/dynamodb", "field", "strum", "shop/dynamodb"]
 opensearch = ["dynamodb", "dep:opensearch", "strum", "strum_macros", "common/opensearch", "shop/opensearch"]
 sqs = ["aws-sdk-sqs", "common/sqs"]
-service = ["itertools", "shop/dynamodb", "tokio", "tokio/time"]
+service = ["itertools", "shop/dynamodb", "tokio", "tokio/time", "tokio/sync", "product-classification"]
 test-data = ["fake", "common/test-data", "shop/test-data"]
 full = ["data", "dynamodb", "opensearch", "service", "sqs", "test-data"]

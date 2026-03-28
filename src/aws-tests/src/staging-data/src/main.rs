@@ -70,8 +70,27 @@ async fn create_products(commands: Vec<CreateProductCommand>) {
     let dynamodb_client = get_dynamodb_client().await;
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let period_dynamodb_repository =
+        PeriodDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let period_opensearch_repository =
+        PeriodOpenSearchRepositoryImpl::new(staging_tests::get_opensearch_client().await);
+    let period_service =
+        PeriodServiceImpl::new(&period_dynamodb_repository, &period_opensearch_repository);
+    let category_dynamodb_repository =
+        CategoryDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let category_opensearch_repository =
+        CategoryOpenSearchRepositoryImpl::new(staging_tests::get_opensearch_client().await);
+    let category_service = CategoryServiceImpl::new(
+        &category_dynamodb_repository,
+        &category_opensearch_repository,
+    );
     let fx_rate = FixedFxRate();
-    let command_service = CommandProductServiceImpl::new(&product_repository, &fx_rate);
+    let command_service = CommandProductServiceImpl::new(
+        &product_repository,
+        &fx_rate,
+        &period_service,
+        &category_service,
+    );
 
     let result = command_service.create(commands).await;
     assert!(result.is_empty(), "Some products failed to create");
@@ -82,8 +101,27 @@ async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
     let dynamodb_client = get_dynamodb_client().await;
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let period_dynamodb_repository =
+        PeriodDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let period_opensearch_repository =
+        PeriodOpenSearchRepositoryImpl::new(staging_tests::get_opensearch_client().await);
+    let period_service =
+        PeriodServiceImpl::new(&period_dynamodb_repository, &period_opensearch_repository);
+    let category_dynamodb_repository =
+        CategoryDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let category_opensearch_repository =
+        CategoryOpenSearchRepositoryImpl::new(staging_tests::get_opensearch_client().await);
+    let category_service = CategoryServiceImpl::new(
+        &category_dynamodb_repository,
+        &category_opensearch_repository,
+    );
     let fx_rate = FixedFxRate();
-    let command_service = CommandProductServiceImpl::new(&product_repository, &fx_rate);
+    let command_service = CommandProductServiceImpl::new(
+        &product_repository,
+        &fx_rate,
+        &period_service,
+        &category_service,
+    );
 
     let result = command_service.update(commands).await;
     assert!(result.is_empty(), "Some products failed to update");
