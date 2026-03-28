@@ -47,9 +47,6 @@ async fn main() -> Result<(), Error> {
         "",
         "",
         "",
-        "noreply@example.com"
-            .parse()
-            .expect("shouldn't fail parsing placeholder sender email"),
     );
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
@@ -57,7 +54,7 @@ async fn main() -> Result<(), Error> {
         &user_service,
     );
 
-    let service = UserSearchFilterServiceImpl::new(&repository);
+    let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
     debug!("Lambda initialized.");
 

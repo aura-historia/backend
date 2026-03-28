@@ -15,6 +15,8 @@ use product::core::product_search::ProductSearch;
 use product::opensearch::product_document::ProductDocument;
 use time::OffsetDateTime;
 use tracing::{error, info};
+use user::core::user::User;
+use user::service::user_service::{UserService, UserServiceError};
 
 #[derive(thiserror::Error, Debug)]
 pub enum UserSearchFilterError {
@@ -53,13 +55,27 @@ pub enum UserSearchFilterError {
     #[cfg(feature = "opensearch")]
     #[error("Encountered OpenSearch error: {0}")]
     OpenSearchError(#[from] opensearch::Error),
+
+    #[error("User with UserId '{0}' not found.")]
+    UserNotFound(UserId),
+
+    #[error(
+        "Exceeded the maximum amount of search filters. There are already {0}/{1} search filters occupied."
+    )]
+    SearchFilterQuotaExceeded(u32, usize),
+
+    #[error("UserServiceError: {0}")]
+    UserServiceError(UserServiceError),
 }
 
 #[cfg(feature = "data")]
 pub mod api {
     use crate::service::user_search_filter_service::UserSearchFilterError;
     use common::api::error::ApiError;
-    use common::api::error_code::SEARCH_FILTER_NOT_FOUND;
+    use common::api::error_code::{
+        INTERNAL_SERVER_ERROR, SEARCH_FILTER_NOT_FOUND, SEARCH_FILTER_QUOTA_EXCEEDED,
+        USER_NOT_FOUND,
+    };
 
     impl From<UserSearchFilterError> for ApiError {
         fn from(err: UserSearchFilterError) -> Self {
@@ -73,16 +89,21 @@ pub mod api {
                 UserSearchFilterError::SdkDeleteItemError(err) => err.into(),
                 UserSearchFilterError::SdkUpdateItemError(err) => err.into(),
                 UserSearchFilterError::SdkBatchWriteItemError(err) => {
-                    ApiError::internal_server_error(
-                        common::api::error_code::INTERNAL_SERVER_ERROR,
-                        Box::new(err),
-                    )
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
                 #[cfg(feature = "opensearch")]
-                UserSearchFilterError::OpenSearchError(err) => ApiError::internal_server_error(
-                    common::api::error_code::INTERNAL_SERVER_ERROR,
-                    Box::new(err),
-                ),
+                UserSearchFilterError::OpenSearchError(err) => {
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
+                }
+                UserSearchFilterError::UserNotFound(_) => {
+                    ApiError::not_found(USER_NOT_FOUND, Box::new(err))
+                }
+                UserSearchFilterError::SearchFilterQuotaExceeded(_, _) => {
+                    ApiError::unprocessable_entity(SEARCH_FILTER_QUOTA_EXCEEDED, Box::new(err))
+                }
+                UserSearchFilterError::UserServiceError(_) => {
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
+                }
             }
         }
     }
@@ -103,7 +124,7 @@ pub trait UserSearchFilterService {
         user_search_filter_id: &UserSearchFilterId,
     ) -> Result<UserSearchFilter, UserSearchFilterError>;
 
-    async fn save_user_search_filter(
+    async fn create_user_search_filter(
         &self,
         user_id: &UserId,
         name: UserSearchFilterName,
@@ -176,6 +197,7 @@ pub struct CreateSearchFilterProductMatchesResult {
 
 pub struct UserSearchFilterServiceImpl<'a> {
     repository: &'a (dyn UserSearchFilterDynamoDbRepository + Sync),
+    user_service: &'a (dyn UserService + Sync),
     #[cfg(feature = "opensearch")]
     opensearch_repository: Option<
         &'a (dyn crate::opensearch::repository::UserSearchFilterOpenSearchRepository + Sync),
@@ -183,9 +205,13 @@ pub struct UserSearchFilterServiceImpl<'a> {
 }
 
 impl<'a> UserSearchFilterServiceImpl<'a> {
-    pub fn new(repository: &'a (dyn UserSearchFilterDynamoDbRepository + Sync)) -> Self {
+    pub fn new(
+        repository: &'a (dyn UserSearchFilterDynamoDbRepository + Sync),
+        user_service: &'a (dyn UserService + Sync),
+    ) -> Self {
         Self {
             repository,
+            user_service,
             #[cfg(feature = "opensearch")]
             opensearch_repository: None,
         }
@@ -194,12 +220,14 @@ impl<'a> UserSearchFilterServiceImpl<'a> {
     #[cfg(feature = "opensearch")]
     pub fn with_opensearch(
         repository: &'a (dyn UserSearchFilterDynamoDbRepository + Sync),
+        user_service: &'a (dyn UserService + Sync),
         opensearch_repository: &'a (
                 dyn crate::opensearch::repository::UserSearchFilterOpenSearchRepository + Sync
             ),
     ) -> Self {
         Self {
             repository,
+            user_service,
             opensearch_repository: Some(opensearch_repository),
         }
     }
@@ -241,12 +269,34 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
         Ok(search_filter)
     }
 
-    async fn save_user_search_filter(
+    async fn create_user_search_filter(
         &self,
         user_id: &UserId,
         name: UserSearchFilterName,
         search: ProductSearch,
     ) -> Result<UserSearchFilter, UserSearchFilterError> {
+        let user: User = self
+            .user_service
+            .find_user(user_id)
+            .await
+            .map_err(|e| match e {
+                UserServiceError::UserNotFound(id) => UserSearchFilterError::UserNotFound(id),
+                other => UserSearchFilterError::UserServiceError(other),
+            })?;
+
+        let limit = user.tier.search_filter_limit();
+        let filter_count = self
+            .repository
+            .query_user_search_filter_records(user_id, true)
+            .await?
+            .len();
+        if filter_count >= limit {
+            return Err(UserSearchFilterError::SearchFilterQuotaExceeded(
+                filter_count as u32,
+                limit,
+            ));
+        }
+
         let user_search_filter = UserSearchFilter {
             user_id: *user_id,
             user_search_filter_id: UserSearchFilterId::new(),
@@ -262,7 +312,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             .put_user_search_filter_record(user_search_filter.clone().into())
             .await?;
 
-        info!(userId = %user_id, userSearchFilterId = %user_search_filter.user_search_filter_id, "Saved UserSearchFilter.");
+        info!(userId = %user_id, userSearchFilterId = %user_search_filter.user_search_filter_id, "Created UserSearchFilter.");
 
         Ok(user_search_filter)
     }
@@ -583,7 +633,8 @@ mod tests {
                 .return_once(move |_, _| {
                     Box::pin(async move { Ok(fake::vec![UserSearchFilterRecord; count]) })
                 });
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
                 .find_user_search_filters(&UserId::new(), &Some(SortOrder::Asc))
                 .await;
@@ -614,7 +665,8 @@ mod tests {
             repository
                 .expect_query_user_search_filter_records()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
                 .find_user_search_filters(&UserId::new(), &Some(SortOrder::Desc))
                 .await;
@@ -646,7 +698,8 @@ mod tests {
             repository
                 .expect_get_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
                 .find_user_search_filter(&UserId::new(), &UserSearchFilterId::new())
                 .await;
@@ -659,7 +712,8 @@ mod tests {
             repository
                 .expect_get_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Ok(None) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let user_id = UserId::new();
             let user_search_filter_id = UserSearchFilterId::new();
             let actual = service
@@ -703,7 +757,8 @@ mod tests {
             repository
                 .expect_get_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
                 .find_user_search_filter(&UserId::new(), &UserSearchFilterId::new())
                 .await;
@@ -716,7 +771,7 @@ mod tests {
         }
     }
 
-    mod save_search_filter {
+    mod create_search_filter {
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::service::user_search_filter_service::{
             UserSearchFilterError, UserSearchFilterService, UserSearchFilterServiceImpl,
@@ -728,16 +783,28 @@ mod tests {
         };
         use common::user_id::UserId;
         use fake::{Fake, Faker};
+        use user::service::user_service::{MockUserService, UserServiceError};
 
         #[tokio::test]
-        async fn should_save_search_filter() {
+        async fn should_create_search_filter() {
             let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            let mut user_service = MockUserService::default();
+
+            user_service
+                .expect_find_user()
+                .return_once(|_| Box::pin(async { Ok(fake::Fake::fake(&fake::Faker)) }));
+
+            repository
+                .expect_query_user_search_filter_records()
+                .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+
             repository
                 .expect_put_user_search_filter_record()
                 .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
+
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .save_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake())
+                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake())
                 .await;
             assert!(actual.is_ok());
         }
@@ -763,18 +830,87 @@ mod tests {
             >,
         ) {
             let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            let mut user_service = MockUserService::default();
+
+            user_service
+                .expect_find_user()
+                .return_once(|_| Box::pin(async { Ok(fake::Fake::fake(&fake::Faker)) }));
+
+            repository
+                .expect_query_user_search_filter_records()
+                .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+
             repository
                 .expect_put_user_search_filter_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
+
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .save_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake())
+                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake())
                 .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
                 UserSearchFilterError::SdkPutItemError(_) => {}
                 _ => panic!("expected SearchFilterError::SdkPutItemError"),
+            }
+        }
+
+        #[tokio::test]
+        async fn should_err_search_filter_quota_exceeded_when_limit_reached() {
+            use crate::dynamodb::user_search_filter_record::UserSearchFilterRecord;
+
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            let mut user_service = MockUserService::default();
+
+            user_service
+                .expect_find_user()
+                .return_once(|_| Box::pin(async { Ok(fake::Fake::fake(&fake::Faker)) }));
+
+            let limit = user::core::tier::UserTier::Free.search_filter_limit();
+            repository
+                .expect_query_user_search_filter_records()
+                .return_once(move |_, _| {
+                    Box::pin(async move { Ok(fake::vec![UserSearchFilterRecord; limit]) })
+                });
+
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
+            let actual = service
+                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake())
+                .await
+                .unwrap_err();
+
+            match actual {
+                UserSearchFilterError::SearchFilterQuotaExceeded(actual_count, actual_limit) => {
+                    assert_eq!(limit, actual_count as usize);
+                    assert_eq!(limit, actual_limit);
+                }
+                err => panic!(
+                    "Expected 'UserSearchFilterError::SearchFilterQuotaExceeded' but got '{err}'"
+                ),
+            }
+        }
+
+        #[tokio::test]
+        async fn should_err_user_not_found_when_user_not_exists() {
+            let user_id = UserId::new();
+            let mut user_service = MockUserService::default();
+            user_service.expect_find_user().return_once(move |_| {
+                Box::pin(async move { Err(UserServiceError::UserNotFound(user_id)) })
+            });
+
+            let repository = MockUserSearchFilterDynamoDbRepository::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
+            let actual = service
+                .create_user_search_filter(&user_id, Faker.fake(), Faker.fake())
+                .await
+                .unwrap_err();
+
+            match actual {
+                UserSearchFilterError::UserNotFound(err_user_id) => {
+                    assert_eq!(user_id, err_user_id);
+                }
+                err => panic!("Expected 'UserSearchFilterError::UserNotFound' but got '{err}'"),
             }
         }
     }
@@ -802,7 +938,8 @@ mod tests {
             repository
                 .expect_delete_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Ok(DeleteItemOutput::builder().build()) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
                 .delete_user_search_filter(&UserId::new(), &UserSearchFilterId::new())
                 .await;
@@ -815,10 +952,10 @@ mod tests {
             repository
                 .expect_get_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Ok(None) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
-
             let user_id = UserId::new();
             let user_search_filter_id = UserSearchFilterId::new();
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
                 .delete_user_search_filter(&user_id, &user_search_filter_id)
                 .await;
@@ -860,7 +997,8 @@ mod tests {
             repository
                 .expect_get_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
                 .delete_user_search_filter(&UserId::new(), &UserSearchFilterId::new())
                 .await;
@@ -899,7 +1037,8 @@ mod tests {
             repository
                 .expect_delete_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
                 .delete_user_search_filter(&UserId::new(), &UserSearchFilterId::new())
                 .await;
@@ -934,7 +1073,8 @@ mod tests {
             repository
                 .expect_update_user_search_filter_record()
                 .return_once(|_, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
                 .update_user_search_filter(&UserId::new(), &UserSearchFilterId::new(), Faker.fake())
                 .await;
@@ -947,7 +1087,8 @@ mod tests {
             repository
                 .expect_get_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Ok(None) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let user_id = UserId::new();
             let user_search_filter_id = UserSearchFilterId::new();
@@ -992,7 +1133,8 @@ mod tests {
             repository
                 .expect_get_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
                 .update_user_search_filter(&UserId::new(), &UserSearchFilterId::new(), Faker.fake())
                 .await;
@@ -1031,7 +1173,8 @@ mod tests {
             repository
                 .expect_update_user_search_filter_record()
                 .return_once(|_, _, _| Box::pin(async { Err(expected) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
                 .update_user_search_filter(&UserId::new(), &UserSearchFilterId::new(), Faker.fake())
                 .await;
@@ -1064,8 +1207,12 @@ mod tests {
 
             let dynamodb_repo =
                 crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document: ProductDocument = Faker.fake();
 
             let actual = service.match_user_search_filters(&product_document).await;
@@ -1087,8 +1234,12 @@ mod tests {
 
             let dynamodb_repo =
                 crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document: ProductDocument = Faker.fake();
 
             let actual = service.match_user_search_filters(&product_document).await;
@@ -1111,8 +1262,12 @@ mod tests {
 
             let dynamodb_repo =
                 crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document: ProductDocument = Faker.fake();
 
             let actual = service.match_user_search_filters(&product_document).await;
@@ -1126,7 +1281,8 @@ mod tests {
         async fn should_return_error_when_opensearch_repository_not_configured() {
             let dynamodb_repo =
                 crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
-            let service = UserSearchFilterServiceImpl::new(&dynamodb_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&dynamodb_repo, &user_service);
             let product_document: ProductDocument = Faker.fake();
 
             let actual = service.match_user_search_filters(&product_document).await;
@@ -1153,8 +1309,12 @@ mod tests {
 
             let dynamodb_repo =
                 crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document: ProductDocument = Faker.fake();
 
             let actual = service.match_user_search_filters(&product_document).await;
@@ -1188,8 +1348,12 @@ mod tests {
 
             let dynamodb_repo =
                 crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document: ProductDocument = Faker.fake();
 
             let actual = service.match_user_search_filters(&product_document).await;
@@ -1214,8 +1378,12 @@ mod tests {
 
             let dynamodb_repo =
                 crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document: ProductDocument = Faker.fake();
 
             let actual = service.match_user_search_filters(&product_document).await;
@@ -1237,8 +1405,12 @@ mod tests {
 
             let dynamodb_repo =
                 crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document: ProductDocument = Faker.fake();
 
             let actual = service.match_user_search_filters(&product_document).await;
@@ -1261,8 +1433,12 @@ mod tests {
 
             let dynamodb_repo =
                 crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document: ProductDocument = Faker.fake();
 
             let actual = service.match_user_search_filters(&product_document).await;
@@ -1285,8 +1461,12 @@ mod tests {
 
             let dynamodb_repo =
                 crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document: ProductDocument = Faker.fake();
 
             // Call the method with product_document reference
@@ -1314,8 +1494,12 @@ mod tests {
                 .return_once(move |_| Box::pin(async move { Ok(documents) }));
 
             let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document: ProductDocument = Faker.fake();
 
             let actual = service.match_user_search_filters(&product_document).await;
@@ -1336,8 +1520,12 @@ mod tests {
                 .return_once(move |_| Box::pin(async move { Ok(documents) }));
 
             let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document: ProductDocument = Faker.fake();
 
             let actual = service.match_user_search_filters(&product_document).await;
@@ -1364,8 +1552,12 @@ mod tests {
                 .return_once(|_| Box::pin(async move { Ok(vec![expected_document]) }));
 
             let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document: ProductDocument = Faker.fake();
 
             let actual = service.match_user_search_filters(&product_document).await;
@@ -1392,8 +1584,12 @@ mod tests {
                 .return_once(move |_| Box::pin(async move { Ok(documents) }));
 
             let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document: ProductDocument = Faker.fake();
 
             let actual = service.match_user_search_filters(&product_document).await;
@@ -1418,8 +1614,12 @@ mod tests {
                 .return_once(|_| Box::pin(async { Ok(Vec::new()) }));
 
             let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document = product_document_copy.clone();
 
             let _ = service.match_user_search_filters(&product_document).await;
@@ -1445,8 +1645,12 @@ mod tests {
                 .return_once(move |_| Box::pin(async move { Ok(documents) }));
 
             let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document: ProductDocument = Faker.fake();
 
             let actual = service.match_user_search_filters(&product_document).await;
@@ -1474,8 +1678,12 @@ mod tests {
                 .return_once(|_| Box::pin(async { Ok(Vec::new()) }));
 
             let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document: ProductDocument = Faker.fake();
 
             let actual = service.match_user_search_filters(&product_document).await;
@@ -1487,7 +1695,8 @@ mod tests {
         #[tokio::test]
         async fn should_return_error_type_on_missing_repository() {
             let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
-            let service = UserSearchFilterServiceImpl::new(&dynamodb_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&dynamodb_repo, &user_service);
             let product_document: ProductDocument = Faker.fake();
 
             let result = service.match_user_search_filters(&product_document).await;
@@ -1510,8 +1719,12 @@ mod tests {
                 .return_once(move |_| Box::pin(async move { Ok(documents) }));
 
             let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document: ProductDocument = Faker.fake();
 
             let actual = service.match_user_search_filters(&product_document).await;
@@ -1536,8 +1749,12 @@ mod tests {
                 .return_once(|_| Box::pin(async move { Ok(vec![doc]) }));
 
             let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document: ProductDocument = Faker.fake();
 
             let actual = service.match_user_search_filters(&product_document).await;
@@ -1565,8 +1782,12 @@ mod tests {
                 .return_once(move |_| Box::pin(async move { Ok(documents) }));
 
             let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
-            let service =
-                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::with_opensearch(
+                &dynamodb_repo,
+                &user_service,
+                &opensearch_repo,
+            );
             let product_document: ProductDocument = Faker.fake();
 
             let actual = service.match_user_search_filters(&product_document).await;
@@ -1595,7 +1816,8 @@ mod tests {
             repository
                 .expect_get_user_search_filter_match_record()
                 .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let actual = service
                 .find_search_filter_product_match(
@@ -1617,7 +1839,8 @@ mod tests {
                 .return_once(|_, _, _, _| {
                     Box::pin(async { Ok(Some(Faker.fake::<UserSearchFilterMatchRecord>())) })
                 });
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let actual = service
                 .find_search_filter_product_match(
@@ -1640,7 +1863,8 @@ mod tests {
                 .return_once(|_, _, _, _| {
                     Box::pin(async { Err(SdkError::construction_failure("test error")) })
                 });
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let actual = service
                 .find_search_filter_product_match(
@@ -1674,7 +1898,8 @@ mod tests {
                 .return_once(move |_| {
                     Box::pin(async move { Ok(fake::vec![UserSearchFilterMatchRecord; count]) })
                 });
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let actual = service
                 .find_search_filter_product_matches(&UserId::new())
@@ -1692,7 +1917,8 @@ mod tests {
                 .return_once(|_| {
                     Box::pin(async { Err(SdkError::construction_failure("test error")) })
                 });
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let actual = service
                 .find_search_filter_product_matches(&UserId::new())
@@ -1722,7 +1948,8 @@ mod tests {
                 .return_once(move |_, _, _, _| {
                     Box::pin(async move { Ok(fake::vec![UserSearchFilterMatchRecord; count]) })
                 });
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let actual = service
                 .find_search_filter_product_matches_for_filter(
@@ -1745,7 +1972,8 @@ mod tests {
                 .return_once(|_, _, _, _| {
                     Box::pin(async { Err(SdkError::construction_failure("test error")) })
                 });
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let actual = service
                 .find_search_filter_product_matches_for_filter(
@@ -1774,7 +2002,8 @@ mod tests {
             repository
                 .expect_put_user_search_filter_match_record()
                 .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let product_match: SearchFilterProductMatch = Faker.fake();
             let actual = service
@@ -1793,7 +2022,8 @@ mod tests {
                 .return_once(|_| {
                     Box::pin(async { Err(SdkError::construction_failure("test error")) })
                 });
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let product_match: SearchFilterProductMatch = Faker.fake();
             let actual = service
@@ -1815,7 +2045,8 @@ mod tests {
         #[tokio::test]
         async fn should_return_empty_when_no_matches() {
             let repository = MockUserSearchFilterDynamoDbRepository::default();
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let actual = service.create_search_filter_product_matches(vec![]).await;
             assert!(actual.is_ok());
@@ -1830,7 +2061,8 @@ mod tests {
             repository
                 .expect_put_user_search_filter_match_records()
                 .return_once(|_| Box::pin(async { Ok(BatchWriteItemOutput::builder().build()) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let matches: Vec<SearchFilterProductMatch> = (0..3).map(|_| Faker.fake()).collect();
             let actual = service.create_search_filter_product_matches(matches).await;
@@ -1849,7 +2081,8 @@ mod tests {
                 .return_once(|_| {
                     Box::pin(async { Err(SdkError::construction_failure("test error")) })
                 });
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let matches: Vec<SearchFilterProductMatch> = (0..3).map(|_| Faker.fake()).collect();
             let actual = service.create_search_filter_product_matches(matches).await;
@@ -1878,7 +2111,8 @@ mod tests {
             repository
                 .expect_count_user_search_filter_match_records_for_filter()
                 .return_once(|_, _, _, _| Box::pin(async { Ok(0) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let actual = service
                 .view_search_filter_matches(&UserId::new(), &UserSearchFilterId::new(), &None, None)
@@ -1902,7 +2136,8 @@ mod tests {
             repository
                 .expect_count_user_search_filter_match_records_for_filter()
                 .return_once(|_, _, _, _| Box::pin(async { Ok(5) }));
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let actual = service
                 .view_search_filter_matches(&UserId::new(), &UserSearchFilterId::new(), &None, None)
@@ -1924,7 +2159,8 @@ mod tests {
                 .return_once(|_, _, _, _| {
                     Box::pin(async { Err(SdkError::construction_failure("test error")) })
                 });
-            let service = UserSearchFilterServiceImpl::new(&repository);
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let actual = service
                 .view_search_filter_matches(&UserId::new(), &UserSearchFilterId::new(), &None, None)

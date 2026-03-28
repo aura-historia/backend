@@ -6,16 +6,14 @@ use common::api::{
 };
 use lambda_runtime::LambdaEvent;
 use product::service::{
-    enrichment_service::ProductCommandEnrichmentService, get_service::GetProductService,
-    query_service::QueryProductService, semantic_service::SemanticSearchService,
-    upsert_service::UpsertProductsService,
+    get_service::GetProductService, query_service::QueryProductService,
+    semantic_service::SemanticSearchService,
 };
 use product_personalization::service::ProductPersonalizationService;
 
 pub mod get_product;
 pub mod get_product_history;
 pub mod get_product_similar;
-pub mod put_products;
 pub mod search;
 
 #[tracing::instrument(
@@ -25,8 +23,6 @@ pub mod search;
         query_product_service,
         semantic_search_service,
         product_personalization_service,
-        upsert_service,
-        enrich_service,
         access_token_verifier_service,
     ),
     fields(
@@ -40,15 +36,12 @@ pub mod search;
         userId = tracing::field::Empty,
     )
 )]
-#[allow(clippy::too_many_arguments)]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_product_service: &impl GetProductService,
     query_product_service: &impl QueryProductService,
     semantic_search_service: &impl SemanticSearchService,
     product_personalization_service: &impl ProductPersonalizationService,
-    upsert_service: &impl UpsertProductsService,
-    enrich_service: &(impl ProductCommandEnrichmentService + Sync),
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(
@@ -57,8 +50,6 @@ pub async fn handler(
         query_product_service,
         semantic_search_service,
         product_personalization_service,
-        upsert_service,
-        enrich_service,
         access_token_verifier_service,
     )
     .await
@@ -71,15 +62,12 @@ pub async fn handler(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_product_service: &impl GetProductService,
     query_product_service: &impl QueryProductService,
     semantic_search_service: &impl SemanticSearchService,
     product_personalization_service: &impl ProductPersonalizationService,
-    upsert_service: &impl UpsertProductsService,
-    enrich_service: &(impl ProductCommandEnrichmentService + Sync),
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
@@ -101,9 +89,6 @@ pub async fn handle(
                 product_personalization_service,
             )
             .await
-        }
-        Some("PUT /api/v1/products") => {
-            put_products::handle(event, upsert_service, enrich_service).await
         }
         Some("POST /api/v1/products/search") | Some("GET /api/v1/products") => {
             search::handle(

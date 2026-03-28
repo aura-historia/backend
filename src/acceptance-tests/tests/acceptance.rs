@@ -1,16 +1,15 @@
 use aws_tests_common::get_cfn_output;
 use common::personalized::api::PersonalizedData;
 use common::{
-    api::collection::PutCollectionData,
     batch::Batch,
     currency::{data::CurrencyData, domain::Currency},
-    domain::Domain,
     event::Event,
     event_id::EventId,
+    has_key::HasKey,
     language::data::LanguageData,
     pagination::{cursor::api::TimeCursoredData, page::api::PaginatedData},
     price::domain::{FixedFxRate, FxRate, Price},
-    product_id::api::ProductKeyData,
+    product_id::{ProductKey, api::ProductKeyData},
     product_state::domain::ProductState,
     user_id::UserId,
 };
@@ -26,7 +25,8 @@ use notification::{
 };
 use notification_api::notification_get::EventIdCursoredData;
 use opensearch::GetParts;
-use product::data::{get_data::GetProductData, user_state_data::ProductUserStateData};
+use product::data::get_data::GetProductData;
+use product::data::user_state_data::ProductUserStateData;
 use product::{
     core::{
         product_event::{
@@ -42,7 +42,6 @@ use product::{
         },
         prohibited_content::{ProhibitedContent, ProhibitedContentReason},
     },
-    data::{product_state_data::ProductStateData, put_data::PutProductData},
     dynamodb::{
         product_event_record::ProductEventRecord,
         product_image_record::ProductImageRecord,
@@ -51,7 +50,13 @@ use product::{
         prohibited_content_record::ProhibitedContentRecord,
         repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
     },
+    service::{
+        command_service::{CommandProductService, CommandProductServiceImpl},
+        product_command::{CreateProductCommand, UpdateProductCommand},
+    },
 };
+use product_classification::category::service::MockCategoryService;
+use product_classification::period::service::MockPeriodService;
 use product_watchlist::dynamodb::repository::{
     WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
 };
@@ -68,20 +73,12 @@ use search_filter_api::{
     post_types::PostUserSearchFilterData,
 };
 use serde::de::DeserializeOwned;
-use shop::{
-    core::shop::Shop,
-    data::{
-        get_shop_data::GetShopData, patch_shop_data::PatchShopData, post_shop_data::PostShopData,
-    },
-    dynamodb::{
-        repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
-        shop_record::ShopRecord,
-    },
-};
+use shop::dynamodb::repository::ShopDynamoDbRepository;
+use shop::{core::shop::Shop, dynamodb::repository::ShopDynamoDbRepositoryImpl};
+use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 use test_api::*;
 use time::OffsetDateTime;
-use url::Url;
 use user::{
     data::{get_user_data::GetUserAccountData, patch_user_data::PatchUserAccountData},
     dynamodb::{
@@ -1129,13 +1126,61 @@ async fn prepare_test_shop() -> Shop {
     let shop = Faker.fake::<Shop>();
     let dynamodb_repository =
         ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
-    let mut shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
-    shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop.clone()));
     dynamodb_repository
-        .put_shop_records_transact(shop_records)
+        .put_shop_record(shop.clone().into())
         .await
         .unwrap();
     shop
+}
+
+async fn create_products(commands: Vec<CreateProductCommand>) {
+    let stack = get_cfn_output();
+    let dynamodb_client = get_dynamodb_client().await;
+    let product_repository =
+        ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let fx_rate = FixedFxRate();
+    let mut period_service = MockPeriodService::default();
+    period_service
+        .expect_find_periods()
+        .returning(|| Box::pin(async { Ok(vec![]) }));
+    let mut category_service = MockCategoryService::default();
+    category_service
+        .expect_find_categories()
+        .returning(|| Box::pin(async { Ok(vec![]) }));
+    let command_service = CommandProductServiceImpl::new(
+        &product_repository,
+        &fx_rate,
+        &period_service,
+        &category_service,
+    );
+
+    let result = command_service.create(commands).await;
+    assert!(result.is_empty(), "Some products failed to create");
+}
+
+async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
+    let stack = get_cfn_output();
+    let dynamodb_client = get_dynamodb_client().await;
+    let product_repository =
+        ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let fx_rate = FixedFxRate();
+    let mut period_service = MockPeriodService::default();
+    period_service
+        .expect_find_periods()
+        .returning(|| Box::pin(async { Ok(vec![]) }));
+    let mut category_service = MockCategoryService::default();
+    category_service
+        .expect_find_categories()
+        .returning(|| Box::pin(async { Ok(vec![]) }));
+    let command_service = CommandProductServiceImpl::new(
+        &product_repository,
+        &fx_rate,
+        &period_service,
+        &category_service,
+    );
+
+    let result = command_service.update(commands).await;
+    assert!(result.is_empty(), "Some products failed to update");
 }
 
 /// Polls OpenSearch until a document with the given `id` appears in `index`, issuing an explicit
@@ -1224,22 +1269,12 @@ async fn wait_until_document_deleted(user_search_filter_id: impl Into<String>) {
 async fn should_materialize_product_in_dynamodb_when_put_new_item() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
-    let mut put_product_data: PutProductData = Faker.fake();
-    put_product_data
-        .url
-        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
-        .unwrap();
+    let mut create_cmd: CreateProductCommand = Faker.fake();
+    create_cmd.shop_id = shop.shop_id;
+    create_cmd.shop_name = shop.name.clone();
+    create_cmd.shop_type = shop.shop_type;
 
-    let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
-    let response = reqwest::Client::new()
-        .put(url)
-        .json(&PutCollectionData {
-            items: vec![put_product_data.clone()],
-        })
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, response.status());
+    create_products(vec![create_cmd.clone()]).await;
 
     let repository = ProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -1248,24 +1283,21 @@ async fn should_materialize_product_in_dynamodb_when_put_new_item() {
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let materialized = repository
-            .get_product_record(&shop.shop_id, &put_product_data.shops_product_id)
+            .get_product_record(&shop.shop_id, &create_cmd.shops_product_id)
             .await
             .unwrap();
 
         if let Some(materialized) = materialized {
             assert_eq!(shop.shop_id, materialized.shop_id);
-            assert_eq!(
-                put_product_data.shops_product_id,
-                materialized.shops_product_id
-            );
-            assert_eq!(put_product_data.url, materialized.url);
+            assert_eq!(create_cmd.shops_product_id, materialized.shops_product_id);
+            assert_eq!(create_cmd.url, materialized.url);
             break;
         }
 
         if Instant::now() >= deadline {
             panic!(
                 "Timeout: ProductRecord for shop '{}' / product '{}' not found in DynamoDB after 60s",
-                shop.shop_id, put_product_data.shops_product_id
+                shop.shop_id, create_cmd.shops_product_id
             );
         }
         tokio::time::sleep(Duration::from_secs(5)).await;
@@ -1295,57 +1327,40 @@ async fn should_materialize_product_in_dynamodb_for_domain_event() {
     assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
     tokio::time::sleep(Duration::from_secs(3)).await;
 
-    let new_state = match materialized_old.state {
-        ProductStateRecord::Available => ProductStateData::Sold,
-        _ => ProductStateData::Available,
+    let new_state: ProductState = match materialized_old.state {
+        ProductStateRecord::Available => ProductState::Sold,
+        _ => ProductState::Available,
     };
-    let put_product_data = PutProductData {
-        shops_product_id: materialized_old.shops_product_id,
-        title: Faker.fake(),
-        description: None,
-        price: None,
-        price_estimate_min: Faker.fake(),
-        price_estimate_max: Faker.fake(),
-        state: new_state,
-        url: materialized_old.url,
-        images: materialized_old.images.into_iter().map(|i| i.url).collect(),
-        auction_start: None,
-        auction_end: None,
+    let product_key = ProductKey {
+        shop_id: shop.shop_id,
+        shops_product_id: materialized_old.shops_product_id.clone(),
+    };
+    let update_cmd = UpdateProductCommand {
+        native_price: None,
+        state: Some(new_state),
     };
 
-    let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
-    let response = reqwest::Client::new()
-        .put(url)
-        .json(&PutCollectionData {
-            items: vec![put_product_data.clone()],
-        })
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, response.status());
+    update_products(HashMap::from([(product_key.clone(), update_cmd)])).await;
 
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let materialized = repository
-            .get_product_record(&shop.shop_id, &put_product_data.shops_product_id)
+            .get_product_record(&shop.shop_id, &materialized_old.shops_product_id)
             .await
             .unwrap();
 
         if let Some(materialized) = materialized
-            && ProductState::from(new_state) == ProductState::from(materialized.state)
+            && new_state == ProductState::from(materialized.state)
         {
             assert_eq!(shop.shop_id, materialized.shop_id);
-            assert_eq!(
-                ProductState::from(new_state),
-                ProductState::from(materialized.state)
-            );
+            assert_eq!(new_state, ProductState::from(materialized.state));
             break;
         }
 
         if Instant::now() >= deadline {
             panic!(
                 "Timeout: ProductRecord for shop '{}' / product '{}' not updated with expected state after 60s",
-                shop.shop_id, put_product_data.shops_product_id
+                shop.shop_id, materialized_old.shops_product_id
             );
         }
         tokio::time::sleep(Duration::from_secs(5)).await;
@@ -1525,16 +1540,7 @@ async fn should_materialize_product_in_opensearch_for_create_product_command() {
         .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
         .unwrap();
 
-    let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
-    let response = reqwest::Client::new()
-        .put(url)
-        .json(&PutCollectionData {
-            items: vec![put_product_data.clone()],
-        })
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, response.status());
+    upsert_products(vec![put_product_data.clone()]).await;
 
     let os_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let deadline = Instant::now() + Duration::from_secs(60);
@@ -1648,16 +1654,7 @@ async fn should_materialize_product_in_opensearch_for_domain_event() {
         auction_end: None,
     };
 
-    let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
-    let response = reqwest::Client::new()
-        .put(url)
-        .json(&PutCollectionData {
-            items: vec![put_product_data.clone()],
-        })
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, response.status());
+    upsert_products(vec![put_product_data.clone()]).await;
 
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
@@ -1960,69 +1957,6 @@ async fn should_materialize_product_in_opensearch_for_policy_event() {
 */
 
 // ---------------------------------------------------------------------------
-// Shop ingest flow
-// Verifies the shop-opensearch-index Lambda is triggered via EventBridge/SQS
-// and has the necessary IAM access to index into OpenSearch.
-// ---------------------------------------------------------------------------
-
-/**
-#[ignore = "Cannot get Localstack-Lambda to reach OpenSearch"]
-#[localstack_test(services = [Cloudformation()])]
-async fn should_create_shop_dynamodb_and_index_opensearch_when_post_shop_then_patch() {
-    let stack = get_cfn_output();
-    let dynamodb_repository =
-        ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
-
-    // POST
-    let post_url = format!("{}/api/v1/shops", stack.api_gateway_endpoint_url);
-    let post_shop_data = Faker.fake::<PostShopData>();
-    let post_response = reqwest::Client::new()
-        .post(post_url)
-        .json(&post_shop_data)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(201, post_response.status());
-    let post_res = post_response.json::<GetShopData>().await.unwrap();
-    assert!(
-        dynamodb_repository
-            .get_shop_record_by_id(&post_res.shop_id)
-            .await
-            .unwrap()
-            .is_some()
-    );
-    let shop_document = wait_for_document::<ShopDocument>("shops", post_res.shop_id).await;
-    assert_eq!(post_res.name, shop_document.name);
-
-    // PATCH
-    let patch_url = format!(
-        "{}/api/v1/shops/{}",
-        stack.api_gateway_endpoint_url, post_res.shop_id
-    );
-    let mut patch_shop_data = Faker.fake::<PatchShopData>();
-    patch_shop_data.image = Some(Url::parse("https://rainer.calmund/whopper-happy-meal").unwrap());
-    let patch_response = reqwest::Client::new()
-        .patch(patch_url)
-        .json(&patch_shop_data)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, patch_response.status());
-    let patch_res = patch_response.json::<GetShopData>().await.unwrap();
-    let patched_record = dynamodb_repository
-        .get_shop_record_by_id(&patch_res.shop_id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        patch_shop_data.image.unwrap(),
-        patched_record.image.unwrap()
-    );
-    let patched_document = wait_for_document::<ShopDocument>("shops", patch_res.shop_id).await;
-    assert_eq!(patch_res.name, patched_document.name);
-}
-*/
-// ---------------------------------------------------------------------------
 // User account
 // Verifies the Cognito post-confirmation Lambda trigger writes to DynamoDB,
 // and that the user API enforces Cognito auth (IAM policy).
@@ -2148,21 +2082,11 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     let shop = prepare_test_shop().await;
 
     // Create product
-    let mut put_product_data: PutProductData = Faker.fake();
-    put_product_data
-        .url
-        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
-        .unwrap();
-    let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
-    let response = reqwest::Client::new()
-        .put(url)
-        .json(&PutCollectionData {
-            items: vec![put_product_data.clone()],
-        })
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, response.status());
+    let mut create_cmd: CreateProductCommand = Faker.fake();
+    create_cmd.shop_id = shop.shop_id;
+    create_cmd.shop_name = shop.name.clone();
+    create_cmd.shop_type = shop.shop_type;
+    create_products(vec![create_cmd.clone()]).await;
     tokio::time::sleep(Duration::from_secs(45)).await;
 
     let product_repository = ProductDynamoDbRepositoryImpl::new(
@@ -2171,7 +2095,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     );
     assert!(
         product_repository
-            .get_product_record(&shop.shop_id, &put_product_data.shops_product_id)
+            .get_product_record(&shop.shop_id, &create_cmd.shops_product_id)
             .await
             .unwrap()
             .is_some()
@@ -2210,7 +2134,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
         .post(post_url)
         .json(&ProductKeyData {
             shop_id: shop.shop_id,
-            shops_product_id: put_product_data.shops_product_id.clone(),
+            shops_product_id: create_cmd.shops_product_id.clone(),
         })
         .bearer_auth(&user.access_token)
         .send()
@@ -2222,7 +2146,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     // Enable notifications
     let patch_url = format!(
         "{}/api/v1/me/watchlist/{}/{}",
-        stack.api_gateway_endpoint_url, shop.shop_id, put_product_data.shops_product_id
+        stack.api_gateway_endpoint_url, shop.shop_id, create_cmd.shops_product_id
     );
     let patch_response = reqwest::Client::new()
         .patch(patch_url)
@@ -2253,21 +2177,19 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     tokio::time::sleep(Duration::from_secs(10)).await;
 
     // Update product state to trigger notification
-    put_product_data.state = if matches!(put_product_data.state, ProductStateData::Available) {
-        ProductStateData::Sold
+    let new_state = if matches!(create_cmd.state, ProductState::Available) {
+        ProductState::Sold
     } else {
-        ProductStateData::Available
+        ProductState::Available
     };
-    let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
-    let response = reqwest::Client::new()
-        .put(url)
-        .json(&PutCollectionData {
-            items: vec![put_product_data.clone()],
-        })
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, response.status());
+    update_products(HashMap::from([(
+        create_cmd.key(),
+        UpdateProductCommand {
+            native_price: None,
+            state: Some(new_state),
+        },
+    )]))
+    .await;
 
     assert!(wait_for_ses_email("Statusänderung", Duration::from_secs(120)).await);
 }
@@ -2657,16 +2579,7 @@ async fn should_send_email_to_user_when_product_matches_search_filter() {
         .url
         .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
         .unwrap();
-    let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
-    let response = reqwest::Client::new()
-        .put(url)
-        .json(&PutCollectionData {
-            items: vec![put_product_data.clone()],
-        })
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, response.status());
+    upsert_products(vec![put_product_data.clone()]).await;
 
     assert!(wait_for_ses_email("Neues Ergebnis für", Duration::from_secs(120)).await);
 }
@@ -2774,18 +2687,18 @@ async fn should_respond_200_for_product_history() {
         aggregate_id: record.product_id,
         event_id: event_1_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceDropped(
+        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceChanged(
             ProductPriceChangeDomainEventPayload {
                 shop_id: record.shop_id,
                 shops_product_id: record.shops_product_id.clone(),
-                new_native_price: event_1_price,
+                new_native_price: Some(event_1_price),
                 new_other_price: FixedFxRate()
                     .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
                     .unwrap(),
-                old_native_price: Price {
+                old_native_price: Some(Price {
                     monetary_amount: 100000u64.into(),
                     currency: Currency::Eur,
-                },
+                }),
                 old_other_price: FixedFxRate()
                     .exchange_all(Currency::Eur, 100000u64.into())
                     .unwrap(),
@@ -2798,11 +2711,12 @@ async fn should_respond_200_for_product_history() {
         aggregate_id: record.product_id,
         event_id: event_2_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateRemoved(
+        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateChanged(
             ProductStateChangeDomainEventPayload {
                 shop_id: record.shop_id,
                 shops_product_id: record.shops_product_id.clone(),
                 old_state: ProductState::Sold,
+                new_state: ProductState::Removed,
             },
         )),
     };
@@ -2827,10 +2741,10 @@ async fn should_respond_200_for_product_history() {
     let history = body.as_array().cloned().unwrap();
     assert_eq!(2, history.len());
     assert_eq!(event_1_id.to_string(), history[0]["eventId"]);
-    assert_eq!("PRICE_DROPPED", history[0]["eventType"]);
+    assert_eq!("PRICE_CHANGED", history[0]["eventType"]);
     assert_eq!("USD", history[0]["payload"]["newPrice"]["currency"]);
     assert_eq!(event_2_id.to_string(), history[1]["eventId"]);
-    assert_eq!("STATE_REMOVED", history[1]["eventType"]);
+    assert_eq!("STATE_CHANGED", history[1]["eventType"]);
 }
 
 #[localstack_test(services = [Cloudformation()])]
@@ -3747,7 +3661,12 @@ async fn should_get_all_search_filters_when_authorized() {
         get_dynamodb_client().await,
         &get_cfn_output().dynamodb_table_1_name,
     );
-    let service = UserSearchFilterServiceImpl::new(&repository);
+    let user_repository = UserDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &get_cfn_output().dynamodb_table_1_name,
+    );
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
     let user = create_random_test_user().await;
     let expected1 = Faker.fake::<product::core::product_search::ProductSearch>();
@@ -3755,11 +3674,11 @@ async fn should_get_all_search_filters_when_authorized() {
     let expected2 = Faker.fake::<product::core::product_search::ProductSearch>();
     let expected2_name = Faker.fake::<UserSearchFilterName>();
     service
-        .save_user_search_filter(&user.sub.into(), expected1_name.clone(), expected1.clone())
+        .create_user_search_filter(&user.sub.into(), expected1_name.clone(), expected1.clone())
         .await
         .unwrap();
     service
-        .save_user_search_filter(&user.sub.into(), expected2_name.clone(), expected2.clone())
+        .create_user_search_filter(&user.sub.into(), expected2_name.clone(), expected2.clone())
         .await
         .unwrap();
 
@@ -3906,11 +3825,16 @@ async fn should_get_search_filter_products_when_authorized() {
         get_dynamodb_client().await,
         &get_cfn_output().dynamodb_table_1_name,
     );
-    let service = UserSearchFilterServiceImpl::new(&repository);
+    let user_repository = UserDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &get_cfn_output().dynamodb_table_1_name,
+    );
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
     let user = create_random_test_user().await;
     let search_filter = service
-        .save_user_search_filter(
+        .create_user_search_filter(
             &user.sub.into(),
             Faker.fake(),
             Faker.fake::<product::core::product_search::ProductSearch>(),
@@ -3941,87 +3865,9 @@ async fn should_get_search_filter_products_when_authorized() {
 
 // ---------------------------------------------------------------------------
 // API: Shop
-// Verifies API Gateway routing and Lambda IAM access for shop CRUD and
+// Verifies API Gateway routing and Lambda IAM access for shop GET and
 // OpenSearch-backed shop search.
 // ---------------------------------------------------------------------------
-
-#[localstack_test(services = [Cloudformation()])]
-async fn should_create_update_get_shop() {
-    let post_shop_data = PostShopData {
-        name: "Woobl woop".into(),
-        shop_type: Faker.fake(),
-        domains: [Domain::try_from("https://hans-shopping-nig.com").unwrap()].into(),
-        image: None,
-    };
-    let post_url = format!("{}/api/v1/shops", get_cfn_output().api_gateway_endpoint_url);
-    let response = reqwest::Client::new()
-        .post(post_url)
-        .json(&post_shop_data)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(201, response.status());
-    let created = response.json::<GetShopData>().await.unwrap();
-    tokio::time::sleep(Duration::from_secs(1)).await;
-
-    let patch_shop_data = PatchShopData {
-        shop_type: Faker.fake(),
-        domains: None,
-        image: Some(Url::parse("https://hans-shopping-nig.co.uk").unwrap()),
-    };
-    let patch_url = format!(
-        "{}/api/v1/shops/{}",
-        get_cfn_output().api_gateway_endpoint_url,
-        created.shop_id
-    );
-    let response = reqwest::Client::new()
-        .patch(patch_url)
-        .json(&patch_shop_data)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, response.status());
-    let updated = response.json::<GetShopData>().await.unwrap();
-    assert_eq!(post_shop_data.domains, updated.domains);
-    assert_eq!(
-        patch_shop_data.image.unwrap(),
-        updated.image.clone().unwrap()
-    );
-    tokio::time::sleep(Duration::from_secs(1)).await;
-
-    // GET by ID
-    let get_url = format!(
-        "{}/api/v1/shops/{}",
-        get_cfn_output().api_gateway_endpoint_url,
-        created.shop_id
-    );
-    let response = reqwest::Client::new().get(get_url).send().await.unwrap();
-    assert_eq!(200, response.status());
-    let gotten = response.json::<GetShopData>().await.unwrap();
-    assert_eq!(updated.shop_id, gotten.shop_id);
-    assert_eq!(updated.name, gotten.name);
-    assert_eq!(updated.domains, gotten.domains);
-    assert_eq!(updated.image, gotten.image);
-    assert_eq!(updated.created, gotten.created);
-
-    // GET by slug ID
-    let get_slug_url = format!(
-        "{}/api/v1/by-slug/shops/{}",
-        get_cfn_output().api_gateway_endpoint_url,
-        created.shop_slug_id
-    );
-    let response = reqwest::Client::new()
-        .get(get_slug_url)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, response.status());
-    let gotten_slug = response.json::<GetShopData>().await.unwrap();
-    assert_eq!(updated.shop_id, gotten_slug.shop_id);
-    assert_eq!(updated.name, gotten_slug.name);
-    assert_eq!(updated.domains, gotten_slug.domains);
-    assert_eq!(updated.image, gotten_slug.image);
-}
 
 /**
 #[ignore = "Cannot get Localstack-Lambda to reach OpenSearch"]

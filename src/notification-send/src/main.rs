@@ -32,11 +32,6 @@ async fn main() -> Result<(), Error> {
         std::env::var("STAGE_NAME").expect("shouldn't fail loading env-var 'STAGE_NAME'");
     let commit_sha =
         std::env::var("COMMIT_SHA").expect("shouldn't fail loading env-var 'COMMIT_SHA'");
-    let sender_mail =
-        std::env::var("SENDER_MAIL").expect("shouldn't fail loading env-var 'SENDER_MAIL'");
-    let sender_email: serde_email::Email = sender_mail
-        .try_into()
-        .expect("shouldn't fail parsing 'SENDER_MAIL' as email address");
 
     let notification_repository =
         NotificationDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
@@ -53,7 +48,6 @@ async fn main() -> Result<(), Error> {
         &s3_bucket_name_templates,
         &stage_name,
         &commit_sha,
-        sender_email,
     );
 
     debug!("Lambda initialized.");

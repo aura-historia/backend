@@ -40,11 +40,6 @@ async fn main() -> Result<(), Error> {
         std::env::var("STAGE_NAME").expect("shouldn't fail loading env-var 'STAGE_NAME'");
     let commit_sha =
         std::env::var("COMMIT_SHA").expect("shouldn't fail loading env-var 'COMMIT_SHA'");
-    let sender_mail =
-        std::env::var("SENDER_MAIL").expect("shouldn't fail loading env-var 'SENDER_MAIL'");
-    let sender_email: serde_email::Email = sender_mail
-        .try_into()
-        .expect("shouldn't fail parsing 'SENDER_MAIL' as email address");
 
     let watchlist_repository =
         WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
@@ -57,9 +52,9 @@ async fn main() -> Result<(), Error> {
     let s3_adapter = S3AdapterImpl::new(&s3_client);
 
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let watchlist_service =
-        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
     let user_service = UserServiceImpl::new(&user_repository);
+    let watchlist_service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
 
     let notification_service = NotificationServiceImpl::new(
         &notification_repository,
@@ -69,7 +64,6 @@ async fn main() -> Result<(), Error> {
         &s3_bucket_name_templates,
         &stage_name,
         &commit_sha,
-        sender_email,
     );
     let product_event_mail_payload_service = ProductEventWatchlistNotificationsServiceImpl::new(
         &watchlist_service,

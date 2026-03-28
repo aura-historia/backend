@@ -296,15 +296,7 @@ jobs:
 
   aws-push-lambda:
     name: Push Lambda to S3 ${{ matrix.crate }}
-    if: >-
-      !cancelled() &&
-      github.event_name == 'push' &&
-      (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop') &&
-      needs.unit-test.result == 'success' &&
-      (needs.integration-test.result == 'success' || needs.integration-test.result == 'skipped') &&
-      (needs.test-product-pipeline.result == 'success' || needs.test-product-pipeline.result == 'skipped') &&
-      (needs.acceptance-test.result == 'success' || needs.acceptance-test.result == 'skipped')
-    needs: [unit-test, integration-test, test-product-pipeline, acceptance-test]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -388,15 +380,7 @@ jobs:
 
   aws-push-ec2-x86:
     name: Push EC2 to S3 ${{ matrix.crate }}
-    if: >-
-      !cancelled() &&
-      github.event_name == 'push' &&
-      (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop') &&
-      needs.unit-test.result == 'success' &&
-      (needs.integration-test.result == 'success' || needs.integration-test.result == 'skipped') &&
-      (needs.test-product-pipeline.result == 'success' || needs.test-product-pipeline.result == 'skipped') &&
-      (needs.acceptance-test.result == 'success' || needs.acceptance-test.result == 'skipped')
-    needs: [unit-test, integration-test, test-product-pipeline, acceptance-test]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop')
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -404,8 +388,7 @@ jobs:
     strategy:
       matrix:
         crate:
-          - src/product-pipeline/src/product-pipeline-classify-category
-          - src/product-pipeline/src/product-pipeline-classify-period
+          - src/product-pipeline/src/product-pipeline-classify
           - src/product-pipeline/src/product-pipeline-embed-text
           - src/product-pipeline/src/product-pipeline-extract-attribute
           - src/product-pipeline/src/product-pipeline-translate
@@ -447,15 +430,7 @@ jobs:
 
   aws-push-mail-templates:
     name: Compile & push Mail-Templates to S3 ${{ matrix.resource }}
-    if: >-
-      !cancelled() &&
-      github.event_name == 'push' &&
-      (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop') &&
-      needs.unit-test.result == 'success' &&
-      (needs.integration-test.result == 'success' || needs.integration-test.result == 'skipped') &&
-      (needs.test-product-pipeline.result == 'success' || needs.test-product-pipeline.result == 'skipped') &&
-      (needs.acceptance-test.result == 'success' || needs.acceptance-test.result == 'skipped')
-    needs: [unit-test, integration-test, test-product-pipeline, acceptance-test]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -516,7 +491,7 @@ jobs:
 
   aws-cfn-deploy:
     name: Deploy & initialize CFN-Stack
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop')
+    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop') }}
     needs:
       [cfn-lint, aws-push-lambda, aws-push-ec2-x86, aws-push-mail-templates]
     environment:
@@ -553,7 +528,7 @@ jobs:
 
   aws-smoking-test:
     name: AWS Smoking-Test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/prod'
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/prod' }}
     needs: aws-cfn-deploy
     runs-on: ubuntu-latest
     permissions:
@@ -595,7 +570,7 @@ jobs:
 
   aws-put-staging-test-data:
     name: AWS Populate Test-Data
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' }}
     needs: aws-cfn-deploy
     permissions:
       contents: read

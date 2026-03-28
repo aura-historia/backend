@@ -39,7 +39,6 @@ pub const SEARCH_FILTER_NOT_FOUND: ApiErrorCode = ApiErrorCode("SEARCH_FILTER_NO
 pub const NOTIFICATION_NOT_FOUND: ApiErrorCode = ApiErrorCode("NOTIFICATION_NOT_FOUND");
 pub const SHOP_NOT_FOUND: ApiErrorCode = ApiErrorCode("SHOP_NOT_FOUND");
 pub const SHOP_EXISTS_ALREADY: ApiErrorCode = ApiErrorCode("SHOP_EXISTS_ALREADY");
-pub const SHOP_TOO_MANY_DOMAINS: ApiErrorCode = ApiErrorCode("SHOP_TOO_MANY_DOMAINS");
 pub const MONETARY_AMOUNT_OVERFLOW: ApiErrorCode = ApiErrorCode("MONETARY_AMOUNT_OVERFLOW");
 pub const TEXT_QUERY_TOO_SHORT: ApiErrorCode = ApiErrorCode("TEXT_QUERY_TOO_SHORT");
 pub const USER_NOT_FOUND: ApiErrorCode = ApiErrorCode("USER_NOT_FOUND");
@@ -51,6 +50,7 @@ pub const UNPROCESSED_AFTER_MAX_RETRIES: ApiErrorCode =
 pub const UNPROCESSED_ITEMS: ApiErrorCode = ApiErrorCode("UNPROCESSED_ITEMS");
 
 pub const WATCHLIST_QUOTA_EXCEEDED: ApiErrorCode = ApiErrorCode("WATCHLIST_QUOTA_EXCEEDED");
+pub const SEARCH_FILTER_QUOTA_EXCEEDED: ApiErrorCode = ApiErrorCode("SEARCH_FILTER_QUOTA_EXCEEDED");
 
 impl Display for ApiErrorCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

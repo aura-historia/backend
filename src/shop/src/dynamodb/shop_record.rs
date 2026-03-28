@@ -1,11 +1,6 @@
 use crate::core::shop::Shop;
 use crate::dynamodb::shop_type_record::ShopTypeRecord;
-use common::{
-    domain::Domain,
-    shop_id::{ShopId, ShopIdentifier},
-    shop_name::ShopName,
-    slug_id::SlugId,
-};
+use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -24,10 +19,6 @@ pub struct ShopRecord {
     pub name: ShopName,
     pub shop_type: ShopTypeRecord,
 
-    // Some if this record is a Shop-Host-Record, None if it is a Shop-Id-Record
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub domain: Option<Domain>,
-
     #[serde(skip_serializing_if = "HashSet::is_empty", default)]
     pub domains: HashSet<Domain>,
 
@@ -41,19 +32,12 @@ pub struct ShopRecord {
     pub updated: OffsetDateTime,
 }
 
-pub fn mk_pk(shop_identifier: &ShopIdentifier) -> String {
-    match shop_identifier {
-        ShopIdentifier::ShopId(shop_id) => mk_pk_as_shop_id(shop_id),
-        ShopIdentifier::ShopDomain(domain) => mk_pk_as_shop_domain(domain),
-    }
-}
-
-pub fn mk_pk_as_shop_id(shop_id: &ShopId) -> String {
+pub fn mk_pk(shop_id: &ShopId) -> String {
     format!("shop#shop_id#{shop_id}")
 }
 
-pub fn mk_pk_as_shop_domain(domain: &Domain) -> String {
-    format!("shop#domain#{}", domain.as_str().to_lowercase())
+pub fn mk_sk() -> &'static str {
+    "shop#details"
 }
 
 pub fn mk_gsi2_pk(shop_slug_id: &SlugId<0>) -> String {
@@ -64,16 +48,15 @@ pub fn mk_gsi2_sk() -> &'static str {
     "shop#lookup#shop_id"
 }
 
-impl ShopRecord {
-    pub fn from_shop_as_shop_id_record(shop: Shop) -> ShopRecord {
+impl From<Shop> for ShopRecord {
+    fn from(shop: Shop) -> Self {
         ShopRecord {
-            pk: mk_pk_as_shop_id(&shop.shop_id),
-            sk: "shop#details".to_owned(),
+            pk: mk_pk(&shop.shop_id),
+            sk: mk_sk().to_owned(),
             gsi2_pk: Some(mk_gsi2_pk(&shop.shop_slug_id)),
             gsi2_sk: Some(mk_gsi2_sk().to_owned()),
             shop_id: shop.shop_id,
             shop_slug_id: shop.shop_slug_id,
-            domain: None,
             name: shop.name,
             shop_type: shop.shop_type.into(),
             domains: shop.domains,
@@ -81,39 +64,6 @@ impl ShopRecord {
             created: shop.created,
             updated: shop.updated,
         }
-    }
-
-    pub fn clone_from_shop_as_shop_domain_records(shop: &Shop) -> Vec<ShopRecord> {
-        shop.domains
-            .iter()
-            .map(|domain| ShopRecord {
-                pk: mk_pk_as_shop_domain(domain),
-                sk: "shop#details".to_owned(),
-                gsi2_pk: None,
-                gsi2_sk: None,
-                shop_id: shop.shop_id,
-                shop_slug_id: shop.shop_slug_id.clone(),
-                name: shop.name.clone(),
-                shop_type: shop.shop_type.into(),
-                domain: Some(domain.clone()),
-                domains: shop.domains.clone(),
-                image: shop.image.clone(),
-                created: shop.created,
-                updated: shop.updated,
-            })
-            .collect()
-    }
-
-    pub fn shop_identifiers(&self) -> HashSet<ShopIdentifier> {
-        let mut shop_identifiers: HashSet<ShopIdentifier> = self
-            .domains
-            .iter()
-            .cloned()
-            .map(ShopIdentifier::from)
-            .collect();
-        shop_identifiers.insert(ShopIdentifier::from(self.shop_id));
-
-        shop_identifiers
     }
 }
 
@@ -140,7 +90,7 @@ mod faker {
     impl Dummy<Faker> for ShopRecord {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let shop = config.fake_with_rng::<Shop, _>(rng);
-            ShopRecord::from_shop_as_shop_id_record(shop)
+            ShopRecord::from(shop)
         }
     }
 

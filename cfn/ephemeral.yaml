@@ -545,31 +545,17 @@ Resources:
         maxReceiveCount: 3
       VisibilityTimeout: 300
 
-  ProductPipelineClassifyCategoryDlq:
+  ProductPipelineClassifyDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-pipeline-classify-category-dlq-${StageName}"
+      QueueName: !Sub "product-pipeline-classify-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
-  ProductPipelineClassifyCategoryQ:
+  ProductPipelineClassifyQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-pipeline-classify-category-queue-${StageName}"
+      QueueName: !Sub "product-pipeline-classify-queue-${StageName}"
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ProductPipelineClassifyCategoryDlq.Arn
-        maxReceiveCount: 3
-      VisibilityTimeout: 300
-
-  ProductPipelineClassifyPeriodDlq:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "product-pipeline-classify-period-dlq-${StageName}"
-      MessageRetentionPeriod: 1209600
-  ProductPipelineClassifyPeriodQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "product-pipeline-classify-period-queue-${StageName}"
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ProductPipelineClassifyPeriodDlq.Arn
+        deadLetterTargetArn: !GetAtt ProductPipelineClassifyDlq.Arn
         maxReceiveCount: 3
       VisibilityTimeout: 300
 
@@ -586,8 +572,7 @@ Resources:
         - !Ref ProductPipelineTranslateQ
         - !Ref ProductPipelineEmbedTextQ
         - !Ref ProductPipelineExtractAttributeQ
-        - !Ref ProductPipelineClassifyCategoryQ
-        - !Ref ProductPipelineClassifyPeriodQ
+        - !Ref ProductPipelineClassifyQ
         - !Ref NotificationSendQ
       PolicyDocument:
         Version: "2012-10-17"
@@ -606,8 +591,7 @@ Resources:
               - !GetAtt ProductPipelineTranslateQ.Arn
               - !GetAtt ProductPipelineEmbedTextQ.Arn
               - !GetAtt ProductPipelineExtractAttributeQ.Arn
-              - !GetAtt ProductPipelineClassifyCategoryQ.Arn
-              - !GetAtt ProductPipelineClassifyPeriodQ.Arn
+              - !GetAtt ProductPipelineClassifyQ.Arn
               - !GetAtt NotificationSendQ.Arn
 
   # ---------------------------------------------------------------------------
@@ -840,10 +824,10 @@ Resources:
       Targets:
         - Id: ProductPipelineExtractAttributeQ
           Arn: !GetAtt ProductPipelineExtractAttributeQ.Arn
-  ProductPipelineClassifyCategoryDynamoDbProductEventRecordCreatedEventRule:
+  ProductPipelineClassifyDynamoDbProductEventRecordCreatedEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-embed-product-pipeline-classify-${StageName}"
+      Name: !Sub "ddb-product-embed-product-pipeline-classify-product-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -859,29 +843,8 @@ Resources:
                 S:
                   - "ENRICHMENT_EMBEDDED_TEXT"
       Targets:
-        - Id: ProductPipelineClassifyCategoryQ
-          Arn: !GetAtt ProductPipelineClassifyCategoryQ.Arn
-  ProductPipelineClassifyPeriodDynamoDbProductEventRecordCreatedEventRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: !Sub "ddb-product-embed-product-pipeline-classify-period-${StageName}"
-      EventBusName: !Ref DynamoDbEventBus
-      EventPattern:
-        source:
-          - !Ref TableOne
-        detail-type:
-          - "DynamoDBStreamRecord"
-        detail:
-          eventName:
-            - "INSERT"
-          dynamodb:
-            NewImage:
-              event_type:
-                S:
-                  - "ENRICHMENT_EMBEDDED_TEXT"
-      Targets:
-        - Id: ProductPipelineClassifyPeriodQ
-          Arn: !GetAtt ProductPipelineClassifyPeriodQ.Arn
+        - Id: ProductPipelineClassifyQ
+          Arn: !GetAtt ProductPipelineClassifyQ.Arn
 
   # ---------------------------------------------------------------------------
   # API Gateway
@@ -941,12 +904,6 @@ Resources:
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/shops/{shopId}/products/{shopsProductId}/similar"
-      Target: !Sub "integrations/${ProductApiLambdaIntegration}"
-  ProductApiPutProductRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "PUT /api/v1/products"
       Target: !Sub "integrations/${ProductApiLambdaIntegration}"
   ProductApiSearchProductRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1107,24 +1064,6 @@ Resources:
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/by-slug/shops/{shopSlugId}"
-      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
-  ShopApiPatchShopByIdRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "PATCH /api/v1/shops/{shopId}"
-      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
-  ShopApiPatchShopByDomainRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "PATCH /api/v1/by-domain/shops/{shopDomain}"
-      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
-  ShopApiPostShopRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "POST /api/v1/shops"
       Target: !Sub "integrations/${ShopApiLambdaIntegration}"
   ShopApiSearchRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1762,7 +1701,6 @@ Resources:
           S3_BUCKET_NAME_TEMPLATES: "aura-historia-mail-templates-eu-central-1"
           STAGE_NAME: !Sub "${StageName}"
           COMMIT_SHA: !Sub "${CommitSHA}"
-          SENDER_MAIL: "no-reply@aura-historia.com"
   NotificationSendMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2106,7 +2044,6 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          SENDER_MAIL: "no-reply@aura-historia.com"
           S3_BUCKET_NAME_TEMPLATES: "aura-historia-mail-templates-eu-central-1"
           STAGE_NAME: !Sub "${StageName}"
           COMMIT_SHA: !Sub "${CommitSHA}"
@@ -2202,7 +2139,6 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          SENDER_MAIL: "no-reply@aura-historia.com"
           S3_BUCKET_NAME_TEMPLATES: "aura-historia-mail-templates-eu-central-1"
           STAGE_NAME: !Sub "${StageName}"
           COMMIT_SHA: !Sub "${CommitSHA}"

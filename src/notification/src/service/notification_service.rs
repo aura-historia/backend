@@ -19,7 +19,7 @@ use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use aws_sdk_s3::operation::get_object::GetObjectError;
 use aws_sdk_sesv2::{
     operation::send_email::SendEmailError,
-    types::{Body, Content, EmailContent, Message},
+    types::{Body, Content, EmailContent, Message, MessageTag},
 };
 use common::{
     batch::Batch,
@@ -32,13 +32,15 @@ use common::{
 };
 use handlebars::Handlebars;
 use once_cell::sync::OnceCell;
-use serde_email::Email;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use time::OffsetDateTime;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 use user::service::user_service::{UserService, UserServiceError};
+
+const SENDER_MAIL: &str = "no-reply@notify.aura-historia.com";
+const REPLY_TO_MAIL: &str = "contact@aura-historia.com";
 
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
@@ -175,7 +177,6 @@ pub struct NotificationServiceImpl<'a> {
     s3_bucket: &'a str,
     stage_name: &'a str,
     commit_sha: &'a str,
-    sender_email: Email,
     handlebars: Handlebars<'a>,
 }
 
@@ -189,7 +190,6 @@ impl<'a> NotificationServiceImpl<'a> {
         s3_bucket: &'a str,
         stage_name: &'a str,
         commit_sha: &'a str,
-        sender_email: Email,
     ) -> Self {
         Self {
             notification_repository,
@@ -199,7 +199,6 @@ impl<'a> NotificationServiceImpl<'a> {
             s3_bucket,
             stage_name,
             commit_sha,
-            sender_email,
             handlebars: Handlebars::new(),
         }
     }
@@ -289,8 +288,20 @@ impl<'a> NotificationServiceImpl<'a> {
             .build();
         let content = EmailContent::builder().simple(message).build();
 
+        let message_tag = MessageTag::builder()
+            .name("template_type")
+            .value(mail_template.template_type.as_message_tag_value())
+            .build()
+            .expect("shouldn't fail because 'name' and 'value' were set explicitly");
+
         self.ses_adapter
-            .send_email(self.sender_email.clone(), user.email, content)
+            .send_email(
+                SENDER_MAIL.try_into().expect("valid sender email"),
+                user.email,
+                REPLY_TO_MAIL.try_into().expect("valid reply-to email"),
+                content,
+                vec![message_tag],
+            )
             .await
             .map_err(NotificationError::SdkSESSendMailError)?;
 
@@ -1001,10 +1012,6 @@ mod tests {
     use std::collections::HashMap;
     use user::{core::user::User, service::user_service::MockUserService};
 
-    fn make_sender_email() -> Email {
-        "no-reply@aura-historia.com".try_into().unwrap()
-    }
-
     fn make_service<'a>(
         repository: &'a MockNotificationDynamoDbRepository,
         user_service: &'a MockUserService,
@@ -1019,7 +1026,6 @@ mod tests {
             "test-bucket",
             "test-stage",
             "test-sha",
-            make_sender_email(),
         )
     }
 
@@ -1032,6 +1038,7 @@ mod tests {
             language: Some(Language::En),
             currency: Some(Currency::Eur),
             prohibited_content_consent: false,
+            tier: user::core::tier::UserTier::Free,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -1608,7 +1615,9 @@ mod tests {
         fn mock_ses_sends_email(ses_adapter: &mut MockSesAdapter) {
             ses_adapter
                 .expect_send_email()
-                .return_once(|_, _, _| Box::pin(async { Ok(SendEmailOutput::builder().build()) }));
+                .return_once(|_, _, _, _, _| {
+                    Box::pin(async { Ok(SendEmailOutput::builder().build()) })
+                });
         }
 
         #[tokio::test]
@@ -1889,13 +1898,15 @@ mod tests {
                 .return_once(move |_| Box::pin(async move { Ok(user) }));
 
             let mut ses_adapter = MockSesAdapter::default();
-            ses_adapter.expect_send_email().return_once(|_, _, _| {
-                Box::pin(async {
-                    Err(aws_sdk_sesv2::error::SdkError::construction_failure(
-                        "Simulated SES failure",
-                    ))
-                })
-            });
+            ses_adapter
+                .expect_send_email()
+                .return_once(|_, _, _, _, _| {
+                    Box::pin(async {
+                        Err(aws_sdk_sesv2::error::SdkError::construction_failure(
+                            "Simulated SES failure",
+                        ))
+                    })
+                });
 
             let mut s3_adapter = MockS3Adapter::default();
             mock_s3_returns_template(&mut s3_adapter);
@@ -1987,6 +1998,7 @@ mod tests {
                 language: None,
                 currency: None,
                 prohibited_content_consent: false,
+                tier: user::core::tier::UserTier::Free,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2110,6 +2122,115 @@ mod tests {
                 NotificationError::SdkUpdateItemError(_) => {}
                 err => panic!("Expected 'SdkUpdateItemError', got '{err}'"),
             }
+        }
+
+        fn make_price_change_notification_record(
+            user_id: UserId,
+            origin_event_id: EventId,
+        ) -> NotificationRecord {
+            let mut record = make_notification_record_with_type(user_id, origin_event_id, None);
+            record.external = true;
+            // WatchlistPriceChanged → PriceChange payload → WatchlistUpdatePrice template
+            record.notification_reason =
+                crate::dynamodb::notification_reason_record::NotificationReasonRecord::WatchlistPriceChanged;
+            record
+        }
+
+        fn make_watchlist_state_change_notification_record(
+            user_id: UserId,
+            origin_event_id: EventId,
+        ) -> NotificationRecord {
+            let mut record = make_notification_record_with_type(user_id, origin_event_id, None);
+            record.external = true;
+            // WatchlistStateChanged → StateChange payload → WatchlistUpdateState template
+            record.notification_reason =
+                crate::dynamodb::notification_reason_record::NotificationReasonRecord::WatchlistStateChanged;
+            record
+        }
+
+        fn make_search_filter_match_notification_record(
+            user_id: UserId,
+            origin_event_id: EventId,
+        ) -> NotificationRecord {
+            let mut record = make_notification_record_with_type(user_id, origin_event_id, None);
+            record.external = true;
+            record.notification_reason =
+                crate::dynamodb::notification_reason_record::NotificationReasonRecord::SearchFilterMatch;
+            record.user_search_filter_id =
+                Some(search_filter::core::user_search_filter_id::UserSearchFilterId::new());
+            record.user_search_filter_name = Some("My Filter".into());
+            record
+        }
+
+        #[rstest::rstest]
+        #[case::price_change(
+            {
+                let (uid, eid) = (UserId::new(), EventId::new());
+                (make_price_change_notification_record(uid, eid), uid, eid)
+            },
+            "WATCHLIST_UPDATE_PRICE"
+        )]
+        #[case::state_change(
+            {
+                let (uid, eid) = (UserId::new(), EventId::new());
+                (make_watchlist_state_change_notification_record(uid, eid), uid, eid)
+            },
+            "WATCHLIST_UPDATE_STATE"
+        )]
+        #[case::search_filter_match(
+            {
+                let (uid, eid) = (UserId::new(), EventId::new());
+                (make_search_filter_match_notification_record(uid, eid), uid, eid)
+            },
+            "SEARCH_FILTER_MATCH"
+        )]
+        #[tokio::test]
+        async fn should_send_email_with_correct_message_tag_for_template_type(
+            #[case] record_and_ids: (NotificationRecord, UserId, EventId),
+            #[case] expected_tag_value: &'static str,
+        ) {
+            let (record, user_id, origin_event_id) = record_and_ids;
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_get_notification_record()
+                .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
+
+            let mut updated_record = Faker.fake::<NotificationRecord>();
+            updated_record.notification_type =
+                Some(crate::dynamodb::notification_type_record::NotificationTypeRecord::Email);
+            updated_record.user_id = user_id;
+            updated_record.origin_event_id = origin_event_id;
+            repository
+                .expect_update_notification_record()
+                .return_once(move |_, _, _| Box::pin(async move { Ok(Some(updated_record)) }));
+
+            let mut user_service = MockUserService::default();
+            let user = make_user(user_id);
+            user_service
+                .expect_find_user()
+                .return_once(move |_| Box::pin(async move { Ok(user) }));
+
+            let mut ses_adapter = MockSesAdapter::default();
+            ses_adapter
+                .expect_send_email()
+                .withf(move |_, _, _, _, tags| {
+                    tags.len() == 1
+                        && tags[0].name == "template_type"
+                        && tags[0].value == expected_tag_value
+                })
+                .return_once(|_, _, _, _, _| {
+                    Box::pin(async { Ok(SendEmailOutput::builder().build()) })
+                });
+
+            let mut s3_adapter = MockS3Adapter::default();
+            mock_s3_returns_template(&mut s3_adapter);
+
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            service
+                .send_externally(&user_id, &origin_event_id)
+                .await
+                .unwrap();
         }
     }
 

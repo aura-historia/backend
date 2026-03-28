@@ -34,10 +34,6 @@ async fn main() -> Result<(), Error> {
 
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")
         .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
-    let sender_email: serde_email::Email = std::env::var("SENDER_MAIL")
-        .expect("shouldn't fail loading env-var 'SENDER_MAIL'")
-        .parse()
-        .expect("shouldn't fail parsing 'SENDER_MAIL' as email");
     let s3_bucket_name_templates = std::env::var("S3_BUCKET_NAME_TEMPLATES")
         .expect("shouldn't fail loading env-var 'S3_BUCKET_NAME_TEMPLATES'");
     let stage_name =
@@ -66,11 +62,12 @@ async fn main() -> Result<(), Error> {
             &client,
             &table_name,
         );
+    let user_service = UserServiceImpl::new(&user_repository);
     let user_search_filter_service = UserSearchFilterServiceImpl::with_opensearch(
         &search_filter_dynamodb_repo,
+        &user_service,
         &search_filter_opensearch_repo,
     );
-    let user_service = UserServiceImpl::new(&user_repository);
 
     let notification_service = NotificationServiceImpl::new(
         &notification_repository,
@@ -80,7 +77,6 @@ async fn main() -> Result<(), Error> {
         &s3_bucket_name_templates,
         &stage_name,
         &commit_sha,
-        sender_email,
     );
     let product_event_search_filter_service = ProductEventSearchFilterNotificationsServiceImpl::new(
         &user_search_filter_service,

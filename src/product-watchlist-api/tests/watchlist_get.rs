@@ -47,14 +47,14 @@ async fn should_200_when_sort_created_asc() {
         "",
         "",
         "",
-        "noreply@example.com".parse().unwrap(),
     );
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
     );
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
+    let service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
@@ -74,7 +74,7 @@ async fn should_200_when_sort_created_asc() {
         let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(&user_id),
             sk: mk_sk(&product_record.shop_id, &product_record.shops_product_id),
-            lsi1_sk: mk_lsi1_sk(&created).unwrap(),
+            lsi1_sk: mk_lsi1_sk(&created),
             gsi1_pk: mk_gsi1_pk(&product_record.product_id),
             gsi1_sk: mk_gsi1_sk(&user_id),
             user_id,
@@ -154,14 +154,14 @@ async fn should_200_when_sort_created_asc_search_after() {
         "",
         "",
         "",
-        "noreply@example.com".parse().unwrap(),
     );
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
     );
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
+    let service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
@@ -189,7 +189,7 @@ async fn should_200_when_sort_created_asc_search_after() {
         let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(&user_id),
             sk: mk_sk(&product_record.shop_id, &product_record.shops_product_id),
-            lsi1_sk: mk_lsi1_sk(&created).unwrap(),
+            lsi1_sk: mk_lsi1_sk(&created),
             user_id,
             gsi1_pk: mk_gsi1_pk(&product_record.product_id),
             gsi1_sk: mk_gsi1_sk(&user_id),
@@ -271,14 +271,14 @@ async fn should_200_when_sort_created_desc() {
         "",
         "",
         "",
-        "noreply@example.com".parse().unwrap(),
     );
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
     );
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
+    let service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
@@ -298,7 +298,7 @@ async fn should_200_when_sort_created_desc() {
         let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(&user_id),
             sk: mk_sk(&product_record.shop_id, &product_record.shops_product_id),
-            lsi1_sk: mk_lsi1_sk(&created).unwrap(),
+            lsi1_sk: mk_lsi1_sk(&created),
             user_id,
             gsi1_pk: mk_gsi1_pk(&product_record.product_id),
             gsi1_sk: mk_gsi1_sk(&user_id),
@@ -379,14 +379,14 @@ async fn should_200_when_sort_created_desc_search_after() {
         "",
         "",
         "",
-        "noreply@example.com".parse().unwrap(),
     );
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
     );
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
+    let service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
@@ -414,7 +414,7 @@ async fn should_200_when_sort_created_desc_search_after() {
         let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(&user_id),
             sk: mk_sk(&product_record.shop_id, &product_record.shops_product_id),
-            lsi1_sk: mk_lsi1_sk(&created).unwrap(),
+            lsi1_sk: mk_lsi1_sk(&created),
             user_id,
             gsi1_pk: mk_gsi1_pk(&product_record.product_id),
             gsi1_sk: mk_gsi1_sk(&user_id),
@@ -528,14 +528,14 @@ async fn should_respond_200_and_respect_language_query_param(
         "",
         "",
         "",
-        "noreply@example.com".parse().unwrap(),
     );
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
     );
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
+    let service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
 
     let mut product_records = fake::vec![ProductRecord; 23];
     for product_record in &mut product_records {
@@ -574,7 +574,7 @@ async fn should_respond_200_and_respect_language_query_param(
         let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(&user_id),
             sk: mk_sk(&product_record.shop_id, &product_record.shops_product_id),
-            lsi1_sk: mk_lsi1_sk(&created).unwrap(),
+            lsi1_sk: mk_lsi1_sk(&created),
             gsi1_pk: mk_gsi1_pk(&product_record.product_id),
             gsi1_sk: mk_gsi1_sk(&user_id),
             user_id,

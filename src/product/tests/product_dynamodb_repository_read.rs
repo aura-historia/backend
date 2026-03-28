@@ -227,11 +227,12 @@ mod query_product_record_and_event_records {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductDomainEventPayload::StateAvailable(
+            payload: ProductDomainEventPayload::StateChanged(
                 ProductStateChangeDomainEventPayload {
                     shop_id: expected_materialized.shop_id,
                     shops_product_id: expected_materialized.shops_product_id.clone(),
                     old_state: ProductState::Listed,
+                    new_state: ProductState::Available,
                 },
             ),
         }
@@ -303,11 +304,12 @@ mod query_product_record_and_event_records {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductDomainEventPayload::StateAvailable(
+            payload: ProductDomainEventPayload::StateChanged(
                 ProductStateChangeDomainEventPayload {
                     shop_id: expected_materialized.shop_id,
                     shops_product_id: expected_materialized.shops_product_id.clone(),
                     old_state: ProductState::Listed,
+                    new_state: ProductState::Available,
                 },
             ),
         }
@@ -336,7 +338,7 @@ mod query_product_record_and_event_records {
             actual_events[0].event_type
         );
         assert_eq!(
-            ProductDomainEventTypeRecord::DomainStateAvailable,
+            ProductDomainEventTypeRecord::DomainStateChanged,
             actual_events[1].event_type
         );
     }
@@ -1441,11 +1443,12 @@ mod query_product_event_records {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductDomainEventPayload::StateAvailable(
+            payload: ProductDomainEventPayload::StateChanged(
                 ProductStateChangeDomainEventPayload {
                     shop_id: expected_materialized.shop_id,
                     shops_product_id: expected_materialized.shops_product_id.clone(),
                     old_state: ProductState::Listed,
+                    new_state: ProductState::Available,
                 },
             ),
         }
@@ -1472,7 +1475,7 @@ mod query_product_event_records {
             actual_events[0].event_type
         );
         assert_eq!(
-            ProductDomainEventTypeRecord::DomainStateAvailable,
+            ProductDomainEventTypeRecord::DomainStateChanged,
             actual_events[1].event_type
         );
     }

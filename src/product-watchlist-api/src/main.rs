@@ -44,17 +44,17 @@ async fn main() -> Result<(), Error> {
         "",
         "",
         "",
-        "noreply@example.com"
-            .parse()
-            .expect("shouldn't fail parsing placeholder sender email"),
     );
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
     );
-    let product_watchlist_service =
-        ProductWatchListServiceImpl::new(&watchlist_repository, &product_dynamodb_repository);
+    let product_watchlist_service = ProductWatchListServiceImpl::new(
+        &watchlist_repository,
+        &product_dynamodb_repository,
+        &user_service,
+    );
 
     debug!("Lambda initialized.");
 

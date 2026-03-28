@@ -4,7 +4,7 @@ use shop::{
     data::get_shop_data::GetShopData,
     dynamodb::repository::ShopDynamoDbRepositoryImpl,
     service::{
-        command_service::{CommandShopService, CommandShopServiceImpl, MockCommandShopService},
+        command_service::{CommandShopService, CommandShopServiceImpl},
         get_service::GetShopServiceImpl,
         query_service::MockQueryShopService,
     },
@@ -13,7 +13,7 @@ use shop_api::handle;
 use test_api::*;
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_200_respond_shop_for_id() {
+async fn should_200_respond_shop() {
     let repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let get_service = GetShopServiceImpl::new(&repository);
     let command_service = CommandShopServiceImpl::new(&repository);
@@ -29,47 +29,9 @@ async fn should_200_respond_shop_for_id() {
         context: Default::default(),
     };
 
-    let response = handle(
-        lambda_event,
-        &get_service,
-        &MockQueryShopService::default(),
-        &MockCommandShopService::default(),
-    )
-    .await
-    .unwrap();
-    let actual = serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
-    assert_eq!(200, response.status_code);
-    assert_eq!(GetShopData::from(expected), actual)
-}
-
-#[localstack_test(services = [DynamoDB()])]
-async fn should_200_respond_shop_for_domain() {
-    let repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let get_service = GetShopServiceImpl::new(&repository);
-    let command_service = CommandShopServiceImpl::new(&repository);
-
-    let create_cmd = Faker.fake();
-    let expected = command_service.create(create_cmd).await.unwrap();
-    let lambda_event = LambdaEvent {
-        payload: ApiGatewayV2httpRequestProxy::builder()
-            .http_method(http::Method::GET)
-            .route_key("GET /api/v1/by-domain/shops/{shopDomain}")
-            .path_parameter(
-                "shopDomain",
-                expected.domains.iter().next().unwrap().to_string(),
-            )
-            .build(),
-        context: Default::default(),
-    };
-
-    let response = handle(
-        lambda_event,
-        &get_service,
-        &MockQueryShopService::default(),
-        &MockCommandShopService::default(),
-    )
-    .await
-    .unwrap();
+    let response = handle(lambda_event, &get_service, &MockQueryShopService::default())
+        .await
+        .unwrap();
     let actual = serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(200, response.status_code);
     assert_eq!(GetShopData::from(expected), actual)
@@ -92,14 +54,9 @@ async fn should_200_respond_shop_for_slug() {
         context: Default::default(),
     };
 
-    let response = handle(
-        lambda_event,
-        &get_service,
-        &MockQueryShopService::default(),
-        &MockCommandShopService::default(),
-    )
-    .await
-    .unwrap();
+    let response = handle(lambda_event, &get_service, &MockQueryShopService::default())
+        .await
+        .unwrap();
     let actual = serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(200, response.status_code);
     assert_eq!(GetShopData::from(expected), actual)

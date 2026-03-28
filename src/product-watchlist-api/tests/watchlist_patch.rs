@@ -58,14 +58,14 @@ async fn should_respond_with_patched_notifications(
         "",
         "",
         "",
-        "noreply@example.com".parse().unwrap(),
     );
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
     );
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
+    let service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
 
     let user_record = Faker.fake::<UserRecord>();
     let _ = user_repository
@@ -92,7 +92,7 @@ async fn should_respond_with_patched_notifications(
             &product_record.shop_id,
             &product_record.shops_product_id,
         ),
-        lsi1_sk: product_watchlist::dynamodb::record::mk_lsi1_sk(&created).unwrap(),
+        lsi1_sk: product_watchlist::dynamodb::record::mk_lsi1_sk(&created),
         gsi1_pk: mk_gsi1_pk(&product_record.product_id),
         gsi1_sk: mk_gsi1_sk(&user_record.user_id),
         user_id: user_record.user_id,

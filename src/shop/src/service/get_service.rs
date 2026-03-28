@@ -3,13 +3,13 @@ use crate::dynamodb::repository::ShopDynamoDbRepository;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::config::http::HttpResponse;
 use aws_sdk_dynamodb::error::SdkError;
-use common::{batch::Batch, shop_id::ShopIdentifier, slug_id::SlugId};
+use common::{batch::Batch, shop_id::ShopId, slug_id::SlugId};
 
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum GetShopError {
     #[error("Shop with identifier '{0}' not found")]
-    ShopNotFound(ShopIdentifier),
+    ShopNotFound(ShopId),
 
     #[error("Shop with SlugId '{0}' not found")]
     ShopSlugIdNotFound(SlugId<0>),
@@ -59,14 +59,11 @@ pub mod api {
 #[async_trait]
 #[mockall::automock]
 pub trait GetShopService {
-    async fn find_shop(&self, shop_identifier: &ShopIdentifier) -> Result<Shop, GetShopError>;
+    async fn find_shop(&self, shop_id: &ShopId) -> Result<Shop, GetShopError>;
 
     async fn find_shop_by_slug(&self, shop_slug_id: &SlugId<0>) -> Result<Shop, GetShopError>;
 
-    async fn find_shops(
-        &self,
-        shop_identifiers: Vec<ShopIdentifier>,
-    ) -> Result<Vec<Shop>, GetShopError>;
+    async fn find_shops(&self, shop_ids: Vec<ShopId>) -> Result<Vec<Shop>, GetShopError>;
 }
 
 pub struct GetShopServiceImpl<'a> {
@@ -81,17 +78,12 @@ impl<'a> GetShopServiceImpl<'a> {
 
 #[async_trait]
 impl<'a> GetShopService for GetShopServiceImpl<'a> {
-    async fn find_shop(&self, shop_identifier: &ShopIdentifier) -> Result<Shop, GetShopError> {
-        let shop_record_opt = match shop_identifier {
-            ShopIdentifier::ShopId(shop_id) => {
-                self.repository.get_shop_record_by_id(shop_id).await?
-            }
-            ShopIdentifier::ShopDomain(domain) => {
-                self.repository.get_shop_record_by_domain(domain).await?
-            }
-        };
-        let shop_record =
-            shop_record_opt.ok_or(GetShopError::ShopNotFound(shop_identifier.clone()))?;
+    async fn find_shop(&self, shop_id: &ShopId) -> Result<Shop, GetShopError> {
+        let shop_record = self
+            .repository
+            .get_shop_record(shop_id)
+            .await?
+            .ok_or(GetShopError::ShopNotFound(*shop_id))?;
 
         Ok(shop_record.into())
     }
@@ -99,20 +91,17 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
     async fn find_shop_by_slug(&self, shop_slug_id: &SlugId<0>) -> Result<Shop, GetShopError> {
         let shop_id_opt = self.repository.query_shop_id(shop_slug_id).await?;
         match shop_id_opt {
-            Some(shop_id) => self.find_shop(&shop_id.into()).await,
+            Some(shop_id) => self.find_shop(&shop_id).await,
             None => Err(GetShopError::ShopSlugIdNotFound(shop_slug_id.clone())),
         }
     }
 
-    async fn find_shops(
-        &self,
-        shop_identifiers: Vec<ShopIdentifier>,
-    ) -> Result<Vec<Shop>, GetShopError> {
+    async fn find_shops(&self, shop_ids: Vec<ShopId>) -> Result<Vec<Shop>, GetShopError> {
         const MAX_RETRIES: u32 = 3;
         const BASE_DELAY_MS: u64 = 100;
 
-        let mut views = Vec::with_capacity(shop_identifiers.len());
-        let mut unprocessed = shop_identifiers;
+        let mut views = Vec::with_capacity(shop_ids.len());
+        let mut unprocessed = shop_ids;
         let mut retry_count = 0;
         loop {
             let (mut local_shops, local_unprocessed) =
@@ -139,11 +128,11 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
 impl<'a> GetShopServiceImpl<'a> {
     async fn find_shops_with_unprocessed(
         &self,
-        shop_identifiers: Vec<ShopIdentifier>,
-    ) -> Result<(Vec<Shop>, Vec<ShopIdentifier>), GetShopError> {
+        shop_ids: Vec<ShopId>,
+    ) -> Result<(Vec<Shop>, Vec<ShopId>), GetShopError> {
         let mut unprocessed = Vec::new();
-        let mut shop_records = Vec::with_capacity(shop_identifiers.len());
-        for batch in Batch::chunked_from(shop_identifiers.into_iter()) {
+        let mut shop_records = Vec::with_capacity(shop_ids.len());
+        for batch in Batch::chunked_from(shop_ids.into_iter()) {
             let mut res = self.repository.get_shop_records(&batch).await?;
             if let Some(local_unprocessed) = res.unprocessed {
                 unprocessed.extend(local_unprocessed);
@@ -173,12 +162,12 @@ mod tests {
     async fn should_return_shop_when_exists() {
         let mut repository = MockShopDynamoDbRepository::default();
         repository
-            .expect_get_shop_record_by_id()
+            .expect_get_shop_record()
             .return_once(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
         let service = GetShopServiceImpl {
             repository: &repository,
         };
-        let actual = service.find_shop(&ShopId::new().into()).await;
+        let actual = service.find_shop(&ShopId::new()).await;
         assert!(actual.is_ok());
     }
 
@@ -187,17 +176,17 @@ mod tests {
         let shop_id = ShopId::new();
         let mut repository = MockShopDynamoDbRepository::default();
         repository
-            .expect_get_shop_record_by_id()
+            .expect_get_shop_record()
             .return_once(|_| Box::pin(async { Ok(None) }));
         let service = GetShopServiceImpl {
             repository: &repository,
         };
-        let actual = service.find_shop(&shop_id.into()).await;
+        let actual = service.find_shop(&shop_id).await;
 
         assert!(actual.is_err());
         match actual.unwrap_err() {
             GetShopError::ShopNotFound(err_shop_id) => {
-                assert_eq!(err_shop_id, shop_id.into());
+                assert_eq!(err_shop_id, shop_id);
             }
             _ => panic!("expected GetShopError::ShopNotFound"),
         }
@@ -226,12 +215,12 @@ mod tests {
         let shop_id = ShopId::new();
         let mut repository = MockShopDynamoDbRepository::default();
         repository
-            .expect_get_shop_record_by_id()
+            .expect_get_shop_record()
             .return_once(|_| Box::pin(async { Err(expected) }));
         let service = GetShopServiceImpl {
             repository: &repository,
         };
-        let actual = service.find_shop(&shop_id.into()).await;
+        let actual = service.find_shop(&shop_id).await;
 
         assert!(actual.is_err());
         match actual.unwrap_err() {

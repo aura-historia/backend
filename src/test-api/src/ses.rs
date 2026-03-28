@@ -12,7 +12,7 @@ use tracing::{debug, info, warn};
 ///
 /// Must match the `SENDER_MAIL` environment variable set in
 /// `cfn/ephemeral.yaml`.
-const SENDER_EMAIL: &str = "no-reply@aura-historia.com";
+const SENDER_EMAIL: &str = "no-reply@notify.aura-historia.com";
 
 /// A lazily-initialized, globally shared SESv2 client for integration testing.
 static SES_CLIENT: OnceCell<Client> = OnceCell::const_new();
@@ -34,7 +34,7 @@ pub async fn get_ses_client() -> &'static Client {
 /// Implements [`IntegrationTestService`] for use with the `#[localstack_test]` macro.
 ///
 /// On [`set_up`](IntegrationTestService::set_up), verifies the sender email identity
-/// (`no-reply@aura-historia.com`) so that Lambdas running inside LocalStack can
+/// (`no-reply@notify.aura-historia.com`) so that Lambdas running inside LocalStack can
 /// send emails via SES without identity-not-verified errors.
 pub struct Ses();
 

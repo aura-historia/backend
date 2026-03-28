@@ -43,7 +43,21 @@ impl PipeProcessor for TranslationPipeProcesserImpl {
             HashMap::with_capacity(products.len());
         let mut all_descriptions: HashMap<Language, Vec<(ProductId, String)>> =
             HashMap::with_capacity(products.len());
-        for product in products.values() {
+
+        // Sort products by text length so each batch contains items of similar length,
+        // reducing padding overhead in transformer models. Using a consistent sort order
+        // for both titles and descriptions ensures batches overlap, so a product that
+        // fails in a title batch is also in the corresponding description batch.
+        let mut sorted_products: Vec<&Product> = products.values().collect();
+        sorted_products.sort_by_key(|product| {
+            product.native_title.payload.len()
+                + product
+                    .native_description
+                    .as_ref()
+                    .map_or(0, |d| d.payload.len())
+        });
+
+        for product in sorted_products {
             all_titles
                 .entry(product.native_title.localization)
                 .or_default()

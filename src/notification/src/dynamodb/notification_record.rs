@@ -146,16 +146,8 @@ pub fn mk_lsi1_sk(
     let format_watchlist: fn(&NotificationId) -> String =
         |notification_id| format!("user#notification#watchlist#{notification_id}");
     match notification_reason {
-        NotificationReasonRecord::WatchlistStateListed => format_watchlist(notification_id),
-        NotificationReasonRecord::WatchlistStateAvailable => format_watchlist(notification_id),
-        NotificationReasonRecord::WatchlistStateReserved => format_watchlist(notification_id),
-        NotificationReasonRecord::WatchlistStateSold => format_watchlist(notification_id),
-        NotificationReasonRecord::WatchlistStateRemoved => format_watchlist(notification_id),
-        NotificationReasonRecord::WatchlistStateUnknown => format_watchlist(notification_id),
-        NotificationReasonRecord::WatchlistPriceDiscovered => format_watchlist(notification_id),
-        NotificationReasonRecord::WatchlistPriceDropped => format_watchlist(notification_id),
-        NotificationReasonRecord::WatchlistPriceIncreased => format_watchlist(notification_id),
-        NotificationReasonRecord::WatchlistPriceRemoved => format_watchlist(notification_id),
+        NotificationReasonRecord::WatchlistStateChanged => format_watchlist(notification_id),
+        NotificationReasonRecord::WatchlistPriceChanged => format_watchlist(notification_id),
         NotificationReasonRecord::SearchFilterMatch => {
             format!("user#notification#search_filter#{notification_id}")
         }
@@ -178,35 +170,12 @@ fn derive_notification_reason(
     watchlist_payload: &NotificationWatchlistPayload,
 ) -> NotificationReasonRecord {
     match watchlist_payload {
-        NotificationWatchlistPayload::PriceChange {
-            old_price,
-            new_price,
-        } => {
-            let old_eur = old_price.get(&Currency::Eur).copied();
-            let new_eur = new_price.get(&Currency::Eur).copied();
-            match (old_eur, new_eur) {
-                (None, Some(_)) => NotificationReasonRecord::WatchlistPriceDiscovered,
-                (Some(_), None) => NotificationReasonRecord::WatchlistPriceRemoved,
-                (Some(old), Some(new)) => {
-                    let old_val: u64 = old.into();
-                    let new_val: u64 = new.into();
-                    if new_val < old_val {
-                        NotificationReasonRecord::WatchlistPriceDropped
-                    } else {
-                        NotificationReasonRecord::WatchlistPriceIncreased
-                    }
-                }
-                (None, None) => NotificationReasonRecord::WatchlistPriceDiscovered,
-            }
+        NotificationWatchlistPayload::PriceChange { .. } => {
+            NotificationReasonRecord::WatchlistPriceChanged
         }
-        NotificationWatchlistPayload::StateChange { new_state, .. } => match new_state {
-            ProductState::Listed => NotificationReasonRecord::WatchlistStateListed,
-            ProductState::Available => NotificationReasonRecord::WatchlistStateAvailable,
-            ProductState::Reserved => NotificationReasonRecord::WatchlistStateReserved,
-            ProductState::Sold => NotificationReasonRecord::WatchlistStateSold,
-            ProductState::Removed => NotificationReasonRecord::WatchlistStateRemoved,
-            ProductState::Unknown => NotificationReasonRecord::WatchlistStateUnknown,
-        },
+        NotificationWatchlistPayload::StateChange { .. } => {
+            NotificationReasonRecord::WatchlistStateChanged
+        }
     }
 }
 
@@ -531,12 +500,7 @@ impl TryFrom<NotificationRecord> for Notification {
         } else {
             let is_state_change = matches!(
                 record.notification_reason,
-                NotificationReasonRecord::WatchlistStateListed
-                    | NotificationReasonRecord::WatchlistStateAvailable
-                    | NotificationReasonRecord::WatchlistStateReserved
-                    | NotificationReasonRecord::WatchlistStateSold
-                    | NotificationReasonRecord::WatchlistStateRemoved
-                    | NotificationReasonRecord::WatchlistStateUnknown
+                NotificationReasonRecord::WatchlistStateChanged
             );
 
             let watchlist_payload = if is_state_change {
@@ -609,7 +573,7 @@ mod faker {
             let user_id: UserId = config.fake_with_rng(rng);
             let origin_event_id: EventId = config.fake_with_rng(rng);
             let notification_id = NotificationId::new();
-            let notification_reason = NotificationReasonRecord::WatchlistPriceDiscovered;
+            let notification_reason = NotificationReasonRecord::WatchlistPriceChanged;
             let created = OffsetDateTime::now_utc();
             let product_id: ProductId = config.fake_with_rng(rng);
 
