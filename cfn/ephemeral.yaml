@@ -545,31 +545,17 @@ Resources:
         maxReceiveCount: 3
       VisibilityTimeout: 300
 
-  ProductPipelineClassifyCategoryDlq:
+  ProductPipelineClassifyDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-pipeline-classify-category-dlq-${StageName}"
+      QueueName: !Sub "product-pipeline-classify-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
-  ProductPipelineClassifyCategoryQ:
+  ProductPipelineClassifyQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-pipeline-classify-category-queue-${StageName}"
+      QueueName: !Sub "product-pipeline-classify-queue-${StageName}"
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ProductPipelineClassifyCategoryDlq.Arn
-        maxReceiveCount: 3
-      VisibilityTimeout: 300
-
-  ProductPipelineClassifyPeriodDlq:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "product-pipeline-classify-period-dlq-${StageName}"
-      MessageRetentionPeriod: 1209600
-  ProductPipelineClassifyPeriodQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "product-pipeline-classify-period-queue-${StageName}"
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ProductPipelineClassifyPeriodDlq.Arn
+        deadLetterTargetArn: !GetAtt ProductPipelineClassifyDlq.Arn
         maxReceiveCount: 3
       VisibilityTimeout: 300
 
@@ -586,8 +572,7 @@ Resources:
         - !Ref ProductPipelineTranslateQ
         - !Ref ProductPipelineEmbedTextQ
         - !Ref ProductPipelineExtractAttributeQ
-        - !Ref ProductPipelineClassifyCategoryQ
-        - !Ref ProductPipelineClassifyPeriodQ
+        - !Ref ProductPipelineClassifyQ
         - !Ref NotificationSendQ
       PolicyDocument:
         Version: "2012-10-17"
@@ -606,8 +591,7 @@ Resources:
               - !GetAtt ProductPipelineTranslateQ.Arn
               - !GetAtt ProductPipelineEmbedTextQ.Arn
               - !GetAtt ProductPipelineExtractAttributeQ.Arn
-              - !GetAtt ProductPipelineClassifyCategoryQ.Arn
-              - !GetAtt ProductPipelineClassifyPeriodQ.Arn
+              - !GetAtt ProductPipelineClassifyQ.Arn
               - !GetAtt NotificationSendQ.Arn
 
   # ---------------------------------------------------------------------------
@@ -840,7 +824,7 @@ Resources:
       Targets:
         - Id: ProductPipelineExtractAttributeQ
           Arn: !GetAtt ProductPipelineExtractAttributeQ.Arn
-  ProductPipelineClassifyCategoryDynamoDbProductEventRecordCreatedEventRule:
+  ProductPipelineClassifyDynamoDbProductEventRecordCreatedEventRule:
     Type: AWS::Events::Rule
     Properties:
       Name: !Sub "ddb-product-embed-product-pipeline-classify-${StageName}"
@@ -859,29 +843,8 @@ Resources:
                 S:
                   - "ENRICHMENT_EMBEDDED_TEXT"
       Targets:
-        - Id: ProductPipelineClassifyCategoryQ
-          Arn: !GetAtt ProductPipelineClassifyCategoryQ.Arn
-  ProductPipelineClassifyPeriodDynamoDbProductEventRecordCreatedEventRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: !Sub "ddb-product-embed-product-pipeline-classify-period-${StageName}"
-      EventBusName: !Ref DynamoDbEventBus
-      EventPattern:
-        source:
-          - !Ref TableOne
-        detail-type:
-          - "DynamoDBStreamRecord"
-        detail:
-          eventName:
-            - "INSERT"
-          dynamodb:
-            NewImage:
-              event_type:
-                S:
-                  - "ENRICHMENT_EMBEDDED_TEXT"
-      Targets:
-        - Id: ProductPipelineClassifyPeriodQ
-          Arn: !GetAtt ProductPipelineClassifyPeriodQ.Arn
+        - Id: ProductPipelineClassifyQ
+          Arn: !GetAtt ProductPipelineClassifyQ.Arn
 
   # ---------------------------------------------------------------------------
   # API Gateway

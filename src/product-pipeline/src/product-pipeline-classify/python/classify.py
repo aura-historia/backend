@@ -19,41 +19,44 @@ model = AutoModelForCausalLM.from_pretrained(
 )
 
 
-def classify_period(
-    batch: List[Tuple[str, List[str]]],
+def classify(
+    batch: List[Tuple[str, List[str], List[str]]],
     batch_size: int = 64,
-) -> List[str]:
+) -> List[Tuple[str, str]]:
     """
     Args:
         batch: List of tuples:
             [
-                (product_title, [candidate1, candidate2, ...]),
+                (product_title, [candidate_category1, ...], [candidate_period1, ...]),
                 ...
             ]
         batch_size: inference batch size
 
     Returns:
-        List[str]: predicted period_id for each product
+        List[Tuple[str, str]]: predicted (category_id, period_id) for each product
     """
 
-    results: List[str] = []
+    results: List[Tuple[str, str]] = []
 
     for i in range(0, len(batch), batch_size):
         mini_batch = batch[i : i + batch_size]
         prompts = []
 
-        for product_title, candidates in mini_batch:
-            # Format candidate list into clean bullet list
-            formatted_candidates = "\n".join(f"- {c}" for c in candidates)
+        for product_title, candidate_categories, candidate_periods in mini_batch:
+            formatted_categories = "\n".join(f"- {c}" for c in candidate_categories)
+            formatted_periods = "\n".join(f"- {p}" for p in candidate_periods)
 
             messages = [
                 {
                     "role": "system",
                     "content": (
-                        "You are a tie-breaker for antiques-product period/style-classification. "
-                        "You will be given a product-title of an antique and multiple options for the period or style. "
-                        "You MUST choose the best fitting period for the product. "
-                        "Respond ONLY with the value of the matching kebab-case period."
+                        "You are a classifier for antiques products. "
+                        "You will be given a product-title of an antique, "
+                        "multiple options for the category, and multiple options for the period or style. "
+                        "You MUST choose the best fitting category AND the best fitting period for the product. "
+                        "Respond ONLY with two lines:\n"
+                        "category: <chosen kebab-case category>\n"
+                        "period: <chosen kebab-case period>"
                     ),
                 },
                 {
@@ -61,8 +64,10 @@ def classify_period(
                     "content": (
                         f"Product Title:\n"
                         f'"""{product_title}"""\n\n'
+                        f"Candidate Categories:\n"
+                        f"{formatted_categories}\n\n"
                         f"Candidate Periods:\n"
-                        f"{formatted_candidates}"
+                        f"{formatted_periods}"
                     ),
                 },
             ]
@@ -86,7 +91,7 @@ def classify_period(
         with torch.inference_mode():
             outputs = model.generate(
                 **inputs,
-                max_new_tokens=32,
+                max_new_tokens=64,
                 do_sample=False,
             )
 
@@ -97,8 +102,16 @@ def classify_period(
             skip_special_tokens=True,
         )
 
-        # Strip whitespace and remove surrounding quotes only
-        results.extend([d.strip().strip('"') for d in decoded])
+        for d in decoded:
+            category = ""
+            period = ""
+            for line in d.strip().splitlines():
+                line = line.strip()
+                if line.lower().startswith("category:"):
+                    category = line.split(":", 1)[1].strip().strip('"')
+                elif line.lower().startswith("period:"):
+                    period = line.split(":", 1)[1].strip().strip('"')
+            results.append((category, period))
 
     return results
 
@@ -107,12 +120,14 @@ if __name__ == "__main__":
     batch = [
         (
             """Musealer Kabinettschrank 1742, süddeutsch  Art.Nr. 6948""",
+            ["musical-instruments", "furniture", "decorative-objects"],
             ["renaissance", "baroque", "rococo"],
         ),
     ]
 
-    results = classify_period(batch)
+    results = classify(batch)
 
     for i, (src, res) in enumerate(zip(batch, results), 1):
         print(f"\n--- Item {i} ---")
-        print(res)
+        print(f"category: {res[0]}")
+        print(f"period: {res[1]}")

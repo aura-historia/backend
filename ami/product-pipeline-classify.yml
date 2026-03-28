@@ -1,4 +1,4 @@
-name: setup-env-product-pipeline-classify-period
+name: setup-env-product-pipeline-classify
 schemaVersion: 1.0
 parameters:
   - Stage:
@@ -80,12 +80,12 @@ phases:
         action: ExecuteBash
         inputs:
           commands:
-            - mkdir -p /opt/product-pipeline-classify-period
-            - chmod 755 /opt/product-pipeline-classify-period
-            - cd /opt/product-pipeline-classify-period
+            - mkdir -p /opt/product-pipeline-classify
+            - chmod 755 /opt/product-pipeline-classify
+            - cd /opt/product-pipeline-classify
             - export RESOURCE_BUCKET="{{ ResourceBucket }}"
             - export STAGE="{{ Stage }}"
-            - aws s3 cp "s3://$RESOURCE_BUCKET/$STAGE/src/product-pipeline/src/product-pipeline-classify-period/python/requirements.txt" requirements.txt --region eu-central-1
+            - aws s3 cp "s3://$RESOURCE_BUCKET/$STAGE/src/product-pipeline/src/product-pipeline-classify/python/requirements.txt" requirements.txt --region eu-central-1
             - python3 -m venv .venv
             - source .venv/bin/activate
             - python3 -m pip install --upgrade pip
@@ -224,8 +224,8 @@ phases:
                     "files": {
                       "collect_list": [
                         {
-                          "file_path": "/var/log/product-pipeline-classify-period.log",
-                          "log_group_name": "/aws/ec2/$STAGE-product-pipeline-classify-period",
+                          "file_path": "/var/log/product-pipeline-classify.log",
+                          "log_group_name": "/aws/ec2/$STAGE-product-pipeline-classify",
                           "log_stream_name": "{instance_id}",
                           "timestamp_format": "%Y-%m-%dT%H:%M:%S.%f%z",
                           "timezone": "UTC",
@@ -238,7 +238,7 @@ phases:
               }
               EOF
             - amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent.json -s
-            - LOG_PATH="/var/log/product-pipeline-classify-period.log"
+            - LOG_PATH="/var/log/product-pipeline-classify.log"
             - sudo touch "$LOG_PATH"
             - sudo chmod 666 "$LOG_PATH"
 
