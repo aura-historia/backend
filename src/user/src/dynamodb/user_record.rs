@@ -1,4 +1,7 @@
-use crate::core::{first_name::FirstName, last_name::LastName, user::User};
+use crate::{
+    core::{first_name::FirstName, last_name::LastName, user::User},
+    dynamodb::tier_record::UserTierRecord,
+};
 use common::{
     currency::{domain::Currency, record::CurrencyRecord},
     language::{domain::Language, record::LanguageRecord},
@@ -31,9 +34,10 @@ pub struct UserRecord {
     #[serde(default)]
     pub prohibited_content_consent: bool,
 
+    pub tier: UserTierRecord,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
-
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -58,6 +62,7 @@ impl From<User> for UserRecord {
             language: user.language.map(LanguageRecord::from),
             currency: user.currency.map(CurrencyRecord::from),
             prohibited_content_consent: user.prohibited_content_consent,
+            tier: UserTierRecord::from(user.tier),
             created: user.created,
             updated: user.updated,
         }
@@ -74,6 +79,7 @@ impl From<UserRecord> for User {
             language: record.language.map(Language::from),
             currency: record.currency.map(Currency::from),
             prohibited_content_consent: record.prohibited_content_consent,
+            tier: record.tier.into(),
             created: record.created,
             updated: record.updated,
         }
