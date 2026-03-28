@@ -3,7 +3,6 @@ use std::sync::{Arc, RwLock};
 
 use common::user_id::UserId;
 use jsonwebtokens::{Algorithm, AlgorithmID, Verifier};
-use jsonwebtokens_cognito::KeySet;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -29,9 +28,16 @@ struct JwkSet {
 ///
 /// Inside a LocalStack Lambda container the real
 /// `https://cognito-idp.{region}.amazonaws.com` is unreachable.
-/// This implementation accepts an arbitrary Cognito IDP base URL
-/// (e.g. `http://host.docker.internal:{port}`) and fetches the JWKS from
-/// `{cognito_idp_endpoint}/{user_pool_id}/.well-known/jwks.json`.
+///
+/// Two separate base URLs are required because they serve different purposes:
+///
+/// * `cognito_idp_endpoint` — reachable from inside the Lambda container
+///   (e.g. `http://host.docker.internal:{mapped_port}`). Used only to fetch
+///   `{cognito_idp_endpoint}/{user_pool_id}/.well-known/jwks.json`.
+///
+/// * `cognito_issuer_base_url` — the URL that LocalStack embeds in the `iss`
+///   claim of every token it mints (e.g. `http://localhost.localstack.cloud:4566`).
+///   Used only for JWT `iss` claim verification.
 #[derive(Clone)]
 pub struct LocalStackAccessTokenVerifierServiceImpl {
     jwks_url: String,
@@ -42,17 +48,28 @@ pub struct LocalStackAccessTokenVerifierServiceImpl {
 impl LocalStackAccessTokenVerifierServiceImpl {
     pub fn new(
         cognito_idp_endpoint: &str,
-        region: &str,
+        cognito_issuer_base_url: &str,
         user_pool_id: &str,
         client_ids: &[&str],
     ) -> Result<Self, AccessTokenVerifierError> {
+        let cognito_idp_endpoint = cognito_idp_endpoint.trim_end_matches('/');
         let jwks_url = format!(
             "{}/{}/.well-known/jwks.json",
-            cognito_idp_endpoint.trim_end_matches('/'),
+            cognito_idp_endpoint, user_pool_id
+        );
+        // LocalStack issues tokens with iss = "{issuer_base}/{pool_id}" rather than
+        // the standard "https://cognito-idp.{region}.amazonaws.com/{pool_id}".
+        // Build the Verifier directly so we can supply the correct issuer URL.
+        let issuer = format!(
+            "{}/{}",
+            cognito_issuer_base_url.trim_end_matches('/'),
             user_pool_id
         );
-        let keyset = KeySet::new(region, user_pool_id)?;
-        let verifier = keyset.new_access_token_verifier(client_ids).build()?;
+        let verifier = Verifier::create()
+            .issuer(&issuer)
+            .string_equals_one_of("client_id", client_ids)
+            .string_equals("token_use", "access")
+            .build()?;
         Ok(Self {
             jwks_url,
             verifier,
