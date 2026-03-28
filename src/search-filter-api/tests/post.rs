@@ -110,9 +110,8 @@ async fn should_422_when_search_filter_quota_is_exceeded() {
         &personalization_service,
     )
     .await
-    .unwrap();
+    .unwrap_err();
 
-    assert_eq!(422, response.status_code);
-    let json = extract_apigw_response_json_body!(response);
-    assert_eq!("SEARCH_FILTER_QUOTA_EXCEEDED", json["error"]);
+    assert_eq!(422, response.status);
+    assert_eq!("SEARCH_FILTER_QUOTA_EXCEEDED", response.error.to_string());
 }
