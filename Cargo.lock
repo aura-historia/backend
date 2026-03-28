@@ -5443,8 +5443,7 @@ name = "product-pipeline"
 version = "0.1.0"
 dependencies = [
  "product-pipeline-asg-scale-control",
- "product-pipeline-classify-category",
- "product-pipeline-classify-period",
+ "product-pipeline-classify",
  "product-pipeline-common",
  "product-pipeline-embed-text",
  "product-pipeline-extract-attribute",
@@ -5470,34 +5469,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "product-pipeline-classify-category"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-sqs",
- "common",
- "fake",
- "mockall",
- "opensearch",
- "product",
- "product-classification",
- "product-pipeline-common",
- "pyo3",
- "pyo3-ffi",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "product-pipeline-classify-period"
+name = "product-pipeline-classify"
 version = "0.1.0"
 dependencies = [
  "async-trait",

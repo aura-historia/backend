@@ -43,15 +43,12 @@ async fn main() -> Result<(), Error> {
             ),
         },
         SqsAsgComponent {
-            sqs_url: std::env::var("PRODUCT_PIPELINE_CLASSIFY_SQS_URL").expect(
-                "shouldn't fail loading env-var 'PRODUCT_PIPELINE_CLASSIFY_SQS_URL'",
-            ),
-            queue_name: std::env::var("PRODUCT_PIPELINE_CLASSIFY_SQS_NAME").expect(
-                "shouldn't fail loading env-var 'PRODUCT_PIPELINE_CLASSIFY_SQS_NAME'",
-            ),
-            asg_name: std::env::var("PRODUCT_PIPELINE_CLASSIFY_ASG_NAME").expect(
-                "shouldn't fail loading env-var 'PRODUCT_PIPELINE_CLASSIFY_ASG_NAME'",
-            ),
+            sqs_url: std::env::var("PRODUCT_PIPELINE_CLASSIFY_SQS_URL")
+                .expect("shouldn't fail loading env-var 'PRODUCT_PIPELINE_CLASSIFY_SQS_URL'"),
+            queue_name: std::env::var("PRODUCT_PIPELINE_CLASSIFY_SQS_NAME")
+                .expect("shouldn't fail loading env-var 'PRODUCT_PIPELINE_CLASSIFY_SQS_NAME'"),
+            asg_name: std::env::var("PRODUCT_PIPELINE_CLASSIFY_ASG_NAME")
+                .expect("shouldn't fail loading env-var 'PRODUCT_PIPELINE_CLASSIFY_ASG_NAME'"),
         },
     ];
 

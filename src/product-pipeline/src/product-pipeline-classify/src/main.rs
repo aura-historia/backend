@@ -13,9 +13,7 @@ use product_classification::{
         opensearch_repository::PeriodOpenSearchRepositoryImpl, service::PeriodServiceImpl,
     },
 };
-use product_pipeline_classify::{
-    adapter::ClassifyAdapterImpl, process::ClassifyPipeProcessorImpl,
-};
+use product_pipeline_classify::{adapter::ClassifyAdapterImpl, process::ClassifyPipeProcessorImpl};
 use product_pipeline_common::{
     flow_in::PipeFlowInImpl,
     flow_out::PipeFlowOutImpl,
@@ -60,9 +58,7 @@ async fn main() {
 
     let classify_flow_in = PipeFlowInImpl::new(&sqs, &source_queue_url);
     let classify_processor = ClassifyPipeProcessorImpl::new(
-        Arc::new(
-            ClassifyAdapterImpl::new().expect("shouldn't fail creating ClassifyAdapterImpl"),
-        ),
+        Arc::new(ClassifyAdapterImpl::new().expect("shouldn't fail creating ClassifyAdapterImpl")),
         &category_service,
         &period_service,
     );

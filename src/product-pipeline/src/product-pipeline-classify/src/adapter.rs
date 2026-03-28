@@ -25,12 +25,8 @@ impl ClassifyAdapterImpl {
                 env!("CARGO_MANIFEST_DIR"),
                 "/python/classify.py"
             )));
-            let classify_module = PyModule::from_code(
-                py,
-                py_classify,
-                c_str!("classify.py"),
-                c_str!("classify"),
-            )?;
+            let classify_module =
+                PyModule::from_code(py, py_classify, c_str!("classify.py"), c_str!("classify"))?;
             Ok(ClassifyAdapterImpl {
                 module: Arc::new(classify_module.into()),
             })

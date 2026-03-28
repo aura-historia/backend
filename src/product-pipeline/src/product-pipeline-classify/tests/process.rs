@@ -9,9 +9,7 @@ use product_classification::category::core::Category;
 use product_classification::category::service::MockCategoryService;
 use product_classification::period::core::Period;
 use product_classification::period::service::MockPeriodService;
-use product_pipeline_classify::{
-    adapter::ClassifyAdapterImpl, process::ClassifyPipeProcessorImpl,
-};
+use product_pipeline_classify::{adapter::ClassifyAdapterImpl, process::ClassifyPipeProcessorImpl};
 use product_pipeline_common::process::PipeProcessor;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -94,11 +92,8 @@ async fn should_process_classification() {
             })
         });
 
-    let processor = ClassifyPipeProcessorImpl::new(
-        Arc::new(adapter),
-        &category_service,
-        &period_service,
-    );
+    let processor =
+        ClassifyPipeProcessorImpl::new(Arc::new(adapter), &category_service, &period_service);
 
     let mut product = Faker.fake::<Product>();
     product.native_title.payload = "Antique Baroque Chair".into();
