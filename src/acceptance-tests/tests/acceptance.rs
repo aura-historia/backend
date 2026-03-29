@@ -27,6 +27,7 @@ use notification_api::notification_get::EventIdCursoredData;
 use opensearch::GetParts;
 use product::data::get_data::GetProductData;
 use product::data::user_state_data::ProductUserStateData;
+use product::dynamodb::product_record;
 use product::{
     core::{
         product_event::{
@@ -4275,6 +4276,10 @@ async fn should_respond_200_for_partner_post_products() {
 
 #[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_for_partner_patch_products() {
+    let product_repository = ProductDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        get_cfn_output().dynamodb_table_1_name.as_str(),
+    );
     let (shop_record, api_key) = prepare_partner_shop().await;
     let api_key_str: String = api_key.into();
 
@@ -4284,22 +4289,18 @@ async fn should_respond_200_for_partner_patch_products() {
         shop_record.shop_id,
     );
 
-    // First create the product via POST
-    let post_response = reqwest::Client::new()
-        .post(&url)
-        .header("x-api-key", &api_key_str)
-        .json(&vec![serde_json::json!({
-            "shopsProductId": "acceptance-test-patch-product-1",
-            "title": { "text": "Test Product", "language": "en" },
-            "description": { "text": "A test product", "language": "en" },
-            "state": "AVAILABLE",
-            "url": "https://example.com/product/1",
-            "images": ["https://example.com/img.jpg"]
-        })])
-        .send()
+    // First create the product so we can update it
+    let mut product_record = Faker.fake::<ProductRecord>();
+    product_record.shop_id = shop_record.shop_id;
+    product_record.shops_product_id = "acceptance-test-patch-product-1".into();
+    product_record.pk =
+        product_record::mk_pk(&shop_record.shop_id, &product_record.shops_product_id);
+    product_record.sk = product_record::mk_sk().to_owned();
+    product_record.state = product::dynamodb::product_state_record::ProductStateRecord::Available;
+    product_repository
+        .put_product_records([product_record].into())
         .await
         .unwrap();
-    assert_eq!(200, post_response.status());
 
     // Then update the product via PATCH
     let response = reqwest::Client::new()

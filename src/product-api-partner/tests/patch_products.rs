@@ -1,9 +1,9 @@
 use common::price::domain::FixedFxRate;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
-use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
-use product::service::command_service::{CommandProductService, CommandProductServiceImpl};
-use product::service::product_command::CreateProductCommand;
+use product::dynamodb::product_record::{self, ProductRecord};
+use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
+use product::service::command_service::CommandProductServiceImpl;
 use product_classification::category::service::MockCategoryService;
 use product_classification::period::service::MockPeriodService;
 use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
@@ -53,10 +53,16 @@ async fn should_return_200_with_empty_errors_when_products_updated_successfully(
     shop_repository.put_shop_record(shop_record).await.unwrap();
 
     // First create the product so we can update it
-    let mut create_cmd: CreateProductCommand = Faker.fake();
-    create_cmd.shop_id = shop_id;
-    create_cmd.shops_product_id = "integration-patch-product-1".into();
-    command_product_service.create(vec![create_cmd]).await;
+    let mut product_record = Faker.fake::<ProductRecord>();
+    product_record.shop_id = shop_id;
+    product_record.shops_product_id = "integration-patch-product-1".into();
+    product_record.pk = product_record::mk_pk(&shop_id, &product_record.shops_product_id);
+    product_record.sk = product_record::mk_sk().to_owned();
+    product_record.state = product::dynamodb::product_state_record::ProductStateRecord::Available;
+    product_repository
+        .put_product_records([product_record].into())
+        .await
+        .unwrap();
 
     let api_key_str: String = api_key.into();
     let lambda_event = LambdaEvent {
