@@ -111,18 +111,10 @@ pub struct HashedPartnerShopApiKey {
     long_token_hash: String,
 }
 
-impl From<PartnerShopApiKey> for HashedPartnerShopApiKey {
-    fn from(value: PartnerShopApiKey) -> Self {
-        PrefixedApiKey::from_string(&value.0)
-            .expect("shouldn't fail parsing ParnterShopKey as PrefixedApiKey by construction")
-            .into()
-    }
-}
-
 impl HashedPartnerShopApiKey {
-    pub fn new(prefix: String, short_token: String, long_token_hash: String) -> Self {
+    pub fn new(short_token: String, long_token_hash: String) -> Self {
         Self {
-            prefix,
+            prefix: PARTNER_SHOP_API_KEY_PREFIX.to_string(),
             short_token,
             long_token_hash,
         }
@@ -138,6 +130,14 @@ impl HashedPartnerShopApiKey {
 
     pub fn long_token_hash(&self) -> &str {
         &self.long_token_hash
+    }
+}
+
+impl From<PartnerShopApiKey> for HashedPartnerShopApiKey {
+    fn from(value: PartnerShopApiKey) -> Self {
+        PrefixedApiKey::from_string(&value.0)
+            .expect("shouldn't fail parsing ParnterShopKey as PrefixedApiKey by construction")
+            .into()
     }
 }
 
