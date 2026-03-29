@@ -723,6 +723,13 @@ Resources:
       RouteKey: "POST /api/v1/shops/{shopId}/products"
       AuthorizationType: NONE
       Target: !Sub "integrations/${ProductApiPartnerLambdaIntegration}"
+  ProductApiPartnerPatchProductsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PATCH /api/v1/shops/{shopId}/products"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${ProductApiPartnerLambdaIntegration}"
   ProductApiPartnerLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
