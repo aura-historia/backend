@@ -88,19 +88,6 @@ fn parse_api_key(api_key: &str) -> Result<(String, String), InvalidPartnerShopAp
             )
         })?;
 
-    if short_token.len() != 8 {
-        return Err(InvalidPartnerShopApiKeyError(
-            api_key.to_string(),
-            "the short token should be 8 characters ".to_string(),
-        ));
-    }
-    if long_token.len() != 32 {
-        return Err(InvalidPartnerShopApiKeyError(
-            api_key.to_string(),
-            "the long token should be 32 characters ".to_string(),
-        ));
-    }
-
     Ok((short_token.to_string(), long_token.to_string()))
 }
 
@@ -187,5 +174,236 @@ mod faker {
                 let _ = Faker.fake::<HashedPartnerShopApiKey>();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    // ── PartnerShopApiKey::new / default ────────────────────────────────────
+
+    #[test]
+    fn should_start_with_prefix_when_new() {
+        let key: String = PartnerShopApiKey::new().into();
+        assert!(key.starts_with("aurahistoria_"));
+    }
+
+    #[test]
+    fn should_have_correct_token_lengths_when_new() {
+        // seam_defaults() uses 8 bytes for short (base58 → 10-11 chars)
+        // and 24 bytes for long (base58 → 32-33 chars); exact length depends on leading zeros
+        let key: String = PartnerShopApiKey::new().into();
+        let stripped = key.strip_prefix("aurahistoria_").unwrap();
+        let (short, long) = stripped.split_once('_').unwrap();
+        assert!(
+            (10..=11).contains(&short.len()),
+            "short token should be 10-11 characters, was {}",
+            short.len()
+        );
+        assert!(
+            (32..=33).contains(&long.len()),
+            "long token should be 32-33 characters, was {}",
+            long.len()
+        );
+    }
+
+    #[test]
+    fn should_generate_unique_keys_when_called_multiple_times() {
+        let keys: Vec<String> = (0..10).map(|_| PartnerShopApiKey::new().into()).collect();
+        let unique: std::collections::HashSet<_> = keys.iter().collect();
+        assert_eq!(unique.len(), 10);
+    }
+
+    #[test]
+    fn should_produce_valid_parseable_key_when_default() {
+        let key = PartnerShopApiKey::default();
+        let key_str: String = key.into();
+        let result = PartnerShopApiKey::try_from(key_str);
+        assert!(result.is_ok());
+    }
+
+    // ── TryFrom<String> ─────────────────────────────────────────────────────
+
+    #[rstest]
+    #[case("aurahistoria_12345678901_123456789012345678901234567890123")]
+    #[case("aurahistoria_abcdefghijk_abcdefghijklmnopqrstuvwxyz1234567")]
+    #[trace]
+    fn should_parse_valid_key_when_try_from_string(#[case] input: &str) {
+        let result = PartnerShopApiKey::try_from(input.to_string());
+        assert!(result.is_ok());
+    }
+
+    #[rstest]
+    #[case::wrong_prefix("badprefix_12345678901_123456789012345678901234567890123")]
+    #[case::no_underscore_after_prefix("aurahistoria12345678901_123456789012345678901234567890123")]
+    #[case::no_token_separator("aurahistoria_12345678901123456789012345678901234567890123")]
+    #[case::empty("")]
+    #[trace]
+    fn should_reject_invalid_key_when_try_from_string(#[case] input: &str) {
+        let result = PartnerShopApiKey::try_from(input.to_string());
+        assert!(result.is_err());
+    }
+
+    // ── From<PartnerShopApiKey> for String / round-trip ─────────────────────
+
+    #[test]
+    fn should_round_trip_through_string_when_from_and_try_from() {
+        let key = PartnerShopApiKey::new();
+        let key_str: String = key.clone().into();
+        let restored = PartnerShopApiKey::try_from(key_str).unwrap();
+        assert_eq!(key, restored);
+    }
+
+    // ── PartnerShopApiKey::check ─────────────────────────────────────────────
+
+    #[test]
+    fn should_return_true_when_checking_own_hash() {
+        let key = PartnerShopApiKey::new();
+        let hash = HashedPartnerShopApiKey::from(key.clone());
+        assert!(key.check(&hash));
+    }
+
+    #[test]
+    fn should_return_false_when_checking_hash_of_different_key() {
+        let key1 = PartnerShopApiKey::new();
+        let key2 = PartnerShopApiKey::new();
+        let hash2 = HashedPartnerShopApiKey::from(key2);
+        assert!(!key1.check(&hash2));
+    }
+
+    // ── Serde ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn should_serialize_as_plain_json_string_when_serializing() {
+        let key = PartnerShopApiKey::new();
+        let key_str: String = key.clone().into();
+        let json = serde_json::to_string(&key).unwrap();
+        assert_eq!(json, format!("\"{}\"", key_str));
+    }
+
+    #[test]
+    fn should_round_trip_through_serde_when_serializing_and_deserializing() {
+        let key = PartnerShopApiKey::new();
+        let json = serde_json::to_string(&key).unwrap();
+        let restored: PartnerShopApiKey = serde_json::from_str(&json).unwrap();
+        assert_eq!(key, restored);
+    }
+
+    #[rstest]
+    #[case::empty_string("\"\"")]
+    #[case::no_prefix("\"invalid_key_value\"")]
+    #[case::wrong_prefix("\"badprefix_12345678901_123456789012345678901234567890123\"")]
+    #[trace]
+    fn should_fail_deserializing_when_json_contains_invalid_key(#[case] json: &str) {
+        let result = serde_json::from_str::<PartnerShopApiKey>(json);
+        assert!(result.is_err());
+    }
+
+    // ── From<&PartnerShopApiKey> for PrefixedApiKey ──────────────────────────
+
+    #[test]
+    fn should_preserve_prefix_and_short_token_when_converting_to_prefixed_api_key() {
+        let key = PartnerShopApiKey::new();
+        let key_str: String = key.clone().into();
+        let stripped = key_str.strip_prefix("aurahistoria_").unwrap();
+        let (expected_short, _) = stripped.split_once('_').unwrap();
+
+        let prefixed: PrefixedApiKey = (&key).into();
+
+        assert_eq!(prefixed.prefix(), "aurahistoria");
+        assert_eq!(prefixed.short_token(), expected_short);
+    }
+
+    // ── HashedPartnerShopApiKey::new and accessors ───────────────────────────
+
+    #[test]
+    fn should_store_all_fields_correctly_when_creating_via_new() {
+        let short = "ABCDEFGH".to_string();
+        let hash = "somehashvalue".to_string();
+
+        let hashed = HashedPartnerShopApiKey::new(short.clone(), hash.clone());
+
+        assert_eq!(hashed.prefix(), PARTNER_SHOP_API_KEY_PREFIX);
+        assert_eq!(hashed.short_token(), short);
+        assert_eq!(hashed.long_token_hash(), hash);
+    }
+
+    // ── From<PartnerShopApiKey> for HashedPartnerShopApiKey ──────────────────
+
+    #[test]
+    fn should_produce_sha256_hash_when_converting_from_partner_shop_api_key() {
+        let key = PartnerShopApiKey::new();
+        let key_str: String = key.clone().into();
+        let stripped = key_str.strip_prefix("aurahistoria_").unwrap();
+        let (expected_short, _) = stripped.split_once('_').unwrap();
+
+        let hashed = HashedPartnerShopApiKey::from(key);
+
+        assert_eq!(hashed.prefix(), PARTNER_SHOP_API_KEY_PREFIX);
+        assert_eq!(hashed.short_token(), expected_short);
+        assert_eq!(
+            hashed.long_token_hash().len(),
+            64,
+            "SHA-256 hex digest should be 64 characters"
+        );
+    }
+
+    #[test]
+    fn should_produce_equal_hashes_when_converting_same_key_twice() {
+        let key = PartnerShopApiKey::new();
+        let hash1 = HashedPartnerShopApiKey::from(key.clone());
+        let hash2 = HashedPartnerShopApiKey::from(key);
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn should_produce_different_hashes_when_converting_different_keys() {
+        let key1 = PartnerShopApiKey::new();
+        let key2 = PartnerShopApiKey::new();
+        let hash1 = HashedPartnerShopApiKey::from(key1);
+        let hash2 = HashedPartnerShopApiKey::from(key2);
+        assert_ne!(hash1, hash2);
+    }
+
+    // ── From<PrefixedApiKey> for HashedPartnerShopApiKey ────────────────────
+
+    #[test]
+    fn should_produce_same_result_when_converting_from_prefixed_api_key_as_from_partner_shop_api_key()
+     {
+        let key = PartnerShopApiKey::new();
+        let prefixed: PrefixedApiKey = (&key).into();
+
+        let hash_from_key = HashedPartnerShopApiKey::from(key);
+        let hash_from_prefixed = HashedPartnerShopApiKey::from(prefixed);
+
+        assert_eq!(hash_from_key, hash_from_prefixed);
+    }
+
+    #[test]
+    fn should_set_correct_prefix_when_converting_from_prefixed_api_key() {
+        let key = PartnerShopApiKey::new();
+        let prefixed: PrefixedApiKey = (&key).into();
+        let hashed = HashedPartnerShopApiKey::from(prefixed);
+        assert_eq!(hashed.prefix(), PARTNER_SHOP_API_KEY_PREFIX);
+    }
+
+    // ── InvalidPartnerShopApiKeyError ────────────────────────────────────────
+
+    #[test]
+    fn should_include_input_value_in_error_message_when_parsing_fails() {
+        let bad_key = "totally_wrong_format";
+        let err = PartnerShopApiKey::try_from(bad_key.to_string()).unwrap_err();
+        assert!(err.to_string().contains(bad_key));
+    }
+
+    #[rstest]
+    #[case::wrong_prefix("wrongprefix_12345678901_123456789012345678901234567890123")]
+    #[case::no_separator("aurahistoria_12345678901123456789012345678901234567890123")]
+    #[trace]
+    fn should_include_bad_key_in_error_message_for_each_validation_branch(#[case] bad_key: &str) {
+        let err = PartnerShopApiKey::try_from(bad_key.to_string()).unwrap_err();
+        assert!(err.to_string().contains(bad_key));
     }
 }
