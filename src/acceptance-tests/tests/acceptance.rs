@@ -55,7 +55,19 @@ use product::{
         product_command::{CreateProductCommand, UpdateProductCommand},
     },
 };
+use product_classification::category::data::get_category_data::GetCategoryData;
+use product_classification::category::data::get_category_summary_data::GetCategorySummaryData;
+use product_classification::category::dynamodb_repository::{
+    CategoryDynamoDbRepository, CategoryDynamoDbRepositoryImpl,
+};
+use product_classification::category::record::CategoryRecord;
 use product_classification::category::service::MockCategoryService;
+use product_classification::period::data::get_period_data::GetPeriodData;
+use product_classification::period::data::get_period_summary_data::GetPeriodSummaryData;
+use product_classification::period::dynamodb_repository::{
+    PeriodDynamoDbRepository, PeriodDynamoDbRepositoryImpl,
+};
+use product_classification::period::record::PeriodRecord;
 use product_classification::period::service::MockPeriodService;
 use product_watchlist::dynamodb::repository::{
     WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
@@ -73,6 +85,7 @@ use search_filter_api::{
     post_types::PostUserSearchFilterData,
 };
 use serde::de::DeserializeOwned;
+use shop::data::get_shop_data::GetShopData;
 use shop::dynamodb::repository::ShopDynamoDbRepository;
 use shop::{core::shop::Shop, dynamodb::repository::ShopDynamoDbRepositoryImpl};
 use std::collections::HashMap;
@@ -3915,6 +3928,150 @@ async fn should_respond_200_when_shop_search_hits() {
     assert_eq!(200, response.status());
 }
 */
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_shop_get_by_id() {
+    let shop = prepare_test_shop().await;
+
+    let url = format!(
+        "{}/api/v1/shops/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        shop.shop_id,
+    );
+    let response = reqwest::get(&url).await.unwrap();
+    assert_eq!(200, response.status());
+
+    let body = response.json::<GetShopData>().await.unwrap();
+    assert_eq!(shop.shop_id, body.shop_id);
+    assert_eq!(shop.shop_slug_id, body.shop_slug_id);
+    assert_eq!(shop.name, body.name);
+    assert_eq!(shop.domains, body.domains);
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_shop_get_by_slug() {
+    let shop = prepare_test_shop().await;
+
+    let url = format!(
+        "{}/api/v1/by-slug/shops/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        shop.shop_slug_id,
+    );
+    let response = reqwest::get(&url).await.unwrap();
+    assert_eq!(200, response.status());
+
+    let body = response.json::<GetShopData>().await.unwrap();
+    assert_eq!(shop.shop_id, body.shop_id);
+    assert_eq!(shop.shop_slug_id, body.shop_slug_id);
+    assert_eq!(shop.name, body.name);
+    assert_eq!(shop.domains, body.domains);
+}
+
+// ---------------------------------------------------------------------------
+// API: Product Classification
+// Verifies API Gateway routing and Lambda IAM access for category and period
+// GET-by-id and GET-all endpoints (DynamoDB-backed).
+// ---------------------------------------------------------------------------
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_category_get_by_id() {
+    let stack = get_cfn_output();
+    let repository = CategoryDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &stack.dynamodb_table_1_name,
+    );
+    let record: CategoryRecord = Faker.fake();
+    repository
+        .put_category_record(record.clone())
+        .await
+        .unwrap();
+
+    let url = format!(
+        "{}/api/v1/categories/{}",
+        stack.api_gateway_endpoint_url, record.category_id,
+    );
+    let response = reqwest::get(&url).await.unwrap();
+    assert_eq!(200, response.status());
+
+    let body = response.json::<GetCategoryData>().await.unwrap();
+    assert_eq!(record.category_id, body.category_id);
+    assert_eq!(record.category_key, body.category_key);
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_category_get_all() {
+    let stack = get_cfn_output();
+    let repository = CategoryDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &stack.dynamodb_table_1_name,
+    );
+    let record1: CategoryRecord = Faker.fake();
+    let record2: CategoryRecord = Faker.fake();
+    repository
+        .put_category_record(record1.clone())
+        .await
+        .unwrap();
+    repository
+        .put_category_record(record2.clone())
+        .await
+        .unwrap();
+
+    let url = format!("{}/api/v1/categories", stack.api_gateway_endpoint_url,);
+    let response = reqwest::get(&url).await.unwrap();
+    assert_eq!(200, response.status());
+
+    let body = response
+        .json::<Vec<GetCategorySummaryData>>()
+        .await
+        .unwrap();
+    assert!(body.len() >= 2);
+    assert!(body.iter().any(|c| c.category_id == record1.category_id));
+    assert!(body.iter().any(|c| c.category_id == record2.category_id));
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_period_get_by_id() {
+    let stack = get_cfn_output();
+    let repository = PeriodDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &stack.dynamodb_table_1_name,
+    );
+    let record: PeriodRecord = Faker.fake();
+    repository.put_period_record(record.clone()).await.unwrap();
+
+    let url = format!(
+        "{}/api/v1/periods/{}",
+        stack.api_gateway_endpoint_url, record.period_id,
+    );
+    let response = reqwest::get(&url).await.unwrap();
+    assert_eq!(200, response.status());
+
+    let body = response.json::<GetPeriodData>().await.unwrap();
+    assert_eq!(record.period_id, body.period_id);
+    assert_eq!(record.period_key, body.period_key);
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_period_get_all() {
+    let stack = get_cfn_output();
+    let repository = PeriodDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &stack.dynamodb_table_1_name,
+    );
+    let record1: PeriodRecord = Faker.fake();
+    let record2: PeriodRecord = Faker.fake();
+    repository.put_period_record(record1.clone()).await.unwrap();
+    repository.put_period_record(record2.clone()).await.unwrap();
+
+    let url = format!("{}/api/v1/periods", stack.api_gateway_endpoint_url,);
+    let response = reqwest::get(&url).await.unwrap();
+    assert_eq!(200, response.status());
+
+    let body = response.json::<Vec<GetPeriodSummaryData>>().await.unwrap();
+    assert!(body.len() >= 2);
+    assert!(body.iter().any(|p| p.period_id == record1.period_id));
+    assert!(body.iter().any(|p| p.period_id == record2.period_id));
+}
 
 // ---------------------------------------------------------------------------
 // API: Notification

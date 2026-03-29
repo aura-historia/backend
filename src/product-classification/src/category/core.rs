@@ -82,6 +82,7 @@ pub struct LocalizedCategory {
 #[cfg(feature = "test-data")]
 pub mod faker {
     use super::*;
+    use common::slug_id::SlugId;
     use fake::{Dummy, Fake, Faker, RngExt};
     use serde::{Deserialize, Serialize};
     use strum::{EnumCount, IntoEnumIterator};
@@ -179,9 +180,11 @@ pub mod faker {
             for language in Language::iter() {
                 display_description.insert(language, config.fake_with_rng(rng));
             }
+
+            let category_key: CategoryKey = config.fake_with_rng(rng);
             Category {
-                category_id: config.fake_with_rng(rng),
-                category_key: config.fake_with_rng(rng),
+                category_id: SlugId::from(category_key.as_ref()),
+                category_key,
                 meta_name: config.fake_with_rng(rng),
                 meta_description: config.fake_with_rng(rng),
                 meta_keywords: config.fake_with_rng(rng),
