@@ -3,7 +3,9 @@ use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::repository::{ProductDynamoDbRepository, extract_product_key};
 use crate::service::heuristics;
-use crate::service::product_command::{CreateProductCommand, UpdateProductCommand};
+use crate::service::product_command::{
+    CreateProductCommand, UpdateProductCommand, UpsertProductCommand,
+};
 use async_trait::async_trait;
 use common::batch::Batch;
 use common::category_key::CategoryId;
@@ -25,6 +27,7 @@ pub trait CommandProductService {
         &self,
         cmds: HashMap<ProductKey, UpdateProductCommand>,
     ) -> HashMap<ProductKey, UpdateProductCommand>;
+    async fn upsert(&self, cmds: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand>;
 }
 
 pub struct CommandProductServiceImpl<'a, T: FxRate + Sync> {
@@ -327,6 +330,104 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                 Err(err) => {
                     error!(err = ?err, "Failed entire BatchGetItem-Operation.");
                     failures.extend(working);
+                }
+            }
+        }
+
+        failures
+    }
+
+    async fn upsert(&self, cmds: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand> {
+        let mut failures = Vec::new();
+        let cache = self.classification_cache().await;
+
+        for chunk in Batch::<UpsertProductCommand, 100>::chunked_from(cmds.into_iter()) {
+            let mut key_cmds: HashMap<ProductKey, UpsertProductCommand> =
+                chunk.into_iter().map(|cmd| (cmd.key(), cmd)).collect();
+            let mut working = key_cmds.clone();
+            let keys: Batch<ProductKey, 100> = working
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+                .try_into()
+                .expect("shouldn't fail because keys come from a Batch<_, 100>");
+
+            match self.dynamodb_repository.get_product_records(&keys).await {
+                Ok(records) => {
+                    if let Some(unprocessed) = records.unprocessed {
+                        for key in unprocessed {
+                            if let Some(cmd) = working.remove(&key) {
+                                failures.push(cmd);
+                            }
+                        }
+                    }
+
+                    // Build update commands for existing products
+                    let mut update_cmds: HashMap<ProductKey, UpdateProductCommand> = HashMap::new();
+                    for record in &records.items {
+                        let key = record.key();
+                        if let Some(cmd) = working.remove(&key) {
+                            update_cmds.insert(key, cmd.to_update_command());
+                        }
+                    }
+
+                    // Determine update events for existing products
+                    let update_events =
+                        determine_update_events(&mut update_cmds, records.items, self.fx_rate);
+
+                    // Remaining items in `working` are products not found in DynamoDB → create
+                    let create_events: Vec<ProductEventRecord> = working
+                        .into_values()
+                        .map(|cmd| {
+                            let mut create_cmd = cmd.to_create_command();
+                            self.enrich_price(&mut create_cmd);
+                            heuristics::classify_images(&mut create_cmd);
+                            heuristics::enrich_origin_year(&mut create_cmd);
+                            heuristics::enrich_authenticity(&mut create_cmd);
+                            heuristics::enrich_condition(&mut create_cmd);
+                            heuristics::enrich_provenance(&mut create_cmd);
+                            heuristics::enrich_restoration(&mut create_cmd);
+                            heuristics::classify_period(&mut create_cmd, &cache.period_keywords);
+                            heuristics::classify_category(
+                                &mut create_cmd,
+                                &cache.category_keywords,
+                            );
+                            ProductEventRecord::Domain(ProductDomainEventRecord::from(
+                                Product::create(
+                                    create_cmd.shop_id,
+                                    create_cmd.shops_product_id,
+                                    create_cmd.shop_name,
+                                    create_cmd.shop_type,
+                                    create_cmd.native_title,
+                                    create_cmd.native_description,
+                                    create_cmd.native_price,
+                                    create_cmd.other_price,
+                                    create_cmd.native_price_estimate_min,
+                                    create_cmd.other_price_estimate_min,
+                                    create_cmd.native_price_estimate_max,
+                                    create_cmd.other_price_estimate_max,
+                                    create_cmd.state,
+                                    create_cmd.url,
+                                    create_cmd.images,
+                                    create_cmd.auction_start,
+                                    create_cmd.auction_end,
+                                ),
+                            ))
+                        })
+                        .collect();
+
+                    let all_events: Vec<ProductEventRecord> = update_events
+                        .into_iter()
+                        .map(ProductEventRecord::from)
+                        .chain(create_events)
+                        .collect();
+
+                    let persist_failures = self.persist_events(all_events, &mut key_cmds).await;
+                    failures.extend(persist_failures.into_iter().map(|(_, cmd)| cmd));
+                }
+                Err(err) => {
+                    error!(err = ?err, "Failed entire BatchGetItem-Operation.");
+                    failures.extend(working.into_values());
                 }
             }
         }
