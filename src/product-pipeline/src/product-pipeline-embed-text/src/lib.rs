@@ -79,10 +79,7 @@ pub async fn handler(
                 .try_into()
                 .expect("shouldn't fail creating batch of 1 item");
 
-            if let Err(err) = product_repository
-                .put_product_event_records(batch)
-                .await
-            {
+            if let Err(err) = product_repository.put_product_event_records(batch).await {
                 error!(
                     error = ?err,
                     messageId = message_id,
@@ -320,11 +317,7 @@ mod tests {
         mock_embedding_service
             .expect_embed()
             .times(1)
-            .returning(|_, _, _| {
-                Box::pin(async {
-                    Err(MultimodalEmbeddingError::EmptyResponse)
-                })
-            });
+            .returning(|_, _, _| Box::pin(async { Err(MultimodalEmbeddingError::EmptyResponse) }));
 
         let mock_repository = MockProductDynamoDbRepository::default();
 

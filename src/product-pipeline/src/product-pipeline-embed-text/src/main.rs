@@ -19,8 +19,8 @@ async fn main() -> Result<(), Error> {
 
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")
         .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
-    let gemini_api_key = std::env::var("GEMINI_API_KEY")
-        .expect("shouldn't fail loading env-var 'GEMINI_API_KEY'");
+    let gemini_api_key =
+        std::env::var("GEMINI_API_KEY").expect("shouldn't fail loading env-var 'GEMINI_API_KEY'");
 
     let client = Client::new(&aws_config);
     let product_repository = ProductDynamoDbRepositoryImpl::new(&client, &table_name);

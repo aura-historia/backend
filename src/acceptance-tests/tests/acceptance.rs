@@ -69,6 +69,7 @@ use product_classification::period::dynamodb_repository::{
 };
 use product_classification::period::record::PeriodRecord;
 use product_classification::period::service::MockPeriodService;
+use product_pipeline_embed_text::service::MockMultimodalEmbeddingService;
 use product_watchlist::dynamodb::repository::{
     WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
 };
@@ -4271,4 +4272,101 @@ async fn should_respond_200_for_partner_post_products() {
 
     let body: serde_json::Value = response.json().await.unwrap();
     assert!(body["errors"].as_object().unwrap().is_empty());
+}
+
+// ─── Product Pipeline Embed Text (Lambda) ─────────────────────────────────────
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_embed_product_when_handler_invoked_with_domain_created_event() {
+    let stack = get_cfn_output();
+    let shop = prepare_test_shop().await;
+    let repository = ProductDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &stack.dynamodb_table_1_name,
+    );
+
+    // 1. Create product record directly
+    let mut product_record: ProductRecord = Faker.fake();
+    product_record.text_embedding = None;
+    product_record.pk = mk_pk(&shop.shop_id, &product_record.shops_product_id);
+    product_record.shop_id = shop.shop_id;
+    product_record
+        .url
+        .set_host(Some(shop.domains.iter().next().unwrap().as_str()))
+        .unwrap();
+    repository
+        .put_product_records([product_record.clone()].into())
+        .await
+        .unwrap();
+
+    // 2. Create a DOMAIN_CREATED event record matching the product
+    let mut domain_event_record: product::dynamodb::product_event_record::domain::ProductDomainEventRecord = Faker.fake();
+    domain_event_record.shop_id = product_record.shop_id;
+    domain_event_record.shops_product_id = product_record.shops_product_id.clone();
+    domain_event_record.product_id = product_record.product_id;
+    domain_event_record.pk = mk_pk(&product_record.shop_id, &product_record.shops_product_id);
+
+    // 3. Build SQS event from the domain event record
+    let mut stream_record = aws_lambda_events::dynamodb::StreamRecord::default();
+    stream_record.new_image = serde_dynamo::to_item(&domain_event_record).unwrap();
+    stream_record.approximate_creation_date_time = SystemTime::now().into();
+    stream_record.size_bytes = 42;
+
+    let mut dynamo_event_record = aws_lambda_events::dynamodb::EventRecord::default();
+    dynamo_event_record.aws_region = "eu-central-1".to_string();
+    dynamo_event_record.change = stream_record;
+    dynamo_event_record.event_id = uuid::Uuid::new_v4().to_string();
+    dynamo_event_record.event_name = "INSERT".to_string();
+
+    let mut eb_event = aws_lambda_events::eventbridge::EventBridgeEvent::<
+        aws_lambda_events::dynamodb::EventRecord,
+    >::default();
+    eb_event.detail_type = "DynamoDBStreamRecord".to_string();
+    eb_event.source = stack.dynamodb_table_1_name.clone();
+    eb_event.detail = dynamo_event_record;
+
+    let mut sqs_message = aws_lambda_events::sqs::SqsMessage::default();
+    sqs_message.message_id = Some(uuid::Uuid::new_v4().to_string());
+    sqs_message.body = Some(serde_json::to_string(&eb_event).unwrap());
+
+    let mut sqs_event = aws_lambda_events::sqs::SqsEvent::default();
+    sqs_event.records = vec![sqs_message];
+
+    let lambda_event = lambda_runtime::LambdaEvent {
+        payload: sqs_event,
+        context: lambda_runtime::Context::default(),
+    };
+
+    // 4. Set up mock embedding service
+    let expected_embedding = vec![0.42f32; 768];
+    let embedding_clone = expected_embedding.clone();
+    let mut mock_embedding_service = MockMultimodalEmbeddingService::new();
+    mock_embedding_service
+        .expect_embed()
+        .times(1)
+        .returning(move |_, _, _| {
+            let e = embedding_clone.clone();
+            Box::pin(async move { Ok(e) })
+        });
+
+    // 5. Set up real services backed by LocalStack DynamoDB
+    let get_product_service =
+        product::service::get_service::GetProductServiceImpl::new(&repository);
+
+    // 6. Invoke handler directly with mock embedding service
+    let result = product_pipeline_embed_text::handler(
+        &get_product_service,
+        &mock_embedding_service,
+        &repository,
+        lambda_event,
+    )
+    .await
+    .unwrap();
+
+    // 7. Assert no failures - verifies correct wiring between handler, service, and repository
+    assert!(
+        result.batch_item_failures.is_empty(),
+        "Expected no failures but got: {:?}",
+        result.batch_item_failures
+    );
 }
