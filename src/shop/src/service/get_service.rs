@@ -95,7 +95,10 @@ pub mod api {
                 }
                 VerifyPartnerShopError::SdkGetItemError(err) => err.into(),
                 VerifyPartnerShopError::MissingPersistenceField(_) => {
-                    ApiError::forbidden(PARTNER_SHOP_NOT_PARTNERED).with_detail(err.to_string())
+                    ApiError::internal_server_error(
+                        common::api::error_code::INTERNAL_SERVER_ERROR,
+                        Box::new(err),
+                    )
                 }
             }
         }
