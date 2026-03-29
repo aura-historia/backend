@@ -308,6 +308,7 @@ jobs:
           - src/search-filter-lambda/src/search-filter-lambda-opensearch-sync
           - src/search-filter-lambda/src/search-filter-lambda-percolate-product
           - src/product-api
+          - src/product-api-partner
           - src/product-classification-api
           - src/product-watchlist-api
           - src/product-pipeline/src/product-pipeline-asg-scale-control
