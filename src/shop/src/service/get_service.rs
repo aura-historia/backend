@@ -184,6 +184,16 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
         api_key: &PartnerShopApiKey,
         shop_id: &ShopId,
     ) -> Result<PartnerShop, VerifyPartnerShopError> {
+        use std::sync::OnceLock;
+        static PARTNER_SHOP_CACHE: OnceLock<PartnerShop> = OnceLock::new();
+
+        if let Some(cached) = PARTNER_SHOP_CACHE
+            .get()
+            .filter(|c| c.shop_id == *shop_id && api_key.check(&c.hashed_api_key))
+        {
+            return Ok(cached.clone());
+        }
+
         let shop_record = self
             .repository
             .get_shop_record(shop_id)
@@ -202,6 +212,8 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
         if !api_key.check(&partner_shop.hashed_api_key) {
             return Err(VerifyPartnerShopError::ApiKeyMismatch(*shop_id));
         }
+
+        let _ = PARTNER_SHOP_CACHE.set(partner_shop.clone());
 
         Ok(partner_shop)
     }

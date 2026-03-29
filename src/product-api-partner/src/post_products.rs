@@ -1,7 +1,7 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::{BAD_BODY_VALUE, BAD_HEADER_VALUE, INVALID_JSON};
+use common::api::error_code::{BAD_BODY_VALUE, INVALID_JSON};
 use common::localized::Localized;
 use common::price::domain::Price;
 use common::shop_id::api::extract_shop_id_path;
@@ -13,7 +13,7 @@ use product::service::command_service::CommandProductService;
 use product::service::product_command::CreateProductCommand;
 use serde::Serialize;
 use shop::core::partner_shop::PartnerShop;
-use shop::core::partner_shop_api_key::PartnerShopApiKey;
+use shop::core::partner_shop_api_key::api::extract_api_key;
 use shop::service::get_service::GetShopService;
 use std::collections::HashMap;
 
@@ -53,26 +53,6 @@ pub async fn handle(
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .body_serde(response)?
         .build())
-}
-
-fn extract_api_key(request: &ApiGatewayV2httpRequest) -> Result<PartnerShopApiKey, ApiError> {
-    let api_key_str = request
-        .headers
-        .get("x-api-key")
-        .and_then(|v| v.to_str().ok())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
-            ApiError::unauthorized(BAD_HEADER_VALUE)
-                .with_header_field("x-api-key")
-                .with_detail("Missing or empty 'x-api-key' header.")
-        })?;
-
-    PartnerShopApiKey::try_from(api_key_str.to_string()).map_err(|err| {
-        let msg = err.to_string();
-        ApiError::unauthorized(BAD_HEADER_VALUE)
-            .with_header_field("x-api-key")
-            .with_detail(msg)
-    })
 }
 
 fn extract_body(request: &ApiGatewayV2httpRequest) -> Result<Vec<PostProductData>, ApiError> {
@@ -140,6 +120,9 @@ fn to_create_command(data: PostProductData, partner_shop: &PartnerShop) -> Creat
     }
 }
 
+/// Response for the batch product creation endpoint.
+/// Contains a map of `shopsProductId → error key` for products that failed to create.
+/// An empty `errors` map indicates all products were created successfully.
 #[derive(Debug, Serialize)]
 pub struct PostProductsResponse {
     pub errors: HashMap<String, String>,
@@ -148,7 +131,6 @@ pub struct PostProductsResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
     use common::language::data::{LanguageData, LocalizedTextData};
     use common::shops_product_id::ShopsProductId;
     use fake::{Fake, Faker};
@@ -339,40 +321,6 @@ mod tests {
         let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status, 400);
-    }
-
-    #[test]
-    fn should_extract_api_key_when_valid_header() {
-        let api_key = PartnerShopApiKey::new();
-        let key_str: String = api_key.clone().into();
-        let mut request = ApiGatewayV2httpRequest::default();
-        let mut headers = HeaderMap::new();
-        headers.insert("x-api-key", key_str.parse().unwrap());
-        request.headers = headers;
-
-        let result = extract_api_key(&request);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), api_key);
-    }
-
-    #[test]
-    fn should_return_401_when_api_key_header_missing() {
-        let request = ApiGatewayV2httpRequest::default();
-        let result = extract_api_key(&request);
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().status, 401);
-    }
-
-    #[test]
-    fn should_return_401_when_api_key_header_invalid() {
-        let mut request = ApiGatewayV2httpRequest::default();
-        let mut headers = HeaderMap::new();
-        headers.insert("x-api-key", "invalid-key".parse().unwrap());
-        request.headers = headers;
-
-        let result = extract_api_key(&request);
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().status, 401);
     }
 
     #[test]
