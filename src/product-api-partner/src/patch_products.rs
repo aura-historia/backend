@@ -76,7 +76,7 @@ fn to_update_entry(
     let key = ProductKey::new(partner_shop.shop_id, data.shops_product_id);
     let cmd = UpdateProductCommand {
         native_price: data.price.map(Price::from),
-        state: Some(data.state.into()),
+        state: data.state.map(|s| s.into()),
     };
     (key, cmd)
 }
@@ -191,7 +191,7 @@ mod tests {
             PatchProductData {
                 shops_product_id: shops_product_id.clone(),
                 price: None,
-                state: ProductStateData::Available,
+                state: Some(ProductStateData::Available),
             },
             &partner_shop_with_key,
         );
@@ -268,7 +268,7 @@ mod tests {
         let data = PatchProductData {
             shops_product_id: ShopsProductId::from("test-id".to_string()),
             price: None,
-            state: ProductStateData::Listed,
+            state: Some(ProductStateData::Listed),
         };
 
         let (key, cmd) = to_update_entry(data, &partner_shop);
@@ -294,7 +294,7 @@ mod tests {
                 common::currency::data::CurrencyData::Eur,
                 1000,
             )),
-            state: ProductStateData::Available,
+            state: Some(ProductStateData::Available),
         };
 
         let (key, cmd) = to_update_entry(data, &partner_shop);

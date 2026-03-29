@@ -11,7 +11,8 @@ pub struct PatchProductData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price: Option<PriceData>,
 
-    pub state: ProductStateData,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub state: Option<ProductStateData>,
 }
 
 #[cfg(feature = "test-data")]
@@ -53,7 +54,7 @@ mod tests {
         let data = PatchProductData {
             shops_product_id: ShopsProductId::from("abc-123".to_string()),
             price: Some(PriceData::new(CurrencyData::Eur, 1000)),
-            state: ProductStateData::Available,
+            state: Some(ProductStateData::Available),
         };
 
         let json = serde_json::to_value(&data).unwrap();
@@ -69,7 +70,7 @@ mod tests {
         let data = PatchProductData {
             shops_product_id: ShopsProductId::from("abc-123".to_string()),
             price: None,
-            state: ProductStateData::Sold,
+            state: Some(ProductStateData::Sold),
         };
 
         let json = serde_json::to_value(&data).unwrap();
@@ -82,8 +83,7 @@ mod tests {
     #[test]
     fn should_deserialize_patch_product_data_when_minimal_fields() {
         let json = serde_json::json!({
-            "shopsProductId": "abc-123",
-            "state": "LISTED"
+            "shopsProductId": "abc-123"
         });
 
         let data: PatchProductData = serde_json::from_value(json).unwrap();
@@ -92,7 +92,7 @@ mod tests {
             data.shops_product_id,
             ShopsProductId::from("abc-123".to_string())
         );
-        assert_eq!(data.state, ProductStateData::Listed);
+        assert!(data.state.is_none());
         assert!(data.price.is_none());
     }
 
@@ -101,7 +101,7 @@ mod tests {
         let data = PatchProductData {
             shops_product_id: ShopsProductId::from("round-trip".to_string()),
             price: Some(PriceData::new(CurrencyData::Usd, 500)),
-            state: ProductStateData::Sold,
+            state: Some(ProductStateData::Sold),
         };
 
         let json = serde_json::to_string(&data).unwrap();
@@ -111,11 +111,11 @@ mod tests {
     }
 
     #[rstest]
-    #[case(ProductStateData::Listed, "LISTED")]
-    #[case(ProductStateData::Available, "AVAILABLE")]
-    #[case(ProductStateData::Sold, "SOLD")]
+    #[case(Some(ProductStateData::Listed), "LISTED")]
+    #[case(Some(ProductStateData::Available), "AVAILABLE")]
+    #[case(Some(ProductStateData::Sold), "SOLD")]
     fn should_serialize_state_field_correctly_for_patch_product_data(
-        #[case] state: ProductStateData,
+        #[case] state: Option<ProductStateData>,
         #[case] expected: &str,
     ) {
         let data = PatchProductData {
@@ -125,5 +125,16 @@ mod tests {
         };
         let json = serde_json::to_value(&data).unwrap();
         assert_eq!(json["state"], expected);
+    }
+
+    #[test]
+    fn should_skip_state_when_none_for_serialization() {
+        let data = PatchProductData {
+            shops_product_id: ShopsProductId::from("test".to_string()),
+            price: None,
+            state: None,
+        };
+        let json = serde_json::to_value(&data).unwrap();
+        assert!(json.get("state").is_none());
     }
 }

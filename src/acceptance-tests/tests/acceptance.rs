@@ -4283,11 +4283,30 @@ async fn should_respond_200_for_partner_patch_products() {
         get_cfn_output().api_gateway_endpoint_url,
         shop_record.shop_id,
     );
+
+    // First create the product via POST
+    let post_response = reqwest::Client::new()
+        .post(&url)
+        .header("x-api-key", &api_key_str)
+        .json(&vec![serde_json::json!({
+            "shopsProductId": "acceptance-test-patch-product-1",
+            "title": { "text": "Test Product", "language": "en" },
+            "description": { "text": "A test product", "language": "en" },
+            "state": "AVAILABLE",
+            "url": "https://example.com/product/1",
+            "images": ["https://example.com/img.jpg"]
+        })])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, post_response.status());
+
+    // Then update the product via PATCH
     let response = reqwest::Client::new()
         .patch(&url)
         .header("x-api-key", &api_key_str)
         .json(&vec![serde_json::json!({
-            "shopsProductId": "acceptance-test-product-1",
+            "shopsProductId": "acceptance-test-patch-product-1",
             "state": "SOLD"
         })])
         .send()
@@ -4296,6 +4315,5 @@ async fn should_respond_200_for_partner_patch_products() {
     assert_eq!(200, response.status());
 
     let body: serde_json::Value = response.json().await.unwrap();
-    // Product may not exist, so we just verify the response shape is correct
-    assert!(body["errors"].is_object());
+    assert!(body["errors"].as_object().unwrap().is_empty());
 }
