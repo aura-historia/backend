@@ -4272,3 +4272,30 @@ async fn should_respond_200_for_partner_post_products() {
     let body: serde_json::Value = response.json().await.unwrap();
     assert!(body["errors"].as_object().unwrap().is_empty());
 }
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_partner_patch_products() {
+    let (shop_record, api_key) = prepare_partner_shop().await;
+    let api_key_str: String = api_key.into();
+
+    let url = format!(
+        "{}/api/v1/shops/{}/products",
+        get_cfn_output().api_gateway_endpoint_url,
+        shop_record.shop_id,
+    );
+    let response = reqwest::Client::new()
+        .patch(&url)
+        .header("x-api-key", &api_key_str)
+        .json(&vec![serde_json::json!({
+            "shopsProductId": "acceptance-test-product-1",
+            "state": "SOLD"
+        })])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let body: serde_json::Value = response.json().await.unwrap();
+    // Product may not exist, so we just verify the response shape is correct
+    assert!(body["errors"].is_object());
+}
