@@ -23,8 +23,11 @@ url = { workspace = true }
 time = { workspace = true }
 
 [dev-dependencies]
+common = { workspace = true, features = ["test-data"] }
 product = { workspace = true, features = ["test-data"] }
+product-classification = { workspace = true, features = ["test-data"] }
 shop = { workspace = true, features = ["test-data"] }
-test-api = { workspace = true, features = ["api-gateway"] }
+test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
 rstest = { workspace = true }
 fake = { workspace = true }
+serial_test = { workspace = true }

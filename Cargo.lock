@@ -5319,6 +5319,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "serial_test",
  "shop",
  "test-api",
  "time",
