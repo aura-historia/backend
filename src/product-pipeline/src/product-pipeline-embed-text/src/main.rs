@@ -6,7 +6,10 @@ use product::{
     dynamodb::repository::ProductDynamoDbRepositoryImpl,
     service::get_service::GetProductServiceImpl,
 };
-use product_pipeline_embed_text::{handler, service::MultimodalEmbeddingServiceImpl};
+use product_pipeline_embed_text::{
+    handler,
+    service::{LocalstackEmbeddingService, MultimodalEmbeddingServiceImpl},
+};
 use tracing::debug;
 
 #[tokio::main]
@@ -19,24 +22,38 @@ async fn main() -> Result<(), Error> {
 
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")
         .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
-    let gemini_api_key =
-        std::env::var("GEMINI_API_KEY").expect("shouldn't fail loading env-var 'GEMINI_API_KEY'");
 
     let client = Client::new(&aws_config);
     let product_repository = ProductDynamoDbRepositoryImpl::new(&client, &table_name);
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let embedding_service = MultimodalEmbeddingServiceImpl::new(&gemini_api_key);
 
     debug!("Lambda initialized.");
 
-    run(service_fn(|event: LambdaEvent<SqsEvent>| async {
-        handler(
-            &get_product_service,
-            &embedding_service,
-            &product_repository,
-            event,
-        )
+    if std::env::var("LOCALSTACK_HOSTNAME").is_ok() {
+        let embedding_service = LocalstackEmbeddingService;
+        run(service_fn(|event: LambdaEvent<SqsEvent>| async {
+            handler(
+                &get_product_service,
+                &embedding_service,
+                &product_repository,
+                event,
+            )
+            .await
+        }))
         .await
-    }))
-    .await
+    } else {
+        let gemini_api_key = std::env::var("GEMINI_API_KEY")
+            .expect("shouldn't fail loading env-var 'GEMINI_API_KEY'");
+        let embedding_service = MultimodalEmbeddingServiceImpl::new(&gemini_api_key);
+        run(service_fn(|event: LambdaEvent<SqsEvent>| async {
+            handler(
+                &get_product_service,
+                &embedding_service,
+                &product_repository,
+                event,
+            )
+            .await
+        }))
+        .await
+    }
 }

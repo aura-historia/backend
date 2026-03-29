@@ -1,7 +1,12 @@
 pub mod service;
 
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use common::{batch::Batch, dynamodb_stream::extract_from_dynamodb_stream, has_key::HasKey};
+use common::{
+    batch::{Batch, dynamodb::handle_dynamodb_batch_write_put_product_output},
+    dynamodb_stream::extract_from_dynamodb_stream,
+    has_key::HasKey,
+    product_id::ProductKey,
+};
 use lambda_runtime::LambdaEvent;
 use product::{
     core::product_event::ProductEventPayload,
@@ -9,6 +14,7 @@ use product::{
     service::get_service::GetProductService,
 };
 use service::MultimodalEmbeddingService;
+use std::collections::HashMap;
 use tracing::{debug, error, info};
 
 #[tracing::instrument(
@@ -26,6 +32,8 @@ pub async fn handler(
 
     let (event_records, mut failed_message_ids) =
         extract_from_dynamodb_stream::<ProductEventRecord>(event.payload.records);
+
+    let mut enrichment_events: Vec<(String, ProductEventRecord)> = Vec::new();
 
     for (message_id, event_record) in event_records {
         let product_key = event_record.key();
@@ -75,28 +83,7 @@ pub async fn handler(
         if let Some(enrichment_event) = product.embed_text(embedding) {
             let product_event = enrichment_event.map_payload(ProductEventPayload::from);
             let event_record: ProductEventRecord = product_event.into();
-            let batch: Batch<ProductEventRecord, 25> = vec![event_record]
-                .try_into()
-                .expect("shouldn't fail creating batch of 1 item");
-
-            if let Err(err) = product_repository.put_product_event_records(batch).await {
-                error!(
-                    error = ?err,
-                    messageId = message_id,
-                    shopId = %product_key.shop_id,
-                    shopsProductId = %product_key.shops_product_id,
-                    "Failed persisting enrichment event."
-                );
-                failed_message_ids.push(message_id);
-                continue;
-            }
-
-            debug!(
-                messageId = message_id,
-                shopId = %product_key.shop_id,
-                shopsProductId = %product_key.shops_product_id,
-                "Embedded product."
-            );
+            enrichment_events.push((message_id, event_record));
         } else {
             debug!(
                 messageId = message_id,
@@ -106,6 +93,13 @@ pub async fn handler(
             );
         }
     }
+
+    persist_enrichment_events(
+        product_repository,
+        enrichment_events,
+        &mut failed_message_ids,
+    )
+    .await;
 
     let failures = failed_message_ids.len();
     info!(
@@ -123,6 +117,46 @@ pub async fn handler(
         })
         .collect();
     Ok(sqs_batch_response)
+}
+
+async fn persist_enrichment_events(
+    repository: &(impl ProductDynamoDbRepository + Sync),
+    enrichment_events: Vec<(String, ProductEventRecord)>,
+    failed_message_ids: &mut Vec<String>,
+) {
+    for batch in Batch::chunked_from(enrichment_events.into_iter()) {
+        let batch: Batch<_, 25> = batch;
+        let batch_message_ids = batch
+            .iter()
+            .map(|(message_id, record)| (record.key(), message_id.clone()))
+            .collect::<HashMap<ProductKey, String>>();
+        let batch = Batch::try_from_iter(batch.into_iter().map(|(_, record)| record))
+            .expect("shouldn't fail re-building batch of same size from former batch");
+        match repository.put_product_event_records(batch).await {
+            Ok(output) => {
+                let mut failures = Vec::new();
+                handle_dynamodb_batch_write_put_product_output::<ProductEventRecord>(
+                    output,
+                    &mut failures,
+                );
+                for key in failures {
+                    match batch_message_ids.get(&key) {
+                        Some(message_id) => failed_message_ids.push(message_id.clone()),
+                        None => {
+                            error!(
+                                productKey = %key,
+                                "There exists no message_id for failed ProductEventRecord."
+                            );
+                        }
+                    }
+                }
+            }
+            Err(err) => {
+                error!(error = ?err, "Failed entire enrichment event batch.");
+                failed_message_ids.extend(batch_message_ids.into_values());
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -534,7 +568,7 @@ mod tests {
         let mut mock_repository = MockProductDynamoDbRepository::default();
         mock_repository
             .expect_put_product_event_records()
-            .times(2)
+            .times(1)
             .returning(|_| {
                 Box::pin(async {
                     Ok(aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput::builder()

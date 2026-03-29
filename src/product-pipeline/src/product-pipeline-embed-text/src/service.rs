@@ -114,12 +114,12 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
         let parts = Self::build_content_parts(title, description, image_data);
 
         let request = EmbedContentRequest {
-            model: "models/gemini-embedding-exp-03-07",
+            model: "models/gemini-embedding-2-preview-03-25",
             content: Content { parts },
         };
 
         let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-exp-03-07:embedContent?key={}",
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2-preview-03-25:embedContent?key={}",
             self.api_key
         );
 
@@ -141,6 +141,20 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
         }
 
         Ok(values)
+    }
+}
+
+pub struct LocalstackEmbeddingService;
+
+#[async_trait]
+impl MultimodalEmbeddingService for LocalstackEmbeddingService {
+    async fn embed(
+        &self,
+        _title: &Title,
+        _description: Option<&Description>,
+        _image: Option<&Url>,
+    ) -> Result<Vec<f32>, MultimodalEmbeddingError> {
+        Ok(vec![0.42f32; 768])
     }
 }
 
@@ -286,7 +300,7 @@ mod tests {
     #[test]
     fn should_serialize_embed_content_request_correctly() {
         let request = EmbedContentRequest {
-            model: "models/gemini-embedding-exp-03-07",
+            model: "models/gemini-embedding-2-preview-03-25",
             content: Content {
                 parts: vec![ContentPart::Text {
                     text: "Test title".to_string(),
@@ -297,7 +311,7 @@ mod tests {
         assert_eq!(
             json,
             serde_json::json!({
-                "model": "models/gemini-embedding-exp-03-07",
+                "model": "models/gemini-embedding-2-preview-03-25",
                 "content": {
                     "parts": [{"text": "Test title"}]
                 }

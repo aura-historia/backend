@@ -36,10 +36,6 @@ product-classification = { workspace = true, features = ["test-data", "data"] }
 product-watchlist-api = { workspace = true }
 notification-api = { workspace = true }
 search-filter-api = { workspace = true, features = ["test-data"] }
-product-pipeline-embed-text = { workspace = true }
-lambda_runtime = { workspace = true }
-aws_lambda_events = { workspace = true, features = ["sqs", "dynamodb", "eventbridge"] }
-serde_dynamo = { workspace = true }
 url = { workspace = true }
 futures-util = { workspace = true }
 time = { workspace = true }
