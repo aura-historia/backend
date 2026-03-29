@@ -1,38 +1,20 @@
-use crate::core::{
-    partner_shop::PartnerShop, partner_status::ShopPartnerStatus, shop_type::ShopType,
-};
+use crate::core::{partner_shop_api_key::HashedPartnerShopApiKey, shop_type::ShopType};
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Shop {
+pub struct PartnerShop {
+    pub hashed_api_key: HashedPartnerShopApiKey,
     pub shop_id: ShopId,
     pub shop_slug_id: SlugId<0>,
     pub name: ShopName,
     pub shop_type: ShopType,
     pub domains: HashSet<Domain>,
     pub image: Option<Url>,
-    pub partner_status: ShopPartnerStatus,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
-}
-
-impl From<PartnerShop> for Shop {
-    fn from(partner_shop: PartnerShop) -> Self {
-        Shop {
-            shop_id: partner_shop.shop_id,
-            shop_slug_id: partner_shop.shop_slug_id,
-            name: partner_shop.name,
-            shop_type: partner_shop.shop_type,
-            domains: partner_shop.domains,
-            image: partner_shop.image,
-            partner_status: ShopPartnerStatus::Partnered,
-            created: partner_shop.created,
-            updated: partner_shop.updated,
-        }
-    }
 }
 
 #[cfg(feature = "test-data")]
@@ -40,17 +22,17 @@ mod faker {
     use super::*;
     use fake::{Dummy, Fake, Faker, RngExt};
 
-    impl Dummy<Faker> for Shop {
+    impl Dummy<Faker> for PartnerShop {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let name: ShopName = config.fake_with_rng(rng);
-            Shop {
+            PartnerShop {
+                hashed_api_key: config.fake_with_rng(rng),
                 shop_id: config.fake_with_rng(rng),
                 shop_slug_id: SlugId::from(name.as_ref()),
                 name,
                 shop_type: config.fake_with_rng(rng),
                 domains: [Faker.fake()].into(),
                 image: config.fake_with_rng(rng),
-                partner_status: Default::default(),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

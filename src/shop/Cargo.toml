@@ -14,6 +14,7 @@ serde_fields = { workspace = true }
 async-trait = { workspace = true }
 mockall = { workspace = true }
 thiserror = { workspace = true }
+prefixed-api-key = { workspace = true, features = ["sha2"] }
 
 # Optional
 fake = { workspace = true, optional = true }

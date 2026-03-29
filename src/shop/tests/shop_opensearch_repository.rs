@@ -178,6 +178,8 @@ async fn should_update_shop_document_for_index() {
             Domain::try_from("hansi-hans.com").unwrap(),
         ]),
         image: Some(Url::parse("https://hansi-hanseatic.es/foo.png").unwrap()),
+        partner_status:
+            shop::opensearch::partner_status_document::ShopPartnerStatusDocument::Scraped,
         created: created.created,
         updated: OffsetDateTime::now_utc(),
     };

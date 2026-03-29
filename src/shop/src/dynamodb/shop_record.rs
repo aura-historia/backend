@@ -1,5 +1,7 @@
-use crate::core::shop::Shop;
+use crate::core::partner_shop_api_key::HashedPartnerShopApiKey;
+use crate::core::{partner_shop::PartnerShop, shop::Shop};
 use crate::dynamodb::shop_type_record::ShopTypeRecord;
+use common::error::missing_field::MissingPersistenceField;
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -24,6 +26,11 @@ pub struct ShopRecord {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub partner_api_key_short: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub partner_api_key_long_hash: Option<String>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -61,6 +68,8 @@ impl From<Shop> for ShopRecord {
             shop_type: shop.shop_type.into(),
             domains: shop.domains,
             image: shop.image,
+            partner_api_key_short: None,
+            partner_api_key_long_hash: None,
             created: shop.created,
             updated: shop.updated,
         }
@@ -76,9 +85,44 @@ impl From<ShopRecord> for Shop {
             shop_type: record.shop_type.into(),
             domains: record.domains,
             image: record.image,
+            partner_status: if record.partner_api_key_short.is_some()
+                && record.partner_api_key_long_hash.is_some()
+            {
+                crate::core::partner_status::ShopPartnerStatus::Partnered
+            } else {
+                crate::core::partner_status::ShopPartnerStatus::Scraped
+            },
             created: record.created,
             updated: record.updated,
         }
+    }
+}
+
+impl TryFrom<ShopRecord> for PartnerShop {
+    type Error = MissingPersistenceField;
+
+    fn try_from(value: ShopRecord) -> Result<Self, Self::Error> {
+        let partner_api_key_short = value.partner_api_key_short.ok_or_else(|| {
+            MissingPersistenceField::new(field::field!(partner_api_key_short@ShopRecord))
+        })?;
+        let partner_api_key_long_hash = value.partner_api_key_long_hash.ok_or_else(|| {
+            MissingPersistenceField::new(field::field!(partner_api_key_long_hash@ShopRecord))
+        })?;
+
+        Ok(PartnerShop {
+            shop_id: value.shop_id,
+            shop_slug_id: value.shop_slug_id,
+            name: value.name,
+            shop_type: value.shop_type.into(),
+            domains: value.domains,
+            image: value.image,
+            hashed_api_key: HashedPartnerShopApiKey::new(
+                partner_api_key_short,
+                partner_api_key_long_hash,
+            ),
+            created: value.created,
+            updated: value.updated,
+        })
     }
 }
 

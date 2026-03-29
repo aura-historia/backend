@@ -1,5 +1,5 @@
 use crate::{
-    core::shop::Shop,
+    core::{partner_status::ShopPartnerStatus, shop::Shop},
     dynamodb::{repository::ShopDynamoDbRepository, shop_record_update::ShopRecordUpdate},
     service::command::{CreateShopCommand, UpdateShopCommand},
 };
@@ -120,6 +120,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             shop_type: command.shop_type,
             domains: command.domains,
             image: command.image,
+            partner_status: ShopPartnerStatus::default(),
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };
