@@ -1038,6 +1038,7 @@ mod tests {
             language: Some(Language::En),
             currency: Some(Currency::Eur),
             prohibited_content_consent: false,
+            tier: user::core::tier::UserTier::Free,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -1997,6 +1998,7 @@ mod tests {
                 language: None,
                 currency: None,
                 prohibited_content_consent: false,
+                tier: user::core::tier::UserTier::Free,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2128,9 +2130,9 @@ mod tests {
         ) -> NotificationRecord {
             let mut record = make_notification_record_with_type(user_id, origin_event_id, None);
             record.external = true;
-            // WatchlistPriceDiscovered → PriceChange payload → WatchlistUpdatePrice template
+            // WatchlistPriceChanged → PriceChange payload → WatchlistUpdatePrice template
             record.notification_reason =
-                crate::dynamodb::notification_reason_record::NotificationReasonRecord::WatchlistPriceDiscovered;
+                crate::dynamodb::notification_reason_record::NotificationReasonRecord::WatchlistPriceChanged;
             record
         }
 
@@ -2140,9 +2142,9 @@ mod tests {
         ) -> NotificationRecord {
             let mut record = make_notification_record_with_type(user_id, origin_event_id, None);
             record.external = true;
-            // WatchlistStateSold → StateChange payload → WatchlistUpdateState template
+            // WatchlistStateChanged → StateChange payload → WatchlistUpdateState template
             record.notification_reason =
-                crate::dynamodb::notification_reason_record::NotificationReasonRecord::WatchlistStateSold;
+                crate::dynamodb::notification_reason_record::NotificationReasonRecord::WatchlistStateChanged;
             record
         }
 

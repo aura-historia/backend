@@ -14,11 +14,14 @@ serde_fields = { workspace = true }
 async-trait = { workspace = true }
 mockall = { workspace = true }
 thiserror = { workspace = true }
+prefixed-api-key = { workspace = true, features = ["sha2"] }
 
 # Optional
 fake = { workspace = true, optional = true }
 field = { workspace = true, optional = true }
 aws-sdk-dynamodb = { workspace = true, optional = true }
+aws_lambda_events = { workspace = true, features = ["apigw"], optional = true }
+http = { workspace = true, optional = true }
 serde_dynamo = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 opensearch = { workspace = true, optional = true }
@@ -36,9 +39,10 @@ tokio = { workspace = true, features = ["macros", "time"] }
 
 [features]
 default = []
+api = ["data", "aws_lambda_events", "http"]
 data = ["common/api"]
 dynamodb = ["common/dynamodb", "field", "aws-sdk-dynamodb", "serde_dynamo", "tracing", "strum"]
 opensearch = ["common/opensearch", "dep:opensearch", "tracing", "strum", "strum_macros"]
 service = ["tokio", "tokio/time"]
 test-data = ["fake", "common/test-data"]
-full = ["data", "dynamodb", "opensearch", "service", "test-data"]
+full = ["api", "data", "dynamodb", "opensearch", "service", "test-data"]

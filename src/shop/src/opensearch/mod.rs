@@ -1,3 +1,4 @@
+pub mod partner_status_document;
 pub mod repository;
 pub mod shop_document;
 pub mod shop_document_update;

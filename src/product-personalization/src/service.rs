@@ -691,6 +691,7 @@ mod tests {
             language: None,
             currency: None,
             prohibited_content_consent,
+            tier: user::core::tier::UserTier::Free,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }

@@ -1,6 +1,9 @@
 use crate::{
-    core::shop::Shop, dynamodb::shop_record::ShopRecord,
-    opensearch::shop_type_document::ShopTypeDocument,
+    core::shop::Shop,
+    dynamodb::shop_record::ShopRecord,
+    opensearch::{
+        partner_status_document::ShopPartnerStatusDocument, shop_type_document::ShopTypeDocument,
+    },
 };
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use serde::{Deserialize, Serialize};
@@ -20,6 +23,8 @@ pub struct ShopDocument {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
+
+    pub partner_status: ShopPartnerStatusDocument,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -43,6 +48,7 @@ impl From<Shop> for ShopDocument {
             shop_type: shop.shop_type.into(),
             domains: shop.domains,
             image: shop.image,
+            partner_status: shop.partner_status.into(),
             created: shop.created,
             updated: shop.updated,
         }
@@ -58,6 +64,7 @@ impl From<ShopDocument> for Shop {
             shop_type: document.shop_type.into(),
             domains: document.domains,
             image: document.image,
+            partner_status: document.partner_status.into(),
             created: document.created,
             updated: document.updated,
         }
@@ -73,6 +80,13 @@ impl From<ShopRecord> for ShopDocument {
             shop_type: record.shop_type.into(),
             domains: record.domains,
             image: record.image,
+            partner_status: if record.partner_api_key_short.is_some()
+                && record.partner_api_key_long_hash.is_some()
+            {
+                ShopPartnerStatusDocument::Partnered
+            } else {
+                ShopPartnerStatusDocument::Scraped
+            },
             created: record.created,
             updated: record.updated,
         }

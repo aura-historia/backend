@@ -4,7 +4,7 @@ use common::{
 };
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
-use time::{OffsetDateTime, error::Format, format_description::well_known::Rfc3339};
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct WatchlistProductRecord {
@@ -43,11 +43,11 @@ pub fn mk_sk(shop_id: &ShopId, shops_product_id: &ShopsProductId) -> String {
     format!("product#watch#shop_id#{shop_id}#shops_product_id#{shops_product_id}")
 }
 
-pub fn mk_lsi1_sk(created: &OffsetDateTime) -> Result<String, Format> {
-    Ok(format!(
-        "product#watch#created#{}",
-        created.format(&Rfc3339)?
-    ))
+pub fn mk_lsi1_sk(created: &OffsetDateTime) -> String {
+    format!(
+        "product#watch#created#{:020}",
+        created.unix_timestamp_nanos()
+    )
 }
 
 pub fn mk_gsi1_pk(product_id: &ProductId) -> String {
@@ -88,7 +88,7 @@ mod faker {
             WatchlistProductRecord {
                 pk: mk_pk(&user_id),
                 sk: mk_sk(&shop_id, &shops_product_id),
-                lsi1_sk: mk_lsi1_sk(&created).unwrap(),
+                lsi1_sk: mk_lsi1_sk(&created),
                 gsi1_pk: mk_gsi1_pk(&product_id),
                 gsi1_sk: mk_gsi1_sk(&user_id),
                 user_id,

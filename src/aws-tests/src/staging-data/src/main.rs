@@ -1,8 +1,10 @@
 use aws_tests_common::get_cfn_output;
 use common::{
+    has_key::HasKey,
     language::domain::Language,
     pagination::cursor::Cursor,
     price::domain::FixedFxRate,
+    product_id::ProductKey,
     sort::{Sort, SortOrder},
     year::Year,
 };
@@ -13,7 +15,6 @@ use fake::{
 use opensearch::indices::IndicesRefreshParts;
 use product::{
     core::sort_product_field::SortProductField,
-    data::put_data::PutProductData,
     dynamodb::{
         authenticity_record::AuthenticityRecord,
         condition_record::ConditionRecord,
@@ -27,11 +28,8 @@ use product::{
         repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl},
     },
     service::{
-        enrichment_service::{
-            ProductCommandEnrichmentService, ProductCommandEnrichmentServiceImpl,
-        },
-        product_command::{PipedProductCommand, UpsertProductCommand},
-        upsert_service::{UpsertProductsService, UpsertProductsServiceImpl},
+        command_service::{CommandProductService, CommandProductServiceImpl},
+        product_command::{CreateProductCommand, UpdateProductCommand},
     },
 };
 use product_classification::category::{
@@ -47,6 +45,7 @@ use product_classification::period::{
     service::{PeriodService, PeriodServiceImpl},
 };
 use shop::{
+    core::shop_type::ShopType,
     data::get_shop_data::GetShopData,
     dynamodb::repository::ShopDynamoDbRepositoryImpl,
     service::command_service::{CommandShopService, CommandShopServiceImpl},
@@ -66,72 +65,112 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn upsert_products(put_products: Vec<PutProductData>) {
+async fn create_products(commands: Vec<CreateProductCommand>) {
     let stack = get_cfn_output();
     let dynamodb_client = get_dynamodb_client().await;
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
-    let shop_repository =
-        ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let period_dynamodb_repository =
+        PeriodDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let period_opensearch_repository =
+        PeriodOpenSearchRepositoryImpl::new(staging_tests::get_opensearch_client().await);
+    let period_service =
+        PeriodServiceImpl::new(&period_dynamodb_repository, &period_opensearch_repository);
+    let category_dynamodb_repository =
+        CategoryDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let category_opensearch_repository =
+        CategoryOpenSearchRepositoryImpl::new(staging_tests::get_opensearch_client().await);
+    let category_service = CategoryServiceImpl::new(
+        &category_dynamodb_repository,
+        &category_opensearch_repository,
+    );
     let fx_rate = FixedFxRate();
-    let enrichment_service = ProductCommandEnrichmentServiceImpl::new(&shop_repository, &fx_rate);
-    let upsert_service = UpsertProductsServiceImpl::new(&product_repository, &fx_rate);
-
-    let commands: Vec<PipedProductCommand> = put_products
-        .into_iter()
-        .map(PipedProductCommand::from)
-        .collect();
-    let enriched = enrichment_service.enrich(commands).await;
-    assert!(
-        enriched.failed.is_empty(),
-        "Enrichment failed for some products"
-    );
-    assert!(
-        enriched.unprocessed.is_empty(),
-        "Some products were not enriched"
+    let command_service = CommandProductServiceImpl::new(
+        &product_repository,
+        &fx_rate,
+        &period_service,
+        &category_service,
     );
 
-    let upsert_commands: Vec<UpsertProductCommand> = enriched
-        .enriched
-        .into_iter()
-        .map(|cmd| UpsertProductCommand::try_from(cmd).unwrap())
-        .collect();
-    let result = upsert_service.upsert(upsert_commands).await;
-    assert!(
-        result.unprocessed.is_empty(),
-        "Some products were not upserted"
+    let result = command_service.create(commands).await;
+    assert!(result.is_empty(), "Some products failed to create");
+}
+
+async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
+    let stack = get_cfn_output();
+    let dynamodb_client = get_dynamodb_client().await;
+    let product_repository =
+        ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let period_dynamodb_repository =
+        PeriodDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let period_opensearch_repository =
+        PeriodOpenSearchRepositoryImpl::new(staging_tests::get_opensearch_client().await);
+    let period_service =
+        PeriodServiceImpl::new(&period_dynamodb_repository, &period_opensearch_repository);
+    let category_dynamodb_repository =
+        CategoryDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let category_opensearch_repository =
+        CategoryOpenSearchRepositoryImpl::new(staging_tests::get_opensearch_client().await);
+    let category_service = CategoryServiceImpl::new(
+        &category_dynamodb_repository,
+        &category_opensearch_repository,
     );
+    let fx_rate = FixedFxRate();
+    let command_service = CommandProductServiceImpl::new(
+        &product_repository,
+        &fx_rate,
+        &period_service,
+        &category_service,
+    );
+
+    let result = command_service.update(commands).await;
+    assert!(result.is_empty(), "Some products failed to update");
 }
 
 async fn populate_products(shops: Vec<GetShopData>) {
     println!("Populating products...");
 
-    let shop_domains = shops
-        .into_iter()
-        .flat_map(|shop| shop.domains)
-        .collect::<Vec<_>>();
+    let shop_names: Vec<_> = shops.iter().map(|s| s.name.clone()).collect();
+    let shop_types: Vec<_> = shops.iter().map(|s| ShopType::from(s.shop_type)).collect();
+    let shop_ids: Vec<_> = shops.iter().map(|s| s.shop_id).collect();
 
     // create products
-    let mut products = fake::vec![PutProductData; 142];
+    let mut products = fake::vec![CreateProductCommand; 142];
     for product in &mut products {
-        let host = shop_domains.choose(&mut fake::rand::rng()).unwrap().clone();
-        product.url.set_host(Some(host.as_str())).unwrap();
+        let idx = rand::random_range(0..shop_ids.len());
+        product.shop_id = shop_ids[idx];
+        product.shop_name = shop_names[idx].clone();
+        product.shop_type = shop_types[idx];
     }
 
-    upsert_products(products.clone()).await;
+    create_products(products.clone()).await;
     tokio::time::sleep(Duration::from_secs(30)).await;
 
     // put updates
     for i in 0..10 {
-        for product in &mut products {
-            if rand::random_range(0..3) < 1 {
-                product.state = Faker.fake();
-            }
-            if rand::random_range(0..3) < 2 {
-                product.price = Some(Faker.fake());
+        let mut update_cmds: HashMap<ProductKey, UpdateProductCommand> = HashMap::new();
+        for product in &products {
+            let state = if rand::random_range(0..3) < 1 {
+                Some(Faker.fake())
+            } else {
+                None
+            };
+            let native_price = if rand::random_range(0..3) < 2 {
+                Some(Faker.fake())
+            } else {
+                None
+            };
+            if state.is_some() || native_price.is_some() {
+                update_cmds.insert(
+                    product.key(),
+                    UpdateProductCommand {
+                        native_price,
+                        state,
+                    },
+                );
             }
         }
-        upsert_products(products.clone()).await;
+        update_products(update_cmds).await;
         tokio::time::sleep(Duration::from_secs(30)).await;
         println!("Finished products' update-iteration {i}.");
     }

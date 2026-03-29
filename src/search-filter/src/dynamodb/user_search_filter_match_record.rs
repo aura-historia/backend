@@ -7,8 +7,6 @@ use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
-use time::error::Format;
-use time::format_description::well_known::Rfc3339;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UserSearchFilterMatchRecord {
@@ -49,8 +47,8 @@ pub fn mk_sk_prefix_all() -> &'static str {
     "search_filter_match#"
 }
 
-pub fn mk_lsi1_sk(created: &OffsetDateTime) -> Result<String, Format> {
-    Ok(format!("search_filter_match#{}", created.format(&Rfc3339)?))
+pub fn mk_lsi1_sk(created: &OffsetDateTime) -> String {
+    format!("search_filter_match#{:020}", created.unix_timestamp_nanos())
 }
 
 /// Lower bound for the `lsi1_sk` of all search filter match records.
@@ -78,7 +76,7 @@ impl From<SearchFilterProductMatch> for UserSearchFilterMatchRecord {
         UserSearchFilterMatchRecord {
             pk: mk_pk(&m.user_id),
             sk: mk_sk(&m.user_search_filter_id, &m.shop_id, &m.shops_product_id),
-            lsi1_sk: mk_lsi1_sk(&m.created).expect("created should be a valid timestamp"),
+            lsi1_sk: mk_lsi1_sk(&m.created),
             user_id: m.user_id,
             user_search_filter_id: m.user_search_filter_id,
             shop_id: m.shop_id,
@@ -106,7 +104,7 @@ mod faker {
             UserSearchFilterMatchRecord {
                 pk: mk_pk(&user_id),
                 sk: mk_sk(&search_filter_id, &shop_id, &shops_product_id),
-                lsi1_sk: mk_lsi1_sk(&created).expect("created should be a valid timestamp"),
+                lsi1_sk: mk_lsi1_sk(&created),
                 user_id,
                 user_search_filter_id: search_filter_id,
                 shop_id,
@@ -156,8 +154,11 @@ mod tests {
     #[test]
     fn should_format_lsi1_sk_correctly() {
         let created = OffsetDateTime::now_utc();
-        let lsi1_sk = mk_lsi1_sk(&created).unwrap();
+        let lsi1_sk = mk_lsi1_sk(&created);
         assert!(lsi1_sk.starts_with("search_filter_match#"));
-        assert!(lsi1_sk.contains(&created.format(&Rfc3339).unwrap()));
+        // 20-digit zero-padded nanosecond timestamp for stable lexicographic ordering
+        let suffix = lsi1_sk.strip_prefix("search_filter_match#").unwrap();
+        assert_eq!(20, suffix.len());
+        assert!(suffix.chars().all(|c| c.is_ascii_digit()));
     }
 }

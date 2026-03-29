@@ -1,4 +1,7 @@
-use crate::{core::shop::Shop, data::shop_type_data::ShopTypeData};
+use crate::{
+    core::shop::Shop,
+    data::{partner_status_data::ShopPartnerStatusData, shop_type_data::ShopTypeData},
+};
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -13,13 +16,12 @@ pub struct GetShopData {
     pub name: ShopName,
     pub shop_type: ShopTypeData,
     pub domains: HashSet<Domain>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
+    pub partner_status: ShopPartnerStatusData,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
-
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -33,6 +35,7 @@ impl From<Shop> for GetShopData {
             shop_type: shop.shop_type.into(),
             domains: shop.domains,
             image: shop.image,
+            partner_status: shop.partner_status.into(),
             created: shop.created,
             updated: shop.updated,
         }
@@ -41,7 +44,10 @@ impl From<Shop> for GetShopData {
 
 #[cfg(test)]
 mod tests {
-    use crate::data::{get_shop_data::GetShopData, shop_type_data::ShopTypeData};
+    use crate::data::{
+        get_shop_data::GetShopData, partner_status_data::ShopPartnerStatusData,
+        shop_type_data::ShopTypeData,
+    };
     use common::{domain::Domain, shop_id::ShopId};
     use serde_json::json;
     use time::macros::datetime;
@@ -56,6 +62,7 @@ mod tests {
             shop_type: ShopTypeData::CommercialDealer,
             domains: [Domain::try_from("https://woaah.co.ltd.com").unwrap()].into(),
             image: Some(Url::parse("https://woaah.co.ltd.com/logo.svg").unwrap()),
+            partner_status: ShopPartnerStatusData::Partnered,
             created: datetime!(1976 - 12 - 01 0:00 UTC),
             updated: datetime!(1976 - 12 - 01 0:00 UTC),
         };
@@ -67,6 +74,7 @@ mod tests {
             "shopType": "COMMERCIAL_DEALER",
             "domains": ["woaah.co.ltd.com"],
             "image": "https://woaah.co.ltd.com/logo.svg",
+            "partnerStatus": "PARTNERED",
             "created": "1976-12-01T00:00:00Z",
             "updated": "1976-12-01T00:00:00Z",
         });

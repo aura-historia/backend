@@ -1,4 +1,6 @@
-use crate::core::shop_type::ShopType;
+use crate::core::{
+    partner_shop::PartnerShop, partner_status::ShopPartnerStatus, shop_type::ShopType,
+};
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -12,8 +14,25 @@ pub struct Shop {
     pub shop_type: ShopType,
     pub domains: HashSet<Domain>,
     pub image: Option<Url>,
+    pub partner_status: ShopPartnerStatus,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
+}
+
+impl From<PartnerShop> for Shop {
+    fn from(partner_shop: PartnerShop) -> Self {
+        Shop {
+            shop_id: partner_shop.shop_id,
+            shop_slug_id: partner_shop.shop_slug_id,
+            name: partner_shop.name,
+            shop_type: partner_shop.shop_type,
+            domains: partner_shop.domains,
+            image: partner_shop.image,
+            partner_status: ShopPartnerStatus::Partnered,
+            created: partner_shop.created,
+            updated: partner_shop.updated,
+        }
+    }
 }
 
 #[cfg(feature = "test-data")]
@@ -31,6 +50,7 @@ mod faker {
                 shop_type: config.fake_with_rng(rng),
                 domains: [Faker.fake()].into(),
                 image: config.fake_with_rng(rng),
+                partner_status: Default::default(),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

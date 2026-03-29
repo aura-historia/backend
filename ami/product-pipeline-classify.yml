@@ -1,0 +1,255 @@
+name: setup-env-product-pipeline-classify
+schemaVersion: 1.0
+parameters:
+  - Stage:
+      type: string
+  - ResourceBucket:
+      type: string
+phases:
+  - name: build
+    steps:
+      - name: ExpandAndBindHeavyDirs
+        action: ExecuteBash
+        inputs:
+          commands:
+            - set -euxo pipefail
+            - lsblk
+            - df -h
+            # Format new volume if needed
+            - |
+              if ! blkid /dev/nvme1n1; then
+                mkfs.ext4 /dev/nvme1n1
+              fi
+            - mkdir -p /mnt/data
+            - mount /dev/nvme1n1 /mnt/data
+            - |
+              grep -q nvme1n1 /etc/fstab || echo \
+              "/dev/nvme1n1 /mnt/data ext4 defaults,nofail 0 2" >> /etc/fstab
+            - |
+              # Create heavy directories on new volume
+              for d in opt usr/local var/tmp tmp root/.cache; do
+                mkdir -p /mnt/data/$d
+              done
+            # Move existing content to new volume
+            - |
+              rsync -aXS /opt/        /mnt/data/opt/
+              rsync -aXS /usr/local/  /mnt/data/usr/local/
+              rsync -aXS /var/tmp/    /mnt/data/var/tmp/
+              rsync -aXS /tmp/        /mnt/data/tmp/
+              rsync -aXS /root/.cache /mnt/data/root/.cache/
+            # Bind-mount them back
+            - |
+              for d in opt usr/local var/tmp tmp root/.cache; do
+                mount --bind /mnt/data/$d /$d
+              done
+            # Persist bind mounts
+            - |
+              cat << 'EOF' >> /etc/fstab
+              /mnt/data/opt         /opt         none bind 0 0
+              /mnt/data/usr/local   /usr/local   none bind 0 0
+              /mnt/data/var/tmp     /var/tmp     none bind 0 0
+              /mnt/data/tmp         /tmp         none bind 0 0
+              /mnt/data/root/.cache /root/.cache none bind 0 0
+              EOF
+            - df -h
+
+      - name: InstallSystemDeps
+        action: ExecuteBash
+        inputs:
+          commands:
+            - set -euxo pipefail
+            - apt-get update
+            - apt-get install -y python3 python3-pip python3-venv build-essential
+
+      - name: ConfigureHFCache
+        action: ExecuteBash
+        inputs:
+          commands:
+            - set -euxo pipefail
+            - mkdir -p /opt/huggingface
+            - chmod -R 755 /opt/huggingface
+            - |
+              cat << 'EOF' > /etc/profile.d/huggingface.sh
+              export HF_HOME=/opt/huggingface
+              export TRANSFORMERS_CACHE=/opt/huggingface
+              export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
+              export HF_HUB_DISABLE_TELEMETRY=1
+              EOF
+
+      - name: InstallPythonDeps
+        action: ExecuteBash
+        inputs:
+          commands:
+            - mkdir -p /opt/product-pipeline-classify
+            - chmod 755 /opt/product-pipeline-classify
+            - cd /opt/product-pipeline-classify
+            - export RESOURCE_BUCKET="{{ ResourceBucket }}"
+            - export STAGE="{{ Stage }}"
+            - aws s3 cp "s3://$RESOURCE_BUCKET/$STAGE/src/product-pipeline/src/product-pipeline-classify/python/requirements.txt" requirements.txt --region eu-central-1
+            - python3 -m venv .venv
+            - source .venv/bin/activate
+            - python3 -m pip install --upgrade pip
+            - pip install --no-cache-dir -r requirements.txt
+
+      - name: PreloadModels
+        action: ExecuteBash
+        inputs:
+          commands:
+            - set -euxo pipefail
+            - |
+              export HF_HOME=/opt/huggingface
+              export TRANSFORMERS_CACHE=/opt/huggingface
+              pip install huggingface_hub --break-system-packages
+              hf download unsloth/Qwen3-8B-unsloth-bnb-4bit
+
+      - name: ConfigureSystemdHFEnv
+        action: ExecuteBash
+        inputs:
+          commands:
+            - set -euxo pipefail
+            - mkdir -p /etc/systemd/system.conf.d
+            - |
+              cat << 'EOF' > /etc/systemd/system.conf.d/huggingface.conf
+              [Manager]
+              DefaultEnvironment=HF_HOME=/opt/huggingface
+              DefaultEnvironment=TRANSFORMERS_CACHE=/opt/huggingface
+              DefaultEnvironment=SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
+              EOF
+
+      - name: SetUpCloudWatchAgentLogging
+        action: ExecuteBash
+        inputs:
+          commands:
+            - set -euxo pipefail
+            - export STAGE="{{ Stage }}"
+            - |
+              cat << EOF | sudo tee /opt/aws/amazon-cloudwatch-agent.json > /dev/null
+              {
+                "metrics": {
+                  "namespace": "CWAgent",
+                  "metrics_collected": {
+                    "cpu": {
+                      "measurement": [
+                        {
+                          "name": "cpu_usage_idle",
+                          "rename": "CPU_IDLE",
+                          "unit": "Percent"
+                        },
+                        {
+                          "name": "cpu_usage_iowait",
+                          "rename": "CPU_IOWAIT",
+                          "unit": "Percent"
+                        },
+                        "cpu_time_guest"
+                      ],
+                      "metrics_collection_interval": 60,
+                      "resources": ["*"],
+                      "totalcpu": false
+                    },
+                    "disk": {
+                      "measurement": [
+                        {
+                          "name": "used_percent",
+                          "rename": "DISK_USED_PERCENT",
+                          "unit": "Percent"
+                        },
+                        "used",
+                        "free"
+                      ],
+                      "metrics_collection_interval": 60,
+                      "resources": ["*"]
+                    },
+                    "diskio": {
+                      "measurement": [
+                        "io_time",
+                        "read_bytes",
+                        "write_bytes",
+                        "reads",
+                        "writes"
+                      ],
+                      "metrics_collection_interval": 60,
+                      "resources": ["*"]
+                    },
+                    "mem": {
+                      "measurement": [
+                        {
+                          "name": "mem_used_percent",
+                          "rename": "MEM_USED_PERCENT",
+                          "unit": "Percent"
+                        },
+                        "mem_used",
+                        "mem_available"
+                      ],
+                      "metrics_collection_interval": 60
+                    },
+                    "netstat": {
+                      "measurement": [
+                        "tcp_established",
+                        "tcp_time_wait"
+                      ],
+                      "metrics_collection_interval": 60
+                    },
+                    "net": {
+                      "measurement": [
+                        "bytes_sent",
+                        "bytes_recv",
+                        "packets_sent",
+                        "packets_recv"
+                      ],
+                      "metrics_collection_interval": 60,
+                      "resources": ["*"]
+                    },
+                    "nvidia_gpu": {
+                      "measurement": [
+                        {
+                          "name": "utilization_gpu",
+                          "rename": "GPU_UTILIZATION",
+                          "unit": "Percent"
+                        },
+                        {
+                          "name": "utilization_memory",
+                          "rename": "GPU_MEMORY_UTILIZATION",
+                          "unit": "Percent"
+                        },
+                        "memory_total",
+                        "memory_used",
+                        "memory_free"
+                      ],
+                      "metrics_collection_interval": 60
+                    }
+                  }
+                },
+                "logs": {
+                  "logs_collected": {
+                    "files": {
+                      "collect_list": [
+                        {
+                          "file_path": "/var/log/product-pipeline-classify.log",
+                          "log_group_name": "/aws/ec2/$STAGE-product-pipeline-classify",
+                          "log_stream_name": "{instance_id}",
+                          "timestamp_format": "%Y-%m-%dT%H:%M:%S.%f%z",
+                          "timezone": "UTC",
+                          "multi_line_start_pattern": "^{"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+              EOF
+            - amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent.json -s
+            - LOG_PATH="/var/log/product-pipeline-classify.log"
+            - sudo touch "$LOG_PATH"
+            - sudo chmod 666 "$LOG_PATH"
+
+  - name: validate
+    steps:
+      - name: VerifyHFCache
+        action: ExecuteBash
+        inputs:
+          commands:
+            - set -euxo pipefail
+            - echo "Validating Hugging Face cache:"
+            - test -d /opt/huggingface
+            - du -sh /opt/huggingface
+            - find /opt/huggingface -maxdepth 3 -type d

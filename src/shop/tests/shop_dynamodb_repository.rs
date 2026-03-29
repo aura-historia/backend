@@ -1,16 +1,14 @@
-use aws_sdk_dynamodb::error::SdkError;
+use common::batch::Batch;
 use common::domain::Domain;
-use common::shop_id::{ShopId, ShopIdentifier};
-use common::shop_name::ShopName;
-use common::slug_id::SlugId;
+use common::shop_id::ShopId;
 use fake::{Fake, Faker};
 use shop::core::shop::Shop;
 use shop::dynamodb::shop_record_update::ShopRecordUpdate;
+use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
     shop_record::ShopRecord,
 };
-use std::collections::HashMap;
 use test_api::*;
 use time::OffsetDateTime;
 use url::Url;
@@ -23,22 +21,7 @@ async fn get_repository() -> ShopDynamoDbRepositoryImpl<'static> {
 async fn should_return_none_when_shop_record_not_exists_for_get_by_id() {
     let repository = get_repository().await;
 
-    let actual = repository
-        .get_shop_record_by_id(&Faker.fake())
-        .await
-        .unwrap();
-
-    assert!(actual.is_none());
-}
-
-#[localstack_test(services = [DynamoDB()])]
-async fn should_return_none_when_shop_record_not_exists_for_get_by_url() {
-    let repository = get_repository().await;
-
-    let actual = repository
-        .get_shop_record_by_domain(&Domain::try_from("https://google.com").unwrap())
-        .await
-        .unwrap();
+    let actual = repository.get_shop_record(&Faker.fake()).await.unwrap();
 
     assert!(actual.is_none());
 }
@@ -56,10 +39,10 @@ async fn should_return_none_when_shop_record_not_exists_for_query_shop_id() {
 async fn should_return_some_when_shop_record_exists_for_get_by_id() {
     let repository = get_repository().await;
 
-    let expected = ShopRecord::from_shop_as_shop_id_record(Faker.fake::<Shop>());
+    let expected = ShopRecord::from(Faker.fake::<Shop>());
     let _ = repository.put_shop_record(expected.clone()).await.unwrap();
     let actual = repository
-        .get_shop_record_by_id(&expected.shop_id)
+        .get_shop_record(&expected.shop_id)
         .await
         .unwrap()
         .unwrap();
@@ -68,28 +51,10 @@ async fn should_return_some_when_shop_record_exists_for_get_by_id() {
 }
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_return_some_when_shop_record_exists_for_get_by_url() {
-    let repository = get_repository().await;
-
-    let records = ShopRecord::clone_from_shop_as_shop_domain_records(&Faker.fake::<Shop>());
-    let _ = repository
-        .put_shop_records_transact(records.clone())
-        .await
-        .unwrap();
-    let actual = repository
-        .get_shop_record_by_domain(records[0].domains.iter().next().unwrap())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(records[0], actual);
-}
-
-#[localstack_test(services = [DynamoDB()])]
 async fn should_return_some_when_shop_record_exists_for_query_shop_id() {
     let repository = get_repository().await;
 
-    let expected = ShopRecord::from_shop_as_shop_id_record(Faker.fake::<Shop>());
+    let expected = ShopRecord::from(Faker.fake::<Shop>());
     let _ = repository.put_shop_record(expected.clone()).await.unwrap();
     let actual = repository
         .query_shop_id(&expected.shop_slug_id)
@@ -101,261 +66,139 @@ async fn should_return_some_when_shop_record_exists_for_query_shop_id() {
 }
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_succeed_transact_write_shop_records_when_none_exist() {
+async fn should_return_none_when_shop_record_not_exists_for_update_shop_record() {
     let repository = get_repository().await;
-
-    let records = ShopRecord::clone_from_shop_as_shop_domain_records(&Faker.fake::<Shop>());
-    let _ = repository
-        .put_shop_records_transact(records.clone())
-        .await
-        .unwrap();
-
-    for record in records {
-        let actual = repository
-            .get_shop_record_by_domain(record.domains.iter().next().unwrap())
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(record, actual);
-    }
-}
-
-#[localstack_test(services = [DynamoDB()])]
-async fn should_succeed_transact_write_shop_records_when_none_with_differing_shop_id_exist() {
-    let repository = get_repository().await;
-
-    let records = ShopRecord::clone_from_shop_as_shop_domain_records(&Faker.fake::<Shop>());
-
-    // first write
-    let _ = repository
-        .put_shop_records_transact(records.clone())
-        .await
-        .unwrap();
-    for record in records.clone() {
-        let actual = repository
-            .get_shop_record_by_domain(record.domains.iter().next().unwrap())
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(record, actual);
-    }
-
-    // now they exist - same shop_id - so overwrite allowed
-    let _ = repository
-        .put_shop_records_transact(records.clone())
-        .await
-        .unwrap();
-
-    for record in records {
-        let actual = repository
-            .get_shop_record_by_domain(record.domains.iter().next().unwrap())
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(record, actual);
-    }
-}
-
-#[localstack_test(services = [DynamoDB()])]
-async fn should_fail_transact_write_shop_records_when_some_with_differing_shop_id_exist() {
-    let repository = get_repository().await;
-
-    let records = ShopRecord::clone_from_shop_as_shop_domain_records(&Faker.fake::<Shop>());
-
-    // first write
-    let _ = repository
-        .put_shop_records_transact(records.clone())
-        .await
-        .unwrap();
-    for record in records.clone() {
-        let actual = repository
-            .get_shop_record_by_domain(record.domains.iter().next().unwrap())
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(record, actual);
-    }
-
-    let mut records = records.clone();
-    for record in &mut records {
-        record.shop_id = ShopId::new();
-    }
-
-    // now they exist - different shop_id - so overwrite forbidden
-    let write_res = repository
-        .put_shop_records_transact(records.clone())
-        .await
-        .unwrap_err();
-    match write_res {
-        SdkError::ServiceError(service_error) => {
-            assert!(service_error.into_err().is_transaction_canceled_exception())
-        }
-        other => panic!(
-            "Expected 'SdkError::ServiceError(TransactWriteItemsError::TransactionCanceledException(_))' but got '{other:?}'"
-        ),
-    }
-}
-
-#[localstack_test(services = [DynamoDB()])]
-async fn should_get_shop_records() {
-    let repository = get_repository().await;
-
-    let shop = Faker.fake::<Shop>();
-    let mut expected = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
-    let record_with_shop_id_pk = ShopRecord::from_shop_as_shop_id_record(shop);
-    expected.push(record_with_shop_id_pk.clone());
-
-    let mut shop_identifiers = record_with_shop_id_pk
-        .domains
-        .iter()
-        .map(|domain| ShopIdentifier::from(domain.clone()))
-        .collect::<Vec<_>>();
-    shop_identifiers.push(record_with_shop_id_pk.shop_id.into());
-
-    let _ = repository
-        .put_shop_records_transact(expected.clone())
-        .await
-        .unwrap();
+    let update = ShopRecordUpdate {
+        shop_type: Some(ShopTypeRecord::Marketplace),
+        domains: Some(HashSet::from([Domain::try_from("test-shop.com").unwrap()])),
+        image: None,
+        updated: OffsetDateTime::now_utc(),
+    };
 
     let actual = repository
-        .get_shop_records(&shop_identifiers.try_into().unwrap())
+        .update_shop_record(&ShopId::new(), update)
         .await
         .unwrap();
-    assert!(actual.unprocessed.is_none());
-    assert_eq!(expected.len(), actual.items.len());
-    assert!(actual.items.iter().all(|actual| expected.contains(actual)));
+
+    assert!(actual.is_none());
 }
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_transact_write() {
+async fn should_return_updated_record_when_updating_all_fields_for_update_shop_record() {
     let repository = get_repository().await;
+    let initial = ShopRecord::from(Faker.fake::<Shop>());
+    let _ = repository.put_shop_record(initial.clone()).await.unwrap();
 
-    let name: ShopName = Faker.fake();
-    let shop = Shop {
-        shop_id: Faker.fake(),
-        shop_slug_id: SlugId::from(name.as_ref()),
-        name,
-        shop_type: Faker.fake(),
-        domains: [
-            Domain::try_from("https://foo.de").unwrap(),
-            Domain::try_from("https://foo.com").unwrap(),
-            Domain::try_from("https://foo.en").unwrap(),
-        ]
-        .into(),
-        image: Faker.fake(),
-        created: OffsetDateTime::now_utc(),
-        updated: OffsetDateTime::now_utc(),
-    };
-    let mut existing_shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
-    let record_with_shop_id_pk = ShopRecord::from_shop_as_shop_id_record(shop.clone());
-    existing_shop_records.push(record_with_shop_id_pk.clone());
-
-    let mut shop_identifiers = record_with_shop_id_pk
-        .domains
-        .iter()
-        .map(|domain| ShopIdentifier::from(domain.clone()))
-        .collect::<Vec<_>>();
-    shop_identifiers.push(record_with_shop_id_pk.shop_id.into());
-
-    let _ = repository
-        .put_shop_records_transact(existing_shop_records.clone())
-        .await
-        .unwrap();
-
-    let new_shop = Shop {
-        shop_id: shop.shop_id,
-        shop_slug_id: "Hans' Shop".into(),
-        name: "Hans' Shop".into(),
-        shop_type: shop.shop_type,
-        domains: [Domain::try_from("https://foo.fr").unwrap()].into(),
-        image: shop.image,
-        created: shop.created,
-        updated: shop.updated,
-    };
-    let put = vec![
-        ShopRecord::clone_from_shop_as_shop_domain_records(&new_shop)
-            .first()
-            .unwrap()
-            .clone(),
-    ];
-    let update_record = ShopRecordUpdate {
-        shop_type: Faker.fake(),
-        domains: Some(
-            [
-                Domain::try_from("https://foo.com").unwrap(),
-                Domain::try_from("https://foo.fr").unwrap(),
-            ]
-            .into(),
-        ),
-        image: Some(Url::parse("https://foo.bar").unwrap()),
-        updated: OffsetDateTime::now_utc(),
-    };
-    let update = HashMap::from_iter([
-        (
-            ShopIdentifier::from(Domain::try_from("https://foo.com").unwrap()),
-            update_record.clone(),
-        ),
-        (ShopIdentifier::from(shop.shop_id), update_record),
+    let new_shop_type: ShopTypeRecord = Faker.fake();
+    let new_domains = HashSet::from([
+        Domain::try_from("updated-shop.com").unwrap(),
+        Domain::try_from("updated-shop.de").unwrap(),
     ]);
-    let delete = vec![
-        ShopIdentifier::from(Domain::try_from("https://foo.de").unwrap()),
-        ShopIdentifier::from(Domain::try_from("https://foo.en").unwrap()),
-    ];
-    let _ = repository
-        .transact_write(put, update, delete)
-        .await
-        .unwrap();
+    let new_image = Url::parse("https://updated-shop.com/banner.png").unwrap();
+    let updated_at = OffsetDateTime::now_utc();
 
-    let actual_shop_id_record = repository
-        .get_shop_record_by_id(&shop.shop_id)
+    let update = ShopRecordUpdate {
+        shop_type: Some(new_shop_type),
+        domains: Some(new_domains.clone()),
+        image: Some(new_image.clone()),
+        updated: updated_at,
+    };
+
+    let result = repository
+        .update_shop_record(&initial.shop_id, update)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(
-        Url::parse("https://foo.bar").unwrap(),
-        actual_shop_id_record.image.unwrap()
-    );
-    assert_eq!(2, actual_shop_id_record.domains.len());
-    assert!(actual_shop_id_record.domains.iter().all(|domain| domain
-        == &Domain::try_from("https://foo.com").unwrap()
-        || domain == &Domain::try_from("https://foo.fr").unwrap()));
 
-    let actual_shop_url_record_de = repository
-        .get_shop_record_by_domain(&Domain::try_from("https://foo.de").unwrap())
-        .await
-        .unwrap();
-    assert!(actual_shop_url_record_de.is_none());
+    assert_eq!(result.shop_id, initial.shop_id);
+    assert_eq!(result.shop_slug_id, initial.shop_slug_id);
+    assert_eq!(result.name, initial.name);
+    assert_eq!(result.created, initial.created);
+    assert_eq!(result.shop_type, new_shop_type);
+    assert_eq!(result.domains, new_domains);
+    assert_eq!(result.image, Some(new_image));
+    assert_eq!(result.updated, updated_at);
+}
 
-    let actual_shop_url_record_en = repository
-        .get_shop_record_by_domain(&Domain::try_from("https://foo.en").unwrap())
-        .await
-        .unwrap();
-    assert!(actual_shop_url_record_en.is_none());
+#[localstack_test(services = [DynamoDB()])]
+async fn should_preserve_unchanged_fields_when_updating_only_timestamp_for_update_shop_record() {
+    let repository = get_repository().await;
+    let initial = ShopRecord::from(Faker.fake::<Shop>());
+    let _ = repository.put_shop_record(initial.clone()).await.unwrap();
 
-    let actual_shop_url_record_com = repository
-        .get_shop_record_by_domain(&Domain::try_from("https://foo.com").unwrap())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        Url::parse("https://foo.bar").unwrap(),
-        actual_shop_url_record_com.image.unwrap()
-    );
-    assert_eq!(2, actual_shop_url_record_com.domains.len());
-    assert!(
-        actual_shop_url_record_com
-            .domains
-            .iter()
-            .all(
-                |domain| domain == &Domain::try_from("https://foo.com").unwrap()
-                    || domain == &Domain::try_from("https://foo.fr").unwrap()
-            )
-    );
+    let updated_at = OffsetDateTime::now_utc();
+    let update = ShopRecordUpdate {
+        shop_type: None,
+        domains: None,
+        image: None,
+        updated: updated_at,
+    };
 
-    let actual_shop_url_record_fr = repository
-        .get_shop_record_by_domain(&Domain::try_from("https://foo.fr").unwrap())
+    let result = repository
+        .update_shop_record(&initial.shop_id, update)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(ShopName::from("Hans' Shop"), actual_shop_url_record_fr.name);
+
+    assert_eq!(result.shop_id, initial.shop_id);
+    assert_eq!(result.shop_slug_id, initial.shop_slug_id);
+    assert_eq!(result.name, initial.name);
+    assert_eq!(result.shop_type, initial.shop_type);
+    assert_eq!(result.domains, initial.domains);
+    assert_eq!(result.image, initial.image);
+    assert_eq!(result.created, initial.created);
+    assert_eq!(result.updated, updated_at);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_return_all_records_when_all_exist_for_get_shop_records() {
+    let repository = get_repository().await;
+    let record1 = ShopRecord::from(Faker.fake::<Shop>());
+    let record2 = ShopRecord::from(Faker.fake::<Shop>());
+    let record3 = ShopRecord::from(Faker.fake::<Shop>());
+
+    for record in [&record1, &record2, &record3] {
+        repository.put_shop_record(record.clone()).await.unwrap();
+    }
+
+    let batch = Batch::from([record1.shop_id, record2.shop_id, record3.shop_id]);
+    let mut result = repository.get_shop_records(&batch).await.unwrap();
+
+    assert!(result.unprocessed.is_none());
+    assert_eq!(result.items.len(), 3);
+
+    let mut expected = vec![record1, record2, record3];
+    expected.sort_by_key(|r| r.shop_id);
+    result.items.sort_by_key(|r| r.shop_id);
+    assert_eq!(result.items, expected);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_return_only_existing_records_when_some_do_not_exist_for_get_shop_records() {
+    let repository = get_repository().await;
+    let record1 = ShopRecord::from(Faker.fake::<Shop>());
+    let record2 = ShopRecord::from(Faker.fake::<Shop>());
+    let record3 = ShopRecord::from(Faker.fake::<Shop>());
+
+    for record in [&record1, &record2, &record3] {
+        repository.put_shop_record(record.clone()).await.unwrap();
+    }
+
+    let batch = Batch::try_from(vec![
+        record1.shop_id,
+        record2.shop_id,
+        record3.shop_id,
+        ShopId::new(),
+        ShopId::new(),
+    ])
+    .unwrap();
+    let mut result = repository.get_shop_records(&batch).await.unwrap();
+
+    assert!(result.unprocessed.is_none());
+    assert_eq!(result.items.len(), 3);
+
+    let mut expected = vec![record1, record2, record3];
+    expected.sort_by_key(|r| r.shop_id);
+    result.items.sort_by_key(|r| r.shop_id);
+    assert_eq!(result.items, expected);
 }

@@ -62,11 +62,12 @@ async fn main() -> Result<(), Error> {
             &client,
             &table_name,
         );
+    let user_service = UserServiceImpl::new(&user_repository);
     let user_search_filter_service = UserSearchFilterServiceImpl::with_opensearch(
         &search_filter_dynamodb_repo,
+        &user_service,
         &search_filter_opensearch_repo,
     );
-    let user_service = UserServiceImpl::new(&user_repository);
 
     let notification_service = NotificationServiceImpl::new(
         &notification_repository,

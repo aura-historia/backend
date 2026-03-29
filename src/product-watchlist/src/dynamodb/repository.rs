@@ -147,15 +147,13 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
     ) -> Result<Vec<WatchlistProductRecord>, SdkError<QueryError>> {
         let (lsi1_sk_lower, lsi1_sk_upper) = if scan_index_forward {
             let lower = match cursor.search_after {
-                Some(created) => mk_lsi1_sk(&(created + Duration::NANOSECOND))
-                    .map_err(SdkError::construction_failure)?,
+                Some(created) => mk_lsi1_sk(&(created + Duration::NANOSECOND)),
                 None => LSI1_SK_LOWER_BOUND.to_string(),
             };
             (lower, LSI1_SK_UPPER_BOUND.to_string())
         } else {
             let upper = match cursor.search_after {
-                Some(created) => mk_lsi1_sk(&(created - Duration::NANOSECOND))
-                    .map_err(SdkError::construction_failure)?,
+                Some(created) => mk_lsi1_sk(&(created - Duration::NANOSECOND)),
                 None => LSI1_SK_UPPER_BOUND.to_string(),
             };
             (LSI1_SK_LOWER_BOUND.to_string(), upper)
@@ -208,15 +206,13 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
     ) -> Result<u64, SdkError<QueryError>> {
         let (lsi1_sk_lower, lsi1_sk_upper) = if scan_index_forward {
             let lower = match cursor.search_after {
-                Some(created) => mk_lsi1_sk(&(created + Duration::NANOSECOND))
-                    .map_err(SdkError::construction_failure)?,
+                Some(created) => mk_lsi1_sk(&(created + Duration::NANOSECOND)),
                 None => LSI1_SK_LOWER_BOUND.to_string(),
             };
             (lower, LSI1_SK_UPPER_BOUND.to_string())
         } else {
             let upper = match cursor.search_after {
-                Some(created) => mk_lsi1_sk(&(created - Duration::NANOSECOND))
-                    .map_err(SdkError::construction_failure)?,
+                Some(created) => mk_lsi1_sk(&(created - Duration::NANOSECOND)),
                 None => LSI1_SK_UPPER_BOUND.to_string(),
             };
             (LSI1_SK_LOWER_BOUND.to_string(), upper)

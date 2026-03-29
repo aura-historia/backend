@@ -210,10 +210,11 @@ mod tests {
             event_id: EventId::new(),
             timestamp: OffsetDateTime::now_utc(),
             payload: ProductEventPayload::ProductDomainEvent(
-                ProductDomainEventPayload::StateListed(ProductStateChangeDomainEventPayload {
+                ProductDomainEventPayload::StateChanged(ProductStateChangeDomainEventPayload {
                     shop_id: product.shop_id,
                     shops_product_id: product.shops_product_id.clone(),
                     old_state: ProductState::Available,
+                    new_state: ProductState::Listed,
                 }),
             ),
         }
