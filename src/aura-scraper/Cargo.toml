@@ -18,9 +18,9 @@ tracing = { workspace = true }
 schemars = { workspace = true }
 async-trait = { workspace = true }
 mockall = { workspace = true }
-llm = { workspace = true }
+llm = { workspace = true, features = ["google", "rustls-tls"] }
 kuchiki = { workspace = true }
-reqwest = { workspace = true, features = ["default", "json"] }
+reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 tokio = { workspace = true, features = ["macros"] }
 time = { workspace = true }
 url = { workspace = true }
@@ -28,6 +28,7 @@ uuid = { workspace = true }
 once_cell = { workspace = true }
 regex = { workspace = true }
 lingua = { workspace = true }
+dotenvy = { workspace = true }
 
 # Optional
 fake = { workspace = true, optional = true }

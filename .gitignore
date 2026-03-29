@@ -36,4 +36,9 @@ coverage.lcov
 **/python/__pycache__
 **/.venv
 
+# Environment variables file
+.env
+
+# Output files
 **/scraper_output.json
+**/spider_output.json
