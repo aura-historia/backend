@@ -60,14 +60,14 @@ use product_classification::category::data::get_category_summary_data::GetCatego
 use product_classification::category::dynamodb_repository::{
     CategoryDynamoDbRepository, CategoryDynamoDbRepositoryImpl,
 };
-use product_classification::category::record::{CategoryRecord, mk_sk as mk_category_sk};
+use product_classification::category::record::CategoryRecord;
 use product_classification::category::service::MockCategoryService;
 use product_classification::period::data::get_period_data::GetPeriodData;
 use product_classification::period::data::get_period_summary_data::GetPeriodSummaryData;
 use product_classification::period::dynamodb_repository::{
     PeriodDynamoDbRepository, PeriodDynamoDbRepositoryImpl,
 };
-use product_classification::period::record::{PeriodRecord, mk_sk as mk_period_sk};
+use product_classification::period::record::PeriodRecord;
 use product_classification::period::service::MockPeriodService;
 use product_watchlist::dynamodb::repository::{
     WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
@@ -3980,15 +3980,7 @@ async fn should_respond_200_for_category_get_by_id() {
         get_dynamodb_client().await,
         &stack.dynamodb_table_1_name,
     );
-    let mut record: CategoryRecord = Faker.fake();
-    // The API handler slugifies path parameters via SlugId::from(&str).
-    // Faker-generated SlugIds contain mixed-case characters that become
-    // a different string after slugification, causing a key mismatch (404).
-    // Re-derive the ID through From<&str> so it is already in canonical slug
-    // form and the round-trip through the API is idempotent.
-    let category_id = common::slug_id::SlugId::<0>::from(record.category_id.to_string().as_str());
-    record.category_id = category_id.clone();
-    record.sk = mk_category_sk(&category_id);
+    let record: CategoryRecord = Faker.fake();
     repository
         .put_category_record(record.clone())
         .await
@@ -4044,12 +4036,7 @@ async fn should_respond_200_for_period_get_by_id() {
         get_dynamodb_client().await,
         &stack.dynamodb_table_1_name,
     );
-    let mut record: PeriodRecord = Faker.fake();
-    // See category test above: re-slugify so the DynamoDB key matches the
-    // slug the API handler derives from the URL path parameter.
-    let period_id = common::slug_id::SlugId::<0>::from(record.period_id.to_string().as_str());
-    record.period_id = period_id.clone();
-    record.sk = mk_period_sk(&period_id);
+    let record: PeriodRecord = Faker.fake();
     repository.put_period_record(record.clone()).await.unwrap();
 
     let url = format!(
