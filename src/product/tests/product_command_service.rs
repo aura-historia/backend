@@ -327,3 +327,190 @@ async fn should_return_failures_when_updating_non_existent_products() {
 
     assert_eq!(expected_sorted, actual_keys);
 }
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_create_new_products_via_upsert_when_none_exist() {
+    let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let period_service = empty_period_service();
+    let category_service = empty_category_service();
+    let service = CommandProductServiceImpl::new(
+        &repository,
+        &FixedFxRate(),
+        &period_service,
+        &category_service,
+    );
+
+    let cmds: Vec<product::service::product_command::UpsertProductCommand> =
+        fake::vec![product::service::product_command::UpsertProductCommand; 5];
+    let failures = service.upsert(cmds).await;
+    assert!(failures.is_empty());
+
+    let items = scan_all_items().await;
+
+    let event_count = items
+        .iter()
+        .filter(|r| {
+            r.contains_key(
+                product::dynamodb::product_event_record::domain::ProductDomainEventRecordSerdeField::EventType.as_str(),
+            )
+        })
+        .count();
+    assert_eq!(5, event_count);
+
+    let all_created = items
+        .iter()
+        .filter_map(|record| {
+            record.get(
+                product::dynamodb::product_event_record::domain::ProductDomainEventRecordSerdeField::EventType.as_str(),
+            )
+        })
+        .all(|val| val.as_s().unwrap() == "DOMAIN_CREATED");
+    assert!(all_created);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_update_existing_products_via_upsert_when_all_exist() {
+    let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let period_service = empty_period_service();
+    let category_service = empty_category_service();
+    let service = CommandProductServiceImpl::new(
+        &repository,
+        &FixedFxRate(),
+        &period_service,
+        &category_service,
+    );
+
+    let create_cmds = fake::vec![CreateProductCommand; 5];
+    for cmd in &create_cmds {
+        let product_record = make_product_record(cmd);
+        let unprocessed = repository
+            .put_product_records([product_record].into())
+            .await
+            .unwrap()
+            .unprocessed_items
+            .unwrap_or_default();
+        assert!(unprocessed.is_empty());
+    }
+
+    // Upsert with state change to trigger events
+    let upsert_cmds: Vec<product::service::product_command::UpsertProductCommand> = create_cmds
+        .iter()
+        .map(
+            |cmd| product::service::product_command::UpsertProductCommand {
+                shop_id: cmd.shop_id,
+                shops_product_id: cmd.shops_product_id.clone(),
+                shop_name: cmd.shop_name.clone(),
+                shop_type: cmd.shop_type,
+                native_title: Some(cmd.native_title.clone()),
+                native_description: cmd.native_description.clone(),
+                native_price: cmd.native_price,
+                native_price_estimate_min: cmd.native_price_estimate_min,
+                native_price_estimate_max: cmd.native_price_estimate_max,
+                state: Some(ProductState::Available),
+                url: Some(cmd.url.clone()),
+                images: cmd.images.clone(),
+                auction_start: cmd.auction_start,
+                auction_end: cmd.auction_end,
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+            },
+        )
+        .collect();
+
+    let failures = service.upsert(upsert_cmds).await;
+    assert!(failures.is_empty());
+
+    let items = scan_all_items().await;
+
+    // Every event record written must be a state-change event (no price-change events
+    // because we used the same native_price).
+    let all_event_records_are_state_changed = items
+        .iter()
+        .filter_map(|record| {
+            record.get(
+                product::dynamodb::product_event_record::domain::ProductDomainEventRecordSerdeField::EventType.as_str(),
+            )
+        })
+        .all(|val| val.as_s().unwrap() == "DOMAIN_STATE_CHANGED");
+    assert!(all_event_records_are_state_changed);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_create_and_update_mixed_products_via_upsert() {
+    let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let period_service = empty_period_service();
+    let category_service = empty_category_service();
+    let service = CommandProductServiceImpl::new(
+        &repository,
+        &FixedFxRate(),
+        &period_service,
+        &category_service,
+    );
+
+    // Create 3 existing products
+    let existing_cmds = fake::vec![CreateProductCommand; 3];
+    for cmd in &existing_cmds {
+        let product_record = make_product_record(cmd);
+        let unprocessed = repository
+            .put_product_records([product_record].into())
+            .await
+            .unwrap()
+            .unprocessed_items
+            .unwrap_or_default();
+        assert!(unprocessed.is_empty());
+    }
+
+    // Build upsert commands: 3 existing (update) + 2 new (create)
+    let new_upsert_cmds: Vec<product::service::product_command::UpsertProductCommand> =
+        fake::vec![product::service::product_command::UpsertProductCommand; 2];
+    let existing_upsert_cmds: Vec<product::service::product_command::UpsertProductCommand> =
+        existing_cmds
+            .iter()
+            .map(
+                |cmd| product::service::product_command::UpsertProductCommand {
+                    shop_id: cmd.shop_id,
+                    shops_product_id: cmd.shops_product_id.clone(),
+                    shop_name: cmd.shop_name.clone(),
+                    shop_type: cmd.shop_type,
+                    native_title: Some(cmd.native_title.clone()),
+                    native_description: cmd.native_description.clone(),
+                    native_price: cmd.native_price,
+                    native_price_estimate_min: None,
+                    native_price_estimate_max: None,
+                    state: Some(ProductState::Available),
+                    url: Some(cmd.url.clone()),
+                    images: cmd.images.clone(),
+                    auction_start: cmd.auction_start,
+                    auction_end: cmd.auction_end,
+                    origin_year: None,
+                    authenticity: Default::default(),
+                    condition: Default::default(),
+                    provenance: Default::default(),
+                    restoration: Default::default(),
+                },
+            )
+            .collect();
+
+    let mut all_upsert_cmds = existing_upsert_cmds;
+    all_upsert_cmds.extend(new_upsert_cmds);
+
+    let failures = service.upsert(all_upsert_cmds).await;
+    assert!(failures.is_empty());
+
+    let items = scan_all_items().await;
+
+    // Should have creation events for the 2 new products
+    let created_count = items
+        .iter()
+        .filter_map(|record| {
+            record.get(
+                product::dynamodb::product_event_record::domain::ProductDomainEventRecordSerdeField::EventType.as_str(),
+            )
+        })
+        .filter(|val| val.as_s().unwrap() == "DOMAIN_CREATED")
+        .count();
+    assert_eq!(2, created_count);
+}
