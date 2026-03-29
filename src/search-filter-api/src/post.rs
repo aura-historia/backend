@@ -32,7 +32,7 @@ pub async fn handle(
         })?;
 
     let user_search_filter_data: UserSearchFilterData = service
-        .save_user_search_filter(
+        .create_user_search_filter(
             &user_id,
             user_search_filter_data.name,
             user_search_filter_data.search.into(),
@@ -82,7 +82,7 @@ mod tests {
         let expected = Faker.fake::<UserSearchFilter>();
         let mut service = MockUserSearchFilterService::default();
         service
-            .expect_save_user_search_filter()
+            .expect_create_user_search_filter()
             .return_once(move |_, _, _| Box::pin(async move { Ok(expected) }));
 
         let get_product_service = MockGetProductService::default();
@@ -111,7 +111,7 @@ mod tests {
         };
 
         let mut service = MockUserSearchFilterService::default();
-        service.expect_save_user_search_filter().never();
+        service.expect_create_user_search_filter().never();
 
         let get_product_service = MockGetProductService::default();
         let personalization_service = MockProductPersonalizationService::default();
@@ -143,7 +143,7 @@ mod tests {
         };
 
         let mut service = MockUserSearchFilterService::default();
-        service.expect_save_user_search_filter().never();
+        service.expect_create_user_search_filter().never();
 
         let get_product_service = MockGetProductService::default();
         let personalization_service = MockProductPersonalizationService::default();

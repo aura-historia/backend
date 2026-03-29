@@ -82,6 +82,7 @@ pub struct LocalizedPeriod {
 #[cfg(feature = "test-data")]
 pub mod faker {
     use super::*;
+    use common::slug_id::SlugId;
     use fake::{Dummy, Fake, Faker, RngExt};
     use serde::{Deserialize, Serialize};
     use strum::{EnumCount, IntoEnumIterator};
@@ -179,9 +180,10 @@ pub mod faker {
             for language in Language::iter() {
                 display_description.insert(language, config.fake_with_rng(rng));
             }
+            let period_key: PeriodKey = config.fake_with_rng(rng);
             Period {
-                period_id: config.fake_with_rng(rng),
-                period_key: config.fake_with_rng(rng),
+                period_id: SlugId::from(period_key.as_ref()),
+                period_key,
                 meta_name: config.fake_with_rng(rng),
                 meta_description: config.fake_with_rng(rng),
                 meta_keywords: config.fake_with_rng(rng),

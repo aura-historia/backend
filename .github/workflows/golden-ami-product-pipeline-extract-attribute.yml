@@ -8,12 +8,6 @@ on:
       - "cfn/golden-ami.yaml"
       - "ami/product-pipeline-extract-attribute.yml"
       - "src/product-pipeline/src/product-pipeline-extract-attribute/python/requirements.txt"
-  pull_request:
-    paths:
-      - ".github/workflows/golden-ami-product-pipeline-extract-attribute.yml"
-      - "cfn/golden-ami.yaml"
-      - "ami/product-pipeline-extract-attribute.yml"
-      - "src/product-pipeline/src/product-pipeline-extract-attribute/python/requirements.txt"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,15 +15,13 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  STAGE: ${{ github.event_name == 'pull_request' && 'ephemeral'
-    || github.ref == 'refs/heads/prod' && 'prod'
-    || github.ref == 'refs/heads/develop' && 'dev' }}
+  STAGE: ${{ github.ref == 'refs/heads/prod' && 'prod'|| github.ref == 'refs/heads/develop' && 'dev' }}
 
 jobs:
   cfn-lint:
     name: Lint CloudFormation
     environment:
-      name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/prod' && 'aws-prod' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
+      name: ${{ github.ref == 'refs/heads/prod' && 'aws-prod' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
     permissions:
       contents: read
     runs-on: ubuntu-latest

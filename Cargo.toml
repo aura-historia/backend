@@ -17,6 +17,7 @@ shop-api = { workspace = true }
 shop-lambda = { workspace = true }
 product = { workspace = true }
 product-api = { workspace = true }
+product-api-partner = { workspace = true }
 product-personalization = { workspace = true }
 product-classification = { workspace = true }
 product-classification-api = { workspace = true }
@@ -45,6 +46,7 @@ members = [
     "src/search-filter-lambda",
     "src/product",
     "src/product-api",
+    "src/product-api-partner",
     "src/product-personalization",
     "src/product-classification",
     "src/product-classification-api",
@@ -106,6 +108,7 @@ http = "1.4.0"
 httpdate = "1.0.3"
 product = { path = "src/product" }
 product-api = { path = "src/product-api" }
+product-api-partner = { path = "src/product-api-partner" }
 product-personalization = { path = "src/product-personalization" }
 product-classification = { path = "src/product-classification" }
 product-classification-api = { path = "src/product-classification-api" }
@@ -113,8 +116,7 @@ product-watchlist = { path = "src/product-watchlist" }
 product-watchlist-api = { path = "src/product-watchlist-api" }
 product-lambda = { path = "src/product-lambda" }
 product-pipeline-common = { path = "src/product-pipeline/src/product-pipeline-common" }
-product-pipeline-classify-category = { path = "src/product-pipeline/src/product-pipeline-classify-category" }
-product-pipeline-classify-period = { path = "src/product-pipeline/src/product-pipeline-classify-period" }
+product-pipeline-classify = { path = "src/product-pipeline/src/product-pipeline-classify" }
 product-pipeline-translate = { path = "src/product-pipeline/src/product-pipeline-translate" }
 product-pipeline-embed-text = { path = "src/product-pipeline/src/product-pipeline-embed-text" }
 product-pipeline-extract-attribute = { path = "src/product-pipeline/src/product-pipeline-extract-attribute" }
@@ -165,7 +167,7 @@ tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
 typed-builder = "0.23.2"
 url = "2.5.8"
-uuid = "1.22.0"
+uuid = "1.23.0"
 walkdir = "2.5.0"
 zip = { version = "8.4.0", default-features = false, features = ["deflate"] }
 futures-util = "0.3.32"
@@ -199,3 +201,4 @@ kuchiki = "0.8.1"
 lingua = { version = "1.7.2", default-features = false, features = ["english", "german", "french", "spanish", "italian"] }
 dotenvy = "0.15"
 url-normalize = "0.1.1"
+prefixed-api-key = { version = "0.3.0" }

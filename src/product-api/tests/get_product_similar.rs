@@ -1265,8 +1265,11 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
         .expect_verify_extract_user_id()
         .return_once(move |_| Box::pin(async move { Ok(Some(user_id)) }));
     let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let watchlist_service =
-        ProductWatchListServiceImpl::new(&watchlist_repository, &product_dynamodb_repository);
+    let watchlist_service = ProductWatchListServiceImpl::new(
+        &watchlist_repository,
+        &product_dynamodb_repository,
+        &user_service,
+    );
 
     let _ = user_repository.put_user_record(user_record).await.unwrap();
 

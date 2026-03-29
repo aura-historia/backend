@@ -15,6 +15,7 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/product",
     "src/product-pipeline/src/product-pipeline-common",
     "src/product-api",
+    "src/product-api-partner",
     "src/product-classification",
     "src/product-classification-api",
     "src/product-watchlist",
@@ -36,8 +37,7 @@ const ACCEPTANCE_TEST_CRATES: &[&str] = &["src/acceptance-tests"];
 /// Product pipeline test crates that run on self-hosted runners with Python deps.
 /// These paths are relative to the workspace root.
 const PIPELINE_TEST_CRATES: &[&str] = &[
-    "src/product-pipeline/src/product-pipeline-classify-category",
-    "src/product-pipeline/src/product-pipeline-classify-period",
+    "src/product-pipeline/src/product-pipeline-classify",
     "src/product-pipeline/src/product-pipeline-embed-text",
     "src/product-pipeline/src/product-pipeline-extract-attribute",
     "src/product-pipeline/src/product-pipeline-translate",

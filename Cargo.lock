@@ -205,6 +205,7 @@ dependencies = [
  "notification-send",
  "product",
  "product-api",
+ "product-api-partner",
  "product-classification",
  "product-classification-api",
  "product-lambda",
@@ -1235,6 +1236,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "bs58"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "771fe0050b883fcc3ea2359b1a96bcfbc090b7116eae7c3c512c7a083fdf23d3"
+
+[[package]]
 name = "bstr"
 version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1475,6 +1482,7 @@ dependencies = [
  "jsonwebtokens-cognito",
  "mockall",
  "openssl",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -1613,6 +1621,12 @@ dependencies = [
  "once_cell",
  "tiny-keccak",
 ]
+
+[[package]]
+name = "constant_time_eq"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21a53c0a4d288377e7415b53dcfc3c04da5cdc2cc95c8d5ac178b58f0b861ad6"
 
 [[package]]
 name = "convert_case"
@@ -4872,6 +4886,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "prefixed-api-key"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73c45ab8e504c85c6d1d32207001f4cca3370924424090a9487227843a71123d"
+dependencies = [
+ "bs58",
+ "constant_time_eq",
+ "digest 0.10.7",
+ "hex",
+ "rand 0.8.5",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "prettyplease"
 version = "0.2.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4922,6 +4950,7 @@ dependencies = [
  "once_cell",
  "opensearch",
  "product",
+ "product-classification",
  "regex",
  "rstest",
  "serde",
@@ -4969,6 +4998,33 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "user",
+]
+
+[[package]]
+name = "product-api-partner"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.4.0",
+ "lambda_runtime",
+ "opensearch",
+ "product",
+ "product-classification",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "shop",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
@@ -5140,8 +5196,7 @@ name = "product-pipeline"
 version = "0.1.0"
 dependencies = [
  "product-pipeline-asg-scale-control",
- "product-pipeline-classify-category",
- "product-pipeline-classify-period",
+ "product-pipeline-classify",
  "product-pipeline-common",
  "product-pipeline-embed-text",
  "product-pipeline-extract-attribute",
@@ -5167,34 +5222,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "product-pipeline-classify-category"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-sqs",
- "common",
- "fake",
- "mockall",
- "opensearch",
- "product",
- "product-classification",
- "product-pipeline-common",
- "pyo3",
- "pyo3-ffi",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "product-pipeline-classify-period"
+name = "product-pipeline-classify"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -5343,6 +5371,7 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "user",
 ]
 
 [[package]]
@@ -6284,6 +6313,7 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "user",
  "uuid",
 ]
 
@@ -6833,11 +6863,14 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-dynamodb",
+ "aws_lambda_events",
  "common",
  "fake",
  "field",
+ "http 1.4.0",
  "mockall",
  "opensearch",
+ "prefixed-api-key",
  "rstest",
  "serde",
  "serde_dynamo",
@@ -8423,9 +8456,9 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 
 [[package]]
 name = "uuid"
-version = "1.22.0"
+version = "1.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a68d3c8f01c0cfa54a75291d83601161799e4a89a39e0929f4b0354d88757a37"
+checksum = "5ac8b6f42ead25368cf5b098aeb3dc8a1a2c05a3eee8a9a1a68c640edbfc79d9"
 dependencies = [
  "atomic",
  "getrandom 0.4.1",

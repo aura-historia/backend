@@ -23,6 +23,7 @@ aws-sdk-dynamodb = { workspace = true, optional = true }
 serde_dynamo = { workspace = true, features = [ "aws-sdk-dynamodb+1" ], optional = true }
 serde_json = { workspace = true, optional = true }
 opensearch = { workspace = true, optional = true }
+user = { workspace = true, optional = true }
 
 [dev-dependencies]
 search-filter = { workspace = true, features = ["full"] }
@@ -32,12 +33,13 @@ serial_test = { workspace = true }
 serde_json = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
+user = { workspace = true, features = ["full"] }
 
 [features]
 default = []
 dynamodb = ["common/dynamodb", "product", "product/dynamodb", "shop/dynamodb", "field", "tracing", "aws-sdk-dynamodb", "serde_dynamo", "serde_dynamo/aws-sdk-dynamodb+1"]
 opensearch = ["common/opensearch", "dynamodb", "product/opensearch", "shop/opensearch", "serde_json", "dep:opensearch"]
-service = ["common/dynamodb", "product", "product/opensearch", "shop"]
+service = ["common/dynamodb", "product", "product/opensearch", "shop", "user", "user/service"]
 data = ["product", "product/data", "shop/data"]
-test-data = ["fake", "common/test-data", "product/test-data", "shop/test-data"]
+test-data = ["fake", "common/test-data", "product/test-data", "shop/test-data", "user/test-data"]
 full = ["dynamodb", "opensearch", "service", "data", "test-data"]

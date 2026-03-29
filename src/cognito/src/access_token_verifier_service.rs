@@ -24,6 +24,9 @@ pub enum AccessTokenVerifierError {
     #[error("JwtError: {0}")]
     JwtError(#[from] jsonwebtokens::error::Error),
 
+    #[error("JwksFetchError: {0}")]
+    JwksFetchError(String),
+
     #[error("ClaimIsNotString: '{0}'")]
     ClaimIsNotString(&'static str),
 
@@ -47,6 +50,9 @@ impl From<AccessTokenVerifierError> for ApiError {
                 ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(value))
             }
             AccessTokenVerifierError::JwtError(_) => {
+                ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(value))
+            }
+            AccessTokenVerifierError::JwksFetchError(_) => {
                 ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(value))
             }
             AccessTokenVerifierError::ClaimIsNotString(_) => {
@@ -124,18 +130,31 @@ impl<'a> AccessTokenVerifierService for AccessTokenVerifierServiceImpl<'a> {
         access_token: &str,
     ) -> Result<UserId, AccessTokenVerifierError> {
         let claims_value: Value = self.keyset.verify(access_token, &self.verifier).await?;
+        extract_sub_claim(&claims_value)
+    }
+}
 
-        let user_id = claims_value
-            .get("sub")
-            .map(|sub_val| match sub_val.as_str() {
-                Some(sub) => Ok(sub),
-                None => Err(AccessTokenVerifierError::ClaimIsNotString("sub")),
-            })
-            .ok_or(AccessTokenVerifierError::MissingClaim("sub"))?
-            .map(UserId::try_from)?
-            .map_err(|err| AccessTokenVerifierError::InvalidUuid("sub", err))?;
+pub(crate) fn extract_sub_claim(claims: &Value) -> Result<UserId, AccessTokenVerifierError> {
+    claims
+        .get("sub")
+        .map(|sub_val| match sub_val.as_str() {
+            Some(sub) => Ok(sub),
+            None => Err(AccessTokenVerifierError::ClaimIsNotString("sub")),
+        })
+        .ok_or(AccessTokenVerifierError::MissingClaim("sub"))?
+        .map(UserId::try_from)?
+        .map_err(|err| AccessTokenVerifierError::InvalidUuid("sub", err))
+}
 
-        Ok(user_id)
+#[async_trait::async_trait]
+impl<T: AccessTokenVerifierService + Send + Sync + ?Sized> AccessTokenVerifierService for Box<T> {
+    async fn verify_extract_user_id_from_access_token(
+        &self,
+        access_token: &str,
+    ) -> Result<UserId, AccessTokenVerifierError> {
+        (**self)
+            .verify_extract_user_id_from_access_token(access_token)
+            .await
     }
 }
 

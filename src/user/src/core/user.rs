@@ -1,4 +1,4 @@
-use crate::core::{first_name::FirstName, last_name::LastName};
+use crate::core::{first_name::FirstName, last_name::LastName, tier::UserTier};
 use common::{currency::domain::Currency, language::domain::Language, user_id::UserId};
 use serde_email::Email;
 use time::OffsetDateTime;
@@ -12,6 +12,7 @@ pub struct User {
     pub language: Option<Language>,
     pub currency: Option<Currency>,
     pub prohibited_content_consent: bool,
+    pub tier: UserTier,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -19,7 +20,7 @@ pub struct User {
 #[cfg(feature = "test-data")]
 mod fake {
     use crate::core::user::User;
-    use fake::{Fake, Faker, faker::internet::en::DomainSuffix};
+    use fake::{Fake, faker::internet::en::DomainSuffix};
     use time::OffsetDateTime;
 
     impl fake::Dummy<fake::Faker> for User {
@@ -37,9 +38,10 @@ mod fake {
                     .unwrap(),
                 first_name: Some(first_name),
                 last_name: Some(last_name),
-                language: Faker.fake(),
-                currency: Faker.fake(),
-                prohibited_content_consent: Faker.fake(),
+                language: config.fake_with_rng(rng),
+                currency: config.fake_with_rng(rng),
+                prohibited_content_consent: config.fake_with_rng(rng),
+                tier: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
