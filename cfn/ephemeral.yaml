@@ -931,6 +931,22 @@ Resources:
       IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProductApiLambda}"
       PayloadFormatVersion: "2.0"
 
+  # --- Product API Partner Routes ---
+  ProductApiPartnerPostProductsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/shops/{shopId}/products"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${ProductApiPartnerLambdaIntegration}"
+  ProductApiPartnerLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProductApiPartnerLambda}"
+      PayloadFormatVersion: "2.0"
+
   # --- Product Watchlist API Routes ---
   ProductWatchlistApiDeleteWatchlistProductRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1264,6 +1280,79 @@ Resources:
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Ref ProductApiLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
+
+  # --- Product API Partner ---
+  ProductApiPartnerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "product-api-partner-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: OpenSearchReadOnly
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:Describe*
+                  - es:List*
+                  - es:ESHttpGet
+                  - es:ESHttpHead
+                  - es:ESHttpPost
+                Resource: !Sub "${OpenSearchDomain.Arn}/*"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+  ProductApiPartnerLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "product-api-partner-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ProductApiPartnerRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-api-partner-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          LOCALSTACK_MAPPED_PORT: !Ref LocalStackMappedPort
+          STAGE: "ephemeral"
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ProductApiPartnerLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ProductApiPartnerLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 

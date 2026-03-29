@@ -39,6 +39,9 @@ pub const SEARCH_FILTER_NOT_FOUND: ApiErrorCode = ApiErrorCode("SEARCH_FILTER_NO
 pub const NOTIFICATION_NOT_FOUND: ApiErrorCode = ApiErrorCode("NOTIFICATION_NOT_FOUND");
 pub const SHOP_NOT_FOUND: ApiErrorCode = ApiErrorCode("SHOP_NOT_FOUND");
 pub const SHOP_EXISTS_ALREADY: ApiErrorCode = ApiErrorCode("SHOP_EXISTS_ALREADY");
+pub const PARTNER_SHOP_NOT_PARTNERED: ApiErrorCode = ApiErrorCode("PARTNER_SHOP_NOT_PARTNERED");
+pub const PARTNER_SHOP_API_KEY_MISMATCH: ApiErrorCode =
+    ApiErrorCode("PARTNER_SHOP_API_KEY_MISMATCH");
 pub const MONETARY_AMOUNT_OVERFLOW: ApiErrorCode = ApiErrorCode("MONETARY_AMOUNT_OVERFLOW");
 pub const TEXT_QUERY_TOO_SHORT: ApiErrorCode = ApiErrorCode("TEXT_QUERY_TOO_SHORT");
 pub const USER_NOT_FOUND: ApiErrorCode = ApiErrorCode("USER_NOT_FOUND");

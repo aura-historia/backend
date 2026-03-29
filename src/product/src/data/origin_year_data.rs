@@ -1,5 +1,5 @@
 use crate::core::origin_year::OriginYear;
-use common::year::Year;
+use common::year::{Year, YearRange};
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -20,6 +20,19 @@ impl From<OriginYear> for OriginYearData {
             min: origin_year.min(),
             year: origin_year.exact(),
             max: origin_year.max(),
+        }
+    }
+}
+
+impl From<OriginYearData> for OriginYear {
+    fn from(data: OriginYearData) -> Self {
+        if let Some(exact) = data.year {
+            OriginYear::ExactYear(exact)
+        } else {
+            OriginYear::EstimatedRange(YearRange {
+                min: data.min,
+                max: data.max,
+            })
         }
     }
 }

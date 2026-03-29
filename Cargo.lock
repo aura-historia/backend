@@ -355,6 +355,7 @@ dependencies = [
  "notification-send",
  "product",
  "product-api",
+ "product-api-partner",
  "product-classification",
  "product-classification-api",
  "product-lambda",
@@ -5302,6 +5303,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "product-api-partner"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.4.0",
+ "lambda_runtime",
+ "opensearch",
+ "product",
+ "product-classification",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "shop",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "product-classification"
 version = "0.1.0"
 dependencies = [
@@ -7138,9 +7166,11 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-dynamodb",
+ "aws_lambda_events",
  "common",
  "fake",
  "field",
+ "http 1.4.0",
  "mockall",
  "opensearch",
  "prefixed-api-key",

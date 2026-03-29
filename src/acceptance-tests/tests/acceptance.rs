@@ -85,8 +85,10 @@ use search_filter_api::{
     post_types::PostUserSearchFilterData,
 };
 use serde::de::DeserializeOwned;
+use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
 use shop::data::get_shop_data::GetShopData;
 use shop::dynamodb::repository::ShopDynamoDbRepository;
+use shop::dynamodb::shop_record::ShopRecord;
 use shop::{core::shop::Shop, dynamodb::repository::ShopDynamoDbRepositoryImpl};
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
@@ -4217,4 +4219,56 @@ async fn should_get_patch_delete_notifications() {
         .unwrap();
     assert!(after_delete_all.items.is_empty());
     assert_eq!(0, after_delete_all.total.unwrap_or(0));
+}
+
+// ---------------------------------------------------------------------------
+// API: Partner Product Creation
+// Verifies API Gateway routing and Lambda execution for the partner product
+// creation endpoint with x-api-key authentication (no Cognito JWT).
+// ---------------------------------------------------------------------------
+
+async fn prepare_partner_shop() -> (ShopRecord, PartnerShopApiKey) {
+    let stack = get_cfn_output();
+    let api_key = PartnerShopApiKey::new();
+    let hashed: HashedPartnerShopApiKey = api_key.clone().into();
+    let mut record: ShopRecord = Faker.fake();
+    record.partner_api_key_short = Some(hashed.short_token().to_string());
+    record.partner_api_key_long_hash = Some(hashed.long_token_hash().to_string());
+    let dynamodb_repository =
+        ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    dynamodb_repository
+        .put_shop_record(record.clone())
+        .await
+        .unwrap();
+    (record, api_key)
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_partner_post_products() {
+    let (shop_record, api_key) = prepare_partner_shop().await;
+    let api_key_str: String = api_key.into();
+
+    let url = format!(
+        "{}/api/v1/shops/{}/products",
+        get_cfn_output().api_gateway_endpoint_url,
+        shop_record.shop_id,
+    );
+    let response = reqwest::Client::new()
+        .post(&url)
+        .header("x-api-key", &api_key_str)
+        .json(&vec![serde_json::json!({
+            "shopsProductId": "acceptance-test-product-1",
+            "title": { "text": "Test Product", "language": "en" },
+            "description": { "text": "A test product", "language": "en" },
+            "state": "AVAILABLE",
+            "url": "https://example.com/product/1",
+            "images": ["https://example.com/img.jpg"]
+        })])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(body["errors"].as_object().unwrap().is_empty());
 }

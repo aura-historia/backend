@@ -139,6 +139,85 @@ impl From<PrefixedApiKey> for HashedPartnerShopApiKey {
     }
 }
 
+#[cfg(feature = "api")]
+pub mod api {
+    use super::{InvalidPartnerShopApiKeyError, PartnerShopApiKey};
+    use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
+    use common::api::error::ApiError;
+    use common::api::error_code::BAD_HEADER_VALUE;
+
+    pub fn extract_api_key(
+        request: &ApiGatewayV2httpRequest,
+    ) -> Result<PartnerShopApiKey, ApiError> {
+        let api_key_str = request
+            .headers
+            .get("x-api-key")
+            .and_then(|v| v.to_str().ok())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                ApiError::unauthorized(BAD_HEADER_VALUE)
+                    .with_header_field("x-api-key")
+                    .with_detail("Missing or empty 'x-api-key' header.")
+            })?;
+
+        PartnerShopApiKey::try_from(api_key_str.to_string()).map_err(|err| {
+            let msg = err.to_string();
+            ApiError::unauthorized(BAD_HEADER_VALUE)
+                .with_header_field("x-api-key")
+                .with_detail(msg)
+        })
+    }
+
+    impl From<InvalidPartnerShopApiKeyError> for ApiError {
+        fn from(err: InvalidPartnerShopApiKeyError) -> Self {
+            ApiError::unauthorized(BAD_HEADER_VALUE)
+                .with_header_field("x-api-key")
+                .with_detail(err.to_string())
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
+        use http::HeaderMap;
+
+        #[test]
+        fn should_extract_api_key_when_valid_header() {
+            let api_key = PartnerShopApiKey::new();
+            let key_str: String = api_key.clone().into();
+            let mut request = ApiGatewayV2httpRequest::default();
+            let mut headers = HeaderMap::new();
+            headers.insert("x-api-key", key_str.parse().unwrap());
+            request.headers = headers;
+
+            let result = extract_api_key(&request);
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), api_key);
+        }
+
+        #[test]
+        fn should_return_401_when_api_key_header_missing() {
+            let request = ApiGatewayV2httpRequest::default();
+            let result = extract_api_key(&request);
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err().status, 401);
+        }
+
+        #[test]
+        fn should_return_401_when_api_key_header_invalid() {
+            let mut request = ApiGatewayV2httpRequest::default();
+            let mut headers = HeaderMap::new();
+            headers.insert("x-api-key", "invalid-key".parse().unwrap());
+            request.headers = headers;
+
+            let result = extract_api_key(&request);
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err().status, 401);
+        }
+    }
+}
+
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
