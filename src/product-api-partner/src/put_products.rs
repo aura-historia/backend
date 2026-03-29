@@ -72,14 +72,8 @@ fn extract_body(request: &ApiGatewayV2httpRequest) -> Result<Vec<PutProductData>
 }
 
 fn to_upsert_command(data: PutProductData, partner_shop: &PartnerShop) -> UpsertProductCommand {
-    let native_title = data.title.map(|t| {
-        let localized: Localized<_, _> = t.into();
-        localized
-    });
-    let native_description = data.description.map(|d| {
-        let localized: Localized<_, _> = d.into();
-        localized
-    });
+    let native_title: Option<Localized<_, _>> = data.title.map(Into::into);
+    let native_description: Option<Localized<_, _>> = data.description.map(Into::into);
 
     let native_price: Option<Price> = data.price.map(Price::from);
     let native_price_estimate_min: Option<Price> = data.price_estimate_min.map(Price::from);
