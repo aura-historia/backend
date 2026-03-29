@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 schemars = { workspace = true }
-spider = { version = "2", features = ["regex"] }
+spider = { version = "2", default-features = false, features = ["regex", "sync", "reqwest_rustls_tls"] }
 tokio = { workspace = true, features = ["full"] }
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 serde = { workspace = true, features = ["derive"] }
