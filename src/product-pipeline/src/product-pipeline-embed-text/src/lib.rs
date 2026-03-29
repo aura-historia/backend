@@ -228,7 +228,7 @@ mod tests {
         let mut product: Product = Faker.fake();
         product.shop_id = record.shop_id;
         product.shops_product_id = record.shops_product_id.clone();
-        product.text_embedding = None;
+        product.embedding = None;
         product
     }
 
@@ -374,7 +374,7 @@ mod tests {
         let record = mk_domain_event_record();
         let mut product = mk_product_from_record(&record);
         let existing_embedding = vec![0.1, 0.2, 0.3];
-        product.text_embedding = Some(existing_embedding.clone());
+        product.embedding = Some(existing_embedding.clone());
 
         let mut mock_get_service = MockGetProductService::default();
         let product_clone = product.clone();

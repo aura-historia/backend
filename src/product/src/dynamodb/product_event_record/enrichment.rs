@@ -52,8 +52,9 @@ pub struct ProductEnrichmentEventRecord {
     pub target: Option<String>,
 
     // text-embedding
+    #[serde(rename = "text_embedding")]
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub text_embedding: Option<Vec<f32>>,
+    pub embedding: Option<Vec<f32>>,
 
     // attribute-extraction
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -112,7 +113,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     source_language: Some(payload.source_language.into()),
                     target_language: Some(payload.target_language.into()),
                     target: Some(payload.target.into()),
-                    text_embedding: None,
+                    embedding: None,
                     origin_year_min: None,
                     origin_year: None,
                     origin_year_max: None,
@@ -138,7 +139,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     source_language: Some(payload.source_language.into()),
                     target_language: Some(payload.target_language.into()),
                     target: Some(payload.target.into()),
-                    text_embedding: None,
+                    embedding: None,
                     origin_year_min: None,
                     origin_year: None,
                     origin_year_max: None,
@@ -163,7 +164,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                 source_language: None,
                 target_language: None,
                 target: None,
-                text_embedding: Some(payload.embedding),
+                embedding: Some(payload.embedding),
                 origin_year_min: None,
                 origin_year: None,
                 origin_year_max: None,
@@ -188,7 +189,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     source_language: None,
                     target_language: None,
                     target: None,
-                    text_embedding: None,
+                    embedding: None,
                     origin_year_min: payload.origin_year_min,
                     origin_year: payload.origin_year,
                     origin_year_max: payload.origin_year_max,
@@ -214,7 +215,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     source_language: None,
                     target_language: None,
                     target: None,
-                    text_embedding: None,
+                    embedding: None,
                     origin_year_min: None,
                     origin_year: None,
                     origin_year_max: None,
@@ -240,7 +241,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     source_language: None,
                     target_language: None,
                     target: None,
-                    text_embedding: None,
+                    embedding: None,
                     origin_year_min: None,
                     origin_year: None,
                     origin_year_max: None,
@@ -333,11 +334,9 @@ impl TryFrom<ProductEnrichmentEventRecord> for ProductEnrichmentEvent {
                         EmbeddedTextProductEnrichmentEventPayload {
                             shop_id: record.shop_id,
                             shops_product_id: record.shops_product_id,
-                            embedding: record.text_embedding.ok_or(
-                                MissingPersistenceField::new(
-                                    field::field!(text_embedding@ProductEnrichmentEventRecord),
-                                ),
-                            )?,
+                            embedding: record.embedding.ok_or(MissingPersistenceField::new(
+                                field::field!(embedding@ProductEnrichmentEventRecord),
+                            ))?,
                         },
                     ),
                 };

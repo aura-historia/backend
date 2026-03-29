@@ -97,7 +97,7 @@ async fn should_process_classification() {
 
     let mut product = Faker.fake::<Product>();
     product.native_title.payload = "Antique Baroque Chair".into();
-    product.text_embedding = Some(vec![0.1; 1024]);
+    product.embedding = Some(vec![0.1; 1024]);
 
     let actual = processor.process(vec![product]).await;
 

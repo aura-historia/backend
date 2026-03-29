@@ -88,8 +88,9 @@ pub struct ProductRecordUpdate {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub images: Option<Vec<ProductImageRecord>>,
+    #[serde(rename = "text_embedding")]
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub text_embedding: Option<Vec<f32>>,
+    pub embedding: Option<Vec<f32>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub origin_year_min: Option<Year>,
@@ -147,7 +148,7 @@ impl Default for ProductRecordUpdate {
             description_es: None,
             description_it: None,
             images: None,
-            text_embedding: None,
+            embedding: None,
             origin_year_min: None,
             origin_year: None,
             origin_year_max: None,
@@ -195,7 +196,7 @@ impl From<ProductDomainEventRecord> for ProductRecordUpdate {
             description_es: event.description_es,
             description_it: event.description_it,
             images: event.images,
-            text_embedding: None,
+            embedding: None,
             origin_year_min: None,
             origin_year: None,
             origin_year_max: None,
@@ -243,7 +244,7 @@ impl From<ProductEnrichmentEventRecord> for ProductRecordUpdate {
             description_es: None,
             description_it: None,
             images: None,
-            text_embedding: event.text_embedding,
+            embedding: event.embedding,
             origin_year_min: event.origin_year_min,
             origin_year: event.origin_year,
             origin_year_max: event.origin_year_max,
@@ -301,7 +302,7 @@ mod faker {
                 description_fr: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 description_es: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 description_it: Some(config.fake_with_rng::<Description, _>(rng).into()),
-                text_embedding: if config.fake_with_rng(rng) {
+                embedding: if config.fake_with_rng(rng) {
                     Some(fake::vec![f32; 1024])
                 } else {
                     None

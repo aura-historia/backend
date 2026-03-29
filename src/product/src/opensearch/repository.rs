@@ -53,7 +53,7 @@ pub trait ProductOpenSearchRepository {
 
     async fn k_nn_text(
         &self,
-        text_embedding: &[f32],
+        embedding: &[f32],
         k: u16,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error>;
 }
@@ -172,11 +172,11 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
 
     async fn k_nn_text(
         &self,
-        text_embedding: &[f32],
+        embedding: &[f32],
         k: u16,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error> {
         let mut source_excludes = ProductDocumentSerdeField::description_fields();
-        source_excludes.push(ProductDocumentSerdeField::TextEmbedding);
+        source_excludes.push(ProductDocumentSerdeField::Embedding);
 
         let body = json!({
             "_source": {
@@ -185,8 +185,8 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             "size": k,
             "query": {
               "knn": {
-                ProductDocumentSerdeField::TextEmbedding.as_str() : {
-                  "vector": text_embedding,
+                ProductDocumentSerdeField::Embedding.as_str() : {
+                  "vector": embedding,
                   "k": k,
                 }
               }
@@ -216,7 +216,7 @@ pub fn build_search_request(
     cursor: &Option<Cursor<serde_json::Value>>,
 ) -> Result<serde_json::Value, serde_json::Error> {
     let mut source_excludes = ProductDocumentSerdeField::description_fields();
-    source_excludes.push(ProductDocumentSerdeField::TextEmbedding);
+    source_excludes.push(ProductDocumentSerdeField::Embedding);
     let mut body = json!({
         "_source": { "excludes": source_excludes },
         "query": build_search_query(search)?

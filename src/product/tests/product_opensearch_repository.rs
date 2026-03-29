@@ -97,7 +97,7 @@ async fn should_create_product_document() {
         state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: Faker.fake(),
-        text_embedding: None,
+        embedding: None,
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
@@ -182,7 +182,7 @@ async fn should_create_product_documents() {
         state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: Faker.fake(),
-        text_embedding: None,
+        embedding: None,
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
@@ -252,7 +252,7 @@ async fn should_create_product_documents() {
         state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: Faker.fake(),
-        text_embedding: None,
+        embedding: None,
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
@@ -339,7 +339,7 @@ async fn should_update_product_document() {
         state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: Faker.fake(),
-        text_embedding: None,
+        embedding: None,
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
@@ -395,7 +395,7 @@ async fn should_update_product_document() {
         description_es: None,
         description_it: None,
         images: None,
-        text_embedding: None,
+        embedding: None,
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
@@ -481,7 +481,7 @@ async fn should_search_product_documents() {
         state: ProductStateDocument::Available,
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: Faker.fake(),
-        text_embedding: None,
+        embedding: None,
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
@@ -607,7 +607,7 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
         state: ProductStateDocument::Available,
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: Faker.fake(),
-        text_embedding: None,
+        embedding: None,
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
@@ -1214,7 +1214,7 @@ async fn should_get_product_document() {
         state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: Faker.fake(),
-        text_embedding: None,
+        embedding: None,
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
@@ -2275,7 +2275,7 @@ async fn should_return_k_nearest_neighbors() {
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let mut documents = fake::vec![ProductDocument; 20];
     for document in &mut documents {
-        document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+        document.embedding = Some(EXAMPLE_EMBEDDING.into());
     }
 
     for document in documents.clone() {

@@ -1392,7 +1392,7 @@ async fn should_materialize_product_in_dynamodb_for_enrichment_event() {
     );
 
     let mut materialized_old: ProductRecord = Faker.fake();
-    materialized_old.text_embedding = None;
+    materialized_old.embedding = None;
     materialized_old.pk = mk_pk(&shop.shop_id, &materialized_old.shops_product_id);
     materialized_old.shop_id = shop.shop_id;
     materialized_old
@@ -1435,9 +1435,9 @@ async fn should_materialize_product_in_dynamodb_for_enrichment_event() {
             .unwrap();
 
         if let Some(materialized) = materialized
-            && let Some(text_embedding) = materialized.text_embedding
+            && let Some(actual_embedding) = materialized.embedding
         {
-            assert_eq!(embedding, text_embedding);
+            assert_eq!(embedding, actual_embedding);
             break;
         }
 
@@ -1743,7 +1743,7 @@ async fn should_materialize_product_in_opensearch_for_enrichment_event() {
     let os_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
 
     let mut materialized_old: ProductRecord = Faker.fake();
-    materialized_old.text_embedding = None;
+    materialized_old.embedding = None;
     materialized_old.pk = mk_pk(&shop.shop_id, &materialized_old.shops_product_id);
     materialized_old.shop_id = shop.shop_id;
     materialized_old.title_en = Some("Exactly the expected title".to_string());
@@ -1758,7 +1758,7 @@ async fn should_materialize_product_in_opensearch_for_enrichment_event() {
     assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
 
     let mut os_doc: ProductDocument = materialized_old.clone().into();
-    os_doc.text_embedding = None;
+    os_doc.embedding = None;
     let insert_res = os_repository
         .create_product_documents(vec![os_doc])
         .await
@@ -1827,9 +1827,9 @@ async fn should_materialize_product_in_opensearch_for_enrichment_event() {
             .next();
 
         if let Some(hit) = hit
-            && let Some(text_embedding) = hit.source.text_embedding
+            && let Some(embedding) = hit.source.embedding
         {
-            assert_eq!(EXAMPLE_EMBEDDING.as_slice(), &text_embedding);
+            assert_eq!(EXAMPLE_EMBEDDING.as_slice(), &embedding);
             break;
         }
 
@@ -2941,7 +2941,7 @@ async fn should_respond_200_when_product_search_hits_authenticated() {
         state: ProductStateDocument::Available,
         url: Url::parse("https://hans-volker.com/chopin-etudes-op10-1833").unwrap(),
         images: vec![],
-        text_embedding: None,
+        embedding: None,
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
@@ -3040,7 +3040,7 @@ async fn should_respond_200_when_product_search_hits_authenticated() {
         state: ProductStateRecord::Available,
         url: Url::parse("https://hans-volker.com/chopin-etudes-op10-1833").unwrap(),
         images: vec![],
-        text_embedding: Some(fake::vec![f32; 1024]),
+        embedding: Some(fake::vec![f32; 1024]),
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
@@ -3189,7 +3189,7 @@ async fn should_respond_200_when_product_search_hits_anon() {
         state: ProductStateDocument::Available,
         url: Url::parse("https://hans-volker.com/chopin-etudes-op10-1833").unwrap(),
         images: vec![],
-        text_embedding: None,
+        embedding: None,
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
@@ -3286,7 +3286,7 @@ async fn should_respond_202_when_similar_products_embedding_not_computed() {
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
 
     let mut product_record: ProductRecord = Faker.fake();
-    product_record.text_embedding = None;
+    product_record.embedding = None;
     let ddb_insert_res = product_dynamodb_repository
         .put_product_records([product_record.clone()].into())
         .await
@@ -3301,7 +3301,7 @@ async fn should_respond_202_when_similar_products_embedding_not_computed() {
     let product_document: ProductDocument = product_record.clone().into();
     let mut product_documents = fake::vec![ProductDocument; 10];
     for doc in &mut product_documents {
-        doc.text_embedding = None;
+        doc.embedding = None;
     }
     product_documents.push(product_document);
     let os_insert_res = product_opensearch_repository
@@ -3342,7 +3342,7 @@ async fn should_respond_200_when_similar_products_computed_for_anon() {
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
 
     let mut product_record: ProductRecord = Faker.fake();
-    product_record.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+    product_record.embedding = Some(EXAMPLE_EMBEDDING.into());
     let ddb_insert_res = product_dynamodb_repository
         .put_product_records([product_record.clone()].into())
         .await
@@ -3361,7 +3361,7 @@ async fn should_respond_200_when_similar_products_computed_for_anon() {
             text: "My expected english title".into(),
             language: LanguageDocument::En,
         };
-        doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+        doc.embedding = Some(EXAMPLE_EMBEDDING.into());
         doc.title_en = Some("My expected english title".into());
     }
     product_documents.push(product_document);
@@ -3440,7 +3440,7 @@ async fn should_respond_200_and_personalize_similar_products_for_authenticated()
     );
 
     let mut product_record: ProductRecord = Faker.fake();
-    product_record.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+    product_record.embedding = Some(EXAMPLE_EMBEDDING.into());
     let product_records = fake::vec![ProductRecord; 5];
     let ddb_insert_res = product_dynamodb_repository
         .put_product_records(
@@ -3480,7 +3480,7 @@ async fn should_respond_200_and_personalize_similar_products_for_authenticated()
             text: "My expected german title".into(),
             language: LanguageDocument::De,
         };
-        doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+        doc.embedding = Some(EXAMPLE_EMBEDDING.into());
         doc.title_de = Some("My expected german title".into());
     }
     product_documents.push(product_document);
@@ -4325,11 +4325,11 @@ async fn should_embed_product_when_domain_created_event_triggers_pipeline() {
             .unwrap();
 
         if let Some(record) = materialized
-            && record.text_embedding.is_some()
+            && record.embedding.is_some()
         {
             assert_eq!(
                 expected_embedding,
-                record.text_embedding.unwrap(),
+                record.embedding.unwrap(),
                 "Embedding should match LocalstackEmbeddingService output"
             );
             break;

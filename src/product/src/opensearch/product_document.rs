@@ -138,8 +138,9 @@ pub struct ProductDocument {
     pub images: Vec<ProductImageDocument>,
 
     // title [SEP] description, dim=1024 via baai/bge-m3
+    #[serde(rename = "textEmbedding")]
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub text_embedding: Option<Vec<f32>>,
+    pub embedding: Option<Vec<f32>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub origin_year_min: Option<Year>,
@@ -279,7 +280,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDocument {
                 .into_iter()
                 .map(ProductImageDocument::from)
                 .collect(),
-            text_embedding: None,
+            embedding: None,
             origin_year_min: None,
             origin_year: None,
             origin_year_max: None,
@@ -355,7 +356,7 @@ impl From<ProductRecord> for ProductDocument {
                 .into_iter()
                 .map(ProductImageDocument::from)
                 .collect(),
-            text_embedding: None,
+            embedding: None,
             origin_year_min: product_document.origin_year_min,
             origin_year: product_document.origin_year,
             origin_year_max: product_document.origin_year_max,
@@ -577,7 +578,7 @@ impl From<Product> for ProductDocument {
                 .into_iter()
                 .map(ProductImageDocument::from)
                 .collect(),
-            text_embedding: product.text_embedding,
+            embedding: product.embedding,
             origin_year_min,
             origin_year,
             origin_year_max,
@@ -755,7 +756,7 @@ impl From<ProductDocument> for Product {
                 .into_iter()
                 .map(ProductImage::from)
                 .collect(),
-            text_embedding: product_document.text_embedding,
+            embedding: product_document.embedding,
             origin_year: match product_document.origin_year {
                 Some(exact_year) => Some(OriginYear::ExactYear(exact_year)),
                 None => match (
@@ -858,7 +859,7 @@ mod faker {
                 ))
                 .unwrap(),
                 images: config.fake_with_rng(rng),
-                text_embedding: None,
+                embedding: None,
                 origin_year_min: Some(origin_year_min),
                 origin_year,
                 origin_year_max: Some(origin_year_max),

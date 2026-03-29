@@ -90,7 +90,7 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
                 *shop_id,
                 shops_product_id.clone(),
             ))?;
-        match record.text_embedding {
+        match record.embedding {
             None => {
                 if OffsetDateTime::now_utc().date() > record.created.date() {
                     warn!(
@@ -105,10 +105,10 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
                 }
                 Ok(None)
             }
-            Some(text_embedding) => {
+            Some(embedding) => {
                 let localized_documents = self
                     .opensearch_repository
-                    .k_nn_text(&text_embedding, 20)
+                    .k_nn_text(&embedding, 20)
                     .await?
                     .hits
                     .hits
@@ -152,7 +152,7 @@ mod tests {
     use std::panic;
 
     #[tokio::test]
-    async fn should_return_similar_products_when_text_embedding_exists() {
+    async fn should_return_similar_products_when_embedding_exists() {
         let mut dynamodb_repository = MockProductDynamoDbRepository::default();
         let mut opensearch_repository = MockProductOpenSearchRepository::default();
 
@@ -161,7 +161,7 @@ mod tests {
             .return_once(|_, _| {
                 Box::pin(async move {
                     let mut record = Faker.fake::<ProductRecord>();
-                    record.text_embedding = Some(Faker.fake());
+                    record.embedding = Some(Faker.fake());
                     Ok(Some(record))
                 })
             });
@@ -208,7 +208,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_no_products_when_text_embedding_not_exists() {
+    async fn should_return_no_products_when_embedding_not_exists() {
         let mut dynamodb_repository = MockProductDynamoDbRepository::default();
         let mut opensearch_repository = MockProductOpenSearchRepository::default();
 
@@ -217,7 +217,7 @@ mod tests {
             .return_once(|_, _| {
                 Box::pin(async move {
                     let mut record = Faker.fake::<ProductRecord>();
-                    record.text_embedding = None;
+                    record.embedding = None;
                     Ok(Some(record))
                 })
             });
@@ -297,7 +297,7 @@ mod tests {
         let product_id = ProductId::new();
         let mut root = Faker.fake::<ProductRecord>();
         root.product_id = product_id;
-        root.text_embedding = Some(Faker.fake());
+        root.embedding = Some(Faker.fake());
         let root_clone1 = root.clone();
         let root_clone2 = root.clone();
 
@@ -417,7 +417,7 @@ mod tests {
             .return_once(|_, _| {
                 Box::pin(async move {
                     let mut record = Faker.fake::<ProductRecord>();
-                    record.text_embedding = Some(Faker.fake());
+                    record.embedding = Some(Faker.fake());
                     Ok(Some(record))
                 })
             });
