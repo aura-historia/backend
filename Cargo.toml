@@ -17,6 +17,7 @@ shop-api = { workspace = true }
 shop-lambda = { workspace = true }
 product = { workspace = true }
 product-api = { workspace = true }
+product-api-partner = { workspace = true }
 product-personalization = { workspace = true }
 product-classification = { workspace = true }
 product-classification-api = { workspace = true }
@@ -46,6 +47,7 @@ members = [
     "src/search-filter-lambda",
     "src/product",
     "src/product-api",
+    "src/product-api-partner",
     "src/product-personalization",
     "src/product-classification",
     "src/product-classification-api",
@@ -106,6 +108,7 @@ http = "1.4.0"
 httpdate = "1.0.3"
 product = { path = "src/product" }
 product-api = { path = "src/product-api" }
+product-api-partner = { path = "src/product-api-partner" }
 product-personalization = { path = "src/product-personalization" }
 product-classification = { path = "src/product-classification" }
 product-classification-api = { path = "src/product-classification-api" }

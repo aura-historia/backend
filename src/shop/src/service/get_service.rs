@@ -1,8 +1,11 @@
+use crate::core::partner_shop::PartnerShop;
+use crate::core::partner_shop_api_key::PartnerShopApiKey;
 use crate::core::shop::Shop;
 use crate::dynamodb::repository::ShopDynamoDbRepository;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::config::http::HttpResponse;
 use aws_sdk_dynamodb::error::SdkError;
+use common::error::missing_field::MissingPersistenceField;
 use common::{batch::Batch, shop_id::ShopId, slug_id::SlugId};
 
 #[derive(thiserror::Error, Debug)]
@@ -32,11 +35,33 @@ pub enum GetShopError {
     UnprocessedAfterMaxRetries(u32),
 }
 
+#[derive(thiserror::Error, Debug)]
+#[allow(clippy::large_enum_variant)]
+pub enum VerifyPartnerShopError {
+    #[error("Shop with identifier '{0}' not found")]
+    ShopNotFound(ShopId),
+
+    #[error("Shop '{0}' is not a partner shop")]
+    NotAPartnerShop(ShopId),
+
+    #[error("API key mismatch for shop '{0}'")]
+    ApiKeyMismatch(ShopId),
+
+    #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
+    SdkGetItemError(SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>),
+
+    #[error("Missing persistence field: {0}")]
+    MissingPersistenceField(#[from] MissingPersistenceField),
+}
+
 #[cfg(feature = "data")]
 pub mod api {
-    use crate::service::get_service::GetShopError;
+    use crate::service::get_service::{GetShopError, VerifyPartnerShopError};
     use common::api::error::ApiError;
-    use common::api::error_code::{SHOP_NOT_FOUND, UNPROCESSED_AFTER_MAX_RETRIES};
+    use common::api::error_code::{
+        PARTNER_SHOP_API_KEY_MISMATCH, PARTNER_SHOP_NOT_PARTNERED, SHOP_NOT_FOUND,
+        UNPROCESSED_AFTER_MAX_RETRIES,
+    };
 
     impl From<GetShopError> for ApiError {
         fn from(err: GetShopError) -> Self {
@@ -54,6 +79,27 @@ pub mod api {
             }
         }
     }
+
+    impl From<VerifyPartnerShopError> for ApiError {
+        fn from(err: VerifyPartnerShopError) -> Self {
+            match err {
+                VerifyPartnerShopError::ShopNotFound(_) => {
+                    ApiError::not_found(SHOP_NOT_FOUND, Box::new(err))
+                }
+                VerifyPartnerShopError::NotAPartnerShop(_) => {
+                    ApiError::forbidden(PARTNER_SHOP_NOT_PARTNERED).with_detail(err.to_string())
+                }
+                VerifyPartnerShopError::ApiKeyMismatch(_) => {
+                    ApiError::unauthorized(PARTNER_SHOP_API_KEY_MISMATCH)
+                        .with_header_field("x-api-key")
+                }
+                VerifyPartnerShopError::SdkGetItemError(err) => err.into(),
+                VerifyPartnerShopError::MissingPersistenceField(_) => {
+                    ApiError::forbidden(PARTNER_SHOP_NOT_PARTNERED).with_detail(err.to_string())
+                }
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -64,6 +110,12 @@ pub trait GetShopService {
     async fn find_shop_by_slug(&self, shop_slug_id: &SlugId<0>) -> Result<Shop, GetShopError>;
 
     async fn find_shops(&self, shop_ids: Vec<ShopId>) -> Result<Vec<Shop>, GetShopError>;
+
+    async fn verify_partner_shop(
+        &self,
+        api_key: &PartnerShopApiKey,
+        shop_id: &ShopId,
+    ) -> Result<PartnerShop, VerifyPartnerShopError>;
 }
 
 pub struct GetShopServiceImpl<'a> {
@@ -123,6 +175,33 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
 
         Ok(views)
     }
+
+    async fn verify_partner_shop(
+        &self,
+        api_key: &PartnerShopApiKey,
+        shop_id: &ShopId,
+    ) -> Result<PartnerShop, VerifyPartnerShopError> {
+        let shop_record = self
+            .repository
+            .get_shop_record(shop_id)
+            .await
+            .map_err(VerifyPartnerShopError::SdkGetItemError)?
+            .ok_or(VerifyPartnerShopError::ShopNotFound(*shop_id))?;
+
+        if shop_record.partner_api_key_short.is_none()
+            || shop_record.partner_api_key_long_hash.is_none()
+        {
+            return Err(VerifyPartnerShopError::NotAPartnerShop(*shop_id));
+        }
+
+        let partner_shop = PartnerShop::try_from(shop_record)?;
+
+        if !api_key.check(&partner_shop.hashed_api_key) {
+            return Err(VerifyPartnerShopError::ApiKeyMismatch(*shop_id));
+        }
+
+        Ok(partner_shop)
+    }
 }
 
 impl<'a> GetShopServiceImpl<'a> {
@@ -149,8 +228,12 @@ impl<'a> GetShopServiceImpl<'a> {
 mod tests {
     use rstest;
 
+    use crate::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
     use crate::dynamodb::repository::MockShopDynamoDbRepository;
-    use crate::service::get_service::{GetShopError, GetShopService, GetShopServiceImpl};
+    use crate::dynamodb::shop_record::ShopRecord;
+    use crate::service::get_service::{
+        GetShopError, GetShopService, GetShopServiceImpl, VerifyPartnerShopError,
+    };
     use aws_sdk_dynamodb::{
         config::http::HttpResponse,
         error::{ConnectorError, SdkError},
@@ -227,5 +310,98 @@ mod tests {
             GetShopError::SdkGetItemError(_) => {}
             _ => panic!("expected GetShopError::ShopNotFound"),
         }
+    }
+
+    fn make_partner_shop_record(api_key: &PartnerShopApiKey) -> ShopRecord {
+        let hashed: HashedPartnerShopApiKey = api_key.clone().into();
+        let mut record: ShopRecord = Faker.fake();
+        record.partner_api_key_short = Some(hashed.short_token().to_string());
+        record.partner_api_key_long_hash = Some(hashed.long_token_hash().to_string());
+        record
+    }
+
+    #[tokio::test]
+    async fn should_verify_partner_shop_when_valid_api_key() {
+        let api_key = PartnerShopApiKey::new();
+        let record = make_partner_shop_record(&api_key);
+        let shop_id = record.shop_id;
+
+        let mut repository = MockShopDynamoDbRepository::default();
+        repository
+            .expect_get_shop_record()
+            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+        let service = GetShopServiceImpl {
+            repository: &repository,
+        };
+
+        let result = service.verify_partner_shop(&api_key, &shop_id).await;
+        assert!(result.is_ok());
+        let partner = result.unwrap();
+        assert_eq!(partner.shop_id, shop_id);
+    }
+
+    #[tokio::test]
+    async fn should_return_shop_not_found_when_verifying_nonexistent_shop() {
+        let shop_id = ShopId::new();
+        let api_key = PartnerShopApiKey::new();
+
+        let mut repository = MockShopDynamoDbRepository::default();
+        repository
+            .expect_get_shop_record()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let service = GetShopServiceImpl {
+            repository: &repository,
+        };
+
+        let result = service.verify_partner_shop(&api_key, &shop_id).await;
+        assert!(matches!(
+            result.unwrap_err(),
+            VerifyPartnerShopError::ShopNotFound(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_return_not_partner_when_shop_has_no_api_key() {
+        let api_key = PartnerShopApiKey::new();
+        let mut record: ShopRecord = Faker.fake();
+        record.partner_api_key_short = None;
+        record.partner_api_key_long_hash = None;
+        let shop_id = record.shop_id;
+
+        let mut repository = MockShopDynamoDbRepository::default();
+        repository
+            .expect_get_shop_record()
+            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+        let service = GetShopServiceImpl {
+            repository: &repository,
+        };
+
+        let result = service.verify_partner_shop(&api_key, &shop_id).await;
+        assert!(matches!(
+            result.unwrap_err(),
+            VerifyPartnerShopError::NotAPartnerShop(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_return_api_key_mismatch_when_wrong_api_key() {
+        let correct_key = PartnerShopApiKey::new();
+        let wrong_key = PartnerShopApiKey::new();
+        let record = make_partner_shop_record(&correct_key);
+        let shop_id = record.shop_id;
+
+        let mut repository = MockShopDynamoDbRepository::default();
+        repository
+            .expect_get_shop_record()
+            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+        let service = GetShopServiceImpl {
+            repository: &repository,
+        };
+
+        let result = service.verify_partner_shop(&wrong_key, &shop_id).await;
+        assert!(matches!(
+            result.unwrap_err(),
+            VerifyPartnerShopError::ApiKeyMismatch(_)
+        ));
     }
 }
