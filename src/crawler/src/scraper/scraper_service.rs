@@ -104,7 +104,12 @@ pub trait ScraperService: Send + Sync {
     /// Fetch the product page at `url`, extract structured data using the CSS
     /// selector schema for `shop_id`, normalise the raw data, and return a
     /// [`NormalizedProduct`].
-    async fn scrape(&self, shop_id: &ShopId, url: &Url, _hash: &str) -> Result<NormalizedProduct, ScraperError>;
+    async fn scrape(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        _hash: &str,
+    ) -> Result<NormalizedProduct, ScraperError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,7 +138,12 @@ impl ScraperServiceImpl {
 
 #[async_trait::async_trait]
 impl ScraperService for ScraperServiceImpl {
-    async fn scrape(&self, shop_id: &ShopId, url: &Url, _hash: &str) -> Result<NormalizedProduct, ScraperError> {
+    async fn scrape(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        _hash: &str,
+    ) -> Result<NormalizedProduct, ScraperError> {
         // 1. Fetch HTML --------------------------------------------------
         debug!(shopId = %shop_id, url = %url, "Fetching product page HTML");
         let html =
