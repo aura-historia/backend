@@ -49,6 +49,7 @@ const STAGE: &str = "ephemeral";
 const LAMBDA_BINARIES: &[&str] = &[
     "cognito-post-confirmation",
     "product-api",
+    "product-api-partner",
     "product-watchlist-api",
     "notification-api",
     "user-api",

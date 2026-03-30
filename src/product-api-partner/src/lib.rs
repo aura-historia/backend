@@ -7,7 +7,9 @@ use lambda_runtime::LambdaEvent;
 use product::service::command_service::CommandProductService;
 use shop::service::get_service::GetShopService;
 
+pub mod patch_products;
 pub mod post_products;
+pub mod put_products;
 
 #[tracing::instrument(
     skip(event, get_shop_service, command_product_service),
@@ -42,6 +44,12 @@ pub async fn handle(
     match event.payload.route_key.as_deref() {
         Some("POST /api/v1/shops/{shopId}/products") => {
             post_products::handle(event, get_shop_service, command_product_service).await
+        }
+        Some("PATCH /api/v1/shops/{shopId}/products") => {
+            patch_products::handle(event, get_shop_service, command_product_service).await
+        }
+        Some("PUT /api/v1/shops/{shopId}/products") => {
+            put_products::handle(event, get_shop_service, command_product_service).await
         }
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,
