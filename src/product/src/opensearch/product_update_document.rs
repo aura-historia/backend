@@ -86,7 +86,6 @@ pub struct ProductUpdateDocument {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub images: Option<Vec<ProductImageDocument>>,
 
-    #[serde(rename = "textEmbedding")]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub embedding: Option<Vec<f32>>,
 

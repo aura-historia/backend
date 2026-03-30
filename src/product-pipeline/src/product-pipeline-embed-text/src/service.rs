@@ -144,20 +144,6 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
     }
 }
 
-pub struct LocalstackEmbeddingService;
-
-#[async_trait]
-impl MultimodalEmbeddingService for LocalstackEmbeddingService {
-    async fn embed(
-        &self,
-        _title: &Title,
-        _description: Option<&Description>,
-        _image: Option<&Url>,
-    ) -> Result<Vec<f32>, MultimodalEmbeddingError> {
-        Ok(vec![0.42f32; 768])
-    }
-}
-
 #[derive(Debug, Serialize)]
 struct EmbedContentRequest<'a> {
     model: &'a str,

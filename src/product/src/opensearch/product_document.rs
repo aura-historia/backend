@@ -138,7 +138,6 @@ pub struct ProductDocument {
     pub images: Vec<ProductImageDocument>,
 
     // title [SEP] description, dim=1024 via baai/bge-m3
-    #[serde(rename = "textEmbedding")]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub embedding: Option<Vec<f32>>,
 

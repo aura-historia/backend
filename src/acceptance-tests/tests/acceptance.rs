@@ -4315,7 +4315,7 @@ async fn should_embed_product_when_domain_created_event_triggers_pipeline() {
 
     // 3. Wait for the embed-text Lambda to produce an enrichment event
     //    which the materialize-dynamodb Lambda then materializes into the product record.
-    //    The LocalstackEmbeddingService returns vec![0.42f32; 768].
+    //    The MockMultimodalEmbeddingService returns vec![0.42f32; 768].
     let expected_embedding = vec![0.42f32; 768];
     let deadline = Instant::now() + Duration::from_secs(120);
     loop {
@@ -4330,7 +4330,7 @@ async fn should_embed_product_when_domain_created_event_triggers_pipeline() {
             assert_eq!(
                 expected_embedding,
                 record.embedding.unwrap(),
-                "Embedding should match LocalstackEmbeddingService output"
+                "Embedding should match MockMultimodalEmbeddingService output"
             );
             break;
         }

@@ -6,10 +6,7 @@ use product::{
     dynamodb::repository::ProductDynamoDbRepositoryImpl,
     service::get_service::GetProductServiceImpl,
 };
-use product_pipeline_embed_text::{
-    handler,
-    service::{LocalstackEmbeddingService, MultimodalEmbeddingServiceImpl},
-};
+use product_pipeline_embed_text::{handler, service::MultimodalEmbeddingServiceImpl};
 use tracing::debug;
 
 #[tokio::main]
@@ -30,7 +27,12 @@ async fn main() -> Result<(), Error> {
     debug!("Lambda initialized.");
 
     if std::env::var("LOCALSTACK_HOSTNAME").is_ok() {
-        let embedding_service = LocalstackEmbeddingService;
+        use product_pipeline_embed_text::service::MockMultimodalEmbeddingService;
+
+        let mut embedding_service = MockMultimodalEmbeddingService::new();
+        embedding_service
+            .expect_embed()
+            .returning(|_, _, _| Box::pin(async { Ok(vec![0.42f32; 768]) }));
         run(service_fn(|event: LambdaEvent<SqsEvent>| async {
             handler(
                 &get_product_service,
