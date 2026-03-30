@@ -13,6 +13,7 @@ pub mod product_search_data;
 pub mod product_state_data;
 pub mod prohibited_content_data;
 pub mod provenance_data;
+pub mod put_product_data;
 pub mod restoration_data;
 pub mod sort_product_field_data;
 pub mod user_state_data;
