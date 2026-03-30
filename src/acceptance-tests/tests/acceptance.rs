@@ -27,6 +27,7 @@ use notification_api::notification_get::EventIdCursoredData;
 use opensearch::GetParts;
 use product::data::get_data::GetProductData;
 use product::data::user_state_data::ProductUserStateData;
+use product::dynamodb::product_record;
 use product::{
     core::{
         product_event::{
@@ -4343,4 +4344,122 @@ async fn should_embed_product_when_domain_created_event_triggers_pipeline() {
         }
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_partner_patch_products() {
+    let product_repository = ProductDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        get_cfn_output().dynamodb_table_1_name.as_str(),
+    );
+    let (shop_record, api_key) = prepare_partner_shop().await;
+    let api_key_str: String = api_key.into();
+
+    let url = format!(
+        "{}/api/v1/shops/{}/products",
+        get_cfn_output().api_gateway_endpoint_url,
+        shop_record.shop_id,
+    );
+
+    // First create the product so we can update it
+    let mut product_record = Faker.fake::<ProductRecord>();
+    product_record.shop_id = shop_record.shop_id;
+    product_record.shops_product_id = "acceptance-test-patch-product-1".into();
+    product_record.pk =
+        product_record::mk_pk(&shop_record.shop_id, &product_record.shops_product_id);
+    product_record.sk = product_record::mk_sk().to_owned();
+    product_record.state = product::dynamodb::product_state_record::ProductStateRecord::Available;
+    product_repository
+        .put_product_records([product_record].into())
+        .await
+        .unwrap();
+
+    // Then update the product via PATCH
+    let response = reqwest::Client::new()
+        .patch(&url)
+        .header("x-api-key", &api_key_str)
+        .json(&vec![serde_json::json!({
+            "shopsProductId": "acceptance-test-patch-product-1",
+            "state": "SOLD"
+        })])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(body["errors"].as_object().unwrap().is_empty());
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_partner_put_products_when_creating_new() {
+    let (shop_record, api_key) = prepare_partner_shop().await;
+    let api_key_str: String = api_key.into();
+
+    let url = format!(
+        "{}/api/v1/shops/{}/products",
+        get_cfn_output().api_gateway_endpoint_url,
+        shop_record.shop_id,
+    );
+    let response = reqwest::Client::new()
+        .put(&url)
+        .header("x-api-key", &api_key_str)
+        .json(&vec![serde_json::json!({
+            "shopsProductId": "acceptance-test-put-product-1",
+            "title": { "text": "Test Product via PUT", "language": "en" },
+            "description": { "text": "A test product via upsert", "language": "en" },
+            "state": "AVAILABLE",
+            "url": "https://example.com/product/1",
+            "images": ["https://example.com/img.jpg"]
+        })])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(body["errors"].as_object().unwrap().is_empty());
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_partner_put_products_when_updating_existing() {
+    let product_repository = ProductDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        get_cfn_output().dynamodb_table_1_name.as_str(),
+    );
+    let (shop_record, api_key) = prepare_partner_shop().await;
+    let api_key_str: String = api_key.into();
+
+    let url = format!(
+        "{}/api/v1/shops/{}/products",
+        get_cfn_output().api_gateway_endpoint_url,
+        shop_record.shop_id,
+    );
+
+    // First create the product so we can update it via PUT
+    let mut product_record = Faker.fake::<ProductRecord>();
+    product_record.shop_id = shop_record.shop_id;
+    product_record.shops_product_id = "acceptance-test-put-existing-product-1".into();
+    product_record.pk =
+        product_record::mk_pk(&shop_record.shop_id, &product_record.shops_product_id);
+    product_record.sk = product_record::mk_sk().to_owned();
+    product_record.state = product::dynamodb::product_state_record::ProductStateRecord::Available;
+    product_repository
+        .put_product_records([product_record].into())
+        .await
+        .unwrap();
+
+    // Then update the product via PUT
+    let response = reqwest::Client::new()
+        .put(&url)
+        .header("x-api-key", &api_key_str)
+        .json(&vec![serde_json::json!({
+            "shopsProductId": "acceptance-test-put-existing-product-1",
+            "state": "SOLD"
+        })])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(body["errors"].as_object().unwrap().is_empty());
 }
