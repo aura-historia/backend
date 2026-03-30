@@ -47,10 +47,14 @@ impl MultimodalEmbeddingServiceImpl {
     ) -> Vec<ContentPart> {
         let mut parts = Vec::with_capacity(3);
 
-        let text = match description {
-            Some(desc) => format!("{title} [SEP] {desc}"),
-            None => title.to_string(),
-        };
+        // formatting according to official guidelines
+        // https://ai.google.dev/gemini-api/docs/embeddings#task-types-embeddings-2
+        let text = format!(
+            "title: {title} | text: {}",
+            description
+                .map(Description::to_string)
+                .unwrap_or("none".into())
+        );
         parts.push(ContentPart::Text { text });
 
         if let Some((mime_type, data)) = image_data {
