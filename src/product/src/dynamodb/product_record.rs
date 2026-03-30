@@ -591,7 +591,7 @@ mod faker {
                 .unwrap(),
                 images: config.fake_with_rng(rng),
                 embedding: if config.fake_with_rng(rng) {
-                    Some(fake::vec![f32; 1024])
+                    Some(fake::vec![f32; 768])
                 } else {
                     None
                 },

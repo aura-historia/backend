@@ -341,14 +341,14 @@
             },
             "embedding": {
                 "type": "knn_vector",
-                "dimension": 1024,
+                "dimension": 768,
                 "method": {
                     "engine": "faiss",
                     "space_type": "cosinesimil",
                     "name": "hnsw",
                     "parameters": {
                         "m": 32,
-                        "ef_construction": 1024,
+                        "ef_construction": 512,
                         "encoder": {
                             "name": "sq",
                             "parameters": {

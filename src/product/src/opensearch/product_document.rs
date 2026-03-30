@@ -137,7 +137,7 @@ pub struct ProductDocument {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub images: Vec<ProductImageDocument>,
 
-    // title [SEP] description, dim=1024 via baai/bge-m3
+    // dim=768 via google/gemini-embedding-2
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub embedding: Option<Vec<f32>>,
 

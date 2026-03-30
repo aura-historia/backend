@@ -302,7 +302,7 @@ mod faker {
                 description_es: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 description_it: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 embedding: if config.fake_with_rng(rng) {
-                    Some(fake::vec![f32; 1024])
+                    Some(fake::vec![f32; 768])
                 } else {
                     None
                 },

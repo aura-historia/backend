@@ -1243,7 +1243,7 @@ async fn should_get_product_document() {
     assert_eq!(expected, actual);
 }
 
-const EXAMPLE_EMBEDDING: [f32; 1024] = [
+const EXAMPLE_EMBEDDING: [f32; 768] = [
     0.0003272566,
     0.057399165,
     -0.03456967,
