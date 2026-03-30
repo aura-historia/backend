@@ -104,46 +104,48 @@ impl HasKey for UpsertProductCommand {
     }
 }
 
-impl UpsertProductCommand {
-    pub fn to_create_command(self) -> CreateProductCommand {
+impl From<UpsertProductCommand> for CreateProductCommand {
+    fn from(cmd: UpsertProductCommand) -> Self {
         CreateProductCommand {
-            shop_id: self.shop_id,
-            shops_product_id: self.shops_product_id,
-            shop_name: self.shop_name,
-            shop_type: self.shop_type,
-            native_title: self
+            shop_id: cmd.shop_id,
+            shops_product_id: cmd.shops_product_id,
+            shop_name: cmd.shop_name,
+            shop_type: cmd.shop_type,
+            native_title: cmd
                 .native_title
                 .unwrap_or_else(|| Localized::new(Language::En, Title::from(""))),
             other_title: HashMap::new(),
-            native_description: self.native_description,
+            native_description: cmd.native_description,
             other_description: HashMap::new(),
-            native_price: self.native_price,
+            native_price: cmd.native_price,
             other_price: HashMap::new(),
-            native_price_estimate_min: self.native_price_estimate_min,
+            native_price_estimate_min: cmd.native_price_estimate_min,
             other_price_estimate_min: HashMap::new(),
-            native_price_estimate_max: self.native_price_estimate_max,
+            native_price_estimate_max: cmd.native_price_estimate_max,
             other_price_estimate_max: HashMap::new(),
-            state: self.state.unwrap_or(ProductState::Listed),
-            url: self.url.unwrap_or_else(|| {
+            state: cmd.state.unwrap_or(ProductState::Listed),
+            url: cmd.url.unwrap_or_else(|| {
                 Url::parse("https://not-provided.invalid").expect("static URL must be valid")
             }),
-            images: self.images,
-            auction_start: self.auction_start,
-            auction_end: self.auction_end,
-            origin_year: self.origin_year,
-            authenticity: self.authenticity,
-            condition: self.condition,
-            provenance: self.provenance,
-            restoration: self.restoration,
+            images: cmd.images,
+            auction_start: cmd.auction_start,
+            auction_end: cmd.auction_end,
+            origin_year: cmd.origin_year,
+            authenticity: cmd.authenticity,
+            condition: cmd.condition,
+            provenance: cmd.provenance,
+            restoration: cmd.restoration,
             category_id: None,
             period_id: None,
         }
     }
+}
 
-    pub fn to_update_command(&self) -> UpdateProductCommand {
+impl From<&UpsertProductCommand> for UpdateProductCommand {
+    fn from(cmd: &UpsertProductCommand) -> Self {
         UpdateProductCommand {
-            native_price: self.native_price,
-            state: self.state,
+            native_price: cmd.native_price,
+            state: cmd.state,
         }
     }
 }
@@ -286,7 +288,7 @@ mod faker {
         fn should_convert_upsert_to_create_command() {
             let upsert: UpsertProductCommand = Faker.fake();
             let key = upsert.key();
-            let create = upsert.to_create_command();
+            let create = CreateProductCommand::from(upsert);
             assert_eq!(create.shop_id, key.shop_id);
             assert_eq!(create.shops_product_id, key.shops_product_id);
         }
@@ -294,7 +296,7 @@ mod faker {
         #[test]
         fn should_convert_upsert_to_update_command() {
             let upsert: UpsertProductCommand = Faker.fake();
-            let update = upsert.to_update_command();
+            let update = UpdateProductCommand::from(&upsert);
             assert_eq!(update.native_price, upsert.native_price);
             assert_eq!(update.state, upsert.state);
         }

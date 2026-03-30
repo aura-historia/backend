@@ -367,7 +367,7 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                     for record in &records.items {
                         let key = record.key();
                         if let Some(cmd) = working.remove(&key) {
-                            update_cmds.insert(key, cmd.to_update_command());
+                            update_cmds.insert(key, UpdateProductCommand::from(&cmd));
                         }
                     }
 
@@ -379,7 +379,7 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                     let create_events: Vec<ProductEventRecord> = working
                         .into_values()
                         .map(|cmd| {
-                            let mut create_cmd = cmd.to_create_command();
+                            let mut create_cmd = CreateProductCommand::from(cmd);
                             self.enrich_price(&mut create_cmd);
                             heuristics::classify_images(&mut create_cmd);
                             heuristics::enrich_origin_year(&mut create_cmd);
