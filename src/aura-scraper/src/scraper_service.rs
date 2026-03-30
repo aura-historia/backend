@@ -57,7 +57,10 @@ impl HtmlFetcher for SpiderHtmlFetcher {
 
         // Read the page from the channel (now that scraping is done and website dropped)
         if let Ok(page) = rx.try_recv() {
-            return Ok(page.get_html());
+            let html = page.get_html();
+            if !html.is_empty() {
+                return Ok(html);
+            }
         }
 
         Err(format!("Spider could not fetch HTML for URL: {}", url))

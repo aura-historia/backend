@@ -478,7 +478,7 @@ async fn should_preserve_all_fields_across_full_round_trip_for_repository() {
     assert_eq!(found_after_insert.shop_id, shop_id);
     assert_eq!(found_after_insert.product_schema, full_css_schema());
 
-    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // 3. update
     let updated = repository

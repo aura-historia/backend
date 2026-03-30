@@ -37,7 +37,7 @@ use aura_scraper::normalization::product::NormalizedProduct;
 use aura_scraper::normalization::product_normalization_service::ProductNormalizationServiceImpl;
 use aura_scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use aura_scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
-use aura_scraper::scraper_service::{ReqwestHtmlFetcher, ScraperService, ScraperServiceImpl};
+use aura_scraper::scraper_service::{ScraperService, ScraperServiceImpl, SpiderHtmlFetcher};
 use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
 use common::shop_id::ShopId;
@@ -324,13 +324,8 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     let schema_svc = ProductSchemaServiceImpl::new(schema_llm_builder, schema_repo)
         .expect("failed to build ProductSchemaServiceImpl");
 
-    // HTTP fetcher with a sensible timeout and user-agent.
-    let http_client = reqwest::Client::builder()
-        .user_agent("aura-historia-scraper-demo/1.0")
-        .timeout(Duration::from_secs(30))
-        .build()
-        .expect("failed to build reqwest::Client");
-    let fetcher = Box::new(ReqwestHtmlFetcher::new(http_client));
+    // HTTP fetcher using spider.
+    let fetcher = Box::new(SpiderHtmlFetcher::new());
 
     ScraperServiceImpl::new(fetcher, Box::new(schema_svc), Box::new(normalization_svc))
 }
