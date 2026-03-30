@@ -2,7 +2,7 @@ use common::shop_id::ShopId;
 
 use std::sync::Arc;
 
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 use crate::spider::classification::url_metadata_repository::UrlMetadataRepository;
 use crate::spider::classification::url_pattern_service::{
@@ -140,21 +140,6 @@ impl SpiderServiceImpl {
         Ok(count)
     }
 
-    fn count_pattern_matches(pattern: &ProductPattern, urls: &[String]) -> usize {
-        let Some(regex) = pattern.as_regex() else {
-            return 0;
-        };
-
-        urls.iter()
-            .filter(|url| {
-                if let Ok(parsed) = Url::parse(url) {
-                    return CrawledUrl::new(parsed).matches_pattern(regex);
-                }
-                false
-            })
-            .count()
-    }
-
     async fn classify_and_save_for_stage(
         &self,
         state: &mut CrawlRunState,
@@ -174,15 +159,6 @@ impl SpiderServiceImpl {
 
         if state.pattern.is_unknown() {
             warn!(shopUrl = %shop_url, stage, "Found no product URL pattern");
-        } else {
-            let matched_count =
-                Self::count_pattern_matches(&state.pattern, &state.inference_sample);
-            info!(
-                stage,
-                matchedCount = matched_count,
-                urlCount = state.inference_sample.len(),
-                "Classified sample URLs"
-            );
         }
 
         Ok(())
@@ -211,42 +187,6 @@ impl SpiderServiceImpl {
         Ok(())
     }
 
-    fn log_page_pattern_state(&self, state: &CrawlRunState, page: &CrawledPage) {
-        let current_url = state
-            .inference_sample
-            .last()
-            .cloned()
-            .unwrap_or_else(|| page.url.to_string());
-
-        if state.classification_done {
-            let is_match = if let Some(regex) = state.pattern.as_regex() {
-                if let Ok(parsed) = Url::parse(&current_url) {
-                    CrawledUrl::new(parsed).matches_pattern(regex)
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-
-            if is_match {
-                debug!(
-                    index = state.total_crawled,
-                    url = %current_url,
-                    "URL matches product pattern"
-                );
-            } else {
-                debug!(
-                    index = state.total_crawled,
-                    url = %current_url,
-                    "URL does not match product pattern"
-                );
-            }
-        } else {
-            debug!(index = state.total_crawled, url = %current_url, "Crawled URL");
-        }
-    }
-
     async fn flush_batch_if_needed(
         &self,
         state: &mut CrawlRunState,
@@ -261,7 +201,7 @@ impl SpiderServiceImpl {
     }
 
     fn log_progress(&self, state: &CrawlRunState) {
-        if state.total_crawled.is_multiple_of(100) {
+        if state.total_crawled.is_multiple_of(500) {
             info!(
                 totalCrawled = state.total_crawled,
                 productsSoFar = state.products_found,
@@ -361,7 +301,6 @@ impl SpiderServiceImpl {
             self.maybe_classify_at_threshold(&mut state, shop_id, shop_url, classify_threshold)
                 .await?;
 
-            self.log_page_pattern_state(&state, &page);
             self.flush_batch_if_needed(&mut state, shop_id).await?;
             self.log_progress(&state);
         }

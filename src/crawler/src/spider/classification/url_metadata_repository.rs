@@ -22,6 +22,7 @@ pub struct SpiderUrlRecord {
     pub state: UrlState,
     pub price_currency: Option<String>,
     pub price_value: Option<u32>,
+    pub last_scraped_hash: Option<String>,
     pub last_scraped: Option<OffsetDateTime>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -50,6 +51,7 @@ impl FromRow<'_, sqlx::postgres::PgRow> for SpiderUrlRecord {
             state,
             price_currency: row.try_get("price_currency")?,
             price_value: price_value.map(|v| v as u32),
+            last_scraped_hash: row.try_get("last_scraped_hash")?,
             last_scraped: row.try_get("last_scraped")?,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
@@ -80,6 +82,7 @@ pub trait UrlMetadataRepository: Send + Sync {
         &self,
         shop_id: &ShopId,
         url: &url::Url,
+        hash: &str,
     ) -> Result<SpiderUrlRecord, sqlx::Error>;
 
     async fn set_state(
@@ -122,7 +125,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
                  url_class = EXCLUDED.url_class,
                  main_hash = EXCLUDED.main_hash,
                  updated = NOW()
-             RETURNING shop_id, url, url_class, main_hash, state, price_currency, price_value, last_scraped, created, updated",
+             RETURNING shop_id, url, url_class, main_hash, state, price_currency, price_value, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(shop_id_uuid)
         .bind(url_str)
@@ -157,7 +160,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
                  url_class = EXCLUDED.url_class,
                  main_hash = EXCLUDED.main_hash,
                  updated = NOW()
-             RETURNING shop_id, url, url_class, main_hash, state, price_currency, price_value, last_scraped, created, updated",
+             RETURNING shop_id, url, url_class, main_hash, state, price_currency, price_value, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(shop_id_uuid)
         .bind(url_strs)
@@ -171,17 +174,19 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         &self,
         shop_id: &ShopId,
         url: &url::Url,
+        hash: &str,
     ) -> Result<SpiderUrlRecord, sqlx::Error> {
         let shop_id_uuid: uuid::Uuid = (*shop_id).into();
         let url_str = url.to_string();
         sqlx::query_as::<_, SpiderUrlRecord>(
             "UPDATE spider_link
-             SET last_scraped = NOW(), updated = NOW()
+             SET last_scraped = NOW(), last_scraped_hash = $3, updated = NOW()
              WHERE shop_id = $1 AND url = $2
-             RETURNING shop_id, url, url_class, main_hash, state, price_currency, price_value, last_scraped, created, updated",
+             RETURNING shop_id, url, url_class, main_hash, state, price_currency, price_value, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(shop_id_uuid)
         .bind(url_str)
+        .bind(hash)
         .fetch_one(&self.pool)
         .await
     }
@@ -199,7 +204,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
             "UPDATE spider_link
              SET state = $3, updated = NOW()
              WHERE shop_id = $1 AND url = $2
-             RETURNING shop_id, url, url_class, main_hash, state, price_currency, price_value, last_scraped, created, updated",
+             RETURNING shop_id, url, url_class, main_hash, state, price_currency, price_value, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(shop_id_uuid)
         .bind(url_str)

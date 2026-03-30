@@ -35,6 +35,7 @@ use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
+use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
 use crawler::scraper::normalization::product::NormalizedProduct;
@@ -46,6 +47,7 @@ use llm::builder::{LLMBackend, LLMBuilder};
 use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
 use sqlx::PgPool;
+use std::sync::Arc;
 use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
 use testcontainers::runners::AsyncRunner;
@@ -179,14 +181,17 @@ async fn main() {
             }
         };
 
-        match service.scrape(&shop_id, &url, "dummy_hash").await {
-            Ok(product) => {
+        match service.scrape(&shop_id, &url, "dummy_hash", None).await {
+            Ok(Some(product)) => {
                 info!(
                     title = %product.title.payload,
                     shopsProductId = %product.shops_product_id,
                     "Scrape succeeded"
                 );
                 products.push(product.into());
+            }
+            Ok(None) => {
+                info!("Hash matched, skipped scraping");
             }
             Err(e) => {
                 error!(error = %e, "Scrape failed");
@@ -327,7 +332,14 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     // HTTP fetcher using spider.
     let fetcher = Box::new(SpiderHtmlFetcher::new());
 
-    ScraperServiceImpl::new(fetcher, Box::new(schema_svc), Box::new(normalization_svc))
+    let candidate_service = Arc::new(ScraperCandidateServiceImpl::new(pool.clone()));
+
+    ScraperServiceImpl::new(
+        fetcher,
+        Box::new(schema_svc),
+        Box::new(normalization_svc),
+        candidate_service,
+    )
 }
 
 // ---------------------------------------------------------------------------

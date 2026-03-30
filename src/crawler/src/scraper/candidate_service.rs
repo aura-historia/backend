@@ -14,6 +14,12 @@ pub struct ScraperCandidate {
 #[mockall::automock]
 pub trait ScraperCandidateService: Send + Sync {
     async fn get_candidates(&self, limit: i64) -> Result<Vec<ScraperCandidate>, sqlx::Error>;
+    async fn mark_as_scraped(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        hash: &str,
+    ) -> Result<(), sqlx::Error>;
 }
 
 pub struct ScraperCandidateServiceImpl {
@@ -66,5 +72,28 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         }
 
         Ok(candidates)
+    }
+
+    async fn mark_as_scraped(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        hash: &str,
+    ) -> Result<(), sqlx::Error> {
+        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+        let url_str = url.to_string();
+
+        sqlx::query(
+            "UPDATE spider_link
+             SET last_scraped = NOW(), last_scraped_hash = $3, updated = NOW()
+             WHERE shop_id = $1 AND url = $2",
+        )
+        .bind(shop_id_uuid)
+        .bind(url_str)
+        .bind(hash)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
     }
 }

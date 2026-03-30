@@ -274,7 +274,7 @@ async fn should_replace_normalized_and_refresh_updated_timestamp_for_update() {
     repository.insert_mapping(&original).await.unwrap();
 
     // Small sleep so NOW() in the UPDATE is measurably later than the inserted `updated`
-    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
     let returned = repository
         .update_mapping(
@@ -429,7 +429,7 @@ async fn should_preserve_all_fields_across_full_round_trip_for_repository() {
     assert_eq!(found_after_insert.normalized, ProductStateRecord::Reserved);
     assert_eq!(found_after_insert.mapping_type, StateMappingType::Value);
 
-    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
     // 3. update
     let updated = repository

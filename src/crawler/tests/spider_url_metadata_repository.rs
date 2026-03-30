@@ -105,7 +105,10 @@ async fn should_update_last_scraped_timestamp_when_marking_as_scraped() {
         .await
         .unwrap();
 
-    let marked = repository.mark_as_scraped(&shop_id, &url).await.unwrap();
+    let marked = repository
+        .mark_as_scraped(&shop_id, &url, "dummy_hash")
+        .await
+        .unwrap();
 
     assert!(marked.last_scraped.is_some());
 }

@@ -1,3 +1,4 @@
+use crate::scraper::candidate_service::ScraperCandidateService;
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
 };
@@ -9,6 +10,7 @@ use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::normalization::product_normalization_service::ProductNormalizationService;
 use common::shop_id::ShopId;
 use scraper::Html;
+use std::sync::Arc;
 use tracing::{debug, warn};
 use url::Url;
 
@@ -108,8 +110,9 @@ pub trait ScraperService: Send + Sync {
         &self,
         shop_id: &ShopId,
         url: &Url,
-        _hash: &str,
-    ) -> Result<NormalizedProduct, ScraperError>;
+        current_hash: &str,
+        last_scraped_hash: Option<&str>,
+    ) -> Result<Option<NormalizedProduct>, ScraperError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +123,7 @@ pub struct ScraperServiceImpl {
     html_fetcher: Box<dyn HtmlFetcher>,
     schema_service: Box<dyn ProductSchemaService + Send + Sync>,
     normalization_service: Box<dyn ProductNormalizationService + Send + Sync>,
+    candidate_service: Arc<dyn ScraperCandidateService>,
 }
 
 impl ScraperServiceImpl {
@@ -127,11 +131,13 @@ impl ScraperServiceImpl {
         html_fetcher: Box<dyn HtmlFetcher>,
         schema_service: Box<dyn ProductSchemaService + Send + Sync>,
         normalization_service: Box<dyn ProductNormalizationService + Send + Sync>,
+        candidate_service: Arc<dyn ScraperCandidateService>,
     ) -> Self {
         Self {
             html_fetcher,
             schema_service,
             normalization_service,
+            candidate_service,
         }
     }
 }
@@ -142,8 +148,23 @@ impl ScraperService for ScraperServiceImpl {
         &self,
         shop_id: &ShopId,
         url: &Url,
-        _hash: &str,
-    ) -> Result<NormalizedProduct, ScraperError> {
+        current_hash: &str,
+        last_scraped_hash: Option<&str>,
+    ) -> Result<Option<NormalizedProduct>, ScraperError> {
+        if last_scraped_hash == Some(current_hash) {
+            debug!(
+                url = %url,
+                "Hash matches last scraped hash, skipping fetch."
+            );
+            if let Err(e) = self
+                .candidate_service
+                .mark_as_scraped(shop_id, url, current_hash)
+                .await
+            {
+                warn!(error = %e, "Failed to mark hash as scraped after skip");
+            }
+            return Ok(None);
+        }
         // 1. Fetch HTML --------------------------------------------------
         debug!(shopId = %shop_id, url = %url, "Fetching product page HTML");
         let html =
@@ -231,18 +252,26 @@ impl ScraperService for ScraperServiceImpl {
 
         // 4. Normalise --------------------------------------------------
         debug!(shopId = %shop_id, url = %url, "Normalizing extracted product data");
-        let normalized = self
-            .normalization_service
-            .normalize(raw, url.clone())
-            .await?;
+        let final_product = match self.normalization_service.normalize(raw, url.clone()).await {
+            Ok(normalized) => normalized,
+            Err(e) => return Err(ScraperError::NormalizationError(e)),
+        };
+
+        if let Err(e) = self
+            .candidate_service
+            .mark_as_scraped(shop_id, url, current_hash)
+            .await
+        {
+            warn!(error = %e, "Failed to mark product as scraped after success");
+        }
 
         debug!(
             shopId = %shop_id,
-            shopsProductId = %normalized.shops_product_id,
+            shopsProductId = %final_product.shops_product_id,
             url = %url,
             "Scraping complete"
         );
-        Ok(normalized)
+        Ok(Some(final_product))
     }
 }
 
@@ -253,6 +282,7 @@ impl ScraperService for ScraperServiceImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scraper::candidate_service::MockScraperCandidateService;
     use crate::scraper::css_selector::product_schema::{
         ApplySchemaError, ProductCssSelectorSchema, ShopsProductSchema,
     };
@@ -381,10 +411,23 @@ mod tests {
             Box::pin(async move { Ok(n) })
         });
 
-        let service =
-            ScraperServiceImpl::new(Box::new(fetcher), Box::new(schema_svc), Box::new(norm_svc));
+        let mut cand_svc = MockScraperCandidateService::new();
+        cand_svc
+            .expect_mark_as_scraped()
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
-        let result = service.scrape(&id, &url, "dummy_hash").await.unwrap();
+        let service = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+        );
+
+        let result = service
+            .scrape(&id, &url, "current_hash", None)
+            .await
+            .unwrap()
+            .unwrap();
 
         assert_eq!(result.shops_product_id, ShopsProductId::from("SKU-42"));
         assert_eq!(result.state, ProductState::Available);
@@ -419,12 +462,56 @@ mod tests {
             Box::pin(async move { Ok(n) })
         });
 
-        let service =
-            ScraperServiceImpl::new(Box::new(fetcher), Box::new(schema_svc), Box::new(norm_svc));
+        let mut cand_svc = MockScraperCandidateService::new();
+        cand_svc
+            .expect_mark_as_scraped()
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
-        let result = service.scrape(&id, &url, "dummy_hash").await.unwrap();
+        let service = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+        );
+
+        let result = service
+            .scrape(&id, &url, "current_hash", None)
+            .await
+            .unwrap()
+            .unwrap();
 
         assert_eq!(result, norm);
+    }
+
+    #[tokio::test]
+    async fn should_skip_fetching_and_return_none_when_hashes_match() {
+        let id = shop_id();
+        let url = product_url();
+
+        let mut fetcher = MockHtmlFetcher::new();
+        fetcher.expect_fetch().times(0); // MUST NOT BE CHECKED
+
+        let schema_svc = MockProductSchemaService::new();
+        let norm_svc = MockProductNormalizationService::new();
+        let mut cand_svc = MockScraperCandidateService::new();
+        cand_svc
+            .expect_mark_as_scraped()
+            .once()
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+
+        let service = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+        );
+
+        let result = service
+            .scrape(&id, &url, "same_hash", Some("same_hash"))
+            .await
+            .unwrap();
+
+        assert!(result.is_none());
     }
 
     // -----------------------------------------------------------------------
@@ -503,10 +590,23 @@ mod tests {
             Box::pin(async move { Ok(n) })
         });
 
-        let service =
-            ScraperServiceImpl::new(Box::new(fetcher), Box::new(schema_svc), Box::new(norm_svc));
+        let mut cand_svc = MockScraperCandidateService::new();
+        cand_svc
+            .expect_mark_as_scraped()
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
-        let result = service.scrape(&id, &url, "dummy_hash").await.unwrap();
+        let service = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+        );
+
+        let result = service
+            .scrape(&id, &url, "current_hash", None)
+            .await
+            .unwrap()
+            .unwrap();
 
         assert_eq!(result.shops_product_id, ShopsProductId::from("SKU-42"));
     }
@@ -561,11 +661,19 @@ mod tests {
         });
 
         let norm_svc = MockProductNormalizationService::new();
+        let cand_svc = MockScraperCandidateService::new();
 
-        let service =
-            ScraperServiceImpl::new(Box::new(fetcher), Box::new(schema_svc), Box::new(norm_svc));
+        let service = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+        );
 
-        let err = service.scrape(&id, &url, "dummy_hash").await.unwrap_err();
+        let err = service
+            .scrape(&id, &url, "current_hash", None)
+            .await
+            .unwrap_err();
 
         assert!(
             matches!(err, ScraperError::SchemaFixFailed { .. }),
@@ -639,10 +747,22 @@ mod tests {
             Box::pin(async move { Ok(n) })
         });
 
-        let service =
-            ScraperServiceImpl::new(Box::new(fetcher), Box::new(schema_svc), Box::new(norm_svc));
+        let mut cand_svc = MockScraperCandidateService::new();
+        cand_svc
+            .expect_mark_as_scraped()
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
-        service.scrape(&id, &url, "dummy_hash").await.unwrap();
+        let service = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+        );
+
+        service
+            .scrape(&id, &url, "current_hash", None)
+            .await
+            .unwrap();
     }
 
     // -----------------------------------------------------------------------
@@ -668,11 +788,19 @@ mod tests {
 
         let schema_svc = MockProductSchemaService::new();
         let norm_svc = MockProductNormalizationService::new();
+        let cand_svc = MockScraperCandidateService::new();
 
-        let service =
-            ScraperServiceImpl::new(Box::new(fetcher), Box::new(schema_svc), Box::new(norm_svc));
+        let service = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+        );
 
-        let err = service.scrape(&id, &url, "dummy_hash").await.unwrap_err();
+        let err = service
+            .scrape(&id, &url, "current_hash", None)
+            .await
+            .unwrap_err();
 
         assert!(
             matches!(err, ScraperError::HttpError { .. }),
@@ -700,11 +828,19 @@ mod tests {
 
         let schema_svc = MockProductSchemaService::new();
         let norm_svc = MockProductNormalizationService::new();
+        let cand_svc = MockScraperCandidateService::new();
 
-        let service =
-            ScraperServiceImpl::new(Box::new(fetcher), Box::new(schema_svc), Box::new(norm_svc));
+        let service = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+        );
 
-        let err = service.scrape(&id, &url, "dummy_hash").await.unwrap_err();
+        let err = service
+            .scrape(&id, &url, "current_hash", None)
+            .await
+            .unwrap_err();
 
         if let ScraperError::HttpError { url: err_url, .. } = err {
             assert_eq!(err_url, url_clone);
@@ -737,11 +873,19 @@ mod tests {
         });
 
         let norm_svc = MockProductNormalizationService::new();
+        let cand_svc = MockScraperCandidateService::new();
 
-        let service =
-            ScraperServiceImpl::new(Box::new(fetcher), Box::new(schema_svc), Box::new(norm_svc));
+        let service = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+        );
 
-        let err = service.scrape(&id, &url, "dummy_hash").await.unwrap_err();
+        let err = service
+            .scrape(&id, &url, "current_hash", None)
+            .await
+            .unwrap_err();
 
         assert!(
             matches!(err, ScraperError::SchemaServiceError(_)),
@@ -777,10 +921,19 @@ mod tests {
             .expect_normalize()
             .returning(|_, _| Box::pin(async { Err(NormalizationError::ShopsProductIdEmpty) }));
 
-        let service =
-            ScraperServiceImpl::new(Box::new(fetcher), Box::new(schema_svc), Box::new(norm_svc));
+        let cand_svc = MockScraperCandidateService::new();
 
-        let err = service.scrape(&id, &url, "dummy_hash").await.unwrap_err();
+        let service = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+        );
+
+        let err = service
+            .scrape(&id, &url, "current_hash", None)
+            .await
+            .unwrap_err();
 
         assert!(
             matches!(err, ScraperError::NormalizationError(_)),
@@ -822,10 +975,22 @@ mod tests {
                 Box::pin(async move { Ok(n) })
             });
 
-        let service =
-            ScraperServiceImpl::new(Box::new(fetcher), Box::new(schema_svc), Box::new(norm_svc));
+        let mut cand_svc = MockScraperCandidateService::new();
+        cand_svc
+            .expect_mark_as_scraped()
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
-        service.scrape(&id, &url, "dummy_hash").await.unwrap();
+        let service = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+        );
+
+        service
+            .scrape(&id, &url, "current_hash", None)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -855,10 +1020,23 @@ mod tests {
             Box::pin(async move { Ok(n) })
         });
 
-        let service =
-            ScraperServiceImpl::new(Box::new(fetcher), Box::new(schema_svc), Box::new(norm_svc));
+        let mut cand_svc = MockScraperCandidateService::new();
+        cand_svc
+            .expect_mark_as_scraped()
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
-        let result = service.scrape(&id, &url, "dummy_hash").await.unwrap();
+        let service = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+        );
+
+        let result = service
+            .scrape(&id, &url, "current_hash", None)
+            .await
+            .unwrap()
+            .unwrap();
 
         assert_eq!(result.url, canonical_url);
     }
@@ -902,8 +1080,13 @@ mod tests {
         let schema_svc = MockProductSchemaService::new();
         let norm_svc = MockProductNormalizationService::new();
 
-        let _ =
-            ScraperServiceImpl::new(Box::new(fetcher), Box::new(schema_svc), Box::new(norm_svc));
+        let cand_svc = MockScraperCandidateService::new();
+        let _ = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+        );
     }
 
     // -----------------------------------------------------------------------

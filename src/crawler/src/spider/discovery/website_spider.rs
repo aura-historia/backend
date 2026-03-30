@@ -108,7 +108,8 @@ impl Spider for SpiderImpl {
 
         website
             .with_blacklist_url(Some(blacklist_regex))
-            .with_respect_robots_txt(true)
+            .with_respect_robots_txt(false)
+            .with_user_agent(Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"))
             .with_request_timeout(Some(std::time::Duration::from_secs(
                 self.config.request_timeout_secs,
             )))
