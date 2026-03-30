@@ -21,33 +21,49 @@ use url::Url;
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait HtmlFetcher: Send + Sync {
-    async fn fetch(&self, url: &Url) -> Result<String, reqwest::Error>;
+    async fn fetch(&self, url: &Url) -> Result<String, String>;
 }
 
 // ---------------------------------------------------------------------------
-// Real HtmlFetcher backed by reqwest
+// Real HtmlFetcher backed by spider
 // ---------------------------------------------------------------------------
 
-pub struct ReqwestHtmlFetcher {
-    client: reqwest::Client,
-}
+use spider::website::Website;
 
-impl ReqwestHtmlFetcher {
-    pub fn new(client: reqwest::Client) -> Self {
-        Self { client }
+#[derive(Default)]
+pub struct SpiderHtmlFetcher {}
+
+impl SpiderHtmlFetcher {
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
 #[async_trait::async_trait]
-impl HtmlFetcher for ReqwestHtmlFetcher {
-    async fn fetch(&self, url: &Url) -> Result<String, reqwest::Error> {
-        self.client
-            .get(url.as_str())
-            .send()
-            .await?
-            .error_for_status()?
-            .text()
-            .await
+impl HtmlFetcher for SpiderHtmlFetcher {
+    async fn fetch(&self, url: &Url) -> Result<String, String> {
+        let mut website = Website::new(url.as_str());
+
+        let mut hashbrown_budget = spider::hashbrown::HashMap::new();
+        hashbrown_budget.insert("*", 1);
+        website.with_budget(Some(hashbrown_budget));
+
+        let mut rx = website
+            .subscribe(16)
+            .ok_or("Failed to subscribe to spider channel")?;
+
+        website.scrape().await;
+        drop(website);
+
+        // Read the page from the channel (now that scraping is done and website dropped)
+        if let Ok(page) = rx.try_recv() {
+            let html = page.get_html();
+            if !html.is_empty() {
+                return Ok(html);
+            }
+        }
+
+        Err(format!("Spider could not fetch HTML for URL: {}", url))
     }
 }
 
@@ -57,12 +73,8 @@ impl HtmlFetcher for ReqwestHtmlFetcher {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ScraperError {
-    #[error("HTTP error while fetching '{url}': {source}")]
-    HttpError {
-        url: Url,
-        #[source]
-        source: reqwest::Error,
-    },
+    #[error("HTTP error while fetching '{url}': {details}")]
+    HttpError { url: Url, details: String },
 
     #[error("Schema service error: {0}")]
     SchemaServiceError(#[from] ProductSchemaServiceError),
@@ -128,9 +140,9 @@ impl ScraperService for ScraperServiceImpl {
             self.html_fetcher
                 .fetch(url)
                 .await
-                .map_err(|source| ScraperError::HttpError {
+                .map_err(|details| ScraperError::HttpError {
                     url: url.clone(),
-                    source,
+                    details,
                 })?;
 
         // 2. Obtain schema (from DB or freshly created by LLM) -----------
@@ -640,6 +652,7 @@ mod tests {
                     .send()
                     .await
                     .map(|_| String::new())
+                    .map_err(|e| e.to_string())
             })
         });
 
@@ -671,6 +684,7 @@ mod tests {
                     .send()
                     .await
                     .map(|_| String::new())
+                    .map_err(|e| e.to_string())
             })
         });
 
@@ -840,13 +854,32 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // ReqwestHtmlFetcher
+    // SpiderHtmlFetcher
     // -----------------------------------------------------------------------
 
     #[test]
-    fn should_construct_reqwest_html_fetcher_with_given_client() {
-        let client = reqwest::Client::new();
-        let _ = ReqwestHtmlFetcher::new(client);
+    fn should_construct_spider_html_fetcher() {
+        let _ = SpiderHtmlFetcher::new();
+    }
+
+    #[tokio::test]
+    async fn should_fail_gracefully_when_fetching_invalid_url() {
+        let fetcher = SpiderHtmlFetcher::new();
+        // Use a port that is highly unlikely to have a web server running
+        let url = Url::parse("http://127.0.0.1:1/nonexistent").unwrap();
+
+        let result = fetcher.fetch(&url).await;
+
+        assert!(
+            result.is_err(),
+            "Fetching from an invalid server should return an error"
+        );
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("Spider could not fetch HTML"),
+            "Error message should match the fetcher's custom error: {}",
+            err_msg
+        );
     }
 
     // -----------------------------------------------------------------------
