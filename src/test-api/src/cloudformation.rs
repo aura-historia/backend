@@ -59,6 +59,7 @@ const LAMBDA_BINARIES: &[&str] = &[
     "notification-send",
     "product-lambda-materialize-dynamodb",
     "product-lambda-materialize-opensearch",
+    "product-pipeline-embed-text",
     "shop-lambda-opensearch-index",
     "search-filter-lambda-opensearch-sync",
     "product-lambda-update-notify-user",
