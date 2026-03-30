@@ -147,7 +147,6 @@ pub struct ProductRecord {
     pub url: Url,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub images: Vec<ProductImageRecord>,
-    #[serde(rename = "text_embedding")]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub embedding: Option<Vec<f32>>,
 

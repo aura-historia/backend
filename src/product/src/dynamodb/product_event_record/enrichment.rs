@@ -52,7 +52,6 @@ pub struct ProductEnrichmentEventRecord {
     pub target: Option<String>,
 
     // text-embedding
-    #[serde(rename = "text_embedding")]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub embedding: Option<Vec<f32>>,
 

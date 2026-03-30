@@ -98,7 +98,7 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
                         shopProductId = %shops_product_id,
                         productId = %record.product_id,
                         "When trying to find similar products for given ProductKey,
-                         ProductRecord for ProductKey did not have a textEmbedding
+                         ProductRecord for ProductKey did not have an embedding
                          although it was created at least one day prior -
                          hence why the nightly product-enrichment SHOULD have run and embedded the text."
                     );
