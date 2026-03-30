@@ -72,7 +72,7 @@ INSERT INTO product_state_mapping (raw, normalized, mapping_type) VALUES ('elimi
 INSERT INTO product_state_mapping (raw, normalized, mapping_type) VALUES ('disponibile',      'AVAILABLE', 'VALUE') ON CONFLICT (raw) DO NOTHING;
 INSERT INTO product_state_mapping (raw, normalized, mapping_type) VALUES ('inserito',         'LISTED',    'VALUE') ON CONFLICT (raw) DO NOTHING;
 INSERT INTO product_state_mapping (raw, normalized, mapping_type) VALUES ('riservato',        'RESERVED',  'VALUE') ON CONFLICT (raw) DO NOTHING;
-INSERT INTO product_state_mapping (raw, normalized, mapping_type) VALUES ('vendido',          'SOLD',      'VALUE') ON CONFLICT (raw) DO NOTHING;
+INSERT INTO product_state_mapping (raw, normalized, mapping_type) VALUES ('venduto',          'SOLD',      'VALUE') ON CONFLICT (raw) DO NOTHING;
 INSERT INTO product_state_mapping (raw, normalized, mapping_type) VALUES ('rimosso',          'REMOVED',   'VALUE') ON CONFLICT (raw) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
