@@ -234,8 +234,6 @@ fn build_lambdas() {
             "--exclude",
             "product-pipeline-translate",
             "--exclude",
-            "product-pipeline-embed-text",
-            "--exclude",
             "product-pipeline-extract-attribute",
             "--exclude",
             "product-pipeline-classify",

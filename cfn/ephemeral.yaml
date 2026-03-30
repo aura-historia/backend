@@ -585,7 +585,7 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/${StageName}/gemini-api-key}}"
+          GEMINI_API_KEY: "test-key"
   ProductPipelineEmbedTextMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
