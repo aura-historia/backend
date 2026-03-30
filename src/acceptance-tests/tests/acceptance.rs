@@ -4315,8 +4315,8 @@ async fn should_embed_product_when_domain_created_event_triggers_pipeline() {
 
     // 3. Wait for the embed-text Lambda to produce an enrichment event
     //    which the materialize-dynamodb Lambda then materializes into the product record.
-    //    The MockMultimodalEmbeddingService returns vec![0.42f32; 768].
-    let expected_embedding = vec![0.42f32; 768];
+    //    The MockMultimodalEmbeddingService returns vec![0.42f32; 1024].
+    let expected_embedding = vec![0.42f32; 1024];
     let deadline = Instant::now() + Duration::from_secs(120);
     loop {
         let materialized = repository

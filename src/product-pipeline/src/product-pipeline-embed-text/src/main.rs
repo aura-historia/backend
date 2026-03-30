@@ -32,7 +32,7 @@ async fn main() -> Result<(), Error> {
         let mut embedding_service = MockMultimodalEmbeddingService::new();
         embedding_service
             .expect_embed()
-            .returning(|_, _, _| Box::pin(async { Ok(vec![0.42f32; 768]) }));
+            .returning(|_, _, _| Box::pin(async { Ok(vec![0.42f32; 1024]) }));
         run(service_fn(|event: LambdaEvent<SqsEvent>| async {
             handler(
                 &get_product_service,
