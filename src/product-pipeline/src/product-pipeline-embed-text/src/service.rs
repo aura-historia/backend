@@ -118,16 +118,12 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
             content: Content { parts },
         };
 
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2-preview-03-25:embedContent?key={}",
-            self.api_key
-        );
-
         debug!("Requesting multimodal embedding from Gemini API.");
 
         let response = self
             .client
-            .post(&url)
+            .post("https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2-preview:embedContent")
+            .header("x-goog-api-key", &self.api_key)
             .json(&request)
             .send()
             .await?
