@@ -72,9 +72,9 @@ pub async fn handler(
                     messageId = message_id,
                     shopId = %enrichment_record.shop_id,
                     shopsProductId = %enrichment_record.shops_product_id,
+                    eventId = %enrichment_record.event_id,
                     "Enrichment record has no embedding."
                 );
-                failed_message_ids.push(message_id);
                 continue;
             }
         };
@@ -573,7 +573,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_failure_when_enrichment_record_has_no_embedding() {
+    async fn should_skip_failure_when_enrichment_record_has_no_embedding() {
         let mut enrichment_record: ProductEnrichmentEventRecord = Faker.fake();
         enrichment_record.embedding = None;
         let event_record = ProductEventRecord::Enrichment(enrichment_record);
@@ -598,8 +598,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(1, result.batch_item_failures.len());
-        assert_eq!(message_id, result.batch_item_failures[0].item_identifier);
+        assert!(result.batch_item_failures.is_empty());
     }
 
     #[tokio::test]
