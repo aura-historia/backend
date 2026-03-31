@@ -269,7 +269,7 @@ jobs:
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r src/product-pipeline/src/product-pipeline-embed-text/python/requirements.txt
+          pip install -r src/product-pipeline/src/product-pipeline-extract-attribute/python/requirements.txt
 
       - name: Generate coverage
         env:
