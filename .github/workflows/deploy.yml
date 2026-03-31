@@ -3,7 +3,14 @@ name: Deploy (CD)
 on:
   push:
     branches: [prod, develop]
-  pull_request:
+    paths:
+      - ".github/workflows/deploy.yaml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/**"
+      - "cfn/dev.yaml"
+      - "cfn/prod.yaml"
+      - "mjml/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -69,6 +76,7 @@ jobs:
           - src/product-watchlist-api
           - src/product-pipeline/src/product-pipeline-asg-scale-control
           - src/product-pipeline/src/product-pipeline-embed-text
+          - src/product-pipeline/src/product-pipeline-classify
           - src/product-lambda/src/product-lambda-materialize-dynamodb
           - src/product-lambda/src/product-lambda-materialize-opensearch
           - src/product-lambda/src/product-lambda-update-notify-user
