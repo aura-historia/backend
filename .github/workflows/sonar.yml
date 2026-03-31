@@ -3,6 +3,8 @@ name: SonarQube
 on:
   push:
     branches: [develop]
+    paths:
+      - "src/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

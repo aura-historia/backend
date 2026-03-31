@@ -3,7 +3,23 @@ name: Integrate (CI)
 on:
   push:
     branches: [prod, develop]
+    paths:
+      - "cfn/deploy.yaml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/**"
+      - "cfn/dev.yaml"
+      - "cfn/prod.yaml"
+      - "mjml/**"
   pull_request:
+    paths:
+      - "cfn/deploy.yaml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/**"
+      - "cfn/ephemeral.yaml"
+      - "opensearch/**"
+      - "mjml/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
