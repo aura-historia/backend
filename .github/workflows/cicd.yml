@@ -390,8 +390,6 @@ jobs:
     strategy:
       matrix:
         crate:
-          - src/product-pipeline/src/product-pipeline-classify
-          - src/product-pipeline/src/product-pipeline-embed-text
           - src/product-pipeline/src/product-pipeline-extract-attribute
           - src/product-pipeline/src/product-pipeline-translate
     steps:
