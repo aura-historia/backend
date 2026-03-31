@@ -104,6 +104,9 @@ fn mk_notification_payload(
                 payload.new_prices(),
             )
         }
+        ProductDomainEventPayload::DetailChanged(_) => {
+            unreachable!("DetailChanged events are not routed to the notification handler")
+        }
     }
 }
 

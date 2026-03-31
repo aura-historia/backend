@@ -8,6 +8,7 @@ pub enum ProductDomainEventTypeRecord {
     DomainCreated,
     DomainStateChanged,
     DomainPriceChanged,
+    DomainDetailChanged,
 }
 
 impl From<&ProductDomainEventPayload> for ProductDomainEventTypeRecord {
@@ -19,6 +20,9 @@ impl From<&ProductDomainEventPayload> for ProductDomainEventTypeRecord {
             }
             ProductDomainEventPayload::PriceChanged(_) => {
                 ProductDomainEventTypeRecord::DomainPriceChanged
+            }
+            ProductDomainEventPayload::DetailChanged(_) => {
+                ProductDomainEventTypeRecord::DomainDetailChanged
             }
         }
     }
@@ -40,6 +44,10 @@ mod tests {
         ProductDomainEventTypeRecord::DomainPriceChanged,
         "\"DOMAIN_PRICE_CHANGED\""
     )]
+    #[case(
+        ProductDomainEventTypeRecord::DomainDetailChanged,
+        "\"DOMAIN_DETAIL_CHANGED\""
+    )]
     fn should_serialize_product_event_type_record_in_screaming_snake_case(
         #[case] product_state_record: ProductDomainEventTypeRecord,
         #[case] expected: &str,
@@ -58,6 +66,10 @@ mod tests {
     #[case(
         "\"DOMAIN_PRICE_CHANGED\"",
         ProductDomainEventTypeRecord::DomainPriceChanged
+    )]
+    #[case(
+        "\"DOMAIN_DETAIL_CHANGED\"",
+        ProductDomainEventTypeRecord::DomainDetailChanged
     )]
     fn should_deserialize_product_event_type_record_in_screaming_snake_case(
         #[case] currency: &str,

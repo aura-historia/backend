@@ -74,9 +74,30 @@ fn to_update_entry(
     partner_shop: &PartnerShop,
 ) -> (ProductKey, UpdateProductCommand) {
     let key = ProductKey::new(partner_shop.shop_id, data.shops_product_id);
+
+    let images = data.images.map(|urls| {
+        urls.into_iter()
+            .map(|url| product::core::product_image::ProductImage {
+                url,
+                prohibited_content: product::core::prohibited_content::ProhibitedContent::default(),
+            })
+            .collect()
+    });
+
     let cmd = UpdateProductCommand {
         native_price: data.price.map(Price::from),
         state: data.state.map(|s| s.into()),
+        native_price_estimate_min: data.price_estimate_min.map(Price::from),
+        native_price_estimate_max: data.price_estimate_max.map(Price::from),
+        url: data.url,
+        images,
+        auction_start: data.auction_start,
+        auction_end: data.auction_end,
+        origin_year: data.origin_year.map(|oy| oy.into()),
+        authenticity: data.authenticity.map(|a| a.into()),
+        condition: data.condition.map(|c| c.into()),
+        provenance: data.provenance.map(|p| p.into()),
+        restoration: data.restoration.map(|r| r.into()),
     };
     (key, cmd)
 }
@@ -192,6 +213,17 @@ mod tests {
                 shops_product_id: shops_product_id.clone(),
                 price: None,
                 state: Some(ProductStateData::Available),
+                price_estimate_min: None,
+                price_estimate_max: None,
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
             },
             &partner_shop_with_key,
         );
@@ -269,6 +301,17 @@ mod tests {
             shops_product_id: ShopsProductId::from("test-id".to_string()),
             price: None,
             state: Some(ProductStateData::Listed),
+            price_estimate_min: None,
+            price_estimate_max: None,
+            url: None,
+            images: None,
+            auction_start: None,
+            auction_end: None,
+            origin_year: None,
+            authenticity: None,
+            condition: None,
+            provenance: None,
+            restoration: None,
         };
 
         let (key, cmd) = to_update_entry(data, &partner_shop);
@@ -295,6 +338,17 @@ mod tests {
                 1000,
             )),
             state: Some(ProductStateData::Available),
+            price_estimate_min: None,
+            price_estimate_max: None,
+            url: None,
+            images: None,
+            auction_start: None,
+            auction_end: None,
+            origin_year: None,
+            authenticity: None,
+            condition: None,
+            provenance: None,
+            restoration: None,
         };
 
         let (key, cmd) = to_update_entry(data, &partner_shop);

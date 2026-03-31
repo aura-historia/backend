@@ -219,6 +219,17 @@ async fn should_write_no_product_update_events_when_all_exist_and_no_changes() {
                 UpdateProductCommand {
                     native_price: cmd.native_price,
                     state: Some(cmd.state),
+                    native_price_estimate_min: None,
+                    native_price_estimate_max: None,
+                    url: None,
+                    images: None,
+                    auction_start: None,
+                    auction_end: None,
+                    origin_year: None,
+                    authenticity: None,
+                    condition: None,
+                    provenance: None,
+                    restoration: None,
                 },
             )
         })
@@ -275,6 +286,17 @@ async fn should_write_product_updates_when_all_exist_and_actual_changes() {
                 UpdateProductCommand {
                     native_price: cmd.native_price,
                     state: Some(ProductState::Available),
+                    native_price_estimate_min: None,
+                    native_price_estimate_max: None,
+                    url: None,
+                    images: None,
+                    auction_start: None,
+                    auction_end: None,
+                    origin_year: None,
+                    authenticity: None,
+                    condition: None,
+                    provenance: None,
+                    restoration: None,
                 },
             )
         })
@@ -313,6 +335,17 @@ async fn should_return_failures_when_updating_non_existent_products() {
                 UpdateProductCommand {
                     native_price: cmd.native_price,
                     state: Some(cmd.state),
+                    native_price_estimate_min: None,
+                    native_price_estimate_max: None,
+                    url: None,
+                    images: None,
+                    auction_start: None,
+                    auction_end: None,
+                    origin_year: None,
+                    authenticity: None,
+                    condition: None,
+                    provenance: None,
+                    restoration: None,
                 },
             )
         })

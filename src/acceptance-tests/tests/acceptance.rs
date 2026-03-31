@@ -1096,6 +1096,17 @@ async fn should_materialize_product_in_dynamodb_for_domain_event() {
     let update_cmd = UpdateProductCommand {
         native_price: None,
         state: Some(new_state),
+        native_price_estimate_min: None,
+        native_price_estimate_max: None,
+        url: None,
+        images: None,
+        auction_start: None,
+        auction_end: None,
+        origin_year: None,
+        authenticity: None,
+        condition: None,
+        provenance: None,
+        restoration: None,
     };
 
     update_products(HashMap::from([(product_key.clone(), update_cmd)])).await;
@@ -1943,6 +1954,17 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
         UpdateProductCommand {
             native_price: None,
             state: Some(new_state),
+            native_price_estimate_min: None,
+            native_price_estimate_max: None,
+            url: None,
+            images: None,
+            auction_start: None,
+            auction_end: None,
+            origin_year: None,
+            authenticity: None,
+            condition: None,
+            provenance: None,
+            restoration: None,
         },
     )]))
     .await;

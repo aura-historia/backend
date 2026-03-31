@@ -1,6 +1,7 @@
 use crate::core::product_event::ProductDomainEvent;
 use crate::core::product_event::domain::{
-    ProductCommonEventPayload, ProductCreatedDomainEventPayload, ProductDomainEventPayload,
+    ProductCommonEventPayload, ProductCreatedDomainEventPayload,
+    ProductDetailChangeDomainEventPayload, ProductDomainEventPayload,
     ProductPriceChangeDomainEventPayload, ProductStateChangeDomainEventPayload,
 };
 use crate::core::product_image::ProductImage;
@@ -160,6 +161,22 @@ pub struct ProductDomainEventRecord {
         default
     )]
     pub auction_end: Option<OffsetDateTime>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_year_min: Option<common::year::Year>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_year: Option<common::year::Year>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_year_max: Option<common::year::Year>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub authenticity: Option<crate::dynamodb::authenticity_record::AuthenticityRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub condition: Option<crate::dynamodb::condition_record::ConditionRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub provenance: Option<crate::dynamodb::provenance_record::ProvenanceRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub restoration: Option<crate::dynamodb::restoration_record::RestorationRecord>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub timestamp: OffsetDateTime,
@@ -430,6 +447,13 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                     ),
                     auction_start: payload.auction_start,
                     auction_end: payload.auction_end,
+                    origin_year_min: None,
+                    origin_year: None,
+                    origin_year_max: None,
+                    authenticity: None,
+                    condition: None,
+                    provenance: None,
+                    restoration: None,
                     timestamp: domain.timestamp,
                 }
             }
@@ -446,6 +470,17 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                 domain.timestamp,
             ),
             ProductDomainEventPayload::PriceChanged(payload) => mk_price_change_event_record(
+                payload,
+                pk,
+                sk,
+                product_id,
+                event_id,
+                event_type,
+                shop_id,
+                shops_product_id,
+                domain.timestamp,
+            ),
+            ProductDomainEventPayload::DetailChanged(payload) => mk_detail_change_event_record(
                 payload,
                 pk,
                 sk,
@@ -532,6 +567,13 @@ fn mk_state_event_record(
         images: None,
         auction_start: None,
         auction_end: None,
+        origin_year_min: None,
+        origin_year: None,
+        origin_year_max: None,
+        authenticity: None,
+        condition: None,
+        provenance: None,
+        restoration: None,
         timestamp,
     }
 }
@@ -655,6 +697,150 @@ fn mk_price_change_event_record(
         images: None,
         auction_start: None,
         auction_end: None,
+        origin_year_min: None,
+        origin_year: None,
+        origin_year_max: None,
+        authenticity: None,
+        condition: None,
+        provenance: None,
+        restoration: None,
+        timestamp,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn mk_detail_change_event_record(
+    payload: ProductDetailChangeDomainEventPayload,
+    pk: String,
+    sk: String,
+    product_id: ProductId,
+    event_id: EventId,
+    event_type: ProductDomainEventTypeRecord,
+    shop_id: ShopId,
+    shops_product_id: ShopsProductId,
+    timestamp: OffsetDateTime,
+) -> ProductDomainEventRecord {
+    use crate::dynamodb::authenticity_record::AuthenticityRecord;
+    use crate::dynamodb::condition_record::ConditionRecord;
+    use crate::dynamodb::provenance_record::ProvenanceRecord;
+    use crate::dynamodb::restoration_record::RestorationRecord;
+
+    ProductDomainEventRecord {
+        pk,
+        sk,
+        product_id,
+        shop_slug_id: None,
+        product_slug_id: None,
+        event_id,
+        event_type,
+        event_type_schema_version: 0,
+        shop_id,
+        shops_product_id,
+        shop_name: None,
+        shop_type: None,
+        title_native: None,
+        title_de: None,
+        title_en: None,
+        title_fr: None,
+        title_es: None,
+        title_it: None,
+        description_native: None,
+        description_de: None,
+        description_en: None,
+        description_fr: None,
+        description_es: None,
+        description_it: None,
+        new_price_native: None,
+        new_price_eur: None,
+        new_price_usd: None,
+        new_price_gbp: None,
+        new_price_aud: None,
+        new_price_cad: None,
+        new_price_nzd: None,
+        new_price_estimate_min_native: payload.native_price_estimate_min.map(PriceRecord::from),
+        new_price_estimate_min_eur: payload
+            .other_price_estimate_min
+            .get(&Currency::Eur)
+            .copied()
+            .map(u64::from),
+        new_price_estimate_min_usd: payload
+            .other_price_estimate_min
+            .get(&Currency::Usd)
+            .copied()
+            .map(u64::from),
+        new_price_estimate_min_gbp: payload
+            .other_price_estimate_min
+            .get(&Currency::Gbp)
+            .copied()
+            .map(u64::from),
+        new_price_estimate_min_aud: payload
+            .other_price_estimate_min
+            .get(&Currency::Aud)
+            .copied()
+            .map(u64::from),
+        new_price_estimate_min_cad: payload
+            .other_price_estimate_min
+            .get(&Currency::Cad)
+            .copied()
+            .map(u64::from),
+        new_price_estimate_min_nzd: payload
+            .other_price_estimate_min
+            .get(&Currency::Nzd)
+            .copied()
+            .map(u64::from),
+        new_price_estimate_max_native: payload.native_price_estimate_max.map(PriceRecord::from),
+        new_price_estimate_max_eur: payload
+            .other_price_estimate_max
+            .get(&Currency::Eur)
+            .copied()
+            .map(u64::from),
+        new_price_estimate_max_usd: payload
+            .other_price_estimate_max
+            .get(&Currency::Usd)
+            .copied()
+            .map(u64::from),
+        new_price_estimate_max_gbp: payload
+            .other_price_estimate_max
+            .get(&Currency::Gbp)
+            .copied()
+            .map(u64::from),
+        new_price_estimate_max_aud: payload
+            .other_price_estimate_max
+            .get(&Currency::Aud)
+            .copied()
+            .map(u64::from),
+        new_price_estimate_max_cad: payload
+            .other_price_estimate_max
+            .get(&Currency::Cad)
+            .copied()
+            .map(u64::from),
+        new_price_estimate_max_nzd: payload
+            .other_price_estimate_max
+            .get(&Currency::Nzd)
+            .copied()
+            .map(u64::from),
+        old_price_native: None,
+        old_price_eur: None,
+        old_price_usd: None,
+        old_price_gbp: None,
+        old_price_aud: None,
+        old_price_cad: None,
+        old_price_nzd: None,
+        new_state: None,
+        old_state: None,
+        url: payload.url,
+        images: payload
+            .images
+            .map(|imgs| imgs.into_iter().map(ProductImageRecord::from).collect()),
+        auction_start: payload.auction_start,
+        auction_end: payload.auction_end,
+        origin_year_min: payload.origin_year.and_then(|oy| oy.min()),
+        origin_year: payload.origin_year.and_then(|oy| oy.exact()),
+        origin_year_max: payload.origin_year.and_then(|oy| oy.max()),
+        authenticity: payload.authenticity.map(AuthenticityRecord::from),
+        condition: payload.condition.map(ConditionRecord::from),
+        provenance: payload.provenance.map(ProvenanceRecord::from),
+        restoration: payload.restoration.map(RestorationRecord::from),
         timestamp,
     }
 }
@@ -831,6 +1017,86 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                         old_native_price: record.old_price_native.map(Price::from),
                         old_other_price,
                     })
+                }
+                ProductDomainEventTypeRecord::DomainDetailChanged => {
+                    let origin_year = if let Some(exact) = record.origin_year {
+                        Some(crate::core::origin_year::OriginYear::ExactYear(exact))
+                    } else if record.origin_year_min.is_some() || record.origin_year_max.is_some() {
+                        Some(crate::core::origin_year::OriginYear::EstimatedRange(
+                            common::year::YearRange {
+                                min: record.origin_year_min,
+                                max: record.origin_year_max,
+                            },
+                        ))
+                    } else {
+                        None
+                    };
+
+                    let mut new_other_price_estimate_min = HashMap::with_capacity(6);
+                    if let Some(v) = record.new_price_estimate_min_eur {
+                        new_other_price_estimate_min.insert(Currency::Eur, v.into());
+                    }
+                    if let Some(v) = record.new_price_estimate_min_gbp {
+                        new_other_price_estimate_min.insert(Currency::Gbp, v.into());
+                    }
+                    if let Some(v) = record.new_price_estimate_min_usd {
+                        new_other_price_estimate_min.insert(Currency::Usd, v.into());
+                    }
+                    if let Some(v) = record.new_price_estimate_min_aud {
+                        new_other_price_estimate_min.insert(Currency::Aud, v.into());
+                    }
+                    if let Some(v) = record.new_price_estimate_min_cad {
+                        new_other_price_estimate_min.insert(Currency::Cad, v.into());
+                    }
+                    if let Some(v) = record.new_price_estimate_min_nzd {
+                        new_other_price_estimate_min.insert(Currency::Nzd, v.into());
+                    }
+
+                    let mut new_other_price_estimate_max = HashMap::with_capacity(6);
+                    if let Some(v) = record.new_price_estimate_max_eur {
+                        new_other_price_estimate_max.insert(Currency::Eur, v.into());
+                    }
+                    if let Some(v) = record.new_price_estimate_max_gbp {
+                        new_other_price_estimate_max.insert(Currency::Gbp, v.into());
+                    }
+                    if let Some(v) = record.new_price_estimate_max_usd {
+                        new_other_price_estimate_max.insert(Currency::Usd, v.into());
+                    }
+                    if let Some(v) = record.new_price_estimate_max_aud {
+                        new_other_price_estimate_max.insert(Currency::Aud, v.into());
+                    }
+                    if let Some(v) = record.new_price_estimate_max_cad {
+                        new_other_price_estimate_max.insert(Currency::Cad, v.into());
+                    }
+                    if let Some(v) = record.new_price_estimate_max_nzd {
+                        new_other_price_estimate_max.insert(Currency::Nzd, v.into());
+                    }
+
+                    ProductDomainEventPayload::DetailChanged(
+                        ProductDetailChangeDomainEventPayload {
+                            shop_id,
+                            shops_product_id,
+                            native_price_estimate_min: record
+                                .new_price_estimate_min_native
+                                .map(Price::from),
+                            other_price_estimate_min: new_other_price_estimate_min,
+                            native_price_estimate_max: record
+                                .new_price_estimate_max_native
+                                .map(Price::from),
+                            other_price_estimate_max: new_other_price_estimate_max,
+                            url: record.url,
+                            images: record
+                                .images
+                                .map(|imgs| imgs.into_iter().map(ProductImage::from).collect()),
+                            auction_start: record.auction_start,
+                            auction_end: record.auction_end,
+                            origin_year,
+                            authenticity: record.authenticity.map(Into::into),
+                            condition: record.condition.map(Into::into),
+                            provenance: record.provenance.map(Into::into),
+                            restoration: record.restoration.map(Into::into),
+                        },
+                    )
                 }
             },
         };

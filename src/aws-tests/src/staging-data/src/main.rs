@@ -166,6 +166,17 @@ async fn populate_products(shops: Vec<GetShopData>) {
                     UpdateProductCommand {
                         native_price,
                         state,
+                        native_price_estimate_min: None,
+                        native_price_estimate_max: None,
+                        url: None,
+                        images: None,
+                        auction_start: None,
+                        auction_end: None,
+                        origin_year: None,
+                        authenticity: None,
+                        condition: None,
+                        provenance: None,
+                        restoration: None,
                     },
                 );
             }

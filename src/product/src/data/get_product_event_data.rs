@@ -13,6 +13,7 @@ pub enum ProductEventTypeData {
     Created,
     StateChanged,
     PriceChanged,
+    DetailChanged,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -21,6 +22,7 @@ pub enum ProductEventPayloadData {
     Created(ProductCreatedEventPayloadData),
     StateChanged(ProductEventStateChangedPayloadData),
     PriceChanged(ProductEventPriceChangedPayloadData),
+    DetailChanged(ProductEventDetailChangedPayloadData),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -46,6 +48,13 @@ pub struct ProductCreatedEventPayloadData {
     pub price: Option<PriceData>,
 
     pub state: ProductStateData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductEventDetailChangedPayloadData {
+    pub shop_id: ShopId,
+    pub shops_product_id: ShopsProductId,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -92,6 +101,19 @@ impl From<Event<ProductId, LocalizedProductDomainEventPayloadView>> for GetProdu
                     new_price: payload.new_price.map(PriceData::from),
                 }),
             ),
+            LocalizedProductDomainEventPayloadView::DetailChanged(payload) => {
+                let shop_id = payload.shop_id;
+                let shops_product_id = payload.shops_product_id;
+                (
+                    ProductEventTypeData::DetailChanged,
+                    shop_id,
+                    shops_product_id.clone(),
+                    ProductEventPayloadData::DetailChanged(ProductEventDetailChangedPayloadData {
+                        shop_id,
+                        shops_product_id,
+                    }),
+                )
+            }
         };
 
         GetProductEventData {

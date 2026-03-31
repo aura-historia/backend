@@ -1,5 +1,10 @@
+use crate::core::authenticity::Authenticity;
+use crate::core::condition::Condition;
 use crate::core::description::Description;
+use crate::core::origin_year::OriginYear;
 use crate::core::product_image::ProductImage;
+use crate::core::provenance::Provenance;
+use crate::core::restoration::Restoration;
 use crate::core::title::Title;
 use common::currency::domain::Currency;
 use common::has_key::HasKey;
@@ -24,6 +29,7 @@ pub enum ProductDomainEventPayload {
     Created(ProductCreatedDomainEventPayload),
     StateChanged(ProductStateChangeDomainEventPayload),
     PriceChanged(ProductPriceChangeDomainEventPayload),
+    DetailChanged(ProductDetailChangeDomainEventPayload),
 }
 
 impl ProductDomainEventPayload {
@@ -33,6 +39,10 @@ impl ProductDomainEventPayload {
 
     pub fn is_state_event(&self) -> bool {
         matches!(self, ProductDomainEventPayload::StateChanged(_))
+    }
+
+    pub fn is_detail_event(&self) -> bool {
+        matches!(self, ProductDomainEventPayload::DetailChanged(_))
     }
 
     pub fn as_created(&self) -> Option<&ProductCreatedDomainEventPayload> {
@@ -59,6 +69,13 @@ impl ProductDomainEventPayload {
     pub fn as_price_changed(&self) -> Option<&ProductPriceChangeDomainEventPayload> {
         match self {
             ProductDomainEventPayload::PriceChanged(payload) => Some(payload),
+            _ => None,
+        }
+    }
+
+    pub fn as_detail_changed(&self) -> Option<&ProductDetailChangeDomainEventPayload> {
+        match self {
+            ProductDomainEventPayload::DetailChanged(payload) => Some(payload),
             _ => None,
         }
     }
@@ -125,6 +142,14 @@ impl ProductDomainEventPayload {
                     },
                 )
             }
+            ProductDomainEventPayload::DetailChanged(payload) => {
+                LocalizedProductDomainEventPayloadView::DetailChanged(
+                    LocalizedProductDetailChangeDomainEventPayloadView {
+                        shop_id: payload.shop_id,
+                        shops_product_id: payload.shops_product_id,
+                    },
+                )
+            }
         }
     }
 }
@@ -148,6 +173,7 @@ impl ProductCommonEventPayload for ProductDomainEventPayload {
             ProductDomainEventPayload::Created(payload) => payload.shop_id(),
             ProductDomainEventPayload::StateChanged(payload) => payload.shop_id(),
             ProductDomainEventPayload::PriceChanged(payload) => payload.shop_id(),
+            ProductDomainEventPayload::DetailChanged(payload) => payload.shop_id(),
         }
     }
 
@@ -156,6 +182,7 @@ impl ProductCommonEventPayload for ProductDomainEventPayload {
             ProductDomainEventPayload::Created(payload) => payload.shops_product_id(),
             ProductDomainEventPayload::StateChanged(payload) => payload.shops_product_id(),
             ProductDomainEventPayload::PriceChanged(payload) => payload.shops_product_id(),
+            ProductDomainEventPayload::DetailChanged(payload) => payload.shops_product_id(),
         }
     }
 }
@@ -250,11 +277,41 @@ impl ProductCommonEventPayload for ProductPriceChangeDomainEventPayload {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ProductDetailChangeDomainEventPayload {
+    pub shop_id: ShopId,
+    pub shops_product_id: ShopsProductId,
+    pub native_price_estimate_min: Option<Price>,
+    pub other_price_estimate_min: HashMap<Currency, MonetaryAmount>,
+    pub native_price_estimate_max: Option<Price>,
+    pub other_price_estimate_max: HashMap<Currency, MonetaryAmount>,
+    pub url: Option<Url>,
+    pub images: Option<Vec<ProductImage>>,
+    pub auction_start: Option<OffsetDateTime>,
+    pub auction_end: Option<OffsetDateTime>,
+    pub origin_year: Option<OriginYear>,
+    pub authenticity: Option<Authenticity>,
+    pub condition: Option<Condition>,
+    pub provenance: Option<Provenance>,
+    pub restoration: Option<Restoration>,
+}
+
+impl ProductCommonEventPayload for ProductDetailChangeDomainEventPayload {
+    fn shop_id(&self) -> &ShopId {
+        &self.shop_id
+    }
+
+    fn shops_product_id(&self) -> &ShopsProductId {
+        &self.shops_product_id
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum LocalizedProductDomainEventPayloadView {
     Created(LocalizedProductCreatedDomainEventPayloadView),
     StateChanged(LocalizedProductStateChangeDomainEventPayloadView),
     PriceChanged(LocalizedProductPriceChangeDomainEventPayloadView),
+    DetailChanged(LocalizedProductDetailChangeDomainEventPayloadView),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -285,6 +342,12 @@ pub struct LocalizedProductPriceChangeDomainEventPayloadView {
     pub shops_product_id: ShopsProductId,
     pub old_price: Option<Price>,
     pub new_price: Option<Price>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalizedProductDetailChangeDomainEventPayloadView {
+    pub shop_id: ShopId,
+    pub shops_product_id: ShopsProductId,
 }
 
 #[cfg(feature = "test-data")]
@@ -393,13 +456,64 @@ mod faker {
         }
     }
 
+    impl Dummy<Faker> for ProductDetailChangeDomainEventPayload {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            let native_price_estimate_min: Option<Price> = config.fake_with_rng(rng);
+            let other_price_estimate_min = match native_price_estimate_min {
+                None => HashMap::new(),
+                Some(price) => FixedFxRate()
+                    .exchange_all(price.currency, price.monetary_amount)
+                    .unwrap(),
+            };
+            let native_price_estimate_max: Option<Price> = config.fake_with_rng(rng);
+            let other_price_estimate_max = match native_price_estimate_max {
+                None => HashMap::new(),
+                Some(price) => FixedFxRate()
+                    .exchange_all(price.currency, price.monetary_amount)
+                    .unwrap(),
+            };
+            ProductDetailChangeDomainEventPayload {
+                shop_id: config.fake_with_rng(rng),
+                shops_product_id: config.fake_with_rng(rng),
+                native_price_estimate_min,
+                other_price_estimate_min,
+                native_price_estimate_max,
+                other_price_estimate_max,
+                url: Some(
+                    Url::parse(&format!(
+                        "https://foo.bar/item/{}",
+                        config.fake_with_rng::<u16, _>(rng)
+                    ))
+                    .unwrap(),
+                ),
+                images: config.fake_with_rng(rng),
+                auction_start: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
+                auction_end: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
+                origin_year: None,
+                authenticity: config.fake_with_rng(rng),
+                condition: config.fake_with_rng(rng),
+                provenance: config.fake_with_rng(rng),
+                restoration: config.fake_with_rng(rng),
+            }
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use crate::core::product_event::{
             ProductDomainEvent,
             domain::{
-                ProductCreatedDomainEventPayload, ProductDomainEventPayload,
-                ProductPriceChangeDomainEventPayload, ProductStateChangeDomainEventPayload,
+                ProductCreatedDomainEventPayload, ProductDetailChangeDomainEventPayload,
+                ProductDomainEventPayload, ProductPriceChangeDomainEventPayload,
+                ProductStateChangeDomainEventPayload,
             },
         };
         use fake::{Fake, Faker};
@@ -417,6 +531,11 @@ mod faker {
         #[test]
         fn should_fake_product_price_change_event_payload() {
             let _ = Faker.fake::<ProductPriceChangeDomainEventPayload>();
+        }
+
+        #[test]
+        fn should_fake_product_detail_change_event_payload() {
+            let _ = Faker.fake::<ProductDetailChangeDomainEventPayload>();
         }
 
         #[test]

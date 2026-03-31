@@ -455,6 +455,22 @@ fn determine_update_events(
             {
                 events.push(ProductDomainEventRecord::from(state_event));
             }
+            if let Some(detail_event) = product.change_detail(
+                cmd.native_price_estimate_min,
+                cmd.native_price_estimate_max,
+                cmd.url,
+                cmd.images,
+                cmd.auction_start,
+                cmd.auction_end,
+                cmd.origin_year,
+                cmd.authenticity,
+                cmd.condition,
+                cmd.provenance,
+                cmd.restoration,
+                fx_rate,
+            ) {
+                events.push(ProductDomainEventRecord::from(detail_event));
+            }
         }
     }
 
@@ -502,6 +518,17 @@ mod tests {
             let cmd1 = UpdateProductCommand {
                 native_price: product1.native_price,
                 state: Some(product1.state),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
             };
 
             let record2 = Faker.fake::<ProductRecord>();
@@ -509,6 +536,17 @@ mod tests {
             let cmd2 = UpdateProductCommand {
                 native_price: product2.native_price,
                 state: Some(product2.state),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
             };
 
             let mut working = HashMap::from([(product1.key(), cmd1), (product2.key(), cmd2)]);
@@ -526,6 +564,17 @@ mod tests {
             let cmd1 = UpdateProductCommand {
                 native_price: Some(Faker.fake()),
                 state: Some(product1.state),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
             };
 
             let record2 = Faker.fake::<ProductRecord>();
@@ -537,6 +586,17 @@ mod tests {
                 } else {
                     ProductState::Available
                 }),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
             };
 
             let mut working = HashMap::from([(product1.key(), cmd1), (product2.key(), cmd2)]);
@@ -554,6 +614,17 @@ mod tests {
             let cmd1 = UpdateProductCommand {
                 native_price: Some(Faker.fake()),
                 state: Some(product1.state),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
             };
 
             let record2 = Faker.fake::<ProductRecord>();
@@ -561,6 +632,17 @@ mod tests {
             let cmd2 = UpdateProductCommand {
                 native_price: product2.native_price,
                 state: Some(product2.state),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
             };
 
             let mut working = HashMap::from([(product1.key(), cmd1), (product2.key(), cmd2)]);
@@ -577,6 +659,17 @@ mod tests {
             let cmd = UpdateProductCommand {
                 native_price: Some(Faker.fake()),
                 state: Some(ProductState::Available),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
             };
 
             let mut working = HashMap::from([(product.key(), cmd.clone())]);
@@ -866,6 +959,17 @@ mod tests {
                 } else {
                     ProductState::Available
                 }),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
             };
 
             let mut repository = MockProductDynamoDbRepository::default();
@@ -980,6 +1084,17 @@ mod tests {
             let cmd = UpdateProductCommand {
                 native_price: product.native_price,
                 state: Some(product.state),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
             };
 
             let mut repository = MockProductDynamoDbRepository::default();
