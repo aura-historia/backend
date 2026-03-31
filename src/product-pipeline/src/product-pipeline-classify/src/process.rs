@@ -45,10 +45,10 @@ impl<'a> PipeProcessor for ClassifyPipeProcessorImpl<'a> {
         // Find candidates for both category and period
         let mut tie_breaker_inputs = Vec::with_capacity(products.len());
         for product in products {
-            if let Some(ref text_embedding) = product.text_embedding {
+            if let Some(ref embedding) = product.embedding {
                 let (similar_categories_res, similar_periods_res) = tokio::join!(
-                    self.category_service.find_similar(text_embedding, 5),
-                    self.period_service.find_similar(text_embedding, 5),
+                    self.category_service.find_similar(embedding, 5),
+                    self.period_service.find_similar(embedding, 5),
                 );
 
                 let category_ids = match similar_categories_res {
@@ -293,7 +293,7 @@ mod tests {
 
     fn mk_product_with_embedding() -> Product {
         let mut product: Product = Faker.fake();
-        product.text_embedding = Some(vec![0.1; 4]);
+        product.embedding = Some(vec![0.1; 4]);
         product.native_title.payload = "Test product".into();
         product
     }
@@ -369,7 +369,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_fail_when_product_has_no_text_embedding() {
+    async fn should_fail_when_product_has_no_embedding() {
         let mut adapter = MockClassifyAdapter::default();
         adapter.expect_classify().never();
 
@@ -383,7 +383,7 @@ mod tests {
             ClassifyPipeProcessorImpl::new(Arc::new(adapter), &category_service, &period_service);
 
         let mut product: Product = Faker.fake();
-        product.text_embedding = None;
+        product.embedding = None;
 
         let product_id = product.product_id;
         let actual = processor.process(vec![product]).await;
@@ -664,7 +664,7 @@ mod tests {
 
         let mut products = vec![mk_product_with_embedding(), mk_product_with_embedding()];
         let mut missing = mk_product_with_embedding();
-        missing.text_embedding = None;
+        missing.embedding = None;
         let missing_id = missing.product_id;
         products.push(missing);
 
@@ -711,7 +711,7 @@ mod tests {
         let products = fake::vec![Product; count]
             .into_iter()
             .map(|mut product| {
-                product.text_embedding = Some(vec![0.1; 4]);
+                product.embedding = Some(vec![0.1; 4]);
                 product
             })
             .collect::<Vec<_>>();
@@ -772,7 +772,7 @@ mod tests {
         let products = fake::vec![Product; count]
             .into_iter()
             .map(|mut product| {
-                product.text_embedding = Some(vec![0.1; 4]);
+                product.embedding = Some(vec![0.1; 4]);
                 product
             })
             .collect::<Vec<_>>();
@@ -822,7 +822,7 @@ mod tests {
         let products = fake::vec![Product; count]
             .into_iter()
             .map(|mut product| {
-                product.text_embedding = Some(vec![0.1; 4]);
+                product.embedding = Some(vec![0.1; 4]);
                 product
             })
             .collect::<Vec<_>>();

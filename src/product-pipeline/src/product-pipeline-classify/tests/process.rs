@@ -24,7 +24,7 @@ fn mk_category(category_id: &str) -> Category {
         meta_name: "meta-name".into(),
         meta_description: "meta-description".into(),
         meta_keywords: Default::default(),
-        embedding: vec![0.1; 1024],
+        embedding: vec![0.1; 768],
         display_name,
         display_description: Default::default(),
         created: OffsetDateTime::now_utc(),
@@ -41,7 +41,7 @@ fn mk_period(period_id: &str) -> Period {
         meta_name: "meta-name".into(),
         meta_description: "meta-description".into(),
         meta_keywords: Default::default(),
-        embedding: vec![0.1; 1024],
+        embedding: vec![0.1; 768],
         display_name,
         display_description: Default::default(),
         created: OffsetDateTime::now_utc(),
@@ -97,7 +97,7 @@ async fn should_process_classification() {
 
     let mut product = Faker.fake::<Product>();
     product.native_title.payload = "Antique Baroque Chair".into();
-    product.text_embedding = Some(vec![0.1; 1024]);
+    product.embedding = Some(vec![0.1; 768]);
 
     let actual = processor.process(vec![product]).await;
 

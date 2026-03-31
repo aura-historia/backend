@@ -24,14 +24,6 @@ async fn main() -> Result<(), Error> {
                 .expect("shouldn't fail loading env-var 'PRODUCT_PIPELINE_TRANSLATE_ASG_NAME'"),
         },
         SqsAsgComponent {
-            sqs_url: std::env::var("PRODUCT_PIPELINE_EMBED_TEXT_SQS_URL")
-                .expect("shouldn't fail loading env-var 'PRODUCT_PIPELINE_EMBED_TEXT_SQS_URL'"),
-            queue_name: std::env::var("PRODUCT_PIPELINE_EMBED_TEXT_SQS_NAME")
-                .expect("shouldn't fail loading env-var 'PRODUCT_PIPELINE_EMBED_TEXT_SQS_NAME'"),
-            asg_name: std::env::var("PRODUCT_PIPELINE_EMBED_TEXT_ASG_NAME")
-                .expect("shouldn't fail loading env-var 'PRODUCT_PIPELINE_EMBED_TEXT_ASG_NAME'"),
-        },
-        SqsAsgComponent {
             sqs_url: std::env::var("PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_SQS_URL").expect(
                 "shouldn't fail loading env-var 'PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_SQS_URL'",
             ),

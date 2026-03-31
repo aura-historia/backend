@@ -530,6 +530,72 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductPipelineEmbedTextDlq.Arn
         maxReceiveCount: 3
       VisibilityTimeout: 300
+  ProductPipelineEmbedTextRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "product-pipeline-embed-text-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ProductPipelineEmbedTextQ.Arn
+  ProductPipelineEmbedTextLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "product-pipeline-embed-text-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ProductPipelineEmbedTextRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-pipeline-embed-text-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          GEMINI_API_KEY: "test-key"
+  ProductPipelineEmbedTextMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ProductPipelineEmbedTextLambda
+      EventSourceArn: !GetAtt ProductPipelineEmbedTextQ.Arn
+      Enabled: true
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
 
   ProductPipelineExtractAttributeDlq:
     Type: AWS::SQS::Queue

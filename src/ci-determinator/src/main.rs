@@ -38,7 +38,6 @@ const ACCEPTANCE_TEST_CRATES: &[&str] = &["src/acceptance-tests"];
 /// These paths are relative to the workspace root.
 const PIPELINE_TEST_CRATES: &[&str] = &[
     "src/product-pipeline/src/product-pipeline-classify",
-    "src/product-pipeline/src/product-pipeline-embed-text",
     "src/product-pipeline/src/product-pipeline-extract-attribute",
     "src/product-pipeline/src/product-pipeline-translate",
 ];

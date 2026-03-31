@@ -87,7 +87,7 @@ pub struct ProductUpdateDocument {
     pub images: Option<Vec<ProductImageDocument>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub text_embedding: Option<Vec<f32>>,
+    pub embedding: Option<Vec<f32>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub origin_year_min: Option<Year>,
@@ -142,7 +142,7 @@ impl Default for ProductUpdateDocument {
             description_es: None,
             description_it: None,
             images: None,
-            text_embedding: None,
+            embedding: None,
             origin_year_min: None,
             origin_year: None,
             origin_year_max: None,
@@ -192,7 +192,7 @@ impl From<ProductDomainEventRecord> for ProductUpdateDocument {
             period_name_fr: None,
             period_name_es: None,
             period_name_it: None,
-            text_embedding: None,
+            embedding: None,
             origin_year_min: None,
             origin_year: None,
             origin_year_max: None,
@@ -239,7 +239,7 @@ impl From<ProductEnrichmentEventRecord> for ProductUpdateDocument {
             period_name_fr: None,
             period_name_es: None,
             period_name_it: None,
-            text_embedding: event_record.text_embedding,
+            embedding: event_record.embedding,
             origin_year_min: event_record.origin_year_min,
             origin_year: event_record.origin_year,
             origin_year_max: event_record.origin_year_max,
@@ -294,7 +294,7 @@ mod faker {
                 period_name_fr: Some(config.fake_with_rng(rng)),
                 period_name_es: Some(config.fake_with_rng(rng)),
                 period_name_it: Some(config.fake_with_rng(rng)),
-                text_embedding: None,
+                embedding: None,
                 origin_year_min: config.fake_with_rng(rng),
                 origin_year: config.fake_with_rng(rng),
                 origin_year_max: config.fake_with_rng(rng),
