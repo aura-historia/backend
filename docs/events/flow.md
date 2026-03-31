@@ -47,7 +47,7 @@ flowchart TD
     BUS -->|"DOMAIN_* / ENRICHMENT_* / POLICY_* (INSERT)"| MatDDB["ProductMaterializeDynamoDbQ\n→ Lambda\n(write materialized view)"]
     BUS -->|"DOMAIN_* / ENRICHMENT_* / POLICY_* (INSERT)"| MatOS["ProductMaterializeOpenSearchQ\n→ Lambda\n(index in OpenSearch)"]
 
-    %% User notifications
+    %% User notifications (only price & state changes)
     BUS -->|"DOMAIN_PRICE_* / DOMAIN_STATE_* (INSERT)"| NotifyUser["ProductUpdateNotifyUserQ\n→ Lambda\n(notify watchlist users)"]
     BUS -->|"DOMAIN_* / ENRICHMENT_* (INSERT)"| Percolate["SearchFilterPercolateProductQ\n→ Lambda\n(match saved search filters)"]
 
