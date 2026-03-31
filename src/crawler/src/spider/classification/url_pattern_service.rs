@@ -142,7 +142,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
     ) -> Result<Option<Regex>, UrlPatternServiceError> {
         let pattern = self
             .classification_service
-            .find_product_url_pattern(urls)
+            .find_product_url_pattern(shop_url, urls)
             .await?;
 
         if let Some(ref p) = pattern {
@@ -275,7 +275,7 @@ mod service_tests {
             crate::spider::classification::url_classification_service::MockUrlClassificationService::new();
         mock_client
             .expect_find_product_url_pattern()
-            .returning(|_| Box::pin(async { Ok(Some(Regex::new("/product/").unwrap())) }));
+            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new("/product/").unwrap())) }));
 
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 

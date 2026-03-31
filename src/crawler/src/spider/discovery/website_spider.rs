@@ -116,7 +116,9 @@ impl Spider for SpiderImpl {
             .with_delay(
                 std::time::Duration::from_millis(self.config.delay_millis).as_millis() as u64,
             )
-            .with_caching(false);
+            .with_caching(false)
+            .build()
+            .map_err(|e| SpiderDiscoveryError::Discovery(e.to_string()))?;
 
         let mut spider_rx = website
             .subscribe(512)

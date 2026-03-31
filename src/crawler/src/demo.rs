@@ -159,7 +159,10 @@ async fn main() {
 fn init_logging() {
     let raw_level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     let filter = tracing_subscriber::EnvFilter::new(format!("{},spider=warn", raw_level));
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    tracing_subscriber::fmt()
+        .json()
+        .with_env_filter(filter)
+        .init();
 }
 
 async fn start_postgres() -> Result<(testcontainers::ContainerAsync<PgImage>, PgPool), String> {
@@ -250,7 +253,7 @@ async fn register_demo_shops(pool: &PgPool) -> Result<(), sqlx::Error> {
          ON CONFLICT (shop_id) DO NOTHING",
     )
     .bind(uuid::Uuid::new_v4())
-    .bind("www.christies.com")
+    .bind("antik-shop.de")
     .bind(r".*/lot/.*")
     .execute(pool)
     .await?;

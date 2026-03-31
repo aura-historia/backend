@@ -173,6 +173,7 @@ impl SpiderServiceImpl {
     ) -> Result<(), SpiderServiceError> {
         if !state.classification_done && state.total_crawled >= classify_threshold {
             info!(
+                shopUrl = %shop_url,
                 urlCount = state.inference_sample.len(),
                 "Threshold reached, requesting product URL pattern"
             );
@@ -200,9 +201,10 @@ impl SpiderServiceImpl {
         Ok(())
     }
 
-    fn log_progress(&self, state: &CrawlRunState) {
+    fn log_progress(&self, state: &CrawlRunState, shop_url: &str) {
         if state.total_crawled.is_multiple_of(500) {
             info!(
+                shopUrl = %shop_url,
                 totalCrawled = state.total_crawled,
                 productsSoFar = state.products_found,
                 "Crawl progress"
@@ -218,6 +220,7 @@ impl SpiderServiceImpl {
     ) -> Result<(), SpiderServiceError> {
         if !state.classification_done && !state.page_buffer.is_empty() {
             info!(
+                shopUrl = %shop_url,
                 urlCount = state.inference_sample.len(),
                 "Threshold not reached, classifying collected URLs"
             );
@@ -241,7 +244,8 @@ impl SpiderServiceImpl {
             && !state.inference_sample.is_empty()
         {
             warn!(
-                shopUrl = %                "Persisted product URL pattern did not match crawl results, reclassifying"
+                shopUrl = %shop_url,
+                "Persisted product URL pattern did not match crawl results, reclassifying"
             );
 
             self.classify_and_save_for_stage(state, shop_id, shop_url, "refresh")
@@ -302,10 +306,10 @@ impl SpiderServiceImpl {
                 .await?;
 
             self.flush_batch_if_needed(&mut state, shop_id).await?;
-            self.log_progress(&state);
+            self.log_progress(&state, shop_url);
         }
 
-        info!(totalCrawled = state.total_crawled, "Crawl complete");
+        info!(shopUrl = %shop_url, totalCrawled = state.total_crawled, "Crawl complete");
 
         self.classify_at_end_if_needed(&mut state, shop_id, shop_url)
             .await?;

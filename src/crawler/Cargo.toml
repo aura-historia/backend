@@ -15,7 +15,7 @@ serde_json = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
 schemars = { workspace = true }
 async-trait = { workspace = true }
 mockall = { workspace = true }

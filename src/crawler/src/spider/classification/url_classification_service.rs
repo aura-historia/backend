@@ -23,6 +23,7 @@ struct PatternResponse {
 pub trait UrlClassificationService: Send + Sync {
     async fn find_product_url_pattern(
         &self,
+        shop_url: &str,
         all_urls: &[String],
     ) -> Result<Option<Regex>, UrlClassificationError>;
     fn filter_product_urls(
@@ -168,9 +169,10 @@ impl UrlClassificationServiceImpl {
 impl UrlClassificationService for UrlClassificationServiceImpl {
     async fn find_product_url_pattern(
         &self,
+        shop_url: &str,
         all_urls: &[String],
     ) -> Result<Option<Regex>, UrlClassificationError> {
-        info!(urlCount = all_urls.len(), "Analyzing crawled URLs with LLM");
+        info!(shopUrl = %shop_url, urlCount = all_urls.len(), "Analyzing crawled URLs with LLM");
 
         let prompt = Self::build_prompt(all_urls);
         let messages = vec![ChatMessage::user().content(prompt).build()];
@@ -192,11 +194,12 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
         match Self::parse_pattern_response(&response_text) {
             Ok(Some(pattern)) => match Regex::new(&pattern) {
                 Ok(regex) => {
-                    info!(pattern = %pattern, "LLM returned a valid URL pattern");
+                    info!(shopUrl = %shop_url, pattern = %pattern, "LLM returned a valid URL pattern");
                     Ok(Some(regex))
                 }
                 Err(error) => {
                     warn!(
+                        shopUrl = %shop_url,
                         pattern = %pattern,
                         error = %error,
                         "LLM returned an invalid regex pattern"
@@ -205,7 +208,7 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
                 }
             },
             Ok(None) => {
-                info!("LLM found no consistent product URL pattern");
+                info!(shopUrl = %shop_url, "LLM found no consistent product URL pattern");
                 Ok(None)
             }
             Err(error) => Err(error),

@@ -234,7 +234,10 @@ fn init_logging() {
     let raw_level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     let level = raw_level.parse::<Level>().unwrap_or(Level::INFO);
 
-    tracing_subscriber::fmt().with_max_level(level).init();
+    tracing_subscriber::fmt()
+        .json()
+        .with_max_level(level)
+        .init();
 }
 
 fn write_output(result: &SpiderRunResult) -> Result<(), std::io::Error> {
