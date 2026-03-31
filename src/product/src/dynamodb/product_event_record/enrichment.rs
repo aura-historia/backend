@@ -1,7 +1,7 @@
 use crate::core::product_event::ProductEnrichmentEvent;
 use crate::core::product_event::enrichment::{
     ClassifiedCategoryProductEnrichmentEventPayload, ClassifiedPeriodProductEnrichmentEventPayload,
-    EmbeddedTextProductEnrichmentEventPayload, ExtractedAttributesProductEnrichmentEventPayload,
+    EmbeddedProductEnrichmentEventPayload, ExtractedAttributesProductEnrichmentEventPayload,
     ProductEnrichmentEventPayload, TranslationProductEnrichmentEventPayload,
 };
 use crate::dynamodb::authenticity_record::AuthenticityRecord;
@@ -149,12 +149,12 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     timestamp: event.timestamp,
                 }
             }
-            ProductEnrichmentEventPayload::EmbeddedText(payload) => ProductEnrichmentEventRecord {
+            ProductEnrichmentEventPayload::Embedded(payload) => ProductEnrichmentEventRecord {
                 pk: mk_pk(&payload.shop_id, &payload.shops_product_id),
                 sk: mk_sk(&event.event_id),
                 product_id: event.aggregate_id,
                 event_id: event.event_id,
-                event_type: ProductEnrichmentEventTypeRecord::EnrichmentEmbeddedText,
+                event_type: ProductEnrichmentEventTypeRecord::EnrichmentEmbedded,
                 event_type_schema_version: 0,
                 shop_id: payload.shop_id,
                 shops_product_id: payload.shops_product_id,
@@ -324,13 +324,13 @@ impl TryFrom<ProductEnrichmentEventRecord> for ProductEnrichmentEvent {
                 };
                 Ok(event)
             }
-            ProductEnrichmentEventTypeRecord::EnrichmentEmbeddedText => {
+            ProductEnrichmentEventTypeRecord::EnrichmentEmbedded => {
                 let event = Event {
                     aggregate_id: record.product_id,
                     event_id: record.event_id,
                     timestamp: record.timestamp,
-                    payload: ProductEnrichmentEventPayload::EmbeddedText(
-                        EmbeddedTextProductEnrichmentEventPayload {
+                    payload: ProductEnrichmentEventPayload::Embedded(
+                        EmbeddedProductEnrichmentEventPayload {
                             shop_id: record.shop_id,
                             shops_product_id: record.shops_product_id,
                             embedding: record.embedding.ok_or(MissingPersistenceField::new(

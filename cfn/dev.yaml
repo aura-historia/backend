@@ -2601,7 +2601,7 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - "ENRICHMENT_EMBEDDED_TEXT"
+                  - "ENRICHMENT_EMBEDDED"
       Targets:
         - Id: ProductPipelineExtractAttributeQ
           Arn: !GetAtt ProductPipelineExtractAttributeQ.Arn
@@ -2622,54 +2622,17 @@ Resources:
   ProductPipelineClassifyRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-pipeline-classify-role-dev"
+      RoleName: "product-pipeline-classify-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
-              Service: ec2.amazonaws.com
-            Action: sts:AssumeRole
-          - Effect: Allow
-            Principal:
-              Service: spot.amazonaws.com
+              Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
-        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
-        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: AllowTerminateInASG
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: autoscaling:TerminateInstanceInAutoScalingGroup
-                Resource: "*"
-        - PolicyName: SQSPollerAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:ReceiveMessage
-                  - sqs:DeleteMessage
-                  - sqs:DeleteMessageBatch
-                  - sqs:GetQueueAttributes
-                  - sqs:GetQueueUrl
-                  - sqs:ChangeMessageVisibility
-                Resource:
-                  - !GetAtt ProductPipelineClassifyQ.Arn
-        - PolicyName: CloudWatchLogsCreate
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: "*"
         - PolicyName: DynamoDBAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -2679,149 +2642,52 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:Query
                   - dynamodb:PutItem
-                  - dynamodb:DeleteItem
-                  - dynamodb:UpdateItem
-                  - dynamodb:BatchGetItem
                   - dynamodb:BatchWriteItem
-                  - dynamodb:TransactGetItems
-                  - dynamodb:TransactWriteItems
                 Resource:
                   - !GetAtt TableOne.Arn
                   - !Sub "${TableOne.Arn}/index/*"
-  ProductPipelineClassifyInstanceProfile:
-    Type: AWS::IAM::InstanceProfile
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ProductPipelineClassifyQ.Arn
+  ProductPipelineClassifyLambda:
+    Type: AWS::Lambda::Function
     Properties:
-      InstanceProfileName: !Sub "product-pipeline-classify-profile-dev"
-      Roles:
-        - !Ref ProductPipelineClassifyRole
-  ProductPipelineClassifyLaunchTemplate:
-    Type: AWS::EC2::LaunchTemplate
+      FunctionName: "product-pipeline-classify-dev"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ProductPipelineClassifyRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-pipeline-classify-dev-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/dev/gemini-api-key}}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
+  ProductPipelineClassifyMapping:
+    Type: AWS::Lambda::EventSourceMapping
     Properties:
-      LaunchTemplateName: !Sub "product-pipeline-classify-template-dev"
-      LaunchTemplateData:
-        IamInstanceProfile:
-          Name: !Ref ProductPipelineClassifyInstanceProfile
-        InstanceType: g6.xlarge # Placeholder - ASG overrides this
-        ImageId: "{{resolve:ssm:/amis/dev/product-pipeline-classify/latest}}"
-        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
-        BlockDeviceMappings:
-          - DeviceName: /dev/sda1
-            Ebs:
-              VolumeSize: 80
-              VolumeType: gp3
-              DeleteOnTermination: true
-        TagSpecifications:
-          - ResourceType: instance
-            Tags:
-              - Key: Name
-                Value: !Sub "product-pipeline-classify-dev"
-              - Key: Fleet
-                Value: product-pipeline-classify
-        UserData:
-          Fn::Base64: !Sub |
-            #!/bin/bash
-            set -euxo pipefail
-            sudo -i
-            export DYNAMODB_TABLE_NAME="${TableOne}"
-            export STAGE="dev"
-            export STAGE_NAME=dev
-            export CommitSHA="${CommitSHA}"
-            export ARTIFACT_BUCKET="${ArtifactBucket}"
-            export SOURCE_QUEUE_URL="${ProductPipelineClassifyQ}"
-            export OPENSEARCH_ENDPOINT_URL="${OpenSearchEndpointUrl}"
-            export OPENSEARCH_USERNAME="{{resolve:ssm:/opensearch/dev/username}}"
-            export OPENSEARCH_PASSWORD="{{resolve:ssm:/opensearch/dev/password}}"
-            # Download and install binary
-            sudo aws s3 cp "s3://${ArtifactBucket}/dev/${CommitSHA}/product-pipeline-classify" /opt/product-pipeline-classify/product-pipeline-classify --region eu-central-1
-            sudo chmod +x /opt/product-pipeline-classify/product-pipeline-classify
-            # Prepare (preconfigured via custom ami) python venv
-            cd /opt/product-pipeline-classify
-            source .venv/bin/activate
-            # ----------------------------
-            # INSTANCE STORE (CORRECT ZERO-COPY HF CACHE)
-            # ----------------------------
-            set -euxo pipefail
-
-            ROOT_DEV=$(lsblk -ndo PKNAME "$(findmnt -n -o SOURCE /)")
-            DEVICE=""
-
-            echo "Waiting for instance store NVMe..."
-
-            for i in {1..30}; do
-              DEVICE=$(lsblk -ndo NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}' | grep -v "$ROOT_DEV" | head -n1 || true)
-              [ -n "$DEVICE" ] && break
-              sleep 1
-            done
-
-            if [ -z "$DEVICE" ]; then
-              echo "❌ No instance store detected — using EBS"
-              export HF_HOME=/opt/huggingface
-              export TRANSFORMERS_CACHE=/opt/huggingface
-              export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
-            else
-              echo "✅ Found instance store: $DEVICE"
-
-              if ! blkid "$DEVICE" >/dev/null 2>&1; then
-                mkfs.xfs -f "$DEVICE"
-              fi
-
-              mkdir -p /mnt/instance-store
-              mount -o noatime,nodiratime "$DEVICE" /mnt/instance-store
-
-              mkdir -p /mnt/instance-store/huggingface
-
-              # If /opt/huggingface is NOT already a symlink, replace it
-              if [ ! -L /opt/huggingface ]; then
-                echo "🔁 Moving HF cache pointer to NVMe (no copy)"
-                rm -rf /opt/huggingface
-                ln -s /mnt/instance-store/huggingface /opt/huggingface
-              fi
-
-              export HF_HOME=/opt/huggingface
-              export TRANSFORMERS_CACHE=/opt/huggingface
-              export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
-
-              echo "🔥 HuggingFace cache now lives on NVMe"
-            fi
-
-            # Run binary
-            LOG_PATH="/var/log/product-pipeline-classify.log"
-            echo "[$(date)] Running product-pipeline-classify..." | tee -a "$LOG_PATH"
-            ./product-pipeline-classify >> "$LOG_PATH" 2>&1
-            EXIT_CODE=$?
-            echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
-            sleep 5
-            aws autoscaling terminate-instance-in-auto-scaling-group \
-              --instance-id $(ec2metadata --instance-id) \
-              --should-decrement-desired-capacity
-            exit $EXIT_CODE
-  ProductPipelineClassifyASG:
-    Type: AWS::AutoScaling::AutoScalingGroup
-    Properties:
-      VPCZoneIdentifier:
-        - !Ref ProductPipelineSubnetA
-      MinSize: 0
-      MaxSize: 1
-      DesiredCapacity: 0
-      MixedInstancesPolicy:
-        LaunchTemplate:
-          LaunchTemplateSpecification:
-            LaunchTemplateId: !Ref ProductPipelineClassifyLaunchTemplate
-            Version: !GetAtt ProductPipelineClassifyLaunchTemplate.LatestVersionNumber
-          Overrides:
-            - InstanceType: g6.xlarge
-            - InstanceType: g6.2xlarge
-            - InstanceType: g5.xlarge
-            - InstanceType: g5.2xlarge
-        InstancesDistribution:
-          OnDemandPercentageAboveBaseCapacity: 0
-          SpotAllocationStrategy: price-capacity-optimized
-      Tags:
-        - Key: Name
-          Value: !Sub "product-pipeline-classify-dev"
-          PropagateAtLaunch: true
-      HealthCheckType: EC2
-      HealthCheckGracePeriod: 120
+      FunctionName: !Ref ProductPipelineClassifyLambda
+      EventSourceArn: !GetAtt ProductPipelineClassifyQ.Arn
+      Enabled: true
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
   ProductPipelineClassifyDynamoDbProductEventRecordCreatedEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -2839,7 +2705,7 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - "ENRICHMENT_EMBEDDED_TEXT"
+                  - "ENRICHMENT_EMBEDDED"
       Targets:
         - Id: ProductPipelineClassifyQ
           Arn: !GetAtt ProductPipelineClassifyQ.Arn
@@ -2899,9 +2765,6 @@ Resources:
           PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_SQS_URL: !Ref ProductPipelineExtractAttributeQ
           PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_SQS_NAME: !GetAtt ProductPipelineExtractAttributeQ.QueueName
           PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_ASG_NAME: !Ref ProductPipelineExtractAttributeASG
-          PRODUCT_PIPELINE_CLASSIFY_SQS_URL: !Ref ProductPipelineClassifyQ
-          PRODUCT_PIPELINE_CLASSIFY_SQS_NAME: !GetAtt ProductPipelineClassifyQ.QueueName
-          PRODUCT_PIPELINE_CLASSIFY_ASG_NAME: !Ref ProductPipelineClassifyASG
   ProductPipelineScaleControlStartSchedule:
     Type: AWS::Events::Rule
     Properties:
@@ -3027,6 +2890,11 @@ Outputs:
     Value: !Ref ProductPipelineEmbedTextQ
   ProductPipelineEmbedTextDeadLetterQueueUrl:
     Value: !Ref ProductPipelineEmbedTextDlq
+
+  ProductPipelineClassifyQueueUrl:
+    Value: !Ref ProductPipelineClassifyQ
+  ProductPipelineClassifyDeadLetterQueueUrl:
+    Value: !Ref ProductPipelineClassifyDlq
 
   ShopOpensearchIndexQueueUrl:
     Value: !Ref ShopOpenSearchIndexQ
