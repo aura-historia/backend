@@ -4,7 +4,7 @@ on:
   push:
     branches: [prod, develop]
     paths:
-      - ".github/workflows/deploy.yaml"
+      - ".github/workflows/deploy.yml"
       - "Cargo.toml"
       - "Cargo.lock"
       - "src/**"
