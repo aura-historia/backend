@@ -2601,7 +2601,7 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - "ENRICHMENT_EMBEDDED_TEXT"
+                  - "ENRICHMENT_EMBEDDED"
       Targets:
         - Id: ProductPipelineExtractAttributeQ
           Arn: !GetAtt ProductPipelineExtractAttributeQ.Arn
@@ -2705,7 +2705,7 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - "ENRICHMENT_EMBEDDED_TEXT"
+                  - "ENRICHMENT_EMBEDDED"
       Targets:
         - Id: ProductPipelineClassifyQ
           Arn: !GetAtt ProductPipelineClassifyQ.Arn
@@ -2765,8 +2765,6 @@ Resources:
           PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_SQS_URL: !Ref ProductPipelineExtractAttributeQ
           PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_SQS_NAME: !GetAtt ProductPipelineExtractAttributeQ.QueueName
           PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_ASG_NAME: !Ref ProductPipelineExtractAttributeASG
-          PRODUCT_PIPELINE_CLASSIFY_SQS_URL: !Ref ProductPipelineClassifyQ
-          PRODUCT_PIPELINE_CLASSIFY_SQS_NAME: !GetAtt ProductPipelineClassifyQ.QueueName
   ProductPipelineScaleControlStartSchedule:
     Type: AWS::Events::Rule
     Properties:

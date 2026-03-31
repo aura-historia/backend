@@ -91,7 +91,7 @@ pub async fn handler(
             }
         };
 
-        if let Some(enrichment_event) = product.embed_text(embedding) {
+        if let Some(enrichment_event) = product.embed(embedding) {
             let product_event = enrichment_event.map_payload(ProductEventPayload::from);
             let event_record: ProductEventRecord = product_event.into();
             enrichment_events.push((message_id, event_record));
@@ -333,7 +333,7 @@ mod tests {
     // NOTE: `should_skip_persist_when_embedding_unchanged` is no longer applicable.
     // The Product is always constructed from a DOMAIN_CREATED event record, which always
     // sets `embedding: None` (see `TryFrom<ProductDomainEventRecord> for ProductRecord`).
-    // Therefore, `product.embed_text(embedding)` always produces an enrichment event
+    // Therefore, `product.embed(embedding)` always produces an enrichment event
     // (the new embedding never equals the absent existing one), so the "unchanged" path
     // can never be triggered from this handler.
 

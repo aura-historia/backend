@@ -662,6 +662,15 @@ Resources:
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
                 Resource: !GetAtt ProductPipelineClassifyQ.Arn
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:ESHttpGet
+                  - es:ESHttpPost
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/*"
   ProductPipelineClassifyLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -954,7 +963,7 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - "ENRICHMENT_EMBEDDED_TEXT"
+                  - "ENRICHMENT_EMBEDDED"
       Targets:
         - Id: ProductPipelineExtractAttributeQ
           Arn: !GetAtt ProductPipelineExtractAttributeQ.Arn
@@ -975,7 +984,7 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - "ENRICHMENT_EMBEDDED_TEXT"
+                  - "ENRICHMENT_EMBEDDED"
       Targets:
         - Id: ProductPipelineClassifyQ
           Arn: !GetAtt ProductPipelineClassifyQ.Arn

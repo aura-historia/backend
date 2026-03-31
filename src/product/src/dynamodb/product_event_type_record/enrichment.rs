@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 pub enum ProductEnrichmentEventTypeRecord {
     EnrichmentTranslatedTitle,
     EnrichmentTranslatedDescription,
-    EnrichmentEmbeddedText,
+    EnrichmentEmbedded,
     EnrichmentExtractedAttributes,
     EnrichmentClassifyCategory,
     EnrichmentClassifyPeriod,
@@ -22,8 +22,8 @@ impl From<&ProductEnrichmentEventPayload> for ProductEnrichmentEventTypeRecord {
             ProductEnrichmentEventPayload::TranslatedDescription(_) => {
                 ProductEnrichmentEventTypeRecord::EnrichmentTranslatedDescription
             }
-            ProductEnrichmentEventPayload::EmbeddedText(_) => {
-                ProductEnrichmentEventTypeRecord::EnrichmentEmbeddedText
+            ProductEnrichmentEventPayload::Embedded(_) => {
+                ProductEnrichmentEventTypeRecord::EnrichmentEmbedded
             }
             ProductEnrichmentEventPayload::ExtractedAttributes(_) => {
                 ProductEnrichmentEventTypeRecord::EnrichmentExtractedAttributes

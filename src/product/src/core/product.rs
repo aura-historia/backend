@@ -7,7 +7,7 @@ use crate::core::product_event::domain::{
     ProductPriceChangeDomainEventPayload, ProductStateChangeDomainEventPayload,
 };
 use crate::core::product_event::enrichment::{
-    EmbeddedTextProductEnrichmentEventPayload, ExtractedAttributesProductEnrichmentEventPayload,
+    EmbeddedProductEnrichmentEventPayload, ExtractedAttributesProductEnrichmentEventPayload,
     ProductEnrichmentEventPayload, TranslationProductEnrichmentEventPayload,
 };
 use crate::core::product_event::policy::{
@@ -326,7 +326,7 @@ impl Product {
         }
     }
 
-    pub fn embed_text(&mut self, embedding: Vec<f32>) -> Option<ProductEnrichmentEvent> {
+    pub fn embed(&mut self, embedding: Vec<f32>) -> Option<ProductEnrichmentEvent> {
         if self
             .embedding
             .as_ref()
@@ -335,13 +335,12 @@ impl Product {
             None
         } else {
             self.embedding = Some(embedding.clone());
-            let event_payload = ProductEnrichmentEventPayload::EmbeddedText(
-                EmbeddedTextProductEnrichmentEventPayload {
+            let event_payload =
+                ProductEnrichmentEventPayload::Embedded(EmbeddedProductEnrichmentEventPayload {
                     shop_id: self.shop_id,
                     shops_product_id: self.shops_product_id.clone(),
                     embedding,
-                },
-            );
+                });
             let event = Event {
                 aggregate_id: self.product_id,
                 event_id: EventId::new(),
@@ -458,7 +457,7 @@ impl Product {
                 ProductEnrichmentEventPayload::TranslatedDescription(p) => {
                     self.other_description.insert(p.target_language, p.target);
                 }
-                ProductEnrichmentEventPayload::EmbeddedText(p) => {
+                ProductEnrichmentEventPayload::Embedded(p) => {
                     self.embedding = Some(p.embedding);
                 }
                 ProductEnrichmentEventPayload::ExtractedAttributes(p) => {
@@ -1693,7 +1692,7 @@ mod tests {
         use url::Url;
 
         #[test]
-        fn should_return_none_when_embedding_is_same_for_embed_text() {
+        fn should_return_none_when_embedding_is_same_for_embed() {
             let embedding = vec![0.1f32, 0.2f32, 0.3f32];
             let mut product = Product {
                 product_id: Default::default(),
@@ -1733,12 +1732,12 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let actual = product.embed_text(embedding);
+            let actual = product.embed(embedding);
             assert!(actual.is_none());
         }
 
         #[test]
-        fn should_emit_event_and_store_embedding_when_new_for_embed_text() {
+        fn should_emit_event_and_store_embedding_when_new_for_embed() {
             let embedding = vec![0.1f32, 0.2f32, 0.3f32];
             let mut product = Product {
                 product_id: Default::default(),
@@ -1778,13 +1777,13 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let actual = product.embed_text(embedding.clone()).unwrap();
+            let actual = product.embed(embedding.clone()).unwrap();
             match actual.payload {
-                ProductEnrichmentEventPayload::EmbeddedText(payload) => {
+                ProductEnrichmentEventPayload::Embedded(payload) => {
                     assert_eq!(payload.embedding, embedding);
                     assert_eq!(product.embedding, Some(embedding));
                 }
-                _ => panic!("Expected ProductEnrichmentEventPayload::EmbeddedText"),
+                _ => panic!("Expected ProductEnrichmentEventPayload::Embedded"),
             }
         }
     }
@@ -2187,8 +2186,7 @@ mod tests {
         };
         use crate::core::product_event::enrichment::{
             ClassifiedCategoryProductEnrichmentEventPayload,
-            ClassifiedPeriodProductEnrichmentEventPayload,
-            EmbeddedTextProductEnrichmentEventPayload,
+            ClassifiedPeriodProductEnrichmentEventPayload, EmbeddedProductEnrichmentEventPayload,
             ExtractedAttributesProductEnrichmentEventPayload, ProductEnrichmentEventPayload,
             TranslationProductEnrichmentEventPayload,
         };
@@ -2413,7 +2411,7 @@ mod tests {
         }
 
         #[test]
-        fn should_set_embedding_when_embedded_text_event_for_apply() {
+        fn should_set_embedding_when_embedded_event_for_apply() {
             let mut product: Product = Faker.fake();
             product.embedding = None;
 
@@ -2422,8 +2420,8 @@ mod tests {
             let event = make_event(
                 &product,
                 ProductEventPayload::ProductEnrichmentEvent(
-                    ProductEnrichmentEventPayload::EmbeddedText(
-                        EmbeddedTextProductEnrichmentEventPayload {
+                    ProductEnrichmentEventPayload::Embedded(
+                        EmbeddedProductEnrichmentEventPayload {
                             shop_id: product.shop_id,
                             shops_product_id: product.shops_product_id.clone(),
                             embedding: embedding.clone(),
