@@ -213,7 +213,7 @@ async fn start_postgres() -> Result<(testcontainers::ContainerAsync<PgImage>, Pg
 async fn apply_schema(pool: &PgPool) -> Result<(), sqlx::Error> {
     let workspace_root = env!("CARGO_WORKSPACE_DIR");
     let sql_path = std::path::Path::new(workspace_root).join("src/crawler/sql/schema.sql");
-    let sql = std::fs::read_to_string(&sql_path).map_err(|e| sqlx::Error::Io(e))?;
+    let sql = std::fs::read_to_string(&sql_path).map_err(sqlx::Error::Io)?;
     sqlx::raw_sql(&sql).execute(pool).await?;
     info!(path = %sql_path.display(), "Applied crawler demo schema");
     Ok(())
