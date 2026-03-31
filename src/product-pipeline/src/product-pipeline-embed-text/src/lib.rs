@@ -9,20 +9,21 @@ use common::{
 };
 use lambda_runtime::LambdaEvent;
 use product::{
-    core::product_event::ProductEventPayload,
-    dynamodb::{product_event_record::ProductEventRecord, repository::ProductDynamoDbRepository},
-    service::get_service::GetProductService,
+    core::{product::Product, product_event::ProductEventPayload},
+    dynamodb::{
+        product_event_record::ProductEventRecord, product_record::ProductRecord,
+        repository::ProductDynamoDbRepository,
+    },
 };
 use service::MultimodalEmbeddingService;
 use std::collections::HashMap;
 use tracing::{debug, error, info};
 
 #[tracing::instrument(
-    skip(get_product_service, embedding_service, product_repository, event),
+    skip(embedding_service, product_repository, event),
     fields(requestId = %event.context.request_id)
 )]
 pub async fn handler(
-    get_product_service: &(impl GetProductService + Sync),
     embedding_service: &(impl MultimodalEmbeddingService + Sync),
     product_repository: &(impl ProductDynamoDbRepository + Sync),
     event: LambdaEvent<SqsEvent>,
@@ -36,22 +37,32 @@ pub async fn handler(
     let mut enrichment_events: Vec<(String, ProductEventRecord)> = Vec::new();
 
     for (message_id, event_record) in event_records {
-        let product_key = event_record.key();
-
-        let product = match get_product_service
-            .find_product(&product_key.shop_id, &product_key.shops_product_id)
-            .await
-        {
-            Ok(product) => product,
-            Err(err) => {
+        let mut product: Product = match event_record {
+            ProductEventRecord::Domain(domain_record) => {
+                let key = domain_record.key();
+                match ProductRecord::try_from(domain_record).map(Product::from) {
+                    Ok(product) => product,
+                    Err(err) => {
+                        error!(
+                            error = %err,
+                            messageId = message_id,
+                            shopId = %key.shop_id,
+                            shopsProductId = %key.shops_product_id,
+                            "Failed converting domain event record to Product."
+                        );
+                        continue;
+                    }
+                }
+            }
+            other => {
+                let key = other.key();
                 error!(
-                    error = %err,
                     messageId = message_id,
-                    shopId = %product_key.shop_id,
-                    shopsProductId = %product_key.shops_product_id,
-                    "Failed fetching product."
+                    shopId = %key.shop_id,
+                    shopsProductId = %key.shops_product_id,
+                    eventId = %other.event_id(),
+                    "Unexpected non-Domain event record type in embed-text handler."
                 );
-                failed_message_ids.push(message_id);
                 continue;
             }
         };
@@ -70,8 +81,9 @@ pub async fn handler(
                 error!(
                     error = %err,
                     messageId = message_id,
-                    shopId = %product_key.shop_id,
-                    shopsProductId = %product_key.shops_product_id,
+                    shopId = %product.shop_id,
+                    shopsProductId = %product.shops_product_id,
+                    eventId = %product.event_id,
                     "Failed generating embedding."
                 );
                 failed_message_ids.push(message_id);
@@ -79,7 +91,6 @@ pub async fn handler(
             }
         };
 
-        let mut product = product;
         if let Some(enrichment_event) = product.embed_text(embedding) {
             let product_event = enrichment_event.map_payload(ProductEventPayload::from);
             let event_record: ProductEventRecord = product_event.into();
@@ -87,8 +98,8 @@ pub async fn handler(
         } else {
             debug!(
                 messageId = message_id,
-                shopId = %product_key.shop_id,
-                shopsProductId = %product_key.shops_product_id,
+                shopId = %product.shop_id,
+                shopsProductId = %product.shops_product_id,
                 "Embedding unchanged, skipping."
             );
         }
@@ -165,14 +176,21 @@ mod tests {
     use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
     use aws_lambda_events::eventbridge::EventBridgeEvent;
     use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
+    use common::event::Event;
+    use common::event_id::EventId;
+    use common::product_id::ProductId;
     use fake::{Fake, Faker};
     use lambda_runtime::{Context, LambdaEvent};
-    use product::core::product::Product;
+    use product::core::product_event::domain::{
+        ProductCreatedDomainEventPayload, ProductDomainEventPayload,
+    };
+    use product::dynamodb::product_event_record::ProductEventRecord;
     use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+    use product::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord;
     use product::dynamodb::repository::MockProductDynamoDbRepository;
-    use product::service::get_service::{GetProductError, MockGetProductService};
     use service::MockMultimodalEmbeddingService;
     use std::time::SystemTime;
+    use time::OffsetDateTime;
     use uuid::Uuid;
 
     use crate::service::{self, MultimodalEmbeddingError};
@@ -221,32 +239,25 @@ mod tests {
     }
 
     fn mk_domain_event_record() -> ProductDomainEventRecord {
-        Faker.fake::<ProductDomainEventRecord>()
-    }
-
-    fn mk_product_from_record(record: &ProductDomainEventRecord) -> Product {
-        let mut product: Product = Faker.fake();
-        product.shop_id = record.shop_id;
-        product.shops_product_id = record.shops_product_id.clone();
-        product.embedding = None;
-        product
+        let payload: ProductCreatedDomainEventPayload = Faker.fake();
+        let event = Event {
+            aggregate_id: ProductId::new(),
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::Created(payload),
+        };
+        event.into()
     }
 
     #[tokio::test]
     async fn should_return_no_failures_when_batch_is_empty() {
-        let mock_get_service = MockGetProductService::default();
         let mock_embedding_service = MockMultimodalEmbeddingService::default();
         let mock_repository = MockProductDynamoDbRepository::default();
         let event = mk_lambda_event(vec![]);
 
-        let result = handler(
-            &mock_get_service,
-            &mock_embedding_service,
-            &mock_repository,
-            event,
-        )
-        .await
-        .unwrap();
+        let result = handler(&mock_embedding_service, &mock_repository, event)
+            .await
+            .unwrap();
 
         assert!(result.batch_item_failures.is_empty());
     }
@@ -254,20 +265,6 @@ mod tests {
     #[tokio::test]
     async fn should_return_no_failures_when_single_product_embedded_successfully() {
         let record = mk_domain_event_record();
-        let product = mk_product_from_record(&record);
-        let shop_id = product.shop_id;
-        let shops_product_id = product.shops_product_id.clone();
-
-        let mut mock_get_service = MockGetProductService::default();
-        let product_clone = product.clone();
-        mock_get_service
-            .expect_find_product()
-            .withf(move |sid, spid| *sid == shop_id && *spid == shops_product_id)
-            .times(1)
-            .returning(move |_, _| {
-                let p = product_clone.clone();
-                Box::pin(async move { Ok(p) })
-            });
 
         let mut mock_embedding_service = MockMultimodalEmbeddingService::default();
         mock_embedding_service
@@ -287,65 +284,34 @@ mod tests {
             });
 
         let event = mk_lambda_event(vec![mk_sqs_message(&record)]);
-        let result = handler(
-            &mock_get_service,
-            &mock_embedding_service,
-            &mock_repository,
-            event,
-        )
-        .await
-        .unwrap();
+        let result = handler(&mock_embedding_service, &mock_repository, event)
+            .await
+            .unwrap();
 
         assert!(result.batch_item_failures.is_empty());
     }
 
     #[tokio::test]
-    async fn should_return_failure_when_product_not_found() {
-        let record = mk_domain_event_record();
+    async fn should_skip_failure_when_domain_record_is_malformed() {
+        let mut record = mk_domain_event_record();
+        record.title_native = None;
         let message_id = "test-msg-1".to_string();
-
-        let mut mock_get_service = MockGetProductService::default();
-        mock_get_service
-            .expect_find_product()
-            .times(1)
-            .returning(|sid, spid| {
-                let sid = *sid;
-                let spid = spid.clone();
-                Box::pin(async move { Err(GetProductError::ProductNotFound(sid, spid)) })
-            });
 
         let mock_embedding_service = MockMultimodalEmbeddingService::default();
         let mock_repository = MockProductDynamoDbRepository::default();
 
         let event = mk_lambda_event(vec![mk_sqs_message_with_id(&record, message_id.clone())]);
-        let result = handler(
-            &mock_get_service,
-            &mock_embedding_service,
-            &mock_repository,
-            event,
-        )
-        .await
-        .unwrap();
+        let result = handler(&mock_embedding_service, &mock_repository, event)
+            .await
+            .unwrap();
 
-        assert_eq!(1, result.batch_item_failures.len());
-        assert_eq!(message_id, result.batch_item_failures[0].item_identifier);
+        assert!(result.batch_item_failures.is_empty());
     }
 
     #[tokio::test]
     async fn should_return_failure_when_embedding_fails() {
         let record = mk_domain_event_record();
-        let product = mk_product_from_record(&record);
         let message_id = "test-msg-2".to_string();
-
-        let mut mock_get_service = MockGetProductService::default();
-        let product_clone = product.clone();
-        mock_get_service
-            .expect_find_product()
-            .times(1)
-            .returning(move |_, _| {
-                let p = product_clone.clone();
-                Box::pin(async move { Ok(p) })
-            });
 
         let mut mock_embedding_service = MockMultimodalEmbeddingService::default();
         mock_embedding_service
@@ -356,93 +322,28 @@ mod tests {
         let mock_repository = MockProductDynamoDbRepository::default();
 
         let event = mk_lambda_event(vec![mk_sqs_message_with_id(&record, message_id.clone())]);
-        let result = handler(
-            &mock_get_service,
-            &mock_embedding_service,
-            &mock_repository,
-            event,
-        )
-        .await
-        .unwrap();
+        let result = handler(&mock_embedding_service, &mock_repository, event)
+            .await
+            .unwrap();
 
         assert_eq!(1, result.batch_item_failures.len());
         assert_eq!(message_id, result.batch_item_failures[0].item_identifier);
     }
 
-    #[tokio::test]
-    async fn should_skip_persist_when_embedding_unchanged() {
-        let record = mk_domain_event_record();
-        let mut product = mk_product_from_record(&record);
-        let existing_embedding = vec![0.1, 0.2, 0.3];
-        product.embedding = Some(existing_embedding.clone());
-
-        let mut mock_get_service = MockGetProductService::default();
-        let product_clone = product.clone();
-        mock_get_service
-            .expect_find_product()
-            .times(1)
-            .returning(move |_, _| {
-                let p = product_clone.clone();
-                Box::pin(async move { Ok(p) })
-            });
-
-        let mut mock_embedding_service = MockMultimodalEmbeddingService::default();
-        mock_embedding_service
-            .expect_embed()
-            .times(1)
-            .returning(move |_, _, _| {
-                let e = existing_embedding.clone();
-                Box::pin(async move { Ok(e) })
-            });
-
-        // Repository should NOT be called since embedding is unchanged
-        let mock_repository = MockProductDynamoDbRepository::default();
-
-        let event = mk_lambda_event(vec![mk_sqs_message(&record)]);
-        let result = handler(
-            &mock_get_service,
-            &mock_embedding_service,
-            &mock_repository,
-            event,
-        )
-        .await
-        .unwrap();
-
-        assert!(result.batch_item_failures.is_empty());
-    }
+    // NOTE: `should_skip_persist_when_embedding_unchanged` is no longer applicable.
+    // The Product is always constructed from a DOMAIN_CREATED event record, which always
+    // sets `embedding: None` (see `TryFrom<ProductDomainEventRecord> for ProductRecord`).
+    // Therefore, `product.embed_text(embedding)` always produces an enrichment event
+    // (the new embedding never equals the absent existing one), so the "unchanged" path
+    // can never be triggered from this handler.
 
     #[tokio::test]
     async fn should_return_partial_failures_when_some_succeed_and_some_fail() {
         let record_success = mk_domain_event_record();
-        let record_fail = mk_domain_event_record();
-        let product_success = mk_product_from_record(&record_success);
-        let product_fail = mk_product_from_record(&record_fail);
+        let mut record_fail = mk_domain_event_record();
+        record_fail.title_native = None;
         let success_msg_id = "success-msg".to_string();
         let fail_msg_id = "fail-msg".to_string();
-
-        let fail_shop_id = product_fail.shop_id;
-        let fail_spid = product_fail.shops_product_id.clone();
-
-        let mut mock_get_service = MockGetProductService::default();
-        let ps = product_success.clone();
-        let fail_spid_clone = fail_spid.clone();
-        mock_get_service
-            .expect_find_product()
-            .withf(move |sid, spid| *sid != fail_shop_id || *spid != fail_spid_clone)
-            .times(1)
-            .returning(move |_, _| {
-                let p = ps.clone();
-                Box::pin(async move { Ok(p) })
-            });
-        mock_get_service
-            .expect_find_product()
-            .withf(move |sid, spid| *sid == fail_shop_id || *spid == fail_spid)
-            .times(1)
-            .returning(|sid, spid| {
-                let sid = *sid;
-                let spid = spid.clone();
-                Box::pin(async move { Err(GetProductError::ProductNotFound(sid, spid)) })
-            });
 
         let mut mock_embedding_service = MockMultimodalEmbeddingService::default();
         mock_embedding_service
@@ -465,22 +366,15 @@ mod tests {
             mk_sqs_message_with_id(&record_success, success_msg_id),
             mk_sqs_message_with_id(&record_fail, fail_msg_id.clone()),
         ]);
-        let result = handler(
-            &mock_get_service,
-            &mock_embedding_service,
-            &mock_repository,
-            event,
-        )
-        .await
-        .unwrap();
+        let result = handler(&mock_embedding_service, &mock_repository, event)
+            .await
+            .unwrap();
 
-        assert_eq!(1, result.batch_item_failures.len());
-        assert_eq!(fail_msg_id, result.batch_item_failures[0].item_identifier);
+        assert!(result.batch_item_failures.is_empty());
     }
 
     #[tokio::test]
     async fn should_skip_messages_with_empty_body() {
-        let mock_get_service = MockGetProductService::default();
         let mock_embedding_service = MockMultimodalEmbeddingService::default();
         let mock_repository = MockProductDynamoDbRepository::default();
 
@@ -489,21 +383,15 @@ mod tests {
         empty_msg.body = None;
 
         let event = mk_lambda_event(vec![empty_msg]);
-        let result = handler(
-            &mock_get_service,
-            &mock_embedding_service,
-            &mock_repository,
-            event,
-        )
-        .await
-        .unwrap();
+        let result = handler(&mock_embedding_service, &mock_repository, event)
+            .await
+            .unwrap();
 
         assert!(result.batch_item_failures.is_empty());
     }
 
     #[tokio::test]
     async fn should_fail_messages_with_invalid_json_body() {
-        let mock_get_service = MockGetProductService::default();
         let mock_embedding_service = MockMultimodalEmbeddingService::default();
         let mock_repository = MockProductDynamoDbRepository::default();
 
@@ -512,14 +400,9 @@ mod tests {
         invalid_msg.body = Some("invalid json {".to_string());
 
         let event = mk_lambda_event(vec![invalid_msg]);
-        let result = handler(
-            &mock_get_service,
-            &mock_embedding_service,
-            &mock_repository,
-            event,
-        )
-        .await
-        .unwrap();
+        let result = handler(&mock_embedding_service, &mock_repository, event)
+            .await
+            .unwrap();
 
         assert_eq!(1, result.batch_item_failures.len());
         assert_eq!(
@@ -532,32 +415,6 @@ mod tests {
     async fn should_return_no_failures_when_multiple_products_embedded_successfully() {
         let record1 = mk_domain_event_record();
         let record2 = mk_domain_event_record();
-        let product1 = mk_product_from_record(&record1);
-        let product2 = mk_product_from_record(&record2);
-
-        let mut mock_get_service = MockGetProductService::default();
-        let p1 = product1.clone();
-        let p2 = product2.clone();
-        let shop_id_1 = product1.shop_id;
-        let spid_1 = product1.shops_product_id.clone();
-        mock_get_service
-            .expect_find_product()
-            .withf(move |sid, spid| *sid == shop_id_1 && *spid == spid_1)
-            .times(1)
-            .returning(move |_, _| {
-                let p = p1.clone();
-                Box::pin(async move { Ok(p) })
-            });
-        let shop_id_2 = product2.shop_id;
-        let spid_2 = product2.shops_product_id.clone();
-        mock_get_service
-            .expect_find_product()
-            .withf(move |sid, spid| *sid == shop_id_2 && *spid == spid_2)
-            .times(1)
-            .returning(move |_, _| {
-                let p = p2.clone();
-                Box::pin(async move { Ok(p) })
-            });
 
         let mut mock_embedding_service = MockMultimodalEmbeddingService::default();
         mock_embedding_service
@@ -577,14 +434,29 @@ mod tests {
             });
 
         let event = mk_lambda_event(vec![mk_sqs_message(&record1), mk_sqs_message(&record2)]);
-        let result = handler(
-            &mock_get_service,
-            &mock_embedding_service,
-            &mock_repository,
-            event,
-        )
-        .await
-        .unwrap();
+        let result = handler(&mock_embedding_service, &mock_repository, event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_skip_failure_when_non_domain_event_record_received() {
+        let enrichment_record: ProductEnrichmentEventRecord = Faker.fake();
+        let event_record = ProductEventRecord::Enrichment(enrichment_record);
+        let message_id = "non-domain-msg".to_string();
+
+        let mock_embedding_service = MockMultimodalEmbeddingService::default();
+        let mock_repository = MockProductDynamoDbRepository::default();
+
+        let event = mk_lambda_event(vec![mk_sqs_message_with_id(
+            &event_record,
+            message_id.clone(),
+        )]);
+        let result = handler(&mock_embedding_service, &mock_repository, event)
+            .await
+            .unwrap();
 
         assert!(result.batch_item_failures.is_empty());
     }

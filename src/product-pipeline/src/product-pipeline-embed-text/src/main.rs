@@ -2,10 +2,7 @@ use aws_config::BehaviorVersion;
 use aws_lambda_events::sqs::SqsEvent;
 use aws_sdk_dynamodb::Client;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use product::{
-    dynamodb::repository::ProductDynamoDbRepositoryImpl,
-    service::get_service::GetProductServiceImpl,
-};
+use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product_pipeline_embed_text::{handler, service::MultimodalEmbeddingServiceImpl};
 use tracing::debug;
 
@@ -22,7 +19,6 @@ async fn main() -> Result<(), Error> {
 
     let client = Client::new(&aws_config);
     let product_repository = ProductDynamoDbRepositoryImpl::new(&client, &table_name);
-    let get_product_service = GetProductServiceImpl::new(&product_repository);
 
     debug!("Lambda initialized.");
 
@@ -34,13 +30,7 @@ async fn main() -> Result<(), Error> {
             .expect_embed()
             .returning(|_, _, _| Box::pin(async { Ok(vec![0.42f32; 768]) }));
         run(service_fn(|event: LambdaEvent<SqsEvent>| async {
-            handler(
-                &get_product_service,
-                &embedding_service,
-                &product_repository,
-                event,
-            )
-            .await
+            handler(&embedding_service, &product_repository, event).await
         }))
         .await
     } else {
@@ -48,13 +38,7 @@ async fn main() -> Result<(), Error> {
             .expect("shouldn't fail loading env-var 'GEMINI_API_KEY'");
         let embedding_service = MultimodalEmbeddingServiceImpl::new(&gemini_api_key);
         run(service_fn(|event: LambdaEvent<SqsEvent>| async {
-            handler(
-                &get_product_service,
-                &embedding_service,
-                &product_repository,
-                event,
-            )
-            .await
+            handler(&embedding_service, &product_repository, event).await
         }))
         .await
     }

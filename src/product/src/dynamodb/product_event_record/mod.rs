@@ -7,6 +7,7 @@ use crate::{
 };
 use common::{
     event::Event,
+    event_id::EventId,
     has_key::HasKey,
     product_id::{ProductId, ProductKey},
 };
@@ -38,6 +39,14 @@ impl ProductEventRecord {
             ProductEventRecord::Domain(record) => &record.product_id,
             ProductEventRecord::Enrichment(record) => &record.product_id,
             ProductEventRecord::Policy(record) => &record.product_id,
+        }
+    }
+
+    pub fn event_id(&self) -> &EventId {
+        match self {
+            ProductEventRecord::Domain(record) => &record.event_id,
+            ProductEventRecord::Enrichment(record) => &record.event_id,
+            ProductEventRecord::Policy(record) => &record.event_id,
         }
     }
 }
