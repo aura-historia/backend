@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/aura-historia/backend/actions/workflows/cicd.yml"><img src="https://github.com/aura-historia/backend/actions/workflows/cicd.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/aura-historia/backend/actions/workflows/cicd.yml"><img src="https://github.com/aura-historia/backend/actions/workflows/integrate.yml/badge.svg" alt="CI" /></a>
   <a href="https://github.com/aura-historia/backend/actions/workflows/github-code-scanning/codeql"><img src="https://github.com/aura-historia/backend/actions/workflows/github-code-scanning/codeql/badge.svg" alt="CodeQL" /></a>
   <a href="https://github.com/aura-historia/backend/actions/workflows/dependabot/dependabot-updates"><img src="https://github.com/aura-historia/backend/actions/workflows/dependabot/dependabot-updates/badge.svg" alt="Dependabot" /></a>
 </p>
