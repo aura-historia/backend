@@ -3445,7 +3445,6 @@ Resources:
           PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_ASG_NAME: !Ref ProductPipelineExtractAttributeASG
           PRODUCT_PIPELINE_CLASSIFY_SQS_URL: !Ref ProductPipelineClassifyQ
           PRODUCT_PIPELINE_CLASSIFY_SQS_NAME: !GetAtt ProductPipelineClassifyQ.QueueName
-          PRODUCT_PIPELINE_CLASSIFY_ASG_NAME: !Ref ProductPipelineClassifyASG
   ProductPipelineScaleControlStartSchedule:
     Type: AWS::Events::Rule
     Properties:
@@ -3608,6 +3607,11 @@ Outputs:
     Value: !Ref ProductPipelineEmbedTextQ
   ProductPipelineEmbedTextDeadLetterQueueUrl:
     Value: !Ref ProductPipelineEmbedTextDlq
+
+  ProductPipelineClassifyQueueUrl:
+    Value: !Ref ProductPipelineClassifyQ
+  ProductPipelineClassifyDeadLetterQueueUrl:
+    Value: !Ref ProductPipelineClassifyDlq
 
   ShopOpensearchIndexQueueUrl:
     Value: !Ref ShopOpenSearchIndexQ

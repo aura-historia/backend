@@ -4091,6 +4091,74 @@ async fn should_embed_product_when_domain_created_event_triggers_pipeline() {
 }
 
 #[localstack_test(services = [Cloudformation()])]
+async fn should_classify_product_when_embedded_text_event_triggers_pipeline() {
+    let stack = get_cfn_output();
+    let shop = prepare_test_shop().await;
+    let repository = ProductDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &stack.dynamodb_table_1_name,
+    );
+
+    // 1. Create product via command service (triggers DOMAIN_CREATED event)
+    let mut create_cmd: CreateProductCommand = Faker.fake();
+    create_cmd.shop_id = shop.shop_id;
+    create_cmd.shop_name = shop.name.clone();
+    create_cmd.shop_type = shop.shop_type;
+
+    create_products(vec![create_cmd.clone()]).await;
+
+    // 2. Wait for embedding to be materialized (comes from embed-text Lambda)
+    let deadline = Instant::now() + Duration::from_secs(120);
+    loop {
+        let materialized = repository
+            .get_product_record(&shop.shop_id, &create_cmd.shops_product_id)
+            .await
+            .unwrap();
+
+        if let Some(record) = materialized
+            && record.embedding.is_some()
+        {
+            break;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: ProductRecord for shop '{}' / product '{}' not updated with embedding after 120s",
+                shop.shop_id, create_cmd.shops_product_id
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+
+    // 3. Wait for the classify Lambda to produce enrichment events
+    //    (ClassifiedCategory + ClassifiedPeriod) which the materialize-dynamodb Lambda
+    //    then materializes into the product record.
+    //    The MockClassificationService returns the first candidate for both.
+    let deadline = Instant::now() + Duration::from_secs(120);
+    loop {
+        let materialized = repository
+            .get_product_record(&shop.shop_id, &create_cmd.shops_product_id)
+            .await
+            .unwrap();
+
+        if let Some(record) = materialized
+            && record.category_id.is_some()
+            && record.period_id.is_some()
+        {
+            break;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: ProductRecord for shop '{}' / product '{}' not updated with category_id and period_id after 120s",
+                shop.shop_id, create_cmd.shops_product_id
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+}
+
+#[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_for_partner_patch_products() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,

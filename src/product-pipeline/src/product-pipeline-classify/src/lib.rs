@@ -28,7 +28,7 @@ use product_classification::{category::service::CategoryService, period::service
 use service::ClassificationService;
 use std::collections::HashMap;
 use time::OffsetDateTime;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[tracing::instrument(
     skip(classification_service, product_repository, category_service, period_service, event),
@@ -111,6 +111,17 @@ pub async fn handler(
         };
 
         let title = Title::from(product_record.title_native.text.as_str());
+
+        if title.is_empty() {
+            warn!(
+                messageId = message_id,
+                shopId = %enrichment_record.shop_id,
+                shopsProductId = %enrichment_record.shops_product_id,
+                "Product has empty native title, skipping classification."
+            );
+            failed_message_ids.push(message_id);
+            continue;
+        }
 
         let (similar_categories_res, similar_periods_res) = tokio::join!(
             category_service.find_similar(embedding, 5),
