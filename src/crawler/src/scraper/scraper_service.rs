@@ -27,45 +27,45 @@ pub trait HtmlFetcher: Send + Sync {
 }
 
 // ---------------------------------------------------------------------------
-// Real HtmlFetcher backed by reqwest
+// Real HtmlFetcher backed by spider
 // ---------------------------------------------------------------------------
 
+use spider::website::Website;
+
 #[derive(Default)]
-pub struct SpiderHtmlFetcher {
-    client: reqwest::Client,
-}
+pub struct SpiderHtmlFetcher {}
 
 impl SpiderHtmlFetcher {
     pub fn new() -> Self {
-        let client = reqwest::Client::builder()
-            .use_rustls_tls()
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36")
-            .timeout(std::time::Duration::from_secs(15))
-            .build()
-            .unwrap_or_default();
-
-        Self { client }
+        Self {}
     }
 }
 
 #[async_trait::async_trait]
 impl HtmlFetcher for SpiderHtmlFetcher {
     async fn fetch(&self, url: &Url) -> Result<String, String> {
-        let response = self
-            .client
-            .get(url.as_str())
-            .send()
-            .await
-            .map_err(|e| format!("Reqwest failed: {}", e))?;
+        let mut website = Website::new(url.as_str());
 
-        if response.status().is_success() {
-            response
-                .text()
-                .await
-                .map_err(|e| format!("Failed to read response body: {}", e))
-        } else {
-            Err(format!("HTTP Error: {}", response.status()))
+        let mut hashbrown_budget = spider::hashbrown::HashMap::new();
+        hashbrown_budget.insert("*", 1);
+        website.with_budget(Some(hashbrown_budget));
+
+        let mut rx = website
+            .subscribe(16)
+            .ok_or("Failed to subscribe to spider channel")?;
+
+        website.scrape().await;
+        drop(website);
+
+        // Read the page from the channel (now that scraping is done and website dropped)
+        if let Ok(page) = rx.try_recv() {
+            let html = page.get_html();
+            if !html.is_empty() {
+                return Ok(html);
+            }
         }
+
+        Err(format!("Spider could not fetch HTML for URL: {}", url))
     }
 }
 
