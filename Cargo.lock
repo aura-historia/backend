@@ -433,9 +433,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-autoscaling"
-version = "1.112.0"
+version = "1.113.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b9477c124bc9c0bff96089d83f354d2d3dc8613f8149f10c592adaadc64ad41"
+checksum = "fe9bfa65dd423febc1d0d9fde9beff9ca004b9316520a2cdbda73208baec1e69"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -559,9 +559,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-opensearch"
-version = "1.119.0"
+version = "1.120.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b96b2d4eaf6b5874407fda96d6d2f2f1afdfc265ac8844f74a7d6d42f7d1a40"
+checksum = "7155da1e309898ecfe72144648275284c206ab847b4553b522e0dc3248e292ca"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
