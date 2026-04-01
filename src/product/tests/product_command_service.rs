@@ -1,6 +1,7 @@
 use common::{
+    currency::domain::Currency,
     has_key::HasKey,
-    price::domain::{FixedFxRate, FxRate},
+    price::domain::{FixedFxRate, FxRate, MonetaryAmount, Price},
     product_id::ProductKey,
     product_state::domain::ProductState,
 };
@@ -64,18 +65,17 @@ async fn scan_all_items() -> Vec<HashMap<String, aws_sdk_dynamodb::types::Attrib
     all_items
 }
 
+fn exchange_all(price: Option<Price>) -> HashMap<Currency, MonetaryAmount> {
+    price
+        .and_then(|p| FixedFxRate().exchange_all(p.currency, p.monetary_amount).ok())
+        .unwrap_or_default()
+}
+
 /// Creates a `ProductRecord` from a `CreateProductCommand` with correctly
-/// computed `other_price` via `FixedFxRate`, so subsequent updates with the
-/// same `native_price` do not spuriously generate price-change events.
+/// computed `other_price` and `other_price_estimate_min/max` via `FixedFxRate`,
+/// so subsequent updates with the same field values do not spuriously generate
+/// price-change or estimate-price-change events.
 fn make_product_record(cmd: &CreateProductCommand) -> ProductRecord {
-    let other_price = cmd
-        .native_price
-        .and_then(|p| {
-            FixedFxRate()
-                .exchange_all(p.currency, p.monetary_amount)
-                .ok()
-        })
-        .unwrap_or_default();
     let event_record: ProductDomainEventRecord = Product::create(
         cmd.shop_id,
         cmd.shops_product_id.clone(),
@@ -84,11 +84,11 @@ fn make_product_record(cmd: &CreateProductCommand) -> ProductRecord {
         cmd.native_title.clone(),
         cmd.native_description.clone(),
         cmd.native_price,
-        other_price,
-        None,
-        Default::default(),
-        None,
-        Default::default(),
+        exchange_all(cmd.native_price),
+        cmd.native_price_estimate_min,
+        exchange_all(cmd.native_price_estimate_min),
+        cmd.native_price_estimate_max,
+        exchange_all(cmd.native_price_estimate_max),
         cmd.state,
         cmd.url.clone(),
         cmd.images.clone(),

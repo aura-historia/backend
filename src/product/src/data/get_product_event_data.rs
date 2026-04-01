@@ -336,7 +336,6 @@ mod tests {
     };
     use fake::Fake;
     use rstest;
-    use std::collections::HashMap;
     use time::macros::utc_datetime;
     use url::Url;
     use uuid::Uuid;
