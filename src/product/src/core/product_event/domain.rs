@@ -140,14 +140,28 @@ impl ProductDomainEventPayload {
                 )
             }
             ProductDomainEventPayload::EstimatePriceChanged(payload) => {
+                let price_estimate_min = match payload.native_price_estimate_min {
+                    Some(native_min) => {
+                        let mut min_prices = payload.other_price_estimate_min;
+                        min_prices.insert(native_min.currency, native_min.monetary_amount);
+                        Currency::resolve(&[*currency], min_prices)
+                    }
+                    None => None,
+                };
+                let price_estimate_max = match payload.native_price_estimate_max {
+                    Some(native_max) => {
+                        let mut max_prices = payload.other_price_estimate_max;
+                        max_prices.insert(native_max.currency, native_max.monetary_amount);
+                        Currency::resolve(&[*currency], max_prices)
+                    }
+                    None => None,
+                };
                 LocalizedProductDomainEventPayloadView::EstimatePriceChanged(
                     LocalizedProductEstimatePriceChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_product_id: payload.shops_product_id,
-                        native_price_estimate_min: payload.native_price_estimate_min,
-                        other_price_estimate_min: payload.other_price_estimate_min,
-                        native_price_estimate_max: payload.native_price_estimate_max,
-                        other_price_estimate_max: payload.other_price_estimate_max,
+                        price_estimate_min,
+                        price_estimate_max,
                     },
                 )
             }
@@ -574,10 +588,8 @@ pub struct LocalizedProductPriceChangeDomainEventPayloadView {
 pub struct LocalizedProductEstimatePriceChangeDomainEventPayloadView {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
-    pub native_price_estimate_min: Option<Price>,
-    pub other_price_estimate_min: HashMap<Currency, MonetaryAmount>,
-    pub native_price_estimate_max: Option<Price>,
-    pub other_price_estimate_max: HashMap<Currency, MonetaryAmount>,
+    pub price_estimate_min: Option<Price>,
+    pub price_estimate_max: Option<Price>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -188,8 +188,8 @@ impl From<Event<ProductId, LocalizedProductDomainEventPayloadView>> for GetProdu
                 payload.shops_product_id,
                 ProductEventPayloadData::EstimatePriceChanged(
                     ProductEventEstimatePriceChangedPayloadData {
-                        price_estimate_min: payload.native_price_estimate_min.map(PriceData::from),
-                        price_estimate_max: payload.native_price_estimate_max.map(PriceData::from),
+                        price_estimate_min: payload.price_estimate_min.map(PriceData::from),
+                        price_estimate_max: payload.price_estimate_max.map(PriceData::from),
                     },
                 ),
             ),
@@ -491,10 +491,8 @@ mod tests {
         LocalizedProductDomainEventPayloadView::EstimatePriceChanged(LocalizedProductEstimatePriceChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
-            native_price_estimate_min: Some(Price::new(100u64.into(), Currency::Eur)),
-            other_price_estimate_min: HashMap::new(),
-            native_price_estimate_max: Some(Price::new(500u64.into(), Currency::Eur)),
-            other_price_estimate_max: HashMap::new(),
+            price_estimate_min: Some(Price::new(100u64.into(), Currency::Eur)),
+            price_estimate_max: Some(Price::new(500u64.into(), Currency::Eur)),
         }),
         GetProductEventData {
             event_type: ProductEventTypeData::EstimatePriceChanged,
