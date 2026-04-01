@@ -540,7 +540,9 @@ mod tests {
 
     mod determine_update_events {
         use super::*;
+        use crate::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
         use crate::dynamodb::product_record::ProductRecord;
+        use common::price::domain::Price;
 
         #[test]
         fn should_determine_no_update_events_when_only_skipped() {
@@ -710,6 +712,360 @@ mod tests {
             assert!(actual.is_empty());
             assert_eq!(1, working.len());
             assert_eq!(Some(&cmd), working.get(&product.key()));
+        }
+
+        #[test]
+        fn should_generate_estimate_price_changed_event_when_estimate_price_changes() {
+            let mut product: Product = Faker.fake();
+            let key = product.key();
+            product.native_price_estimate_min = None;
+            product.native_price_estimate_max = None;
+            let new_min = Some(Price::new(
+                100u64.into(),
+                common::currency::domain::Currency::Eur,
+            ));
+            let new_max = Some(Price::new(
+                500u64.into(),
+                common::currency::domain::Currency::Eur,
+            ));
+            let cmd = UpdateProductCommand {
+                native_price: product.native_price,
+                state: Some(product.state),
+                native_price_estimate_min: new_min,
+                native_price_estimate_max: new_max,
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
+            };
+            let mut working = HashMap::from([(key.clone(), cmd)]);
+            let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
+            assert!(
+                events
+                    .iter()
+                    .any(|e| e.event_type
+                        == ProductDomainEventTypeRecord::DomainEstimatePriceChanged)
+            );
+        }
+
+        #[test]
+        fn should_generate_url_changed_event_when_url_changes() {
+            let mut product: Product = Faker.fake();
+            let key = product.key();
+            product.url = url::Url::parse("https://original.example.com").unwrap();
+            let cmd = UpdateProductCommand {
+                native_price: product.native_price,
+                state: Some(product.state),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: Some(url::Url::parse("https://definitely-different.example.com").unwrap()),
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
+            };
+            let mut working = HashMap::from([(key.clone(), cmd)]);
+            let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
+            assert!(
+                events
+                    .iter()
+                    .any(|e| e.event_type == ProductDomainEventTypeRecord::DomainUrlChanged)
+            );
+        }
+
+        #[test]
+        fn should_generate_images_changed_event_when_images_change() {
+            use crate::core::product_image::ProductImage;
+            use crate::core::prohibited_content::ProhibitedContent;
+
+            let mut product: Product = Faker.fake();
+            let key = product.key();
+            product.images = vec![];
+            let new_images = vec![ProductImage {
+                url: url::Url::parse("https://img.example.com/new.jpg").unwrap(),
+                prohibited_content: ProhibitedContent::None,
+            }];
+            let cmd = UpdateProductCommand {
+                native_price: product.native_price,
+                state: Some(product.state),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: None,
+                images: Some(new_images),
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
+            };
+            let mut working = HashMap::from([(key.clone(), cmd)]);
+            let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
+            assert!(
+                events
+                    .iter()
+                    .any(|e| e.event_type == ProductDomainEventTypeRecord::DomainImagesChanged)
+            );
+        }
+
+        #[test]
+        fn should_generate_auction_time_changed_event_when_auction_time_changes() {
+            let mut product: Product = Faker.fake();
+            let key = product.key();
+            product.auction_start = None;
+            product.auction_end = None;
+            let cmd = UpdateProductCommand {
+                native_price: product.native_price,
+                state: Some(product.state),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: None,
+                images: None,
+                auction_start: Some(time::OffsetDateTime::now_utc() + time::Duration::days(30)),
+                auction_end: None,
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
+            };
+            let mut working = HashMap::from([(key.clone(), cmd)]);
+            let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
+            assert!(events.iter().any(
+                |e| e.event_type == ProductDomainEventTypeRecord::DomainAuctionTimeChanged
+            ));
+        }
+
+        #[test]
+        fn should_generate_origin_year_changed_event_when_origin_year_changes() {
+            use crate::core::origin_year::OriginYear;
+
+            let mut product: Product = Faker.fake();
+            let key = product.key();
+            product.origin_year = None;
+            let cmd = UpdateProductCommand {
+                native_price: product.native_price,
+                state: Some(product.state),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: Some(OriginYear::ExactYear(common::year::Year::from(1800i32))),
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
+            };
+            let mut working = HashMap::from([(key.clone(), cmd)]);
+            let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
+            assert!(
+                events
+                    .iter()
+                    .any(|e| e.event_type == ProductDomainEventTypeRecord::DomainOriginYearChanged)
+            );
+        }
+
+        #[test]
+        fn should_generate_authenticity_changed_event_when_authenticity_changes() {
+            use crate::core::authenticity::Authenticity;
+
+            let mut product: Product = Faker.fake();
+            let key = product.key();
+            product.authenticity = Authenticity::Unknown;
+            let cmd = UpdateProductCommand {
+                native_price: product.native_price,
+                state: Some(product.state),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: Some(Authenticity::Original),
+                condition: None,
+                provenance: None,
+                restoration: None,
+            };
+            let mut working = HashMap::from([(key.clone(), cmd)]);
+            let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
+            assert!(
+                events.iter().any(
+                    |e| e.event_type == ProductDomainEventTypeRecord::DomainAuthenticityChanged
+                )
+            );
+        }
+
+        #[test]
+        fn should_generate_condition_changed_event_when_condition_changes() {
+            use crate::core::condition::Condition;
+
+            let mut product: Product = Faker.fake();
+            let key = product.key();
+            product.condition = Condition::Unknown;
+            let cmd = UpdateProductCommand {
+                native_price: product.native_price,
+                state: Some(product.state),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: None,
+                condition: Some(Condition::Excellent),
+                provenance: None,
+                restoration: None,
+            };
+            let mut working = HashMap::from([(key.clone(), cmd)]);
+            let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
+            assert!(
+                events
+                    .iter()
+                    .any(|e| e.event_type == ProductDomainEventTypeRecord::DomainConditionChanged)
+            );
+        }
+
+        #[test]
+        fn should_generate_provenance_changed_event_when_provenance_changes() {
+            use crate::core::provenance::Provenance;
+
+            let mut product: Product = Faker.fake();
+            let key = product.key();
+            product.provenance = Provenance::Unknown;
+            let cmd = UpdateProductCommand {
+                native_price: product.native_price,
+                state: Some(product.state),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: Some(Provenance::Complete),
+                restoration: None,
+            };
+            let mut working = HashMap::from([(key.clone(), cmd)]);
+            let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
+            assert!(
+                events
+                    .iter()
+                    .any(|e| e.event_type == ProductDomainEventTypeRecord::DomainProvenanceChanged)
+            );
+        }
+
+        #[test]
+        fn should_generate_restoration_changed_event_when_restoration_changes() {
+            use crate::core::restoration::Restoration;
+
+            let mut product: Product = Faker.fake();
+            let key = product.key();
+            product.restoration = Restoration::Unknown;
+            let cmd = UpdateProductCommand {
+                native_price: product.native_price,
+                state: Some(product.state),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: Some(Restoration::Minor),
+            };
+            let mut working = HashMap::from([(key.clone(), cmd)]);
+            let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
+            assert!(events.iter().any(
+                |e| e.event_type == ProductDomainEventTypeRecord::DomainRestorationChanged
+            ));
+        }
+
+        #[test]
+        fn should_generate_no_events_when_no_fields_change() {
+            let product: Product = Faker.fake();
+            let key = product.key();
+            let cmd = UpdateProductCommand {
+                native_price: product.native_price,
+                state: Some(product.state),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
+            };
+            let mut working = HashMap::from([(key.clone(), cmd)]);
+            let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
+            assert!(events.is_empty());
+        }
+
+        #[test]
+        fn should_generate_multiple_events_when_multiple_fields_change() {
+            use crate::core::authenticity::Authenticity;
+            use crate::core::condition::Condition;
+
+            let mut product: Product = Faker.fake();
+            let key = product.key();
+            product.url = url::Url::parse("https://original.example.com").unwrap();
+            product.authenticity = Authenticity::Unknown;
+            product.condition = Condition::Unknown;
+            let cmd = UpdateProductCommand {
+                native_price: product.native_price,
+                state: Some(product.state),
+                native_price_estimate_min: None,
+                native_price_estimate_max: None,
+                url: Some(url::Url::parse("https://different.example.com").unwrap()),
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                origin_year: None,
+                authenticity: Some(Authenticity::Original),
+                condition: Some(Condition::Excellent),
+                provenance: None,
+                restoration: None,
+            };
+            let mut working = HashMap::from([(key.clone(), cmd)]);
+            let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
+            assert!(events.len() >= 3);
+            assert!(
+                events
+                    .iter()
+                    .any(|e| e.event_type == ProductDomainEventTypeRecord::DomainUrlChanged)
+            );
+            assert!(
+                events.iter().any(
+                    |e| e.event_type == ProductDomainEventTypeRecord::DomainAuthenticityChanged
+                )
+            );
+            assert!(
+                events
+                    .iter()
+                    .any(|e| e.event_type == ProductDomainEventTypeRecord::DomainConditionChanged)
+            );
         }
     }
 
