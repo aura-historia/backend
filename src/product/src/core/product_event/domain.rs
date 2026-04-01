@@ -744,7 +744,7 @@ mod faker {
             Self {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
-                origin_year: OriginYear::ExactYear(common::year::Year::from(1900i16)),
+                origin_year: OriginYear::ExactYear(common::year::Year::from(1900i32)),
             }
         }
     }

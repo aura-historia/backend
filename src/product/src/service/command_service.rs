@@ -455,21 +455,52 @@ fn determine_update_events(
             {
                 events.push(ProductDomainEventRecord::from(state_event));
             }
-            if let Some(detail_event) = product.change_detail(
+            if let Some(event) = product.change_estimate_price(
                 cmd.native_price_estimate_min,
                 cmd.native_price_estimate_max,
-                cmd.url,
-                cmd.images,
-                cmd.auction_start,
-                cmd.auction_end,
-                cmd.origin_year,
-                cmd.authenticity,
-                cmd.condition,
-                cmd.provenance,
-                cmd.restoration,
                 fx_rate,
             ) {
-                events.push(ProductDomainEventRecord::from(detail_event));
+                events.push(ProductDomainEventRecord::from(event));
+            }
+            if let Some(url) = cmd.url
+                && let Some(event) = product.change_url(url)
+            {
+                events.push(ProductDomainEventRecord::from(event));
+            }
+            if let Some(images) = cmd.images
+                && let Some(event) = product.change_images(images)
+            {
+                events.push(ProductDomainEventRecord::from(event));
+            }
+            if (cmd.auction_start.is_some() || cmd.auction_end.is_some())
+                && let Some(event) = product.change_auction_time(cmd.auction_start, cmd.auction_end)
+            {
+                events.push(ProductDomainEventRecord::from(event));
+            }
+            if let Some(oy) = cmd.origin_year
+                && let Some(event) = product.change_origin_year(oy)
+            {
+                events.push(ProductDomainEventRecord::from(event));
+            }
+            if let Some(auth) = cmd.authenticity
+                && let Some(event) = product.change_authenticity(auth)
+            {
+                events.push(ProductDomainEventRecord::from(event));
+            }
+            if let Some(cond) = cmd.condition
+                && let Some(event) = product.change_condition(cond)
+            {
+                events.push(ProductDomainEventRecord::from(event));
+            }
+            if let Some(prov) = cmd.provenance
+                && let Some(event) = product.change_provenance(prov)
+            {
+                events.push(ProductDomainEventRecord::from(event));
+            }
+            if let Some(rest) = cmd.restoration
+                && let Some(event) = product.change_restoration(rest)
+            {
+                events.push(ProductDomainEventRecord::from(event));
             }
         }
     }

@@ -3,9 +3,13 @@ use crate::core::condition::Condition;
 use crate::core::description::Description;
 use crate::core::origin_year::OriginYear;
 use crate::core::product_event::domain::{
-    ProductCreatedDomainEventPayload, ProductDetailChangeDomainEventPayload,
-    ProductDomainEventPayload, ProductPriceChangeDomainEventPayload,
-    ProductStateChangeDomainEventPayload,
+    ProductAuctionTimeChangeDomainEventPayload, ProductAuthenticityChangeDomainEventPayload,
+    ProductConditionChangeDomainEventPayload, ProductCreatedDomainEventPayload,
+    ProductDomainEventPayload, ProductEstimatePriceChangeDomainEventPayload,
+    ProductImagesChangeDomainEventPayload, ProductOriginYearChangeDomainEventPayload,
+    ProductPriceChangeDomainEventPayload, ProductProvenanceChangeDomainEventPayload,
+    ProductRestorationChangeDomainEventPayload, ProductStateChangeDomainEventPayload,
+    ProductUrlChangeDomainEventPayload,
 };
 use crate::core::product_event::enrichment::{
     EmbeddedProductEnrichmentEventPayload, ExtractedAttributesProductEnrichmentEventPayload,
@@ -258,41 +262,17 @@ impl Product {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn change_detail(
+    pub fn change_estimate_price(
         &mut self,
         native_price_estimate_min: Option<Price>,
         native_price_estimate_max: Option<Price>,
-        url: Option<Url>,
-        images: Option<Vec<ProductImage>>,
-        auction_start: Option<OffsetDateTime>,
-        auction_end: Option<OffsetDateTime>,
-        origin_year: Option<OriginYear>,
-        authenticity: Option<Authenticity>,
-        condition: Option<Condition>,
-        provenance: Option<Provenance>,
-        restoration: Option<Restoration>,
         fx_rate: &impl FxRate,
     ) -> Option<ProductDomainEvent> {
-        let mut payload = ProductDetailChangeDomainEventPayload {
-            shop_id: self.shop_id,
-            shops_product_id: self.shops_product_id.clone(),
-            native_price_estimate_min: None,
-            other_price_estimate_min: HashMap::new(),
-            native_price_estimate_max: None,
-            other_price_estimate_max: HashMap::new(),
-            url: None,
-            images: None,
-            auction_start: None,
-            auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
-        };
-
         let mut changed = false;
+        let mut min_price = None;
+        let mut min_other = HashMap::new();
+        let mut max_price = None;
+        let mut max_other = HashMap::new();
 
         if let Some(new_min) = native_price_estimate_min {
             let differs = match self.native_price_estimate_min {
@@ -309,8 +289,8 @@ impl Product {
                     .unwrap_or_default();
                 self.native_price_estimate_min = Some(new_min);
                 self.other_price_estimate_min = other.clone();
-                payload.native_price_estimate_min = Some(new_min);
-                payload.other_price_estimate_min = other;
+                min_price = Some(new_min);
+                min_other = other;
                 changed = true;
             }
         }
@@ -330,82 +310,10 @@ impl Product {
                     .unwrap_or_default();
                 self.native_price_estimate_max = Some(new_max);
                 self.other_price_estimate_max = other.clone();
-                payload.native_price_estimate_max = Some(new_max);
-                payload.other_price_estimate_max = other;
+                max_price = Some(new_max);
+                max_other = other;
                 changed = true;
             }
-        }
-
-        if let Some(new_url) = url
-            && self.url != new_url
-        {
-            self.url = new_url.clone();
-            payload.url = Some(new_url);
-            changed = true;
-        }
-
-        if let Some(new_images) = images
-            && self.images != new_images
-        {
-            self.images = new_images.clone();
-            payload.images = Some(new_images);
-            changed = true;
-        }
-
-        if let Some(new_start) = auction_start
-            && self.auction_start != Some(new_start)
-        {
-            self.auction_start = Some(new_start);
-            payload.auction_start = Some(new_start);
-            changed = true;
-        }
-
-        if let Some(new_end) = auction_end
-            && self.auction_end != Some(new_end)
-        {
-            self.auction_end = Some(new_end);
-            payload.auction_end = Some(new_end);
-            changed = true;
-        }
-
-        if let Some(new_oy) = origin_year
-            && self.origin_year != Some(new_oy)
-        {
-            self.origin_year = Some(new_oy);
-            payload.origin_year = Some(new_oy);
-            changed = true;
-        }
-
-        if let Some(new_auth) = authenticity
-            && self.authenticity != new_auth
-        {
-            self.authenticity = new_auth;
-            payload.authenticity = Some(new_auth);
-            changed = true;
-        }
-
-        if let Some(new_cond) = condition
-            && self.condition != new_cond
-        {
-            self.condition = new_cond;
-            payload.condition = Some(new_cond);
-            changed = true;
-        }
-
-        if let Some(new_prov) = provenance
-            && self.provenance != new_prov
-        {
-            self.provenance = new_prov;
-            payload.provenance = Some(new_prov);
-            changed = true;
-        }
-
-        if let Some(new_rest) = restoration
-            && self.restoration != new_rest
-        {
-            self.restoration = new_rest;
-            payload.restoration = Some(new_rest);
-            changed = true;
         }
 
         if changed {
@@ -413,11 +321,185 @@ impl Product {
                 aggregate_id: self.product_id,
                 event_id: EventId::new(),
                 timestamp: OffsetDateTime::now_utc(),
-                payload: ProductDomainEventPayload::DetailChanged(payload),
+                payload: ProductDomainEventPayload::EstimatePriceChanged(
+                    ProductEstimatePriceChangeDomainEventPayload {
+                        shop_id: self.shop_id,
+                        shops_product_id: self.shops_product_id.clone(),
+                        native_price_estimate_min: min_price,
+                        other_price_estimate_min: min_other,
+                        native_price_estimate_max: max_price,
+                        other_price_estimate_max: max_other,
+                    },
+                ),
             })
         } else {
             None
         }
+    }
+
+    pub fn change_url(&mut self, url: Url) -> Option<ProductDomainEvent> {
+        if self.url == url {
+            return None;
+        }
+        self.url = url.clone();
+        Some(Event {
+            aggregate_id: self.product_id,
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::UrlChanged(ProductUrlChangeDomainEventPayload {
+                shop_id: self.shop_id,
+                shops_product_id: self.shops_product_id.clone(),
+                url,
+            }),
+        })
+    }
+
+    pub fn change_images(&mut self, images: Vec<ProductImage>) -> Option<ProductDomainEvent> {
+        if self.images == images {
+            return None;
+        }
+        self.images = images.clone();
+        Some(Event {
+            aggregate_id: self.product_id,
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::ImagesChanged(
+                ProductImagesChangeDomainEventPayload {
+                    shop_id: self.shop_id,
+                    shops_product_id: self.shops_product_id.clone(),
+                    images,
+                },
+            ),
+        })
+    }
+
+    pub fn change_auction_time(
+        &mut self,
+        auction_start: Option<OffsetDateTime>,
+        auction_end: Option<OffsetDateTime>,
+    ) -> Option<ProductDomainEvent> {
+        let start_changed = auction_start.is_some() && self.auction_start != auction_start;
+        let end_changed = auction_end.is_some() && self.auction_end != auction_end;
+        if !start_changed && !end_changed {
+            return None;
+        }
+        if let Some(s) = auction_start {
+            self.auction_start = Some(s);
+        }
+        if let Some(e) = auction_end {
+            self.auction_end = Some(e);
+        }
+        Some(Event {
+            aggregate_id: self.product_id,
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::AuctionTimeChanged(
+                ProductAuctionTimeChangeDomainEventPayload {
+                    shop_id: self.shop_id,
+                    shops_product_id: self.shops_product_id.clone(),
+                    auction_start: self.auction_start,
+                    auction_end: self.auction_end,
+                },
+            ),
+        })
+    }
+
+    pub fn change_origin_year(&mut self, origin_year: OriginYear) -> Option<ProductDomainEvent> {
+        if self.origin_year == Some(origin_year) {
+            return None;
+        }
+        self.origin_year = Some(origin_year);
+        Some(Event {
+            aggregate_id: self.product_id,
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::OriginYearChanged(
+                ProductOriginYearChangeDomainEventPayload {
+                    shop_id: self.shop_id,
+                    shops_product_id: self.shops_product_id.clone(),
+                    origin_year,
+                },
+            ),
+        })
+    }
+
+    pub fn change_authenticity(
+        &mut self,
+        authenticity: Authenticity,
+    ) -> Option<ProductDomainEvent> {
+        if self.authenticity == authenticity {
+            return None;
+        }
+        self.authenticity = authenticity;
+        Some(Event {
+            aggregate_id: self.product_id,
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::AuthenticityChanged(
+                ProductAuthenticityChangeDomainEventPayload {
+                    shop_id: self.shop_id,
+                    shops_product_id: self.shops_product_id.clone(),
+                    authenticity,
+                },
+            ),
+        })
+    }
+
+    pub fn change_condition(&mut self, condition: Condition) -> Option<ProductDomainEvent> {
+        if self.condition == condition {
+            return None;
+        }
+        self.condition = condition;
+        Some(Event {
+            aggregate_id: self.product_id,
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::ConditionChanged(
+                ProductConditionChangeDomainEventPayload {
+                    shop_id: self.shop_id,
+                    shops_product_id: self.shops_product_id.clone(),
+                    condition,
+                },
+            ),
+        })
+    }
+
+    pub fn change_provenance(&mut self, provenance: Provenance) -> Option<ProductDomainEvent> {
+        if self.provenance == provenance {
+            return None;
+        }
+        self.provenance = provenance;
+        Some(Event {
+            aggregate_id: self.product_id,
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::ProvenanceChanged(
+                ProductProvenanceChangeDomainEventPayload {
+                    shop_id: self.shop_id,
+                    shops_product_id: self.shops_product_id.clone(),
+                    provenance,
+                },
+            ),
+        })
+    }
+
+    pub fn change_restoration(&mut self, restoration: Restoration) -> Option<ProductDomainEvent> {
+        if self.restoration == restoration {
+            return None;
+        }
+        self.restoration = restoration;
+        Some(Event {
+            aggregate_id: self.product_id,
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::RestorationChanged(
+                ProductRestorationChangeDomainEventPayload {
+                    shop_id: self.shop_id,
+                    shops_product_id: self.shops_product_id.clone(),
+                    restoration,
+                },
+            ),
+        })
     }
 
     pub fn translate_title(
@@ -612,7 +694,7 @@ impl Product {
                     self.native_price = p.new_native_price;
                     self.other_price = p.new_other_price;
                 }
-                ProductDomainEventPayload::DetailChanged(p) => {
+                ProductDomainEventPayload::EstimatePriceChanged(p) => {
                     if let Some(price) = p.native_price_estimate_min {
                         self.native_price_estimate_min = Some(price);
                         self.other_price_estimate_min = p.other_price_estimate_min;
@@ -621,33 +703,35 @@ impl Product {
                         self.native_price_estimate_max = Some(price);
                         self.other_price_estimate_max = p.other_price_estimate_max;
                     }
-                    if let Some(url) = p.url {
-                        self.url = url;
-                    }
-                    if let Some(images) = p.images {
-                        self.images = images;
-                    }
+                }
+                ProductDomainEventPayload::UrlChanged(p) => {
+                    self.url = p.url;
+                }
+                ProductDomainEventPayload::ImagesChanged(p) => {
+                    self.images = p.images;
+                }
+                ProductDomainEventPayload::AuctionTimeChanged(p) => {
                     if let Some(start) = p.auction_start {
                         self.auction_start = Some(start);
                     }
                     if let Some(end) = p.auction_end {
                         self.auction_end = Some(end);
                     }
-                    if let Some(oy) = p.origin_year {
-                        self.origin_year = Some(oy);
-                    }
-                    if let Some(authenticity) = p.authenticity {
-                        self.authenticity = authenticity;
-                    }
-                    if let Some(condition) = p.condition {
-                        self.condition = condition;
-                    }
-                    if let Some(provenance) = p.provenance {
-                        self.provenance = provenance;
-                    }
-                    if let Some(restoration) = p.restoration {
-                        self.restoration = restoration;
-                    }
+                }
+                ProductDomainEventPayload::OriginYearChanged(p) => {
+                    self.origin_year = Some(p.origin_year);
+                }
+                ProductDomainEventPayload::AuthenticityChanged(p) => {
+                    self.authenticity = p.authenticity;
+                }
+                ProductDomainEventPayload::ConditionChanged(p) => {
+                    self.condition = p.condition;
+                }
+                ProductDomainEventPayload::ProvenanceChanged(p) => {
+                    self.provenance = p.provenance;
+                }
+                ProductDomainEventPayload::RestorationChanged(p) => {
+                    self.restoration = p.restoration;
                 }
             },
             ProductEventPayload::ProductEnrichmentEvent(payload) => match payload {

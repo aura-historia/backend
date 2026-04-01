@@ -104,8 +104,16 @@ fn mk_notification_payload(
                 payload.new_prices(),
             )
         }
-        ProductDomainEventPayload::DetailChanged(_) => {
-            unreachable!("DetailChanged events are not routed to the notification handler")
+        ProductDomainEventPayload::EstimatePriceChanged(_)
+        | ProductDomainEventPayload::UrlChanged(_)
+        | ProductDomainEventPayload::ImagesChanged(_)
+        | ProductDomainEventPayload::AuctionTimeChanged(_)
+        | ProductDomainEventPayload::OriginYearChanged(_)
+        | ProductDomainEventPayload::AuthenticityChanged(_)
+        | ProductDomainEventPayload::ConditionChanged(_)
+        | ProductDomainEventPayload::ProvenanceChanged(_)
+        | ProductDomainEventPayload::RestorationChanged(_) => {
+            unreachable!("Field-level change events are not routed to the notification handler")
         }
     }
 }

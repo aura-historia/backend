@@ -13,7 +13,15 @@ pub enum ProductEventTypeData {
     Created,
     StateChanged,
     PriceChanged,
-    DetailChanged,
+    EstimatePriceChanged,
+    UrlChanged,
+    ImagesChanged,
+    AuctionTimeChanged,
+    OriginYearChanged,
+    AuthenticityChanged,
+    ConditionChanged,
+    ProvenanceChanged,
+    RestorationChanged,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -22,7 +30,7 @@ pub enum ProductEventPayloadData {
     Created(ProductCreatedEventPayloadData),
     StateChanged(ProductEventStateChangedPayloadData),
     PriceChanged(ProductEventPriceChangedPayloadData),
-    DetailChanged(ProductEventDetailChangedPayloadData),
+    FieldChanged(ProductEventFieldChangedPayloadData),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -52,7 +60,7 @@ pub struct ProductCreatedEventPayloadData {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProductEventDetailChangedPayloadData {
+pub struct ProductEventFieldChangedPayloadData {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
 }
@@ -101,19 +109,87 @@ impl From<Event<ProductId, LocalizedProductDomainEventPayloadView>> for GetProdu
                     new_price: payload.new_price.map(PriceData::from),
                 }),
             ),
-            LocalizedProductDomainEventPayloadView::DetailChanged(payload) => {
-                let shop_id = payload.shop_id;
-                let shops_product_id = payload.shops_product_id;
-                (
-                    ProductEventTypeData::DetailChanged,
-                    shop_id,
-                    shops_product_id.clone(),
-                    ProductEventPayloadData::DetailChanged(ProductEventDetailChangedPayloadData {
-                        shop_id,
-                        shops_product_id,
-                    }),
-                )
-            }
+            LocalizedProductDomainEventPayloadView::EstimatePriceChanged(payload) => (
+                ProductEventTypeData::EstimatePriceChanged,
+                payload.shop_id,
+                payload.shops_product_id.clone(),
+                ProductEventPayloadData::FieldChanged(ProductEventFieldChangedPayloadData {
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                }),
+            ),
+            LocalizedProductDomainEventPayloadView::UrlChanged(payload) => (
+                ProductEventTypeData::UrlChanged,
+                payload.shop_id,
+                payload.shops_product_id.clone(),
+                ProductEventPayloadData::FieldChanged(ProductEventFieldChangedPayloadData {
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                }),
+            ),
+            LocalizedProductDomainEventPayloadView::ImagesChanged(payload) => (
+                ProductEventTypeData::ImagesChanged,
+                payload.shop_id,
+                payload.shops_product_id.clone(),
+                ProductEventPayloadData::FieldChanged(ProductEventFieldChangedPayloadData {
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                }),
+            ),
+            LocalizedProductDomainEventPayloadView::AuctionTimeChanged(payload) => (
+                ProductEventTypeData::AuctionTimeChanged,
+                payload.shop_id,
+                payload.shops_product_id.clone(),
+                ProductEventPayloadData::FieldChanged(ProductEventFieldChangedPayloadData {
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                }),
+            ),
+            LocalizedProductDomainEventPayloadView::OriginYearChanged(payload) => (
+                ProductEventTypeData::OriginYearChanged,
+                payload.shop_id,
+                payload.shops_product_id.clone(),
+                ProductEventPayloadData::FieldChanged(ProductEventFieldChangedPayloadData {
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                }),
+            ),
+            LocalizedProductDomainEventPayloadView::AuthenticityChanged(payload) => (
+                ProductEventTypeData::AuthenticityChanged,
+                payload.shop_id,
+                payload.shops_product_id.clone(),
+                ProductEventPayloadData::FieldChanged(ProductEventFieldChangedPayloadData {
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                }),
+            ),
+            LocalizedProductDomainEventPayloadView::ConditionChanged(payload) => (
+                ProductEventTypeData::ConditionChanged,
+                payload.shop_id,
+                payload.shops_product_id.clone(),
+                ProductEventPayloadData::FieldChanged(ProductEventFieldChangedPayloadData {
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                }),
+            ),
+            LocalizedProductDomainEventPayloadView::ProvenanceChanged(payload) => (
+                ProductEventTypeData::ProvenanceChanged,
+                payload.shop_id,
+                payload.shops_product_id.clone(),
+                ProductEventPayloadData::FieldChanged(ProductEventFieldChangedPayloadData {
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                }),
+            ),
+            LocalizedProductDomainEventPayloadView::RestorationChanged(payload) => (
+                ProductEventTypeData::RestorationChanged,
+                payload.shop_id,
+                payload.shops_product_id.clone(),
+                ProductEventPayloadData::FieldChanged(ProductEventFieldChangedPayloadData {
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                }),
+            ),
         };
 
         GetProductEventData {
