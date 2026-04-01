@@ -65,8 +65,7 @@ members = [
     "src/product-pipeline",
     "src/fxrate",
     "src/fxrate-lambda",
-    "src/aura-scraper",
-    "src/aura-spider",
+    "src/crawler",
     "src/ci-determinator",
 ]
 
@@ -193,8 +192,7 @@ regex = "1.12.3"
 fxrate = { path = "src/fxrate" }
 fxrate-lambda = { path = "src/fxrate-lambda" }
 slug = "0.1.6"
-aura-scraper = { path = "src/aura-scraper" }
-aura-spider = { path = "src/aura-spider" }
+crawler = { path = "src/crawler" }
 spider = { version = "2", default-features = false, features = ["sync", "reqwest_rustls_tls"] }
 scraper = "0.26.0"
 schemars = "1.2.1"

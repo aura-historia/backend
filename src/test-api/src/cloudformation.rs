@@ -229,7 +229,7 @@ fn build_lambdas() {
             "--release",
             "--locked",
             "--exclude",
-            "aura-scraper",
+            "crawler",
             "--exclude",
             "acceptance-tests",
             "--exclude",

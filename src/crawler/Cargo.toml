@@ -1,0 +1,72 @@
+[package]
+name = "crawler"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true }
+product = { workspace = true, features = ["dynamodb", "service", "data"] }
+shop = { workspace = true }
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+scraper = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+mockall = { workspace = true }
+llm = { workspace = true, features = ["google", "rustls-tls"] }
+kuchiki = { workspace = true }
+reqwest = { workspace = true, features = ["json", "rustls-tls"] }
+tokio = { workspace = true, features = ["full", "macros"] }
+spider = { workspace = true }
+time = { workspace = true, features = ["serde"] }
+url = { workspace = true }
+uuid = { workspace = true }
+once_cell = { workspace = true }
+regex = { workspace = true }
+lingua = { workspace = true }
+dotenvy = { workspace = true }
+bloomfilter = "3.0.1"
+futures = { workspace = true }
+sha2 = { workspace = true }
+url-normalize = { workspace = true }
+
+# Optional
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+crawler = { path = ".", features = ["test-data"] }
+rstest = { workspace = true }
+fake = { workspace = true }
+serial_test = { workspace = true }
+test-api = { workspace = true, features = ["rds"] }
+tokio = { workspace = true, features = ["macros", "time"] }
+
+[[bin]]
+name = "demo-scraper"
+path = "src/scraper/demo.rs"
+
+[[bin]]
+name = "demo-spider"
+path = "src/spider/demo.rs"
+
+
+[[bin]]
+name = "server"
+path = "src/bin/server.rs"
+
+[[bin]]
+name = "demo"
+path = "src/demo.rs"
+
+[features]
+default = []
+test-data = ["common/test-data", "fake"]
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+libc = { workspace = true }

@@ -1,0 +1,160 @@
+# Crawler — Architecture
+
+The crawler crate has two subsystems — **Spider** and **Scraper** — driven by a single **CronJob**. They are independent of each other at runtime but share the same PostgreSQL database as the handoff point: the spider writes URLs into `shop_urls`, and the scraper reads them.
+
+---
+
+## CrawlerCronJob — the driver
+
+`src/service/cron.rs` is the entry point. On startup it spawns two independent `tokio` tasks that loop forever:
+
+```
+CrawlerCronJob::run_loop()
+  ├── tokio::spawn → spider_loop   (sleeps 10 min between ticks)
+  └── tokio::spawn → scraper_loop  (sleeps 1 min between ticks)
+```
+
+Each tick follows the same pattern:
+
+1. Ask the relevant **CandidateService** for a batch of work.
+2. Fan that batch out using `futures::stream::iter(...).buffer_unordered(concurrency)` — bounded parallelism, no unbounded spawning.
+3. For each item, call the relevant service (`SpiderService::run` or `ScraperService::scrape`). Errors are logged and swallowed so one failure doesn't abort the whole batch.
+
+The two loops run completely in parallel, each on its own cadence. There is no synchronisation between them beyond the database.
+
+---
+
+## Spider subsystem
+
+**Goal:** for a given shop, discover every URL on the website and classify each one as `product`, `category`, `imprint`, `info`, or `other`.
+
+### Candidate selection — `SpiderCandidateService`
+
+`src/spider/candidate_service.rs` queries:
+
+```sql
+SELECT s.shop_id, sd.shop_domain
+FROM shops s
+JOIN shop_domains sd ON sd.shop_id = s.shop_id
+WHERE sd.last_crawled IS NULL
+   OR sd.last_crawled < NOW() - INTERVAL '7 days'
+LIMIT $1
+```
+
+Shops that have never been crawled, or were last crawled more than 7 days ago, are eligible.
+
+### Optimistic distributed lock
+
+Before a crawl starts, `SpiderServiceImpl::run` calls `try_lock_shop`, which atomically sets `shop_domains.locked_at = NOW()` only if the field is currently `NULL` or older than 30 minutes:
+
+```sql
+UPDATE shop_domains
+SET    locked_at = NOW()
+WHERE  shop_domain = $1
+  AND  (locked_at IS NULL OR locked_at < NOW() - INTERVAL '30 minutes')
+```
+
+If another worker already holds the lock the update affects 0 rows, the service returns an empty `SpiderRunResult`, and no crawl happens. The lock is released unconditionally at the end of the run (even on error), using a `locked_at = NULL` update.
+
+### Crawl execution — `SpiderServiceImpl`
+
+`src/spider/service/spider_service.rs` orchestrates the crawl:
+
+```
+run()
+ ├── try_lock_shop()               — acquire optimistic lock
+ ├── Spider::crawl(shop_url)       — returns mpsc::Receiver<CrawledPage>
+ ├── load_pattern_for_shop()       — load persisted regex from shops.url_pattern (if any)
+ │
+ │   [stream loop — one iteration per CrawledPage received]
+ ├── push URL to inference_sample  (capped at 500)
+ ├── push page to page_buffer
+ ├── if total_crawled >= classify_threshold (200):
+ │    └── LLM: classify_and_save() → persist regex to shops.url_pattern
+ ├── if buffer full (100 pages) AND classification done:
+ │    └── batch-upsert page_buffer → shop_urls (UNNEST)
+ │
+ │   [after stream ends]
+ ├── if not yet classified → classify now (small shops never hit threshold)
+ ├── if persisted pattern matched 0 products → reclassify (stale pattern)
+ ├── flush remaining page_buffer → shop_urls
+ ├── mark_as_crawled() → sets shop_domains.last_crawled = NOW()
+ └── unlock_shop()                 — release lock
+```
+
+**URL classification** at upsert time uses `CrawledUrl::classify()` — a pure, heuristic function. If a product regex is known, any URL matching it becomes `product`. Otherwise, keyword matching on the path categorises the URL as `category`, `imprint`, `info`, or `other` (see `src/spider/utils/url.rs`). The LLM is only called to *find* the regex, not to classify individual URLs.
+
+**Bloom filter deduplication** in the underlying `spider` crate prevents the same URL from being enqueued more than once during a single crawl session (100k capacity, 0.1% false-positive rate).
+
+**URL normalisation** strips hash fragments and trailing slashes from every URL before storage or deduplication.
+
+---
+
+## Scraper subsystem
+
+**Goal:** for each known product URL, fetch its page, extract structured product data, and normalise it into a `NormalizedProduct`.
+
+### Candidate selection — `ScraperCandidateService`
+
+`src/scraper/candidate_service.rs` queries:
+
+```sql
+SELECT shop_id, url, main_hash, last_scraped_hash
+FROM   shop_urls
+WHERE  url_class  = 'product'
+  AND  state      IN ('UNKNOWN', 'LISTED', 'AVAILABLE', 'RESERVED')
+  AND  (last_scraped IS NULL OR last_scraped < NOW() - INTERVAL '1 day')
+LIMIT  $1
+```
+
+Only product URLs that haven't been scraped today and are in an active state are eligible. This is exactly the output written by the spider — the two subsystems are connected here.
+
+### Scrape execution — `ScraperServiceImpl`
+
+`src/scraper/scraper_service.rs`:
+
+```
+scrape(shop_id, url, current_hash, last_scraped_hash)
+ ├── if current_hash == last_scraped_hash
+ │    └── mark_as_scraped() and return None   — page hasn't changed, skip fetch
+ ├── HtmlFetcher::fetch(url)                  — download raw HTML
+ ├── ProductSchemaService::get_product_schema(shop_id, html)
+ │    ├── DB hit  → return cached CSS selector schema
+ │    └── DB miss → LLM generates schema → persist → return
+ ├── schema.apply(Html::parse_document(&html))  → RawExtractedProduct
+ │    └── fails → LLM: fix_product_schema() → persist fixed schema → re-apply
+ ├── ProductNormalizationService::normalize(raw, url)
+ │    ├── state: ProductStateMappingService::get_state_mapping(raw.state)
+ │    │    ├── exact DB lookup   (e.g. "sold" → SOLD)
+ │    │    ├── regex DB scan     (e.g. "3 left" matches \b[1-9]...\bleft\b → AVAILABLE)
+ │    │    └── LLM fallback → persist result for future lookups
+ │    ├── title: detect language (lingua), wrap in Localized<Title>
+ │    ├── price: parse currency + amount (multi-locale)
+ │    ├── images: resolve relative URLs against page URL
+ │    └── dates: parse ISO 8601 / RFC 3339
+ └── mark_as_scraped(shop_id, url, current_hash) → updates shop_urls
+```
+
+**`scraper::Html` is `!Send`**: the parsed HTML object cannot be held across an `.await`. The code explicitly drops the `Html` inside a synchronous block before any async call, using a local `ApplyOutcome` enum to carry the result out.
+
+---
+
+## How Spider and Scraper Connect
+
+The two subsystems communicate exclusively through `shop_urls`:
+
+```
+Spider writes:
+  INSERT INTO shop_urls (url, shop_id, url_class, main_hash, state, ...)
+  ON CONFLICT (url) DO UPDATE SET main_hash = ..., url_class = ..., updated = NOW()
+
+Scraper reads:
+  SELECT ... FROM shop_urls WHERE url_class = 'product' AND ...
+
+Scraper writes back:
+  UPDATE shop_urls SET last_scraped_hash = $hash, last_scraped = NOW()
+```
+
+The spider decides *which* URLs are products (by running the LLM-found regex). The scraper only processes URLs the spider has already labelled as `url_class = 'product'`. There is no direct function call or shared in-memory state between them — just the database row.
+
+The `main_hash` column (SHA-256 of the page HTML, computed by the spider crate) is the change-detection signal: if `main_hash` equals `last_scraped_hash`, the scraper skips the fetch entirely.
