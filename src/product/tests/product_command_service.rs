@@ -67,7 +67,11 @@ async fn scan_all_items() -> Vec<HashMap<String, aws_sdk_dynamodb::types::Attrib
 
 fn exchange_all(price: Option<Price>) -> HashMap<Currency, MonetaryAmount> {
     price
-        .and_then(|p| FixedFxRate().exchange_all(p.currency, p.monetary_amount).ok())
+        .and_then(|p| {
+            FixedFxRate()
+                .exchange_all(p.currency, p.monetary_amount)
+                .ok()
+        })
         .unwrap_or_default()
 }
 
