@@ -18,14 +18,17 @@ async fn should_insert_new_url_when_url_does_not_exist() {
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
     let shop_id_uuid: uuid::Uuid = shop_id.into();
-    sqlx::query(
-        "INSERT INTO spider_shop_pattern (shop_id, shop_domain, created, updated) VALUES ($1, $2, NOW(), NOW())"
-    )
-    .bind(shop_id_uuid)
-    .bind("example.com")
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
+        .bind(shop_id_uuid)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO shop_domains (shop_id, shop_domain) VALUES ($1, $2)")
+        .bind(shop_id_uuid)
+        .bind("example.com")
+        .execute(&pool)
+        .await
+        .unwrap();
     let url = Url::parse("https://example.com/product/123").unwrap();
     let url_class = UrlClass::Product;
     let main_hash = MainHash("a".repeat(64));
@@ -49,14 +52,17 @@ async fn should_update_existing_url_when_url_already_exists() {
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
     let shop_id_uuid: uuid::Uuid = shop_id.into();
-    sqlx::query(
-        "INSERT INTO spider_shop_pattern (shop_id, shop_domain, created, updated) VALUES ($1, $2, NOW(), NOW())"
-    )
-    .bind(shop_id_uuid)
-    .bind("example.com")
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
+        .bind(shop_id_uuid)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO shop_domains (shop_id, shop_domain) VALUES ($1, $2)")
+        .bind(shop_id_uuid)
+        .bind("example.com")
+        .execute(&pool)
+        .await
+        .unwrap();
     let url = Url::parse("https://example.com/product/123").unwrap();
     let old_class = UrlClass::Other;
     let old_hash = MainHash("o".repeat(64));
@@ -88,14 +94,17 @@ async fn should_update_last_scraped_timestamp_when_marking_as_scraped() {
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
     let shop_id_uuid: uuid::Uuid = shop_id.into();
-    sqlx::query(
-        "INSERT INTO spider_shop_pattern (shop_id, shop_domain, created, updated) VALUES ($1, $2, NOW(), NOW())"
-    )
-    .bind(shop_id_uuid)
-    .bind("example.com")
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
+        .bind(shop_id_uuid)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO shop_domains (shop_id, shop_domain) VALUES ($1, $2)")
+        .bind(shop_id_uuid)
+        .bind("example.com")
+        .execute(&pool)
+        .await
+        .unwrap();
     let url = Url::parse("https://example.com/product/123").unwrap();
     let url_class = UrlClass::Product;
     let main_hash = MainHash("a".repeat(64));
@@ -121,14 +130,17 @@ async fn should_update_state_when_setting_new_state() {
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
     let shop_id_uuid: uuid::Uuid = shop_id.into();
-    sqlx::query(
-        "INSERT INTO spider_shop_pattern (shop_id, shop_domain, created, updated) VALUES ($1, $2, NOW(), NOW())"
-    )
-    .bind(shop_id_uuid)
-    .bind("example.com")
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
+        .bind(shop_id_uuid)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO shop_domains (shop_id, shop_domain) VALUES ($1, $2)")
+        .bind(shop_id_uuid)
+        .bind("example.com")
+        .execute(&pool)
+        .await
+        .unwrap();
     let url = Url::parse("https://example.com/product/123").unwrap();
     let url_class = UrlClass::Product;
     let main_hash = MainHash("a".repeat(64));
@@ -156,14 +168,17 @@ async fn should_upsert_multiple_links_when_inserting_batch() {
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
     let shop_id_uuid: uuid::Uuid = shop_id.into();
-    sqlx::query(
-        "INSERT INTO spider_shop_pattern (shop_id, shop_domain, created, updated) VALUES ($1, $2, NOW(), NOW())"
-    )
-    .bind(shop_id_uuid)
-    .bind("example.com")
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
+        .bind(shop_id_uuid)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO shop_domains (shop_id, shop_domain) VALUES ($1, $2)")
+        .bind(shop_id_uuid)
+        .bind("example.com")
+        .execute(&pool)
+        .await
+        .unwrap();
     let urls = vec![
         Url::parse("https://example.com/product/1").unwrap(),
         Url::parse("https://example.com/product/2").unwrap(),

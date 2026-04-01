@@ -10,7 +10,7 @@ use common::shop_id::ShopId;
 use sqlx::{FromRow, PgPool, Row};
 use time::OffsetDateTime;
 
-/// A full row from the `spider_shop_pattern` table.
+/// A full row joined from the `shops` and `shop_domains` tables.
 #[derive(Debug, Clone)]
 pub struct ShopUrlPatternRecord {
     /// The unique shop identifier used as the primary key.
@@ -19,7 +19,7 @@ pub struct ShopUrlPatternRecord {
     pub shop_domain: Domain,
     /// The stored regex pattern, if any has been confirmed for this shop.
     pub url_pattern: Option<String>,
-    /// When the shop was last crawled successfully.
+    /// When the shop domain was last crawled successfully.
     pub last_crawled: Option<OffsetDateTime>,
     /// When this record was first created.
     pub created: OffsetDateTime,
@@ -72,27 +72,28 @@ pub trait ShopUrlPatternRepository: Send + Sync {
         pattern: Option<&str>,
     ) -> Result<(), sqlx::Error>;
 
-    /// Marks the shop as having been crawled now.
+    /// Marks the shop domain as having been crawled now.
     async fn mark_as_crawled(
         &self,
         shop_id: &ShopId,
         shop_domain: &Domain,
     ) -> Result<(), sqlx::Error>;
 
-    /// Attempts to acquire an application-level lock for the shop.
+    /// Attempts to acquire an application-level lock for the shop domain.
     async fn try_lock_shop(
         &self,
         shop_id: &ShopId,
         shop_domain: &Domain,
     ) -> Result<bool, sqlx::Error>;
 
-    /// Releases the application-level lock for the shop.
-    async fn unlock_shop(&self, shop_id: &ShopId) -> Result<(), sqlx::Error>;
+    /// Releases the application-level lock for the shop domain.
+    async fn unlock_shop(&self, shop_id: &ShopId, shop_domain: &Domain) -> Result<(), sqlx::Error>;
 }
 
 /// PostgreSQL-backed implementation of [`ShopUrlPatternRepository`].
 ///
-/// Patterns are stored in the `spider_shop_pattern` table keyed by `shop_id`.
+/// Patterns are stored in the `shops` table keyed by `shop_id`.
+/// Domain-level state (last_crawled, locked_at) lives in `shop_domains`.
 pub struct ShopUrlPatternRepositoryImpl {
     pool: PgPool,
 }
@@ -111,9 +112,12 @@ impl ShopUrlPatternRepository for ShopUrlPatternRepositoryImpl {
     ) -> Result<Option<ShopUrlPatternRecord>, sqlx::Error> {
         let shop_id_uuid: uuid::Uuid = (*shop_id).into();
         sqlx::query_as::<_, ShopUrlPatternRecord>(
-            "SELECT shop_id, shop_domain, url_pattern, last_crawled, created, updated
-             FROM spider_shop_pattern
-             WHERE shop_id = $1",
+            "SELECT s.shop_id, sd.shop_domain, s.url_pattern, sd.last_crawled,
+                    s.created, s.updated
+             FROM shops s
+             JOIN shop_domains sd ON sd.shop_id = s.shop_id
+             WHERE s.shop_id = $1
+             LIMIT 1",
         )
         .bind(shop_id_uuid)
         .fetch_optional(&self.pool)
@@ -127,18 +131,29 @@ impl ShopUrlPatternRepository for ShopUrlPatternRepositoryImpl {
         pattern: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+
+        // Upsert the shop row (url_pattern lives here)
         sqlx::query(
-            "INSERT INTO spider_shop_pattern (shop_id, shop_domain, url_pattern, created, updated)
-             VALUES ($1, $2, $3, NOW(), NOW())
+            "INSERT INTO shops (shop_id, url_pattern, created, updated)
+             VALUES ($1, $2, NOW(), NOW())
              ON CONFLICT (shop_id)
              DO UPDATE SET
-                 shop_domain = EXCLUDED.shop_domain,
                  url_pattern = EXCLUDED.url_pattern,
                  updated = NOW()",
         )
         .bind(shop_id_uuid)
-        .bind(shop_domain.as_str())
         .bind(pattern)
+        .execute(&self.pool)
+        .await?;
+
+        // Upsert the domain row
+        sqlx::query(
+            "INSERT INTO shop_domains (shop_id, shop_domain)
+             VALUES ($1, $2)
+             ON CONFLICT (shop_domain) DO NOTHING",
+        )
+        .bind(shop_id_uuid)
+        .bind(shop_domain.as_str())
         .execute(&self.pool)
         .await?;
 
@@ -151,14 +166,23 @@ impl ShopUrlPatternRepository for ShopUrlPatternRepositoryImpl {
         shop_domain: &Domain,
     ) -> Result<(), sqlx::Error> {
         let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+
+        // Ensure the shop exists
         sqlx::query(
-            "INSERT INTO spider_shop_pattern (shop_id, shop_domain, last_crawled, created, updated)
-             VALUES ($1, $2, NOW(), NOW(), NOW())
-             ON CONFLICT (shop_id)
-             DO UPDATE SET
-                 shop_domain = EXCLUDED.shop_domain,
-                 last_crawled = EXCLUDED.last_crawled,
-                 updated = NOW()",
+            "INSERT INTO shops (shop_id, created, updated)
+             VALUES ($1, NOW(), NOW())
+             ON CONFLICT (shop_id) DO NOTHING",
+        )
+        .bind(shop_id_uuid)
+        .execute(&self.pool)
+        .await?;
+
+        // Upsert domain and stamp last_crawled
+        sqlx::query(
+            "INSERT INTO shop_domains (shop_id, shop_domain, last_crawled)
+             VALUES ($1, $2, NOW())
+             ON CONFLICT (shop_domain)
+             DO UPDATE SET last_crawled = NOW()",
         )
         .bind(shop_id_uuid)
         .bind(shop_domain.as_str())
@@ -174,37 +198,53 @@ impl ShopUrlPatternRepository for ShopUrlPatternRepositoryImpl {
         shop_domain: &Domain,
     ) -> Result<bool, sqlx::Error> {
         let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+
+        // Ensure the shop exists
         sqlx::query(
-            "INSERT INTO spider_shop_pattern (shop_id, shop_domain, created, updated)
-             VALUES ($1, $2, NOW(), NOW())
-             ON CONFLICT (shop_id) DO UPDATE SET shop_domain = EXCLUDED.shop_domain",
+            "INSERT INTO shops (shop_id, created, updated)
+             VALUES ($1, NOW(), NOW())
+             ON CONFLICT (shop_id) DO NOTHING",
+        )
+        .bind(shop_id_uuid)
+        .execute(&self.pool)
+        .await?;
+
+        // Ensure the domain row exists
+        sqlx::query(
+            "INSERT INTO shop_domains (shop_id, shop_domain)
+             VALUES ($1, $2)
+             ON CONFLICT (shop_domain) DO NOTHING",
         )
         .bind(shop_id_uuid)
         .bind(shop_domain.as_str())
         .execute(&self.pool)
         .await?;
 
+        // Attempt to grab the lock
         let result = sqlx::query(
-            "UPDATE spider_shop_pattern
-             SET locked_at = NOW(), updated = NOW()
-             WHERE shop_id = $1
+            "UPDATE shop_domains
+             SET locked_at = NOW()
+             WHERE shop_domain = $1
                AND (locked_at IS NULL OR locked_at < NOW() - INTERVAL '30 minutes')",
         )
-        .bind(shop_id_uuid)
+        .bind(shop_domain.as_str())
         .execute(&self.pool)
         .await?;
 
         Ok(result.rows_affected() == 1)
     }
 
-    async fn unlock_shop(&self, shop_id: &ShopId) -> Result<(), sqlx::Error> {
-        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+    async fn unlock_shop(
+        &self,
+        _shop_id: &ShopId,
+        shop_domain: &Domain,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "UPDATE spider_shop_pattern
-             SET locked_at = NULL, updated = NOW()
-             WHERE shop_id = $1",
+            "UPDATE shop_domains
+             SET locked_at = NULL
+             WHERE shop_domain = $1",
         )
-        .bind(shop_id_uuid)
+        .bind(shop_domain.as_str())
         .execute(&self.pool)
         .await?;
 

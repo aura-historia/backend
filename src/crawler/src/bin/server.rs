@@ -135,13 +135,22 @@ async fn register_demo_shops(pool: &PgPool) {
     // Shop 1: Nostalgie Palast
     let shop1_id = uuid::Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO spider_shop_pattern (shop_id, shop_domain, url_pattern, created, updated) 
-         VALUES ($1, $2, $3, NOW(), NOW())
+        "INSERT INTO shops (shop_id, url_pattern, created, updated)
+         VALUES ($1, $2, NOW(), NOW())
          ON CONFLICT (shop_id) DO NOTHING",
     )
     .bind(shop1_id)
-    .bind("nostalgie-palast.de")
     .bind(r".*/(couchtisch|schrank|stuhl|tisch).*")
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO shop_domains (shop_id, shop_domain)
+         VALUES ($1, $2)
+         ON CONFLICT (shop_domain) DO NOTHING",
+    )
+    .bind(shop1_id)
+    .bind("nostalgie-palast.de")
     .execute(pool)
     .await
     .unwrap();
@@ -149,13 +158,22 @@ async fn register_demo_shops(pool: &PgPool) {
     // Shop 2: Antiquitäten Tübingen
     let shop2_id = uuid::Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO spider_shop_pattern (shop_id, shop_domain, url_pattern, created, updated) 
-         VALUES ($1, $2, $3, NOW(), NOW())
+        "INSERT INTO shops (shop_id, url_pattern, created, updated)
+         VALUES ($1, $2, NOW(), NOW())
          ON CONFLICT (shop_id) DO NOTHING",
     )
     .bind(shop2_id)
-    .bind("antiquitaeten-tuebingen.de")
     .bind(r".*art-\d+.*")
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO shop_domains (shop_id, shop_domain)
+         VALUES ($1, $2)
+         ON CONFLICT (shop_domain) DO NOTHING",
+    )
+    .bind(shop2_id)
+    .bind("antiquitaeten-tuebingen.de")
     .execute(pool)
     .await
     .unwrap();

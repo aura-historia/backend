@@ -223,38 +223,65 @@ async fn register_demo_shops(pool: &PgPool) -> Result<(), sqlx::Error> {
     info!("Registering 3 demo shops...");
 
     // Shop 1
+    let shop1_id = uuid::Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO spider_shop_pattern (shop_id, shop_domain, url_pattern, created, updated) 
-         VALUES ($1, $2, $3, NOW(), NOW())
+        "INSERT INTO shops (shop_id, url_pattern, created, updated)
+         VALUES ($1, $2, NOW(), NOW())
          ON CONFLICT (shop_id) DO NOTHING",
     )
-    .bind(uuid::Uuid::new_v4())
-    .bind("nostalgie-palast.de")
+    .bind(shop1_id)
     .bind(r".*/(couchtisch|schrank|stuhl|tisch).*")
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO shop_domains (shop_id, shop_domain)
+         VALUES ($1, $2)
+         ON CONFLICT (shop_domain) DO NOTHING",
+    )
+    .bind(shop1_id)
+    .bind("nostalgie-palast.de")
     .execute(pool)
     .await?;
 
     // Shop 2
+    let shop2_id = uuid::Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO spider_shop_pattern (shop_id, shop_domain, url_pattern, created, updated) 
-         VALUES ($1, $2, $3, NOW(), NOW())
+        "INSERT INTO shops (shop_id, url_pattern, created, updated)
+         VALUES ($1, $2, NOW(), NOW())
          ON CONFLICT (shop_id) DO NOTHING",
     )
-    .bind(uuid::Uuid::new_v4())
-    .bind("antiquitaeten-tuebingen.de")
+    .bind(shop2_id)
     .bind(r".*art-\d+.*")
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO shop_domains (shop_id, shop_domain)
+         VALUES ($1, $2)
+         ON CONFLICT (shop_domain) DO NOTHING",
+    )
+    .bind(shop2_id)
+    .bind("antiquitaeten-tuebingen.de")
     .execute(pool)
     .await?;
 
     // Shop 3
+    let shop3_id = uuid::Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO spider_shop_pattern (shop_id, shop_domain, url_pattern, created, updated) 
-         VALUES ($1, $2, $3, NOW(), NOW())
+        "INSERT INTO shops (shop_id, url_pattern, created, updated)
+         VALUES ($1, $2, NOW(), NOW())
          ON CONFLICT (shop_id) DO NOTHING",
     )
-    .bind(uuid::Uuid::new_v4())
-    .bind("antik-shop.de")
+    .bind(shop3_id)
     .bind(r".*/lot/.*")
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO shop_domains (shop_id, shop_domain)
+         VALUES ($1, $2)
+         ON CONFLICT (shop_domain) DO NOTHING",
+    )
+    .bind(shop3_id)
+    .bind("antik-shop.de")
     .execute(pool)
     .await?;
 

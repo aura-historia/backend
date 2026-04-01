@@ -118,7 +118,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         let main_hash_str = main_hash.to_string();
 
         sqlx::query_as::<_, SpiderUrlRecord>(
-            "INSERT INTO spider_link (shop_id, url, url_class, main_hash, created, updated)
+            "INSERT INTO shop_urls (shop_id, url, url_class, main_hash, created, updated)
              VALUES ($1, $2, $3, $4, NOW(), NOW())
              ON CONFLICT (url)
              DO UPDATE SET
@@ -152,7 +152,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         let main_hash_strs: Vec<String> = main_hashes.iter().map(|h| h.to_string()).collect();
 
         sqlx::query_as::<_, SpiderUrlRecord>(
-            "INSERT INTO spider_link (shop_id, url, url_class, main_hash, created, updated)
+            "INSERT INTO shop_urls (shop_id, url, url_class, main_hash, created, updated)
              SELECT $1, t.url, t.url_class, t.main_hash, NOW(), NOW()
              FROM UNNEST($2::text[], $3::text[], $4::text[]) AS t(url, url_class, main_hash)
              ON CONFLICT (url)
@@ -179,7 +179,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         let shop_id_uuid: uuid::Uuid = (*shop_id).into();
         let url_str = url.to_string();
         sqlx::query_as::<_, SpiderUrlRecord>(
-            "UPDATE spider_link
+            "UPDATE shop_urls
              SET last_scraped = NOW(), last_scraped_hash = $3, updated = NOW()
              WHERE shop_id = $1 AND url = $2
              RETURNING shop_id, url, url_class, main_hash, state, price_currency, price_value, last_scraped_hash, last_scraped, created, updated",
@@ -201,7 +201,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         let url_str = url.to_string();
         let state_str = state.to_string();
         sqlx::query_as::<_, SpiderUrlRecord>(
-            "UPDATE spider_link
+            "UPDATE shop_urls
              SET state = $3, updated = NOW()
              WHERE shop_id = $1 AND url = $2
              RETURNING shop_id, url, url_class, main_hash, state, price_currency, price_value, last_scraped_hash, last_scraped, created, updated",

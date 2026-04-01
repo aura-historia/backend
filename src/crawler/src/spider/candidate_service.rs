@@ -34,10 +34,11 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
     async fn get_candidates(&self, limit: i64) -> Result<Vec<SpiderCandidate>, sqlx::Error> {
         let rows = sqlx::query_as::<_, SpiderCandidateRow>(
             r#"
-            SELECT shop_id, shop_domain
-            FROM spider_shop_pattern
-            WHERE last_crawled IS NULL OR last_crawled < NOW() - INTERVAL '7 days'
-            ORDER BY last_crawled NULLS FIRST
+            SELECT s.shop_id, sd.shop_domain
+            FROM shops s
+            JOIN shop_domains sd ON sd.shop_id = s.shop_id
+            WHERE sd.last_crawled IS NULL OR sd.last_crawled < NOW() - INTERVAL '7 days'
+            ORDER BY sd.last_crawled NULLS FIRST
             LIMIT $1
             "#,
         )

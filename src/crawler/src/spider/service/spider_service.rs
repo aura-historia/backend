@@ -366,7 +366,7 @@ impl SpiderService for SpiderServiceImpl {
 
         let run_result = self.run_locked(shop_id, shop_url, classify_threshold).await;
 
-        if let Err(error) = self.pattern_service.unlock_shop(shop_id).await {
+        if let Err(error) = self.pattern_service.unlock_shop(shop_id, shop_url).await {
             warn!(shopUrl = %shop_url, error = %error, "Failed to release shop crawl lock");
         }
 
@@ -475,9 +475,12 @@ mod service_tests {
             .returning(|_, _| Box::pin(async { Ok(true) }));
 
         mock.expect_unlock_shop()
-            .with(mockall::predicate::always())
+            .with(
+                mockall::predicate::always(),
+                mockall::predicate::eq(shop_url),
+            )
             .times(1)
-            .returning(|_| Box::pin(async { Ok(()) }));
+            .returning(|_, _| Box::pin(async { Ok(()) }));
     }
 
     #[tokio::test]

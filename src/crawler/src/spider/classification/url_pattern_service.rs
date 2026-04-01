@@ -76,7 +76,11 @@ pub trait UrlPatternService: Send + Sync {
     ) -> Result<bool, UrlPatternServiceError>;
 
     /// Releases a previously acquired shop crawl lock.
-    async fn unlock_shop(&self, shop_id: &ShopId) -> Result<(), UrlPatternServiceError>;
+    async fn unlock_shop(
+        &self,
+        shop_id: &ShopId,
+        shop_url: &str,
+    ) -> Result<(), UrlPatternServiceError>;
 }
 
 pub struct UrlPatternServiceImpl {
@@ -187,8 +191,20 @@ impl UrlPatternService for UrlPatternServiceImpl {
             .await?)
     }
 
-    async fn unlock_shop(&self, shop_id: &ShopId) -> Result<(), UrlPatternServiceError> {
-        self.repository.unlock_shop(shop_id).await?;
+    async fn unlock_shop(
+        &self,
+        shop_id: &ShopId,
+        shop_url: &str,
+    ) -> Result<(), UrlPatternServiceError> {
+        let extracted_domain = extract_shop_base_url(shop_url).map_err(|error| {
+            UrlPatternServiceError::InvalidShopUrl {
+                shop_url: shop_url.to_string(),
+                source: error,
+            }
+        })?;
+        self.repository
+            .unlock_shop(shop_id, &extracted_domain)
+            .await?;
         Ok(())
     }
 }
@@ -333,14 +349,14 @@ mod service_tests {
         let mut mock_repo = MockShopUrlPatternRepository::new();
         mock_repo
             .expect_unlock_shop()
-            .returning(|_| Box::pin(async { Ok(()) }));
+            .returning(|_, _| Box::pin(async { Ok(()) }));
 
         let mock_client =
             crate::spider::classification::url_classification_service::MockUrlClassificationService::new();
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 
         let shop_id = uuid::Uuid::new_v4().into();
-        let result = service.unlock_shop(&shop_id).await;
+        let result = service.unlock_shop(&shop_id, "https://example.com").await;
         assert!(result.is_ok());
     }
 }

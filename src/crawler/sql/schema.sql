@@ -118,28 +118,36 @@ INSERT INTO product_state_mapping (raw, normalized, mapping_type) VALUES ('\b0\s
 INSERT INTO product_state_mapping (raw, normalized, mapping_type) VALUES ('\b0\s+disponibles?\b',   'SOLD', 'REGEX') ON CONFLICT (raw) DO NOTHING;
 INSERT INTO product_state_mapping (raw, normalized, mapping_type) VALUES ('\b0\s+disponibili\b',    'SOLD', 'REGEX') ON CONFLICT (raw) DO NOTHING;
 
-CREATE TABLE IF NOT EXISTS spider_shop (
-    shop_id   UUID PRIMARY KEY,
-    shop_domain TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS shops (
+    shop_id     UUID        PRIMARY KEY,
     url_pattern TEXT,
-    last_crawled TIMESTAMPTZ,
-    locked_at  TIMESTAMPTZ,
-    created    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS spider_link (
-    shop_id    UUID NOT NULL REFERENCES spider_shop_pattern(shop_id) ON DELETE CASCADE,
-    url        TEXT NOT NULL,
-    url_class  TEXT NOT NULL,
-    main_hash  TEXT NOT NULL,
-    state      TEXT NOT NULL DEFAULT 'UNKNOWN',
-    price_currency TEXT,
-    price_value    INT,
+CREATE TABLE IF NOT EXISTS shop_domains (
+    domain_id   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    shop_id     UUID        NOT NULL REFERENCES shops(shop_id) ON DELETE CASCADE,
+    shop_domain TEXT        NOT NULL,
+    last_crawled TIMESTAMPTZ,
+    locked_at   TIMESTAMPTZ,
+    UNIQUE (shop_domain)
+);
+
+CREATE INDEX IF NOT EXISTS idx_shop_domains_shop_id ON shop_domains (shop_id);
+
+CREATE TABLE IF NOT EXISTS shop_urls (
+    shop_id           UUID        NOT NULL REFERENCES shops(shop_id) ON DELETE CASCADE,
+    url               TEXT        NOT NULL,
+    url_class         TEXT        NOT NULL,
+    main_hash         TEXT        NOT NULL,
+    state             TEXT        NOT NULL DEFAULT 'UNKNOWN',
+    price_currency    TEXT,
+    price_value       INT,
     last_scraped_hash TEXT,
-    last_scraped TIMESTAMPTZ,
-    created    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_scraped      TIMESTAMPTZ,
+    created           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CHECK (char_length(url) > 0),
     CHECK (char_length(main_hash) = 64),
     CHECK (url_class IN ('product', 'category', 'imprint', 'info', 'other')),
@@ -147,4 +155,4 @@ CREATE TABLE IF NOT EXISTS spider_link (
     PRIMARY KEY (url)
 );
 
-CREATE INDEX IF NOT EXISTS spider_url_class_last_scraped_idx ON spider_link (url_class, last_scraped);
+CREATE INDEX IF NOT EXISTS idx_shop_urls_class_last_scraped ON shop_urls (url_class, last_scraped);

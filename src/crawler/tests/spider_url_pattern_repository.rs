@@ -194,7 +194,10 @@ async fn should_lock_and_unlock_shop() {
     assert!(first_lock);
     assert!(!second_lock);
 
-    repository.unlock_shop(&shop_id).await.unwrap();
+    repository
+        .unlock_shop(&shop_id, &shop_domain)
+        .await
+        .unwrap();
 
     let lock_after_unlock = repository
         .try_lock_shop(&shop_id, &shop_domain)

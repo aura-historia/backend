@@ -46,7 +46,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         let rows = sqlx::query_as::<_, ScraperCandidateRow>(
             r#"
             SELECT shop_id, url, main_hash, last_scraped_hash
-            FROM spider_link
+            FROM shop_urls
             WHERE url_class = 'product'
               AND state IN ('AVAILABLE', 'UNKNOWN', 'LISTED', 'RESERVED')
               AND (last_scraped IS NULL OR last_scraped < NOW() - INTERVAL '1 day')
@@ -84,7 +84,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         let url_str = url.to_string();
 
         sqlx::query(
-            "UPDATE spider_link
+            "UPDATE shop_urls
              SET last_scraped = NOW(), last_scraped_hash = $3, updated = NOW()
              WHERE shop_id = $1 AND url = $2",
         )
