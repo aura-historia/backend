@@ -23,8 +23,6 @@ use tracing::info;
 async fn main() {
     dotenvy::dotenv().ok();
 
-    // 1. Force info log level for readability
-    unsafe { std::env::set_var("LOG_LEVEL", "info") };
     common::logging::init_logging();
 
     info!("Starting Crawler Server");
