@@ -161,7 +161,7 @@ impl ScraperService for ScraperServiceImpl {
                 .mark_as_scraped(shop_id, url, current_hash)
                 .await
             {
-                warn!(error = %e, "Failed to mark hash as scraped after skip");
+                warn!(error = %e, "Failed to mark url as scraped after skip");
             }
             return Ok(None);
         }
