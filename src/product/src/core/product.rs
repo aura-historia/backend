@@ -3,8 +3,13 @@ use crate::core::condition::Condition;
 use crate::core::description::Description;
 use crate::core::origin_year::OriginYear;
 use crate::core::product_event::domain::{
-    ProductCreatedDomainEventPayload, ProductDomainEventPayload,
-    ProductPriceChangeDomainEventPayload, ProductStateChangeDomainEventPayload,
+    ProductAuctionTimeChangeDomainEventPayload, ProductAuthenticityChangeDomainEventPayload,
+    ProductConditionChangeDomainEventPayload, ProductCreatedDomainEventPayload,
+    ProductDomainEventPayload, ProductEstimatePriceChangeDomainEventPayload,
+    ProductImagesChangeDomainEventPayload, ProductOriginYearChangeDomainEventPayload,
+    ProductPriceChangeDomainEventPayload, ProductProvenanceChangeDomainEventPayload,
+    ProductRestorationChangeDomainEventPayload, ProductStateChangeDomainEventPayload,
+    ProductUrlChangeDomainEventPayload,
 };
 use crate::core::product_event::enrichment::{
     EmbeddedProductEnrichmentEventPayload, ExtractedAttributesProductEnrichmentEventPayload,
@@ -257,6 +262,246 @@ impl Product {
         }
     }
 
+    pub fn change_estimate_price(
+        &mut self,
+        native_price_estimate_min: Option<Price>,
+        native_price_estimate_max: Option<Price>,
+        fx_rate: &impl FxRate,
+    ) -> Option<ProductDomainEvent> {
+        let mut changed = false;
+        let mut min_price = None;
+        let mut min_other = HashMap::new();
+        let mut max_price = None;
+        let mut max_other = HashMap::new();
+
+        if let Some(new_min) = native_price_estimate_min {
+            let differs = match self.native_price_estimate_min {
+                Some(old) => {
+                    let old_exchanged =
+                        old.into_exchanged(fx_rate, new_min.currency).unwrap_or(old);
+                    old_exchanged.monetary_amount != new_min.monetary_amount
+                }
+                None => true,
+            };
+            if differs {
+                let other = fx_rate
+                    .exchange_all(new_min.currency, new_min.monetary_amount)
+                    .unwrap_or_default();
+                self.native_price_estimate_min = Some(new_min);
+                self.other_price_estimate_min = other.clone();
+                min_price = Some(new_min);
+                min_other = other;
+                changed = true;
+            }
+        }
+
+        if let Some(new_max) = native_price_estimate_max {
+            let differs = match self.native_price_estimate_max {
+                Some(old) => {
+                    let old_exchanged =
+                        old.into_exchanged(fx_rate, new_max.currency).unwrap_or(old);
+                    old_exchanged.monetary_amount != new_max.monetary_amount
+                }
+                None => true,
+            };
+            if differs {
+                let other = fx_rate
+                    .exchange_all(new_max.currency, new_max.monetary_amount)
+                    .unwrap_or_default();
+                self.native_price_estimate_max = Some(new_max);
+                self.other_price_estimate_max = other.clone();
+                max_price = Some(new_max);
+                max_other = other;
+                changed = true;
+            }
+        }
+
+        if changed {
+            Some(Event {
+                aggregate_id: self.product_id,
+                event_id: EventId::new(),
+                timestamp: OffsetDateTime::now_utc(),
+                payload: ProductDomainEventPayload::EstimatePriceChanged(
+                    ProductEstimatePriceChangeDomainEventPayload {
+                        shop_id: self.shop_id,
+                        shops_product_id: self.shops_product_id.clone(),
+                        native_price_estimate_min: min_price,
+                        other_price_estimate_min: min_other,
+                        native_price_estimate_max: max_price,
+                        other_price_estimate_max: max_other,
+                    },
+                ),
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn change_url(&mut self, url: Url) -> Option<ProductDomainEvent> {
+        if self.url == url {
+            return None;
+        }
+        self.url = url.clone();
+        Some(Event {
+            aggregate_id: self.product_id,
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::UrlChanged(ProductUrlChangeDomainEventPayload {
+                shop_id: self.shop_id,
+                shops_product_id: self.shops_product_id.clone(),
+                url,
+            }),
+        })
+    }
+
+    pub fn change_images(&mut self, images: Vec<ProductImage>) -> Option<ProductDomainEvent> {
+        if self.images == images {
+            return None;
+        }
+        self.images = images.clone();
+        Some(Event {
+            aggregate_id: self.product_id,
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::ImagesChanged(
+                ProductImagesChangeDomainEventPayload {
+                    shop_id: self.shop_id,
+                    shops_product_id: self.shops_product_id.clone(),
+                    images,
+                },
+            ),
+        })
+    }
+
+    pub fn change_auction_time(
+        &mut self,
+        auction_start: Option<OffsetDateTime>,
+        auction_end: Option<OffsetDateTime>,
+    ) -> Option<ProductDomainEvent> {
+        let start_changed = auction_start.is_some() && self.auction_start != auction_start;
+        let end_changed = auction_end.is_some() && self.auction_end != auction_end;
+        if !start_changed && !end_changed {
+            return None;
+        }
+        if let Some(s) = auction_start {
+            self.auction_start = Some(s);
+        }
+        if let Some(e) = auction_end {
+            self.auction_end = Some(e);
+        }
+        Some(Event {
+            aggregate_id: self.product_id,
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::AuctionTimeChanged(
+                ProductAuctionTimeChangeDomainEventPayload {
+                    shop_id: self.shop_id,
+                    shops_product_id: self.shops_product_id.clone(),
+                    auction_start: self.auction_start,
+                    auction_end: self.auction_end,
+                },
+            ),
+        })
+    }
+
+    pub fn change_origin_year(&mut self, origin_year: OriginYear) -> Option<ProductDomainEvent> {
+        if self.origin_year == Some(origin_year) {
+            return None;
+        }
+        self.origin_year = Some(origin_year);
+        Some(Event {
+            aggregate_id: self.product_id,
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::OriginYearChanged(
+                ProductOriginYearChangeDomainEventPayload {
+                    shop_id: self.shop_id,
+                    shops_product_id: self.shops_product_id.clone(),
+                    origin_year,
+                },
+            ),
+        })
+    }
+
+    pub fn change_authenticity(
+        &mut self,
+        authenticity: Authenticity,
+    ) -> Option<ProductDomainEvent> {
+        if self.authenticity == authenticity {
+            return None;
+        }
+        self.authenticity = authenticity;
+        Some(Event {
+            aggregate_id: self.product_id,
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::AuthenticityChanged(
+                ProductAuthenticityChangeDomainEventPayload {
+                    shop_id: self.shop_id,
+                    shops_product_id: self.shops_product_id.clone(),
+                    authenticity,
+                },
+            ),
+        })
+    }
+
+    pub fn change_condition(&mut self, condition: Condition) -> Option<ProductDomainEvent> {
+        if self.condition == condition {
+            return None;
+        }
+        self.condition = condition;
+        Some(Event {
+            aggregate_id: self.product_id,
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::ConditionChanged(
+                ProductConditionChangeDomainEventPayload {
+                    shop_id: self.shop_id,
+                    shops_product_id: self.shops_product_id.clone(),
+                    condition,
+                },
+            ),
+        })
+    }
+
+    pub fn change_provenance(&mut self, provenance: Provenance) -> Option<ProductDomainEvent> {
+        if self.provenance == provenance {
+            return None;
+        }
+        self.provenance = provenance;
+        Some(Event {
+            aggregate_id: self.product_id,
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::ProvenanceChanged(
+                ProductProvenanceChangeDomainEventPayload {
+                    shop_id: self.shop_id,
+                    shops_product_id: self.shops_product_id.clone(),
+                    provenance,
+                },
+            ),
+        })
+    }
+
+    pub fn change_restoration(&mut self, restoration: Restoration) -> Option<ProductDomainEvent> {
+        if self.restoration == restoration {
+            return None;
+        }
+        self.restoration = restoration;
+        Some(Event {
+            aggregate_id: self.product_id,
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::RestorationChanged(
+                ProductRestorationChangeDomainEventPayload {
+                    shop_id: self.shop_id,
+                    shops_product_id: self.shops_product_id.clone(),
+                    restoration,
+                },
+            ),
+        })
+    }
+
     pub fn translate_title(
         &mut self,
         source_language: Language,
@@ -448,6 +693,45 @@ impl Product {
                 ProductDomainEventPayload::PriceChanged(p) => {
                     self.native_price = p.new_native_price;
                     self.other_price = p.new_other_price;
+                }
+                ProductDomainEventPayload::EstimatePriceChanged(p) => {
+                    if let Some(price) = p.native_price_estimate_min {
+                        self.native_price_estimate_min = Some(price);
+                        self.other_price_estimate_min = p.other_price_estimate_min;
+                    }
+                    if let Some(price) = p.native_price_estimate_max {
+                        self.native_price_estimate_max = Some(price);
+                        self.other_price_estimate_max = p.other_price_estimate_max;
+                    }
+                }
+                ProductDomainEventPayload::UrlChanged(p) => {
+                    self.url = p.url;
+                }
+                ProductDomainEventPayload::ImagesChanged(p) => {
+                    self.images = p.images;
+                }
+                ProductDomainEventPayload::AuctionTimeChanged(p) => {
+                    if let Some(start) = p.auction_start {
+                        self.auction_start = Some(start);
+                    }
+                    if let Some(end) = p.auction_end {
+                        self.auction_end = Some(end);
+                    }
+                }
+                ProductDomainEventPayload::OriginYearChanged(p) => {
+                    self.origin_year = Some(p.origin_year);
+                }
+                ProductDomainEventPayload::AuthenticityChanged(p) => {
+                    self.authenticity = p.authenticity;
+                }
+                ProductDomainEventPayload::ConditionChanged(p) => {
+                    self.condition = p.condition;
+                }
+                ProductDomainEventPayload::ProvenanceChanged(p) => {
+                    self.provenance = p.provenance;
+                }
+                ProductDomainEventPayload::RestorationChanged(p) => {
+                    self.restoration = p.restoration;
                 }
             },
             ProductEventPayload::ProductEnrichmentEvent(payload) => match payload {
@@ -2632,6 +2916,842 @@ mod tests {
                     .iter()
                     .all(|i| i.prohibited_content == ProhibitedContent::None)
             );
+        }
+    }
+
+    mod estimate_price {
+        use crate::core::product::Product;
+        use crate::core::product_event::domain::ProductDomainEventPayload;
+        use common::currency::domain::Currency;
+        use common::language::domain::Language;
+        use common::localized::Localized;
+        use common::price::domain::{FixedFxRate, Price};
+        use common::product_state::domain::ProductState;
+        use fake::{Fake, Faker};
+        use time::OffsetDateTime;
+        use url::Url;
+
+        fn make_product() -> Product {
+            Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
+                native_title: Localized {
+                    localization: Language::De,
+                    payload: "Boop".into(),
+                },
+                other_title: Default::default(),
+                native_description: None,
+                other_description: Default::default(),
+                native_price: None,
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                embedding: Some(fake::vec![f32; 768]),
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
+        }
+
+        #[test]
+        fn should_return_none_when_estimate_prices_not_provided() {
+            let mut product = make_product();
+            let result = product.change_estimate_price(None, None, &FixedFxRate());
+            assert!(result.is_none());
+        }
+
+        #[test]
+        fn should_return_none_when_estimate_min_unchanged() {
+            let mut product = make_product();
+            let price = Price::new(100u64.into(), Currency::Eur);
+            product.native_price_estimate_min = Some(price);
+            let result = product.change_estimate_price(Some(price), None, &FixedFxRate());
+            assert!(result.is_none());
+        }
+
+        #[test]
+        fn should_return_event_when_estimate_min_changes() {
+            let mut product = make_product();
+            let new_min = Some(Price::new(200u64.into(), Currency::Eur));
+            let result = product.change_estimate_price(new_min, None, &FixedFxRate());
+            assert!(result.is_some());
+            let event = result.unwrap();
+            match event.payload {
+                ProductDomainEventPayload::EstimatePriceChanged(p) => {
+                    assert_eq!(new_min, p.native_price_estimate_min);
+                }
+                other => panic!("Expected EstimatePriceChanged but got {:?}", other),
+            }
+        }
+
+        #[test]
+        fn should_return_event_when_estimate_max_changes() {
+            let mut product = make_product();
+            let new_max = Some(Price::new(500u64.into(), Currency::Eur));
+            let result = product.change_estimate_price(None, new_max, &FixedFxRate());
+            assert!(result.is_some());
+            let event = result.unwrap();
+            match event.payload {
+                ProductDomainEventPayload::EstimatePriceChanged(p) => {
+                    assert_eq!(new_max, p.native_price_estimate_max);
+                }
+                other => panic!("Expected EstimatePriceChanged but got {:?}", other),
+            }
+        }
+
+        #[test]
+        fn should_return_event_when_both_estimates_change() {
+            let mut product = make_product();
+            let new_min = Some(Price::new(100u64.into(), Currency::Eur));
+            let new_max = Some(Price::new(500u64.into(), Currency::Eur));
+            let result = product.change_estimate_price(new_min, new_max, &FixedFxRate());
+            assert!(result.is_some());
+            let event = result.unwrap();
+            match event.payload {
+                ProductDomainEventPayload::EstimatePriceChanged(p) => {
+                    assert_eq!(new_min, p.native_price_estimate_min);
+                    assert_eq!(new_max, p.native_price_estimate_max);
+                }
+                other => panic!("Expected EstimatePriceChanged but got {:?}", other),
+            }
+        }
+
+        #[test]
+        fn should_update_product_fields_when_estimate_price_changes() {
+            let mut product = make_product();
+            let new_min = Price::new(100u64.into(), Currency::Eur);
+            let new_max = Price::new(500u64.into(), Currency::Eur);
+            product.change_estimate_price(Some(new_min), Some(new_max), &FixedFxRate());
+            assert_eq!(Some(new_min), product.native_price_estimate_min);
+            assert_eq!(Some(new_max), product.native_price_estimate_max);
+        }
+    }
+
+    mod url {
+        use crate::core::product::Product;
+        use crate::core::product_event::domain::ProductDomainEventPayload;
+        use common::language::domain::Language;
+        use common::localized::Localized;
+        use common::product_state::domain::ProductState;
+        use fake::{Fake, Faker};
+        use time::OffsetDateTime;
+        use url::Url;
+
+        fn make_product() -> Product {
+            Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
+                native_title: Localized {
+                    localization: Language::De,
+                    payload: "Boop".into(),
+                },
+                other_title: Default::default(),
+                native_description: None,
+                other_description: Default::default(),
+                native_price: None,
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                embedding: Some(fake::vec![f32; 768]),
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
+        }
+
+        #[test]
+        fn should_return_none_when_url_unchanged() {
+            let mut product = make_product();
+            let same_url = product.url.clone();
+            let result = product.change_url(same_url);
+            assert!(result.is_none());
+        }
+
+        #[test]
+        fn should_return_event_when_url_changes() {
+            let mut product = make_product();
+            let new_url = Url::parse("https://different.example.com").unwrap();
+            let result = product.change_url(new_url.clone());
+            assert!(result.is_some());
+            let event = result.unwrap();
+            match event.payload {
+                ProductDomainEventPayload::UrlChanged(p) => {
+                    assert_eq!(new_url, p.url);
+                }
+                other => panic!("Expected UrlChanged but got {:?}", other),
+            }
+        }
+
+        #[test]
+        fn should_update_product_url_when_url_changes() {
+            let mut product = make_product();
+            let new_url = Url::parse("https://different.example.com").unwrap();
+            product.change_url(new_url.clone());
+            assert_eq!(new_url, product.url);
+        }
+    }
+
+    mod images {
+        use crate::core::product::Product;
+        use crate::core::product_event::domain::ProductDomainEventPayload;
+        use crate::core::product_image::ProductImage;
+        use crate::core::prohibited_content::ProhibitedContent;
+        use common::language::domain::Language;
+        use common::localized::Localized;
+        use common::product_state::domain::ProductState;
+        use fake::{Fake, Faker};
+        use time::OffsetDateTime;
+        use url::Url;
+
+        fn make_product() -> Product {
+            Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
+                native_title: Localized {
+                    localization: Language::De,
+                    payload: "Boop".into(),
+                },
+                other_title: Default::default(),
+                native_description: None,
+                other_description: Default::default(),
+                native_price: None,
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                embedding: Some(fake::vec![f32; 768]),
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
+        }
+
+        #[test]
+        fn should_return_none_when_images_unchanged() {
+            let mut product = make_product();
+            let same_images = product.images.clone();
+            let result = product.change_images(same_images);
+            assert!(result.is_none());
+        }
+
+        #[test]
+        fn should_return_event_when_images_change() {
+            let mut product = make_product();
+            let new_images = vec![ProductImage {
+                url: Url::parse("https://img.example.com/1.jpg").unwrap(),
+                prohibited_content: ProhibitedContent::None,
+            }];
+            let result = product.change_images(new_images.clone());
+            assert!(result.is_some());
+            let event = result.unwrap();
+            match event.payload {
+                ProductDomainEventPayload::ImagesChanged(p) => {
+                    assert_eq!(new_images, p.images);
+                }
+                other => panic!("Expected ImagesChanged but got {:?}", other),
+            }
+        }
+
+        #[test]
+        fn should_update_product_images_when_images_change() {
+            let mut product = make_product();
+            let new_images = vec![ProductImage {
+                url: Url::parse("https://img.example.com/1.jpg").unwrap(),
+                prohibited_content: ProhibitedContent::None,
+            }];
+            product.change_images(new_images.clone());
+            assert_eq!(new_images, product.images);
+        }
+    }
+
+    mod auction_time {
+        use crate::core::product::Product;
+        use crate::core::product_event::domain::ProductDomainEventPayload;
+        use common::language::domain::Language;
+        use common::localized::Localized;
+        use common::product_state::domain::ProductState;
+        use fake::{Fake, Faker};
+        use time::OffsetDateTime;
+        use url::Url;
+
+        fn make_product() -> Product {
+            Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
+                native_title: Localized {
+                    localization: Language::De,
+                    payload: "Boop".into(),
+                },
+                other_title: Default::default(),
+                native_description: None,
+                other_description: Default::default(),
+                native_price: None,
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                embedding: Some(fake::vec![f32; 768]),
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
+        }
+
+        #[test]
+        fn should_return_none_when_no_auction_times_provided() {
+            let mut product = make_product();
+            let result = product.change_auction_time(None, None);
+            assert!(result.is_none());
+        }
+
+        #[test]
+        fn should_return_none_when_auction_times_unchanged() {
+            let mut product = make_product();
+            let start = OffsetDateTime::now_utc();
+            let end = OffsetDateTime::now_utc() + time::Duration::days(7);
+            product.auction_start = Some(start);
+            product.auction_end = Some(end);
+            let result = product.change_auction_time(Some(start), Some(end));
+            assert!(result.is_none());
+        }
+
+        #[test]
+        fn should_return_event_when_auction_start_changes() {
+            let mut product = make_product();
+            let new_start = Some(OffsetDateTime::now_utc() + time::Duration::days(1));
+            let result = product.change_auction_time(new_start, None);
+            assert!(result.is_some());
+            let event = result.unwrap();
+            match event.payload {
+                ProductDomainEventPayload::AuctionTimeChanged(p) => {
+                    assert_eq!(new_start, p.auction_start);
+                }
+                other => panic!("Expected AuctionTimeChanged but got {:?}", other),
+            }
+        }
+
+        #[test]
+        fn should_return_event_when_auction_end_changes() {
+            let mut product = make_product();
+            let new_end = Some(OffsetDateTime::now_utc() + time::Duration::days(14));
+            let result = product.change_auction_time(None, new_end);
+            assert!(result.is_some());
+            let event = result.unwrap();
+            match event.payload {
+                ProductDomainEventPayload::AuctionTimeChanged(p) => {
+                    assert_eq!(new_end, p.auction_end);
+                }
+                other => panic!("Expected AuctionTimeChanged but got {:?}", other),
+            }
+        }
+
+        #[test]
+        fn should_return_event_when_both_auction_times_change() {
+            let mut product = make_product();
+            let new_start = Some(OffsetDateTime::now_utc() + time::Duration::days(1));
+            let new_end = Some(OffsetDateTime::now_utc() + time::Duration::days(14));
+            let result = product.change_auction_time(new_start, new_end);
+            assert!(result.is_some());
+            let event = result.unwrap();
+            match event.payload {
+                ProductDomainEventPayload::AuctionTimeChanged(p) => {
+                    assert_eq!(new_start, p.auction_start);
+                    assert_eq!(new_end, p.auction_end);
+                }
+                other => panic!("Expected AuctionTimeChanged but got {:?}", other),
+            }
+        }
+    }
+
+    mod origin_year {
+        use crate::core::origin_year::OriginYear;
+        use crate::core::product::Product;
+        use crate::core::product_event::domain::ProductDomainEventPayload;
+        use common::language::domain::Language;
+        use common::localized::Localized;
+        use common::product_state::domain::ProductState;
+        use common::year::Year;
+        use fake::{Fake, Faker};
+        use time::OffsetDateTime;
+        use url::Url;
+
+        fn make_product() -> Product {
+            Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
+                native_title: Localized {
+                    localization: Language::De,
+                    payload: "Boop".into(),
+                },
+                other_title: Default::default(),
+                native_description: None,
+                other_description: Default::default(),
+                native_price: None,
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                embedding: Some(fake::vec![f32; 768]),
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
+        }
+
+        #[test]
+        fn should_return_none_when_origin_year_unchanged() {
+            let mut product = make_product();
+            let oy = OriginYear::ExactYear(Year::from(1900i32));
+            product.origin_year = Some(oy);
+            let result = product.change_origin_year(oy);
+            assert!(result.is_none());
+        }
+
+        #[test]
+        fn should_return_event_when_origin_year_changes() {
+            let mut product = make_product();
+            let old_oy = OriginYear::ExactYear(Year::from(1900i32));
+            product.origin_year = Some(old_oy);
+            let new_oy = OriginYear::ExactYear(Year::from(1800i32));
+            let result = product.change_origin_year(new_oy);
+            assert!(result.is_some());
+            let event = result.unwrap();
+            match event.payload {
+                ProductDomainEventPayload::OriginYearChanged(p) => {
+                    assert_eq!(new_oy, p.origin_year);
+                }
+                other => panic!("Expected OriginYearChanged but got {:?}", other),
+            }
+        }
+
+        #[test]
+        fn should_return_event_when_origin_year_set_from_none() {
+            let mut product = make_product();
+            assert!(product.origin_year.is_none());
+            let new_oy = OriginYear::ExactYear(Year::from(1900i32));
+            let result = product.change_origin_year(new_oy);
+            assert!(result.is_some());
+            let event = result.unwrap();
+            match event.payload {
+                ProductDomainEventPayload::OriginYearChanged(p) => {
+                    assert_eq!(new_oy, p.origin_year);
+                }
+                other => panic!("Expected OriginYearChanged but got {:?}", other),
+            }
+        }
+    }
+
+    mod authenticity {
+        use crate::core::authenticity::Authenticity;
+        use crate::core::product::Product;
+        use crate::core::product_event::domain::ProductDomainEventPayload;
+        use common::language::domain::Language;
+        use common::localized::Localized;
+        use common::product_state::domain::ProductState;
+        use fake::{Fake, Faker};
+        use time::OffsetDateTime;
+        use url::Url;
+
+        fn make_product() -> Product {
+            Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
+                native_title: Localized {
+                    localization: Language::De,
+                    payload: "Boop".into(),
+                },
+                other_title: Default::default(),
+                native_description: None,
+                other_description: Default::default(),
+                native_price: None,
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                embedding: Some(fake::vec![f32; 768]),
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
+        }
+
+        #[test]
+        fn should_return_none_when_authenticity_unchanged() {
+            let mut product = make_product();
+            let result = product.change_authenticity(product.authenticity);
+            assert!(result.is_none());
+        }
+
+        #[test]
+        fn should_return_event_when_authenticity_changes() {
+            let mut product = make_product();
+            product.authenticity = Authenticity::Unknown;
+            let new_auth = Authenticity::Original;
+            let result = product.change_authenticity(new_auth);
+            assert!(result.is_some());
+            let event = result.unwrap();
+            match event.payload {
+                ProductDomainEventPayload::AuthenticityChanged(p) => {
+                    assert_eq!(new_auth, p.authenticity);
+                }
+                other => panic!("Expected AuthenticityChanged but got {:?}", other),
+            }
+        }
+    }
+
+    mod condition {
+        use crate::core::condition::Condition;
+        use crate::core::product::Product;
+        use crate::core::product_event::domain::ProductDomainEventPayload;
+        use common::language::domain::Language;
+        use common::localized::Localized;
+        use common::product_state::domain::ProductState;
+        use fake::{Fake, Faker};
+        use time::OffsetDateTime;
+        use url::Url;
+
+        fn make_product() -> Product {
+            Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
+                native_title: Localized {
+                    localization: Language::De,
+                    payload: "Boop".into(),
+                },
+                other_title: Default::default(),
+                native_description: None,
+                other_description: Default::default(),
+                native_price: None,
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                embedding: Some(fake::vec![f32; 768]),
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
+        }
+
+        #[test]
+        fn should_return_none_when_condition_unchanged() {
+            let mut product = make_product();
+            let result = product.change_condition(product.condition);
+            assert!(result.is_none());
+        }
+
+        #[test]
+        fn should_return_event_when_condition_changes() {
+            let mut product = make_product();
+            product.condition = Condition::Unknown;
+            let new_cond = Condition::Excellent;
+            let result = product.change_condition(new_cond);
+            assert!(result.is_some());
+            let event = result.unwrap();
+            match event.payload {
+                ProductDomainEventPayload::ConditionChanged(p) => {
+                    assert_eq!(new_cond, p.condition);
+                }
+                other => panic!("Expected ConditionChanged but got {:?}", other),
+            }
+        }
+    }
+
+    mod provenance {
+        use crate::core::product::Product;
+        use crate::core::product_event::domain::ProductDomainEventPayload;
+        use crate::core::provenance::Provenance;
+        use common::language::domain::Language;
+        use common::localized::Localized;
+        use common::product_state::domain::ProductState;
+        use fake::{Fake, Faker};
+        use time::OffsetDateTime;
+        use url::Url;
+
+        fn make_product() -> Product {
+            Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
+                native_title: Localized {
+                    localization: Language::De,
+                    payload: "Boop".into(),
+                },
+                other_title: Default::default(),
+                native_description: None,
+                other_description: Default::default(),
+                native_price: None,
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                embedding: Some(fake::vec![f32; 768]),
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
+        }
+
+        #[test]
+        fn should_return_none_when_provenance_unchanged() {
+            let mut product = make_product();
+            let result = product.change_provenance(product.provenance);
+            assert!(result.is_none());
+        }
+
+        #[test]
+        fn should_return_event_when_provenance_changes() {
+            let mut product = make_product();
+            product.provenance = Provenance::Unknown;
+            let new_prov = Provenance::Complete;
+            let result = product.change_provenance(new_prov);
+            assert!(result.is_some());
+            let event = result.unwrap();
+            match event.payload {
+                ProductDomainEventPayload::ProvenanceChanged(p) => {
+                    assert_eq!(new_prov, p.provenance);
+                }
+                other => panic!("Expected ProvenanceChanged but got {:?}", other),
+            }
+        }
+    }
+
+    mod restoration {
+        use crate::core::product::Product;
+        use crate::core::product_event::domain::ProductDomainEventPayload;
+        use crate::core::restoration::Restoration;
+        use common::language::domain::Language;
+        use common::localized::Localized;
+        use common::product_state::domain::ProductState;
+        use fake::{Fake, Faker};
+        use time::OffsetDateTime;
+        use url::Url;
+
+        fn make_product() -> Product {
+            Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
+                native_title: Localized {
+                    localization: Language::De,
+                    payload: "Boop".into(),
+                },
+                other_title: Default::default(),
+                native_description: None,
+                other_description: Default::default(),
+                native_price: None,
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                embedding: Some(fake::vec![f32; 768]),
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
+        }
+
+        #[test]
+        fn should_return_none_when_restoration_unchanged() {
+            let mut product = make_product();
+            let result = product.change_restoration(product.restoration);
+            assert!(result.is_none());
+        }
+
+        #[test]
+        fn should_return_event_when_restoration_changes() {
+            let mut product = make_product();
+            product.restoration = Restoration::Unknown;
+            let new_rest = Restoration::Minor;
+            let result = product.change_restoration(new_rest);
+            assert!(result.is_some());
+            let event = result.unwrap();
+            match event.payload {
+                ProductDomainEventPayload::RestorationChanged(p) => {
+                    assert_eq!(new_rest, p.restoration);
+                }
+                other => panic!("Expected RestorationChanged but got {:?}", other),
+            }
         }
     }
 }

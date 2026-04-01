@@ -68,6 +68,17 @@ impl HasKey for CreateProductCommand {
 pub struct UpdateProductCommand {
     pub native_price: Option<Price>,
     pub state: Option<ProductState>,
+    pub native_price_estimate_min: Option<Price>,
+    pub native_price_estimate_max: Option<Price>,
+    pub url: Option<Url>,
+    pub images: Option<Vec<ProductImage>>,
+    pub auction_start: Option<OffsetDateTime>,
+    pub auction_end: Option<OffsetDateTime>,
+    pub origin_year: Option<OriginYear>,
+    pub authenticity: Option<Authenticity>,
+    pub condition: Option<Condition>,
+    pub provenance: Option<Provenance>,
+    pub restoration: Option<Restoration>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,6 +157,17 @@ impl From<&UpsertProductCommand> for UpdateProductCommand {
         UpdateProductCommand {
             native_price: cmd.native_price,
             state: cmd.state,
+            native_price_estimate_min: cmd.native_price_estimate_min,
+            native_price_estimate_max: cmd.native_price_estimate_max,
+            url: cmd.url.clone(),
+            images: Some(cmd.images.clone()),
+            auction_start: cmd.auction_start,
+            auction_end: cmd.auction_end,
+            origin_year: cmd.origin_year,
+            authenticity: Some(cmd.authenticity),
+            condition: Some(cmd.condition),
+            provenance: Some(cmd.provenance),
+            restoration: Some(cmd.restoration),
         }
     }
 }
@@ -223,6 +245,25 @@ mod faker {
             UpdateProductCommand {
                 native_price: config.fake_with_rng(rng),
                 state: config.fake_with_rng(rng),
+                native_price_estimate_min: config.fake_with_rng(rng),
+                native_price_estimate_max: config.fake_with_rng(rng),
+                url: Some(Url::parse("https://www.example.com/product/updated").unwrap()),
+                images: Some(Faker.fake()),
+                auction_start: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
+                auction_end: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
+                origin_year: None,
+                authenticity: config.fake_with_rng(rng),
+                condition: config.fake_with_rng(rng),
+                provenance: config.fake_with_rng(rng),
+                restoration: config.fake_with_rng(rng),
             }
         }
     }
@@ -299,6 +340,23 @@ mod faker {
             let update = UpdateProductCommand::from(&upsert);
             assert_eq!(update.native_price, upsert.native_price);
             assert_eq!(update.state, upsert.state);
+            assert_eq!(
+                update.native_price_estimate_min,
+                upsert.native_price_estimate_min
+            );
+            assert_eq!(
+                update.native_price_estimate_max,
+                upsert.native_price_estimate_max
+            );
+            assert_eq!(update.url, upsert.url);
+            assert_eq!(update.images, Some(upsert.images));
+            assert_eq!(update.auction_start, upsert.auction_start);
+            assert_eq!(update.auction_end, upsert.auction_end);
+            assert_eq!(update.origin_year, upsert.origin_year);
+            assert_eq!(update.authenticity, Some(upsert.authenticity));
+            assert_eq!(update.condition, Some(upsert.condition));
+            assert_eq!(update.provenance, Some(upsert.provenance));
+            assert_eq!(update.restoration, Some(upsert.restoration));
         }
     }
 }

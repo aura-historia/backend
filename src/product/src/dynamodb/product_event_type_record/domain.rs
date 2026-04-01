@@ -8,6 +8,15 @@ pub enum ProductDomainEventTypeRecord {
     DomainCreated,
     DomainStateChanged,
     DomainPriceChanged,
+    DomainEstimatePriceChanged,
+    DomainUrlChanged,
+    DomainImagesChanged,
+    DomainAuctionTimeChanged,
+    DomainOriginYearChanged,
+    DomainAuthenticityChanged,
+    DomainConditionChanged,
+    DomainProvenanceChanged,
+    DomainRestorationChanged,
 }
 
 impl From<&ProductDomainEventPayload> for ProductDomainEventTypeRecord {
@@ -19,6 +28,33 @@ impl From<&ProductDomainEventPayload> for ProductDomainEventTypeRecord {
             }
             ProductDomainEventPayload::PriceChanged(_) => {
                 ProductDomainEventTypeRecord::DomainPriceChanged
+            }
+            ProductDomainEventPayload::EstimatePriceChanged(_) => {
+                ProductDomainEventTypeRecord::DomainEstimatePriceChanged
+            }
+            ProductDomainEventPayload::UrlChanged(_) => {
+                ProductDomainEventTypeRecord::DomainUrlChanged
+            }
+            ProductDomainEventPayload::ImagesChanged(_) => {
+                ProductDomainEventTypeRecord::DomainImagesChanged
+            }
+            ProductDomainEventPayload::AuctionTimeChanged(_) => {
+                ProductDomainEventTypeRecord::DomainAuctionTimeChanged
+            }
+            ProductDomainEventPayload::OriginYearChanged(_) => {
+                ProductDomainEventTypeRecord::DomainOriginYearChanged
+            }
+            ProductDomainEventPayload::AuthenticityChanged(_) => {
+                ProductDomainEventTypeRecord::DomainAuthenticityChanged
+            }
+            ProductDomainEventPayload::ConditionChanged(_) => {
+                ProductDomainEventTypeRecord::DomainConditionChanged
+            }
+            ProductDomainEventPayload::ProvenanceChanged(_) => {
+                ProductDomainEventTypeRecord::DomainProvenanceChanged
+            }
+            ProductDomainEventPayload::RestorationChanged(_) => {
+                ProductDomainEventTypeRecord::DomainRestorationChanged
             }
         }
     }
@@ -40,6 +76,42 @@ mod tests {
         ProductDomainEventTypeRecord::DomainPriceChanged,
         "\"DOMAIN_PRICE_CHANGED\""
     )]
+    #[case(
+        ProductDomainEventTypeRecord::DomainEstimatePriceChanged,
+        "\"DOMAIN_ESTIMATE_PRICE_CHANGED\""
+    )]
+    #[case(
+        ProductDomainEventTypeRecord::DomainUrlChanged,
+        "\"DOMAIN_URL_CHANGED\""
+    )]
+    #[case(
+        ProductDomainEventTypeRecord::DomainImagesChanged,
+        "\"DOMAIN_IMAGES_CHANGED\""
+    )]
+    #[case(
+        ProductDomainEventTypeRecord::DomainAuctionTimeChanged,
+        "\"DOMAIN_AUCTION_TIME_CHANGED\""
+    )]
+    #[case(
+        ProductDomainEventTypeRecord::DomainOriginYearChanged,
+        "\"DOMAIN_ORIGIN_YEAR_CHANGED\""
+    )]
+    #[case(
+        ProductDomainEventTypeRecord::DomainAuthenticityChanged,
+        "\"DOMAIN_AUTHENTICITY_CHANGED\""
+    )]
+    #[case(
+        ProductDomainEventTypeRecord::DomainConditionChanged,
+        "\"DOMAIN_CONDITION_CHANGED\""
+    )]
+    #[case(
+        ProductDomainEventTypeRecord::DomainProvenanceChanged,
+        "\"DOMAIN_PROVENANCE_CHANGED\""
+    )]
+    #[case(
+        ProductDomainEventTypeRecord::DomainRestorationChanged,
+        "\"DOMAIN_RESTORATION_CHANGED\""
+    )]
     fn should_serialize_product_event_type_record_in_screaming_snake_case(
         #[case] product_state_record: ProductDomainEventTypeRecord,
         #[case] expected: &str,
@@ -58,6 +130,42 @@ mod tests {
     #[case(
         "\"DOMAIN_PRICE_CHANGED\"",
         ProductDomainEventTypeRecord::DomainPriceChanged
+    )]
+    #[case(
+        "\"DOMAIN_ESTIMATE_PRICE_CHANGED\"",
+        ProductDomainEventTypeRecord::DomainEstimatePriceChanged
+    )]
+    #[case(
+        "\"DOMAIN_URL_CHANGED\"",
+        ProductDomainEventTypeRecord::DomainUrlChanged
+    )]
+    #[case(
+        "\"DOMAIN_IMAGES_CHANGED\"",
+        ProductDomainEventTypeRecord::DomainImagesChanged
+    )]
+    #[case(
+        "\"DOMAIN_AUCTION_TIME_CHANGED\"",
+        ProductDomainEventTypeRecord::DomainAuctionTimeChanged
+    )]
+    #[case(
+        "\"DOMAIN_ORIGIN_YEAR_CHANGED\"",
+        ProductDomainEventTypeRecord::DomainOriginYearChanged
+    )]
+    #[case(
+        "\"DOMAIN_AUTHENTICITY_CHANGED\"",
+        ProductDomainEventTypeRecord::DomainAuthenticityChanged
+    )]
+    #[case(
+        "\"DOMAIN_CONDITION_CHANGED\"",
+        ProductDomainEventTypeRecord::DomainConditionChanged
+    )]
+    #[case(
+        "\"DOMAIN_PROVENANCE_CHANGED\"",
+        ProductDomainEventTypeRecord::DomainProvenanceChanged
+    )]
+    #[case(
+        "\"DOMAIN_RESTORATION_CHANGED\"",
+        ProductDomainEventTypeRecord::DomainRestorationChanged
     )]
     fn should_deserialize_product_event_type_record_in_screaming_snake_case(
         #[case] currency: &str,
