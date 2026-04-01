@@ -12,6 +12,7 @@ pub struct GetPeriodSummaryData {
     pub period_id: PeriodId,
     pub period_key: PeriodKey,
     pub name: LocalizedTextData,
+    pub products: u32,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -20,12 +21,13 @@ pub struct GetPeriodSummaryData {
     pub updated: OffsetDateTime,
 }
 
-impl From<LocalizedPeriod> for GetPeriodSummaryData {
-    fn from(period: LocalizedPeriod) -> Self {
+impl GetPeriodSummaryData {
+    pub fn from_period_with_product_count(period: LocalizedPeriod, products: u32) -> Self {
         GetPeriodSummaryData {
             period_id: period.period_id,
             period_key: period.period_key,
             name: period.display_name.into(),
+            products,
             created: period.created,
             updated: period.updated,
         }
@@ -45,6 +47,7 @@ mod tests {
             period_id: "renaissance".into(),
             period_key: "renaissance-key".into(),
             name: LocalizedTextData::new("Renaissance", LanguageData::En),
+            products: 42,
             created: datetime!(2020 - 01 - 01 0:00 UTC),
             updated: datetime!(2020 - 06 - 01 0:00 UTC),
         };
@@ -53,6 +56,7 @@ mod tests {
             "periodId": "renaissance",
             "periodKey": "renaissance-key",
             "name": { "text": "Renaissance", "language": "en" },
+            "products": 42,
             "created": "2020-01-01T00:00:00Z",
             "updated": "2020-06-01T00:00:00Z",
         });

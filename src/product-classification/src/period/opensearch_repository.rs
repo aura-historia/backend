@@ -112,34 +112,18 @@ impl<'a> PeriodOpenSearchRepository for PeriodOpenSearchRepositoryImpl<'a> {
         let mut must = Vec::with_capacity(1);
 
         if let Some(query) = search.name_query.as_ref() {
-            let (name_field, description_field) = match search.language {
-                Language::De => (
-                    PeriodDocumentSerdeField::DisplayNameDe.as_str(),
-                    PeriodDocumentSerdeField::DisplayDescriptionDe.as_str(),
-                ),
-                Language::En => (
-                    PeriodDocumentSerdeField::DisplayNameEn.as_str(),
-                    PeriodDocumentSerdeField::DisplayDescriptionEn.as_str(),
-                ),
-                Language::Fr => (
-                    PeriodDocumentSerdeField::DisplayNameFr.as_str(),
-                    PeriodDocumentSerdeField::DisplayDescriptionFr.as_str(),
-                ),
-                Language::Es => (
-                    PeriodDocumentSerdeField::DisplayNameEs.as_str(),
-                    PeriodDocumentSerdeField::DisplayDescriptionEs.as_str(),
-                ),
-                Language::It => (
-                    PeriodDocumentSerdeField::DisplayNameIt.as_str(),
-                    PeriodDocumentSerdeField::DisplayDescriptionIt.as_str(),
-                ),
+            let name_field = match search.language {
+                Language::De => PeriodDocumentSerdeField::DisplayNameDe.as_str(),
+                Language::En => PeriodDocumentSerdeField::DisplayNameEn.as_str(),
+                Language::Fr => PeriodDocumentSerdeField::DisplayNameFr.as_str(),
+                Language::Es => PeriodDocumentSerdeField::DisplayNameEs.as_str(),
+                Language::It => PeriodDocumentSerdeField::DisplayNameIt.as_str(),
             };
             must.push(json!({
                 "multi_match": {
                     "query": query,
                     "fields": [
                         format!("{name_field}^5"),
-                        format!("{description_field}^1"),
                     ],
                     "fuzziness": "AUTO",
                     "minimum_should_match": "70%"

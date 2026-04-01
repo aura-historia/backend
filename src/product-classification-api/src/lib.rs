@@ -69,7 +69,9 @@ pub async fn handle(
         Some("POST /api/v1/categories/search") => {
             category::search::handle(event, category_service, query_product_service).await
         }
-        Some("GET /api/v1/periods/{periodId}") => period::get::handle(event, period_service).await,
+        Some("GET /api/v1/periods/{periodId}") => {
+            period::get::handle(event, period_service, query_product_service).await
+        }
         Some("GET /api/v1/periods") => {
             let is_simple_search = event
                 .payload
@@ -78,12 +80,14 @@ pub async fn handle(
                 .next()
                 .is_some();
             if is_simple_search {
-                period::search::handle(event, period_service).await
+                period::search::handle(event, period_service, query_product_service).await
             } else {
-                period::get_all::handle(event, period_service).await
+                period::get_all::handle(event, period_service, query_product_service).await
             }
         }
-        Some("POST /api/v1/periods/search") => period::search::handle(event, period_service).await,
+        Some("POST /api/v1/periods/search") => {
+            period::search::handle(event, period_service, query_product_service).await
+        }
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,
             format!("Unknown route-key '{unknown}' in AWS-Payload").into(),

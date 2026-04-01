@@ -12,7 +12,6 @@ string_newtype!(PeriodMetaName);
 string_newtype!(PeriodMetaDescription);
 string_newtype!(PeriodMetaKeyword);
 string_newtype!(PeriodName);
-string_newtype!(PeriodDescription);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Period {
@@ -23,7 +22,6 @@ pub struct Period {
     pub meta_keywords: Vec<PeriodMetaKeyword>,
     pub embedding: Vec<f32>,
     pub display_name: HashMap<Language, PeriodName>,
-    pub display_description: HashMap<Language, PeriodDescription>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -55,14 +53,6 @@ impl Period {
                     }
                 },
             ),
-            display_description: Language::resolve(preferred_languages, self.display_description)
-                .unwrap_or_else(|| {
-                    error!(field = "display_description", "Failed resolving field.");
-                    Localized {
-                        localization: Language::En,
-                        payload: "period-description temporarily unavailable".into(),
-                    }
-                }),
             created: self.created,
             updated: self.updated,
         }
@@ -74,7 +64,6 @@ pub struct LocalizedPeriod {
     pub period_id: PeriodId,
     pub period_key: PeriodKey,
     pub display_name: Localized<Language, PeriodName>,
-    pub display_description: Localized<Language, PeriodDescription>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -105,11 +94,6 @@ pub mod faker {
         display_name_fr: String,
         display_name_es: String,
         display_name_it: String,
-        display_description_de: String,
-        display_description_en: String,
-        display_description_fr: String,
-        display_description_es: String,
-        display_description_it: String,
     }
 
     impl From<PeriodTestPayload> for Period {
@@ -120,27 +104,6 @@ pub mod faker {
             display_name.insert(Language::Fr, PeriodName(payload.display_name_fr));
             display_name.insert(Language::Es, PeriodName(payload.display_name_es));
             display_name.insert(Language::It, PeriodName(payload.display_name_it));
-            let mut display_description = HashMap::with_capacity(Language::COUNT);
-            display_description.insert(
-                Language::De,
-                PeriodDescription(payload.display_description_de),
-            );
-            display_description.insert(
-                Language::En,
-                PeriodDescription(payload.display_description_en),
-            );
-            display_description.insert(
-                Language::Fr,
-                PeriodDescription(payload.display_description_fr),
-            );
-            display_description.insert(
-                Language::Es,
-                PeriodDescription(payload.display_description_es),
-            );
-            display_description.insert(
-                Language::It,
-                PeriodDescription(payload.display_description_it),
-            );
             Period {
                 period_id: payload.period_id.into(),
                 period_key: payload.period_key.into(),
@@ -153,7 +116,6 @@ pub mod faker {
                     .collect(),
                 embedding: fake::vec![f32; 768],
                 display_name,
-                display_description,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -176,10 +138,6 @@ pub mod faker {
             for language in Language::iter() {
                 display_name.insert(language, config.fake_with_rng(rng));
             }
-            let mut display_description = HashMap::new();
-            for language in Language::iter() {
-                display_description.insert(language, config.fake_with_rng(rng));
-            }
             let period_key: PeriodKey = config.fake_with_rng(rng);
             Period {
                 period_id: SlugId::from(period_key.as_ref()),
@@ -189,7 +147,6 @@ pub mod faker {
                 meta_keywords: config.fake_with_rng(rng),
                 embedding: fake::vec![f32; 768],
                 display_name,
-                display_description,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

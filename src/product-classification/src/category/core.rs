@@ -12,7 +12,6 @@ string_newtype!(CategoryMetaName);
 string_newtype!(CategoryMetaDescription);
 string_newtype!(CategoryMetaKeyword);
 string_newtype!(CategoryName);
-string_newtype!(CategoryDescription);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Category {

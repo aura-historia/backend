@@ -5,13 +5,18 @@ use common::api::error_code::BAD_PATH_PARAMETER_VALUE;
 use common::error::missing_field::MissingRequiredField;
 use common::language::data::api::extract_language_query;
 use common::language::domain::Language;
+use common::pagination::cursor::Cursor;
+use common::query::any_of_query::AnyOfQuery;
 use lambda_runtime::LambdaEvent;
+use product::core::product_search::ProductSearch;
+use product::service::query_service::QueryProductService;
 use product_classification::period::data::get_period_data::GetPeriodData;
 use product_classification::period::service::PeriodService;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl PeriodService,
+    period_service: &impl PeriodService,
+    query_product_service: &impl QueryProductService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let period_id = event
         .payload
@@ -31,9 +36,19 @@ pub async fn handle(
         &event.payload.query_string_parameters,
     )?)];
 
-    let period = service.view_period(&period_id, &languages).await?;
+    let period = period_service.view_period(&period_id, &languages).await?;
+    let product_search =
+        ProductSearch::default().with_period_id(AnyOfQuery::from_iter([period_id]));
+    let cursor = Cursor {
+        search_after: None,
+        size: 0,
+    };
+    let products = query_product_service
+        .search_products(&product_search, &None, &Some(cursor))
+        .await?;
 
-    let period_data = GetPeriodData::from(period);
+    let period_data =
+        GetPeriodData::from_period_with_product_count(period, products.total.unwrap_or(0) as u32);
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .last_modified(period_data.updated)
@@ -45,10 +60,12 @@ pub async fn handle(
 #[cfg(test)]
 mod tests {
     use crate::handle;
+    use common::pagination::cursor::{Cursor, CursoredResult};
     use common::period_key::PeriodId;
     use fake::{Fake, Faker};
     use http::header::{CACHE_CONTROL, LAST_MODIFIED};
     use lambda_runtime::LambdaEvent;
+    use product::core::product::LocalizedProductView;
     use product::service::query_service::MockQueryProductService;
     use product_classification::category::service::MockCategoryService;
     use product_classification::period::core::Period;
@@ -69,7 +86,21 @@ mod tests {
                 let localized = period.localized(languages);
                 Box::pin(async move { Ok(localized) })
             });
-        let query_product_service = MockQueryProductService::default();
+        let mut query_product_service = MockQueryProductService::default();
+        query_product_service
+            .expect_search_products()
+            .return_once(|_, _, _| {
+                Box::pin(async {
+                    Ok(CursoredResult {
+                        items: Vec::<LocalizedProductView>::new(),
+                        cursor: Cursor {
+                            size: 0,
+                            search_after: None,
+                        },
+                        total: Some(0),
+                    })
+                })
+            });
         let period_id: PeriodId = "test-period".into();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -167,7 +198,21 @@ mod tests {
                 let localized = period.localized(languages);
                 Box::pin(async move { Ok(localized) })
             });
-        let query_product_service = MockQueryProductService::default();
+        let mut query_product_service = MockQueryProductService::default();
+        query_product_service
+            .expect_search_products()
+            .return_once(|_, _, _| {
+                Box::pin(async {
+                    Ok(CursoredResult {
+                        items: Vec::<LocalizedProductView>::new(),
+                        cursor: Cursor {
+                            size: 0,
+                            search_after: None,
+                        },
+                        total: Some(0),
+                    })
+                })
+            });
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
