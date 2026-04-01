@@ -118,7 +118,7 @@ INSERT INTO product_state_mapping (raw, normalized, mapping_type) VALUES ('\b0\s
 INSERT INTO product_state_mapping (raw, normalized, mapping_type) VALUES ('\b0\s+disponibles?\b',   'SOLD', 'REGEX') ON CONFLICT (raw) DO NOTHING;
 INSERT INTO product_state_mapping (raw, normalized, mapping_type) VALUES ('\b0\s+disponibili\b',    'SOLD', 'REGEX') ON CONFLICT (raw) DO NOTHING;
 
-CREATE TABLE IF NOT EXISTS spider_shop_pattern (
+CREATE TABLE IF NOT EXISTS spider_shop (
     shop_id   UUID PRIMARY KEY,
     shop_domain TEXT NOT NULL,
     url_pattern TEXT,
