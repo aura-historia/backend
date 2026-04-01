@@ -15,6 +15,7 @@ use common::year::Year;
 use serde::Serialize;
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
+use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Serialize, SerdeField)]
 pub struct ProductRecordUpdate {
@@ -88,6 +89,53 @@ pub struct ProductRecordUpdate {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub images: Option<Vec<ProductImageRecord>>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_native: Option<PriceRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_eur: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_usd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_gbp: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_aud: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_cad: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_nzd: Option<u64>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_native: Option<PriceRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_eur: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_usd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_gbp: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_aud: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_cad: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_nzd: Option<u64>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub url: Option<Url>,
+
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub auction_start: Option<OffsetDateTime>,
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub auction_end: Option<OffsetDateTime>,
+
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub embedding: Option<Vec<f32>>,
 
@@ -147,6 +195,23 @@ impl Default for ProductRecordUpdate {
             description_es: None,
             description_it: None,
             images: None,
+            price_estimate_min_native: None,
+            price_estimate_min_eur: None,
+            price_estimate_min_usd: None,
+            price_estimate_min_gbp: None,
+            price_estimate_min_aud: None,
+            price_estimate_min_cad: None,
+            price_estimate_min_nzd: None,
+            price_estimate_max_native: None,
+            price_estimate_max_eur: None,
+            price_estimate_max_usd: None,
+            price_estimate_max_gbp: None,
+            price_estimate_max_aud: None,
+            price_estimate_max_cad: None,
+            price_estimate_max_nzd: None,
+            url: None,
+            auction_start: None,
+            auction_end: None,
             embedding: None,
             origin_year_min: None,
             origin_year: None,
@@ -195,6 +260,23 @@ impl From<ProductDomainEventRecord> for ProductRecordUpdate {
             description_es: event.description_es,
             description_it: event.description_it,
             images: event.images,
+            price_estimate_min_native: event.new_price_estimate_min_native,
+            price_estimate_min_eur: event.new_price_estimate_min_eur,
+            price_estimate_min_usd: event.new_price_estimate_min_usd,
+            price_estimate_min_gbp: event.new_price_estimate_min_gbp,
+            price_estimate_min_aud: event.new_price_estimate_min_aud,
+            price_estimate_min_cad: event.new_price_estimate_min_cad,
+            price_estimate_min_nzd: event.new_price_estimate_min_nzd,
+            price_estimate_max_native: event.new_price_estimate_max_native,
+            price_estimate_max_eur: event.new_price_estimate_max_eur,
+            price_estimate_max_usd: event.new_price_estimate_max_usd,
+            price_estimate_max_gbp: event.new_price_estimate_max_gbp,
+            price_estimate_max_aud: event.new_price_estimate_max_aud,
+            price_estimate_max_cad: event.new_price_estimate_max_cad,
+            price_estimate_max_nzd: event.new_price_estimate_max_nzd,
+            url: event.url,
+            auction_start: event.auction_start,
+            auction_end: event.auction_end,
             embedding: None,
             origin_year_min: event.origin_year_min,
             origin_year: event.origin_year,
@@ -243,6 +325,23 @@ impl From<ProductEnrichmentEventRecord> for ProductRecordUpdate {
             description_es: None,
             description_it: None,
             images: None,
+            price_estimate_min_native: None,
+            price_estimate_min_eur: None,
+            price_estimate_min_usd: None,
+            price_estimate_min_gbp: None,
+            price_estimate_min_aud: None,
+            price_estimate_min_cad: None,
+            price_estimate_min_nzd: None,
+            price_estimate_max_native: None,
+            price_estimate_max_eur: None,
+            price_estimate_max_usd: None,
+            price_estimate_max_gbp: None,
+            price_estimate_max_aud: None,
+            price_estimate_max_cad: None,
+            price_estimate_max_nzd: None,
+            url: None,
+            auction_start: None,
+            auction_end: None,
             embedding: event.embedding,
             origin_year_min: event.origin_year_min,
             origin_year: event.origin_year,
@@ -301,12 +400,43 @@ mod faker {
                 description_fr: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 description_es: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 description_it: Some(config.fake_with_rng::<Description, _>(rng).into()),
+                images: Some(config.fake_with_rng(rng)),
+                price_estimate_min_native: Some(config.fake_with_rng::<Price, _>(rng).into()),
+                price_estimate_min_eur: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_usd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_gbp: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_aud: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_cad: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_nzd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_native: Some(config.fake_with_rng::<Price, _>(rng).into()),
+                price_estimate_max_eur: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_usd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_gbp: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_aud: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_cad: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_nzd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                url: Some(
+                    url::Url::parse(&format!(
+                        "https://foo.bar/item/{}",
+                        config.fake_with_rng::<u16, _>(rng)
+                    ))
+                    .unwrap(),
+                ),
+                auction_start: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
+                auction_end: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
                 embedding: if config.fake_with_rng(rng) {
                     Some(fake::vec![f32; 768])
                 } else {
                     None
                 },
-                images: Some(config.fake_with_rng(rng)),
                 origin_year_min: config.fake_with_rng(rng),
                 origin_year: config.fake_with_rng(rng),
                 origin_year_max: config.fake_with_rng(rng),

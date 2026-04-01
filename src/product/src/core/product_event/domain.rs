@@ -141,73 +141,86 @@ impl ProductDomainEventPayload {
             }
             ProductDomainEventPayload::EstimatePriceChanged(payload) => {
                 LocalizedProductDomainEventPayloadView::EstimatePriceChanged(
-                    LocalizedProductFieldChangedDomainEventPayloadView {
+                    LocalizedProductEstimatePriceChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_product_id: payload.shops_product_id,
+                        native_price_estimate_min: payload.native_price_estimate_min,
+                        other_price_estimate_min: payload.other_price_estimate_min,
+                        native_price_estimate_max: payload.native_price_estimate_max,
+                        other_price_estimate_max: payload.other_price_estimate_max,
                     },
                 )
             }
             ProductDomainEventPayload::UrlChanged(payload) => {
                 LocalizedProductDomainEventPayloadView::UrlChanged(
-                    LocalizedProductFieldChangedDomainEventPayloadView {
+                    LocalizedProductUrlChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_product_id: payload.shops_product_id,
+                        url: payload.url,
                     },
                 )
             }
             ProductDomainEventPayload::ImagesChanged(payload) => {
                 LocalizedProductDomainEventPayloadView::ImagesChanged(
-                    LocalizedProductFieldChangedDomainEventPayloadView {
+                    LocalizedProductImagesChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_product_id: payload.shops_product_id,
+                        images: payload.images,
                     },
                 )
             }
             ProductDomainEventPayload::AuctionTimeChanged(payload) => {
                 LocalizedProductDomainEventPayloadView::AuctionTimeChanged(
-                    LocalizedProductFieldChangedDomainEventPayloadView {
+                    LocalizedProductAuctionTimeChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_product_id: payload.shops_product_id,
+                        auction_start: payload.auction_start,
+                        auction_end: payload.auction_end,
                     },
                 )
             }
             ProductDomainEventPayload::OriginYearChanged(payload) => {
                 LocalizedProductDomainEventPayloadView::OriginYearChanged(
-                    LocalizedProductFieldChangedDomainEventPayloadView {
+                    LocalizedProductOriginYearChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_product_id: payload.shops_product_id,
+                        origin_year: payload.origin_year,
                     },
                 )
             }
             ProductDomainEventPayload::AuthenticityChanged(payload) => {
                 LocalizedProductDomainEventPayloadView::AuthenticityChanged(
-                    LocalizedProductFieldChangedDomainEventPayloadView {
+                    LocalizedProductAuthenticityChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_product_id: payload.shops_product_id,
+                        authenticity: payload.authenticity,
                     },
                 )
             }
             ProductDomainEventPayload::ConditionChanged(payload) => {
                 LocalizedProductDomainEventPayloadView::ConditionChanged(
-                    LocalizedProductFieldChangedDomainEventPayloadView {
+                    LocalizedProductConditionChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_product_id: payload.shops_product_id,
+                        condition: payload.condition,
                     },
                 )
             }
             ProductDomainEventPayload::ProvenanceChanged(payload) => {
                 LocalizedProductDomainEventPayloadView::ProvenanceChanged(
-                    LocalizedProductFieldChangedDomainEventPayloadView {
+                    LocalizedProductProvenanceChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_product_id: payload.shops_product_id,
+                        provenance: payload.provenance,
                     },
                 )
             }
             ProductDomainEventPayload::RestorationChanged(payload) => {
                 LocalizedProductDomainEventPayloadView::RestorationChanged(
-                    LocalizedProductFieldChangedDomainEventPayloadView {
+                    LocalizedProductRestorationChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_product_id: payload.shops_product_id,
+                        restoration: payload.restoration,
                     },
                 )
             }
@@ -516,15 +529,15 @@ pub enum LocalizedProductDomainEventPayloadView {
     Created(LocalizedProductCreatedDomainEventPayloadView),
     StateChanged(LocalizedProductStateChangeDomainEventPayloadView),
     PriceChanged(LocalizedProductPriceChangeDomainEventPayloadView),
-    EstimatePriceChanged(LocalizedProductFieldChangedDomainEventPayloadView),
-    UrlChanged(LocalizedProductFieldChangedDomainEventPayloadView),
-    ImagesChanged(LocalizedProductFieldChangedDomainEventPayloadView),
-    AuctionTimeChanged(LocalizedProductFieldChangedDomainEventPayloadView),
-    OriginYearChanged(LocalizedProductFieldChangedDomainEventPayloadView),
-    AuthenticityChanged(LocalizedProductFieldChangedDomainEventPayloadView),
-    ConditionChanged(LocalizedProductFieldChangedDomainEventPayloadView),
-    ProvenanceChanged(LocalizedProductFieldChangedDomainEventPayloadView),
-    RestorationChanged(LocalizedProductFieldChangedDomainEventPayloadView),
+    EstimatePriceChanged(LocalizedProductEstimatePriceChangeDomainEventPayloadView),
+    UrlChanged(LocalizedProductUrlChangeDomainEventPayloadView),
+    ImagesChanged(LocalizedProductImagesChangeDomainEventPayloadView),
+    AuctionTimeChanged(LocalizedProductAuctionTimeChangeDomainEventPayloadView),
+    OriginYearChanged(LocalizedProductOriginYearChangeDomainEventPayloadView),
+    AuthenticityChanged(LocalizedProductAuthenticityChangeDomainEventPayloadView),
+    ConditionChanged(LocalizedProductConditionChangeDomainEventPayloadView),
+    ProvenanceChanged(LocalizedProductProvenanceChangeDomainEventPayloadView),
+    RestorationChanged(LocalizedProductRestorationChangeDomainEventPayloadView),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -558,9 +571,70 @@ pub struct LocalizedProductPriceChangeDomainEventPayloadView {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct LocalizedProductFieldChangedDomainEventPayloadView {
+pub struct LocalizedProductEstimatePriceChangeDomainEventPayloadView {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
+    pub native_price_estimate_min: Option<Price>,
+    pub other_price_estimate_min: HashMap<Currency, MonetaryAmount>,
+    pub native_price_estimate_max: Option<Price>,
+    pub other_price_estimate_max: HashMap<Currency, MonetaryAmount>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalizedProductUrlChangeDomainEventPayloadView {
+    pub shop_id: ShopId,
+    pub shops_product_id: ShopsProductId,
+    pub url: Url,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalizedProductImagesChangeDomainEventPayloadView {
+    pub shop_id: ShopId,
+    pub shops_product_id: ShopsProductId,
+    pub images: Vec<ProductImage>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalizedProductAuctionTimeChangeDomainEventPayloadView {
+    pub shop_id: ShopId,
+    pub shops_product_id: ShopsProductId,
+    pub auction_start: Option<OffsetDateTime>,
+    pub auction_end: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalizedProductOriginYearChangeDomainEventPayloadView {
+    pub shop_id: ShopId,
+    pub shops_product_id: ShopsProductId,
+    pub origin_year: OriginYear,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalizedProductAuthenticityChangeDomainEventPayloadView {
+    pub shop_id: ShopId,
+    pub shops_product_id: ShopsProductId,
+    pub authenticity: Authenticity,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalizedProductConditionChangeDomainEventPayloadView {
+    pub shop_id: ShopId,
+    pub shops_product_id: ShopsProductId,
+    pub condition: Condition,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalizedProductProvenanceChangeDomainEventPayloadView {
+    pub shop_id: ShopId,
+    pub shops_product_id: ShopsProductId,
+    pub provenance: Provenance,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalizedProductRestorationChangeDomainEventPayloadView {
+    pub shop_id: ShopId,
+    pub shops_product_id: ShopsProductId,
+    pub restoration: Restoration,
 }
 
 #[cfg(feature = "test-data")]
