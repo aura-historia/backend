@@ -49,6 +49,7 @@ mod tests {
     use fake::{Fake, Faker};
     use http::header::{CACHE_CONTROL, LAST_MODIFIED};
     use lambda_runtime::LambdaEvent;
+    use product::service::query_service::MockQueryProductService;
     use product_classification::category::service::MockCategoryService;
     use product_classification::period::core::Period;
     use product_classification::period::service::{MockPeriodService, PeriodServiceError};
@@ -68,6 +69,7 @@ mod tests {
                 let localized = period.localized(languages);
                 Box::pin(async move { Ok(localized) })
             });
+        let query_product_service = MockQueryProductService::default();
         let period_id: PeriodId = "test-period".into();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -78,9 +80,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &category_service, &period_service)
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &category_service,
+            &period_service,
+            &query_product_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
         assert_eq!(
@@ -94,6 +101,7 @@ mod tests {
         let category_service = MockCategoryService::default();
         let mut period_service = MockPeriodService::default();
         period_service.expect_view_period().never();
+        let query_product_service = MockQueryProductService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -102,9 +110,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &category_service, &period_service)
-            .await
-            .unwrap_err();
+        let response = handle(
+            lambda_event,
+            &category_service,
+            &period_service,
+            &query_product_service,
+        )
+        .await
+        .unwrap_err();
 
         assert_eq!(400, response.status);
     }
@@ -120,6 +133,7 @@ mod tests {
                 let period_id = period_id.clone();
                 Box::pin(async move { Err(PeriodServiceError::PeriodNotExists(period_id)) })
             });
+        let query_product_service = MockQueryProductService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -129,9 +143,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &category_service, &period_service)
-            .await
-            .unwrap_err();
+        let response = handle(
+            lambda_event,
+            &category_service,
+            &period_service,
+            &query_product_service,
+        )
+        .await
+        .unwrap_err();
 
         assert_eq!(404, response.status);
     }
@@ -148,6 +167,7 @@ mod tests {
                 let localized = period.localized(languages);
                 Box::pin(async move { Ok(localized) })
             });
+        let query_product_service = MockQueryProductService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -157,9 +177,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &category_service, &period_service)
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &category_service,
+            &period_service,
+            &query_product_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
         assert_eq!(

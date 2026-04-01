@@ -39,6 +39,123 @@ pub struct ProductSearch {
     pub auction_end_query: Option<RangeQuery<OffsetDateTime>>,
 }
 
+impl ProductSearch {
+    pub fn new(language: Language, currency: Currency) -> Self {
+        Self {
+            language,
+            currency,
+            product_query: None,
+            category_id: AnyOfQuery::default(),
+            period_id: AnyOfQuery::default(),
+            shop_name_query: AnyOfQuery::default(),
+            exclude_shop_name_query: AnyOfQuery::default(),
+            shop_type_query: AnyOfQuery::default(),
+            price_query: None,
+            state_query: AnyOfQuery::default(),
+            origin_year_query: None,
+            authenticity_query: AnyOfQuery::default(),
+            condition_query: AnyOfQuery::default(),
+            provenance_query: AnyOfQuery::default(),
+            restoration_query: AnyOfQuery::default(),
+            created_query: None,
+            updated_query: None,
+            auction_start_query: None,
+            auction_end_query: None,
+        }
+    }
+
+    pub fn with_product_query(mut self, product_query: TextQuery<1>) -> Self {
+        self.product_query = Some(product_query);
+        self
+    }
+
+    pub fn with_category_id(mut self, category_id: AnyOfQuery<CategoryId>) -> Self {
+        self.category_id = category_id;
+        self
+    }
+
+    pub fn with_period_id(mut self, period_id: AnyOfQuery<PeriodId>) -> Self {
+        self.period_id = period_id;
+        self
+    }
+
+    pub fn with_shop_name_query(mut self, shop_name_query: AnyOfQuery<ShopName>) -> Self {
+        self.shop_name_query = shop_name_query;
+        self
+    }
+
+    pub fn with_exclude_shop_name_query(
+        mut self,
+        exclude_shop_name_query: AnyOfQuery<ShopName>,
+    ) -> Self {
+        self.exclude_shop_name_query = exclude_shop_name_query;
+        self
+    }
+
+    pub fn with_shop_type_query(mut self, shop_type_query: AnyOfQuery<ShopType>) -> Self {
+        self.shop_type_query = shop_type_query;
+        self
+    }
+
+    pub fn with_price_query(mut self, price_query: RangeQuery<MonetaryAmount>) -> Self {
+        self.price_query = Some(price_query);
+        self
+    }
+
+    pub fn with_state_query(mut self, state_query: AnyOfQuery<ProductState>) -> Self {
+        self.state_query = state_query;
+        self
+    }
+
+    pub fn with_origin_year_query(mut self, origin_year_query: RangeQuery<Year>) -> Self {
+        self.origin_year_query = Some(origin_year_query);
+        self
+    }
+
+    pub fn with_authenticity_query(mut self, authenticity_query: AnyOfQuery<Authenticity>) -> Self {
+        self.authenticity_query = authenticity_query;
+        self
+    }
+
+    pub fn with_condition_query(mut self, condition_query: AnyOfQuery<Condition>) -> Self {
+        self.condition_query = condition_query;
+        self
+    }
+
+    pub fn with_provenance_query(mut self, provenance_query: AnyOfQuery<Provenance>) -> Self {
+        self.provenance_query = provenance_query;
+        self
+    }
+
+    pub fn with_restoration_query(mut self, restoration_query: AnyOfQuery<Restoration>) -> Self {
+        self.restoration_query = restoration_query;
+        self
+    }
+
+    pub fn with_created_query(mut self, created_query: RangeQuery<OffsetDateTime>) -> Self {
+        self.created_query = Some(created_query);
+        self
+    }
+
+    pub fn with_updated_query(mut self, updated_query: RangeQuery<OffsetDateTime>) -> Self {
+        self.updated_query = Some(updated_query);
+        self
+    }
+
+    pub fn with_auction_start_query(
+        mut self,
+        auction_start_query: RangeQuery<OffsetDateTime>,
+    ) -> Self {
+        self.auction_start_query = Some(auction_start_query);
+        self
+    }
+
+    pub fn with_auction_end_query(mut self, auction_end_query: RangeQuery<OffsetDateTime>) -> Self {
+        self.auction_end_query = Some(auction_end_query);
+        self
+    }
+}
+
 #[cfg(feature = "test-data")]
 pub mod faker {
     use super::*;

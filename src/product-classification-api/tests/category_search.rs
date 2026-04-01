@@ -1,5 +1,8 @@
+use common::pagination::cursor::{Cursor, CursoredResult};
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
+use product::core::product::LocalizedProductView;
+use product::service::query_service::MockQueryProductService;
 use product_classification::category::category_search::CategorySearchData;
 use product_classification::category::data::get_category_summary_data::GetCategorySummaryData;
 use product_classification::category::document::CategoryDocument;
@@ -20,6 +23,22 @@ async fn should_sort_by_name_ascending_when_name_asc_for_search_api() {
         CategoryDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let category_service = CategoryServiceImpl::new(&dynamodb_repository, &opensearch_repository);
     let period_service = MockPeriodService::default();
+    let mut query_product_service = MockQueryProductService::default();
+    query_product_service
+        .expect_search_products()
+        .times(3)
+        .returning(|_, _, _| {
+            Box::pin(async {
+                Ok(CursoredResult {
+                    items: Vec::<LocalizedProductView>::new(),
+                    cursor: Cursor {
+                        size: 0,
+                        search_after: None,
+                    },
+                    total: Some(0),
+                })
+            })
+        });
 
     let names = ["Charlie", "Alpha", "Bravo"];
     for name in &names {
@@ -43,9 +62,14 @@ async fn should_sort_by_name_ascending_when_name_asc_for_search_api() {
             .build(),
         context: Default::default(),
     };
-    let response = handle(lambda_event, &category_service, &period_service)
-        .await
-        .unwrap();
+    let response = handle(
+        lambda_event,
+        &category_service,
+        &period_service,
+        &query_product_service,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(200, response.status_code);
     let payload: Vec<GetCategorySummaryData> =
@@ -64,6 +88,22 @@ async fn should_sort_by_created_descending_when_created_desc_for_search_api() {
         CategoryDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let category_service = CategoryServiceImpl::new(&dynamodb_repository, &opensearch_repository);
     let period_service = MockPeriodService::default();
+    let mut query_product_service = MockQueryProductService::default();
+    query_product_service
+        .expect_search_products()
+        .times(3)
+        .returning(|_, _, _| {
+            Box::pin(async {
+                Ok(CursoredResult {
+                    items: Vec::<LocalizedProductView>::new(),
+                    cursor: Cursor {
+                        size: 0,
+                        search_after: None,
+                    },
+                    total: Some(0),
+                })
+            })
+        });
 
     let timestamps = [
         time::macros::datetime!(2024-12-01 0:00 UTC),
@@ -91,9 +131,14 @@ async fn should_sort_by_created_descending_when_created_desc_for_search_api() {
             .build(),
         context: Default::default(),
     };
-    let response = handle(lambda_event, &category_service, &period_service)
-        .await
-        .unwrap();
+    let response = handle(
+        lambda_event,
+        &category_service,
+        &period_service,
+        &query_product_service,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(200, response.status_code);
     let payload: Vec<GetCategorySummaryData> =

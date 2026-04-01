@@ -3,6 +3,8 @@ use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
 use aws_sdk_dynamodb::Client;
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
+use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
+use product::service::query_service::QueryProductServiceImpl;
 use product_classification::category::dynamodb_repository::CategoryDynamoDbRepositoryImpl;
 use product_classification::category::opensearch_repository::CategoryOpenSearchRepositoryImpl;
 use product_classification::category::service::CategoryServiceImpl;
@@ -36,11 +38,20 @@ async fn main() -> Result<(), Error> {
     let period_service =
         PeriodServiceImpl::new(&period_dynamodb_repository, &period_opensearch_repository);
 
+    let product_opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch);
+    let query_product_service = QueryProductServiceImpl::new(&product_opensearch_repository);
+
     debug!("Lambda initialized.");
 
     run(service_fn(
         |event: LambdaEvent<ApiGatewayV2httpRequest>| async {
-            handler(event, &category_service, &period_service).await
+            handler(
+                event,
+                &category_service,
+                &period_service,
+                &query_product_service,
+            )
+            .await
         },
     ))
     .await

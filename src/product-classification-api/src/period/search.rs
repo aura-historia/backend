@@ -72,6 +72,7 @@ pub async fn handle(
 mod tests {
     use crate::handle;
     use lambda_runtime::LambdaEvent;
+    use product::service::query_service::MockQueryProductService;
     use product_classification::category::service::MockCategoryService;
     use product_classification::period::core::Period;
     use product_classification::period::period_search::PeriodSearchData;
@@ -92,6 +93,7 @@ mod tests {
                     .collect();
                 Box::pin(async move { Ok(localized) })
             });
+        let query_product_service = MockQueryProductService::default();
         let search_data = PeriodSearchData {
             language: common::language::data::LanguageData::Es,
             name_query: Some("Renaissance".try_into().unwrap()),
@@ -105,9 +107,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &category_service, &period_service)
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &category_service,
+            &period_service,
+            &query_product_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
     }
@@ -123,6 +130,7 @@ mod tests {
                 assert_eq!(Some("Renaissance".try_into().unwrap()), search.name_query);
                 Box::pin(async move { Ok(vec![]) })
             });
+        let query_product_service = MockQueryProductService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -133,9 +141,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &category_service, &period_service)
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &category_service,
+            &period_service,
+            &query_product_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
         assert_eq!(
@@ -163,6 +176,7 @@ mod tests {
                     .collect();
                 Box::pin(async move { Ok(localized) })
             });
+        let query_product_service = MockQueryProductService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
@@ -172,9 +186,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &category_service, &period_service)
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &category_service,
+            &period_service,
+            &query_product_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
     }
@@ -184,6 +203,7 @@ mod tests {
         let category_service = MockCategoryService::default();
         let mut period_service = MockPeriodService::default();
         period_service.expect_search_periods().never();
+        let query_product_service = MockQueryProductService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
@@ -192,9 +212,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &category_service, &period_service)
-            .await
-            .unwrap_err();
+        let response = handle(
+            lambda_event,
+            &category_service,
+            &period_service,
+            &query_product_service,
+        )
+        .await
+        .unwrap_err();
 
         assert_eq!(400, response.status);
     }
@@ -204,6 +229,7 @@ mod tests {
         let category_service = MockCategoryService::default();
         let mut period_service = MockPeriodService::default();
         period_service.expect_search_periods().never();
+        let query_product_service = MockQueryProductService::default();
         let mut payload: aws_lambda_events::apigw::ApiGatewayV2httpRequest =
             ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
@@ -215,9 +241,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &category_service, &period_service)
-            .await
-            .unwrap_err();
+        let response = handle(
+            lambda_event,
+            &category_service,
+            &period_service,
+            &query_product_service,
+        )
+        .await
+        .unwrap_err();
 
         assert_eq!(400, response.status);
     }

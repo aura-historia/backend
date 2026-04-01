@@ -5066,6 +5066,7 @@ dependencies = [
  "http 1.4.0",
  "lambda_runtime",
  "opensearch",
+ "product",
  "product-classification",
  "rstest",
  "serde_json",

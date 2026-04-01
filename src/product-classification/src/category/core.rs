@@ -23,7 +23,6 @@ pub struct Category {
     pub meta_keywords: Vec<CategoryMetaKeyword>,
     pub embedding: Vec<f32>,
     pub display_name: HashMap<Language, CategoryName>,
-    pub display_description: HashMap<Language, CategoryDescription>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -55,14 +54,6 @@ impl Category {
                     }
                 },
             ),
-            display_description: Language::resolve(preferred_languages, self.display_description)
-                .unwrap_or_else(|| {
-                    error!(field = "display_description", "Failed resolving field.");
-                    Localized {
-                        localization: Language::En,
-                        payload: "category-description temporarily unavailable".into(),
-                    }
-                }),
             created: self.created,
             updated: self.updated,
         }
@@ -74,7 +65,6 @@ pub struct LocalizedCategory {
     pub category_id: CategoryId,
     pub category_key: CategoryKey,
     pub display_name: Localized<Language, CategoryName>,
-    pub display_description: Localized<Language, CategoryDescription>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -120,27 +110,6 @@ pub mod faker {
             display_name.insert(Language::Fr, CategoryName(payload.display_name_fr));
             display_name.insert(Language::Es, CategoryName(payload.display_name_es));
             display_name.insert(Language::It, CategoryName(payload.display_name_it));
-            let mut display_description = HashMap::with_capacity(Language::COUNT);
-            display_description.insert(
-                Language::De,
-                CategoryDescription(payload.display_description_de),
-            );
-            display_description.insert(
-                Language::En,
-                CategoryDescription(payload.display_description_en),
-            );
-            display_description.insert(
-                Language::Fr,
-                CategoryDescription(payload.display_description_fr),
-            );
-            display_description.insert(
-                Language::Es,
-                CategoryDescription(payload.display_description_es),
-            );
-            display_description.insert(
-                Language::It,
-                CategoryDescription(payload.display_description_it),
-            );
             Category {
                 category_id: payload.category_id.into(),
                 category_key: payload.category_key.into(),
@@ -153,7 +122,6 @@ pub mod faker {
                     .collect(),
                 embedding: fake::vec![f32; 768],
                 display_name,
-                display_description,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -176,10 +144,6 @@ pub mod faker {
             for language in Language::iter() {
                 display_name.insert(language, config.fake_with_rng(rng));
             }
-            let mut display_description = HashMap::new();
-            for language in Language::iter() {
-                display_description.insert(language, config.fake_with_rng(rng));
-            }
 
             let category_key: CategoryKey = config.fake_with_rng(rng);
             Category {
@@ -190,7 +154,6 @@ pub mod faker {
                 meta_keywords: config.fake_with_rng(rng),
                 embedding: fake::vec![f32; 768],
                 display_name,
-                display_description,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

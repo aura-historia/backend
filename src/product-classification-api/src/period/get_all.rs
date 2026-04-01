@@ -33,6 +33,7 @@ mod tests {
     use crate::handle;
     use http::header::CACHE_CONTROL;
     use lambda_runtime::LambdaEvent;
+    use product::service::query_service::MockQueryProductService;
     use product_classification::category::service::MockCategoryService;
     use product_classification::period::core::Period;
     use product_classification::period::service::MockPeriodService;
@@ -52,6 +53,7 @@ mod tests {
                     .collect();
                 Box::pin(async move { Ok(localized) })
             });
+        let query_product_service = MockQueryProductService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -60,9 +62,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &category_service, &period_service)
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &category_service,
+            &period_service,
+            &query_product_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
     }
@@ -74,6 +81,7 @@ mod tests {
         period_service
             .expect_view_periods()
             .return_once(move |_| Box::pin(async move { Ok(vec![]) }));
+        let query_product_service = MockQueryProductService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -82,9 +90,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &category_service, &period_service)
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &category_service,
+            &period_service,
+            &query_product_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
     }
@@ -96,6 +109,7 @@ mod tests {
         period_service
             .expect_view_periods()
             .return_once(move |_| Box::pin(async move { Ok(vec![]) }));
+        let query_product_service = MockQueryProductService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -104,9 +118,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &category_service, &period_service)
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &category_service,
+            &period_service,
+            &query_product_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
         assert_eq!(

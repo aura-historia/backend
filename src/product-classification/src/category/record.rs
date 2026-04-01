@@ -28,11 +28,6 @@ pub struct CategoryRecord {
     pub display_name_fr: String,
     pub display_name_es: String,
     pub display_name_it: String,
-    pub display_description_de: String,
-    pub display_description_en: String,
-    pub display_description_fr: String,
-    pub display_description_es: String,
-    pub display_description_it: String,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -87,31 +82,6 @@ impl TryFrom<Category> for CategoryRecord {
                 .remove(&Language::It)
                 .ok_or(MissingRequiredField::new("display_name_it"))?
                 .into(),
-            display_description_de: category
-                .display_description
-                .remove(&Language::De)
-                .ok_or(MissingRequiredField::new("display_description_de"))?
-                .into(),
-            display_description_en: category
-                .display_description
-                .remove(&Language::En)
-                .ok_or(MissingRequiredField::new("display_description_en"))?
-                .into(),
-            display_description_fr: category
-                .display_description
-                .remove(&Language::Fr)
-                .ok_or(MissingRequiredField::new("display_description_fr"))?
-                .into(),
-            display_description_es: category
-                .display_description
-                .remove(&Language::Es)
-                .ok_or(MissingRequiredField::new("display_description_es"))?
-                .into(),
-            display_description_it: category
-                .display_description
-                .remove(&Language::It)
-                .ok_or(MissingRequiredField::new("display_description_it"))?
-                .into(),
             created: category.created,
             updated: category.updated,
         })
@@ -126,12 +96,6 @@ impl From<CategoryRecord> for Category {
         display_name.insert(Language::Fr, record.display_name_fr.into());
         display_name.insert(Language::Es, record.display_name_es.into());
         display_name.insert(Language::It, record.display_name_it.into());
-        let mut display_description = HashMap::with_capacity(Language::COUNT);
-        display_description.insert(Language::De, record.display_description_de.into());
-        display_description.insert(Language::En, record.display_description_en.into());
-        display_description.insert(Language::Fr, record.display_description_fr.into());
-        display_description.insert(Language::Es, record.display_description_es.into());
-        display_description.insert(Language::It, record.display_description_it.into());
         Self {
             category_id: record.category_id,
             category_key: record.category_key,
@@ -140,7 +104,6 @@ impl From<CategoryRecord> for Category {
             meta_keywords: record.meta_keywords.into_iter().map(Into::into).collect(),
             embedding: record.embedding,
             display_name,
-            display_description,
             created: record.created,
             updated: record.updated,
         }
