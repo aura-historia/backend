@@ -148,7 +148,7 @@ pub struct ProductRecord {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub images: Vec<ProductImageRecord>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub text_embedding: Option<Vec<f32>>,
+    pub embedding: Option<Vec<f32>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub origin_year_min: Option<Year>,
@@ -372,7 +372,7 @@ impl From<ProductRecord> for Product {
             state: record.state.into(),
             url: record.url,
             images: record.images.into_iter().map(ProductImage::from).collect(),
-            text_embedding: record.text_embedding,
+            embedding: record.embedding,
             origin_year: match record.origin_year {
                 Some(exact_year) => Some(OriginYear::ExactYear(exact_year)),
                 None => match (record.origin_year_min, record.origin_year_max) {
@@ -473,7 +473,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
                 MissingPersistenceField::new(field!(url@ProductDomainEventRecord))
             })?,
             images: event_record.images.unwrap_or_default(),
-            text_embedding: None,
+            embedding: None,
             origin_year_min: None,
             origin_year: None,
             origin_year_max: None,
@@ -590,8 +590,8 @@ mod faker {
                 ))
                 .unwrap(),
                 images: config.fake_with_rng(rng),
-                text_embedding: if config.fake_with_rng(rng) {
-                    Some(fake::vec![f32; 1024])
+                embedding: if config.fake_with_rng(rng) {
+                    Some(fake::vec![f32; 768])
                 } else {
                     None
                 },

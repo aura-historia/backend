@@ -31,7 +31,7 @@ pub struct Category {
 impl Category {
     pub fn embedding_text(&self) -> String {
         format!(
-            "{} [SEP] {} [SEP] {}",
+            "title: {} | text: {} {}",
             self.meta_name,
             self.meta_description,
             self.meta_keywords
@@ -151,7 +151,7 @@ pub mod faker {
                     .into_iter()
                     .map(CategoryMetaKeyword)
                     .collect(),
-                embedding: fake::vec![f32; 1024],
+                embedding: fake::vec![f32; 768],
                 display_name,
                 display_description,
                 created: OffsetDateTime::now_utc(),
@@ -188,7 +188,7 @@ pub mod faker {
                 meta_name: config.fake_with_rng(rng),
                 meta_description: config.fake_with_rng(rng),
                 meta_keywords: config.fake_with_rng(rng),
-                embedding: fake::vec![f32; 1024],
+                embedding: fake::vec![f32; 768],
                 display_name,
                 display_description,
                 created: OffsetDateTime::now_utc(),

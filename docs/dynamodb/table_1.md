@@ -1,71 +1,180 @@
-# High-Level DynamoDB Structural Overview
+# DynamoDB Partition Layout
 
-- Single-Table-Design
+Single-table design. Table name pattern: `table_1-{stage}-v2` (e.g. `table_1-dev-v2`).
 
-## Primary Table `table_1`
+Stream: `NEW_IMAGE`, feeds the `DynamoDbEventBus` via an EventBridge Pipe.
 
-![Primary Table](images/pt.png "Primary Table")
+TTL attribute: `ttl` (Unix timestamp).
 
-### Entities
+---
 
-#### Item
+## Entities & Key Patterns
 
-- PK is composite of `ShopId` and `ShopsProductId`
-- Primary event-store - via EventId (UUIDv7) in SK
-- Contains a materialized view with extra SK
+### Product — Event Records
 
-#### Shop
+Each product change is stored as an immutable event. The sort key encodes the event category and a UUIDv7 `event_id` (lexicographically sortable by creation time).
 
-- Multi-Partition per actual shop
-  - PK is either:
-    - the `ShopId`
-    - any of the shops domains
-  - SK is constant `details`
-  - Partitions must be kept strictly in sync (`TransactWriteItems`)
+| Attribute | Pattern |
+|-----------|---------|
+| `pk` | `product#shop_id#{shop_id}#shops_product_id#{shops_product_id}` |
+| `sk` | `product#event#domain#{event_id}` |
+| `sk` | `product#event#enrichment#{event_id}` |
+| `sk` | `product#event#policy#{event_id}` |
 
-#### User
+**Event types stored in `event_type`:**
 
-- PK is `UserId` (Cognito-Sub)
-- SK
-  - Composite of `ShopId` and `ShopsProductId` for products on users watchlist
-  - `SearchFilterId` for saved search-filters
-  - Constant `details` for user-data (Cognito only acts as IDP)
+| Category | `event_type` value |
+|----------|-------------------|
+| Domain | `DOMAIN_CREATED` |
+| Domain | `DOMAIN_STATE_CHANGED` |
+| Domain | `DOMAIN_PRICE_CHANGED` |
+| Enrichment | `ENRICHMENT_TRANSLATED_TITLE` |
+| Enrichment | `ENRICHMENT_TRANSLATED_DESCRIPTION` |
+| Enrichment | `ENRICHMENT_EMBEDDED` |
+| Enrichment | `ENRICHMENT_EXTRACTED_ATTRIBUTES` |
+| Enrichment | `ENRICHMENT_CLASSIFY_CATEGORY` |
+| Enrichment | `ENRICHMENT_CLASSIFY_PERIOD` |
+| Policy | `POLICY_PROHIBITED_CONTENT_DECISION` |
 
-## Local Secondary Indexes
+---
 
-### LSI1: `lsi1`
+### Product — Materialized View
 
-- Sparse (globally)
-- SK is `lsi_sk`
-- User
-  - Uses it for sorting by creation-timestamp of watchlist-entries
-  - Sets SK as that exact timestamp
+One record per product, updated on every relevant event. Queried by `ShopId + ShopsProductId` or resolved from slug IDs via GSI2.
 
-## Global Secondary Indexes
+| Attribute | Pattern |
+|-----------|---------|
+| `pk` | `product#shop_id#{shop_id}#shops_product_id#{shops_product_id}` |
+| `sk` | `product#materialized` |
+| `gsi2_pk` | `shop_slug_id#{shop_slug_id}#product_slug_id#{product_slug_id}` |
+| `gsi2_sk` | `product#lookup#shop_id#shops_product_id` |
 
-### GSI1: `gsi1`
+---
 
-![Global Secondary Index 1](images/gsi1.png "Global Secondary Index 1")
+### Shop
 
-- Sparse (globally)
-- PK is `gsi1_pk`
-- SK is `gsi1_sk`
-- User
-  - PK is `ProductId`
-  - SK is `UserId`
-  - Uses it to query all users having a specific product on their watchlist
+| Attribute | Pattern |
+|-----------|---------|
+| `pk` | `shop#shop_id#{shop_id}` |
+| `sk` | `shop#details` |
+| `gsi2_pk` | `shop_slug_id#{shop_slug_id}` _(sparse)_ |
+| `gsi2_sk` | `shop#lookup#shop_id` _(sparse)_ |
 
-### GSI2: `gsi2`
+---
 
-- Sparse (globally)
-- PK is `gsi2_pk`
-- SK is `gsi2_sk`
-- Project keys-only
-- Product
-  - PK is `ShopSlugId + ProductSlugId`
-  - SK is constant
-  - Used for looking up `ShopId` and `ShopsProductId` from `pk` for given `ShopSlugId` and `ProductSlugId`
-- Shop
-  - PK is `ShopSlugId`
-  - SK is constant
-  - Used for looking up `ShopId` from `pk` for given `ShopSlugId`
+### User
+
+| Attribute | Pattern |
+|-----------|---------|
+| `pk` | `user#{user_id}` |
+| `sk` | `user#details` |
+
+---
+
+### Watchlist Product
+
+One record per (user, product). LSI1 allows sorting by creation time; GSI1 allows querying all watchers of a given product.
+
+| Attribute | Pattern |
+|-----------|---------|
+| `pk` | `user#{user_id}` |
+| `sk` | `product#watch#shop_id#{shop_id}#shops_product_id#{shops_product_id}` |
+| `lsi1_sk` | `product#watch#created#{nanoseconds_20_digits}` |
+| `gsi1_pk` | `product_id#{product_id}` |
+| `gsi1_sk` | `watch#user#{user_id}` |
+
+---
+
+### User Search Filter
+
+| Attribute | Pattern |
+|-----------|---------|
+| `pk` | `user#{user_id}` |
+| `sk` | `search_filter#{search_filter_id}` |
+
+---
+
+### Search Filter Match
+
+Records which products matched a user's saved search filter. LSI1 allows paginating matches sorted by creation time.
+
+| Attribute | Pattern |
+|-----------|---------|
+| `pk` | `user#{user_id}` |
+| `sk` | `search_filter_match#search_filter#{search_filter_id}#shop_id#{shop_id}#shops_product_id#{shops_product_id}` |
+| `lsi1_sk` | `search_filter_match#{nanoseconds_20_digits}` |
+
+**Bounds for LSI1 range queries:**
+
+| Bound | Value |
+|-------|-------|
+| Lower | `search_filter_match#` |
+| Upper | `search_filter_match#\u{ffff}` |
+
+---
+
+### Notification
+
+One record per (user, origin event). LSI1 routes to either watchlist or search-filter notification lists; LSI2 allows looking up all notifications for a specific product.
+
+| Attribute | Pattern |
+|-----------|---------|
+| `pk` | `user#{user_id}` |
+| `sk` | `user#notification#origin_event_id#{origin_event_id}` |
+| `lsi1_sk` | `user#notification#watchlist#{notification_id}` |
+| `lsi1_sk` | `user#notification#search_filter#{notification_id}` |
+| `lsi2_sk` | `user#notification#product_id#{product_id}#origin_event_id#{origin_event_id}` _(sparse)_ |
+| `ttl` | Unix timestamp (7-day expiry) |
+
+**Bounds for LSI2 range queries:**
+
+| Bound | Value |
+|-------|-------|
+| Prefix | `user#notification#product_id#` |
+
+---
+
+### FX Rates
+
+Single global record, overwritten on every sync.
+
+| Attribute | Pattern |
+|-----------|---------|
+| `pk` | `global#fx_rate` |
+| `sk` | `fx_rate#details` |
+
+---
+
+### Category
+
+| Attribute | Pattern |
+|-----------|---------|
+| `pk` | `global#categories` |
+| `sk` | `category#{category_id}` |
+
+---
+
+### Period
+
+| Attribute | Pattern |
+|-----------|---------|
+| `pk` | `global#periods` |
+| `sk` | `period#{period_id}` |
+
+---
+
+## Indexes Summary
+
+### Local Secondary Indexes
+
+| Index | PK | SK | Used by |
+|-------|----|----|---------|
+| `lsi1` | same as table PK | `lsi1_sk` | Watchlist (sort by created), Search Filter Match (sort by created), Notification (route by reason) |
+| `lsi2` | same as table PK | `lsi2_sk` | Notification (query by product) |
+
+### Global Secondary Indexes
+
+| Index | PK | SK | Projection | Used by |
+|-------|----|----|------------|---------|
+| `gsi1` | `gsi1_pk` | `gsi1_sk` | All attributes | Watchlist — query all watchers of a `product_id` |
+| `gsi2` | `gsi2_pk` | `gsi2_sk` | Keys only | Product — slug → `(shop_id, shops_product_id)` lookup; Shop — slug → `shop_id` lookup |

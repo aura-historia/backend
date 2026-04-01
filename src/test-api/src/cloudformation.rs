@@ -59,6 +59,8 @@ const LAMBDA_BINARIES: &[&str] = &[
     "notification-send",
     "product-lambda-materialize-dynamodb",
     "product-lambda-materialize-opensearch",
+    "product-pipeline-embed-text",
+    "product-pipeline-classify",
     "shop-lambda-opensearch-index",
     "search-filter-lambda-opensearch-sync",
     "product-lambda-update-notify-user",
@@ -187,6 +189,8 @@ impl IntegrationTestService for Cloudformation {
             cfn.product_pipeline_embed_text_queue_url.clone(),
             cfn.product_pipeline_embed_text_dead_letter_queue_url
                 .clone(),
+            cfn.product_pipeline_classify_queue_url.clone(),
+            cfn.product_pipeline_classify_dead_letter_queue_url.clone(),
         ])
         .await;
         debug!("Drained all SQS queues for test isolation");
@@ -233,11 +237,7 @@ fn build_lambdas() {
             "--exclude",
             "product-pipeline-translate",
             "--exclude",
-            "product-pipeline-embed-text",
-            "--exclude",
             "product-pipeline-extract-attribute",
-            "--exclude",
-            "product-pipeline-classify",
             "--exclude",
             "product-pipeline-common",
             "--exclude",

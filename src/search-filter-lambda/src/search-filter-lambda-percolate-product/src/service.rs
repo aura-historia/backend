@@ -86,7 +86,7 @@ impl<'a> ProductEventSearchFilterNotificationsService
                 state: created_payload.state,
                 url: created_payload.url,
                 images: created_payload.images,
-                text_embedding: None,
+                embedding: None,
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),

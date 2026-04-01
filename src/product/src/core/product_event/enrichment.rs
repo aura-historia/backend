@@ -13,7 +13,7 @@ use common::{
 pub enum ProductEnrichmentEventPayload {
     TranslatedTitle(TranslationProductEnrichmentEventPayload<Title>),
     TranslatedDescription(TranslationProductEnrichmentEventPayload<Description>),
-    EmbeddedText(EmbeddedTextProductEnrichmentEventPayload),
+    Embedded(EmbeddedProductEnrichmentEventPayload),
     ExtractedAttributes(ExtractedAttributesProductEnrichmentEventPayload),
     ClassifiedCategory(ClassifiedCategoryProductEnrichmentEventPayload),
     ClassifiedPeriod(ClassifiedPeriodProductEnrichmentEventPayload),
@@ -31,7 +31,7 @@ pub struct TranslationProductEnrichmentEventPayload<T: Into<String> + From<Strin
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq)]
-pub struct EmbeddedTextProductEnrichmentEventPayload {
+pub struct EmbeddedProductEnrichmentEventPayload {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub embedding: Vec<f32>,
@@ -74,7 +74,7 @@ impl HasKey for ProductEnrichmentEventPayload {
         match self {
             ProductEnrichmentEventPayload::TranslatedTitle(payload) => payload.key(),
             ProductEnrichmentEventPayload::TranslatedDescription(payload) => payload.key(),
-            ProductEnrichmentEventPayload::EmbeddedText(payload) => payload.key(),
+            ProductEnrichmentEventPayload::Embedded(payload) => payload.key(),
             ProductEnrichmentEventPayload::ExtractedAttributes(payload) => payload.key(),
             ProductEnrichmentEventPayload::ClassifiedCategory(payload) => payload.key(),
             ProductEnrichmentEventPayload::ClassifiedPeriod(payload) => payload.key(),
@@ -93,7 +93,7 @@ where
     }
 }
 
-impl HasKey for EmbeddedTextProductEnrichmentEventPayload {
+impl HasKey for EmbeddedProductEnrichmentEventPayload {
     type Key = ProductKey;
 
     fn key(&self) -> Self::Key {
@@ -142,9 +142,9 @@ impl ProductEnrichmentEventPayload {
         }
     }
 
-    pub fn as_embedded_text(&self) -> Option<&EmbeddedTextProductEnrichmentEventPayload> {
+    pub fn as_embedded(&self) -> Option<&EmbeddedProductEnrichmentEventPayload> {
         match self {
-            ProductEnrichmentEventPayload::EmbeddedText(payload) => Some(payload),
+            ProductEnrichmentEventPayload::Embedded(payload) => Some(payload),
             _ => None,
         }
     }

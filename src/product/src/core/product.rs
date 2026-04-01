@@ -7,7 +7,7 @@ use crate::core::product_event::domain::{
     ProductPriceChangeDomainEventPayload, ProductStateChangeDomainEventPayload,
 };
 use crate::core::product_event::enrichment::{
-    EmbeddedTextProductEnrichmentEventPayload, ExtractedAttributesProductEnrichmentEventPayload,
+    EmbeddedProductEnrichmentEventPayload, ExtractedAttributesProductEnrichmentEventPayload,
     ProductEnrichmentEventPayload, TranslationProductEnrichmentEventPayload,
 };
 use crate::core::product_event::policy::{
@@ -75,7 +75,7 @@ pub struct Product {
     pub state: ProductState,
     pub url: Url,
     pub images: Vec<ProductImage>,
-    pub text_embedding: Option<Vec<f32>>,
+    pub embedding: Option<Vec<f32>>,
     pub origin_year: Option<OriginYear>,
     pub authenticity: Authenticity,
     pub condition: Condition,
@@ -326,22 +326,21 @@ impl Product {
         }
     }
 
-    pub fn embed_text(&mut self, text_embedding: Vec<f32>) -> Option<ProductEnrichmentEvent> {
+    pub fn embed(&mut self, embedding: Vec<f32>) -> Option<ProductEnrichmentEvent> {
         if self
-            .text_embedding
+            .embedding
             .as_ref()
-            .is_some_and(|existing| existing == &text_embedding)
+            .is_some_and(|existing| existing == &embedding)
         {
             None
         } else {
-            self.text_embedding = Some(text_embedding.clone());
-            let event_payload = ProductEnrichmentEventPayload::EmbeddedText(
-                EmbeddedTextProductEnrichmentEventPayload {
+            self.embedding = Some(embedding.clone());
+            let event_payload =
+                ProductEnrichmentEventPayload::Embedded(EmbeddedProductEnrichmentEventPayload {
                     shop_id: self.shop_id,
                     shops_product_id: self.shops_product_id.clone(),
-                    embedding: text_embedding,
-                },
-            );
+                    embedding,
+                });
             let event = Event {
                 aggregate_id: self.product_id,
                 event_id: EventId::new(),
@@ -458,8 +457,8 @@ impl Product {
                 ProductEnrichmentEventPayload::TranslatedDescription(p) => {
                     self.other_description.insert(p.target_language, p.target);
                 }
-                ProductEnrichmentEventPayload::EmbeddedText(p) => {
-                    self.text_embedding = Some(p.embedding);
+                ProductEnrichmentEventPayload::Embedded(p) => {
+                    self.embedding = Some(p.embedding);
                 }
                 ProductEnrichmentEventPayload::ExtractedAttributes(p) => {
                     if let Some(exact) = p.origin_year {
@@ -707,7 +706,7 @@ mod faker {
                 ))
                 .unwrap(),
                 images: config.fake_with_rng(rng),
-                text_embedding: Some(fake::vec![f32; 1024]),
+                embedding: Some(fake::vec![f32; 768]),
                 origin_year: config.fake_with_rng(rng),
                 authenticity: config.fake_with_rng(rng),
                 condition: config.fake_with_rng(rng),
@@ -849,7 +848,7 @@ mod tests {
                 state: from_state,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                text_embedding: Some(fake::vec![f32; 1024]),
+                embedding: Some(fake::vec![f32; 768]),
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -911,7 +910,7 @@ mod tests {
                 state: from_state,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                text_embedding: Some(fake::vec![f32; 1024]),
+                embedding: Some(fake::vec![f32; 768]),
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -973,7 +972,7 @@ mod tests {
                 state: from_state,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                text_embedding: Some(fake::vec![f32; 1024]),
+                embedding: Some(fake::vec![f32; 768]),
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -1070,7 +1069,7 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                text_embedding: Some(fake::vec![f32; 1024]),
+                embedding: Some(fake::vec![f32; 768]),
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -1133,7 +1132,7 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                text_embedding: Some(fake::vec![f32; 1024]),
+                embedding: Some(fake::vec![f32; 768]),
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -1207,7 +1206,7 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                text_embedding: Some(fake::vec![f32; 1024]),
+                embedding: Some(fake::vec![f32; 768]),
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -1283,7 +1282,7 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                text_embedding: Some(fake::vec![f32; 1024]),
+                embedding: Some(fake::vec![f32; 768]),
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -1361,7 +1360,7 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                text_embedding: Some(fake::vec![f32; 1024]),
+                embedding: Some(fake::vec![f32; 768]),
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -1447,7 +1446,7 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                text_embedding: Some(fake::vec![f32; 1024]),
+                embedding: Some(fake::vec![f32; 768]),
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -1505,7 +1504,7 @@ mod tests {
                 state: common::product_state::domain::ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                text_embedding: Some(fake::vec![f32; 1024]),
+                embedding: Some(fake::vec![f32; 768]),
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -1549,7 +1548,7 @@ mod tests {
                 state: common::product_state::domain::ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                text_embedding: Some(fake::vec![f32; 1024]),
+                embedding: Some(fake::vec![f32; 768]),
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -1609,7 +1608,7 @@ mod tests {
                 state: common::product_state::domain::ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                text_embedding: Some(fake::vec![f32; 1024]),
+                embedding: Some(fake::vec![f32; 768]),
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -1653,7 +1652,7 @@ mod tests {
                 state: common::product_state::domain::ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                text_embedding: Some(fake::vec![f32; 1024]),
+                embedding: Some(fake::vec![f32; 768]),
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -1693,7 +1692,7 @@ mod tests {
         use url::Url;
 
         #[test]
-        fn should_return_none_when_embedding_is_same_for_embed_text() {
+        fn should_return_none_when_embedding_is_same_for_embed() {
             let embedding = vec![0.1f32, 0.2f32, 0.3f32];
             let mut product = Product {
                 product_id: Default::default(),
@@ -1721,7 +1720,7 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                text_embedding: Some(embedding.clone()),
+                embedding: Some(embedding.clone()),
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -1733,12 +1732,12 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let actual = product.embed_text(embedding);
+            let actual = product.embed(embedding);
             assert!(actual.is_none());
         }
 
         #[test]
-        fn should_emit_event_and_store_embedding_when_new_for_embed_text() {
+        fn should_emit_event_and_store_embedding_when_new_for_embed() {
             let embedding = vec![0.1f32, 0.2f32, 0.3f32];
             let mut product = Product {
                 product_id: Default::default(),
@@ -1766,7 +1765,7 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                text_embedding: None,
+                embedding: None,
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -1778,13 +1777,13 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let actual = product.embed_text(embedding.clone()).unwrap();
+            let actual = product.embed(embedding.clone()).unwrap();
             match actual.payload {
-                ProductEnrichmentEventPayload::EmbeddedText(payload) => {
+                ProductEnrichmentEventPayload::Embedded(payload) => {
                     assert_eq!(payload.embedding, embedding);
-                    assert_eq!(product.text_embedding, Some(embedding));
+                    assert_eq!(product.embedding, Some(embedding));
                 }
-                _ => panic!("Expected ProductEnrichmentEventPayload::EmbeddedText"),
+                _ => panic!("Expected ProductEnrichmentEventPayload::Embedded"),
             }
         }
     }
@@ -1827,7 +1826,7 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                text_embedding: None,
+                embedding: None,
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -1916,7 +1915,7 @@ mod tests {
                     url: Url::parse("https://example.com/image.jpg").unwrap(),
                     prohibited_content: ProhibitedContent::Unknown,
                 }],
-                text_embedding: None,
+                embedding: None,
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -1978,7 +1977,7 @@ mod tests {
                         prohibited_content: ProhibitedContent::Unknown,
                     },
                 ],
-                text_embedding: None,
+                embedding: None,
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -2070,7 +2069,7 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                text_embedding: None,
+                embedding: None,
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -2136,7 +2135,7 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                text_embedding: None,
+                embedding: None,
                 origin_year: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
@@ -2187,8 +2186,7 @@ mod tests {
         };
         use crate::core::product_event::enrichment::{
             ClassifiedCategoryProductEnrichmentEventPayload,
-            ClassifiedPeriodProductEnrichmentEventPayload,
-            EmbeddedTextProductEnrichmentEventPayload,
+            ClassifiedPeriodProductEnrichmentEventPayload, EmbeddedProductEnrichmentEventPayload,
             ExtractedAttributesProductEnrichmentEventPayload, ProductEnrichmentEventPayload,
             TranslationProductEnrichmentEventPayload,
         };
@@ -2413,17 +2411,17 @@ mod tests {
         }
 
         #[test]
-        fn should_set_embedding_when_embedded_text_event_for_apply() {
+        fn should_set_embedding_when_embedded_event_for_apply() {
             let mut product: Product = Faker.fake();
-            product.text_embedding = None;
+            product.embedding = None;
 
             let embedding = vec![0.1f32, 0.2, 0.3, 0.4];
 
             let event = make_event(
                 &product,
                 ProductEventPayload::ProductEnrichmentEvent(
-                    ProductEnrichmentEventPayload::EmbeddedText(
-                        EmbeddedTextProductEnrichmentEventPayload {
+                    ProductEnrichmentEventPayload::Embedded(
+                        EmbeddedProductEnrichmentEventPayload {
                             shop_id: product.shop_id,
                             shops_product_id: product.shops_product_id.clone(),
                             embedding: embedding.clone(),
@@ -2434,7 +2432,7 @@ mod tests {
 
             product.apply(event);
 
-            assert_eq!(product.text_embedding, Some(embedding));
+            assert_eq!(product.embedding, Some(embedding));
         }
 
         #[test]

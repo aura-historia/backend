@@ -1,7 +1,7 @@
 use crate::core::product_event::ProductEnrichmentEvent;
 use crate::core::product_event::enrichment::{
     ClassifiedCategoryProductEnrichmentEventPayload, ClassifiedPeriodProductEnrichmentEventPayload,
-    EmbeddedTextProductEnrichmentEventPayload, ExtractedAttributesProductEnrichmentEventPayload,
+    EmbeddedProductEnrichmentEventPayload, ExtractedAttributesProductEnrichmentEventPayload,
     ProductEnrichmentEventPayload, TranslationProductEnrichmentEventPayload,
 };
 use crate::dynamodb::authenticity_record::AuthenticityRecord;
@@ -53,7 +53,7 @@ pub struct ProductEnrichmentEventRecord {
 
     // text-embedding
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub text_embedding: Option<Vec<f32>>,
+    pub embedding: Option<Vec<f32>>,
 
     // attribute-extraction
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -112,7 +112,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     source_language: Some(payload.source_language.into()),
                     target_language: Some(payload.target_language.into()),
                     target: Some(payload.target.into()),
-                    text_embedding: None,
+                    embedding: None,
                     origin_year_min: None,
                     origin_year: None,
                     origin_year_max: None,
@@ -138,7 +138,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     source_language: Some(payload.source_language.into()),
                     target_language: Some(payload.target_language.into()),
                     target: Some(payload.target.into()),
-                    text_embedding: None,
+                    embedding: None,
                     origin_year_min: None,
                     origin_year: None,
                     origin_year_max: None,
@@ -149,12 +149,12 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     timestamp: event.timestamp,
                 }
             }
-            ProductEnrichmentEventPayload::EmbeddedText(payload) => ProductEnrichmentEventRecord {
+            ProductEnrichmentEventPayload::Embedded(payload) => ProductEnrichmentEventRecord {
                 pk: mk_pk(&payload.shop_id, &payload.shops_product_id),
                 sk: mk_sk(&event.event_id),
                 product_id: event.aggregate_id,
                 event_id: event.event_id,
-                event_type: ProductEnrichmentEventTypeRecord::EnrichmentEmbeddedText,
+                event_type: ProductEnrichmentEventTypeRecord::EnrichmentEmbedded,
                 event_type_schema_version: 0,
                 shop_id: payload.shop_id,
                 shops_product_id: payload.shops_product_id,
@@ -163,7 +163,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                 source_language: None,
                 target_language: None,
                 target: None,
-                text_embedding: Some(payload.embedding),
+                embedding: Some(payload.embedding),
                 origin_year_min: None,
                 origin_year: None,
                 origin_year_max: None,
@@ -188,7 +188,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     source_language: None,
                     target_language: None,
                     target: None,
-                    text_embedding: None,
+                    embedding: None,
                     origin_year_min: payload.origin_year_min,
                     origin_year: payload.origin_year,
                     origin_year_max: payload.origin_year_max,
@@ -214,7 +214,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     source_language: None,
                     target_language: None,
                     target: None,
-                    text_embedding: None,
+                    embedding: None,
                     origin_year_min: None,
                     origin_year: None,
                     origin_year_max: None,
@@ -240,7 +240,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     source_language: None,
                     target_language: None,
                     target: None,
-                    text_embedding: None,
+                    embedding: None,
                     origin_year_min: None,
                     origin_year: None,
                     origin_year_max: None,
@@ -324,20 +324,18 @@ impl TryFrom<ProductEnrichmentEventRecord> for ProductEnrichmentEvent {
                 };
                 Ok(event)
             }
-            ProductEnrichmentEventTypeRecord::EnrichmentEmbeddedText => {
+            ProductEnrichmentEventTypeRecord::EnrichmentEmbedded => {
                 let event = Event {
                     aggregate_id: record.product_id,
                     event_id: record.event_id,
                     timestamp: record.timestamp,
-                    payload: ProductEnrichmentEventPayload::EmbeddedText(
-                        EmbeddedTextProductEnrichmentEventPayload {
+                    payload: ProductEnrichmentEventPayload::Embedded(
+                        EmbeddedProductEnrichmentEventPayload {
                             shop_id: record.shop_id,
                             shops_product_id: record.shops_product_id,
-                            embedding: record.text_embedding.ok_or(
-                                MissingPersistenceField::new(
-                                    field::field!(text_embedding@ProductEnrichmentEventRecord),
-                                ),
-                            )?,
+                            embedding: record.embedding.ok_or(MissingPersistenceField::new(
+                                field::field!(embedding@ProductEnrichmentEventRecord),
+                            ))?,
                         },
                     ),
                 };

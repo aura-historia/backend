@@ -362,9 +362,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-autoscaling"
-version = "1.112.0"
+version = "1.113.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b9477c124bc9c0bff96089d83f354d2d3dc8613f8149f10c592adaadc64ad41"
+checksum = "fe9bfa65dd423febc1d0d9fde9beff9ca004b9316520a2cdbda73208baec1e69"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -488,9 +488,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-opensearch"
-version = "1.119.0"
+version = "1.121.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b96b2d4eaf6b5874407fda96d6d2f2f1afdfc265ac8844f74a7d6d42f7d1a40"
+checksum = "eb9041c781cb6e6f0eb9507853c0df317b750b4c077a65ebb18efc4672dec0b1"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -512,9 +512,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-s3"
-version = "1.127.0"
+version = "1.128.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "151783f64e0dcddeb4965d08e36c276b4400a46caa88805a2e36d497deaf031a"
+checksum = "99304b64672e0d81a3c100a589b93d9ef5e9c0ce12e21c848fd39e50f493c2a1"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -5201,24 +5201,26 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-dynamodb",
- "aws-sdk-sqs",
+ "aws_lambda_events",
  "common",
  "fake",
+ "lambda_runtime",
+ "llm",
  "mockall",
  "opensearch",
  "product",
  "product-classification",
- "product-pipeline-common",
- "pyo3",
- "pyo3-ffi",
+ "reqwest 0.12.28",
  "rstest",
  "serde",
+ "serde_dynamo",
  "serde_json",
- "serial_test",
+ "thiserror 2.0.18",
  "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -5253,21 +5255,25 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-dynamodb",
- "aws-sdk-sqs",
+ "aws_lambda_events",
+ "base64 0.22.1",
  "common",
  "fake",
+ "lambda_runtime",
  "mockall",
  "product",
- "product-pipeline-common",
- "pyo3",
- "pyo3-ffi",
+ "reqwest 0.12.28",
  "rstest",
  "serde",
+ "serde_dynamo",
  "serde_json",
- "serial_test",
+ "thiserror 2.0.18",
+ "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
+ "uuid",
 ]
 
 [[package]]

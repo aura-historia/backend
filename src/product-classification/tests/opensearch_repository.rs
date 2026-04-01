@@ -15,7 +15,7 @@ async fn should_respond_no_documents_when_index_empty_for_exact_knn() {
     let repository = CategoryOpenSearchRepositoryImpl::new(get_opensearch_client().await);
 
     let actual = repository
-        .exact_k_nn(&fake::vec![f32; 1024], 3)
+        .exact_k_nn(&fake::vec![f32; 768], 3)
         .await
         .unwrap();
 

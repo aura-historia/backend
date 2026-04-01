@@ -1,9 +1,16 @@
-name: CI/CD
+name: Deploy (CD)
 
 on:
   push:
     branches: [prod, develop]
-  pull_request:
+    paths:
+      - ".github/workflows/deploy.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/**"
+      - "cfn/dev.yaml"
+      - "cfn/prod.yaml"
+      - "mjml/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -29,7 +36,6 @@ env:
     ${{ github.event_name == 'pull_request' && 'cfn/ephemeral.yaml'
     || github.ref == 'refs/heads/prod' && 'cfn/prod.yaml'
     || github.ref == 'refs/heads/develop' && 'cfn/dev.yaml' }}
-  LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_API_KEY }}
 
 jobs:
   cfn-lint:
@@ -51,249 +57,6 @@ jobs:
       - name: Run cfn-lint for '${{ env.CLOUDFORMATION_TEMPLATE_PATH }}'
         run: cfn-lint --non-zero-exit-code error ${{ env.CLOUDFORMATION_TEMPLATE_PATH }}
 
-  lint:
-    name: Lint Workspace
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Format check
-        run: cargo fmt --all -- --check
-
-      - name: Clippy lint
-        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -D clippy::result-large-err
-
-  unit-test:
-    name: Unit-Test Workspace
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Test Workspace
-        run: cargo test --locked --workspace --lib --all-features -- --nocapture
-
-  determine-affected-crates:
-    name: Determine Affected Crates
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    outputs:
-      integration_test_crates: ${{ steps.determine.outputs.integration_test_crates }}
-      test_pipeline_crates: ${{ steps.determine.outputs.test_pipeline_crates }}
-      acceptance_test_crates: ${{ steps.determine.outputs.acceptance_test_crates }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build ci-determinator
-        run: cargo build --locked --release --package ci-determinator
-
-      - name: Compute base ref
-        id: base-ref
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "sha=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "sha=HEAD~1" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Determine affected crates
-        id: determine
-        run: |
-          result=$(./target/release/ci-determinator "${{ steps.base-ref.outputs.sha }}")
-          echo "integration_test_crates=$(echo "$result" | jq -c '.integration_test')" >> "$GITHUB_OUTPUT"
-          echo "test_pipeline_crates=$(echo "$result" | jq -c '.test_pipeline')" >> "$GITHUB_OUTPUT"
-          echo "acceptance_test_crates=$(echo "$result" | jq -c '.acceptance_test')" >> "$GITHUB_OUTPUT"
-
-  integration-test:
-    name: Integration-Test ${{ matrix.crate }}
-    needs: [determine-affected-crates]
-    if: needs.determine-affected-crates.outputs.integration_test_crates != '[]'
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        crate: ${{ fromJson(needs.determine-affected-crates.outputs.integration_test_crates) }}
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Test ${{ matrix.crate }}
-        working-directory: ${{ matrix.crate }}
-        run: cargo test --locked --test '*' --all-features -- --nocapture
-
-      - name: Prune Docker volumes
-        run: docker volume prune -f
-
-  acceptance-test:
-    name: Acceptance-Test
-    needs: [determine-affected-crates]
-    if: needs.determine-affected-crates.outputs.acceptance_test_crates != '[]'
-    permissions:
-      contents: read
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: "20"
-
-      - name: Cache cargo-lambda and Zig
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin/cargo-lambda
-            ~/.cache/zig
-          key: ${{ runner.os }}-cargo-lambda-zig-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Install Zig
-        run: |
-          if ! command -v zig >/dev/null 2>&1; then
-            npm install -g @ziglang/cli
-          fi
-
-      - name: Install cargo-lambda
-        run: |
-          if ! command -v cargo-lambda >/dev/null 2>&1; then
-            cargo install cargo-lambda
-          fi
-      - name: Test acceptance-tests
-        run: cargo test --locked --package acceptance-tests -- --nocapture
-
-      - name: Prune Docker volumes
-        run: docker volume prune -f
-
-  test-product-pipeline:
-    name: Test product-pipeline
-    needs: [determine-affected-crates]
-    if: needs.determine-affected-crates.outputs.test_pipeline_crates != '[]'
-    permissions:
-      contents: read
-    runs-on: self-hosted
-    strategy:
-      matrix:
-        crate: ${{ fromJson(needs.determine-affected-crates.outputs.test_pipeline_crates) }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Install Python deps
-        working-directory: ${{ matrix.crate }}
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r python/requirements.txt
-
-      - name: Test ${{ matrix.crate }}
-        working-directory: ${{ matrix.crate }}
-        run: cargo test --locked --all-features -- --nocapture --include-ignored
-
-      - name: Prune Docker volumes
-        run: docker volume prune -f
-
-  sonar:
-    name: SonarQube-Cloud Analysis
-    needs: [unit-test, integration-test, test-product-pipeline]
-    if: >-
-      !cancelled() &&
-      github.ref == 'refs/heads/develop' &&
-      needs.unit-test.result == 'success' &&
-      (needs.integration-test.result == 'success' || needs.integration-test.result == 'skipped') &&
-      (needs.test-product-pipeline.result == 'success' || needs.test-product-pipeline.result == 'skipped')
-    permissions:
-      contents: read
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt, llvm-tools
-
-      - name: Add Cargo bin to PATH
-        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-
-      - name: Install grcov
-        run: cargo install grcov
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Install Python deps
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r src/product-pipeline/src/product-pipeline-embed-text/python/requirements.txt
-
-      - name: Generate coverage
-        env:
-          CARGO_PROFILE_TEST_DEBUG: 1
-          RUSTFLAGS: "-C instrument-coverage"
-          LLVM_PROFILE_FILE: "coverage-%p-%m.profraw"
-        run: |
-          cargo test --locked --workspace --all-features --exclude smoking-tests --exclude acceptance-tests --exclude product-pipeline-translate -- --nocapture --include-ignored
-          grcov . --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o coverage.lcov
-
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarqube-scan-action@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-      - name: Clean LLVM coverage artifacts
-        run: |
-          find . -name "*.profraw" -delete
-          rm -f coverage.lcov
-
-      - name: Prune Docker volumes
-        run: docker volume prune -f
-
   aws-push-lambda:
     name: Push Lambda to S3 ${{ matrix.crate }}
     if: github.event_name == 'push' && (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop')
@@ -312,6 +75,8 @@ jobs:
           - src/product-classification-api
           - src/product-watchlist-api
           - src/product-pipeline/src/product-pipeline-asg-scale-control
+          - src/product-pipeline/src/product-pipeline-embed-text
+          - src/product-pipeline/src/product-pipeline-classify
           - src/product-lambda/src/product-lambda-materialize-dynamodb
           - src/product-lambda/src/product-lambda-materialize-opensearch
           - src/product-lambda/src/product-lambda-update-notify-user
@@ -389,8 +154,6 @@ jobs:
     strategy:
       matrix:
         crate:
-          - src/product-pipeline/src/product-pipeline-classify
-          - src/product-pipeline/src/product-pipeline-embed-text
           - src/product-pipeline/src/product-pipeline-extract-attribute
           - src/product-pipeline/src/product-pipeline-translate
     steps:
