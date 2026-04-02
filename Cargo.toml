@@ -127,7 +127,7 @@ product-lambda-materialize-opensearch = { path = "src/product-lambda/src/product
 product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lambda-update-notify-user" }
 itertools = "0.14.0"
 lambda_runtime = "1.1.2"
-libc = "0.2.183"
+libc = "0.2.184"
 ctrlc = { version = "3.5.2", features = ["termination"] }
 mockall = "0.14.0"
 mrml = { version = "5.1.0", default-features = false, features = ["parse", "render"] }
