@@ -28,9 +28,10 @@ opensearch = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 strum = { workspace = true, optional = true }
 strum_macros = { workspace = true, optional = true }
+llm = { workspace = true, optional = true }
 
 [dev-dependencies]
-shop = { workspace = true, features= ["full"] }
+shop = { workspace = true, features = ["full", "seller"] }
 aws-config = { workspace = true }
 test-api = { workspace = true, features = ["dynamodb", "opensearch"] }
 serial_test = { workspace = true }
@@ -45,4 +46,6 @@ dynamodb = ["common/dynamodb", "field", "aws-sdk-dynamodb", "serde_dynamo", "tra
 opensearch = ["common/opensearch", "dep:opensearch", "tracing", "strum", "strum_macros"]
 service = ["tokio", "tokio/time"]
 test-data = ["fake", "common/test-data"]
-full = ["api", "data", "dynamodb", "opensearch", "service", "test-data"]
+llm = ["dep:llm"]
+seller = ["dynamodb", "opensearch", "service", "llm"]
+full = ["api", "data", "dynamodb", "opensearch", "service", "test-data", "seller"]

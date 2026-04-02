@@ -117,6 +117,8 @@ fn to_create_command(data: PostProductData, partner_shop: &PartnerShop) -> Creat
         restoration: data.restoration.into(),
         category_id: None,
         period_id: None,
+        seller_id: todo!(),   // ignore, I will manually do this later
+        seller_name: todo!(), // ignore, I will manually do this later
     }
 }
 

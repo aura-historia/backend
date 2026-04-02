@@ -111,6 +111,8 @@ fn to_upsert_command(data: PutProductData, partner_shop: &PartnerShop) -> Upsert
         condition: data.condition.into(),
         provenance: data.provenance.into(),
         restoration: data.restoration.into(),
+        seller_id: todo!(),   // ignore, I will manually do this later
+        seller_name: todo!(), // ignore, I will manually do this later
     }
 }
 
