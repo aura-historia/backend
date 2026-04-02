@@ -3,24 +3,42 @@ use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseB
 use common::api::error::ApiError;
 use common::language::data::api::extract_language_query;
 use common::language::domain::Language;
+use common::pagination::cursor::Cursor;
+use common::query::any_of_query::AnyOfQuery;
 use lambda_runtime::LambdaEvent;
+use product::core::product_search::ProductSearch;
+use product::service::query_service::QueryProductService;
 use product_classification::period::data::get_period_summary_data::GetPeriodSummaryData;
 use product_classification::period::service::PeriodService;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl PeriodService,
+    period_service: &impl PeriodService,
+    query_product_service: &impl QueryProductService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let languages = vec![Language::from(extract_language_query(
         &event.payload.query_string_parameters,
     )?)];
 
-    let periods = service.view_periods(&languages).await?;
+    let periods = period_service.view_periods(&languages).await?;
 
-    let periods_data: Vec<GetPeriodSummaryData> = periods
-        .into_iter()
-        .map(GetPeriodSummaryData::from)
-        .collect();
+    let mut periods_data = Vec::with_capacity(periods.len());
+    for period in periods {
+        let product_search = ProductSearch::default()
+            .with_period_id(AnyOfQuery::from_iter([period.period_id.clone()]));
+        let cursor = Cursor {
+            search_after: None,
+            size: 0,
+        };
+        let products = query_product_service
+            .search_products(&product_search, &None, &Some(cursor))
+            .await?;
+        let period_data = GetPeriodSummaryData::from_period_with_product_count(
+            period,
+            products.total.unwrap_or(0) as u32,
+        );
+        periods_data.push(period_data);
+    }
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .cache_control("public", Some(86400), Some(604800))
@@ -31,8 +49,11 @@ pub async fn handle(
 #[cfg(test)]
 mod tests {
     use crate::handle;
+    use common::pagination::cursor::{Cursor, CursoredResult};
     use http::header::CACHE_CONTROL;
     use lambda_runtime::LambdaEvent;
+    use product::core::product::LocalizedProductView;
+    use product::service::query_service::MockQueryProductService;
     use product_classification::category::service::MockCategoryService;
     use product_classification::period::core::Period;
     use product_classification::period::service::MockPeriodService;
@@ -52,6 +73,22 @@ mod tests {
                     .collect();
                 Box::pin(async move { Ok(localized) })
             });
+        let mut query_product_service = MockQueryProductService::default();
+        query_product_service
+            .expect_search_products()
+            .times(3)
+            .returning(|_, _, _| {
+                Box::pin(async {
+                    Ok(CursoredResult {
+                        items: Vec::<LocalizedProductView>::new(),
+                        cursor: Cursor {
+                            size: 0,
+                            search_after: None,
+                        },
+                        total: Some(0),
+                    })
+                })
+            });
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -60,9 +97,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &category_service, &period_service)
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &category_service,
+            &period_service,
+            &query_product_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
     }
@@ -74,6 +116,7 @@ mod tests {
         period_service
             .expect_view_periods()
             .return_once(move |_| Box::pin(async move { Ok(vec![]) }));
+        let query_product_service = MockQueryProductService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -82,9 +125,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &category_service, &period_service)
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &category_service,
+            &period_service,
+            &query_product_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
     }
@@ -96,6 +144,7 @@ mod tests {
         period_service
             .expect_view_periods()
             .return_once(move |_| Box::pin(async move { Ok(vec![]) }));
+        let query_product_service = MockQueryProductService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -104,9 +153,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &category_service, &period_service)
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &category_service,
+            &period_service,
+            &query_product_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
         assert_eq!(

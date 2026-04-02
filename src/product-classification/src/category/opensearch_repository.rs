@@ -112,34 +112,18 @@ impl<'a> CategoryOpenSearchRepository for CategoryOpenSearchRepositoryImpl<'a> {
         let mut must = Vec::with_capacity(1);
 
         if let Some(query) = search.name_query.as_ref() {
-            let (name_field, description_field) = match search.language {
-                Language::De => (
-                    CategoryDocumentSerdeField::DisplayNameDe.as_str(),
-                    CategoryDocumentSerdeField::DisplayDescriptionDe.as_str(),
-                ),
-                Language::En => (
-                    CategoryDocumentSerdeField::DisplayNameEn.as_str(),
-                    CategoryDocumentSerdeField::DisplayDescriptionEn.as_str(),
-                ),
-                Language::Fr => (
-                    CategoryDocumentSerdeField::DisplayNameFr.as_str(),
-                    CategoryDocumentSerdeField::DisplayDescriptionFr.as_str(),
-                ),
-                Language::Es => (
-                    CategoryDocumentSerdeField::DisplayNameEs.as_str(),
-                    CategoryDocumentSerdeField::DisplayDescriptionEs.as_str(),
-                ),
-                Language::It => (
-                    CategoryDocumentSerdeField::DisplayNameIt.as_str(),
-                    CategoryDocumentSerdeField::DisplayDescriptionIt.as_str(),
-                ),
+            let name_field = match search.language {
+                Language::De => CategoryDocumentSerdeField::DisplayNameDe.as_str(),
+                Language::En => CategoryDocumentSerdeField::DisplayNameEn.as_str(),
+                Language::Fr => CategoryDocumentSerdeField::DisplayNameFr.as_str(),
+                Language::Es => CategoryDocumentSerdeField::DisplayNameEs.as_str(),
+                Language::It => CategoryDocumentSerdeField::DisplayNameIt.as_str(),
             };
             must.push(json!({
                 "multi_match": {
                     "query": query,
                     "fields": [
                         format!("{name_field}^5"),
-                        format!("{description_field}^1"),
                     ],
                     "fuzziness": "AUTO",
                     "minimum_should_match": "70%"

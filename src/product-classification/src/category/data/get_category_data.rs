@@ -12,7 +12,7 @@ pub struct GetCategoryData {
     pub category_id: CategoryId,
     pub category_key: CategoryKey,
     pub name: LocalizedTextData,
-    pub description: LocalizedTextData,
+    pub products: u32,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -21,13 +21,13 @@ pub struct GetCategoryData {
     pub updated: OffsetDateTime,
 }
 
-impl From<LocalizedCategory> for GetCategoryData {
-    fn from(category: LocalizedCategory) -> Self {
+impl GetCategoryData {
+    pub fn from_category_with_product_count(category: LocalizedCategory, products: u32) -> Self {
         GetCategoryData {
             category_id: category.category_id,
             category_key: category.category_key,
             name: category.display_name.into(),
-            description: category.display_description.into(),
+            products,
             created: category.created,
             updated: category.updated,
         }
@@ -47,7 +47,7 @@ mod tests {
             category_id: "furniture".into(),
             category_key: "furniture-key".into(),
             name: LocalizedTextData::new("Furniture", LanguageData::En),
-            description: LocalizedTextData::new("All furniture", LanguageData::En),
+            products: 42,
             created: datetime!(2020 - 01 - 01 0:00 UTC),
             updated: datetime!(2020 - 06 - 01 0:00 UTC),
         };
@@ -56,7 +56,7 @@ mod tests {
             "categoryId": "furniture",
             "categoryKey": "furniture-key",
             "name": { "text": "Furniture", "language": "en" },
-            "description": { "text": "All furniture", "language": "en" },
+            "products": 42,
             "created": "2020-01-01T00:00:00Z",
             "updated": "2020-06-01T00:00:00Z",
         });

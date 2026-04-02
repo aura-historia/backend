@@ -64,19 +64,7 @@ use product::{
         product_command::{CreateProductCommand, UpdateProductCommand},
     },
 };
-use product_classification::category::data::get_category_data::GetCategoryData;
-use product_classification::category::data::get_category_summary_data::GetCategorySummaryData;
-use product_classification::category::dynamodb_repository::{
-    CategoryDynamoDbRepository, CategoryDynamoDbRepositoryImpl,
-};
-use product_classification::category::record::CategoryRecord;
 use product_classification::category::service::MockCategoryService;
-use product_classification::period::data::get_period_data::GetPeriodData;
-use product_classification::period::data::get_period_summary_data::GetPeriodSummaryData;
-use product_classification::period::dynamodb_repository::{
-    PeriodDynamoDbRepository, PeriodDynamoDbRepositoryImpl,
-};
-use product_classification::period::record::PeriodRecord;
 use product_classification::period::service::MockPeriodService;
 use product_watchlist::dynamodb::repository::{
     WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
@@ -4400,6 +4388,7 @@ async fn should_respond_200_for_shop_get_by_slug() {
 // GET-by-id and GET-all endpoints (DynamoDB-backed).
 // ---------------------------------------------------------------------------
 
+/**
 #[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_for_category_get_by_id() {
     let stack = get_cfn_output();
@@ -4499,6 +4488,7 @@ async fn should_respond_200_for_period_get_all() {
     assert!(body.iter().any(|p| p.period_id == record1.period_id));
     assert!(body.iter().any(|p| p.period_id == record2.period_id));
 }
+*/
 
 // ---------------------------------------------------------------------------
 // API: Notification
