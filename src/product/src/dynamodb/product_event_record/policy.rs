@@ -25,6 +25,7 @@ pub struct ProductPolicyEventRecord {
     pub event_type: ProductPolicyEventTypeRecord,
     pub event_type_schema_version: u8,
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
 
     pub prohibited_content_decision: ProhibitedContentRecord,
@@ -65,6 +66,7 @@ impl From<ProductPolicyEvent> for ProductPolicyEventRecord {
                     event_type: ProductPolicyEventTypeRecord::PolicyProhibitedContentDecision,
                     event_type_schema_version: 0,
                     shop_id: payload.shop_id,
+                    seller_id: payload.seller_id,
                     shops_product_id: payload.shops_product_id,
                     prohibited_content_decision: payload.decision.into(),
                     prohibited_content_reason: payload.reason.into(),
@@ -79,6 +81,7 @@ impl From<ProductPolicyEventRecord> for ProductPolicyEvent {
     fn from(value: ProductPolicyEventRecord) -> Self {
         let prohibited_content_decision = ProhibitedContentProductPolicyEventPayload {
             shop_id: value.shop_id,
+            seller_id: value.seller_id,
             shops_product_id: value.shops_product_id,
             decision: value.prohibited_content_decision.into(),
             reason: value.prohibited_content_reason.into(),

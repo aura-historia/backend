@@ -1818,6 +1818,7 @@ async fn should_materialize_product_in_dynamodb_for_enrichment_event() {
         payload: ProductEventPayload::ProductEnrichmentEvent(
             ProductEnrichmentEventPayload::Embedded(EmbeddedProductEnrichmentEventPayload {
                 shop_id: materialized_old.shop_id,
+                seller_id: materialized_old.seller_id,
                 shops_product_id: materialized_old.shops_product_id.clone(),
                 embedding: embedding.clone(),
             }),
@@ -1891,6 +1892,7 @@ async fn should_materialize_product_in_dynamodb_for_policy_event() {
             ProductPolicyEventPayload::ProhibitedContentDecision(
                 ProhibitedContentProductPolicyEventPayload {
                     shop_id: materialized_old.shop_id,
+                    seller_id: materialized_old.seller_id,
                     shops_product_id: materialized_old.shops_product_id.clone(),
                     decision: ProhibitedContent::NaziGermany,
                     reason: ProhibitedContentReason::ProductText,
@@ -3118,6 +3120,7 @@ async fn should_respond_200_for_product_history() {
         payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceChanged(
             ProductPriceChangeDomainEventPayload {
                 shop_id: record.shop_id,
+                seller_id: record.seller_id,
                 shops_product_id: record.shops_product_id.clone(),
                 new_native_price: Some(event_1_price),
                 new_other_price: FixedFxRate()
@@ -3142,6 +3145,7 @@ async fn should_respond_200_for_product_history() {
         payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateChanged(
             ProductStateChangeDomainEventPayload {
                 shop_id: record.shop_id,
+                seller_id: record.seller_id,
                 shops_product_id: record.shops_product_id.clone(),
                 old_state: ProductState::Sold,
                 new_state: ProductState::Removed,
