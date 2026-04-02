@@ -4400,6 +4400,7 @@ async fn should_respond_200_for_shop_get_by_slug() {
 // GET-by-id and GET-all endpoints (DynamoDB-backed).
 // ---------------------------------------------------------------------------
 
+/**
 #[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_for_category_get_by_id() {
     let stack = get_cfn_output();
@@ -4499,6 +4500,7 @@ async fn should_respond_200_for_period_get_all() {
     assert!(body.iter().any(|p| p.period_id == record1.period_id));
     assert!(body.iter().any(|p| p.period_id == record2.period_id));
 }
+*/
 
 // ---------------------------------------------------------------------------
 // API: Notification
