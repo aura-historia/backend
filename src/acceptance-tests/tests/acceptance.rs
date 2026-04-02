@@ -64,19 +64,7 @@ use product::{
         product_command::{CreateProductCommand, UpdateProductCommand},
     },
 };
-use product_classification::category::data::get_category_data::GetCategoryData;
-use product_classification::category::data::get_category_summary_data::GetCategorySummaryData;
-use product_classification::category::dynamodb_repository::{
-    CategoryDynamoDbRepository, CategoryDynamoDbRepositoryImpl,
-};
-use product_classification::category::record::CategoryRecord;
 use product_classification::category::service::MockCategoryService;
-use product_classification::period::data::get_period_data::GetPeriodData;
-use product_classification::period::data::get_period_summary_data::GetPeriodSummaryData;
-use product_classification::period::dynamodb_repository::{
-    PeriodDynamoDbRepository, PeriodDynamoDbRepositoryImpl,
-};
-use product_classification::period::record::PeriodRecord;
 use product_classification::period::service::MockPeriodService;
 use product_watchlist::dynamodb::repository::{
     WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
