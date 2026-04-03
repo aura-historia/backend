@@ -157,6 +157,7 @@
             "categoryId": { "type": "keyword" },
             "periodId": { "type": "keyword" },
             "shopName": { "type": "keyword" },
+            "sellerName": { "type": "keyword" },
             "shopType": { "type": "keyword" },
             "priceEur": { "type": "unsigned_long" },
             "priceUsd": { "type": "unsigned_long" },

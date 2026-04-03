@@ -3442,6 +3442,212 @@ async fn should_search_product_documents_when_excluded_shop_names_are_given(
 }
 
 #[rstest::rstest]
+#[test_attr(apply(test))]
+#[case(&["Sotheby's"])]
+#[case(&["Sotheby's", "Christie's", "Heritage Auctions"])]
+#[trace]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_shop_names_are_given_and_matches_seller_name_via_or(
+    #[case] shop_names: &[&str],
+) {
+    let products_matching_by_shop_name = fake::vec![ProductDocument; 500]
+        .into_iter()
+        .enumerate()
+        .map(|(idx, mut item)| {
+            item.title_de = Some("Test product for seller name OR filter".into());
+            item.shop_name = shop_names[idx % shop_names.len()].to_string();
+            item.seller_name = "Other Seller".to_string();
+            item
+        })
+        .collect::<Vec<_>>();
+
+    let products_matching_by_seller_name = fake::vec![ProductDocument; 500]
+        .into_iter()
+        .enumerate()
+        .map(|(idx, mut item)| {
+            item.title_de = Some("Test product for seller name OR filter".into());
+            item.shop_name = "Other Shop".to_string();
+            item.seller_name = shop_names[idx % shop_names.len()].to_string();
+            item
+        })
+        .collect::<Vec<_>>();
+
+    let products_not_matching = fake::vec![ProductDocument; 500]
+        .into_iter()
+        .map(|mut item| {
+            item.title_de = Some("Test product for seller name OR filter".into());
+            item.shop_name = "Other Shop".to_string();
+            item.seller_name = "Other Seller".to_string();
+            item
+        })
+        .collect::<Vec<_>>();
+
+    let all_products = [
+        products_matching_by_shop_name,
+        products_matching_by_seller_name,
+        products_not_matching,
+    ]
+    .concat();
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(all_products)
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: Some("Test product for seller name OR filter".try_into().unwrap()),
+        category_id: Default::default(),
+        period_id: Default::default(),
+        shop_name_query: AnyOfQuery::from(HashSet::from_iter(
+            shop_names.iter().map(|name| name.to_string().into()),
+        )),
+        exclude_shop_name_query: Default::default(),
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    assert!(response.hits.total.value > 0);
+    assert_eq!(1000, response.hits.total.value);
+    assert!(response.hits.hits.iter().all(|hit| {
+        shop_names.contains(&hit.source.shop_name.as_str())
+            || shop_names.contains(&hit.source.seller_name.as_str())
+    }));
+}
+
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case(&["Sotheby's"])]
+#[case(&["Sotheby's", "Christie's", "Heritage Auctions"])]
+#[trace]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_excluded_shop_names_also_excludes_by_seller_name(
+    #[case] exclude_names: &[&str],
+) {
+    let products_excluded_by_shop_name = fake::vec![ProductDocument; 500]
+        .into_iter()
+        .enumerate()
+        .map(|(idx, mut item)| {
+            item.title_de = Some("Test product for seller name exclude OR filter".into());
+            item.shop_name = exclude_names[idx % exclude_names.len()].to_string();
+            item.seller_name = "Other Seller".to_string();
+            item
+        })
+        .collect::<Vec<_>>();
+
+    let products_excluded_by_seller_name = fake::vec![ProductDocument; 500]
+        .into_iter()
+        .enumerate()
+        .map(|(idx, mut item)| {
+            item.title_de = Some("Test product for seller name exclude OR filter".into());
+            item.shop_name = "Other Shop".to_string();
+            item.seller_name = exclude_names[idx % exclude_names.len()].to_string();
+            item
+        })
+        .collect::<Vec<_>>();
+
+    let products_not_excluded = fake::vec![ProductDocument; 500]
+        .into_iter()
+        .map(|mut item| {
+            item.title_de = Some("Test product for seller name exclude OR filter".into());
+            item.shop_name = "Other Shop".to_string();
+            item.seller_name = "Other Seller".to_string();
+            item
+        })
+        .collect::<Vec<_>>();
+
+    let all_products = [
+        products_excluded_by_shop_name,
+        products_excluded_by_seller_name,
+        products_not_excluded,
+    ]
+    .concat();
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(all_products)
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: Some(
+            "Test product for seller name exclude OR filter"
+                .try_into()
+                .unwrap(),
+        ),
+        category_id: Default::default(),
+        period_id: Default::default(),
+        shop_name_query: Default::default(),
+        exclude_shop_name_query: AnyOfQuery::from(HashSet::from_iter(
+            exclude_names.iter().map(|name| name.to_string().into()),
+        )),
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    assert!(response.hits.total.value > 0);
+    assert_eq!(500, response.hits.total.value);
+    assert!(response.hits.hits.iter().all(|hit| {
+        !exclude_names.contains(&hit.source.shop_name.as_str())
+            && !exclude_names.contains(&hit.source.seller_name.as_str())
+    }));
+}
+
+#[rstest::rstest]
 #[trace]
 #[test_attr(apply(test))]
 #[case(RangeQuery { min: Some(datetime!(2026-01-01 0:00 UTC)), max: Some(datetime!(2026-01-31 23:59 UTC)) })]
