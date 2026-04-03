@@ -4984,6 +4984,7 @@ dependencies = [
  "fake",
  "http 1.4.0",
  "lambda_runtime",
+ "llm",
  "opensearch",
  "product",
  "product-classification",

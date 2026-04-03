@@ -3,6 +3,7 @@ use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
 use common::price::domain::FixedFxRate;
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
+use llm::builder::{LLMBackend, LLMBuilder};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::command_service::CommandProductServiceImpl;
 use product_api_partner::handler;
@@ -13,7 +14,11 @@ use product_classification::period::dynamodb_repository::PeriodDynamoDbRepositor
 use product_classification::period::opensearch_repository::PeriodOpenSearchRepositoryImpl;
 use product_classification::period::service::PeriodServiceImpl;
 use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
+use shop::opensearch::repository::ShopOpenSearchRepositoryImpl;
+use shop::service::command_service::CommandShopServiceImpl;
 use shop::service::get_service::GetShopServiceImpl;
+use shop::service::query_service::QueryShopServiceImpl;
+use shop::service::seller_service::SellerServiceImpl;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -33,6 +38,24 @@ async fn main() -> Result<(), Error> {
 
     let shop_dynamodb_repository = ShopDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let get_shop_service = GetShopServiceImpl::new(&shop_dynamodb_repository);
+
+    let shop_opensearch_repository = ShopOpenSearchRepositoryImpl::new(&opensearch);
+    let command_shop_service = CommandShopServiceImpl::new(&shop_dynamodb_repository);
+    let query_shop_service = QueryShopServiceImpl::new(&shop_opensearch_repository);
+
+    let llm_api_key =
+        std::env::var("GEMINI_API_KEY").expect("shouldn't fail loading env-var 'GEMINI_API_KEY'");
+    let seller_service = SellerServiceImpl::new(
+        &shop_dynamodb_repository,
+        &get_shop_service,
+        &query_shop_service,
+        &command_shop_service,
+        LLMBuilder::new()
+            .backend(LLMBackend::Google)
+            .api_key(&llm_api_key)
+            .model("gemini-2.5-flash"),
+    )
+    .expect("shouldn't fail creating SellerServiceImpl");
 
     let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let fx_rate = FixedFxRate();
@@ -57,7 +80,13 @@ async fn main() -> Result<(), Error> {
 
     run(service_fn(
         |event: LambdaEvent<ApiGatewayV2httpRequest>| async {
-            handler(event, &get_shop_service, &command_product_service).await
+            handler(
+                event,
+                &get_shop_service,
+                &command_product_service,
+                &seller_service,
+            )
+            .await
         },
     ))
     .await
