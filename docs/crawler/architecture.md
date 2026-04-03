@@ -59,9 +59,11 @@ ShopRegistrationService::sync()
        ├── repository.upsert_shop(shop)
        │    └── INSERT INTO shops ... ON CONFLICT DO UPDATE SET shop_name, shop_slug, active=TRUE, updated
        ├── repository.sync_domains(shop)
-       │    ├── insert new domains
-       │    ├── reassign moved domains (shop_domain conflict updates shop_id + resets crawl lock state)
-       │    └── delete stale domains no longer present upstream for this shop
+       │    ├── begin transaction
+       │    ├── bulk upsert domains via UNNEST
+       │    ├── on reassignment only: reset last_crawled + locked_at
+       │    ├── delete stale domains no longer present upstream for this shop
+       │    └── commit transaction
        └── after all shops:
             └── repository.deactivate_shops_not_in(all_fetched_shop_ids)
                  └── UPDATE shops SET active=FALSE for shops absent upstream

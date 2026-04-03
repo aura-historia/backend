@@ -151,7 +151,7 @@ LIMIT  $1
 
 ### Shop registration upsert
 
-The shop sync writes one shop at a time (no UNNEST, as the batch is typically small relative to the crawl workload):
+The shop sync writes one shop at a time. Shop metadata upsert is followed by a transactional domain sync that uses a bulk `UNNEST` upsert to avoid one query per domain.
 
 ```sql
 -- Upsert shop metadata
@@ -164,20 +164,31 @@ DO UPDATE SET
     active    = TRUE,
     updated   = NOW();
 
--- Register domains — existing domain assignments are left untouched
-INSERT INTO shop_domains (shop_id, shop_domain)
-VALUES ($1, $2)
+-- Sync domains atomically
+BEGIN;
+
+-- Bulk upsert domains for this shop
+INSERT INTO shop_domains (shop_id, shop_domain, last_crawled, locked_at)
+SELECT $1, domain, NULL, NULL
+FROM unnest($2::text[]) AS t(domain)
 ON CONFLICT (shop_domain)
 DO UPDATE SET
     shop_id = EXCLUDED.shop_id,
-    last_crawled = NULL,
-    locked_at = NULL
-WHERE shop_domains.shop_id <> EXCLUDED.shop_id;
+    last_crawled = CASE
+        WHEN shop_domains.shop_id <> EXCLUDED.shop_id THEN NULL
+        ELSE shop_domains.last_crawled
+    END,
+    locked_at = CASE
+        WHEN shop_domains.shop_id <> EXCLUDED.shop_id THEN NULL
+        ELSE shop_domains.locked_at
+    END;
 
 -- Delete stale domains no longer present for this shop
 DELETE FROM shop_domains
 WHERE shop_id = $1
   AND NOT (shop_domain = ANY($2::text[]));
+
+COMMIT;
 
 -- Soft-deactivate shops not present in upstream snapshot
 UPDATE shops
@@ -187,4 +198,4 @@ WHERE active = TRUE
   AND NOT (shop_id = ANY($3::uuid[]));
 ```
 
-Domain reassignment is explicit (`shop_id` is updated on conflict), stale domains are removed, and missing shops are soft-deactivated instead of deleted.
+Domain reassignment is explicit (`shop_id` is updated on conflict), and `last_crawled`/`locked_at` are reset only when ownership changes. Stale domains are removed in the same transaction, and missing shops are soft-deactivated instead of deleted.
