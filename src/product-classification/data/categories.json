@@ -4604,6 +4604,7 @@
         "categoryId": "ephemera-memorabilia",
         "categoryKey": "EPHEMERA_MEMORABILIA",
         "metaName": "Ephemera & Memorabilia",
+        "metaDescription": "Objects created for short-term use or commemorative purposes, often preserved for their cultural, historical, or sentimental value.",
         "metaKeywords": [
             "ticket",
             "poster",
