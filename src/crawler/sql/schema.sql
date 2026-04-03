@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS shops (
     shop_id     UUID        PRIMARY KEY,
     shop_name   TEXT,
     shop_slug   TEXT,
+    active      BOOLEAN     NOT NULL DEFAULT TRUE,
     url_pattern TEXT,
     created     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated     TIMESTAMPTZ NOT NULL DEFAULT NOW()

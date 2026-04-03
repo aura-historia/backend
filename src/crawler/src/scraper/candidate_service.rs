@@ -45,13 +45,15 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
     async fn get_candidates(&self, limit: i64) -> Result<Vec<ScraperCandidate>, sqlx::Error> {
         let rows = sqlx::query_as::<_, ScraperCandidateRow>(
             r#"
-            SELECT shop_id, url, main_hash, last_scraped_hash
-            FROM shop_urls
-            WHERE url_class = 'product'
-              AND state IN ('AVAILABLE', 'UNKNOWN', 'LISTED', 'RESERVED')
-              AND (last_scraped IS NULL OR last_scraped < NOW() - INTERVAL '1 day')
-              AND (last_scraped_hash IS NULL OR main_hash != last_scraped_hash)
-            ORDER BY last_scraped NULLS FIRST
+            SELECT su.shop_id, su.url, su.main_hash, su.last_scraped_hash
+            FROM shop_urls su
+            JOIN shops s ON s.shop_id = su.shop_id
+            WHERE s.active = TRUE
+              AND su.url_class = 'product'
+              AND su.state IN ('AVAILABLE', 'UNKNOWN', 'LISTED', 'RESERVED')
+              AND (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
+              AND (su.last_scraped_hash IS NULL OR su.main_hash != su.last_scraped_hash)
+            ORDER BY su.last_scraped NULLS FIRST
             LIMIT $1
             "#,
         )

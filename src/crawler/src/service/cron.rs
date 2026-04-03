@@ -329,6 +329,14 @@ mod tests {
             .expect_upsert_shop()
             .times(1)
             .returning(|_| Box::pin(async { Ok(()) }));
+        repository
+            .expect_sync_domains()
+            .times(1)
+            .returning(|_| Box::pin(async { Ok(()) }));
+        repository
+            .expect_deactivate_shops_not_in()
+            .times(1)
+            .returning(|_| Box::pin(async { Ok(0) }));
 
         let shop_registration =
             ShopRegistrationService::new(Box::new(source), Box::new(repository));

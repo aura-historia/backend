@@ -53,11 +53,18 @@ shop_sync_loop()
 ```
 ShopRegistrationService::sync()
   ├── source.fetch_registered_shops()   → Vec<RegisteredShop>
+  ├── if empty result:
+  │    └── warn + return (skip deactivation to avoid accidental mass-disable)
   └── for each shop:
-       └── repository.upsert_shop(shop)
-            ├── INSERT INTO shops ... ON CONFLICT DO UPDATE SET shop_name, shop_slug, updated
-            └── for each domain:
-                 └── INSERT INTO shop_domains ... ON CONFLICT (shop_domain) DO NOTHING
+       ├── repository.upsert_shop(shop)
+       │    └── INSERT INTO shops ... ON CONFLICT DO UPDATE SET shop_name, shop_slug, active=TRUE, updated
+       ├── repository.sync_domains(shop)
+       │    ├── insert new domains
+       │    ├── reassign moved domains (shop_domain conflict updates shop_id + resets crawl lock state)
+       │    └── delete stale domains no longer present upstream for this shop
+       └── after all shops:
+            └── repository.deactivate_shops_not_in(all_fetched_shop_ids)
+                 └── UPDATE shops SET active=FALSE for shops absent upstream
 ```
 
 ### Decoupling via trait injection
@@ -67,6 +74,13 @@ ShopRegistrationService::sync()
 In production (`server.rs`), `OpenSearchShopSource` implements `ShopRegistrationSource` by paginating through `QueryShopService` (backed by the `shop` crate's OpenSearch repository) until all shops have been fetched.
 
 In tests and the demo binary (`demo.rs`), `DemoShopSource` provides a hardcoded list of `RegisteredShop` values.
+
+### Effect on Spider/Scraper scheduling
+
+- Spider candidates now require `shops.active = TRUE` in addition to the `shop_domains.last_crawled` window.
+- Scraper candidates now join `shop_urls` with `shops` and require `shops.active = TRUE`.
+
+This means upstream removals stop both crawling and scraping without deleting historical URL rows.
 
 ---
 

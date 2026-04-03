@@ -37,7 +37,8 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
             SELECT s.shop_id, sd.shop_domain
             FROM shops s
             JOIN shop_domains sd ON sd.shop_id = s.shop_id
-            WHERE sd.last_crawled IS NULL OR sd.last_crawled < NOW() - INTERVAL '7 days'
+            WHERE s.active = TRUE
+              AND (sd.last_crawled IS NULL OR sd.last_crawled < NOW() - INTERVAL '7 days')
             ORDER BY sd.last_crawled NULLS FIRST
             LIMIT $1
             "#,

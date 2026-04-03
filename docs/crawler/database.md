@@ -15,11 +15,14 @@ The top-level entity. One row per shop.
 | `shop_id` | UUID PK | Sourced from the upstream shop service |
 | `shop_name` | TEXT (nullable) | Human-readable display name, synced from the upstream shop service |
 | `shop_slug` | TEXT (nullable) | URL-friendly slug identifier, synced from the upstream shop service |
+| `active` | BOOLEAN NOT NULL DEFAULT TRUE | Soft-delete flag managed by shop sync. `TRUE` shops are crawl/scrape eligible; `FALSE` shops are ignored by candidate selection. |
 | `url_pattern` | TEXT (nullable) | LLM-discovered regex that matches product page URLs. `NULL` until the spider classifies the shop for the first time. |
 | `created` | TIMESTAMPTZ | |
 | `updated` | TIMESTAMPTZ | Set to `NOW()` on every shop registration sync |
 
 `shop_name` and `shop_slug` are populated (and kept up-to-date) by the shop registration sync loop. They are nullable because a shop row may also be created directly by the spider before a sync has run.
+
+`active` enables soft-deactivation when a shop no longer exists upstream. Deactivated shops are retained for history but excluded from future spider/scraper candidate queries.
 
 `url_pattern` is the handoff from the URL classification LLM to the spider's per-URL classification logic. Once set, it is reused on subsequent crawls and only refreshed if it matches zero products.
 
@@ -152,18 +155,36 @@ The shop sync writes one shop at a time (no UNNEST, as the batch is typically sm
 
 ```sql
 -- Upsert shop metadata
-INSERT INTO shops (shop_id, shop_name, shop_slug, created, updated)
-VALUES ($1, $2, $3, NOW(), NOW())
+INSERT INTO shops (shop_id, shop_name, shop_slug, active, created, updated)
+VALUES ($1, $2, $3, TRUE, NOW(), NOW())
 ON CONFLICT (shop_id)
 DO UPDATE SET
     shop_name = EXCLUDED.shop_name,
     shop_slug = EXCLUDED.shop_slug,
+    active    = TRUE,
     updated   = NOW();
 
 -- Register domains — existing domain assignments are left untouched
 INSERT INTO shop_domains (shop_id, shop_domain)
 VALUES ($1, $2)
-ON CONFLICT (shop_domain) DO NOTHING;
+ON CONFLICT (shop_domain)
+DO UPDATE SET
+    shop_id = EXCLUDED.shop_id,
+    last_crawled = NULL,
+    locked_at = NULL
+WHERE shop_domains.shop_id <> EXCLUDED.shop_id;
+
+-- Delete stale domains no longer present for this shop
+DELETE FROM shop_domains
+WHERE shop_id = $1
+  AND NOT (shop_domain = ANY($2::text[]));
+
+-- Soft-deactivate shops not present in upstream snapshot
+UPDATE shops
+SET active = FALSE,
+    updated = NOW()
+WHERE active = TRUE
+  AND NOT (shop_id = ANY($3::uuid[]));
 ```
 
-The `ON CONFLICT (shop_domain) DO NOTHING` on the domain insert is intentional: if a domain is already registered to another shop (e.g. after a shop migration), the existing assignment wins and no error is raised.
+Domain reassignment is explicit (`shop_id` is updated on conflict), stale domains are removed, and missing shops are soft-deactivated instead of deleted.
