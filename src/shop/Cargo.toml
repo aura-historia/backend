@@ -46,6 +46,6 @@ dynamodb = ["common/dynamodb", "field", "aws-sdk-dynamodb", "serde_dynamo", "tra
 opensearch = ["common/opensearch", "dep:opensearch", "tracing", "strum", "strum_macros"]
 service = ["tokio", "tokio/time"]
 test-data = ["fake", "common/test-data"]
-llm = ["dep:llm"]
+llm = ["dep:llm", "llm/google"]
 seller = ["dynamodb", "opensearch", "service", "llm"]
 full = ["api", "data", "dynamodb", "opensearch", "service", "test-data", "seller"]
