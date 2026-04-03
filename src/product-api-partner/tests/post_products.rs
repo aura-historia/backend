@@ -9,6 +9,7 @@ use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKe
 use shop::dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl};
 use shop::dynamodb::shop_record::ShopRecord;
 use shop::service::get_service::GetShopServiceImpl;
+use shop::service::seller_service::MockSellerService;
 use test_api::*;
 
 fn make_partner_shop_record(api_key: &PartnerShopApiKey) -> ShopRecord {
@@ -70,10 +71,14 @@ async fn should_return_200_with_empty_errors_when_products_created_successfully(
         context: Default::default(),
     };
 
-    let response =
-        product_api_partner::handle(lambda_event, &get_shop_service, &command_product_service)
-            .await
-            .unwrap();
+    let response = product_api_partner::handle(
+        lambda_event,
+        &get_shop_service,
+        &command_product_service,
+        &MockSellerService::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(200, response.status_code);
 
     let body: serde_json::Value = serde_json::from_str(
@@ -130,9 +135,13 @@ async fn should_return_401_when_api_key_does_not_match() {
         context: Default::default(),
     };
 
-    let response =
-        product_api_partner::handle(lambda_event, &get_shop_service, &command_product_service)
-            .await;
+    let response = product_api_partner::handle(
+        lambda_event,
+        &get_shop_service,
+        &command_product_service,
+        &MockSellerService::default(),
+    )
+    .await;
     assert!(response.is_err());
     assert_eq!(401, response.unwrap_err().status);
 }
@@ -174,9 +183,13 @@ async fn should_return_404_when_shop_does_not_exist() {
         context: Default::default(),
     };
 
-    let response =
-        product_api_partner::handle(lambda_event, &get_shop_service, &command_product_service)
-            .await;
+    let response = product_api_partner::handle(
+        lambda_event,
+        &get_shop_service,
+        &command_product_service,
+        &MockSellerService::default(),
+    )
+    .await;
     assert!(response.is_err());
     assert_eq!(404, response.unwrap_err().status);
 }
@@ -222,9 +235,13 @@ async fn should_return_403_when_shop_is_not_a_partner() {
         context: Default::default(),
     };
 
-    let response =
-        product_api_partner::handle(lambda_event, &get_shop_service, &command_product_service)
-            .await;
+    let response = product_api_partner::handle(
+        lambda_event,
+        &get_shop_service,
+        &command_product_service,
+        &MockSellerService::default(),
+    )
+    .await;
     assert!(response.is_err());
     assert_eq!(403, response.unwrap_err().status);
 }

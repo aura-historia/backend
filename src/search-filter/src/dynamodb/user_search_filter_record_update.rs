@@ -33,6 +33,12 @@ pub struct UserSearchFilterRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_name_query: Option<HashSet<ShopName>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exclude_shop_name_query: Option<HashSet<ShopName>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seller_name_query: Option<HashSet<ShopName>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exclude_seller_name_query: Option<HashSet<ShopName>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_type_query: Option<HashSet<ShopTypeRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price_query: Option<RangeQuery<u64>>,
@@ -87,6 +93,9 @@ mod fake {
                 category_id: config.fake_with_rng(rng),
                 period_id: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
+                exclude_shop_name_query: config.fake_with_rng(rng),
+                seller_name_query: config.fake_with_rng(rng),
+                exclude_seller_name_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),

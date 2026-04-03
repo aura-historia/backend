@@ -39,10 +39,13 @@ pub struct ProductDocument {
     pub product_id: ProductId,
     pub product_slug_id: SlugId<6>,
     pub shop_slug_id: SlugId<0>,
+    pub seller_slug_id: SlugId<0>,
     pub event_id: EventId,
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: String,
+    pub seller_name: String,
     pub shop_type: ShopTypeDocument,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub category_id: Option<CategoryId>,
@@ -211,11 +214,18 @@ impl TryFrom<ProductDomainEventRecord> for ProductDocument {
             shop_slug_id: event_product_document.shop_slug_id.ok_or_else(|| {
                 MissingPersistenceField::new(field!(shop_slug_id@ProductDomainEventRecord))
             })?,
+            seller_slug_id: event_product_document.seller_slug_id.ok_or_else(|| {
+                MissingPersistenceField::new(field!(seller_slug_id@ProductDomainEventRecord))
+            })?,
             event_id: event_product_document.event_id,
             shop_id: event_product_document.shop_id,
+            seller_id: event_product_document.seller_id,
             shops_product_id: event_product_document.shops_product_id,
             shop_name: event_product_document.shop_name.ok_or_else(|| {
                 MissingPersistenceField::new(field!(shop_name@ProductDomainEventRecord))
+            })?,
+            seller_name: event_product_document.seller_name.ok_or_else(|| {
+                MissingPersistenceField::new(field!(seller_name@ProductDomainEventRecord))
             })?,
             shop_type: event_product_document
                 .shop_type
@@ -302,10 +312,13 @@ impl From<ProductRecord> for ProductDocument {
             product_id: product_document.product_id,
             product_slug_id: product_document.product_slug_id,
             shop_slug_id: product_document.shop_slug_id,
+            seller_slug_id: product_document.seller_slug_id,
             event_id: product_document.event_id,
             shop_id: product_document.shop_id,
+            seller_id: product_document.seller_id,
             shops_product_id: product_document.shops_product_id,
             shop_name: product_document.shop_name,
+            seller_name: product_document.seller_name,
             shop_type: product_document.shop_type.into(),
             category_id: product_document.category_id,
             period_id: product_document.period_id,
@@ -452,10 +465,13 @@ impl From<Product> for ProductDocument {
             product_id: product.product_id,
             product_slug_id: product.product_slug_id,
             shop_slug_id: product.shop_slug_id,
+            seller_slug_id: product.seller_slug_id,
             event_id: product.event_id,
             shop_id: product.shop_id,
+            seller_id: product.seller_id,
             shops_product_id: product.shops_product_id,
             shop_name: String::from(product.shop_name),
+            seller_name: String::from(product.seller_name),
             shop_type: product.shop_type.into(),
             category_id: product.category_id,
             period_id: product.period_id,
@@ -726,10 +742,13 @@ impl From<ProductDocument> for Product {
             product_id: product_document.product_id,
             product_slug_id: product_document.product_slug_id,
             shop_slug_id: product_document.shop_slug_id,
+            seller_slug_id: product_document.seller_slug_id,
             event_id: product_document.event_id,
             shop_id: product_document.shop_id,
+            seller_id: product_document.seller_id,
             shops_product_id: product_document.shops_product_id,
             shop_name: product_document.shop_name.into(),
+            seller_name: product_document.seller_name.into(),
             shop_type: product_document.shop_type.into(),
             category_id: product_document.category_id,
             category_name,
@@ -801,12 +820,15 @@ mod faker {
                 language: config.fake_with_rng(rng),
             };
             let shop_name: String = config.fake_with_rng(rng);
+            let seller_name: String = config.fake_with_rng(rng);
             ProductDocument {
                 product_id: config.fake_with_rng(rng),
                 product_slug_id: SlugId::from(&title_native.text),
                 shop_slug_id: SlugId::from(&shop_name),
+                seller_slug_id: SlugId::from(&seller_name),
                 event_id: config.fake_with_rng(rng),
                 shop_id: config.fake_with_rng(rng),
+                seller_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
                 period_id: config.fake_with_rng(rng),
@@ -821,6 +843,7 @@ mod faker {
                 period_name_es: config.fake_with_rng(rng),
                 period_name_it: config.fake_with_rng(rng),
                 shop_name,
+                seller_name,
                 shop_type: config.fake_with_rng(rng),
                 title_native,
                 title_de: Some(config.fake_with_rng::<Title, _>(rng).to_string()),

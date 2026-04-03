@@ -23,6 +23,7 @@ pub enum ProductEnrichmentEventPayload {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TranslationProductEnrichmentEventPayload<T: Into<String> + From<String>> {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub source_language: Language,
     pub target_language: Language,
@@ -33,6 +34,7 @@ pub struct TranslationProductEnrichmentEventPayload<T: Into<String> + From<Strin
 #[derive(Debug, Clone, PartialEq)]
 pub struct EmbeddedProductEnrichmentEventPayload {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub embedding: Vec<f32>,
 }
@@ -41,6 +43,7 @@ pub struct EmbeddedProductEnrichmentEventPayload {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExtractedAttributesProductEnrichmentEventPayload {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub origin_year_min: Option<Year>,
     pub origin_year: Option<Year>,
@@ -55,6 +58,7 @@ pub struct ExtractedAttributesProductEnrichmentEventPayload {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassifiedCategoryProductEnrichmentEventPayload {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub category_id: CategoryId,
 }
@@ -63,6 +67,7 @@ pub struct ClassifiedCategoryProductEnrichmentEventPayload {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassifiedPeriodProductEnrichmentEventPayload {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub period_id: PeriodId,
 }

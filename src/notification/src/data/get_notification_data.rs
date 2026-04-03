@@ -7,6 +7,7 @@ use common::{
     product_id::ProductId, shop_id::ShopId, shop_name::ShopName, shops_product_id::ShopsProductId,
     slug_id::SlugId,
 };
+use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
 use search_filter::core::user_search_filter_id::UserSearchFilterId;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
@@ -42,6 +43,8 @@ pub enum NotificationPayloadData {
         product_slug_id: SlugId<6>,
         shop_name: ShopName,
         title: LocalizedTextData,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<ProductImageData>,
         watchlist_payload: WatchlistPayloadData,
     },
     #[serde(rename_all = "camelCase")]
@@ -53,6 +56,8 @@ pub enum NotificationPayloadData {
         product_slug_id: SlugId<6>,
         shop_name: ShopName,
         title: LocalizedTextData,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<ProductImageData>,
         search_filter_payload: SearchFilterPayloadData,
     },
 }
@@ -113,6 +118,7 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
                 product_slug_id,
                 shop_name,
                 title,
+                image,
                 watchlist_payload,
             } => NotificationPayloadData::Watchlist {
                 product_id,
@@ -122,6 +128,7 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
                 product_slug_id,
                 shop_name,
                 title: title.into(),
+                image: image.map(|i| ProductImageData::from_with_consent(i, true)),
                 watchlist_payload: watchlist_payload.into(),
             },
             LocalizedNotificationPayload::SearchFilter {
@@ -132,6 +139,7 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
                 product_slug_id,
                 shop_name,
                 title,
+                image,
                 search_filter_payload,
             } => NotificationPayloadData::SearchFilter {
                 product_id,
@@ -141,6 +149,7 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
                 product_slug_id,
                 shop_name,
                 title: title.into(),
+                image: image.map(|i| ProductImageData::from_with_consent(i, true)),
                 search_filter_payload: SearchFilterPayloadData {
                     user_search_filter_id: search_filter_payload.user_search_filter_id,
                     user_search_filter_name: search_filter_payload.user_search_filter_name,

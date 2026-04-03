@@ -79,6 +79,7 @@ async fn should_respond_200_without_history_when_anon() {
         payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceChanged(
             ProductPriceChangeDomainEventPayload {
                 shop_id: record.shop_id,
+                seller_id: record.seller_id,
                 shops_product_id: record.shops_product_id.clone(),
                 new_native_price: Some(event_1_price),
                 new_other_price: FixedFxRate()
@@ -103,6 +104,7 @@ async fn should_respond_200_without_history_when_anon() {
         payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateChanged(
             ProductStateChangeDomainEventPayload {
                 shop_id: record.shop_id,
+                seller_id: record.seller_id,
                 shops_product_id: record.shops_product_id.clone(),
                 old_state: ProductState::Sold,
                 new_state: ProductState::Removed,
@@ -186,6 +188,7 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
         payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceChanged(
             ProductPriceChangeDomainEventPayload {
                 shop_id: record.shop_id,
+                seller_id: record.seller_id,
                 shops_product_id: record.shops_product_id.clone(),
                 new_native_price: Some(event_1_price),
                 new_other_price: FixedFxRate()
@@ -210,6 +213,7 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
         payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateChanged(
             ProductStateChangeDomainEventPayload {
                 shop_id: record.shop_id,
+                seller_id: record.seller_id,
                 shops_product_id: record.shops_product_id.clone(),
                 old_state: ProductState::Sold,
                 new_state: ProductState::Removed,
@@ -323,6 +327,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
         payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceChanged(
             ProductPriceChangeDomainEventPayload {
                 shop_id: record.shop_id,
+                seller_id: record.seller_id,
                 shops_product_id: record.shops_product_id.clone(),
                 new_native_price: Some(event_1_price),
                 new_other_price: FixedFxRate()
@@ -347,6 +352,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
         payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateChanged(
             ProductStateChangeDomainEventPayload {
                 shop_id: record.shop_id,
+                seller_id: record.seller_id,
                 shops_product_id: record.shops_product_id.clone(),
                 old_state: ProductState::Sold,
                 new_state: ProductState::Removed,

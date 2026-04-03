@@ -1818,6 +1818,7 @@ async fn should_materialize_product_in_dynamodb_for_enrichment_event() {
         payload: ProductEventPayload::ProductEnrichmentEvent(
             ProductEnrichmentEventPayload::Embedded(EmbeddedProductEnrichmentEventPayload {
                 shop_id: materialized_old.shop_id,
+                seller_id: materialized_old.seller_id,
                 shops_product_id: materialized_old.shops_product_id.clone(),
                 embedding: embedding.clone(),
             }),
@@ -1891,6 +1892,7 @@ async fn should_materialize_product_in_dynamodb_for_policy_event() {
             ProductPolicyEventPayload::ProhibitedContentDecision(
                 ProhibitedContentProductPolicyEventPayload {
                     shop_id: materialized_old.shop_id,
+                    seller_id: materialized_old.seller_id,
                     shops_product_id: materialized_old.shops_product_id.clone(),
                     decision: ProhibitedContent::NaziGermany,
                     reason: ProhibitedContentReason::ProductText,
@@ -1973,6 +1975,8 @@ async fn should_materialize_product_in_opensearch_for_create_product_command() {
                     period_id: Default::default(),
                     shop_name_query: Default::default(),
                     exclude_shop_name_query: Default::default(),
+                    seller_name_query: Default::default(),
+                    exclude_seller_name_query: Default::default(),
                     shop_type_query: Default::default(),
                     price_query: None,
                     state_query: Default::default(),
@@ -2086,6 +2090,8 @@ async fn should_materialize_product_in_opensearch_for_domain_event() {
                     period_id: Default::default(),
                     shop_name_query: Default::default(),
                     exclude_shop_name_query: Default::default(),
+                    seller_name_query: Default::default(),
+                    exclude_seller_name_query: Default::default(),
                     shop_type_query: Default::default(),
                     price_query: None,
                     state_query: Default::default(),
@@ -2202,6 +2208,8 @@ async fn should_materialize_product_in_opensearch_for_enrichment_event() {
                     period_id: Default::default(),
                     shop_name_query: Default::default(),
                     exclude_shop_name_query: Default::default(),
+                    seller_name_query: Default::default(),
+                    exclude_seller_name_query: Default::default(),
                     shop_type_query: Default::default(),
                     price_query: None,
                     state_query: Default::default(),
@@ -2320,6 +2328,8 @@ async fn should_materialize_product_in_opensearch_for_policy_event() {
                     period_id: Default::default(),
                     shop_name_query: Default::default(),
                     exclude_shop_name_query: Default::default(),
+                    seller_name_query: Default::default(),
+                    exclude_seller_name_query: Default::default(),
                     shop_type_query: Default::default(),
                     price_query: None,
                     state_query: Default::default(),
@@ -2644,6 +2654,8 @@ async fn should_create_search_filter_and_sync_it_to_opensearch() {
             period_id: HashSet::from_iter([PeriodId::from("baroque")]),
             shop_name_query: HashSet::from_iter([ShopName::from("Galerie Test")]),
             exclude_shop_name_query: HashSet::from_iter([ShopName::from("Do Not Match Shop")]),
+            seller_name_query: Default::default(),
+            exclude_seller_name_query: Default::default(),
             shop_type_query: HashSet::from_iter([ShopTypeData::CommercialDealer]),
             price_query: Some(RangeQuery {
                 min: Some(100),
@@ -2718,6 +2730,8 @@ async fn should_update_search_filter_and_sync_changes_to_opensearch() {
             period_id: HashSet::from_iter([PeriodId::from("baroque")]),
             shop_name_query: HashSet::from_iter([ShopName::from("Initial Shop")]),
             exclude_shop_name_query: HashSet::from_iter([ShopName::from("Initial Excluded Shop")]),
+            seller_name_query: Default::default(),
+            exclude_seller_name_query: Default::default(),
             shop_type_query: HashSet::from_iter([ShopTypeData::CommercialDealer]),
             price_query: Some(RangeQuery {
                 min: Some(50),
@@ -2779,6 +2793,9 @@ async fn should_update_search_filter_and_sync_changes_to_opensearch() {
             category_id: Some(HashSet::from_iter([CategoryId::from("decorative-objects")])),
             period_id: Some(HashSet::from_iter([PeriodId::from("rococo")])),
             shop_name_query: Some(HashSet::from_iter([ShopName::from("Patched Shop")])),
+            exclude_shop_name_query: None,
+            seller_name_query: None,
+            exclude_seller_name_query: None,
             shop_type_query: Some(HashSet::from_iter([ShopTypeData::AuctionHouse])),
             price_query: Some(RangeQuery {
                 min: Some(500),
@@ -2869,6 +2886,8 @@ async fn should_delete_search_filter_and_remove_it_from_opensearch() {
             period_id: HashSet::from_iter([PeriodId::from("georgian")]),
             shop_name_query: HashSet::from_iter([ShopName::from("Delete Me Shop")]),
             exclude_shop_name_query: HashSet::from_iter([ShopName::from("Excluded Delete Shop")]),
+            seller_name_query: Default::default(),
+            exclude_seller_name_query: Default::default(),
             shop_type_query: HashSet::from_iter([ShopTypeData::CommercialDealer]),
             price_query: Some(RangeQuery {
                 min: Some(200),
@@ -3118,6 +3137,7 @@ async fn should_respond_200_for_product_history() {
         payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceChanged(
             ProductPriceChangeDomainEventPayload {
                 shop_id: record.shop_id,
+                seller_id: record.seller_id,
                 shops_product_id: record.shops_product_id.clone(),
                 new_native_price: Some(event_1_price),
                 new_other_price: FixedFxRate()
@@ -3142,6 +3162,7 @@ async fn should_respond_200_for_product_history() {
         payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateChanged(
             ProductStateChangeDomainEventPayload {
                 shop_id: record.shop_id,
+                seller_id: record.seller_id,
                 shops_product_id: record.shops_product_id.clone(),
                 old_state: ProductState::Sold,
                 new_state: ProductState::Removed,
@@ -3490,6 +3511,8 @@ async fn should_respond_200_when_product_search_hits_authenticated() {
         period_id: Default::default(),
         shop_name_query: ["Hans Volkers Shop".into()].into(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: Some(RangeQuery {
             min: None,
@@ -3637,6 +3660,8 @@ async fn should_respond_200_when_product_search_hits_anon() {
         period_id: Default::default(),
         shop_name_query: ["Hans Volkers Shop".into()].into(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: Some(RangeQuery {
             min: None,
@@ -4192,6 +4217,9 @@ async fn should_post_get_patch_delete_search_filter() {
             category_id: None,
             period_id: None,
             shop_name_query: None,
+            exclude_shop_name_query: None,
+            seller_name_query: None,
+            exclude_seller_name_query: None,
             shop_type_query: None,
             price_query: None,
             state_query: None,

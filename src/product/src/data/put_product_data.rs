@@ -57,6 +57,9 @@ pub struct PutProductData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub origin_year: Option<OriginYearData>,
 
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub seller_name: Option<String>,
+
     #[serde(default)]
     pub authenticity: AuthenticityData,
 
@@ -93,6 +96,7 @@ mod faker {
                 auction_start: None,
                 auction_end: None,
                 origin_year: None,
+                seller_name: None,
                 authenticity: Default::default(),
                 condition: Default::default(),
                 provenance: Default::default(),
@@ -135,6 +139,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             origin_year: None,
+            seller_name: None,
             authenticity: AuthenticityData::Unknown,
             condition: ConditionData::Unknown,
             provenance: ProvenanceData::Unknown,
@@ -196,6 +201,7 @@ mod tests {
                 year: None,
                 max: Some(1900.into()),
             }),
+            seller_name: None,
             authenticity: AuthenticityData::Original,
             condition: ConditionData::Good,
             provenance: ProvenanceData::Complete,
@@ -223,6 +229,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             origin_year: None,
+            seller_name: None,
             authenticity: AuthenticityData::Unknown,
             condition: ConditionData::Unknown,
             provenance: ProvenanceData::Unknown,
