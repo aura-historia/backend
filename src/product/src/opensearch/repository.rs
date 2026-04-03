@@ -383,6 +383,13 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
             }
         }));
     }
+    if !search.exclude_seller_name_query.is_empty() {
+        must_not.push(json!({
+            "terms": {
+                "sellerName": search.exclude_seller_name_query.iter().map(ShopName::as_ref).collect::<Vec<_>>()
+            }
+        }));
+    }
 
     // ---------- Price ----------
     let price_field = match search.currency {
@@ -473,6 +480,13 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
         &mut filter,
         &search.shop_name_query,
         ProductDocumentSerdeField::ShopName,
+        |v| v.as_ref(),
+    );
+
+    apply_any_of_filter(
+        &mut filter,
+        &search.seller_name_query,
+        ProductDocumentSerdeField::SellerName,
         |v| v.as_ref(),
     );
 

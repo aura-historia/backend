@@ -94,6 +94,8 @@ mod tests {
                 period_id: HashSet::from_iter([PeriodId::from("baroque")]),
                 shop_name_query: ["Baap".into()].into(),
                 exclude_shop_name_query: ["baddlebap".into()].into(),
+                seller_name_query: Default::default(),
+                exclude_seller_name_query: Default::default(),
                 shop_type_query: HashSet::new(),
                 price_query: Some(RangeQuery {
                     min: Some(37),

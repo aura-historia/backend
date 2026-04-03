@@ -115,7 +115,9 @@ async fn should_percolate_document_when_query_is_empty() {
     record.category_id.clear();
     record.period_id.clear();
     record.shop_name_query.clear();
+    record.seller_name_query.clear();
     record.exclude_shop_name_query.clear();
+    record.exclude_seller_name_query.clear();
     record.shop_type_query.clear();
     record.price_query = None;
     record.state_query.clear();
@@ -1160,6 +1162,8 @@ fn base_record() -> UserSearchFilterRecord {
         period_id: HashSet::from_iter([PeriodId::from("baroque")]),
         shop_name_query: HashSet::new(),
         exclude_shop_name_query: HashSet::new(),
+        seller_name_query: HashSet::new(),
+        exclude_seller_name_query: HashSet::new(),
         shop_type_query: HashSet::new(),
         price_query: None,
         state_query: HashSet::new(),
@@ -1299,6 +1303,8 @@ fn base_query_record() -> UserSearchFilterRecord {
         period_id: HashSet::new(),
         shop_name_query: HashSet::new(),
         exclude_shop_name_query: HashSet::new(),
+        seller_name_query: HashSet::new(),
+        exclude_seller_name_query: HashSet::new(),
         shop_type_query: HashSet::new(),
         price_query: None,
         state_query: HashSet::new(),

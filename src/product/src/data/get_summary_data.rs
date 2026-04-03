@@ -25,6 +25,7 @@ pub struct GetProductSummaryData {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: String,
+    pub seller_name: String,
     pub shop_type: ShopTypeData,
 
     pub title: LocalizedTextData,
@@ -64,6 +65,7 @@ impl GetProductSummaryData {
             shop_id: product_view.shop_id,
             shops_product_id: product_view.shops_product_id,
             shop_name: product_view.shop_name.into(),
+            seller_name: product_view.seller_name.into(),
             shop_type: product_view.shop_type.into(),
             title: product_view.title.into(),
             price: product_view.price.map(PriceData::from),
@@ -150,6 +152,7 @@ mod tests {
             shop_id,
             shops_product_id: shops_product_id.clone(),
             shop_name: "My shop".into(),
+            seller_name: "My seller".into(),
             shop_type: ShopTypeData::AuctionHouse,
             title: LocalizedTextData::new("Mein titel", LanguageData::De),
             price: Some(PriceData::new(CurrencyData::Eur, 50000)),
@@ -181,6 +184,7 @@ mod tests {
             "shopId": shop_id,
             "shopsProductId": shops_product_id,
             "shopName": "My shop",
+            "sellerName": "My seller",
             "shopType": "AUCTION_HOUSE",
             "title": {
                 "text": "Mein titel",

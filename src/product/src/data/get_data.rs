@@ -32,6 +32,7 @@ pub struct GetProductData {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: String,
+    pub seller_name: String,
     pub shop_type: ShopTypeData,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub category_id: Option<CategoryId>,
@@ -123,6 +124,7 @@ impl GetProductData {
             shop_id: product_view.shop_id,
             shops_product_id: product_view.shops_product_id,
             shop_name: product_view.shop_name.into(),
+            seller_name: product_view.seller_name.into(),
             shop_type: product_view.shop_type.into(),
             category_id: product_view.category_id,
             category: product_view.category_name.map(LocalizedTextData::from),
@@ -227,6 +229,7 @@ mod tests {
             shop_id,
             shops_product_id: shops_product_id.clone(),
             shop_name: "My shop".into(),
+            seller_name: "My seller".into(),
             shop_type: ShopTypeData::AuctionHouse,
             category_id: Some("musical-instruments".into()),
             category: Some(LocalizedTextData::new("Musikinstrumente", LanguageData::De)),
@@ -287,6 +290,7 @@ mod tests {
             "shopId": shop_id,
             "shopsProductId": shops_product_id,
             "shopName": "My shop",
+            "sellerName": "My seller",
             "shopType": "AUCTION_HOUSE",
             "categoryId": "musical-instruments",
             "category": {

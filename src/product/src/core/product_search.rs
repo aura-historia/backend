@@ -25,6 +25,8 @@ pub struct ProductSearch {
     pub period_id: AnyOfQuery<PeriodId>,
     pub shop_name_query: AnyOfQuery<ShopName>,
     pub exclude_shop_name_query: AnyOfQuery<ShopName>,
+    pub seller_name_query: AnyOfQuery<ShopName>,
+    pub exclude_seller_name_query: AnyOfQuery<ShopName>,
     pub shop_type_query: AnyOfQuery<ShopType>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
     pub state_query: AnyOfQuery<ProductState>,
@@ -49,6 +51,8 @@ impl ProductSearch {
             period_id: AnyOfQuery::default(),
             shop_name_query: AnyOfQuery::default(),
             exclude_shop_name_query: AnyOfQuery::default(),
+            seller_name_query: AnyOfQuery::default(),
+            exclude_seller_name_query: AnyOfQuery::default(),
             shop_type_query: AnyOfQuery::default(),
             price_query: None,
             state_query: AnyOfQuery::default(),
@@ -89,6 +93,19 @@ impl ProductSearch {
         exclude_shop_name_query: AnyOfQuery<ShopName>,
     ) -> Self {
         self.exclude_shop_name_query = exclude_shop_name_query;
+        self
+    }
+
+    pub fn with_seller_name_query(mut self, seller_name_query: AnyOfQuery<ShopName>) -> Self {
+        self.seller_name_query = seller_name_query;
+        self
+    }
+
+    pub fn with_exclude_seller_name_query(
+        mut self,
+        exclude_seller_name_query: AnyOfQuery<ShopName>,
+    ) -> Self {
+        self.exclude_seller_name_query = exclude_seller_name_query;
         self
     }
 
@@ -171,6 +188,8 @@ pub mod faker {
                 period_id: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 exclude_shop_name_query: config.fake_with_rng(rng),
+                seller_name_query: config.fake_with_rng(rng),
+                exclude_seller_name_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
