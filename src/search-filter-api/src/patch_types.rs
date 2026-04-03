@@ -68,6 +68,13 @@ pub struct PatchProductSearchData {
     #[serde(rename = "shopName", skip_serializing_if = "Option::is_none", default)]
     pub shop_name_query: Option<HashSet<ShopName>>,
 
+    #[serde(
+        rename = "sellerName",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub seller_name_query: Option<HashSet<ShopName>>,
+
     #[serde(rename = "shopType", skip_serializing_if = "Option::is_none", default)]
     pub shop_type_query: Option<HashSet<ShopTypeData>>,
 
@@ -150,6 +157,10 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
                 .search
                 .as_ref()
                 .and_then(|sf| sf.shop_name_query.clone()),
+            seller_name_query: patch
+                .search
+                .as_ref()
+                .and_then(|sf| sf.seller_name_query.clone()),
             shop_type_query: patch.search.as_ref().and_then(|sf| {
                 sf.shop_type_query
                     .clone()
@@ -207,6 +218,7 @@ mod faker {
                 category_id: config.fake_with_rng(rng),
                 period_id: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
+                seller_name_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
@@ -277,6 +289,7 @@ mod tests {
             category_id: Some(HashSet::from_iter([CategoryId::from("furniture")])),
             period_id: Some(HashSet::from_iter([PeriodId::from("baroque")])),
             shop_name_query: Some(HashSet::from_iter([ShopName::from("Baap")])),
+            seller_name_query: None,
             shop_type_query: None,
             price_query: Some(RangeQuery {
                 min: Some(37),
@@ -350,6 +363,7 @@ mod tests {
                 category_id: Some(HashSet::from_iter([CategoryId::from("furniture")])),
                 period_id: Some(HashSet::from_iter([PeriodId::from("baroque")])),
                 shop_name_query: Some(["Baap".into()].into()),
+                seller_name_query: None,
                 shop_type_query: None,
                 price_query: Some(RangeQuery {
                     min: Some(37),

@@ -108,6 +108,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -264,6 +266,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -425,6 +429,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -548,6 +554,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -675,6 +683,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -803,6 +813,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -941,6 +953,8 @@ async fn should_200_when_created_query(
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -1050,6 +1064,8 @@ async fn should_200_when_updated_query(
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -1159,6 +1175,8 @@ async fn should_200_when_year_query(#[case] min: Option<Year>, #[case] max: Opti
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -1250,6 +1268,8 @@ async fn should_200_when_authenticity_query(#[case] query: HashSet<AuthenticityD
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -1344,6 +1364,8 @@ async fn should_200_when_condition_query(#[case] query: HashSet<ConditionData>) 
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -1436,6 +1458,8 @@ async fn should_200_when_provenance_query(#[case] query: HashSet<ProvenanceData>
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -1528,6 +1552,8 @@ async fn should_200_when_restoration_query(#[case] query: HashSet<RestorationDat
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -1620,6 +1646,8 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -1743,6 +1771,8 @@ async fn should_respond_200_and_respect_language_query_param(
                 period_id: Default::default(),
                 shop_name_query: Default::default(),
                 exclude_shop_name_query: Default::default(),
+                seller_name_query: Default::default(),
+                exclude_seller_name_query: Default::default(),
                 shop_type_query: Default::default(),
                 price_query: None,
                 state_query: Default::default(),
@@ -1815,6 +1845,8 @@ async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: query.clone(),
         price_query: None,
         state_query: Default::default(),
@@ -1911,6 +1943,8 @@ async fn should_200_when_shop_name_query_for_keyword_filter(#[case] query: HashS
         period_id: Default::default(),
         shop_name_query: query.iter().map(|s| s.to_string().into()).collect(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -2014,6 +2048,8 @@ async fn should_200_when_exclude_shop_name_query(#[case] query: HashSet<&str>) {
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: query.iter().map(|s| s.to_string().into()).collect(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -2111,6 +2147,8 @@ async fn should_200_when_category_id_filter_is_given() {
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -2201,6 +2239,8 @@ async fn should_200_when_period_id_filter_is_given() {
         period_id: HashSet::from_iter([period_id.clone()]),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -2289,6 +2329,8 @@ async fn should_200_when_auction_start_range_is_given() {
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -2381,6 +2423,8 @@ async fn should_200_when_auction_end_range_is_given() {
         period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -2453,9 +2497,7 @@ async fn should_200_when_auction_end_range_is_given() {
 #[case(["Sotheby's", "Christie's"].into())]
 #[trace]
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
-async fn should_200_when_shop_name_query_also_matches_seller_name_via_or(
-    #[case] query: HashSet<&str>,
-) {
+async fn should_200_when_seller_name_query_for_keyword_filter(#[case] query: HashSet<&str>) {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -2476,11 +2518,13 @@ async fn should_200_when_shop_name_query_also_matches_seller_name_via_or(
     let search = ProductSearchData {
         language: LanguageData::De,
         currency: CurrencyData::Eur,
-        product_query: Some("Seller name OR shop name test".try_into().unwrap()),
+        product_query: Some("Seller name keyword filter test".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
-        shop_name_query: query.iter().map(|s| s.to_string().into()).collect(),
+        shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
+        seller_name_query: query.iter().map(|s| s.to_string().into()).collect(),
+        exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -2495,35 +2539,21 @@ async fn should_200_when_shop_name_query_also_matches_seller_name_via_or(
         auction_end_query: None,
     };
 
-    let shop_names_vec: Vec<&str> = query.iter().copied().collect();
+    let seller_names_vec: Vec<&str> = query.iter().copied().collect();
 
-    let mut products_matching_shop_name = fake::vec![ProductDocument; 300];
-    for (idx, product) in products_matching_shop_name.iter_mut().enumerate() {
-        product.title_de = Some("Seller name OR shop name test".to_string());
-        product.shop_name = shop_names_vec[idx % shop_names_vec.len()].to_string();
-        product.seller_name = "Other Seller".to_string();
+    let mut products_with_target_sellers = fake::vec![ProductDocument; 685];
+    for (idx, product) in products_with_target_sellers.iter_mut().enumerate() {
+        product.title_de = Some("Seller name keyword filter test".to_string());
+        product.seller_name = seller_names_vec[idx % seller_names_vec.len()].to_string();
     }
 
-    let mut products_matching_seller_name = fake::vec![ProductDocument; 300];
-    for (idx, product) in products_matching_seller_name.iter_mut().enumerate() {
-        product.title_de = Some("Seller name OR shop name test".to_string());
-        product.shop_name = "Other Shop".to_string();
-        product.seller_name = shop_names_vec[idx % shop_names_vec.len()].to_string();
+    let mut products_with_other_sellers = fake::vec![ProductDocument; 685];
+    for product in &mut products_with_other_sellers {
+        product.title_de = Some("Seller name keyword filter test".to_string());
+        product.seller_name = "Other Seller House".to_string();
     }
 
-    let mut products_not_matching = fake::vec![ProductDocument; 300];
-    for product in &mut products_not_matching {
-        product.title_de = Some("Seller name OR shop name test".to_string());
-        product.shop_name = "Other Shop".to_string();
-        product.seller_name = "Other Seller".to_string();
-    }
-
-    let all_products = [
-        products_matching_shop_name,
-        products_matching_seller_name,
-        products_not_matching,
-    ]
-    .concat();
+    let all_products = [products_with_target_sellers, products_with_other_sellers].concat();
     let create_res = opensearch_repository
         .create_product_documents(all_products)
         .await
@@ -2535,7 +2565,6 @@ async fn should_200_when_shop_name_query_also_matches_seller_name_via_or(
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::POST)
-            .query_string_parameter("size", "1000")
             .body_serde(&search)
             .build(),
         context: Default::default(),
@@ -2555,11 +2584,15 @@ async fn should_200_when_shop_name_query_also_matches_seller_name_via_or(
     let response_data: JsonCursoredData<
         PersonalizedData<GetProductSummaryData, ProductUserStateData>,
     > = serde_json::from_value(json).unwrap();
-    assert_eq!(600, response_data.total.unwrap());
-    assert!(response_data.items.iter().all(|item| {
-        query.contains(item.item.shop_name.as_str())
-            || query.contains(item.item.seller_name.as_str())
-    }));
+    assert!(!response_data.items.is_empty());
+    assert_eq!(685, response_data.total.unwrap());
+    assert!(
+        response_data
+            .items
+            .iter()
+            .map(|item| item.item.seller_name.as_str())
+            .all(|actual| query.contains(actual))
+    );
 }
 
 #[rstest::rstest]
@@ -2568,9 +2601,7 @@ async fn should_200_when_shop_name_query_also_matches_seller_name_via_or(
 #[case(["Sotheby's", "Christie's"].into())]
 #[trace]
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
-async fn should_200_when_exclude_shop_name_query_also_excludes_by_seller_name(
-    #[case] query: HashSet<&str>,
-) {
+async fn should_200_when_exclude_seller_name_query(#[case] query: HashSet<&str>) {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -2591,11 +2622,13 @@ async fn should_200_when_exclude_shop_name_query_also_excludes_by_seller_name(
     let search = ProductSearchData {
         language: LanguageData::De,
         currency: CurrencyData::Eur,
-        product_query: Some("Seller name exclude OR shop name test".try_into().unwrap()),
+        product_query: Some("Exclude seller name filter test".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
-        exclude_shop_name_query: query.iter().map(|s| s.to_string().into()).collect(),
+        exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: query.iter().map(|s| s.to_string().into()).collect(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -2610,35 +2643,21 @@ async fn should_200_when_exclude_shop_name_query_also_excludes_by_seller_name(
         auction_end_query: None,
     };
 
-    let shop_names_vec: Vec<&str> = query.iter().copied().collect();
+    let seller_names_vec: Vec<&str> = query.iter().copied().collect();
 
-    let mut products_excluded_by_shop_name = fake::vec![ProductDocument; 300];
-    for (idx, product) in products_excluded_by_shop_name.iter_mut().enumerate() {
-        product.title_de = Some("Seller name exclude OR shop name test".to_string());
-        product.shop_name = shop_names_vec[idx % shop_names_vec.len()].to_string();
-        product.seller_name = "Other Seller".to_string();
+    let mut products_with_target_sellers = fake::vec![ProductDocument; 685];
+    for (idx, product) in products_with_target_sellers.iter_mut().enumerate() {
+        product.title_de = Some("Exclude seller name filter test".to_string());
+        product.seller_name = seller_names_vec[idx % seller_names_vec.len()].to_string();
     }
 
-    let mut products_excluded_by_seller_name = fake::vec![ProductDocument; 300];
-    for (idx, product) in products_excluded_by_seller_name.iter_mut().enumerate() {
-        product.title_de = Some("Seller name exclude OR shop name test".to_string());
-        product.shop_name = "Other Shop".to_string();
-        product.seller_name = shop_names_vec[idx % shop_names_vec.len()].to_string();
+    let mut products_with_other_sellers = fake::vec![ProductDocument; 685];
+    for product in &mut products_with_other_sellers {
+        product.title_de = Some("Exclude seller name filter test".to_string());
+        product.seller_name = "Other Seller House".to_string();
     }
 
-    let mut products_not_excluded = fake::vec![ProductDocument; 300];
-    for product in &mut products_not_excluded {
-        product.title_de = Some("Seller name exclude OR shop name test".to_string());
-        product.shop_name = "Other Shop".to_string();
-        product.seller_name = "Other Seller".to_string();
-    }
-
-    let all_products = [
-        products_excluded_by_shop_name,
-        products_excluded_by_seller_name,
-        products_not_excluded,
-    ]
-    .concat();
+    let all_products = [products_with_target_sellers, products_with_other_sellers].concat();
     let create_res = opensearch_repository
         .create_product_documents(all_products)
         .await
@@ -2650,7 +2669,6 @@ async fn should_200_when_exclude_shop_name_query_also_excludes_by_seller_name(
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::POST)
-            .query_string_parameter("size", "1000")
             .body_serde(&search)
             .build(),
         context: Default::default(),
@@ -2670,9 +2688,13 @@ async fn should_200_when_exclude_shop_name_query_also_excludes_by_seller_name(
     let response_data: JsonCursoredData<
         PersonalizedData<GetProductSummaryData, ProductUserStateData>,
     > = serde_json::from_value(json).unwrap();
-    assert_eq!(300, response_data.total.unwrap());
-    assert!(response_data.items.iter().all(|item| {
-        !query.contains(item.item.shop_name.as_str())
-            && !query.contains(item.item.seller_name.as_str())
-    }));
+    assert!(!response_data.items.is_empty());
+    assert_eq!(685, response_data.total.unwrap());
+    assert!(
+        response_data
+            .items
+            .iter()
+            .map(|item| item.item.seller_name.as_str())
+            .all(|actual| !query.contains(actual))
+    );
 }

@@ -26,6 +26,7 @@ async fn should_update_search_filter_record() {
         category_id: None,
         period_id: None,
         shop_name_query: None,
+        seller_name_query: None,
         shop_type_query: None,
         price_query: None,
         state_query: None,

@@ -377,18 +377,16 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
 
     // ---------- Exclusions ----------
     if !search.exclude_shop_name_query.is_empty() {
-        let names: Vec<&str> = search
-            .exclude_shop_name_query
-            .iter()
-            .map(ShopName::as_ref)
-            .collect();
         must_not.push(json!({
-            "bool": {
-                "should": [
-                    { "terms": { "shopName": names } },
-                    { "terms": { "sellerName": names } }
-                ],
-                "minimum_should_match": 1
+            "terms": {
+                "shopName": search.exclude_shop_name_query.iter().map(ShopName::as_ref).collect::<Vec<_>>()
+            }
+        }));
+    }
+    if !search.exclude_seller_name_query.is_empty() {
+        must_not.push(json!({
+            "terms": {
+                "sellerName": search.exclude_seller_name_query.iter().map(ShopName::as_ref).collect::<Vec<_>>()
             }
         }));
     }
@@ -478,22 +476,19 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
     }
 
     // ---------- AnyOf filters ----------
-    if !search.shop_name_query.is_empty() {
-        let names: Vec<&str> = search
-            .shop_name_query
-            .iter()
-            .map(ShopName::as_ref)
-            .collect();
-        filter.push(json!({
-            "bool": {
-                "should": [
-                    { "terms": { "shopName": names } },
-                    { "terms": { "sellerName": names } }
-                ],
-                "minimum_should_match": 1
-            }
-        }));
-    }
+    apply_any_of_filter(
+        &mut filter,
+        &search.shop_name_query,
+        ProductDocumentSerdeField::ShopName,
+        |v| v.as_ref(),
+    );
+
+    apply_any_of_filter(
+        &mut filter,
+        &search.seller_name_query,
+        ProductDocumentSerdeField::SellerName,
+        |v| v.as_ref(),
+    );
 
     apply_any_of_filter(
         &mut filter,

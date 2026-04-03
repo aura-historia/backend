@@ -208,6 +208,8 @@ mod tests {
             period_id: Default::default(),
             shop_name_query: Default::default(),
             exclude_shop_name_query: Default::default(),
+            seller_name_query: Default::default(),
+            exclude_seller_name_query: Default::default(),
             shop_type_query: Default::default(),
             price_query: None,
             state_query: Default::default(),
