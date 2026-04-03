@@ -64,10 +64,13 @@ impl<'a> ProductEventSearchFilterNotificationsService
                 product_id: event.aggregate_id,
                 product_slug_id: created_payload.product_slug_id,
                 shop_slug_id: created_payload.shop_slug_id,
+                seller_slug_id: created_payload.seller_slug_id,
                 event_id: event.event_id,
                 shop_id: created_payload.shop_id,
+                seller_id: created_payload.seller_id,
                 shops_product_id: created_payload.shops_product_id,
                 shop_name: created_payload.shop_name,
+                seller_name: created_payload.seller_name,
                 shop_type: created_payload.shop_type,
                 category_id: None,
                 category_name: Default::default(),
@@ -174,6 +177,7 @@ fn mk_search_filter_notification_command(
             product_slug_id: product.product_slug_id.clone(),
             shop_name: product.shop_name.clone(),
             title: product.titles(),
+            image: product.images.first().cloned(),
             search_filter_payload: NotificationSearchFilterPayload {
                 user_search_filter_id: filter.user_search_filter_id,
                 user_search_filter_name: filter.name,
@@ -212,6 +216,7 @@ mod tests {
             payload: ProductEventPayload::ProductDomainEvent(
                 ProductDomainEventPayload::StateChanged(ProductStateChangeDomainEventPayload {
                     shop_id: product.shop_id,
+                    seller_id: product.seller_id,
                     shops_product_id: product.shops_product_id.clone(),
                     old_state: ProductState::Available,
                     new_state: ProductState::Listed,
@@ -229,9 +234,12 @@ mod tests {
                 ProductCreatedDomainEventPayload {
                     product_slug_id: product.product_slug_id.clone(),
                     shop_slug_id: product.shop_slug_id.clone(),
+                    seller_slug_id: product.seller_slug_id.clone(),
                     shop_id: product.shop_id,
+                    seller_id: product.shop_id,
                     shops_product_id: product.shops_product_id.clone(),
                     shop_name: product.shop_name.clone(),
+                    seller_name: product.seller_name.clone(),
                     shop_type: product.shop_type,
                     native_title: product.native_title.clone(),
                     native_description: product.native_description.clone(),
@@ -697,5 +705,92 @@ mod tests {
         let cmds = result.unwrap();
         assert_eq!(cmds.len(), 1);
         assert_eq!(cmds[0].user_id, user_id);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Image field is forwarded to notification command
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn should_set_first_image_when_product_has_images_for_search_filter_command() {
+        let first_image: product::core::product_image::ProductImage = Faker.fake();
+        let second_image: product::core::product_image::ProductImage = Faker.fake();
+        let base: Product = Faker.fake();
+        let product = Product {
+            images: vec![first_image.clone(), second_image],
+            ..base
+        };
+        let expected_image = first_image;
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+        let summary = mk_filter_summary(UserId::new());
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| Box::pin(async move { Ok(vec![summary]) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+
+        let service =
+            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+
+        let result = service.determine_notification_commands(event).await;
+
+        let cmds = result.unwrap();
+        assert_eq!(cmds.len(), 1);
+        let actual_image = match &cmds[0].notification_payload {
+            NotificationPayload::SearchFilter { image, .. } => image.clone(),
+            _ => unreachable!("expected SearchFilter payload"),
+        };
+        assert_eq!(
+            Some(expected_image),
+            actual_image,
+            "expected first image to be set"
+        );
+    }
+
+    #[tokio::test]
+    async fn should_set_image_to_none_when_product_has_no_images_for_search_filter_command() {
+        let base: Product = Faker.fake();
+        let product = Product {
+            images: vec![],
+            ..base
+        };
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+        let summary = mk_filter_summary(UserId::new());
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| Box::pin(async move { Ok(vec![summary]) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+
+        let service =
+            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+
+        let result = service.determine_notification_commands(event).await;
+
+        let cmds = result.unwrap();
+        assert_eq!(cmds.len(), 1);
+        let actual_image = match &cmds[0].notification_payload {
+            NotificationPayload::SearchFilter { image, .. } => image.clone(),
+            _ => unreachable!("expected SearchFilter payload"),
+        };
+        assert!(actual_image.is_none(), "expected image to be None");
     }
 }

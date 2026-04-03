@@ -715,6 +715,7 @@ mod tests {
                 product_slug_id: Faker.fake(),
                 shop_name: Faker.fake(),
                 title: std::collections::HashMap::new(),
+                image: None,
                 watchlist_payload: NotificationWatchlistPayload::StateChange {
                     old_state: common::product_state::domain::ProductState::Listed,
                     new_state: common::product_state::domain::ProductState::Available,

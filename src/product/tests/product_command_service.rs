@@ -82,8 +82,10 @@ fn exchange_all(price: Option<Price>) -> HashMap<Currency, MonetaryAmount> {
 fn make_product_record(cmd: &CreateProductCommand) -> ProductRecord {
     let event_record: ProductDomainEventRecord = Product::create(
         cmd.shop_id,
+        cmd.seller_id,
         cmd.shops_product_id.clone(),
         cmd.shop_name.clone(),
+        cmd.seller_name.clone(),
         cmd.shop_type,
         cmd.native_title.clone(),
         cmd.native_description.clone(),
@@ -435,8 +437,10 @@ async fn should_update_existing_products_via_upsert_when_all_exist() {
         .map(
             |cmd| product::service::product_command::UpsertProductCommand {
                 shop_id: cmd.shop_id,
+                seller_id: cmd.seller_id,
                 shops_product_id: cmd.shops_product_id.clone(),
                 shop_name: cmd.shop_name.clone(),
+                seller_name: cmd.seller_name.clone(),
                 shop_type: cmd.shop_type,
                 native_title: Some(cmd.native_title.clone()),
                 native_description: cmd.native_description.clone(),
@@ -509,8 +513,10 @@ async fn should_create_and_update_mixed_products_via_upsert() {
             .map(
                 |cmd| product::service::product_command::UpsertProductCommand {
                     shop_id: cmd.shop_id,
+                    seller_id: cmd.seller_id,
                     shops_product_id: cmd.shops_product_id.clone(),
                     shop_name: cmd.shop_name.clone(),
+                    seller_name: cmd.seller_name.clone(),
                     shop_type: cmd.shop_type,
                     native_title: Some(cmd.native_title.clone()),
                     native_description: cmd.native_description.clone(),

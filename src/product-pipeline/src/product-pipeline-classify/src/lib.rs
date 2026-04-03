@@ -232,6 +232,7 @@ pub async fn handler(
                 ProductEnrichmentEventPayload::ClassifiedCategory(
                     ClassifiedCategoryProductEnrichmentEventPayload {
                         shop_id: enrichment_record.shop_id,
+                        seller_id: enrichment_record.seller_id,
                         shops_product_id: enrichment_record.shops_product_id.clone(),
                         category_id: chosen_category,
                     },
@@ -247,6 +248,7 @@ pub async fn handler(
                 ProductEnrichmentEventPayload::ClassifiedPeriod(
                     ClassifiedPeriodProductEnrichmentEventPayload {
                         shop_id: enrichment_record.shop_id,
+                        seller_id: enrichment_record.seller_id,
                         shops_product_id: enrichment_record.shops_product_id,
                         period_id: chosen_period,
                     },

@@ -94,7 +94,9 @@ mod tests {
         record.product_query = None;
         record.period_id.clear();
         record.shop_name_query.clear();
+        record.seller_name_query.clear();
         record.exclude_shop_name_query.clear();
+        record.exclude_seller_name_query.clear();
         record.shop_type_query.clear();
         record.price_query = None;
         record.state_query.clear();

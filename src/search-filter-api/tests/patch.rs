@@ -48,6 +48,9 @@ async fn should_update_search_filter() {
             category_id: None,
             period_id: None,
             shop_name_query: Some(HashSet::from_iter([ShopName::from("Whoop boop woah")])),
+            exclude_shop_name_query: None,
+            seller_name_query: None,
+            exclude_seller_name_query: None,
             shop_type_query: None,
             price_query: Some(RangeQuery {
                 min: Some(37),

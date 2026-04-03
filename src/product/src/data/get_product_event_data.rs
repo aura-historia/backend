@@ -145,6 +145,7 @@ pub struct GetProductEventData {
     pub product_id: ProductId,
     pub event_id: EventId,
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub payload: ProductEventPayloadData,
 
@@ -154,10 +155,11 @@ pub struct GetProductEventData {
 
 impl From<Event<ProductId, LocalizedProductDomainEventPayloadView>> for GetProductEventData {
     fn from(event: Event<ProductId, LocalizedProductDomainEventPayloadView>) -> Self {
-        let (event_type, shop_id, shops_product_id, payload) = match event.payload {
+        let (event_type, shop_id, seller_id, shops_product_id, payload) = match event.payload {
             LocalizedProductDomainEventPayloadView::Created(payload) => (
                 ProductEventTypeData::Created,
                 payload.shop_id,
+                payload.seller_id,
                 payload.shops_product_id,
                 ProductEventPayloadData::Created(ProductCreatedEventPayloadData {
                     price: payload.price.map(PriceData::from),
@@ -167,6 +169,7 @@ impl From<Event<ProductId, LocalizedProductDomainEventPayloadView>> for GetProdu
             LocalizedProductDomainEventPayloadView::StateChanged(payload) => (
                 ProductEventTypeData::StateChanged,
                 payload.shop_id,
+                payload.seller_id,
                 payload.shops_product_id,
                 ProductEventPayloadData::StateChanged(ProductEventStateChangedPayloadData {
                     old_state: payload.old_state.into(),
@@ -176,6 +179,7 @@ impl From<Event<ProductId, LocalizedProductDomainEventPayloadView>> for GetProdu
             LocalizedProductDomainEventPayloadView::PriceChanged(payload) => (
                 ProductEventTypeData::PriceChanged,
                 payload.shop_id,
+                payload.seller_id,
                 payload.shops_product_id,
                 ProductEventPayloadData::PriceChanged(ProductEventPriceChangedPayloadData {
                     old_price: payload.old_price.map(PriceData::from),
@@ -185,6 +189,7 @@ impl From<Event<ProductId, LocalizedProductDomainEventPayloadView>> for GetProdu
             LocalizedProductDomainEventPayloadView::EstimatePriceChanged(payload) => (
                 ProductEventTypeData::EstimatePriceChanged,
                 payload.shop_id,
+                payload.seller_id,
                 payload.shops_product_id,
                 ProductEventPayloadData::EstimatePriceChanged(
                     ProductEventEstimatePriceChangedPayloadData {
@@ -196,6 +201,7 @@ impl From<Event<ProductId, LocalizedProductDomainEventPayloadView>> for GetProdu
             LocalizedProductDomainEventPayloadView::UrlChanged(payload) => (
                 ProductEventTypeData::UrlChanged,
                 payload.shop_id,
+                payload.seller_id,
                 payload.shops_product_id,
                 ProductEventPayloadData::UrlChanged(ProductEventUrlChangedPayloadData {
                     url: payload.url,
@@ -204,6 +210,7 @@ impl From<Event<ProductId, LocalizedProductDomainEventPayloadView>> for GetProdu
             LocalizedProductDomainEventPayloadView::ImagesChanged(payload) => (
                 ProductEventTypeData::ImagesChanged,
                 payload.shop_id,
+                payload.seller_id,
                 payload.shops_product_id,
                 ProductEventPayloadData::ImagesChanged(ProductEventImagesChangedPayloadData {
                     images: payload
@@ -216,6 +223,7 @@ impl From<Event<ProductId, LocalizedProductDomainEventPayloadView>> for GetProdu
             LocalizedProductDomainEventPayloadView::AuctionTimeChanged(payload) => (
                 ProductEventTypeData::AuctionTimeChanged,
                 payload.shop_id,
+                payload.seller_id,
                 payload.shops_product_id,
                 ProductEventPayloadData::AuctionTimeChanged(
                     ProductEventAuctionTimeChangedPayloadData {
@@ -227,6 +235,7 @@ impl From<Event<ProductId, LocalizedProductDomainEventPayloadView>> for GetProdu
             LocalizedProductDomainEventPayloadView::OriginYearChanged(payload) => (
                 ProductEventTypeData::OriginYearChanged,
                 payload.shop_id,
+                payload.seller_id,
                 payload.shops_product_id,
                 ProductEventPayloadData::OriginYearChanged(
                     ProductEventOriginYearChangedPayloadData {
@@ -237,6 +246,7 @@ impl From<Event<ProductId, LocalizedProductDomainEventPayloadView>> for GetProdu
             LocalizedProductDomainEventPayloadView::AuthenticityChanged(payload) => (
                 ProductEventTypeData::AuthenticityChanged,
                 payload.shop_id,
+                payload.seller_id,
                 payload.shops_product_id,
                 ProductEventPayloadData::AuthenticityChanged(
                     ProductEventAuthenticityChangedPayloadData {
@@ -247,6 +257,7 @@ impl From<Event<ProductId, LocalizedProductDomainEventPayloadView>> for GetProdu
             LocalizedProductDomainEventPayloadView::ConditionChanged(payload) => (
                 ProductEventTypeData::ConditionChanged,
                 payload.shop_id,
+                payload.seller_id,
                 payload.shops_product_id,
                 ProductEventPayloadData::ConditionChanged(
                     ProductEventConditionChangedPayloadData {
@@ -257,6 +268,7 @@ impl From<Event<ProductId, LocalizedProductDomainEventPayloadView>> for GetProdu
             LocalizedProductDomainEventPayloadView::ProvenanceChanged(payload) => (
                 ProductEventTypeData::ProvenanceChanged,
                 payload.shop_id,
+                payload.seller_id,
                 payload.shops_product_id,
                 ProductEventPayloadData::ProvenanceChanged(
                     ProductEventProvenanceChangedPayloadData {
@@ -267,6 +279,7 @@ impl From<Event<ProductId, LocalizedProductDomainEventPayloadView>> for GetProdu
             LocalizedProductDomainEventPayloadView::RestorationChanged(payload) => (
                 ProductEventTypeData::RestorationChanged,
                 payload.shop_id,
+                payload.seller_id,
                 payload.shops_product_id,
                 ProductEventPayloadData::RestorationChanged(
                     ProductEventRestorationChangedPayloadData {
@@ -281,6 +294,7 @@ impl From<Event<ProductId, LocalizedProductDomainEventPayloadView>> for GetProdu
             product_id: event.aggregate_id,
             event_id: event.event_id,
             shop_id,
+            seller_id,
             shops_product_id,
             payload,
             timestamp: event.timestamp,
@@ -344,8 +358,10 @@ mod tests {
     #[case::created(
         LocalizedProductDomainEventPayloadView::Created(LocalizedProductCreatedDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             shop_name: "baz".into(),
+            seller_name: "bat".into(),
             title: Localized::new(common::language::domain::Language::De, "boop".into()),
             shop_type: fake::Faker.fake(),
             description: None,
@@ -359,6 +375,7 @@ mod tests {
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             payload: ProductEventPayloadData::Created(ProductCreatedEventPayloadData { price: Some(PriceData::new(CurrencyData::Eur, 500u64)), state: ProductStateData::Listed }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
@@ -367,6 +384,7 @@ mod tests {
     #[case::state_changed_to_listed(
         LocalizedProductDomainEventPayloadView::StateChanged(LocalizedProductStateChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_state: ProductState::Available,
             new_state: ProductState::Listed,
@@ -376,6 +394,7 @@ mod tests {
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             payload: ProductEventPayloadData::StateChanged(ProductEventStateChangedPayloadData { old_state: ProductStateData::Available, new_state: ProductStateData::Listed }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
@@ -384,6 +403,7 @@ mod tests {
     #[case::state_changed_to_available(
         LocalizedProductDomainEventPayloadView::StateChanged(LocalizedProductStateChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_state: ProductState::Listed,
             new_state: ProductState::Available,
@@ -393,6 +413,7 @@ mod tests {
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             payload: ProductEventPayloadData::StateChanged(ProductEventStateChangedPayloadData { old_state: ProductStateData::Listed, new_state: ProductStateData::Available }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
@@ -401,6 +422,7 @@ mod tests {
     #[case::state_changed_to_sold(
         LocalizedProductDomainEventPayloadView::StateChanged(LocalizedProductStateChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_state: ProductState::Reserved,
             new_state: ProductState::Sold,
@@ -410,6 +432,7 @@ mod tests {
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             payload: ProductEventPayloadData::StateChanged(ProductEventStateChangedPayloadData { old_state: ProductStateData::Reserved, new_state: ProductStateData::Sold }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
@@ -418,6 +441,7 @@ mod tests {
     #[case::price_discovered(
         LocalizedProductDomainEventPayloadView::PriceChanged(LocalizedProductPriceChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_price: None,
             new_price: Some(Price::new(500u64.into(), Currency::Eur)),
@@ -427,6 +451,7 @@ mod tests {
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             payload: ProductEventPayloadData::PriceChanged(ProductEventPriceChangedPayloadData {
                 old_price: None,
@@ -438,6 +463,7 @@ mod tests {
     #[case::price_dropped(
         LocalizedProductDomainEventPayloadView::PriceChanged(LocalizedProductPriceChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_price: Some(Price::new(700u64.into(), Currency::Eur)),
             new_price: Some(Price::new(500u64.into(), Currency::Eur)),
@@ -447,6 +473,7 @@ mod tests {
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             payload: ProductEventPayloadData::PriceChanged(ProductEventPriceChangedPayloadData { old_price: Some(PriceData::new(CurrencyData::Eur, 700u64)), new_price: Some(PriceData::new(CurrencyData::Eur, 500u64)) }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
@@ -455,6 +482,7 @@ mod tests {
     #[case::price_increased(
         LocalizedProductDomainEventPayloadView::PriceChanged(LocalizedProductPriceChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_price: Some(Price::new(500u64.into(), Currency::Eur)),
             new_price: Some(Price::new(777u64.into(), Currency::Eur)),
@@ -464,6 +492,7 @@ mod tests {
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             payload: ProductEventPayloadData::PriceChanged(ProductEventPriceChangedPayloadData { old_price: Some(PriceData::new(CurrencyData::Eur, 500u64)), new_price: Some(PriceData::new(CurrencyData::Eur, 777u64)) }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
@@ -472,6 +501,7 @@ mod tests {
     #[case::price_removed(
         LocalizedProductDomainEventPayloadView::PriceChanged(LocalizedProductPriceChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_price: Some(Price::new(500u64.into(), Currency::Eur)),
             new_price: None,
@@ -481,6 +511,7 @@ mod tests {
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             payload: ProductEventPayloadData::PriceChanged(ProductEventPriceChangedPayloadData { old_price: Some(PriceData::new(CurrencyData::Eur, 500u64)), new_price: None }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
@@ -489,6 +520,7 @@ mod tests {
     #[case::estimate_price_changed(
         LocalizedProductDomainEventPayloadView::EstimatePriceChanged(LocalizedProductEstimatePriceChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             price_estimate_min: Some(Price::new(100u64.into(), Currency::Eur)),
             price_estimate_max: Some(Price::new(500u64.into(), Currency::Eur)),
@@ -498,6 +530,7 @@ mod tests {
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             payload: ProductEventPayloadData::EstimatePriceChanged(ProductEventEstimatePriceChangedPayloadData {
                 price_estimate_min: Some(PriceData::new(CurrencyData::Eur, 100u64)),
@@ -509,6 +542,7 @@ mod tests {
     #[case::url_changed(
         LocalizedProductDomainEventPayloadView::UrlChanged(LocalizedProductUrlChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             url: Url::parse("https://foo.bar/new-url").unwrap(),
         }),
@@ -517,6 +551,7 @@ mod tests {
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             payload: ProductEventPayloadData::UrlChanged(ProductEventUrlChangedPayloadData {
                 url: Url::parse("https://foo.bar/new-url").unwrap(),
@@ -527,6 +562,7 @@ mod tests {
     #[case::images_changed(
         LocalizedProductDomainEventPayloadView::ImagesChanged(LocalizedProductImagesChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             images: vec![],
         }),
@@ -535,6 +571,7 @@ mod tests {
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             payload: ProductEventPayloadData::ImagesChanged(ProductEventImagesChangedPayloadData {
                 images: vec![],
@@ -545,6 +582,7 @@ mod tests {
     #[case::auction_time_changed(
         LocalizedProductDomainEventPayloadView::AuctionTimeChanged(LocalizedProductAuctionTimeChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             auction_start: None,
             auction_end: None,
@@ -554,6 +592,7 @@ mod tests {
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             payload: ProductEventPayloadData::AuctionTimeChanged(ProductEventAuctionTimeChangedPayloadData {
                 auction_start: None,
@@ -565,6 +604,7 @@ mod tests {
     #[case::origin_year_changed(
         LocalizedProductDomainEventPayloadView::OriginYearChanged(LocalizedProductOriginYearChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             origin_year: OriginYear::ExactYear(common::year::Year::from(1900i32)),
         }),
@@ -573,6 +613,7 @@ mod tests {
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             payload: ProductEventPayloadData::OriginYearChanged(ProductEventOriginYearChangedPayloadData {
                 origin_year: OriginYearData { min: None, year: Some(common::year::Year::from(1900i32)), max: None },
@@ -583,6 +624,7 @@ mod tests {
     #[case::authenticity_changed(
         LocalizedProductDomainEventPayloadView::AuthenticityChanged(LocalizedProductAuthenticityChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             authenticity: Authenticity::Original,
         }),
@@ -591,6 +633,7 @@ mod tests {
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             payload: ProductEventPayloadData::AuthenticityChanged(ProductEventAuthenticityChangedPayloadData {
                 authenticity: AuthenticityData::Original,
@@ -601,6 +644,7 @@ mod tests {
     #[case::condition_changed(
         LocalizedProductDomainEventPayloadView::ConditionChanged(LocalizedProductConditionChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             condition: Condition::Excellent,
         }),
@@ -609,6 +653,7 @@ mod tests {
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             payload: ProductEventPayloadData::ConditionChanged(ProductEventConditionChangedPayloadData {
                 condition: ConditionData::Excellent,
@@ -619,6 +664,7 @@ mod tests {
     #[case::provenance_changed(
         LocalizedProductDomainEventPayloadView::ProvenanceChanged(LocalizedProductProvenanceChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             provenance: Provenance::Complete,
         }),
@@ -627,6 +673,7 @@ mod tests {
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             payload: ProductEventPayloadData::ProvenanceChanged(ProductEventProvenanceChangedPayloadData {
                 provenance: ProvenanceData::Complete,
@@ -637,6 +684,7 @@ mod tests {
     #[case::restoration_changed(
         LocalizedProductDomainEventPayloadView::RestorationChanged(LocalizedProductRestorationChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             restoration: Restoration::Minor,
         }),
@@ -645,6 +693,7 @@ mod tests {
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            seller_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             payload: ProductEventPayloadData::RestorationChanged(ProductEventRestorationChangedPayloadData {
                 restoration: RestorationData::Minor,

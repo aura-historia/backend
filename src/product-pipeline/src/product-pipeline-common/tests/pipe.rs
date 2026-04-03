@@ -50,6 +50,7 @@ impl PipeProcessor for Const42PipeProcessor {
                     payload: ProductEnrichmentEventPayload::TranslatedTitle(
                         TranslationProductEnrichmentEventPayload {
                             shop_id: product.shop_id,
+                            seller_id: product.seller_id,
                             shops_product_id: product.shops_product_id,
                             source_language: common::language::domain::Language::De,
                             target_language: common::language::domain::Language::En,

@@ -61,6 +61,18 @@ pub struct ProductSearchData {
     )]
     pub exclude_shop_name_query: HashSet<ShopName>,
     #[serde(
+        rename = "sellerName",
+        skip_serializing_if = "HashSet::is_empty",
+        default
+    )]
+    pub seller_name_query: HashSet<ShopName>,
+    #[serde(
+        rename = "excludeSellerName",
+        skip_serializing_if = "HashSet::is_empty",
+        default
+    )]
+    pub exclude_seller_name_query: HashSet<ShopName>,
+    #[serde(
         rename = "shopType",
         skip_serializing_if = "HashSet::is_empty",
         default
@@ -145,6 +157,8 @@ impl From<ProductSearch> for ProductSearchData {
             period_id: search_filter.period_id.into(),
             shop_name_query: search_filter.shop_name_query.into(),
             exclude_shop_name_query: search_filter.exclude_shop_name_query.into(),
+            seller_name_query: search_filter.seller_name_query.into(),
+            exclude_seller_name_query: search_filter.exclude_seller_name_query.into(),
             shop_type_query: search_filter
                 .shop_type_query
                 .into_iter()
@@ -197,6 +211,8 @@ impl From<ProductSearchData> for ProductSearch {
             period_id: data.period_id.into(),
             shop_name_query: data.shop_name_query.into(),
             exclude_shop_name_query: data.exclude_shop_name_query.into(),
+            seller_name_query: data.seller_name_query.into(),
+            exclude_seller_name_query: data.exclude_seller_name_query.into(),
             shop_type_query: data
                 .shop_type_query
                 .into_iter()
@@ -255,6 +271,8 @@ mod faker {
                 period_id: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 exclude_shop_name_query: config.fake_with_rng(rng),
+                seller_name_query: config.fake_with_rng(rng),
+                exclude_seller_name_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
                 price_query: config
                     .fake_with_rng::<Option<RangeQuery<u32>>, R>(rng) // otherwise get Out-Of-Range-Err often from OpenSearch
@@ -301,6 +319,8 @@ mod tests {
             period_id: HashSet::from_iter([PeriodId::from("baroque")]),
             shop_name_query: ["Baap".into()].into(),
             exclude_shop_name_query: ["Meow".into()].into(),
+            seller_name_query: Default::default(),
+            exclude_seller_name_query: Default::default(),
             shop_type_query: HashSet::from_iter([ShopTypeData::CommercialDealer]),
             price_query: Some(RangeQuery {
                 min: Some(37),
@@ -404,6 +424,8 @@ mod tests {
             period_id: HashSet::from_iter([PeriodId::from("baroque")]),
             shop_name_query: ["Baap".into()].into(),
             exclude_shop_name_query: ["Meow".into()].into(),
+            seller_name_query: Default::default(),
+            exclude_seller_name_query: Default::default(),
             shop_type_query: HashSet::from_iter([ShopTypeData::CommercialDealer]),
             price_query: Some(RangeQuery {
                 min: Some(37),
@@ -470,6 +492,8 @@ mod tests {
             period_id: Default::default(),
             shop_name_query: Default::default(),
             exclude_shop_name_query: Default::default(),
+            seller_name_query: Default::default(),
+            exclude_seller_name_query: Default::default(),
             shop_type_query: Default::default(),
             price_query: None,
             state_query: Default::default(),
@@ -509,6 +533,8 @@ mod tests {
             period_id: Default::default(),
             shop_name_query: Default::default(),
             exclude_shop_name_query: Default::default(),
+            seller_name_query: Default::default(),
+            exclude_seller_name_query: Default::default(),
             shop_type_query: Default::default(),
             price_query: None,
             state_query: Default::default(),
@@ -541,6 +567,8 @@ mod tests {
             period_id: Default::default(),
             shop_name_query: Default::default(),
             exclude_shop_name_query: Default::default(),
+            seller_name_query: Default::default(),
+            exclude_seller_name_query: Default::default(),
             shop_type_query: Default::default(),
             price_query: None,
             state_query: Default::default(),

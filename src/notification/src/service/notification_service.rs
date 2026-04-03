@@ -412,6 +412,7 @@ fn build_email_template_data(
             shop_name,
             title,
             watchlist_payload,
+            ..
         } => {
             let resolved_title = Language::resolve(&[*language], title.clone())
                 .map(|l| l.payload.to_string())
@@ -471,6 +472,7 @@ fn build_email_template_data(
             shop_name,
             title,
             search_filter_payload,
+            ..
         } => {
             let resolved_title = Language::resolve(&[*language], title.clone())
                 .map(|l| l.payload.to_string())
@@ -1072,6 +1074,7 @@ mod tests {
                     product_slug_id: Faker.fake(),
                     shop_name: "Test Shop".into(),
                     title: HashMap::from([(Language::En, "Test Title".into())]),
+                    image: None,
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -1288,6 +1291,7 @@ mod tests {
                     product_slug_id: Faker.fake(),
                     shop_name: "Test Shop".into(),
                     title: HashMap::from([(Language::En, "Test Title".into())]),
+                    image: None,
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -2248,6 +2252,7 @@ mod tests {
                 product_slug_id: Faker.fake(),
                 shop_name: "Shop".into(),
                 title: HashMap::from([(Language::En, "Title".into())]),
+                image: None,
                 watchlist_payload: NotificationWatchlistPayload::PriceChange {
                     old_price: HashMap::new(),
                     new_price: HashMap::new(),
@@ -2272,6 +2277,7 @@ mod tests {
                 product_slug_id: Faker.fake(),
                 shop_name: "Shop".into(),
                 title: HashMap::from([(Language::En, "Title".into())]),
+                image: None,
                 watchlist_payload: NotificationWatchlistPayload::StateChange {
                     old_state: ProductState::Listed,
                     new_state: ProductState::Sold,
@@ -2304,6 +2310,7 @@ mod tests {
                 product_slug_id: Faker.fake(),
                 shop_name: "Shop".into(),
                 title: HashMap::from([(Language::En, "Title".into())]),
+                image: None,
                 watchlist_payload: NotificationWatchlistPayload::StateChange {
                     old_state: ProductState::Listed,
                     new_state: ProductState::Sold,
@@ -2331,6 +2338,7 @@ mod tests {
                 product_slug_id: Faker.fake(),
                 shop_name: "Shop".into(),
                 title,
+                image: None,
                 watchlist_payload: NotificationWatchlistPayload::StateChange {
                     old_state,
                     new_state,
@@ -2349,6 +2357,7 @@ mod tests {
                 product_slug_id: Faker.fake(),
                 shop_name: "Shop".into(),
                 title,
+                image: None,
                 watchlist_payload: NotificationWatchlistPayload::PriceChange {
                     old_price: HashMap::new(),
                     new_price: HashMap::new(),
@@ -2451,6 +2460,7 @@ mod tests {
                     product_slug_id: Faker.fake(),
                     shop_name: "Test Shop".into(),
                     title: HashMap::from([(Language::En, "Antique Vase".into())]),
+                    image: None,
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -2487,6 +2497,7 @@ mod tests {
                     product_slug_id: Faker.fake(),
                     shop_name: "Test Shop".into(),
                     title: HashMap::from([(Language::En, "Antique Vase".into())]),
+                    image: None,
                     watchlist_payload: NotificationWatchlistPayload::PriceChange {
                         old_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(10000u64))]),
                         new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(8000u64))]),
@@ -2522,6 +2533,7 @@ mod tests {
                     product_slug_id: Faker.fake(),
                     shop_name: "Shop".into(),
                     title: HashMap::from([(Language::En, "Title".into())]),
+                    image: None,
                     watchlist_payload: NotificationWatchlistPayload::PriceChange {
                         old_price: HashMap::new(),
                         new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(5000u64))]),
@@ -2555,6 +2567,7 @@ mod tests {
                     product_slug_id: Faker.fake(),
                     shop_name: "Shop".into(),
                     title: HashMap::from([(Language::De, "Antike Vase".into())]),
+                    image: None,
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -2589,6 +2602,7 @@ mod tests {
                     product_slug_id: Faker.fake(),
                     shop_name: "Shop".into(),
                     title: HashMap::from([(Language::En, "Title".into())]),
+                    image: None,
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -2626,6 +2640,7 @@ mod tests {
                     product_slug_id: Faker.fake(),
                     shop_name: "Shop".into(),
                     title: HashMap::from([(Language::En, "Title".into())]),
+                    image: None,
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -3015,6 +3030,7 @@ mod tests {
                         (Language::Es, "Escritorio victoriano".into()),
                         (Language::It, "Scrivania vittoriana".into()),
                     ]),
+                    image: None,
                     watchlist_payload: NotificationWatchlistPayload::PriceChange {
                         old_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(10000u64))]),
                         new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(8500u64))]),
@@ -3047,6 +3063,7 @@ mod tests {
                         (Language::Es, "Escritorio victoriano".into()),
                         (Language::It, "Scrivania vittoriana".into()),
                     ]),
+                    image: None,
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -3079,6 +3096,7 @@ mod tests {
                         (Language::Es, "Escritorio victoriano".into()),
                         (Language::It, "Scrivania vittoriana".into()),
                     ]),
+                    image: None,
                     search_filter_payload: NotificationSearchFilterPayload {
                         user_search_filter_id: UserSearchFilterId::new(),
                         user_search_filter_name: "Victorian Furniture".into(),
@@ -3236,6 +3254,7 @@ mod tests {
                     product_slug_id: Faker.fake(),
                     shop_name: "Shop".into(),
                     title: HashMap::from([(language_for_code(lang), "Title".into())]),
+                    image: None,
                     watchlist_payload: NotificationWatchlistPayload::PriceChange {
                         old_price: HashMap::new(),
                         new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(5000u64))]),

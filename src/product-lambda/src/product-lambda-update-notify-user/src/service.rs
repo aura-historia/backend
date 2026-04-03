@@ -130,6 +130,7 @@ fn mk_created_watchlist_notification_payload(
         product_slug_id: product.product_slug_id.clone(),
         shop_name: product.shop_name.clone(),
         title: product.titles(),
+        image: product.images.first().cloned(),
         watchlist_payload: NotificationWatchlistPayload::StateChange {
             old_state: ProductState::Unknown,
             new_state: payload.state,
@@ -150,6 +151,7 @@ fn mk_state_change_watchlist_notification_payload(
         product_slug_id: product.product_slug_id.clone(),
         shop_name: product.shop_name.clone(),
         title: product.titles(),
+        image: product.images.first().cloned(),
         watchlist_payload: NotificationWatchlistPayload::StateChange {
             old_state: payload.old_state,
             new_state: *new_state,
@@ -170,6 +172,7 @@ fn mk_price_change_watchlist_notification_payload(
         product_slug_id: product.product_slug_id.clone(),
         shop_name: product.shop_name.clone(),
         title: product.titles(),
+        image: product.images.first().cloned(),
         watchlist_payload: NotificationWatchlistPayload::PriceChange {
             old_price,
             new_price,
@@ -677,6 +680,93 @@ mod tests {
             _ => unreachable!("expected Watchlist payload"),
         };
         assert_eq!(expected_titles, actual_titles, "titles mismatch");
+    }
+
+    // ---------------------------------------------------------------------------
+    // Payload mapping – first image is forwarded to notification command
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn should_set_first_image_when_product_has_images() {
+        let first_image: product::core::product_image::ProductImage = Faker.fake();
+        let second_image: product::core::product_image::ProductImage = Faker.fake();
+        let base: Product = Faker.fake();
+        let product = Product {
+            images: vec![first_image.clone(), second_image],
+            ..base
+        };
+        let expected_image = first_image;
+
+        let mut watchlist_mock = MockProductWatchListService::new();
+        watchlist_mock
+            .expect_find_user_ids_watching_product()
+            .return_once(|_| Box::pin(async { Ok(vec![(UserId::new(), true)]) }));
+
+        let mut get_product_mock = MockGetProductService::new();
+        get_product_mock
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product) }));
+
+        let svc =
+            ProductEventWatchlistNotificationsServiceImpl::new(&watchlist_mock, &get_product_mock);
+
+        let event = make_event(ProductDomainEventPayload::StateChanged(Faker.fake()));
+
+        let mut result = svc
+            .determine_notification_commands(event)
+            .await
+            .expect("expected Ok");
+
+        assert_eq!(1, result.len());
+        let cmd = result.remove(0);
+
+        let actual_image = match &cmd.notification_payload {
+            NotificationPayload::Watchlist { image, .. } => image.clone(),
+            _ => unreachable!("expected Watchlist payload"),
+        };
+        assert_eq!(
+            Some(expected_image),
+            actual_image,
+            "expected first image to be set"
+        );
+    }
+
+    #[tokio::test]
+    async fn should_set_image_to_none_when_product_has_no_images() {
+        let base: Product = Faker.fake();
+        let product = Product {
+            images: vec![],
+            ..base
+        };
+
+        let mut watchlist_mock = MockProductWatchListService::new();
+        watchlist_mock
+            .expect_find_user_ids_watching_product()
+            .return_once(|_| Box::pin(async { Ok(vec![(UserId::new(), true)]) }));
+
+        let mut get_product_mock = MockGetProductService::new();
+        get_product_mock
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product) }));
+
+        let svc =
+            ProductEventWatchlistNotificationsServiceImpl::new(&watchlist_mock, &get_product_mock);
+
+        let event = make_event(ProductDomainEventPayload::StateChanged(Faker.fake()));
+
+        let mut result = svc
+            .determine_notification_commands(event)
+            .await
+            .expect("expected Ok");
+
+        assert_eq!(1, result.len());
+        let cmd = result.remove(0);
+
+        let actual_image = match &cmd.notification_payload {
+            NotificationPayload::Watchlist { image, .. } => image.clone(),
+            _ => unreachable!("expected Watchlist payload"),
+        };
+        assert!(actual_image.is_none(), "expected image to be None");
     }
 
     // ---------------------------------------------------------------------------

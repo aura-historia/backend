@@ -44,10 +44,13 @@ pub struct ProductRecord {
     pub product_id: ProductId,
     pub product_slug_id: SlugId<6>,
     pub shop_slug_id: SlugId<0>,
+    pub seller_slug_id: SlugId<0>,
     pub event_id: EventId,
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: String,
+    pub seller_name: String,
     pub shop_type: ShopTypeRecord,
     pub category_id: Option<CategoryId>,
     pub period_id: Option<PeriodId>,
@@ -345,10 +348,13 @@ impl From<ProductRecord> for Product {
             product_id: record.product_id,
             product_slug_id: record.product_slug_id,
             shop_slug_id: record.shop_slug_id,
+            seller_slug_id: record.seller_slug_id,
             event_id: record.event_id,
             shop_id: record.shop_id,
+            seller_id: record.seller_id,
             shops_product_id: record.shops_product_id,
             shop_name: record.shop_name.into(),
+            seller_name: record.seller_name.into(),
             shop_type: record.shop_type.into(),
             category_id: record.category_id,
             category_name,
@@ -402,6 +408,9 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
         let shop_slug_id = event_record.shop_slug_id.ok_or_else(|| {
             MissingPersistenceField::new(field!(shop_slug_id@ProductDomainEventRecord))
         })?;
+        let seller_slug_id = event_record.seller_slug_id.ok_or_else(|| {
+            MissingPersistenceField::new(field!(seller_slug_id@ProductDomainEventRecord))
+        })?;
         let record = ProductRecord {
             pk: event_record.pk,
             sk: mk_sk().to_string(),
@@ -410,11 +419,16 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
             product_id: event_record.product_id,
             product_slug_id,
             shop_slug_id,
+            seller_slug_id,
             event_id: event_record.event_id,
             shop_id: event_record.shop_id,
+            seller_id: event_record.seller_id,
             shops_product_id: event_record.shops_product_id,
             shop_name: event_record.shop_name.ok_or_else(|| {
                 MissingPersistenceField::new(field!(shop_name@ProductDomainEventRecord))
+            })?,
+            seller_name: event_record.seller_name.ok_or_else(|| {
+                MissingPersistenceField::new(field!(seller_name@ProductDomainEventRecord))
             })?,
             shop_type: event_record.shop_type.ok_or_else(|| {
                 MissingPersistenceField::new(field!(shop_type@ProductDomainEventRecord))
@@ -520,7 +534,9 @@ mod faker {
                 config.fake_with_rng(rng),
             );
             let shop_name = config.fake_with_rng(rng);
+            let seller_name = config.fake_with_rng(rng);
             let shop_slug_id = SlugId::from(&shop_name);
+            let seller_slug_id = SlugId::from(&seller_name);
             let product_slug_id = SlugId::from(&title_native.text);
             ProductRecord {
                 pk: mk_pk(&shop_id, &shops_product_id),
@@ -530,10 +546,13 @@ mod faker {
                 product_id: config.fake_with_rng(rng),
                 product_slug_id,
                 shop_slug_id,
+                seller_slug_id,
                 event_id: config.fake_with_rng(rng),
                 shop_id,
+                seller_id: config.fake_with_rng(rng),
                 shops_product_id: shops_product_id.clone(),
                 shop_name,
+                seller_name,
                 shop_type: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
                 period_id: config.fake_with_rng(rng),

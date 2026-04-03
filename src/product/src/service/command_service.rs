@@ -246,8 +246,10 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                             ProductEventRecord::Domain(ProductDomainEventRecord::from(
                                 Product::create(
                                     cmd.shop_id,
+                                    cmd.seller_id,
                                     cmd.shops_product_id,
                                     cmd.shop_name,
+                                    cmd.seller_name,
                                     cmd.shop_type,
                                     cmd.native_title,
                                     cmd.native_description,
@@ -395,8 +397,10 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                             ProductEventRecord::Domain(ProductDomainEventRecord::from(
                                 Product::create(
                                     create_cmd.shop_id,
+                                    create_cmd.seller_id,
                                     create_cmd.shops_product_id,
                                     create_cmd.shop_name,
+                                    create_cmd.seller_name,
                                     create_cmd.shop_type,
                                     create_cmd.native_title,
                                     create_cmd.native_description,

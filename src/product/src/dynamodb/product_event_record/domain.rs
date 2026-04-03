@@ -46,13 +46,18 @@ pub struct ProductDomainEventRecord {
     pub product_slug_id: Option<SlugId<6>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shop_slug_id: Option<SlugId<0>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub seller_slug_id: Option<SlugId<0>>,
     pub event_id: EventId,
     pub event_type: ProductDomainEventTypeRecord,
     pub event_type_schema_version: u8,
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shop_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub seller_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shop_type: Option<ShopTypeRecord>,
 
@@ -316,12 +321,15 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                     product_id,
                     product_slug_id: Some(payload.product_slug_id),
                     shop_slug_id: Some(payload.shop_slug_id),
+                    seller_slug_id: Some(payload.seller_slug_id),
                     event_id,
                     event_type,
                     event_type_schema_version: 0,
                     shop_id,
+                    seller_id: payload.seller_id,
                     shops_product_id,
                     shop_name: Some(payload.shop_name.into()),
+                    seller_name: Some(payload.seller_name.into()),
                     shop_type: Some(payload.shop_type.into()),
                     title_native: Some(payload.native_title.into()),
                     title_de,
@@ -470,17 +478,19 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                 event_id,
                 event_type,
                 shop_id,
+                payload.seller_id,
                 shops_product_id,
                 domain.timestamp,
             ),
             ProductDomainEventPayload::PriceChanged(payload) => mk_price_change_event_record(
-                payload,
+                payload.clone(),
                 pk,
                 sk,
                 product_id,
                 event_id,
                 event_type,
                 shop_id,
+                payload.seller_id,
                 shops_product_id,
                 domain.timestamp,
             ),
@@ -492,6 +502,7 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                     event_id,
                     event_type,
                     shop_id,
+                    payload.seller_id,
                     shops_product_id,
                     domain.timestamp,
                 );
@@ -569,6 +580,7 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                     event_id,
                     event_type,
                     shop_id,
+                    payload.seller_id,
                     shops_product_id,
                     domain.timestamp,
                 );
@@ -583,6 +595,7 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                     event_id,
                     event_type,
                     shop_id,
+                    payload.seller_id,
                     shops_product_id,
                     domain.timestamp,
                 );
@@ -603,6 +616,7 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                     event_id,
                     event_type,
                     shop_id,
+                    payload.seller_id,
                     shops_product_id,
                     domain.timestamp,
                 );
@@ -618,6 +632,7 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                     event_id,
                     event_type,
                     shop_id,
+                    payload.seller_id,
                     shops_product_id,
                     domain.timestamp,
                 );
@@ -635,6 +650,7 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                     event_id,
                     event_type,
                     shop_id,
+                    payload.seller_id,
                     shops_product_id,
                     domain.timestamp,
                 );
@@ -650,6 +666,7 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                     event_id,
                     event_type,
                     shop_id,
+                    payload.seller_id,
                     shops_product_id,
                     domain.timestamp,
                 );
@@ -665,6 +682,7 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                     event_id,
                     event_type,
                     shop_id,
+                    payload.seller_id,
                     shops_product_id,
                     domain.timestamp,
                 );
@@ -680,6 +698,7 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                     event_id,
                     event_type,
                     shop_id,
+                    payload.seller_id,
                     shops_product_id,
                     domain.timestamp,
                 );
@@ -700,6 +719,7 @@ fn mk_state_event_record(
     event_id: EventId,
     event_type: ProductDomainEventTypeRecord,
     shop_id: ShopId,
+    seller_id: ShopId,
     shops_product_id: ShopsProductId,
     timestamp: OffsetDateTime,
 ) -> ProductDomainEventRecord {
@@ -709,12 +729,15 @@ fn mk_state_event_record(
         product_id,
         product_slug_id: None,
         shop_slug_id: None,
+        seller_slug_id: None,
         event_id,
         event_type,
         event_type_schema_version: 0,
         shop_id,
+        seller_id,
         shops_product_id,
         shop_name: None,
+        seller_name: None,
         shop_type: None,
         title_native: None,
         title_de: None,
@@ -782,6 +805,7 @@ fn mk_price_change_event_record(
     event_id: EventId,
     event_type: ProductDomainEventTypeRecord,
     shop_id: ShopId,
+    seller_id: ShopId,
     shops_product_id: ShopsProductId,
     timestamp: OffsetDateTime,
 ) -> ProductDomainEventRecord {
@@ -790,13 +814,16 @@ fn mk_price_change_event_record(
         sk,
         product_id,
         shop_slug_id: None,
+        seller_slug_id: None,
         product_slug_id: None,
         event_id,
         event_type,
         event_type_schema_version: 0,
         shop_id,
+        seller_id,
         shops_product_id,
         shop_name: None,
+        seller_name: None,
         shop_type: None,
         title_native: None,
         title_de: None,
@@ -911,6 +938,7 @@ fn mk_empty_event_record(
     event_id: EventId,
     event_type: ProductDomainEventTypeRecord,
     shop_id: ShopId,
+    seller_id: ShopId,
     shops_product_id: ShopsProductId,
     timestamp: OffsetDateTime,
 ) -> ProductDomainEventRecord {
@@ -920,12 +948,15 @@ fn mk_empty_event_record(
         product_id,
         product_slug_id: None,
         shop_slug_id: None,
+        seller_slug_id: None,
         event_id,
         event_type,
         event_type_schema_version: 0,
         shop_id,
+        seller_id,
         shops_product_id,
         shop_name: None,
+        seller_name: None,
         shop_type: None,
         title_native: None,
         title_de: None,
@@ -989,6 +1020,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
 
     fn try_from(record: ProductDomainEventRecord) -> Result<Self, Self::Error> {
         let shop_id = record.shop_id;
+        let seller_id = record.seller_id;
         let shops_product_id = record.shops_product_id;
         let mut new_other_price = HashMap::with_capacity(6);
         if let Some(amount_eur) = record.new_price_eur {
@@ -1085,11 +1117,22 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                         shop_slug_id: record.shop_slug_id.ok_or(MissingPersistenceField::new(
                             field!(shop_slug_id@ProductDomainEventRecord),
                         ))?,
+                        seller_slug_id: record.seller_slug_id.ok_or(
+                            MissingPersistenceField::new(
+                                field!(seller_slug_id@ProductDomainEventRecord),
+                            ),
+                        )?,
                         shop_id,
+                        seller_id,
                         shops_product_id,
                         shop_name: record.shop_name.map(ShopName::from).ok_or(
                             MissingPersistenceField::new(
                                 field!(shop_name@ProductDomainEventRecord),
+                            ),
+                        )?,
+                        seller_name: record.seller_name.map(ShopName::from).ok_or(
+                            MissingPersistenceField::new(
+                                field!(seller_name@ProductDomainEventRecord),
                             ),
                         )?,
                         shop_type: record.shop_type.map(Into::into).ok_or(
@@ -1134,6 +1177,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                 ProductDomainEventTypeRecord::DomainStateChanged => {
                     ProductDomainEventPayload::StateChanged(ProductStateChangeDomainEventPayload {
                         shop_id,
+                        seller_id,
                         shops_product_id,
                         old_state: record.old_state.map(ProductState::from).ok_or(
                             MissingPersistenceField::new(
@@ -1150,6 +1194,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                 ProductDomainEventTypeRecord::DomainPriceChanged => {
                     ProductDomainEventPayload::PriceChanged(ProductPriceChangeDomainEventPayload {
                         shop_id,
+                        seller_id,
                         shops_product_id,
                         new_native_price: record.new_price_native.map(Price::from),
                         new_other_price,
@@ -1161,6 +1206,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                     ProductDomainEventPayload::EstimatePriceChanged(
                         ProductEstimatePriceChangeDomainEventPayload {
                             shop_id,
+                            seller_id,
                             shops_product_id,
                             native_price_estimate_min: record
                                 .new_price_estimate_min_native
@@ -1176,6 +1222,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                 ProductDomainEventTypeRecord::DomainUrlChanged => {
                     ProductDomainEventPayload::UrlChanged(ProductUrlChangeDomainEventPayload {
                         shop_id,
+                        seller_id,
                         shops_product_id,
                         url: record.url.ok_or(MissingPersistenceField::new(
                             field!(url@ProductDomainEventRecord),
@@ -1186,6 +1233,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                     ProductDomainEventPayload::ImagesChanged(
                         ProductImagesChangeDomainEventPayload {
                             shop_id,
+                            seller_id,
                             shops_product_id,
                             images: record
                                 .images
@@ -1200,6 +1248,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                     ProductDomainEventPayload::AuctionTimeChanged(
                         ProductAuctionTimeChangeDomainEventPayload {
                             shop_id,
+                            seller_id,
                             shops_product_id,
                             auction_start: record.auction_start,
                             auction_end: record.auction_end,
@@ -1220,6 +1269,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                     ProductDomainEventPayload::OriginYearChanged(
                         ProductOriginYearChangeDomainEventPayload {
                             shop_id,
+                            seller_id,
                             shops_product_id,
                             origin_year,
                         },
@@ -1229,6 +1279,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                     ProductDomainEventPayload::AuthenticityChanged(
                         ProductAuthenticityChangeDomainEventPayload {
                             shop_id,
+                            seller_id,
                             shops_product_id,
                             authenticity: record.authenticity.map(Into::into).ok_or(
                                 MissingPersistenceField::new(
@@ -1242,6 +1293,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                     ProductDomainEventPayload::ConditionChanged(
                         ProductConditionChangeDomainEventPayload {
                             shop_id,
+                            seller_id,
                             shops_product_id,
                             condition: record.condition.map(Into::into).ok_or(
                                 MissingPersistenceField::new(
@@ -1255,6 +1307,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                     ProductDomainEventPayload::ProvenanceChanged(
                         ProductProvenanceChangeDomainEventPayload {
                             shop_id,
+                            seller_id,
                             shops_product_id,
                             provenance: record.provenance.map(Into::into).ok_or(
                                 MissingPersistenceField::new(
@@ -1268,6 +1321,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                     ProductDomainEventPayload::RestorationChanged(
                         ProductRestorationChangeDomainEventPayload {
                             shop_id,
+                            seller_id,
                             shops_product_id,
                             restoration: record.restoration.map(Into::into).ok_or(
                                 MissingPersistenceField::new(

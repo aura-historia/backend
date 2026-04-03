@@ -24,6 +24,7 @@ impl HasKey for ProductPolicyEventPayload {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProhibitedContentProductPolicyEventPayload {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub decision: ProhibitedContent,
     pub reason: ProhibitedContentReason,

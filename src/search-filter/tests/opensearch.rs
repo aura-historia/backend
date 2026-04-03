@@ -115,7 +115,9 @@ async fn should_percolate_document_when_query_is_empty() {
     record.category_id.clear();
     record.period_id.clear();
     record.shop_name_query.clear();
+    record.seller_name_query.clear();
     record.exclude_shop_name_query.clear();
+    record.exclude_seller_name_query.clear();
     record.shop_type_query.clear();
     record.price_query = None;
     record.state_query.clear();
@@ -1160,6 +1162,8 @@ fn base_record() -> UserSearchFilterRecord {
         period_id: HashSet::from_iter([PeriodId::from("baroque")]),
         shop_name_query: HashSet::new(),
         exclude_shop_name_query: HashSet::new(),
+        seller_name_query: HashSet::new(),
+        exclude_seller_name_query: HashSet::new(),
         shop_type_query: HashSet::new(),
         price_query: None,
         state_query: HashSet::new(),
@@ -1190,14 +1194,18 @@ fn exact_document() -> UserSearchFilterDocument {
 }
 
 fn base_product_document() -> ProductDocument {
+    let shop_id = ShopId::new();
     ProductDocument {
         product_id: ProductId::new(),
         product_slug_id: SlugId::from("product"),
         shop_slug_id: SlugId::from("imperial-antiques"),
+        seller_slug_id: SlugId::from("imperial-antiques"),
         event_id: EventId::new(),
-        shop_id: ShopId::new(),
+        shop_id,
+        seller_id: shop_id,
         shops_product_id: ShopsProductId::from("shop-item-1"),
         shop_name: "Imperial Antiques".to_string(),
+        seller_name: "Imperial Antiques".to_string(),
         shop_type: ShopTypeDocument::CommercialDealer,
         category_id: Some(CategoryId::from("furniture")),
         period_id: Some(PeriodId::from("baroque")),
@@ -1295,6 +1303,8 @@ fn base_query_record() -> UserSearchFilterRecord {
         period_id: HashSet::new(),
         shop_name_query: HashSet::new(),
         exclude_shop_name_query: HashSet::new(),
+        seller_name_query: HashSet::new(),
+        exclude_seller_name_query: HashSet::new(),
         shop_type_query: HashSet::new(),
         price_query: None,
         state_query: HashSet::new(),
@@ -1319,14 +1329,18 @@ fn base_query_record() -> UserSearchFilterRecord {
 // =============================================================================
 
 fn silver_tea_set_product_document() -> ProductDocument {
+    let shop_id = ShopId::new();
     ProductDocument {
         product_id: ProductId::new(),
         product_slug_id: SlugId::from("victorian-silver-tea-service"),
         shop_slug_id: SlugId::from("silver-heirlooms-gallery"),
+        seller_slug_id: SlugId::from("silver-heirlooms-gallery"),
         event_id: EventId::new(),
-        shop_id: ShopId::new(),
+        shop_id,
+        seller_id: shop_id,
         shops_product_id: ShopsProductId::from("sts-001"),
         shop_name: "Silver Heirlooms Gallery".to_string(),
+        seller_name: "Silver Heirlooms Gallery".to_string(),
         shop_type: ShopTypeDocument::CommercialDealer,
         category_id: Some(CategoryId::from("silverware")),
         period_id: Some(PeriodId::from("victorian")),
@@ -1490,14 +1504,18 @@ async fn should_not_percolate_victorian_silver_tea_set_when_query_does_not_match
 // =============================================================================
 
 fn ming_vase_product_document() -> ProductDocument {
+    let shop_id = ShopId::new();
     ProductDocument {
         product_id: ProductId::new(),
         product_slug_id: SlugId::from("ming-dynasty-blue-white-vase"),
         shop_slug_id: SlugId::from("oriental-antiquities"),
+        seller_slug_id: SlugId::from("oriental-antiquities"),
         event_id: EventId::new(),
-        shop_id: ShopId::new(),
+        shop_id,
+        seller_id: shop_id,
         shops_product_id: ShopsProductId::from("mvp-001"),
         shop_name: "Oriental Antiquities Ltd.".to_string(),
+        seller_name: "Oriental Antiquities Ltd.".to_string(),
         shop_type: ShopTypeDocument::CommercialDealer,
         category_id: Some(CategoryId::from("ceramics")),
         period_id: Some(PeriodId::from("ming-dynasty")),
@@ -1659,14 +1677,18 @@ async fn should_not_percolate_ming_dynasty_vase_when_query_does_not_match(
 // =============================================================================
 
 fn louis_xv_fauteuil_product_document() -> ProductDocument {
+    let shop_id = ShopId::new();
     ProductDocument {
         product_id: ProductId::new(),
         product_slug_id: SlugId::from("louis-xv-walnut-fauteuil-aubusson"),
         shop_slug_id: SlugId::from("maison-des-antiquites"),
+        seller_slug_id: SlugId::from("maison-des-antiquites"),
         event_id: EventId::new(),
-        shop_id: ShopId::new(),
+        shop_id,
+        seller_id: shop_id,
         shops_product_id: ShopsProductId::from("lxv-001"),
         shop_name: "Maison des Antiquités".to_string(),
+        seller_name: "Maison des Antiquités".to_string(),
         shop_type: ShopTypeDocument::CommercialDealer,
         category_id: Some(CategoryId::from("furniture")),
         period_id: Some(PeriodId::from("rococo")),

@@ -1,4 +1,5 @@
 use crate::dynamodb::{
+    raw_shop_name_record::{self, RawShopNameRecord},
     shop_record::{self, ShopRecord, mk_pk, mk_sk},
     shop_record_update::ShopRecordUpdate,
 };
@@ -19,6 +20,7 @@ use common::{
     batch::{Batch, dynamodb::BatchGetItemResult},
     dynamodb_update::DynamoDbUpdate,
     shop_id::ShopId,
+    shop_name::ShopName,
     slug_id::SlugId,
 };
 use std::collections::HashMap;
@@ -52,6 +54,16 @@ pub trait ShopDynamoDbRepository {
         &self,
         shop_ids: &Batch<ShopId, 100>,
     ) -> Result<BatchGetItemResult<ShopRecord, ShopId>, SdkError<BatchGetItemError, HttpResponse>>;
+
+    async fn get_raw_shop_name_record(
+        &self,
+        raw_shop_name: &ShopName,
+    ) -> Result<Option<RawShopNameRecord>, SdkError<GetItemError>>;
+
+    async fn put_raw_shop_name_record(
+        &self,
+        record: RawShopNameRecord,
+    ) -> Result<PutItemOutput, SdkError<PutItemError, HttpResponse>>;
 }
 
 #[derive(Debug, Clone)]
@@ -266,6 +278,54 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
             },
         };
         Ok(batch_result)
+    }
+
+    async fn get_raw_shop_name_record(
+        &self,
+        raw_shop_name: &ShopName,
+    ) -> Result<Option<RawShopNameRecord>, SdkError<GetItemError>> {
+        let rec = self
+            .client
+            .get_item()
+            .table_name(&self.table)
+            .key(
+                "pk",
+                AttributeValue::S(raw_shop_name_record::mk_pk(raw_shop_name)),
+            )
+            .key(
+                "sk",
+                AttributeValue::S(raw_shop_name_record::mk_sk().to_owned()),
+            )
+            .send()
+            .await?
+            .item
+            .map(serde_dynamo::from_item::<_, RawShopNameRecord>)
+            .and_then(|record_res| match record_res {
+                Ok(record) => Some(record),
+                Err(err) => {
+                    error!(
+                        error = %err,
+                        type = %std::any::type_name::<RawShopNameRecord>(),
+                        "Failed deserializing."
+                    );
+                    None
+                }
+            });
+
+        Ok(rec)
+    }
+
+    async fn put_raw_shop_name_record(
+        &self,
+        record: RawShopNameRecord,
+    ) -> Result<PutItemOutput, SdkError<PutItemError, HttpResponse>> {
+        let payload = serde_dynamo::to_item(record).map_err(SdkError::construction_failure)?;
+        self.client
+            .put_item()
+            .table_name(&self.table)
+            .set_item(Some(payload))
+            .send()
+            .await
     }
 }
 
