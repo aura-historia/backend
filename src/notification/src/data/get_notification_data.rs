@@ -7,6 +7,7 @@ use common::{
     product_id::ProductId, shop_id::ShopId, shop_name::ShopName, shops_product_id::ShopsProductId,
     slug_id::SlugId,
 };
+use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
 use search_filter::core::user_search_filter_id::UserSearchFilterId;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
@@ -20,6 +21,8 @@ pub struct GetNotificationData {
     pub origin_event_id: EventId,
     pub notification_id: NotificationId,
     pub payload: NotificationPayloadData,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<ProductImageData>,
     pub seen: bool,
     pub external: bool,
 
@@ -156,6 +159,9 @@ impl From<LocalizedNotification> for GetNotificationData {
             origin_event_id: notification.origin_event_id,
             notification_id: notification.notification_id,
             payload: notification.notification_payload.into(),
+            image: notification
+                .image
+                .map(|i| ProductImageData::from_with_consent(i, true)),
             seen: notification.seen,
             external: notification.external,
             created: notification.created,

@@ -29,6 +29,7 @@ use common::{
     user_id::UserId,
 };
 use field::field;
+use product::core::product_image::ProductImage;
 use product::core::title::Title;
 use product::dynamodb::{
     product_image_record::ProductImageRecord, product_state_record::ProductStateRecord,
@@ -296,7 +297,7 @@ impl From<Notification> for NotificationRecord {
                     notification_reason,
                     seen: notification.seen,
                     external: notification.external,
-                    image: None,
+                    image: notification.image.map(ProductImageRecord::from),
                     product_id: Some(product_id),
                     product_slug_id: Some(product_slug_id),
                     shop_slug_id: Some(shop_slug_id),
@@ -356,7 +357,7 @@ impl From<Notification> for NotificationRecord {
                     notification_reason,
                     seen: notification.seen,
                     external: notification.external,
-                    image: None,
+                    image: notification.image.map(ProductImageRecord::from),
                     product_id: Some(product_id),
                     product_slug_id: Some(product_slug_id),
                     shop_slug_id: Some(shop_slug_id),
@@ -555,6 +556,7 @@ impl TryFrom<NotificationRecord> for Notification {
             notification_id: record.notification_id,
             notification_type: record.notification_type.map(Into::into),
             notification_payload,
+            image: record.image.map(ProductImage::from),
             seen: record.seen,
             external: record.external,
             created: record.created,
@@ -674,5 +676,40 @@ mod key_tests {
             "user#notification#product_id#{product_id}#origin_event_id#"
         )));
         assert!(lower < upper);
+    }
+}
+
+#[cfg(all(test, feature = "test-data"))]
+mod image_round_trip_tests {
+    use super::*;
+    use fake::{Fake, Faker};
+    use product::core::product_image::ProductImage;
+
+    #[test]
+    fn should_preserve_image_when_converting_notification_to_record_and_back() {
+        let image: ProductImage = Faker.fake();
+        let mut record = Faker.fake::<NotificationRecord>();
+        record.image = Some(ProductImageRecord::from(image.clone()));
+
+        let notification: Notification = record.try_into().expect("conversion should succeed");
+
+        assert_eq!(
+            Some(image),
+            notification.image,
+            "image should be preserved in round-trip"
+        );
+    }
+
+    #[test]
+    fn should_have_no_image_when_record_has_no_image() {
+        let mut record = Faker.fake::<NotificationRecord>();
+        record.image = None;
+
+        let notification: Notification = record.try_into().expect("conversion should succeed");
+
+        assert!(
+            notification.image.is_none(),
+            "image should be None when record has no image"
+        );
     }
 }

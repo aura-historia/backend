@@ -13,6 +13,7 @@ use common::{
     slug_id::SlugId,
     user_id::UserId,
 };
+use product::core::product_image::ProductImage;
 use product::core::title::Title;
 use search_filter::core::user_search_filter_id::UserSearchFilterId;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
@@ -27,6 +28,7 @@ pub struct Notification {
     pub notification_id: NotificationId,
     pub notification_type: Option<NotificationType>, // None if not yet sent, Some if sent
     pub notification_payload: NotificationPayload,
+    pub image: Option<ProductImage>,
     pub seen: bool,
     pub external: bool,
     pub created: OffsetDateTime,
@@ -46,6 +48,7 @@ impl Notification {
             notification_payload: self
                 .notification_payload
                 .localized(currency, preferred_languages),
+            image: self.image,
             seen: self.seen,
             external: self.external,
             created: self.created,
@@ -182,6 +185,7 @@ pub struct LocalizedNotification {
     pub origin_event_id: EventId,
     pub notification_id: NotificationId,
     pub notification_payload: LocalizedNotificationPayload,
+    pub image: Option<ProductImage>,
     pub seen: bool,
     pub external: bool,
     pub created: OffsetDateTime,

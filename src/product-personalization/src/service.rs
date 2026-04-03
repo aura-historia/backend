@@ -720,6 +720,7 @@ mod tests {
                     new_state: common::product_state::domain::ProductState::Available,
                 },
             },
+            image: None,
             seen,
             external: false,
             created: OffsetDateTime::now_utc(),

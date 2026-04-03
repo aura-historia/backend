@@ -412,6 +412,7 @@ fn build_email_template_data(
             shop_name,
             title,
             watchlist_payload,
+            ..
         } => {
             let resolved_title = Language::resolve(&[*language], title.clone())
                 .map(|l| l.payload.to_string())
@@ -471,6 +472,7 @@ fn build_email_template_data(
             shop_name,
             title,
             search_filter_payload,
+            ..
         } => {
             let resolved_title = Language::resolve(&[*language], title.clone())
                 .map(|l| l.payload.to_string())
@@ -529,6 +531,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             notification_id: NotificationId::new(),
             notification_type: None,
             notification_payload: cmd.notification_payload,
+            image: cmd.image,
             seen: false,
             external: cmd.external,
             created: now,
@@ -566,6 +569,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                     notification_id: NotificationId::new(),
                     notification_type: None,
                     notification_payload: cmd.notification_payload.clone(),
+                    image: cmd.image.clone(),
                     seen: false,
                     external: cmd.external,
                     created: now,
@@ -1077,6 +1081,7 @@ mod tests {
                         new_state: ProductState::Sold,
                     },
                 },
+                image: None,
                 external: false,
             }
         }
@@ -1293,6 +1298,7 @@ mod tests {
                         new_state: ProductState::Sold,
                     },
                 },
+                image: None,
                 external: false,
             }
         }
@@ -2456,6 +2462,7 @@ mod tests {
                         new_state: ProductState::Sold,
                     },
                 },
+                image: None,
                 seen: false,
                 external: false,
                 created: OffsetDateTime::now_utc(),
@@ -2492,6 +2499,7 @@ mod tests {
                         new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(8000u64))]),
                     },
                 },
+                image: None,
                 seen: false,
                 external: false,
                 created: OffsetDateTime::now_utc(),
@@ -2527,6 +2535,7 @@ mod tests {
                         new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(5000u64))]),
                     },
                 },
+                image: None,
                 seen: false,
                 external: false,
                 created: OffsetDateTime::now_utc(),
@@ -2560,6 +2569,7 @@ mod tests {
                         new_state: ProductState::Sold,
                     },
                 },
+                image: None,
                 seen: false,
                 external: false,
                 created: OffsetDateTime::now_utc(),
@@ -2594,6 +2604,7 @@ mod tests {
                         new_state: ProductState::Sold,
                     },
                 },
+                image: None,
                 seen: false,
                 external: false,
                 created: OffsetDateTime::now_utc(),
@@ -2631,6 +2642,7 @@ mod tests {
                         new_state: ProductState::Sold,
                     },
                 },
+                image: None,
                 seen: false,
                 external: false,
                 created: OffsetDateTime::now_utc(),
@@ -3020,6 +3032,7 @@ mod tests {
                         new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(8500u64))]),
                     },
                 },
+                image: None,
                 seen: false,
                 external: false,
                 created: OffsetDateTime::now_utc(),
@@ -3052,6 +3065,7 @@ mod tests {
                         new_state: ProductState::Sold,
                     },
                 },
+                image: None,
                 seen: false,
                 external: false,
                 created: OffsetDateTime::now_utc(),
@@ -3084,6 +3098,7 @@ mod tests {
                         user_search_filter_name: "Victorian Furniture".into(),
                     },
                 },
+                image: None,
                 seen: false,
                 external: false,
                 created: OffsetDateTime::now_utc(),
@@ -3241,6 +3256,7 @@ mod tests {
                         new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(5000u64))]),
                     },
                 },
+                image: None,
                 seen: false,
                 external: false,
                 created: OffsetDateTime::now_utc(),
