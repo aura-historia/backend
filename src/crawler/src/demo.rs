@@ -1,8 +1,12 @@
+use std::collections::HashSet;
 use std::env;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
+use common::domain::Domain;
+use common::shop_id::ShopId;
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
@@ -11,6 +15,10 @@ use crawler::scraper::normalization::state_mapping_repository::ProductStateMappi
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
 use crawler::scraper::scraper_service::{ScraperServiceImpl, SpiderHtmlFetcher};
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
+use crawler::service::shop_registration::{
+    RegisteredShop, ShopRegistrationRepositoryImpl, ShopRegistrationService,
+    ShopRegistrationSource, ShopSyncError,
+};
 use crawler::spider::candidate_service::SpiderCandidateServiceImpl;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
@@ -32,6 +40,44 @@ const POSTGRES_PASSWORD: &str = "postgres";
 const POSTGRES_DB: &str = "postgres";
 const POSTGRES_PORT: u16 = 5432;
 const DEMO_CONTAINER_NAME: &str = "aura-historia-crawler-demo";
+
+// ---------------------------------------------------------------------------
+// Demo shop source — returns hardcoded shops (no OpenSearch needed)
+// ---------------------------------------------------------------------------
+
+struct DemoShopSource {
+    shops: Vec<RegisteredShop>,
+}
+
+#[async_trait]
+impl ShopRegistrationSource for DemoShopSource {
+    async fn fetch_registered_shops(&self) -> Result<Vec<RegisteredShop>, ShopSyncError> {
+        Ok(self.shops.clone())
+    }
+}
+
+fn demo_shops() -> Vec<RegisteredShop> {
+    vec![
+        RegisteredShop {
+            shop_id: ShopId::new(),
+            shop_name: "Nostalgie Palast".to_string(),
+            shop_slug: "nostalgie-palast".to_string(),
+            domains: HashSet::from([Domain::try_from("nostalgie-palast.de").unwrap()]),
+        },
+        RegisteredShop {
+            shop_id: ShopId::new(),
+            shop_name: "Antiquitäten Tübingen".to_string(),
+            shop_slug: "antiquitaeten-tuebingen".to_string(),
+            domains: HashSet::from([Domain::try_from("antiquitaeten-tuebingen.de").unwrap()]),
+        },
+        RegisteredShop {
+            shop_id: ShopId::new(),
+            shop_name: "Antik Shop".to_string(),
+            shop_slug: "antik-shop".to_string(),
+            domains: HashSet::from([Domain::try_from("antik-shop.de").unwrap()]),
+        },
+    ]
+}
 
 #[tokio::main]
 async fn main() {
@@ -59,11 +105,6 @@ async fn main() {
 
     if let Err(error) = apply_schema(&pool).await {
         error!(error = %error, "Failed to apply crawler demo schema");
-        return;
-    }
-
-    if let Err(error) = register_demo_shops(&pool).await {
-        error!(error = %error, "Failed to register demo shops");
         return;
     }
 
@@ -133,6 +174,13 @@ async fn main() {
 
     let spider_candidates = Box::new(SpiderCandidateServiceImpl::new(pool.clone()));
 
+    // Wire shop registration (demo: hardcoded shops, synced into DB on startup)
+    let shop_source = Box::new(DemoShopSource {
+        shops: demo_shops(),
+    });
+    let shop_repo = Box::new(ShopRegistrationRepositoryImpl::new(pool.clone()));
+    let shop_registration = ShopRegistrationService::new(shop_source, shop_repo);
+
     // 5. Build Cron Job
     let config = CrawlerCronConfig {
         spider_interval: Duration::from_secs(120), // Demo: retry spider every 2 minutes
@@ -142,6 +190,7 @@ async fn main() {
         spider_concurrency: 3,
         scraper_concurrency: 10,
         spider_classify_threshold: 100,
+        ..Default::default()
     };
 
     let cron_job = CrawlerCronJob::new(
@@ -150,6 +199,7 @@ async fn main() {
         spider_svc,
         scraper_candidates,
         scraper_svc,
+        shop_registration,
     );
 
     info!("Crawler Server is fully initialized. Starting background tasks. Press Ctrl+C to stop.");
@@ -216,75 +266,5 @@ async fn apply_schema(pool: &PgPool) -> Result<(), sqlx::Error> {
     let sql = std::fs::read_to_string(&sql_path).map_err(sqlx::Error::Io)?;
     sqlx::raw_sql(&sql).execute(pool).await?;
     info!(path = %sql_path.display(), "Applied crawler demo schema");
-    Ok(())
-}
-
-async fn register_demo_shops(pool: &PgPool) -> Result<(), sqlx::Error> {
-    info!("Registering 3 demo shops...");
-
-    // Shop 1
-    let shop1_id = uuid::Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO shops (shop_id, url_pattern, created, updated)
-         VALUES ($1, $2, NOW(), NOW())
-         ON CONFLICT (shop_id) DO NOTHING",
-    )
-    .bind(shop1_id)
-    .bind(r".*/(couchtisch|schrank|stuhl|tisch).*")
-    .execute(pool)
-    .await?;
-    sqlx::query(
-        "INSERT INTO shop_domains (shop_id, shop_domain)
-         VALUES ($1, $2)
-         ON CONFLICT (shop_domain) DO NOTHING",
-    )
-    .bind(shop1_id)
-    .bind("nostalgie-palast.de")
-    .execute(pool)
-    .await?;
-
-    // Shop 2
-    let shop2_id = uuid::Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO shops (shop_id, url_pattern, created, updated)
-         VALUES ($1, $2, NOW(), NOW())
-         ON CONFLICT (shop_id) DO NOTHING",
-    )
-    .bind(shop2_id)
-    .bind(r".*art-\d+.*")
-    .execute(pool)
-    .await?;
-    sqlx::query(
-        "INSERT INTO shop_domains (shop_id, shop_domain)
-         VALUES ($1, $2)
-         ON CONFLICT (shop_domain) DO NOTHING",
-    )
-    .bind(shop2_id)
-    .bind("antiquitaeten-tuebingen.de")
-    .execute(pool)
-    .await?;
-
-    // Shop 3
-    let shop3_id = uuid::Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO shops (shop_id, url_pattern, created, updated)
-         VALUES ($1, $2, NOW(), NOW())
-         ON CONFLICT (shop_id) DO NOTHING",
-    )
-    .bind(shop3_id)
-    .bind(r".*/lot/.*")
-    .execute(pool)
-    .await?;
-    sqlx::query(
-        "INSERT INTO shop_domains (shop_id, shop_domain)
-         VALUES ($1, $2)
-         ON CONFLICT (shop_domain) DO NOTHING",
-    )
-    .bind(shop3_id)
-    .bind("antik-shop.de")
-    .execute(pool)
-    .await?;
-
-    info!("Demo shops registered successfully.");
     Ok(())
 }

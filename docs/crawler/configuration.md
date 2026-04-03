@@ -1,15 +1,16 @@
 # Configuration
 
-The crawler is configured via two structs: `CrawlerCronConfig` (top-level, controls both tasks) and `SpiderServiceConfig` (spider-specific tuning).
+The crawler is configured via two structs: `CrawlerCronConfig` (top-level, controls all three tasks) and `SpiderServiceConfig` (spider-specific tuning).
 
 ---
 
 ## `CrawlerCronConfig`
 
-Controls the two background tasks spawned by `CrawlerCronJob`.
+Controls the three background tasks spawned by `CrawlerCronJob`.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
+| `shop_sync_interval` | `Duration` | 3 hours | How often the shop registration sync task wakes to fetch shops from the upstream service and upsert them into the local DB. The task also runs once immediately on startup. |
 | `spider_interval` | `Duration` | 10 min | How often the spider task wakes to select and crawl candidate shops |
 | `scraper_interval` | `Duration` | 1 min | How often the scraper task wakes to select and scrape candidate URLs |
 | `spider_batch_size` | `usize` | 10 | Max shops selected per spider tick (`LIMIT` in candidate query) |
@@ -35,6 +36,8 @@ Controls per-run behavior of the spider.
 ---
 
 ## Interactions Between Settings
+
+- **`shop_sync_interval`**: The sync runs once at startup regardless of this value, so a newly deployed instance always has an up-to-date shop list before the spider's first tick. Set this shorter than `spider_interval` if you need faster shop discovery; the default 3-hour cadence is sufficient for typical onboarding flows.
 
 - **`classify_threshold` vs `max_sample_urls`**: Classification is triggered at `classify_threshold` URLs buffered, but only up to `max_sample_urls` are sent to the LLM. If more URLs arrive before the threshold is hit, they are still buffered (for DB persistence) but only the first `max_sample_urls` are included in the LLM prompt.
 

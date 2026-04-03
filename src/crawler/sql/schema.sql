@@ -120,6 +120,8 @@ INSERT INTO product_state_mapping (raw, normalized, mapping_type) VALUES ('\b0\s
 
 CREATE TABLE IF NOT EXISTS shops (
     shop_id     UUID        PRIMARY KEY,
+    shop_name   TEXT,
+    shop_slug   TEXT,
     url_pattern TEXT,
     created     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated     TIMESTAMPTZ NOT NULL DEFAULT NOW()

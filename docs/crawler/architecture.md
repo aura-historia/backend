@@ -1,26 +1,72 @@
 # Crawler — Architecture
 
-The crawler crate has two subsystems — **Spider** and **Scraper** — driven by a single **CronJob**. They are independent of each other at runtime but share the same PostgreSQL database as the handoff point: the spider writes URLs into `shop_urls`, and the scraper reads them.
+The crawler crate has three subsystems — **Shop Registration**, **Spider**, and **Scraper** — driven by a single **CronJob**. The spider and scraper are independent of each other at runtime but share the same PostgreSQL database as the handoff point: the spider writes URLs into `shop_urls`, and the scraper reads them. Shop registration feeds the `shops` and `shop_domains` tables that the spider depends on.
 
 ---
 
 ## CrawlerCronJob — the driver
 
-`src/service/cron.rs` is the entry point. On startup it spawns two independent `tokio` tasks that loop forever:
+`src/service/cron.rs` is the entry point. On startup it spawns three independent `tokio` tasks that loop forever:
 
 ```
 CrawlerCronJob::run_loop()
-  ├── tokio::spawn → spider_loop   (sleeps 10 min between ticks)
-  └── tokio::spawn → scraper_loop  (sleeps 1 min between ticks)
+  ├── tokio::spawn → shop_sync_loop  (runs immediately, then sleeps 3 h between ticks)
+  ├── tokio::spawn → spider_loop     (sleeps 10 min between ticks)
+  └── tokio::spawn → scraper_loop    (sleeps 1 min between ticks)
 ```
 
-Each tick follows the same pattern:
+The spider and scraper loops follow the same pattern each tick:
 
 1. Ask the relevant **CandidateService** for a batch of work.
 2. Fan that batch out using `futures::stream::iter(...).buffer_unordered(concurrency)` — bounded parallelism, no unbounded spawning.
 3. For each item, call the relevant service (`SpiderService::run` or `ScraperService::scrape`). Errors are logged and swallowed so one failure doesn't abort the whole batch.
 
-The two loops run completely in parallel, each on its own cadence. There is no synchronisation between them beyond the database.
+The three loops run completely in parallel, each on its own cadence. There is no synchronisation between them beyond the database.
+
+---
+
+## Shop Registration subsystem
+
+**Goal:** keep the crawler's local `shops` and `shop_domains` tables in sync with the upstream shop service (OpenSearch), so the spider always has an up-to-date list of shops to crawl.
+
+### Key types — `src/service/shop_registration.rs`
+
+| Type | Role |
+|------|------|
+| `RegisteredShop` | Data transfer object: `shop_id`, `shop_name`, `shop_slug`, `domains: HashSet<Domain>` |
+| `ShopRegistrationSource` | Trait — fetches all registered shops from an external source. Owned by the crawler crate but **not implemented here**; the concrete implementation lives at the binary level (e.g. `server.rs`). |
+| `ShopRegistrationRepository` | Trait — persists a `RegisteredShop` into the crawler's Postgres database. |
+| `ShopRegistrationService` | Orchestrator: calls `source.fetch_registered_shops()`, then `repository.upsert_shop()` for each result. Errors on individual upserts are logged and skipped — a single failing shop does not abort the sync. |
+| `ShopRegistrationRepositoryImpl` | Postgres-backed implementation of `ShopRegistrationRepository`. |
+
+### Sync loop
+
+```
+shop_sync_loop()
+  ├── run_shop_sync_once()    ← executes immediately on startup
+  └── sleep(shop_sync_interval)  ← default 3 hours
+      └── repeat
+```
+
+`run_shop_sync_once()` delegates entirely to `ShopRegistrationService::sync()`:
+
+```
+ShopRegistrationService::sync()
+  ├── source.fetch_registered_shops()   → Vec<RegisteredShop>
+  └── for each shop:
+       └── repository.upsert_shop(shop)
+            ├── INSERT INTO shops ... ON CONFLICT DO UPDATE SET shop_name, shop_slug, updated
+            └── for each domain:
+                 └── INSERT INTO shop_domains ... ON CONFLICT (shop_domain) DO NOTHING
+```
+
+### Decoupling via trait injection
+
+`ShopRegistrationSource` is defined in the crawler crate but its concrete implementation is provided at startup time by the binary (`server.rs`). This keeps the crawler crate free of any direct dependency on OpenSearch or DynamoDB client code.
+
+In production (`server.rs`), `OpenSearchShopSource` implements `ShopRegistrationSource` by paginating through `QueryShopService` (backed by the `shop` crate's OpenSearch repository) until all shops have been fetched.
+
+In tests and the demo binary (`demo.rs`), `DemoShopSource` provides a hardcoded list of `RegisteredShop` values.
 
 ---
 

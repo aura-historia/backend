@@ -12,10 +12,14 @@ The top-level entity. One row per shop.
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `shop_id` | UUID PK | |
+| `shop_id` | UUID PK | Sourced from the upstream shop service |
+| `shop_name` | TEXT (nullable) | Human-readable display name, synced from the upstream shop service |
+| `shop_slug` | TEXT (nullable) | URL-friendly slug identifier, synced from the upstream shop service |
 | `url_pattern` | TEXT (nullable) | LLM-discovered regex that matches product page URLs. `NULL` until the spider classifies the shop for the first time. |
 | `created` | TIMESTAMPTZ | |
-| `updated` | TIMESTAMPTZ | |
+| `updated` | TIMESTAMPTZ | Set to `NOW()` on every shop registration sync |
+
+`shop_name` and `shop_slug` are populated (and kept up-to-date) by the shop registration sync loop. They are nullable because a shop row may also be created directly by the spider before a sync has run.
 
 `url_pattern` is the handoff from the URL classification LLM to the spider's per-URL classification logic. Once set, it is reused on subsequent crawls and only refreshed if it matches zero products.
 
@@ -141,3 +145,25 @@ WHERE  url_class = 'product'
   AND  (last_scraped IS NULL OR last_scraped < NOW() - INTERVAL '1 day')
 LIMIT  $1
 ```
+
+### Shop registration upsert
+
+The shop sync writes one shop at a time (no UNNEST, as the batch is typically small relative to the crawl workload):
+
+```sql
+-- Upsert shop metadata
+INSERT INTO shops (shop_id, shop_name, shop_slug, created, updated)
+VALUES ($1, $2, $3, NOW(), NOW())
+ON CONFLICT (shop_id)
+DO UPDATE SET
+    shop_name = EXCLUDED.shop_name,
+    shop_slug = EXCLUDED.shop_slug,
+    updated   = NOW();
+
+-- Register domains — existing domain assignments are left untouched
+INSERT INTO shop_domains (shop_id, shop_domain)
+VALUES ($1, $2)
+ON CONFLICT (shop_domain) DO NOTHING;
+```
+
+The `ON CONFLICT (shop_domain) DO NOTHING` on the domain insert is intentional: if a domain is already registered to another shop (e.g. after a shop migration), the existing assignment wins and no error is raised.
