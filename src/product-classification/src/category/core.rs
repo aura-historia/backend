@@ -94,11 +94,6 @@ pub mod faker {
         display_name_fr: String,
         display_name_es: String,
         display_name_it: String,
-        display_description_de: String,
-        display_description_en: String,
-        display_description_fr: String,
-        display_description_es: String,
-        display_description_it: String,
     }
 
     impl From<CategoryTestPayload> for Category {
