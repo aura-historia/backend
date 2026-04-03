@@ -796,6 +796,7 @@ Resources:
           OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/prod/username}}"
           OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/prod/password}}"
           DYNAMODB_TABLE_NAME: !Ref TableOne
+          GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/gemini-api-key}}"
   ProductApiPartnerLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:

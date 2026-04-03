@@ -17,9 +17,6 @@ pub enum CommandShopError {
     #[error("Shop with name '{0}' exists already - the shop-slug '{1}' is already registered.")]
     ShopSlugExistsAlready(ShopName, SlugId<0>),
 
-    #[error("Shop must have at least one domain")]
-    ShopDomainsEmpty,
-
     #[error(
         "Did not succeed checking existence of shop due to DynamoDB Batch-Response containing unprocessed items"
     )]
@@ -47,9 +44,7 @@ pub enum CommandShopError {
 pub mod api {
     use crate::service::command_service::CommandShopError;
     use common::api::error::ApiError;
-    use common::api::error_code::{
-        NO_DOMAIN, SHOP_EXISTS_ALREADY, SHOP_NOT_FOUND, UNPROCESSED_ITEMS,
-    };
+    use common::api::error_code::{SHOP_EXISTS_ALREADY, SHOP_NOT_FOUND, UNPROCESSED_ITEMS};
 
     impl From<CommandShopError> for ApiError {
         fn from(err: CommandShopError) -> Self {
@@ -59,9 +54,6 @@ pub mod api {
                 }
                 CommandShopError::ShopSlugExistsAlready(_, _) => {
                     ApiError::conflict(SHOP_EXISTS_ALREADY, Box::new(err))
-                }
-                CommandShopError::ShopDomainsEmpty => {
-                    ApiError::bad_request(NO_DOMAIN, Box::new(err))
                 }
                 CommandShopError::SdkBatchGetItemUnprocessed => {
                     ApiError::service_unavailable(UNPROCESSED_ITEMS, Box::new(err))
@@ -107,10 +99,6 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
                 command.name,
                 shop_slug_id,
             ));
-        }
-
-        if command.domains.is_empty() {
-            return Err(CommandShopError::ShopDomainsEmpty);
         }
 
         let shop = Shop {
@@ -207,29 +195,6 @@ mod tests {
                 other => {
                     panic!("Expected 'CommandShopError::ShopSlugExistsAlready'. Got '{other}'")
                 }
-            }
-        }
-
-        #[tokio::test]
-        async fn should_err_when_shop_domains_empty() {
-            let mut shop_repository = MockShopDynamoDbRepository::default();
-            shop_repository
-                .expect_query_shop_id()
-                .return_once(|_| Box::pin(async { Ok(None) }));
-            let service = CommandShopServiceImpl::new(&shop_repository);
-
-            let cmd = CreateShopCommand {
-                name: Faker.fake(),
-                shop_type: Faker.fake(),
-                domains: HashSet::new(),
-                image: None,
-            };
-            let actual = service.create(cmd).await;
-
-            assert!(actual.is_err());
-            match actual.unwrap_err() {
-                CommandShopError::ShopDomainsEmpty => {}
-                other => panic!("Expected 'CommandShopError::ShopDomainsEmpty'. Got '{other}'"),
             }
         }
 

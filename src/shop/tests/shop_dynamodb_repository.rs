@@ -1,8 +1,10 @@
 use common::batch::Batch;
 use common::domain::Domain;
 use common::shop_id::ShopId;
+use common::shop_name::ShopName;
 use fake::{Fake, Faker};
 use shop::core::shop::Shop;
+use shop::dynamodb::raw_shop_name_record::RawShopNameRecord;
 use shop::dynamodb::shop_record_update::ShopRecordUpdate;
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use shop::dynamodb::{
@@ -201,4 +203,48 @@ async fn should_return_only_existing_records_when_some_do_not_exist_for_get_shop
     expected.sort_by_key(|r| r.shop_id);
     result.items.sort_by_key(|r| r.shop_id);
     assert_eq!(result.items, expected);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_return_none_when_raw_shop_name_record_not_exists_for_get_raw_shop_name_record() {
+    let repository = get_repository().await;
+
+    let actual = repository
+        .get_raw_shop_name_record(&Faker.fake::<ShopName>())
+        .await
+        .unwrap();
+
+    assert!(actual.is_none());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_return_some_when_raw_shop_name_record_exists_for_get_raw_shop_name_record() {
+    let repository = get_repository().await;
+
+    let expected: RawShopNameRecord = Faker.fake();
+    repository
+        .put_raw_shop_name_record(expected.clone())
+        .await
+        .unwrap();
+    let actual = repository
+        .get_raw_shop_name_record(&expected.raw_name)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(expected, actual);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_return_none_when_different_raw_shop_name_not_exists_for_get_raw_shop_name_record() {
+    let repository = get_repository().await;
+
+    let record: RawShopNameRecord = Faker.fake();
+    repository.put_raw_shop_name_record(record).await.unwrap();
+    let actual = repository
+        .get_raw_shop_name_record(&Faker.fake::<ShopName>())
+        .await
+        .unwrap();
+
+    assert!(actual.is_none());
 }

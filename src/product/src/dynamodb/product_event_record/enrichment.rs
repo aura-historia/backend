@@ -33,6 +33,7 @@ pub struct ProductEnrichmentEventRecord {
     pub event_type: ProductEnrichmentEventTypeRecord,
     pub event_type_schema_version: u8,
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
 
     // classification:category
@@ -106,6 +107,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     event_type: ProductEnrichmentEventTypeRecord::EnrichmentTranslatedTitle,
                     event_type_schema_version: 0,
                     shop_id: payload.shop_id,
+                    seller_id: payload.seller_id,
                     shops_product_id: payload.shops_product_id,
                     category_id: None,
                     period_id: None,
@@ -132,6 +134,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     event_type: ProductEnrichmentEventTypeRecord::EnrichmentTranslatedDescription,
                     event_type_schema_version: 0,
                     shop_id: payload.shop_id,
+                    seller_id: payload.seller_id,
                     shops_product_id: payload.shops_product_id,
                     category_id: None,
                     period_id: None,
@@ -157,6 +160,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                 event_type: ProductEnrichmentEventTypeRecord::EnrichmentEmbedded,
                 event_type_schema_version: 0,
                 shop_id: payload.shop_id,
+                seller_id: payload.seller_id,
                 shops_product_id: payload.shops_product_id,
                 category_id: None,
                 period_id: None,
@@ -182,6 +186,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     event_type: ProductEnrichmentEventTypeRecord::EnrichmentExtractedAttributes,
                     event_type_schema_version: 0,
                     shop_id: payload.shop_id,
+                    seller_id: payload.seller_id,
                     shops_product_id: payload.shops_product_id,
                     category_id: None,
                     period_id: None,
@@ -208,6 +213,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     event_type: ProductEnrichmentEventTypeRecord::EnrichmentClassifyCategory,
                     event_type_schema_version: 0,
                     shop_id: payload.shop_id,
+                    seller_id: payload.seller_id,
                     shops_product_id: payload.shops_product_id,
                     category_id: Some(payload.category_id),
                     period_id: None,
@@ -234,6 +240,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     event_type: ProductEnrichmentEventTypeRecord::EnrichmentClassifyPeriod,
                     event_type_schema_version: 0,
                     shop_id: payload.shop_id,
+                    seller_id: payload.seller_id,
                     shops_product_id: payload.shops_product_id,
                     category_id: None,
                     period_id: Some(payload.period_id),
@@ -268,6 +275,7 @@ impl TryFrom<ProductEnrichmentEventRecord> for ProductEnrichmentEvent {
                     payload: ProductEnrichmentEventPayload::TranslatedTitle(
                         TranslationProductEnrichmentEventPayload {
                             shop_id: record.shop_id,
+                            seller_id: record.seller_id,
                             shops_product_id: record.shops_product_id,
                             source_language: record
                                 .source_language
@@ -300,6 +308,7 @@ impl TryFrom<ProductEnrichmentEventRecord> for ProductEnrichmentEvent {
                     payload: ProductEnrichmentEventPayload::TranslatedDescription(
                         TranslationProductEnrichmentEventPayload {
                             shop_id: record.shop_id,
+                            seller_id: record.seller_id,
                             shops_product_id: record.shops_product_id,
                             source_language: record
                                 .source_language
@@ -332,6 +341,7 @@ impl TryFrom<ProductEnrichmentEventRecord> for ProductEnrichmentEvent {
                     payload: ProductEnrichmentEventPayload::Embedded(
                         EmbeddedProductEnrichmentEventPayload {
                             shop_id: record.shop_id,
+                            seller_id: record.seller_id,
                             shops_product_id: record.shops_product_id,
                             embedding: record.embedding.ok_or(MissingPersistenceField::new(
                                 field::field!(embedding@ProductEnrichmentEventRecord),
@@ -349,6 +359,7 @@ impl TryFrom<ProductEnrichmentEventRecord> for ProductEnrichmentEvent {
                     payload: ProductEnrichmentEventPayload::ExtractedAttributes(
                         ExtractedAttributesProductEnrichmentEventPayload {
                             shop_id: record.shop_id,
+                            seller_id: record.seller_id,
                             shops_product_id: record.shops_product_id,
                             origin_year_min: record.origin_year_min,
                             origin_year: record.origin_year,
@@ -370,6 +381,7 @@ impl TryFrom<ProductEnrichmentEventRecord> for ProductEnrichmentEvent {
                     payload: ProductEnrichmentEventPayload::ClassifiedCategory(
                         ClassifiedCategoryProductEnrichmentEventPayload {
                             shop_id: record.shop_id,
+                            seller_id: record.seller_id,
                             shops_product_id: record.shops_product_id,
                             category_id: record.category_id.ok_or(MissingPersistenceField::new(
                                 field::field!(category_id@ProductEnrichmentEventRecord),
@@ -387,6 +399,7 @@ impl TryFrom<ProductEnrichmentEventRecord> for ProductEnrichmentEvent {
                     payload: ProductEnrichmentEventPayload::ClassifiedPeriod(
                         ClassifiedPeriodProductEnrichmentEventPayload {
                             shop_id: record.shop_id,
+                            seller_id: record.seller_id,
                             shops_product_id: record.shops_product_id,
                             period_id: record.period_id.ok_or(MissingPersistenceField::new(
                                 field::field!(period_id@ProductEnrichmentEventRecord),

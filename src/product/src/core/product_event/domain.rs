@@ -87,8 +87,10 @@ impl ProductDomainEventPayload {
                 LocalizedProductDomainEventPayloadView::Created(
                     LocalizedProductCreatedDomainEventPayloadView {
                         shop_id: payload.shop_id,
+                        seller_id: payload.seller_id,
                         shops_product_id: payload.shops_product_id,
                         shop_name: payload.shop_name,
+                        seller_name: payload.seller_name,
                         shop_type: payload.shop_type,
                         title: payload.native_title,
                         description: payload.native_description,
@@ -105,6 +107,7 @@ impl ProductDomainEventPayload {
                 LocalizedProductDomainEventPayloadView::StateChanged(
                     LocalizedProductStateChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
+                        seller_id: payload.seller_id,
                         shops_product_id: payload.shops_product_id,
                         old_state: payload.old_state,
                         new_state: payload.new_state,
@@ -133,6 +136,7 @@ impl ProductDomainEventPayload {
                 LocalizedProductDomainEventPayloadView::PriceChanged(
                     LocalizedProductPriceChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
+                        seller_id: payload.seller_id,
                         shops_product_id: payload.shops_product_id,
                         old_price,
                         new_price,
@@ -159,6 +163,7 @@ impl ProductDomainEventPayload {
                 LocalizedProductDomainEventPayloadView::EstimatePriceChanged(
                     LocalizedProductEstimatePriceChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
+                        seller_id: payload.seller_id,
                         shops_product_id: payload.shops_product_id,
                         price_estimate_min,
                         price_estimate_max,
@@ -169,6 +174,7 @@ impl ProductDomainEventPayload {
                 LocalizedProductDomainEventPayloadView::UrlChanged(
                     LocalizedProductUrlChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
+                        seller_id: payload.seller_id,
                         shops_product_id: payload.shops_product_id,
                         url: payload.url,
                     },
@@ -178,6 +184,7 @@ impl ProductDomainEventPayload {
                 LocalizedProductDomainEventPayloadView::ImagesChanged(
                     LocalizedProductImagesChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
+                        seller_id: payload.seller_id,
                         shops_product_id: payload.shops_product_id,
                         images: payload.images,
                     },
@@ -187,6 +194,7 @@ impl ProductDomainEventPayload {
                 LocalizedProductDomainEventPayloadView::AuctionTimeChanged(
                     LocalizedProductAuctionTimeChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
+                        seller_id: payload.seller_id,
                         shops_product_id: payload.shops_product_id,
                         auction_start: payload.auction_start,
                         auction_end: payload.auction_end,
@@ -197,6 +205,7 @@ impl ProductDomainEventPayload {
                 LocalizedProductDomainEventPayloadView::OriginYearChanged(
                     LocalizedProductOriginYearChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
+                        seller_id: payload.seller_id,
                         shops_product_id: payload.shops_product_id,
                         origin_year: payload.origin_year,
                     },
@@ -206,6 +215,7 @@ impl ProductDomainEventPayload {
                 LocalizedProductDomainEventPayloadView::AuthenticityChanged(
                     LocalizedProductAuthenticityChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
+                        seller_id: payload.seller_id,
                         shops_product_id: payload.shops_product_id,
                         authenticity: payload.authenticity,
                     },
@@ -215,6 +225,7 @@ impl ProductDomainEventPayload {
                 LocalizedProductDomainEventPayloadView::ConditionChanged(
                     LocalizedProductConditionChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
+                        seller_id: payload.seller_id,
                         shops_product_id: payload.shops_product_id,
                         condition: payload.condition,
                     },
@@ -224,6 +235,7 @@ impl ProductDomainEventPayload {
                 LocalizedProductDomainEventPayloadView::ProvenanceChanged(
                     LocalizedProductProvenanceChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
+                        seller_id: payload.seller_id,
                         shops_product_id: payload.shops_product_id,
                         provenance: payload.provenance,
                     },
@@ -233,6 +245,7 @@ impl ProductDomainEventPayload {
                 LocalizedProductDomainEventPayloadView::RestorationChanged(
                     LocalizedProductRestorationChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
+                        seller_id: payload.seller_id,
                         shops_product_id: payload.shops_product_id,
                         restoration: payload.restoration,
                     },
@@ -253,6 +266,7 @@ impl HasKey for ProductDomainEventPayload {
 pub trait ProductCommonEventPayload {
     fn shop_id(&self) -> &ShopId;
     fn shops_product_id(&self) -> &ShopsProductId;
+    fn seller_id(&self) -> &ShopId;
 }
 
 impl ProductCommonEventPayload for ProductDomainEventPayload {
@@ -289,15 +303,35 @@ impl ProductCommonEventPayload for ProductDomainEventPayload {
             ProductDomainEventPayload::RestorationChanged(payload) => payload.shops_product_id(),
         }
     }
+
+    fn seller_id(&self) -> &ShopId {
+        match self {
+            ProductDomainEventPayload::Created(payload) => payload.seller_id(),
+            ProductDomainEventPayload::StateChanged(payload) => payload.seller_id(),
+            ProductDomainEventPayload::PriceChanged(payload) => payload.seller_id(),
+            ProductDomainEventPayload::EstimatePriceChanged(payload) => payload.seller_id(),
+            ProductDomainEventPayload::UrlChanged(payload) => payload.seller_id(),
+            ProductDomainEventPayload::ImagesChanged(payload) => payload.seller_id(),
+            ProductDomainEventPayload::AuctionTimeChanged(payload) => payload.seller_id(),
+            ProductDomainEventPayload::OriginYearChanged(payload) => payload.seller_id(),
+            ProductDomainEventPayload::AuthenticityChanged(payload) => payload.seller_id(),
+            ProductDomainEventPayload::ConditionChanged(payload) => payload.seller_id(),
+            ProductDomainEventPayload::ProvenanceChanged(payload) => payload.seller_id(),
+            ProductDomainEventPayload::RestorationChanged(payload) => payload.seller_id(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductCreatedDomainEventPayload {
     pub product_slug_id: SlugId<6>,
     pub shop_slug_id: SlugId<0>,
+    pub seller_slug_id: SlugId<0>,
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,
+    pub seller_name: ShopName,
     pub shop_type: ShopType,
     pub native_title: Localized<Language, Title>,
     pub native_description: Option<Localized<Language, Description>>,
@@ -322,11 +356,16 @@ impl ProductCommonEventPayload for ProductCreatedDomainEventPayload {
     fn shops_product_id(&self) -> &ShopsProductId {
         &self.shops_product_id
     }
+
+    fn seller_id(&self) -> &ShopId {
+        &self.seller_id
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductStateChangeDomainEventPayload {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub old_state: ProductState,
     pub new_state: ProductState,
@@ -340,11 +379,16 @@ impl ProductCommonEventPayload for ProductStateChangeDomainEventPayload {
     fn shops_product_id(&self) -> &ShopsProductId {
         &self.shops_product_id
     }
+
+    fn seller_id(&self) -> &ShopId {
+        &self.seller_id
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductPriceChangeDomainEventPayload {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub old_native_price: Option<Price>,
     pub old_other_price: HashMap<Currency, MonetaryAmount>,
@@ -378,11 +422,16 @@ impl ProductCommonEventPayload for ProductPriceChangeDomainEventPayload {
     fn shops_product_id(&self) -> &ShopsProductId {
         &self.shops_product_id
     }
+
+    fn seller_id(&self) -> &ShopId {
+        &self.seller_id
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductEstimatePriceChangeDomainEventPayload {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub native_price_estimate_min: Option<Price>,
     pub other_price_estimate_min: HashMap<Currency, MonetaryAmount>,
@@ -398,11 +447,16 @@ impl ProductCommonEventPayload for ProductEstimatePriceChangeDomainEventPayload 
     fn shops_product_id(&self) -> &ShopsProductId {
         &self.shops_product_id
     }
+
+    fn seller_id(&self) -> &ShopId {
+        &self.seller_id
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductUrlChangeDomainEventPayload {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub url: Url,
 }
@@ -415,11 +469,16 @@ impl ProductCommonEventPayload for ProductUrlChangeDomainEventPayload {
     fn shops_product_id(&self) -> &ShopsProductId {
         &self.shops_product_id
     }
+
+    fn seller_id(&self) -> &ShopId {
+        &self.seller_id
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductImagesChangeDomainEventPayload {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub images: Vec<ProductImage>,
 }
@@ -432,11 +491,16 @@ impl ProductCommonEventPayload for ProductImagesChangeDomainEventPayload {
     fn shops_product_id(&self) -> &ShopsProductId {
         &self.shops_product_id
     }
+
+    fn seller_id(&self) -> &ShopId {
+        &self.seller_id
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductAuctionTimeChangeDomainEventPayload {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
@@ -450,11 +514,16 @@ impl ProductCommonEventPayload for ProductAuctionTimeChangeDomainEventPayload {
     fn shops_product_id(&self) -> &ShopsProductId {
         &self.shops_product_id
     }
+
+    fn seller_id(&self) -> &ShopId {
+        &self.seller_id
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductOriginYearChangeDomainEventPayload {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub origin_year: OriginYear,
 }
@@ -467,11 +536,16 @@ impl ProductCommonEventPayload for ProductOriginYearChangeDomainEventPayload {
     fn shops_product_id(&self) -> &ShopsProductId {
         &self.shops_product_id
     }
+
+    fn seller_id(&self) -> &ShopId {
+        &self.seller_id
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductAuthenticityChangeDomainEventPayload {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub authenticity: Authenticity,
 }
@@ -484,11 +558,16 @@ impl ProductCommonEventPayload for ProductAuthenticityChangeDomainEventPayload {
     fn shops_product_id(&self) -> &ShopsProductId {
         &self.shops_product_id
     }
+
+    fn seller_id(&self) -> &ShopId {
+        &self.seller_id
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductConditionChangeDomainEventPayload {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub condition: Condition,
 }
@@ -501,11 +580,16 @@ impl ProductCommonEventPayload for ProductConditionChangeDomainEventPayload {
     fn shops_product_id(&self) -> &ShopsProductId {
         &self.shops_product_id
     }
+
+    fn seller_id(&self) -> &ShopId {
+        &self.seller_id
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductProvenanceChangeDomainEventPayload {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub provenance: Provenance,
 }
@@ -518,11 +602,16 @@ impl ProductCommonEventPayload for ProductProvenanceChangeDomainEventPayload {
     fn shops_product_id(&self) -> &ShopsProductId {
         &self.shops_product_id
     }
+
+    fn seller_id(&self) -> &ShopId {
+        &self.seller_id
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductRestorationChangeDomainEventPayload {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub restoration: Restoration,
 }
@@ -534,6 +623,10 @@ impl ProductCommonEventPayload for ProductRestorationChangeDomainEventPayload {
 
     fn shops_product_id(&self) -> &ShopsProductId {
         &self.shops_product_id
+    }
+
+    fn seller_id(&self) -> &ShopId {
+        &self.seller_id
     }
 }
 
@@ -557,8 +650,10 @@ pub enum LocalizedProductDomainEventPayloadView {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedProductCreatedDomainEventPayloadView {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,
+    pub seller_name: ShopName,
     pub shop_type: ShopType,
     pub title: Localized<Language, Title>,
     pub description: Option<Localized<Language, Description>>,
@@ -571,6 +666,7 @@ pub struct LocalizedProductCreatedDomainEventPayloadView {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedProductStateChangeDomainEventPayloadView {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub old_state: ProductState,
     pub new_state: ProductState,
@@ -579,6 +675,7 @@ pub struct LocalizedProductStateChangeDomainEventPayloadView {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedProductPriceChangeDomainEventPayloadView {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub old_price: Option<Price>,
     pub new_price: Option<Price>,
@@ -587,6 +684,7 @@ pub struct LocalizedProductPriceChangeDomainEventPayloadView {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedProductEstimatePriceChangeDomainEventPayloadView {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub price_estimate_min: Option<Price>,
     pub price_estimate_max: Option<Price>,
@@ -595,6 +693,7 @@ pub struct LocalizedProductEstimatePriceChangeDomainEventPayloadView {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedProductUrlChangeDomainEventPayloadView {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub url: Url,
 }
@@ -602,6 +701,7 @@ pub struct LocalizedProductUrlChangeDomainEventPayloadView {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedProductImagesChangeDomainEventPayloadView {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub images: Vec<ProductImage>,
 }
@@ -609,6 +709,7 @@ pub struct LocalizedProductImagesChangeDomainEventPayloadView {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedProductAuctionTimeChangeDomainEventPayloadView {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
@@ -617,6 +718,7 @@ pub struct LocalizedProductAuctionTimeChangeDomainEventPayloadView {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedProductOriginYearChangeDomainEventPayloadView {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub origin_year: OriginYear,
 }
@@ -624,6 +726,7 @@ pub struct LocalizedProductOriginYearChangeDomainEventPayloadView {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedProductAuthenticityChangeDomainEventPayloadView {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub authenticity: Authenticity,
 }
@@ -631,6 +734,7 @@ pub struct LocalizedProductAuthenticityChangeDomainEventPayloadView {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedProductConditionChangeDomainEventPayloadView {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub condition: Condition,
 }
@@ -638,6 +742,7 @@ pub struct LocalizedProductConditionChangeDomainEventPayloadView {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedProductProvenanceChangeDomainEventPayloadView {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub provenance: Provenance,
 }
@@ -645,6 +750,7 @@ pub struct LocalizedProductProvenanceChangeDomainEventPayloadView {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedProductRestorationChangeDomainEventPayloadView {
     pub shop_id: ShopId,
+    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub restoration: Restoration,
 }
@@ -681,12 +787,16 @@ mod faker {
             let state = config.fake_with_rng(rng);
             let native_title: Localized<Language, Title> = config.fake_with_rng(rng);
             let shop_name: ShopName = config.fake_with_rng(rng);
+            let seller_name: ShopName = config.fake_with_rng(rng);
             ProductCreatedDomainEventPayload {
                 product_slug_id: SlugId::from(native_title.payload.as_ref()),
                 shop_slug_id: SlugId::from(shop_name.as_ref()),
+                seller_slug_id: SlugId::from(seller_name.as_ref()),
                 shop_id: config.fake_with_rng(rng),
+                seller_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name,
+                seller_name,
                 shop_type: config.fake_with_rng(rng),
                 native_title,
                 native_description: config.fake_with_rng(rng),
@@ -721,6 +831,7 @@ mod faker {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             ProductStateChangeDomainEventPayload {
                 shop_id: config.fake_with_rng(rng),
+                seller_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 old_state: config.fake_with_rng(rng),
                 new_state: config.fake_with_rng(rng),
@@ -746,6 +857,7 @@ mod faker {
             };
             ProductPriceChangeDomainEventPayload {
                 shop_id: config.fake_with_rng(rng),
+                seller_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 new_native_price,
                 new_other_price,
@@ -773,6 +885,7 @@ mod faker {
             };
             ProductEstimatePriceChangeDomainEventPayload {
                 shop_id: config.fake_with_rng(rng),
+                seller_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 native_price_estimate_min,
                 other_price_estimate_min,
@@ -786,6 +899,7 @@ mod faker {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             Self {
                 shop_id: config.fake_with_rng(rng),
+                seller_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 url: Url::parse(&format!(
                     "https://foo.bar/item/{}",
@@ -799,6 +913,7 @@ mod faker {
     impl Dummy<Faker> for ProductImagesChangeDomainEventPayload {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             Self {
+                seller_id: config.fake_with_rng(rng),
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 images: config.fake_with_rng(rng),
@@ -810,6 +925,7 @@ mod faker {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             Self {
                 shop_id: config.fake_with_rng(rng),
+                seller_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 auction_start: if config.fake_with_rng(rng) {
                     Some(OffsetDateTime::now_utc())
@@ -829,6 +945,7 @@ mod faker {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             Self {
                 shop_id: config.fake_with_rng(rng),
+                seller_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 origin_year: OriginYear::ExactYear(common::year::Year::from(1900i32)),
             }
@@ -838,6 +955,7 @@ mod faker {
     impl Dummy<Faker> for ProductAuthenticityChangeDomainEventPayload {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             Self {
+                seller_id: config.fake_with_rng(rng),
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 authenticity: config.fake_with_rng(rng),
@@ -849,6 +967,7 @@ mod faker {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             Self {
                 shop_id: config.fake_with_rng(rng),
+                seller_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 condition: config.fake_with_rng(rng),
             }
@@ -859,6 +978,7 @@ mod faker {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             Self {
                 shop_id: config.fake_with_rng(rng),
+                seller_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 provenance: config.fake_with_rng(rng),
             }
@@ -869,6 +989,7 @@ mod faker {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             Self {
                 shop_id: config.fake_with_rng(rng),
+                seller_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 restoration: config.fake_with_rng(rng),
             }
