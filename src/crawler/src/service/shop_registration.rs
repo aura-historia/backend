@@ -155,38 +155,44 @@ impl ShopRegistrationRepository for ShopRegistrationRepositoryImpl {
 
     async fn sync_domains(&self, shop: &RegisteredShop) -> Result<(), sqlx::Error> {
         let shop_id_uuid: uuid::Uuid = shop.shop_id.into();
-
-        // Upsert each domain. Reassign moved domains to this shop and reset crawl/lock state.
-        for domain in &shop.domains {
-            sqlx::query(
-                "INSERT INTO shop_domains (shop_id, shop_domain, last_crawled, locked_at)
-                 VALUES ($1, $2, NULL, NULL)
-                 ON CONFLICT (shop_domain)
-                 DO UPDATE SET
-                     shop_id = EXCLUDED.shop_id,
-                     last_crawled = NULL,
-                     locked_at = NULL
-                 WHERE shop_domains.shop_id <> EXCLUDED.shop_id",
-            )
-            .bind(shop_id_uuid)
-            .bind(domain.as_str())
-            .execute(&self.pool)
-            .await?;
-        }
-
         let domain_strings: Vec<String> = shop
             .domains
             .iter()
             .map(|d| d.as_str().to_string())
             .collect();
 
+        let mut tx = self.pool.begin().await?;
+
         if domain_strings.is_empty() {
             sqlx::query("DELETE FROM shop_domains WHERE shop_id = $1")
                 .bind(shop_id_uuid)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await?;
+            tx.commit().await?;
             return Ok(());
         }
+
+        // Bulk upsert domains. Only reset crawl/lock state when ownership changes.
+        sqlx::query(
+            "INSERT INTO shop_domains (shop_id, shop_domain, last_crawled, locked_at)
+             SELECT $1, domain, NULL, NULL
+             FROM unnest($2::text[]) AS t(domain)
+             ON CONFLICT (shop_domain)
+             DO UPDATE SET
+                 shop_id = EXCLUDED.shop_id,
+                 last_crawled = CASE
+                     WHEN shop_domains.shop_id <> EXCLUDED.shop_id THEN NULL
+                     ELSE shop_domains.last_crawled
+                 END,
+                 locked_at = CASE
+                     WHEN shop_domains.shop_id <> EXCLUDED.shop_id THEN NULL
+                     ELSE shop_domains.locked_at
+                 END",
+        )
+        .bind(shop_id_uuid)
+        .bind(&domain_strings)
+        .execute(&mut *tx)
+        .await?;
 
         // Remove stale domains that are no longer present in upstream for this shop.
         sqlx::query(
@@ -195,9 +201,11 @@ impl ShopRegistrationRepository for ShopRegistrationRepositoryImpl {
                AND NOT (shop_domain = ANY($2::text[]))",
         )
         .bind(shop_id_uuid)
-        .bind(domain_strings)
-        .execute(&self.pool)
+        .bind(&domain_strings)
+        .execute(&mut *tx)
         .await?;
+
+        tx.commit().await?;
 
         Ok(())
     }
