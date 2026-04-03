@@ -28,7 +28,6 @@ pub struct Notification {
     pub notification_id: NotificationId,
     pub notification_type: Option<NotificationType>, // None if not yet sent, Some if sent
     pub notification_payload: NotificationPayload,
-    pub image: Option<ProductImage>,
     pub seen: bool,
     pub external: bool,
     pub created: OffsetDateTime,
@@ -48,7 +47,6 @@ impl Notification {
             notification_payload: self
                 .notification_payload
                 .localized(currency, preferred_languages),
-            image: self.image,
             seen: self.seen,
             external: self.external,
             created: self.created,
@@ -68,6 +66,7 @@ pub enum NotificationPayload {
         product_slug_id: SlugId<6>,
         shop_name: ShopName,
         title: HashMap<Language, Title>,
+        image: Option<ProductImage>,
         watchlist_payload: NotificationWatchlistPayload,
     },
     SearchFilter {
@@ -78,6 +77,7 @@ pub enum NotificationPayload {
         product_slug_id: SlugId<6>,
         shop_name: ShopName,
         title: HashMap<Language, Title>,
+        image: Option<ProductImage>,
         search_filter_payload: NotificationSearchFilterPayload,
     },
 }
@@ -97,6 +97,7 @@ impl NotificationPayload {
                 product_slug_id,
                 shop_name,
                 title,
+                image,
                 watchlist_payload,
             } => LocalizedNotificationPayload::Watchlist {
                 product_id,
@@ -109,6 +110,7 @@ impl NotificationPayload {
                     error!("Failed resolving title. This SHOULD be impossible because the native title always exists.");
                     Localized::new(Language::En, "Unknown title".into())
                 }),
+                image,
                 watchlist_payload: watchlist_payload.localized(currency),
             },
             NotificationPayload::SearchFilter {
@@ -119,6 +121,7 @@ impl NotificationPayload {
                 product_slug_id,
                 shop_name,
                 title,
+                image,
                 search_filter_payload,
             } => LocalizedNotificationPayload::SearchFilter {
                 product_id,
@@ -131,6 +134,7 @@ impl NotificationPayload {
                     error!("Failed resolving title. This SHOULD be impossible because the native title always exists.");
                     Localized::new(Language::En, "Unknown title".into())
                 }),
+                image,
                 search_filter_payload,
             },
         }
@@ -185,7 +189,6 @@ pub struct LocalizedNotification {
     pub origin_event_id: EventId,
     pub notification_id: NotificationId,
     pub notification_payload: LocalizedNotificationPayload,
-    pub image: Option<ProductImage>,
     pub seen: bool,
     pub external: bool,
     pub created: OffsetDateTime,
@@ -203,6 +206,7 @@ pub enum LocalizedNotificationPayload {
         product_slug_id: SlugId<6>,
         shop_name: ShopName,
         title: Localized<Language, Title>,
+        image: Option<ProductImage>,
         watchlist_payload: LocalizedNotificationWatchlistPayload,
     },
     SearchFilter {
@@ -213,6 +217,7 @@ pub enum LocalizedNotificationPayload {
         product_slug_id: SlugId<6>,
         shop_name: ShopName,
         title: Localized<Language, Title>,
+        image: Option<ProductImage>,
         search_filter_payload: NotificationSearchFilterPayload,
     },
 }

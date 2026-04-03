@@ -177,12 +177,12 @@ fn mk_search_filter_notification_command(
             product_slug_id: product.product_slug_id.clone(),
             shop_name: product.shop_name.clone(),
             title: product.titles(),
+            image: product.images.first().cloned(),
             search_filter_payload: NotificationSearchFilterPayload {
                 user_search_filter_id: filter.user_search_filter_id,
                 user_search_filter_name: filter.name,
             },
         },
-        image: product.images.first().cloned(),
         external: filter.notifications,
     }
 }
@@ -745,9 +745,13 @@ mod tests {
 
         let cmds = result.unwrap();
         assert_eq!(cmds.len(), 1);
+        let actual_image = match &cmds[0].notification_payload {
+            NotificationPayload::SearchFilter { image, .. } => image.clone(),
+            _ => unreachable!("expected SearchFilter payload"),
+        };
         assert_eq!(
             Some(expected_image),
-            cmds[0].image,
+            actual_image,
             "expected first image to be set"
         );
     }
@@ -783,6 +787,10 @@ mod tests {
 
         let cmds = result.unwrap();
         assert_eq!(cmds.len(), 1);
-        assert!(cmds[0].image.is_none(), "expected image to be None");
+        let actual_image = match &cmds[0].notification_payload {
+            NotificationPayload::SearchFilter { image, .. } => image.clone(),
+            _ => unreachable!("expected SearchFilter payload"),
+        };
+        assert!(actual_image.is_none(), "expected image to be None");
     }
 }

@@ -202,6 +202,7 @@ impl From<Notification> for NotificationRecord {
                 product_slug_id,
                 shop_name,
                 title,
+                image,
                 watchlist_payload,
             } => {
                 let notification_reason = derive_notification_reason(&watchlist_payload);
@@ -297,7 +298,7 @@ impl From<Notification> for NotificationRecord {
                     notification_reason,
                     seen: notification.seen,
                     external: notification.external,
-                    image: notification.image.map(ProductImageRecord::from),
+                    image: image.map(ProductImageRecord::from),
                     product_id: Some(product_id),
                     product_slug_id: Some(product_slug_id),
                     shop_slug_id: Some(shop_slug_id),
@@ -340,6 +341,7 @@ impl From<Notification> for NotificationRecord {
                 product_slug_id,
                 shop_name,
                 title,
+                image,
                 search_filter_payload,
             } => {
                 let notification_reason = NotificationReasonRecord::SearchFilterMatch;
@@ -357,7 +359,7 @@ impl From<Notification> for NotificationRecord {
                     notification_reason,
                     seen: notification.seen,
                     external: notification.external,
-                    image: notification.image.map(ProductImageRecord::from),
+                    image: image.map(ProductImageRecord::from),
                     product_id: Some(product_id),
                     product_slug_id: Some(product_slug_id),
                     shop_slug_id: Some(shop_slug_id),
@@ -474,6 +476,8 @@ impl TryFrom<NotificationRecord> for Notification {
             .map(ShopName::from)
             .ok_or_else(|| MissingPersistenceField::new(field!(shop_name@NotificationRecord)))?;
 
+        let image = record.image.map(ProductImage::from);
+
         let notification_payload = if record.notification_reason.is_search_filter() {
             let user_search_filter_id = record.user_search_filter_id.ok_or_else(|| {
                 MissingPersistenceField::new(field!(user_search_filter_id@NotificationRecord))
@@ -493,6 +497,7 @@ impl TryFrom<NotificationRecord> for Notification {
                 product_slug_id,
                 shop_name,
                 title,
+                image,
                 search_filter_payload: NotificationSearchFilterPayload {
                     user_search_filter_id,
                     user_search_filter_name,
@@ -546,6 +551,7 @@ impl TryFrom<NotificationRecord> for Notification {
                 product_slug_id,
                 shop_name,
                 title,
+                image,
                 watchlist_payload,
             }
         };
@@ -556,7 +562,6 @@ impl TryFrom<NotificationRecord> for Notification {
             notification_id: record.notification_id,
             notification_type: record.notification_type.map(Into::into),
             notification_payload,
-            image: record.image.map(ProductImage::from),
             seen: record.seen,
             external: record.external,
             created: record.created,
@@ -685,6 +690,13 @@ mod image_round_trip_tests {
     use fake::{Fake, Faker};
     use product::core::product_image::ProductImage;
 
+    fn extract_image(notification: &Notification) -> Option<ProductImage> {
+        match &notification.notification_payload {
+            NotificationPayload::Watchlist { image, .. } => image.clone(),
+            NotificationPayload::SearchFilter { image, .. } => image.clone(),
+        }
+    }
+
     #[test]
     fn should_preserve_image_when_converting_notification_to_record_and_back() {
         let image: ProductImage = Faker.fake();
@@ -695,7 +707,7 @@ mod image_round_trip_tests {
 
         assert_eq!(
             Some(image),
-            notification.image,
+            extract_image(&notification),
             "image should be preserved in round-trip"
         );
     }
@@ -708,7 +720,7 @@ mod image_round_trip_tests {
         let notification: Notification = record.try_into().expect("conversion should succeed");
 
         assert!(
-            notification.image.is_none(),
+            extract_image(&notification).is_none(),
             "image should be None when record has no image"
         );
     }

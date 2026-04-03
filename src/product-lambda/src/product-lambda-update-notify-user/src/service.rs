@@ -78,7 +78,6 @@ impl<'a> ProductEventWatchlistNotificationsService
                 |(user_id, notifications_enabled)| CreateNotificationCommand {
                     user_id,
                     notification_payload: mk_notification_payload(&product, &event.payload),
-                    image: product.images.first().cloned(),
                     external: notifications_enabled,
                 },
             )
@@ -131,6 +130,7 @@ fn mk_created_watchlist_notification_payload(
         product_slug_id: product.product_slug_id.clone(),
         shop_name: product.shop_name.clone(),
         title: product.titles(),
+        image: product.images.first().cloned(),
         watchlist_payload: NotificationWatchlistPayload::StateChange {
             old_state: ProductState::Unknown,
             new_state: payload.state,
@@ -151,6 +151,7 @@ fn mk_state_change_watchlist_notification_payload(
         product_slug_id: product.product_slug_id.clone(),
         shop_name: product.shop_name.clone(),
         title: product.titles(),
+        image: product.images.first().cloned(),
         watchlist_payload: NotificationWatchlistPayload::StateChange {
             old_state: payload.old_state,
             new_state: *new_state,
@@ -171,6 +172,7 @@ fn mk_price_change_watchlist_notification_payload(
         product_slug_id: product.product_slug_id.clone(),
         shop_name: product.shop_name.clone(),
         title: product.titles(),
+        image: product.images.first().cloned(),
         watchlist_payload: NotificationWatchlistPayload::PriceChange {
             old_price,
             new_price,
@@ -718,9 +720,13 @@ mod tests {
         assert_eq!(1, result.len());
         let cmd = result.remove(0);
 
+        let actual_image = match &cmd.notification_payload {
+            NotificationPayload::Watchlist { image, .. } => image.clone(),
+            _ => unreachable!("expected Watchlist payload"),
+        };
         assert_eq!(
             Some(expected_image),
-            cmd.image,
+            actual_image,
             "expected first image to be set"
         );
     }
@@ -756,7 +762,11 @@ mod tests {
         assert_eq!(1, result.len());
         let cmd = result.remove(0);
 
-        assert!(cmd.image.is_none(), "expected image to be None");
+        let actual_image = match &cmd.notification_payload {
+            NotificationPayload::Watchlist { image, .. } => image.clone(),
+            _ => unreachable!("expected Watchlist payload"),
+        };
+        assert!(actual_image.is_none(), "expected image to be None");
     }
 
     // ---------------------------------------------------------------------------

@@ -1,13 +1,11 @@
 use crate::core::notification::NotificationPayload;
 use common::user_id::UserId;
-use product::core::product_image::ProductImage;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone)]
 pub struct CreateNotificationCommand {
     pub user_id: UserId,
     pub notification_payload: NotificationPayload,
-    pub image: Option<ProductImage>,
     pub external: bool,
 }
 

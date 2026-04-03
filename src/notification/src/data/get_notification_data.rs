@@ -21,8 +21,6 @@ pub struct GetNotificationData {
     pub origin_event_id: EventId,
     pub notification_id: NotificationId,
     pub payload: NotificationPayloadData,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image: Option<ProductImageData>,
     pub seen: bool,
     pub external: bool,
 
@@ -45,6 +43,8 @@ pub enum NotificationPayloadData {
         product_slug_id: SlugId<6>,
         shop_name: ShopName,
         title: LocalizedTextData,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<ProductImageData>,
         watchlist_payload: WatchlistPayloadData,
     },
     #[serde(rename_all = "camelCase")]
@@ -56,6 +56,8 @@ pub enum NotificationPayloadData {
         product_slug_id: SlugId<6>,
         shop_name: ShopName,
         title: LocalizedTextData,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<ProductImageData>,
         search_filter_payload: SearchFilterPayloadData,
     },
 }
@@ -116,6 +118,7 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
                 product_slug_id,
                 shop_name,
                 title,
+                image,
                 watchlist_payload,
             } => NotificationPayloadData::Watchlist {
                 product_id,
@@ -125,6 +128,7 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
                 product_slug_id,
                 shop_name,
                 title: title.into(),
+                image: image.map(|i| ProductImageData::from_with_consent(i, true)),
                 watchlist_payload: watchlist_payload.into(),
             },
             LocalizedNotificationPayload::SearchFilter {
@@ -135,6 +139,7 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
                 product_slug_id,
                 shop_name,
                 title,
+                image,
                 search_filter_payload,
             } => NotificationPayloadData::SearchFilter {
                 product_id,
@@ -144,6 +149,7 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
                 product_slug_id,
                 shop_name,
                 title: title.into(),
+                image: image.map(|i| ProductImageData::from_with_consent(i, true)),
                 search_filter_payload: SearchFilterPayloadData {
                     user_search_filter_id: search_filter_payload.user_search_filter_id,
                     user_search_filter_name: search_filter_payload.user_search_filter_name,
@@ -159,9 +165,6 @@ impl From<LocalizedNotification> for GetNotificationData {
             origin_event_id: notification.origin_event_id,
             notification_id: notification.notification_id,
             payload: notification.notification_payload.into(),
-            image: notification
-                .image
-                .map(|i| ProductImageData::from_with_consent(i, true)),
             seen: notification.seen,
             external: notification.external,
             created: notification.created,
