@@ -25,7 +25,7 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_shop_service: &(impl GetShopService + Sync),
     command_product_service: &(impl CommandProductService + Sync),
-    seller_service: &(impl SellerService + Sync),
+    seller_service: &dyn SellerService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
     let api_key = extract_api_key(&event.payload)?;
@@ -88,7 +88,7 @@ fn extract_body(request: &ApiGatewayV2httpRequest) -> Result<Vec<PostProductData
 async fn resolve_seller(
     partner_shop: &PartnerShop,
     data: &PostProductData,
-    seller_service: &(impl SellerService + Sync),
+    seller_service: &dyn SellerService,
 ) -> Result<(ShopId, ShopName), SellerServiceError> {
     match partner_shop.shop_type {
         ShopType::AuctionPlatform | ShopType::Marketplace => {

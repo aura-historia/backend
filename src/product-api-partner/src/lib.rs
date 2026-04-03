@@ -27,7 +27,7 @@ pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_shop_service: &(impl GetShopService + Sync),
     command_product_service: &(impl CommandProductService + Sync),
-    seller_service: &(impl SellerService + Sync),
+    seller_service: &dyn SellerService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(
         event,
@@ -49,7 +49,7 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_shop_service: &(impl GetShopService + Sync),
     command_product_service: &(impl CommandProductService + Sync),
-    seller_service: &(impl SellerService + Sync),
+    seller_service: &dyn SellerService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
         Some("POST /api/v1/shops/{shopId}/products") => {
