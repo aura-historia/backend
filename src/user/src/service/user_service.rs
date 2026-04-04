@@ -205,7 +205,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                             "Failed deleting user record from DynamoDB, retrying."
                         );
                         tokio::time::sleep(std::time::Duration::from_millis(
-                            100 * 2_u64.pow(attempt - 1),
+                            100 * 2_u64.saturating_pow(attempt - 1),
                         ))
                         .await;
                     } else {
