@@ -101,7 +101,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                     language: None,
                     currency: None,
                     prohibited_content_consent: false,
-                    tier: UserTier::Free,
+                    tier: UserTier::Ultimate,
                     created: now,
                     updated: now,
                 };

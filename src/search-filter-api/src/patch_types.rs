@@ -142,7 +142,7 @@ pub struct PatchProductSearchData {
     pub updated_query: Option<RangeQuery<OffsetDateTime>>,
 
     #[serde(
-        rename = "auction_start",
+        rename = "auctionStart",
         with = "common::query::range_query::range_rfc3339::option",
         default,
         skip_serializing_if = "Option::is_none"
@@ -150,7 +150,7 @@ pub struct PatchProductSearchData {
     pub auction_start_query: Option<RangeQuery<OffsetDateTime>>,
 
     #[serde(
-        rename = "auction_end",
+        rename = "auctionEnd",
         with = "common::query::range_query::range_rfc3339::option",
         default,
         skip_serializing_if = "Option::is_none"
