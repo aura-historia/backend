@@ -1,8 +1,19 @@
+use product::core::product_search::{ProductSearch, ProductSearchSerdeField};
 use user::core::tier::UserTier;
+
+use crate::service::user_search_filter_update::UserSearchFilterUpdate;
 
 pub trait SearchFilterQuota {
     fn search_filter_quota(&self) -> u32;
     fn search_filter_match_quota(&self) -> u32;
+    fn check_search_filter_features(
+        &self,
+        search: &ProductSearch,
+    ) -> Result<(), ProductSearchSerdeField>;
+    fn check_search_filter_update_features(
+        &self,
+        search: &UserSearchFilterUpdate,
+    ) -> Result<(), ProductSearchSerdeField>;
 }
 
 impl SearchFilterQuota for UserTier {
@@ -21,6 +32,132 @@ impl SearchFilterQuota for UserTier {
             UserTier::Ultimate => u32::MAX,
         }
     }
+
+    fn check_search_filter_features(
+        &self,
+        search: &ProductSearch,
+    ) -> Result<(), ProductSearchSerdeField> {
+        match self {
+            UserTier::Free => check_search_filter_features_free(search),
+            UserTier::Pro => Ok(()),
+            UserTier::Ultimate => Ok(()),
+        }
+    }
+
+    fn check_search_filter_update_features(
+        &self,
+        search: &UserSearchFilterUpdate,
+    ) -> Result<(), ProductSearchSerdeField> {
+        match self {
+            UserTier::Free => check_search_filter_update_features_free(search),
+            UserTier::Pro => Ok(()),
+            UserTier::Ultimate => Ok(()),
+        }
+    }
+}
+
+fn check_search_filter_features_free(
+    search: &ProductSearch,
+) -> Result<(), ProductSearchSerdeField> {
+    // allow product_query, category_id, period_id, price_query, state_query
+    // forbid all others
+
+    if !search.shop_name_query.is_empty() {
+        return Err(ProductSearchSerdeField::ShopNameQuery);
+    }
+    if !search.exclude_seller_name_query.is_empty() {
+        return Err(ProductSearchSerdeField::ExcludeSellerNameQuery);
+    }
+    if !search.seller_name_query.is_empty() {
+        return Err(ProductSearchSerdeField::SellerNameQuery);
+    }
+    if !search.exclude_seller_name_query.is_empty() {
+        return Err(ProductSearchSerdeField::ExcludeSellerNameQuery);
+    }
+    if !search.shop_type_query.is_empty() {
+        return Err(ProductSearchSerdeField::ShopTypeQuery);
+    }
+    if search.origin_year_query.is_some() {
+        return Err(ProductSearchSerdeField::OriginYearQuery);
+    }
+    if !search.authenticity_query.is_empty() {
+        return Err(ProductSearchSerdeField::AuthenticityQuery);
+    }
+    if !search.condition_query.is_empty() {
+        return Err(ProductSearchSerdeField::ConditionQuery);
+    }
+    if !search.provenance_query.is_empty() {
+        return Err(ProductSearchSerdeField::ProvenanceQuery);
+    }
+    if !search.restoration_query.is_empty() {
+        return Err(ProductSearchSerdeField::RestorationQuery);
+    }
+    if search.created_query.is_some() {
+        return Err(ProductSearchSerdeField::CreatedQuery);
+    }
+    if search.updated_query.is_some() {
+        return Err(ProductSearchSerdeField::UpdatedQuery);
+    }
+    if search.auction_start_query.is_some() {
+        return Err(ProductSearchSerdeField::AuctionStartQuery);
+    }
+    if search.auction_end_query.is_some() {
+        return Err(ProductSearchSerdeField::AuctionEndQuery);
+    }
+
+    Ok(())
+}
+
+fn check_search_filter_update_features_free(
+    search: &UserSearchFilterUpdate,
+) -> Result<(), ProductSearchSerdeField> {
+    // allow product_query, category_id, period_id, price_query, state_query
+    // forbid all others
+
+    if search.shop_name_query.is_some() {
+        return Err(ProductSearchSerdeField::ShopNameQuery);
+    }
+    if search.exclude_seller_name_query.is_some() {
+        return Err(ProductSearchSerdeField::ExcludeSellerNameQuery);
+    }
+    if search.seller_name_query.is_some() {
+        return Err(ProductSearchSerdeField::SellerNameQuery);
+    }
+    if search.exclude_seller_name_query.is_some() {
+        return Err(ProductSearchSerdeField::ExcludeSellerNameQuery);
+    }
+    if search.shop_type_query.is_some() {
+        return Err(ProductSearchSerdeField::ShopTypeQuery);
+    }
+    if search.origin_year_query.is_some() {
+        return Err(ProductSearchSerdeField::OriginYearQuery);
+    }
+    if search.authenticity_query.is_some() {
+        return Err(ProductSearchSerdeField::AuthenticityQuery);
+    }
+    if search.condition_query.is_some() {
+        return Err(ProductSearchSerdeField::ConditionQuery);
+    }
+    if search.provenance_query.is_some() {
+        return Err(ProductSearchSerdeField::ProvenanceQuery);
+    }
+    if search.restoration_query.is_some() {
+        return Err(ProductSearchSerdeField::RestorationQuery);
+    }
+    if search.created_query.is_some() {
+        return Err(ProductSearchSerdeField::CreatedQuery);
+    }
+    if search.updated_query.is_some() {
+        return Err(ProductSearchSerdeField::UpdatedQuery);
+    }
+    if search.auction_start_query.is_some() {
+        return Err(ProductSearchSerdeField::AuctionStartQuery);
+    }
+    if search.auction_end_query.is_some() {
+        return Err(ProductSearchSerdeField::AuctionEndQuery);
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

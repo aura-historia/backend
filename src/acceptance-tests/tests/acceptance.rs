@@ -4228,6 +4228,8 @@ async fn should_post_get_patch_delete_search_filter() {
             condition_query: None,
             provenance_query: None,
             restoration_query: None,
+            auction_start_query: None,
+            auction_end_query: None,
             created_query: None,
             updated_query: None,
         }),

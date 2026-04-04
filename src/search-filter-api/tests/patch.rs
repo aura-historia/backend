@@ -62,6 +62,8 @@ async fn should_update_search_filter() {
             condition_query: Default::default(),
             provenance_query: Default::default(),
             restoration_query: Default::default(),
+            auction_start_query: None,
+            auction_end_query: None,
             created_query: None,
             updated_query: None,
         }),
