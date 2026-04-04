@@ -12,10 +12,17 @@ The top-level entity. One row per shop.
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `shop_id` | UUID PK | |
+| `shop_id` | UUID PK | Sourced from the upstream shop service |
+| `shop_name` | TEXT (nullable) | Human-readable display name, synced from the upstream shop service |
+| `shop_slug` | TEXT (nullable) | URL-friendly slug identifier, synced from the upstream shop service |
+| `active` | BOOLEAN NOT NULL DEFAULT TRUE | Soft-delete flag managed by shop sync. `TRUE` shops are crawl/scrape eligible; `FALSE` shops are ignored by candidate selection. |
 | `url_pattern` | TEXT (nullable) | LLM-discovered regex that matches product page URLs. `NULL` until the spider classifies the shop for the first time. |
 | `created` | TIMESTAMPTZ | |
-| `updated` | TIMESTAMPTZ | |
+| `updated` | TIMESTAMPTZ | Set to `NOW()` on every shop registration sync |
+
+`shop_name` and `shop_slug` are populated (and kept up-to-date) by the shop registration sync loop. They are nullable because a shop row may also be created directly by the spider before a sync has run.
+
+`active` enables soft-deactivation when a shop no longer exists upstream. Deactivated shops are retained for history but excluded from future spider/scraper candidate queries.
 
 `url_pattern` is the handoff from the URL classification LLM to the spider's per-URL classification logic. Once set, it is reused on subsequent crawls and only refreshed if it matches zero products.
 
@@ -45,6 +52,7 @@ Every URL the spider has ever seen. Shared between the spider (writes) and the s
 |--------|------|-------|
 | `url` | TEXT PK | Normalised URL (no fragment, no trailing slash) |
 | `shop_id` | UUID FK → `shops` | Cascade on delete |
+| `domain_id` | UUID FK → `shop_domains` | Cascade on delete — links the URL to the specific domain it was discovered from |
 | `url_class` | TEXT | One of `product`, `category`, `imprint`, `info`, `other` |
 | `main_hash` | TEXT (64 chars) | SHA-256 of the page HTML, updated by the spider on each crawl |
 | `state` | TEXT | `UNKNOWN` \| `LISTED` \| `AVAILABLE` \| `RESERVED` \| `SOLD` \| `REMOVED` |
@@ -54,9 +62,13 @@ Every URL the spider has ever seen. Shared between the spider (writes) and the s
 | `last_scraped` | TIMESTAMPTZ (nullable) | Timestamp of the last successful scrape |
 | `created` / `updated` | TIMESTAMPTZ | |
 
+**Domain linkage**: `domain_id` is a direct FK to `shop_domains`. When a domain is removed from a shop during the shop registration sync, all URLs discovered from that domain are automatically cascade-deleted — preventing the scraper from continuing to process stale URLs from a domain that no longer belongs to the shop.
+
 **Change detection**: the scraper compares `main_hash` (current) with `last_scraped_hash` (last seen). If they match the page has not changed and the fetch is skipped.
 
-**Index**: `idx_shop_urls_class_last_scraped ON shop_urls (url_class, last_scraped)` supports the scraper candidate query efficiently.
+**Indexes**:
+- `idx_shop_urls_class_last_scraped ON shop_urls (url_class, last_scraped)` — supports the scraper candidate query.
+- `idx_shop_urls_domain_id ON shop_urls (domain_id)` — supports efficient cascade-delete lookups when a domain is removed.
 
 ---
 
@@ -141,3 +153,54 @@ WHERE  url_class = 'product'
   AND  (last_scraped IS NULL OR last_scraped < NOW() - INTERVAL '1 day')
 LIMIT  $1
 ```
+
+### Shop registration upsert
+
+The shop sync writes one shop at a time. Shop metadata upsert is followed by a transactional domain sync that uses a bulk `UNNEST` upsert to avoid one query per domain.
+
+```sql
+-- Upsert shop metadata
+INSERT INTO shops (shop_id, shop_name, shop_slug, active, created, updated)
+VALUES ($1, $2, $3, TRUE, NOW(), NOW())
+ON CONFLICT (shop_id)
+DO UPDATE SET
+    shop_name = EXCLUDED.shop_name,
+    shop_slug = EXCLUDED.shop_slug,
+    active    = TRUE,
+    updated   = NOW();
+
+-- Sync domains atomically
+BEGIN;
+
+-- Bulk upsert domains for this shop
+INSERT INTO shop_domains (shop_id, shop_domain, last_crawled, locked_at)
+SELECT $1, domain, NULL, NULL
+FROM unnest($2::text[]) AS t(domain)
+ON CONFLICT (shop_domain)
+DO UPDATE SET
+    shop_id = EXCLUDED.shop_id,
+    last_crawled = CASE
+        WHEN shop_domains.shop_id <> EXCLUDED.shop_id THEN NULL
+        ELSE shop_domains.last_crawled
+    END,
+    locked_at = CASE
+        WHEN shop_domains.shop_id <> EXCLUDED.shop_id THEN NULL
+        ELSE shop_domains.locked_at
+    END;
+
+-- Delete stale domains no longer present for this shop
+DELETE FROM shop_domains
+WHERE shop_id = $1
+  AND NOT (shop_domain = ANY($2::text[]));
+
+COMMIT;
+
+-- Soft-deactivate shops not present in upstream snapshot
+UPDATE shops
+SET active = FALSE,
+    updated = NOW()
+WHERE active = TRUE
+  AND NOT (shop_id = ANY($3::uuid[]));
+```
+
+Domain reassignment is explicit (`shop_id` is updated on conflict), and `last_crawled`/`locked_at` are reset only when ownership changes. Stale domains are removed in the same transaction, and missing shops are soft-deactivated instead of deleted.

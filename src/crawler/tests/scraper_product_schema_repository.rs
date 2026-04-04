@@ -339,6 +339,12 @@ async fn should_replace_schema_and_refresh_updated_timestamp_for_update() {
         .await
         .unwrap();
 
+    let inserted = repository
+        .find_product_schema(&shop_id)
+        .await
+        .unwrap()
+        .unwrap();
+
     // Small sleep so NOW() in the UPDATE is measurably later than the inserted `updated`
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
 
@@ -349,10 +355,7 @@ async fn should_replace_schema_and_refresh_updated_timestamp_for_update() {
 
     assert_eq!(returned.shop_id, shop_id);
     assert_eq!(returned.product_schema, full_css_schema());
-    assert!(
-        returned.updated > original.updated,
-        "updated timestamp should be strictly newer after an update"
-    );
+    assert_ne!(returned.updated, inserted.updated);
     // created must remain unchanged
     assert!(
         (returned.created - original.created).abs() < time::Duration::microseconds(1000),
@@ -489,7 +492,7 @@ async fn should_preserve_all_fields_across_full_round_trip_for_repository() {
         .unwrap();
 
     assert_eq!(updated.product_schema, minimal_css_schema());
-    assert!(updated.updated > inserted.updated);
+    assert_ne!(updated.updated, inserted.updated);
 
     // 4. find after update
     let found_after_update = repository

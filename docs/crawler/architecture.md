@@ -1,26 +1,88 @@
 # Crawler — Architecture
 
-The crawler crate has two subsystems — **Spider** and **Scraper** — driven by a single **CronJob**. They are independent of each other at runtime but share the same PostgreSQL database as the handoff point: the spider writes URLs into `shop_urls`, and the scraper reads them.
+The crawler crate has three subsystems — **Shop Registration**, **Spider**, and **Scraper** — driven by a single **CronJob**. The spider and scraper are independent of each other at runtime but share the same PostgreSQL database as the handoff point: the spider writes URLs into `shop_urls`, and the scraper reads them. Shop registration feeds the `shops` and `shop_domains` tables that the spider depends on.
 
 ---
 
 ## CrawlerCronJob — the driver
 
-`src/service/cron.rs` is the entry point. On startup it spawns two independent `tokio` tasks that loop forever:
+`src/service/cron.rs` is the entry point. On startup it spawns three independent `tokio` tasks that loop forever:
 
 ```
 CrawlerCronJob::run_loop()
-  ├── tokio::spawn → spider_loop   (sleeps 10 min between ticks)
-  └── tokio::spawn → scraper_loop  (sleeps 1 min between ticks)
+  ├── tokio::spawn → shop_sync_loop  (runs immediately, then sleeps 3 h between ticks)
+  ├── tokio::spawn → spider_loop     (sleeps 10 min between ticks)
+  └── tokio::spawn → scraper_loop    (sleeps 1 min between ticks)
 ```
 
-Each tick follows the same pattern:
+The spider and scraper loops follow the same pattern each tick:
 
 1. Ask the relevant **CandidateService** for a batch of work.
 2. Fan that batch out using `futures::stream::iter(...).buffer_unordered(concurrency)` — bounded parallelism, no unbounded spawning.
 3. For each item, call the relevant service (`SpiderService::run` or `ScraperService::scrape`). Errors are logged and swallowed so one failure doesn't abort the whole batch.
 
-The two loops run completely in parallel, each on its own cadence. There is no synchronisation between them beyond the database.
+The three loops run completely in parallel, each on its own cadence. There is no synchronisation between them beyond the database.
+
+---
+
+## Shop Registration subsystem
+
+**Goal:** keep the crawler's local `shops` and `shop_domains` tables in sync with the upstream shop service (OpenSearch), so the spider always has an up-to-date list of shops to crawl.
+
+### Key types — `src/service/shop_registration.rs`
+
+| Type | Role |
+|------|------|
+| `RegisteredShop` | Data transfer object: `shop_id`, `shop_name`, `shop_slug`, `domains: HashSet<Domain>` |
+| `ShopRegistrationSource` | Trait — fetches all registered shops from an external source. Owned by the crawler crate but **not implemented here**; the concrete implementation lives at the binary level (e.g. `server.rs`). |
+| `ShopRegistrationRepository` | Trait — persists a `RegisteredShop` into the crawler's Postgres database. |
+| `ShopRegistrationService` | Orchestrator: calls `source.fetch_registered_shops()`, then `repository.upsert_shop()` for each result. Errors on individual upserts are logged and skipped — a single failing shop does not abort the sync. |
+| `ShopRegistrationRepositoryImpl` | Postgres-backed implementation of `ShopRegistrationRepository`. |
+
+### Sync loop
+
+```
+shop_sync_loop()
+  ├── run_shop_sync_once()    ← executes immediately on startup
+  └── sleep(shop_sync_interval)  ← default 3 hours
+      └── repeat
+```
+
+`run_shop_sync_once()` delegates entirely to `ShopRegistrationService::sync()`:
+
+```
+ShopRegistrationService::sync()
+  ├── source.fetch_registered_shops()   → Vec<RegisteredShop>
+  ├── if empty result:
+  │    └── warn + return (skip deactivation to avoid accidental mass-disable)
+  └── for each shop:
+       ├── repository.upsert_shop(shop)
+       │    └── INSERT INTO shops ... ON CONFLICT DO UPDATE SET shop_name, shop_slug, active=TRUE, updated
+       ├── repository.sync_domains(shop)
+       │    ├── begin transaction
+       │    ├── bulk upsert domains via UNNEST
+       │    ├── on reassignment only: reset last_crawled + locked_at
+       │    ├── delete stale domains no longer present upstream for this shop
+       │    └── commit transaction
+       └── after all shops:
+            └── repository.deactivate_shops_not_in(all_fetched_shop_ids)
+                 └── UPDATE shops SET active=FALSE for shops absent upstream
+```
+
+### Decoupling via trait injection
+
+`ShopRegistrationSource` is defined in the crawler crate but its concrete implementation is provided at startup time by the binary (`server.rs`). This keeps the crawler crate free of any direct dependency on OpenSearch or DynamoDB client code.
+
+In production (`server.rs`), `OpenSearchShopSource` implements `ShopRegistrationSource` by paginating through `QueryShopService` (backed by the `shop` crate's OpenSearch repository) until all shops have been fetched.
+
+In tests and the demo binary (`demo.rs`), `DemoShopSource` provides a hardcoded list of `RegisteredShop` values.
+
+### Effect on Spider/Scraper scheduling
+
+- Spider candidates now require `shops.active = TRUE` in addition to the `shop_domains.last_crawled` window.
+- Scraper candidates now join `shop_urls` with `shops` and require `shops.active = TRUE`.
+
+This means upstream removals stop both crawling and scraping without deleting historical URL rows.
 
 ---
 
@@ -33,7 +95,7 @@ The two loops run completely in parallel, each on its own cadence. There is no s
 `src/spider/candidate_service.rs` queries:
 
 ```sql
-SELECT s.shop_id, sd.shop_domain
+SELECT s.shop_id, sd.domain_id, sd.shop_domain
 FROM shops s
 JOIN shop_domains sd ON sd.shop_id = s.shop_id
 WHERE sd.last_crawled IS NULL
@@ -41,7 +103,7 @@ WHERE sd.last_crawled IS NULL
 LIMIT $1
 ```
 
-Shops that have never been crawled, or were last crawled more than 7 days ago, are eligible.
+Shops that have never been crawled, or were last crawled more than 7 days ago, are eligible. Each candidate carries `shop_id`, `domain_id`, and `shop_domain`; `domain_id` is threaded through to `SpiderService::run()` so every URL written to `shop_urls` is linked to the exact domain it was discovered from.
 
 ### Optimistic distributed lock
 
@@ -61,7 +123,7 @@ If another worker already holds the lock the update affects 0 rows, the service 
 `src/spider/service/spider_service.rs` orchestrates the crawl:
 
 ```
-run()
+run(shop_domain, domain_id)
  ├── try_lock_shop()               — acquire optimistic lock
  ├── Spider::crawl(shop_url)       — returns mpsc::Receiver<CrawledPage>
  ├── load_pattern_for_shop()       — load persisted regex from shops.url_pattern (if any)
@@ -145,7 +207,7 @@ The two subsystems communicate exclusively through `shop_urls`:
 
 ```
 Spider writes:
-  INSERT INTO shop_urls (url, shop_id, url_class, main_hash, state, ...)
+  INSERT INTO shop_urls (url, shop_id, domain_id, url_class, main_hash, state, ...)
   ON CONFLICT (url) DO UPDATE SET main_hash = ..., url_class = ..., updated = NOW()
 
 Scraper reads:

@@ -1634,6 +1634,7 @@ dependencies = [
  "llm",
  "mockall",
  "once_cell",
+ "opensearch",
  "product",
  "regex",
  "reqwest 0.12.28",

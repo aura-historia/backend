@@ -120,6 +120,9 @@ INSERT INTO product_state_mapping (raw, normalized, mapping_type) VALUES ('\b0\s
 
 CREATE TABLE IF NOT EXISTS shops (
     shop_id     UUID        PRIMARY KEY,
+    shop_name   TEXT,
+    shop_slug   TEXT,
+    active      BOOLEAN     NOT NULL DEFAULT TRUE,
     url_pattern TEXT,
     created     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated     TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -138,6 +141,7 @@ CREATE INDEX IF NOT EXISTS idx_shop_domains_shop_id ON shop_domains (shop_id);
 
 CREATE TABLE IF NOT EXISTS shop_urls (
     shop_id           UUID        NOT NULL REFERENCES shops(shop_id) ON DELETE CASCADE,
+    domain_id         UUID        NOT NULL REFERENCES shop_domains(domain_id) ON DELETE CASCADE,
     url               TEXT        NOT NULL,
     url_class         TEXT        NOT NULL,
     main_hash         TEXT        NOT NULL,
@@ -156,3 +160,4 @@ CREATE TABLE IF NOT EXISTS shop_urls (
 );
 
 CREATE INDEX IF NOT EXISTS idx_shop_urls_class_last_scraped ON shop_urls (url_class, last_scraped);
+CREATE INDEX IF NOT EXISTS idx_shop_urls_domain_id ON shop_urls (domain_id);
