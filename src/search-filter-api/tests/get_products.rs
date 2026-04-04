@@ -28,7 +28,9 @@ use search_filter::service::user_search_filter_service::{
 use search_filter_api::handle;
 use test_api::*;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use user::core::tier::UserTier;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
+use user::service::command::UpdateUserCommand;
 use user::service::user_service::{UserService, UserServiceImpl};
 
 fn setup_services(
@@ -77,12 +79,17 @@ fn setup_services(
 
 async fn create_user(client: &'static aws_sdk_dynamodb::Client) -> UserId {
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
-    let user_service = UserServiceImpl::new(&user_repository);
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user = user_service.create_user(Faker.fake()).await.unwrap();
+    let update_cmd = UpdateUserCommand {
+        tier: Some(UserTier::Ultimate),
+        ..Default::default()
+    };
     user_service
-        .create_user(Faker.fake())
+        .update_user(&user.user_id, update_cmd)
         .await
-        .unwrap()
-        .user_id
+        .unwrap();
+    user.user_id
 }
 
 async fn seed_match_records(

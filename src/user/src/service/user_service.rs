@@ -1,6 +1,7 @@
 use crate::core::tier::UserTier;
 use crate::core::user::User;
 use crate::dynamodb::repository::UserDynamoDbRepository;
+use crate::dynamodb::tier_record::UserTierRecord;
 use crate::dynamodb::user_record_update::UserRecordUpdate;
 use crate::service::command::{CreateUserCommand, UpdateUserCommand};
 use aws_sdk_dynamodb::error::SdkError;
@@ -101,7 +102,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                     language: None,
                     currency: None,
                     prohibited_content_consent: false,
-                    tier: UserTier::Ultimate,
+                    tier: UserTier::Free,
                     created: now,
                     updated: now,
                 };
@@ -129,6 +130,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                 language: cmd.language.map(LanguageRecord::from),
                 currency: cmd.currency.map(CurrencyRecord::from),
                 prohibited_content_consent: cmd.prohibited_content_consent,
+                tier: cmd.tier.map(UserTierRecord::from),
                 updated: OffsetDateTime::now_utc(),
             };
             let user = self.repository
@@ -451,6 +453,7 @@ mod tests {
                 language: None,
                 currency: None,
                 prohibited_content_consent: None,
+                tier: None,
             };
             let actual = service.update_user(&user_id, update).await;
 

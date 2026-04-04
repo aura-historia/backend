@@ -14,6 +14,7 @@ use search_filter_api::post_types::PostUserSearchFilterData;
 use test_api::*;
 use user::core::tier::UserTier;
 
+use user::service::command::UpdateUserCommand;
 use user::service::user_service::UserService;
 
 #[localstack_test(services = [DynamoDB()])]
@@ -25,15 +26,22 @@ async fn should_save_search_filter() {
         "table_1",
     );
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
-    let created_user = user_service.create_user(Faker.fake()).await.unwrap();
-    let user_id = created_user.user_id;
+    let user = user_service.create_user(Faker.fake()).await.unwrap();
+    let update_cmd = UpdateUserCommand {
+        tier: Some(UserTier::Ultimate),
+        ..Default::default()
+    };
+    user_service
+        .update_user(&user.user_id, update_cmd)
+        .await
+        .unwrap();
 
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::POST)
             .route_key("POST /api/v1/me/search-filters")
             .body_serde(&Faker.fake::<PostUserSearchFilterData>())
-            .jwt_claim("sub", user_id)
+            .jwt_claim("sub", user.user_id)
             .build(),
         context: Default::default(),
     };
@@ -53,10 +61,10 @@ async fn should_save_search_filter() {
 
     let json = extract_apigw_response_json_body!(response);
     let actual: UserSearchFilterData = serde_json::from_value(json).unwrap();
-    assert_eq!(user_id, actual.user_id);
+    assert_eq!(user.user_id, actual.user_id);
 
     let record = repository
-        .get_user_search_filter_record(&user_id, &actual.user_search_filter_id)
+        .get_user_search_filter_record(&user.user_id, &actual.user_search_filter_id)
         .await
         .unwrap();
     assert!(record.is_some());

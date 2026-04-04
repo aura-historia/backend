@@ -91,6 +91,10 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 use test_api::*;
 use time::OffsetDateTime;
+use user::core::tier::UserTier;
+use user::dynamodb::tier_record::UserTierRecord;
+use user::service::command::UpdateUserCommand;
+use user::service::user_service::UserService;
 use user::{
     data::{get_user_data::GetUserAccountData, patch_user_data::PatchUserAccountData},
     dynamodb::{
@@ -2549,6 +2553,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
                 language: Some(common::language::record::LanguageRecord::De),
                 currency: Some(common::currency::record::CurrencyRecord::Eur),
                 prohibited_content_consent: None,
+                tier: Some(UserTierRecord::Free),
                 updated: OffsetDateTime::now_utc(),
             },
         )
@@ -4122,6 +4127,15 @@ async fn should_get_all_search_filters_when_authorized() {
     let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
     let user = create_random_test_user().await;
+    let update_cmd = UpdateUserCommand {
+        tier: Some(UserTier::Ultimate),
+        ..Default::default()
+    };
+    user_service
+        .update_user(&user.sub.into(), update_cmd)
+        .await
+        .unwrap();
+
     let expected1 = Faker.fake::<product::core::product_search::ProductSearch>();
     let expected1_name = Faker.fake::<UserSearchFilterName>();
     let expected2 = Faker.fake::<product::core::product_search::ProductSearch>();
@@ -4169,6 +4183,19 @@ async fn should_get_all_search_filters_when_authorized() {
 #[localstack_test(services = [Cloudformation()])]
 async fn should_post_get_patch_delete_search_filter() {
     let user = create_random_test_user().await;
+    let update_cmd = UpdateUserCommand {
+        tier: Some(UserTier::Ultimate),
+        ..Default::default()
+    };
+    let user_repository = UserDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &get_cfn_output().dynamodb_table_1_name,
+    );
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    user_service
+        .update_user(&user.sub.into(), update_cmd)
+        .await
+        .unwrap();
 
     // POST
     let expected = Faker.fake::<PostUserSearchFilterData>();
@@ -4291,6 +4318,14 @@ async fn should_get_search_filter_products_when_authorized() {
     let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
     let user = create_random_test_user().await;
+    let update_cmd = UpdateUserCommand {
+        tier: Some(UserTier::Ultimate),
+        ..Default::default()
+    };
+    user_service
+        .update_user(&user.sub.into(), update_cmd)
+        .await
+        .unwrap();
     let search_filter = service
         .create_user_search_filter(
             &user.sub.into(),
