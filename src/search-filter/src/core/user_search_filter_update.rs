@@ -158,7 +158,7 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
 
 #[cfg(feature = "test-data")]
 mod fake {
-    use crate::service::user_search_filter_update::UserSearchFilterUpdate;
+    use crate::core::user_search_filter_update::UserSearchFilterUpdate;
     use fake::{Dummy, Fake, Faker};
     use product::core::product_search::faker::fake_range_query_datetime;
     use time::OffsetDateTime;

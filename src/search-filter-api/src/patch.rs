@@ -8,12 +8,12 @@ use common::{
     user_id::api::extract_user_id_request_context,
 };
 use lambda_runtime::LambdaEvent;
-use search_filter::core::user_search_filter_id::api::extract_user_search_filter_id_path;
-use search_filter::data::user_search_filter_data::UserSearchFilterData;
-use search_filter::service::{
-    user_search_filter_service::UserSearchFilterService,
+use search_filter::core::{
+    user_search_filter_id::api::extract_user_search_filter_id_path,
     user_search_filter_update::UserSearchFilterUpdate,
 };
+use search_filter::data::user_search_filter_data::UserSearchFilterData;
+use search_filter::service::user_search_filter_service::UserSearchFilterService;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,

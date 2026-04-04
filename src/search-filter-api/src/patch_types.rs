@@ -20,7 +20,7 @@ use product::data::product_state_data::ProductStateData;
 use product::data::provenance_data::ProvenanceData;
 use product::data::restoration_data::RestorationData;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
-use search_filter::service::user_search_filter_update::UserSearchFilterUpdate;
+use search_filter::core::user_search_filter_update::UserSearchFilterUpdate;
 use serde::{Deserialize, Serialize};
 use shop::core::shop_type::ShopType;
 use shop::data::shop_type_data::ShopTypeData;
