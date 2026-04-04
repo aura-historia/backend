@@ -1,10 +1,14 @@
 use crate::{
-    core::watchlist_product::WatchlistProduct,
-    dynamodb::record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
-    dynamodb::record_update::WatchlistProductRecordUpdate,
-    dynamodb::repository::WatchlistProductDynamoDbRepository,
-    service::command::UpdateWatchlistProductCommand,
-    service::sort_watchlist_product_field::SortWatchlistProductField,
+    core::{quota::WatchlistQuota, watchlist_product::WatchlistProduct},
+    dynamodb::{
+        record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
+        record_update::WatchlistProductRecordUpdate,
+        repository::WatchlistProductDynamoDbRepository,
+    },
+    service::{
+        command::UpdateWatchlistProductCommand,
+        sort_watchlist_product_field::SortWatchlistProductField,
+    },
 };
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::slug_id::SlugId;
@@ -242,7 +246,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
 
         let now = OffsetDateTime::now_utc();
 
-        let limit = user.tier.watchlist_limit();
+        let limit = user.tier.watchlist_quota();
         let watchlist_count = self
             .watchlist_repository
             .count_watchlist_records(user_id, &Default::default(), true)
@@ -493,6 +497,7 @@ mod tests {
 
     mod create_watchlist_product {
         use crate::{
+            core::quota::WatchlistQuota,
             dynamodb::repository::MockWatchlistProductDynamoDbRepository,
             service::product_watchlist_service::{
                 ProductWatchListService, ProductWatchListServiceImpl, WatchProductError,
@@ -525,7 +530,7 @@ mod tests {
                 .expect_count_watchlist_records()
                 .return_once(|_, _, _| {
                     Box::pin(async {
-                        Ok(user::core::tier::UserTier::Free.watchlist_limit() as u64 - 1)
+                        Ok(user::core::tier::UserTier::Free.watchlist_quota() as u64 - 1)
                     })
                 });
             watchlist_repository
@@ -632,7 +637,7 @@ mod tests {
                 .expect_count_watchlist_records()
                 .return_once(|_, _, _| {
                     Box::pin(async {
-                        Ok(user::core::tier::UserTier::Free.watchlist_limit() as u64)
+                        Ok(user::core::tier::UserTier::Free.watchlist_quota() as u64)
                     })
                 });
 
@@ -651,11 +656,11 @@ mod tests {
             match actual {
                 WatchProductError::WatchlistEntryCountExceeded(actual_count, actual_limit) => {
                     assert_eq!(
-                        user::core::tier::UserTier::Free.watchlist_limit(),
+                        user::core::tier::UserTier::Free.watchlist_quota(),
                         actual_count
                     );
                     assert_eq!(
-                        user::core::tier::UserTier::Free.watchlist_limit(),
+                        user::core::tier::UserTier::Free.watchlist_quota(),
                         actual_limit
                     );
                 }
@@ -750,7 +755,7 @@ mod tests {
                 .return_once(|_, _, _| {
                     Box::pin(async {
                         Ok(fake::rand::random_range(
-                            0..user::core::tier::UserTier::Free.watchlist_limit() as u64,
+                            0..user::core::tier::UserTier::Free.watchlist_quota() as u64,
                         ))
                     })
                 });

@@ -2,6 +2,7 @@ use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use product::service::get_service::MockGetProductService;
 use product_personalization::service::MockProductPersonalizationService;
+use search_filter::core::quota::SearchFilterQuota;
 use search_filter::data::user_search_filter_data::UserSearchFilterData;
 use search_filter::dynamodb::repository::{
     UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
@@ -74,7 +75,7 @@ async fn should_422_when_search_filter_quota_is_exceeded() {
     let user_id = created_user.user_id;
 
     // Fill the quota by inserting records directly via repository (bypassing the service limit)
-    let limit = UserTier::Free.search_filter_limit();
+    let limit = UserTier::Free.search_filter_quota();
     for _ in 0..limit {
         let filter_id = search_filter::core::user_search_filter_id::UserSearchFilterId::new();
         let record = UserSearchFilterRecord {

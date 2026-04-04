@@ -10,6 +10,7 @@ use product::dynamodb::{
 };
 use product::service::get_service::GetProductServiceImpl;
 use product_personalization::service::ProductPersonalizationServiceImpl;
+use product_watchlist::core::quota::WatchlistQuota;
 use product_watchlist::dynamodb::record::{mk_gsi1_pk, mk_gsi1_sk};
 use product_watchlist::{
     dynamodb::record::{WatchlistProductRecord, mk_lsi1_sk, mk_pk, mk_sk},
@@ -59,7 +60,7 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
     let service =
         ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
 
-    let product_records = fake::vec![ProductRecord; (user::core::tier::UserTier::Free.watchlist_limit() - 1) as usize];
+    let product_records = fake::vec![ProductRecord; (user::core::tier::UserTier::Free.watchlist_quota() - 1) as usize];
     let put_res = product_repository
         .put_product_records(product_records.clone().try_into().unwrap())
         .await
@@ -161,7 +162,7 @@ async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
         ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
 
     let product_records =
-        fake::vec![ProductRecord; user::core::tier::UserTier::Free.watchlist_limit() as usize];
+        fake::vec![ProductRecord; user::core::tier::UserTier::Free.watchlist_quota() as usize];
     let put_res = product_repository
         .put_product_records(product_records.clone().try_into().unwrap())
         .await

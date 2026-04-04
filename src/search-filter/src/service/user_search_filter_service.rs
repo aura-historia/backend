@@ -1,3 +1,4 @@
+use crate::core::quota::SearchFilterQuota;
 use crate::core::search_filter_product_match::SearchFilterProductMatch;
 use crate::core::sort_search_filter_match_field::SortSearchFilterMatchField;
 use crate::core::user_search_filter::{UserSearchFilter, UserSearchFilterSummary};
@@ -284,7 +285,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
                 other => UserSearchFilterError::UserServiceError(other),
             })?;
 
-        let limit = user.tier.search_filter_limit();
+        let limit = user.tier.search_filter_quota();
         let filter_count = self
             .repository
             .query_user_search_filter_records(user_id, true)
@@ -772,6 +773,7 @@ mod tests {
     }
 
     mod create_search_filter {
+        use crate::core::quota::SearchFilterQuota;
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::service::user_search_filter_service::{
             UserSearchFilterError, UserSearchFilterService, UserSearchFilterServiceImpl,
@@ -872,7 +874,7 @@ mod tests {
                 })
             });
 
-            let limit = user::core::tier::UserTier::Free.search_filter_limit();
+            let limit = user::core::tier::UserTier::Free.search_filter_quota();
             repository
                 .expect_query_user_search_filter_records()
                 .return_once(move |_, _| {
