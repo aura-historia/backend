@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS shops (
     shop_id     UUID        PRIMARY KEY,
     shop_name   TEXT,
     shop_slug   TEXT,
+    shop_type   TEXT        CHECK (shop_type IN ('AUCTION_HOUSE', 'AUCTION_PLATFORM', 'COMMERCIAL_DEALER', 'MARKETPLACE')),
     active      BOOLEAN     NOT NULL DEFAULT TRUE,
     url_pattern TEXT,
     created     TIMESTAMPTZ NOT NULL DEFAULT NOW(),

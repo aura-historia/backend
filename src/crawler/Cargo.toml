@@ -6,7 +6,10 @@ edition = "2024"
 [dependencies]
 common = { workspace = true }
 product = { workspace = true, features = ["dynamodb", "service", "data"] }
+product-classification = { workspace = true }
 shop = { workspace = true, features = ["opensearch", "service"] }
+aws-config = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
 opensearch = { workspace = true }
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true, features = ["postgres"] }

@@ -1,5 +1,6 @@
 use crate::scraper::candidate_service::ScraperCandidateService;
 use crate::scraper::scraper_service::ScraperService;
+use crate::service::product_push::{ProductPushService, normalize_to_upsert};
 use crate::service::shop_registration::ShopRegistrationService;
 use crate::spider::candidate_service::SpiderCandidateService;
 use crate::spider::service::SpiderService;
@@ -43,6 +44,7 @@ pub struct CrawlerCronJob {
     scraper_candidates: Arc<dyn ScraperCandidateService>,
     scraper_service: Arc<dyn ScraperService>,
     shop_registration: Arc<ShopRegistrationService>,
+    product_push: Arc<dyn ProductPushService>,
 }
 
 impl CrawlerCronJob {
@@ -53,6 +55,7 @@ impl CrawlerCronJob {
         scraper_candidates: Box<dyn ScraperCandidateService>,
         scraper_service: Box<dyn ScraperService>,
         shop_registration: ShopRegistrationService,
+        product_push: Box<dyn ProductPushService>,
     ) -> Self {
         Self {
             config,
@@ -61,6 +64,7 @@ impl CrawlerCronJob {
             scraper_candidates: scraper_candidates.into(),
             scraper_service: scraper_service.into(),
             shop_registration: Arc::new(shop_registration),
+            product_push: product_push.into(),
         }
     }
 
@@ -174,7 +178,8 @@ impl CrawlerCronJob {
                 }
                 let count = candidates.len();
 
-                futures::stream::iter(candidates)
+                let push_service = self.product_push.clone();
+                let commands: Vec<_> = futures::stream::iter(candidates)
                     .map(|candidate| {
                         let scraper_service = self.scraper_service.clone();
                         async move {
@@ -187,17 +192,25 @@ impl CrawlerCronJob {
                                 )
                                 .await
                             {
-                                Ok(Some(_normalized_product)) => {}
-                                Ok(None) => {}
+                                Ok(Some(normalized_product)) => {
+                                    normalize_to_upsert(normalized_product, &candidate)
+                                }
+                                Ok(None) => None,
                                 Err(e) => {
                                     error!(shop_id = %candidate.shop_id, url = %candidate.url, error = %e, "Scraper run failed");
+                                    None
                                 }
                             }
                         }
                     })
                     .buffer_unordered(self.config.scraper_concurrency)
-                    .collect::<Vec<()>>()
+                    .filter_map(|opt| async move { opt })
+                    .collect()
                     .await;
+
+                if !commands.is_empty() {
+                    push_service.push(commands).await;
+                }
 
                 info!(count, "Scraper tick complete");
             }
@@ -211,12 +224,14 @@ mod tests {
     use super::*;
     use crate::scraper::candidate_service::{MockScraperCandidateService, ScraperCandidate};
     use crate::scraper::scraper_service::MockScraperService;
+    use crate::service::product_push::MockProductPushService;
     use crate::service::shop_registration::{
         MockShopRegistrationRepository, MockShopRegistrationSource,
     };
     use crate::spider::candidate_service::{MockSpiderCandidateService, SpiderCandidate};
     use crate::spider::service::{MockSpiderService, SpiderRunResult};
     use common::shop_id::ShopId;
+    use shop::core::shop_type::ShopType;
 
     fn noop_shop_registration() -> ShopRegistrationService {
         let mut source = MockShopRegistrationSource::new();
@@ -225,6 +240,12 @@ mod tests {
             .returning(|| Box::pin(async { Ok(vec![]) }));
         let repository = MockShopRegistrationRepository::new();
         ShopRegistrationService::new(Box::new(source), Box::new(repository))
+    }
+
+    fn noop_product_push() -> Box<MockProductPushService> {
+        let mut push = MockProductPushService::new();
+        push.expect_push().returning(|_| Box::pin(async { () }));
+        Box::new(push)
     }
 
     #[tokio::test]
@@ -271,13 +292,14 @@ mod tests {
             Box::new(scraper_candidates),
             Box::new(scraper_service),
             noop_shop_registration(),
+            noop_product_push(),
         );
 
         job.run_spider_once().await;
     }
 
     #[tokio::test]
-    async fn should_run_scraper_candidates() {
+    async fn should_run_scraper_candidates_and_push_products() {
         let mut spider_candidates = MockSpiderCandidateService::new();
         spider_candidates
             .expect_get_candidates()
@@ -290,6 +312,8 @@ mod tests {
             Box::pin(async {
                 Ok(vec![ScraperCandidate {
                     shop_id: ShopId::new(),
+                    shop_name: "Test Shop".to_string(),
+                    shop_type: ShopType::CommercialDealer,
                     url: url::Url::parse("https://example.com/product/1").unwrap(),
                     main_hash: "hash1".to_string(),
                     last_scraped_hash: None,
@@ -302,6 +326,10 @@ mod tests {
             .expect_scrape()
             .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
 
+        let mut push_service = MockProductPushService::new();
+        // When scraper returns None, push should NOT be called
+        push_service.expect_push().times(0);
+
         let job = CrawlerCronJob::new(
             CrawlerCronConfig::default(),
             Box::new(spider_candidates),
@@ -309,6 +337,7 @@ mod tests {
             Box::new(scraper_candidates),
             Box::new(scraper_service),
             noop_shop_registration(),
+            Box::new(push_service),
         );
 
         job.run_scraper_once().await;
@@ -323,6 +352,7 @@ mod tests {
                     shop_id: ShopId::new(),
                     shop_name: "Test Shop".to_string(),
                     shop_slug: "test-shop".to_string(),
+                    shop_type: ShopType::CommercialDealer,
                     domains: std::collections::HashSet::from([common::domain::Domain::try_from(
                         "test.com",
                     )
@@ -360,6 +390,7 @@ mod tests {
             Box::new(scraper_candidates),
             Box::new(scraper_service),
             shop_registration,
+            noop_product_push(),
         );
 
         job.run_shop_sync_once().await;

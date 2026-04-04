@@ -16,14 +16,14 @@
 //!
 //! | Env var          | Purpose                              | Default            |
 //! |------------------|--------------------------------------|--------------------|
-//! | `OPENAI_API_KEY` | API key forwarded to the LLM builder | *(required)*       |
-//! | `OPENAI_MODEL`   | Model name to use                    | `gemini-2.5-flash` |
+//! | `GEMINI_API_KEY` | API key forwarded to the LLM builder | *(required)*       |
+//! | `GEMINI_MODEL`   | Model name to use                    | `gemini-2.5-flash` |
 //! | `LOG_LEVEL`      | Log level for `init_logging`         | `info`             |
 //!
 //! # Running
 //!
 //! ```bash
-//! OPENAI_API_KEY=sk-... cargo run --bin demo -p crawler
+//! GEMINI_API_KEY=sk-... cargo run --bin demo -p crawler
 //! ```
 
 use std::fs::File;
@@ -301,9 +301,9 @@ async fn apply_schema(pool: &PgPool) {
 /// Both LLM-backed services receive a fresh [`LLMBuilder`] each — they apply
 /// their own system prompts internally via their `::new` constructors.
 fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
-    let api_key = std::env::var("OPENAI_API_KEY")
-        .expect("OPENAI_API_KEY must be set — see the module-level doc comment");
-    let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
+    let api_key = std::env::var("GEMINI_API_KEY")
+        .expect("GEMINI_API_KEY must be set — see the module-level doc comment");
+    let model = std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
 
     let schema_llm_builder = LLMBuilder::new()
         .backend(LLMBackend::Google)

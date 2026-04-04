@@ -2,15 +2,16 @@
 //!
 //! # Configuration
 //!
-//! | Env var          | Purpose                 | Default      |
-//! |------------------|-------------------------|--------------|
-//! | `GEMINI_API_KEY` | API key for Gemini      | *(required)* |
-//! | `LOG_LEVEL`      | Log level for this demo | `info`       |
+//! | Env var          | Purpose                 | Default                         |
+//! |------------------|-----------------------  |---------------------------------|
+//! | `GEMINI_API_KEY` | API key for Gemini      | *(required)*                    |
+//! | `GEMINI_MODEL`   | Model name to use       | `gemini-2.5-flash-lite-preview` |
+//! | `LOG_LEVEL`      | Log level for this demo | `info`                          |
 //!
 //! # Running
 //!
 //! ```bash
-//! GEMINI_API_KEY=... cargo run --bin demo -p crawler -- https://www.christies.com/en
+//! GEMINI_API_KEY=... cargo run --bin demo-spider -p crawler -- https://www.christies.com/en
 //! ```
 
 use std::env;
@@ -101,10 +102,12 @@ async fn main() {
     let url_repository = build_url_repository(pool.clone());
 
     let crawler = Box::new(SpiderImpl::default());
+    let model =
+        env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-flash-lite-preview".to_string());
     let llm_builder = llm::builder::LLMBuilder::new()
         .backend(llm::builder::LLMBackend::Google)
         .api_key(&api_key)
-        .model("gemini-3.1-flash-lite-preview");
+        .model(&model);
     let classification_service = Box::new(
         UrlClassificationServiceImpl::new(llm_builder)
             .expect("Failed to initialize UrlClassificationService"),
@@ -122,7 +125,21 @@ async fn main() {
     );
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let demo_domain_id = uuid::Uuid::nil(); // demo only — no real domain row in DB
+    let shop_url_parsed = url::Url::parse(&shop_url)
+        .unwrap_or_else(|_| url::Url::parse("https://demo.invalid").unwrap());
+    let demo_domain = shop_url_parsed
+        .host_str()
+        .unwrap_or("demo.invalid")
+        .to_string();
+
+    let demo_domain_id = match insert_demo_shop(&pool, &shop_id, &demo_domain).await {
+        Ok(id) => id,
+        Err(error) => {
+            error!(error = %error, "Failed to insert demo shop rows into DB");
+            return;
+        }
+    };
+
     match spider
         .run(
             &shop_id,
@@ -179,6 +196,43 @@ async fn apply_schema(pool: &PgPool) -> Result<(), DemoError> {
 
     info!(path = %sql_path.display(), "Applied spider demo schema");
     Ok(())
+}
+
+/// Inserts a demo `shops` row and a `shop_domains` row, returning the generated `domain_id`.
+///
+/// Uses `ON CONFLICT DO NOTHING` so the function is idempotent if called multiple times
+/// with the same `shop_id` / `shop_domain`.
+async fn insert_demo_shop(
+    pool: &PgPool,
+    shop_id: &ShopId,
+    shop_domain: &str,
+) -> Result<uuid::Uuid, DemoError> {
+    let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+
+    sqlx::query(
+        "INSERT INTO shops (shop_id, shop_name, shop_slug, shop_type, active, created, updated)
+         VALUES ($1, 'Demo Shop', 'demo-shop', 'COMMERCIAL_DEALER', TRUE, NOW(), NOW())
+         ON CONFLICT (shop_id) DO NOTHING",
+    )
+    .bind(shop_id_uuid)
+    .execute(pool)
+    .await?;
+
+    // Insert the domain row if it doesn't exist yet and return the domain_id.
+    // Because `shop_domain` is UNIQUE, a second run with the same domain would hit the conflict
+    // path — we return the existing domain_id in that case.
+    let domain_id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO shop_domains (shop_id, shop_domain, last_crawled, locked_at)
+         VALUES ($1, $2, NULL, NULL)
+         ON CONFLICT (shop_domain) DO UPDATE SET shop_id = EXCLUDED.shop_id
+         RETURNING domain_id",
+    )
+    .bind(shop_id_uuid)
+    .bind(shop_domain)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(domain_id)
 }
 
 async fn start_postgres() -> Result<(testcontainers::ContainerAsync<PgImage>, PgPool), DemoError> {

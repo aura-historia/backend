@@ -1622,6 +1622,8 @@ name = "crawler"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "aws-config",
+ "aws-sdk-dynamodb",
  "bloomfilter",
  "common",
  "crawler",
@@ -1636,6 +1638,7 @@ dependencies = [
  "once_cell",
  "opensearch",
  "product",
+ "product-classification",
  "regex",
  "reqwest 0.12.28",
  "rstest",

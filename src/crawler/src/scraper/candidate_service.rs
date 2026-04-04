@@ -1,10 +1,22 @@
+//! Service for fetching scraper candidates — product URLs that are due for re-scraping.
+//!
+//! A scraper candidate is a URL stored in `shop_urls` that has either never been scraped or
+//! whose content hash has changed since the last successful scrape. Each candidate carries the
+//! shop metadata (`shop_id`, `shop_name`, `shop_type`) needed to build an [`UpsertProductCommand`]
+//! without an additional lookup.
+
 use async_trait::async_trait;
 use common::shop_id::ShopId;
+use shop::core::shop_type::ShopType;
 use sqlx::PgPool;
 use url::Url;
 
+use crate::service::shop_registration::shop_type_from_db;
+
 pub struct ScraperCandidate {
     pub shop_id: ShopId,
+    pub shop_name: String,
+    pub shop_type: ShopType,
     pub url: Url,
     pub main_hash: String,
     pub last_scraped_hash: Option<String>,
@@ -35,6 +47,8 @@ impl ScraperCandidateServiceImpl {
 #[derive(sqlx::FromRow)]
 struct ScraperCandidateRow {
     shop_id: uuid::Uuid,
+    shop_name: String,
+    shop_type: Option<String>,
     url: String,
     main_hash: String,
     last_scraped_hash: Option<String>,
@@ -45,7 +59,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
     async fn get_candidates(&self, limit: i64) -> Result<Vec<ScraperCandidate>, sqlx::Error> {
         let rows = sqlx::query_as::<_, ScraperCandidateRow>(
             r#"
-            SELECT su.shop_id, su.url, su.main_hash, su.last_scraped_hash
+            SELECT su.shop_id, s.shop_name, s.shop_type, su.url, su.main_hash, su.last_scraped_hash
             FROM shop_urls su
             JOIN shops s ON s.shop_id = su.shop_id
             WHERE s.active = TRUE
@@ -63,14 +77,20 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
 
         let mut candidates = Vec::new();
         for row in rows {
-            if let Ok(url) = Url::parse(&row.url) {
-                candidates.push(ScraperCandidate {
-                    shop_id: ShopId::from(row.shop_id),
-                    url,
-                    main_hash: row.main_hash,
-                    last_scraped_hash: row.last_scraped_hash,
-                });
-            }
+            let Some(url) = Url::parse(&row.url).ok() else {
+                continue;
+            };
+            let Some(shop_type) = shop_type_from_db(row.shop_type.as_deref()) else {
+                continue;
+            };
+            candidates.push(ScraperCandidate {
+                shop_id: ShopId::from(row.shop_id),
+                shop_name: row.shop_name,
+                shop_type,
+                url,
+                main_hash: row.main_hash,
+                last_scraped_hash: row.last_scraped_hash,
+            });
         }
 
         Ok(candidates)
