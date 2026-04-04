@@ -6,6 +6,7 @@ use aws_sdk_dynamodb::{
     Client,
     error::SdkError,
     operation::{
+        delete_item::{DeleteItemError, DeleteItemOutput},
         get_item::GetItemError,
         put_item::{PutItemError, PutItemOutput},
         update_item::UpdateItemError,
@@ -33,6 +34,11 @@ pub trait UserDynamoDbRepository {
         user_id: &UserId,
         user_record_update: UserRecordUpdate,
     ) -> Result<Option<UserRecord>, SdkError<UpdateItemError>>;
+
+    async fn delete_user_record(
+        &self,
+        user_id: &UserId,
+    ) -> Result<DeleteItemOutput, SdkError<DeleteItemError>>;
 }
 
 #[derive(Debug, Clone)]
@@ -125,5 +131,18 @@ impl<'a> UserDynamoDbRepository for UserDynamoDbRepositoryImpl<'a> {
                         }
                     })
             })
+    }
+
+    async fn delete_user_record(
+        &self,
+        user_id: &UserId,
+    ) -> Result<DeleteItemOutput, SdkError<DeleteItemError>> {
+        self.client
+            .delete_item()
+            .table_name(&self.table)
+            .key("pk", AttributeValue::S(mk_pk(user_id)))
+            .key("sk", AttributeValue::S(mk_sk().to_owned()))
+            .send()
+            .await
     }
 }

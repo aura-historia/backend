@@ -4,6 +4,7 @@ use aws_sdk_dynamodb::Client;
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
+use user::service::cognito_admin_service::cognito_impl::CognitoAdminServiceImpl;
 use user::service::user_service::UserServiceImpl;
 use user_api::handler;
 
@@ -17,9 +18,15 @@ async fn main() -> Result<(), Error> {
 
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")
         .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
-    let client = Client::new(&aws_config);
-    let repository = UserDynamoDbRepositoryImpl::new(&client, &table_name);
-    let service = UserServiceImpl::new(&repository);
+    let user_pool_id = std::env::var("COGNITO_USER_POOL_ID")
+        .expect("shouldn't fail loading env-var 'COGNITO_USER_POOL_ID'");
+
+    let dynamodb_client = Client::new(&aws_config);
+    let cognito_client = aws_sdk_cognitoidentityprovider::Client::new(&aws_config);
+
+    let repository = UserDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
+    let cognito_admin_service = CognitoAdminServiceImpl::new(&cognito_client, &user_pool_id);
+    let service = UserServiceImpl::with_cognito(&repository, &cognito_admin_service);
 
     debug!("Lambda initialized.");
 

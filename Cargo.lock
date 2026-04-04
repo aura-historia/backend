@@ -8372,6 +8372,7 @@ name = "user"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "aws-sdk-cognitoidentityprovider",
  "aws-sdk-dynamodb",
  "common",
  "fake",
@@ -8397,6 +8398,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "aws-config",
+ "aws-sdk-cognitoidentityprovider",
  "aws-sdk-dynamodb",
  "aws_lambda_events",
  "common",

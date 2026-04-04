@@ -1016,6 +1016,14 @@ Resources:
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiDeleteUserRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "DELETE /api/v1/me"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
   UserApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
@@ -1045,7 +1053,16 @@ Resources:
                 Action:
                   - dynamodb:GetItem
                   - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
                 Resource: !GetAtt TableOne.Arn
+        - PolicyName: CognitoAdminAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cognito-idp:AdminDeleteUser
+                Resource: !GetAtt PrimaryUserPool.Arn
   UserApiLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -1064,6 +1081,7 @@ Resources:
         Variables:
           STAGE: "prod"
           DYNAMODB_TABLE_NAME: !Ref TableOne
+          COGNITO_USER_POOL_ID: !Ref PrimaryUserPool
   UserApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
