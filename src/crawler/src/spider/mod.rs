@@ -1,3 +1,4 @@
+pub mod advisory_lock;
 pub mod candidate_service;
 pub mod classification;
 pub mod discovery;

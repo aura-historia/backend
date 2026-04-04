@@ -360,28 +360,8 @@ impl SpiderService for SpiderServiceImpl {
             "Configured one-time classification threshold"
         );
 
-        if !self
-            .pattern_service
-            .try_lock_shop(shop_id, shop_url)
-            .await?
-        {
-            warn!(shopUrl = %shop_url, "Shop is already being crawled by another worker");
-            return Ok(SpiderRunResult {
-                total_links: 0,
-                product_urls_count: 0,
-                product_pattern: None,
-            });
-        }
-
-        let run_result = self
-            .run_locked(shop_id, domain_id, shop_url, classify_threshold)
-            .await;
-
-        if let Err(error) = self.pattern_service.unlock_shop(shop_id, shop_url).await {
-            warn!(shopUrl = %shop_url, error = %error, "Failed to release shop crawl lock");
-        }
-
-        run_result
+        self.run_locked(shop_id, domain_id, shop_url, classify_threshold)
+            .await
     }
 }
 
@@ -481,24 +461,6 @@ mod service_tests {
             .returning(|_, _| Box::pin(async { Ok(()) }));
     }
 
-    fn setup_mock_lock_lifecycle(mock: &mut MockUrlPatternService, shop_url: &'static str) {
-        mock.expect_try_lock_shop()
-            .with(
-                mockall::predicate::always(),
-                mockall::predicate::eq(shop_url),
-            )
-            .times(1)
-            .returning(|_, _| Box::pin(async { Ok(true) }));
-
-        mock.expect_unlock_shop()
-            .with(
-                mockall::predicate::always(),
-                mockall::predicate::eq(shop_url),
-            )
-            .times(1)
-            .returning(|_, _| Box::pin(async { Ok(()) }));
-    }
-
     #[tokio::test]
     async fn should_run_spider_and_classify_urls() {
         let mut mock_spider = MockSpider::new();
@@ -545,7 +507,6 @@ mod service_tests {
             .expect_classify_and_save()
             .returning(|_, _, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
 
-        setup_mock_lock_lifecycle(&mut mock_pattern_service, shop_url);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
 
         setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
@@ -604,7 +565,6 @@ mod service_tests {
             .times(1)
             .returning(|_, _, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
 
-        setup_mock_lock_lifecycle(&mut mock_pattern_service, shop_url);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
 
         setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
@@ -661,7 +621,6 @@ mod service_tests {
             .times(1)
             .returning(|_, _, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
 
-        setup_mock_lock_lifecycle(&mut mock_pattern_service, shop_url);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
 
         setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);

@@ -222,8 +222,8 @@ async fn insert_demo_shop(
     // Because `shop_domain` is UNIQUE, a second run with the same domain would hit the conflict
     // path — we return the existing domain_id in that case.
     let domain_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO shop_domains (shop_id, shop_domain, last_crawled, locked_at)
-         VALUES ($1, $2, NULL, NULL)
+        "INSERT INTO shop_domains (shop_id, shop_domain, last_crawled)
+         VALUES ($1, $2, NULL)
          ON CONFLICT (shop_domain) DO UPDATE SET shop_id = EXCLUDED.shop_id
          RETURNING domain_id",
     )

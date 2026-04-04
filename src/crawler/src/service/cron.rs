@@ -2,12 +2,14 @@ use crate::scraper::candidate_service::ScraperCandidateService;
 use crate::scraper::scraper_service::ScraperService;
 use crate::service::product_push::{ProductPushService, normalize_to_upsert};
 use crate::service::shop_registration::ShopRegistrationService;
+use crate::spider::advisory_lock::{DomainAdvisoryLock, UrlAdvisoryLock};
 use crate::spider::candidate_service::SpiderCandidateService;
 use crate::spider::service::SpiderService;
 use futures::{StreamExt, TryStreamExt};
+use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[derive(Clone)]
 pub struct CrawlerCronConfig {
@@ -43,6 +45,10 @@ impl Default for CrawlerCronConfig {
 #[derive(Clone)]
 pub struct CrawlerCronJob {
     config: CrawlerCronConfig,
+    /// Pool used to acquire per-domain advisory locks before spidering.
+    /// When `None` (e.g. in unit tests), locking is skipped and every candidate
+    /// is run unconditionally.
+    pool: Option<PgPool>,
     spider_candidates: Arc<dyn SpiderCandidateService>,
     spider_service: Arc<dyn SpiderService>,
     scraper_candidates: Arc<dyn ScraperCandidateService>,
@@ -52,7 +58,36 @@ pub struct CrawlerCronJob {
 }
 
 impl CrawlerCronJob {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
+        config: CrawlerCronConfig,
+        pool: PgPool,
+        spider_candidates: Box<dyn SpiderCandidateService>,
+        spider_service: Box<dyn SpiderService>,
+        scraper_candidates: Box<dyn ScraperCandidateService>,
+        scraper_service: Box<dyn ScraperService>,
+        shop_registration: ShopRegistrationService,
+        product_push: Box<dyn ProductPushService>,
+    ) -> Self {
+        Self {
+            config,
+            pool: Some(pool),
+            spider_candidates: spider_candidates.into(),
+            spider_service: spider_service.into(),
+            scraper_candidates: scraper_candidates.into(),
+            scraper_service: scraper_service.into(),
+            shop_registration: Arc::new(shop_registration),
+            product_push: product_push.into(),
+        }
+    }
+
+    /// Creates a `CrawlerCronJob` without a database pool.
+    ///
+    /// Advisory lock acquisition is skipped — every spider candidate runs
+    /// unconditionally. Intended for unit tests and environments where the DB
+    /// pool is not available at construction time.
+    #[cfg(test)]
+    fn new_without_pool(
         config: CrawlerCronConfig,
         spider_candidates: Box<dyn SpiderCandidateService>,
         spider_service: Box<dyn SpiderService>,
@@ -63,6 +98,7 @@ impl CrawlerCronJob {
     ) -> Self {
         Self {
             config,
+            pool: None,
             spider_candidates: spider_candidates.into(),
             spider_service: spider_service.into(),
             scraper_candidates: scraper_candidates.into(),
@@ -145,6 +181,7 @@ impl CrawlerCronJob {
                 futures::stream::iter(candidates)
                     .map(|candidate| {
                         let spider_service = self.spider_service.clone();
+                        let pool = self.pool.clone();
                         let threshold = self.config.spider_classify_threshold;
                         let shop_url = if candidate.shop_domain.starts_with("http") {
                             candidate.shop_domain.clone()
@@ -152,12 +189,40 @@ impl CrawlerCronJob {
                             format!("https://{}", candidate.shop_domain)
                         };
                         async move {
+                            // Acquire an advisory lock when a pool is available.
+                            // In test contexts where no pool is provided, locking is
+                            // skipped and the spider runs unconditionally.
+                            let _lock = if let Some(ref p) = pool {
+                                match DomainAdvisoryLock::try_acquire(p, candidate.domain_id).await
+                                {
+                                    Ok(Some(lock)) => Some(lock),
+                                    Ok(None) => {
+                                        warn!(
+                                            domain_id = %candidate.domain_id,
+                                            "Skipping domain — advisory lock held by another worker"
+                                        );
+                                        return;
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            domain_id = %candidate.domain_id,
+                                            error = %e,
+                                            "Failed to acquire advisory lock"
+                                        );
+                                        return;
+                                    }
+                                }
+                            } else {
+                                None
+                            };
+
                             if let Err(e) = spider_service
                                 .run(&candidate.shop_id, &candidate.domain_id, &shop_url, threshold)
                                 .await
                             {
                                 error!(shop_id = %candidate.shop_id, error = %e, "Spider run failed");
                             }
+                            // `_lock` dropped here → pg_advisory_unlock called automatically
                         }
                     })
                     .buffer_unordered(self.config.spider_concurrency)
@@ -190,8 +255,36 @@ impl CrawlerCronJob {
                 futures::stream::iter(candidates)
                     .map(|candidate| {
                         let scraper_service = self.scraper_service.clone();
+                        let pool = self.pool.clone();
+                        #[allow(clippy::let_and_return)]
                         async move {
-                            match scraper_service
+                            // Acquire a per-URL advisory lock so that two concurrent
+                            // workers never scrape the same URL at the same time.
+                            // When no pool is available (unit tests), locking is skipped.
+                            let _lock = if let Some(ref p) = pool {
+                                match UrlAdvisoryLock::try_acquire(p, &candidate.url).await {
+                                    Ok(Some(lock)) => Some(lock),
+                                    Ok(None) => {
+                                        warn!(
+                                            url = %candidate.url,
+                                            "Skipping URL — advisory lock held by another worker"
+                                        );
+                                        return None;
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            url = %candidate.url,
+                                            error = %e,
+                                            "Failed to acquire advisory lock for URL"
+                                        );
+                                        return None;
+                                    }
+                                }
+                            } else {
+                                None
+                            };
+
+                            let result = match scraper_service
                                 .scrape(
                                     &candidate.shop_id,
                                     &candidate.url,
@@ -208,8 +301,9 @@ impl CrawlerCronJob {
                                     error!(shop_id = %candidate.shop_id, url = %candidate.url, error = %e, "Scraper run failed");
                                     None
                                 }
-                            }
-                        }
+                            };
+                            // `_lock` dropped here → pg_advisory_unlock called automatically
+                            result                        }
                     })
                     .buffer_unordered(self.config.scraper_concurrency)
                     .filter_map(|opt| async move { opt })
@@ -300,7 +394,7 @@ mod tests {
 
         let scraper_service = MockScraperService::new();
 
-        let job = CrawlerCronJob::new(
+        let job = CrawlerCronJob::new_without_pool(
             CrawlerCronConfig::default(),
             Box::new(spider_candidates),
             Box::new(spider_service),
@@ -345,7 +439,7 @@ mod tests {
         // When scraper returns None, push should NOT be called
         push_service.expect_push().times(0);
 
-        let job = CrawlerCronJob::new(
+        let job = CrawlerCronJob::new_without_pool(
             CrawlerCronConfig::default(),
             Box::new(spider_candidates),
             Box::new(spider_service),
@@ -398,7 +492,7 @@ mod tests {
         let scraper_candidates = MockScraperCandidateService::new();
         let scraper_service = MockScraperService::new();
 
-        let job = CrawlerCronJob::new(
+        let job = CrawlerCronJob::new_without_pool(
             CrawlerCronConfig::default(),
             Box::new(spider_candidates),
             Box::new(spider_service),

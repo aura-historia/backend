@@ -212,10 +212,10 @@ impl ShopRegistrationRepository for ShopRegistrationRepositoryImpl {
             return Ok(());
         }
 
-        // Bulk upsert domains. Only reset crawl/lock state when ownership changes.
+        // Bulk upsert domains. Only reset crawl state when ownership changes.
         sqlx::query(
-            "INSERT INTO shop_domains (shop_id, shop_domain, last_crawled, locked_at)
-             SELECT $1, domain, NULL, NULL
+            "INSERT INTO shop_domains (shop_id, shop_domain, last_crawled)
+             SELECT $1, domain, NULL
              FROM unnest($2::text[]) AS t(domain)
              ON CONFLICT (shop_domain)
              DO UPDATE SET
@@ -223,10 +223,6 @@ impl ShopRegistrationRepository for ShopRegistrationRepositoryImpl {
                  last_crawled = CASE
                      WHEN shop_domains.shop_id <> EXCLUDED.shop_id THEN NULL
                      ELSE shop_domains.last_crawled
-                 END,
-                 locked_at = CASE
-                     WHEN shop_domains.shop_id <> EXCLUDED.shop_id THEN NULL
-                     ELSE shop_domains.locked_at
                  END",
         )
         .bind(shop_id_uuid)
@@ -263,18 +259,38 @@ impl ShopRegistrationRepository for ShopRegistrationRepositoryImpl {
             .map(|shop_id| (*shop_id).into())
             .collect();
 
-        let result = sqlx::query(
+        let mut tx = self.pool.begin().await?;
+
+        // Deactivate shops not in the active set and collect their IDs.
+        let deactivated: Vec<(uuid::Uuid,)> = sqlx::query_as(
             "UPDATE shops
              SET active = FALSE,
                  updated = NOW()
              WHERE active = TRUE
-               AND NOT (shop_id = ANY($1::uuid[]))",
+               AND NOT (shop_id = ANY($1::uuid[]))
+             RETURNING shop_id",
         )
-        .bind(active_ids)
-        .execute(&self.pool)
+        .bind(&active_ids)
+        .fetch_all(&mut *tx)
         .await?;
 
-        Ok(result.rows_affected())
+        let deactivated_count = deactivated.len() as u64;
+
+        if deactivated_count > 0 {
+            let deactivated_ids: Vec<uuid::Uuid> =
+                deactivated.into_iter().map(|(id,)| id).collect();
+
+            // Remove all domain rows for shops that are no longer active so
+            // the spider candidate query never picks them up.
+            sqlx::query("DELETE FROM shop_domains WHERE shop_id = ANY($1::uuid[])")
+                .bind(&deactivated_ids)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        tx.commit().await?;
+
+        Ok(deactivated_count)
     }
 }
 

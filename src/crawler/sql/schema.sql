@@ -134,7 +134,6 @@ CREATE TABLE IF NOT EXISTS shop_domains (
     shop_id     UUID        NOT NULL REFERENCES shops(shop_id) ON DELETE CASCADE,
     shop_domain TEXT        NOT NULL,
     last_crawled TIMESTAMPTZ,
-    locked_at   TIMESTAMPTZ,
     UNIQUE (shop_domain)
 );
 

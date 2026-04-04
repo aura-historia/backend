@@ -274,6 +274,7 @@ async fn main() {
 
     let cron_job = CrawlerCronJob::new(
         config,
+        pool.clone(),
         spider_candidates,
         spider_svc,
         scraper_candidates,
