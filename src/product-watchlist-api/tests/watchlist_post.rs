@@ -130,7 +130,8 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
     let client = get_dynamodb_client().await;
-    let user_record = Faker.fake::<UserRecord>();
+    let mut user_record = Faker.fake::<UserRecord>();
+    user_record.tier = user::dynamodb::tier_record::UserTierRecord::Free;
 
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
