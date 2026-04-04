@@ -85,27 +85,36 @@ impl ShopRegistrationSource for DemoShopSource {
 }
 
 fn demo_shops() -> Vec<RegisteredShop> {
+    // UUIDs are stable across runs so the upsert-on-conflict keeps the same rows
+    // rather than creating a new shop row every time the demo starts.
     vec![
         RegisteredShop {
-            shop_id: ShopId::new(),
-            shop_name: "Antiquitäten Tübingen".to_string(),
-            shop_slug: "antiquitaeten-tuebingen".to_string(),
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000001").unwrap(),
+            shop_name: "Antik Storys".to_string(),
+            shop_slug: "antik-storys".to_string(),
             shop_type: ShopType::CommercialDealer,
-            domains: HashSet::from([Domain::try_from("antiquitaeten-tuebingen.de").unwrap()]),
+            domains: HashSet::from([Domain::try_from("antikstorys.com").unwrap()]),
         },
         RegisteredShop {
-            shop_id: ShopId::new(),
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000002").unwrap(),
             shop_name: "Antik Shop".to_string(),
             shop_slug: "antik-shop".to_string(),
             shop_type: ShopType::CommercialDealer,
             domains: HashSet::from([Domain::try_from("antik-shop.de").unwrap()]),
         },
         RegisteredShop {
-            shop_id: ShopId::new(),
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000003").unwrap(),
             shop_name: "Antixx".to_string(),
             shop_slug: "antixx".to_string(),
             shop_type: ShopType::CommercialDealer,
             domains: HashSet::from([Domain::try_from("antixx.de").unwrap()]),
+        },
+        RegisteredShop {
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000004").unwrap(),
+            shop_name: "Nostalgie Palast".to_string(),
+            shop_slug: "nostalgie-palast".to_string(),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::from([Domain::try_from("nostalgie-palast.de").unwrap()]),
         },
     ]
 }

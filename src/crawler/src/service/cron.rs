@@ -4,7 +4,7 @@ use crate::service::product_push::{ProductPushService, normalize_to_upsert};
 use crate::service::shop_registration::ShopRegistrationService;
 use crate::spider::candidate_service::SpiderCandidateService;
 use crate::spider::service::SpiderService;
-use futures::StreamExt;
+use futures::{StreamExt, TryStreamExt};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info};
@@ -16,6 +16,9 @@ pub struct CrawlerCronConfig {
     pub shop_sync_interval: Duration,
     pub spider_batch_size: i64,
     pub scraper_batch_size: i64,
+    /// Number of scraped products to accumulate before flushing a push to the backend.
+    /// Keeps memory bounded and avoids holding all results until the last scrape finishes.
+    pub push_batch_size: usize,
     pub spider_concurrency: usize,
     pub scraper_concurrency: usize,
     pub spider_classify_threshold: usize,
@@ -29,6 +32,7 @@ impl Default for CrawlerCronConfig {
             shop_sync_interval: Duration::from_secs(10800), // 3 hours
             spider_batch_size: 10,
             scraper_batch_size: 100,
+            push_batch_size: 25,
             spider_concurrency: 3,
             scraper_concurrency: 10,
             spider_classify_threshold: 200,
@@ -178,8 +182,12 @@ impl CrawlerCronJob {
                 }
                 let count = candidates.len();
 
+                // Stream scrape results and push them in chunks as they arrive,
+                // rather than collecting everything into memory first.
                 let push_service = self.product_push.clone();
-                let commands: Vec<_> = futures::stream::iter(candidates)
+                let push_batch_size = self.config.push_batch_size;
+
+                futures::stream::iter(candidates)
                     .map(|candidate| {
                         let scraper_service = self.scraper_service.clone();
                         async move {
@@ -205,12 +213,19 @@ impl CrawlerCronJob {
                     })
                     .buffer_unordered(self.config.scraper_concurrency)
                     .filter_map(|opt| async move { opt })
-                    .collect()
-                    .await;
-
-                if !commands.is_empty() {
-                    push_service.push(commands).await;
-                }
+                    // Accumulate into chunks of push_batch_size; each chunk is pushed
+                    // immediately without waiting for the rest of the scraper batch.
+                    .chunks(push_batch_size)
+                    .map(Ok::<_, std::convert::Infallible>)
+                    .try_for_each(|chunk| {
+                        let push = push_service.clone();
+                        async move {
+                            push.push(chunk).await;
+                            Ok(())
+                        }
+                    })
+                    .await
+                    .ok();
 
                 info!(count, "Scraper tick complete");
             }
@@ -244,7 +259,7 @@ mod tests {
 
     fn noop_product_push() -> Box<MockProductPushService> {
         let mut push = MockProductPushService::new();
-        push.expect_push().returning(|_| Box::pin(async { () }));
+        push.expect_push().returning(|_| Box::pin(async {}));
         Box::new(push)
     }
 
