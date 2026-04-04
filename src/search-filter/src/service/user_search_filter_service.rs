@@ -62,7 +62,7 @@ pub enum UserSearchFilterError {
     #[error(
         "Exceeded the maximum amount of search filters. There are already {0}/{1} search filters occupied."
     )]
-    SearchFilterQuotaExceeded(u32, usize),
+    SearchFilterQuotaExceeded(u32, u32),
 
     #[error("UserServiceError: {0}")]
     UserServiceError(UserServiceError),
@@ -290,7 +290,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             .query_user_search_filter_records(user_id, true)
             .await?
             .len();
-        if filter_count >= limit {
+        if filter_count as u32 >= limit {
             return Err(UserSearchFilterError::SearchFilterQuotaExceeded(
                 filter_count as u32,
                 limit,
@@ -783,6 +783,7 @@ mod tests {
         };
         use common::user_id::UserId;
         use fake::{Fake, Faker};
+        use user::core::user::User;
         use user::service::user_service::{MockUserService, UserServiceError};
 
         #[tokio::test]
@@ -863,15 +864,19 @@ mod tests {
             let mut repository = MockUserSearchFilterDynamoDbRepository::default();
             let mut user_service = MockUserService::default();
 
-            user_service
-                .expect_find_user()
-                .return_once(|_| Box::pin(async { Ok(fake::Fake::fake(&fake::Faker)) }));
+            user_service.expect_find_user().return_once(|_| {
+                Box::pin(async {
+                    let mut user: User = fake::Fake::fake(&fake::Faker);
+                    user.tier = user::core::tier::UserTier::Free;
+                    Ok(user)
+                })
+            });
 
             let limit = user::core::tier::UserTier::Free.search_filter_limit();
             repository
                 .expect_query_user_search_filter_records()
                 .return_once(move |_, _| {
-                    Box::pin(async move { Ok(fake::vec![UserSearchFilterRecord; limit]) })
+                    Box::pin(async move { Ok(fake::vec![UserSearchFilterRecord; limit as usize]) })
                 });
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
@@ -882,7 +887,7 @@ mod tests {
 
             match actual {
                 UserSearchFilterError::SearchFilterQuotaExceeded(actual_count, actual_limit) => {
-                    assert_eq!(limit, actual_count as usize);
+                    assert_eq!(limit, actual_count);
                     assert_eq!(limit, actual_limit);
                 }
                 err => panic!(
