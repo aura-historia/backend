@@ -17,6 +17,15 @@ async fn insert_shop_with_domain(
         .await
         .unwrap();
 
+    insert_domain_for_shop(pool, shop_id_uuid, domain).await
+}
+
+/// Helper: inserts only a domain row for an already-existing shop.
+async fn insert_domain_for_shop(
+    pool: &sqlx::PgPool,
+    shop_id_uuid: uuid::Uuid,
+    domain: &str,
+) -> uuid::Uuid {
     let row: (uuid::Uuid,) = sqlx::query_as(
         "INSERT INTO shop_domains (shop_id, shop_domain) VALUES ($1, $2) RETURNING domain_id",
     )
@@ -82,11 +91,11 @@ async fn should_not_return_candidate_when_recently_crawled() {
     let service = SpiderCandidateServiceImpl::new(pool.clone());
 
     let shop_id_uuid = uuid::Uuid::new_v4();
-    insert_shop_with_domain(&pool, shop_id_uuid, "recent.example.com").await;
+    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "recent.example.com").await;
 
     // Mark as crawled just now
-    sqlx::query("UPDATE shop_domains SET last_crawled = NOW() WHERE shop_domain = $1")
-        .bind("recent.example.com")
+    sqlx::query("UPDATE shop_domains SET last_crawled = NOW() WHERE domain_id = $1")
+        .bind(domain_id)
         .execute(&pool)
         .await
         .unwrap();
@@ -94,7 +103,7 @@ async fn should_not_return_candidate_when_recently_crawled() {
     let candidates = service.get_candidates(10).await.unwrap();
 
     assert!(
-        candidates.is_empty(),
+        !candidates.iter().any(|c| c.domain_id == domain_id),
         "a domain crawled just now should not be returned as a candidate"
     );
 }
@@ -114,18 +123,17 @@ async fn should_return_candidate_when_crawled_more_than_7_days_ago() {
 
     // Set last_crawled to 8 days ago
     sqlx::query(
-        "UPDATE shop_domains SET last_crawled = NOW() - INTERVAL '8 days' WHERE shop_domain = $1",
+        "UPDATE shop_domains SET last_crawled = NOW() - INTERVAL '8 days' WHERE domain_id = $1",
     )
-    .bind("stale.example.com")
+    .bind(domain_id)
     .execute(&pool)
     .await
     .unwrap();
 
     let candidates = service.get_candidates(10).await.unwrap();
 
-    assert_eq!(candidates.len(), 1);
-    assert_eq!(
-        candidates[0].domain_id, domain_id,
+    assert!(
+        candidates.iter().any(|c| c.domain_id == domain_id),
         "stale domain should be returned with its domain_id"
     );
 }
@@ -141,7 +149,7 @@ async fn should_not_return_candidate_when_shop_is_inactive() {
     let service = SpiderCandidateServiceImpl::new(pool.clone());
 
     let shop_id_uuid = uuid::Uuid::new_v4();
-    insert_shop_with_domain(&pool, shop_id_uuid, "inactive-shop.example.com").await;
+    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "inactive-shop.example.com").await;
 
     // Deactivate the shop
     sqlx::query("UPDATE shops SET active = FALSE WHERE shop_id = $1")
@@ -153,7 +161,7 @@ async fn should_not_return_candidate_when_shop_is_inactive() {
     let candidates = service.get_candidates(10).await.unwrap();
 
     assert!(
-        candidates.is_empty(),
+        !candidates.iter().any(|c| c.domain_id == domain_id),
         "candidates for inactive shops should be excluded"
     );
 }
@@ -199,15 +207,18 @@ async fn should_return_each_domain_separately_for_shop_with_multiple_domains() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
 
+    // One shop — two domains. Insert the shop once, then add domains individually.
     let shop_id_uuid = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
+        .bind(shop_id_uuid)
+        .execute(&pool)
+        .await
+        .unwrap();
 
-    // One shop — two domains
-    let domain_id_a = insert_shop_with_domain(&pool, shop_id_uuid, "multi-a.example.com").await;
-    let domain_id_b = insert_shop_with_domain(&pool, shop_id_uuid, "multi-b.example.com").await;
+    let domain_id_a = insert_domain_for_shop(&pool, shop_id_uuid, "multi-a.example.com").await;
+    let domain_id_b = insert_domain_for_shop(&pool, shop_id_uuid, "multi-b.example.com").await;
 
     let candidates = service.get_candidates(10).await.unwrap();
-
-    assert_eq!(candidates.len(), 2);
 
     let ids: Vec<uuid::Uuid> = candidates.iter().map(|c| c.domain_id).collect();
     assert!(
@@ -231,12 +242,16 @@ async fn should_return_correct_shop_id_on_candidate() {
     let service = SpiderCandidateServiceImpl::new(pool.clone());
 
     let shop_id_uuid = uuid::Uuid::new_v4();
-    insert_shop_with_domain(&pool, shop_id_uuid, "shopid-check.example.com").await;
+    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "shopid-check.example.com").await;
 
     let candidates = service.get_candidates(10).await.unwrap();
 
-    assert_eq!(candidates.len(), 1);
-    let candidate_shop_uuid: uuid::Uuid = candidates[0].shop_id.into();
+    let candidate = candidates
+        .iter()
+        .find(|c| c.domain_id == domain_id)
+        .expect("candidate for the inserted domain should be present");
+
+    let candidate_shop_uuid: uuid::Uuid = candidate.shop_id.into();
     assert_eq!(
         candidate_shop_uuid, shop_id_uuid,
         "candidate.shop_id must match the owning shop"
@@ -270,16 +285,21 @@ async fn should_order_never_crawled_before_stale_crawled() {
     .await
     .unwrap();
 
-    let candidates = service.get_candidates(10).await.unwrap();
+    // Use a large limit and find both by domain_id to avoid interference from
+    // other rows that prior serial tests may have left in the DB.
+    let candidates = service.get_candidates(100).await.unwrap();
 
-    assert_eq!(candidates.len(), 2);
-    // ORDER BY last_crawled NULLS FIRST — never-crawled must come first
-    assert_eq!(
-        candidates[0].domain_id, domain_id_never,
-        "never-crawled domain should be first (NULLS FIRST ordering)"
-    );
-    assert_eq!(
-        candidates[1].domain_id, domain_id_stale,
-        "stale domain should come second"
+    let pos_never = candidates
+        .iter()
+        .position(|c| c.domain_id == domain_id_never)
+        .expect("never-crawled domain should be in candidates");
+    let pos_stale = candidates
+        .iter()
+        .position(|c| c.domain_id == domain_id_stale)
+        .expect("stale domain should be in candidates");
+
+    assert!(
+        pos_never < pos_stale,
+        "never-crawled domain (pos {pos_never}) should come before stale domain (pos {pos_stale}) due to NULLS FIRST ordering"
     );
 }

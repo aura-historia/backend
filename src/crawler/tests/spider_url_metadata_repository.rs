@@ -22,6 +22,15 @@ async fn insert_shop_with_domain(
         .await
         .unwrap();
 
+    insert_domain_for_shop(pool, shop_id_uuid, domain).await
+}
+
+/// Helper: inserts an additional domain row for an already-existing shop.
+async fn insert_domain_for_shop(
+    pool: &sqlx::PgPool,
+    shop_id_uuid: uuid::Uuid,
+    domain: &str,
+) -> uuid::Uuid {
     let row: (uuid::Uuid,) = sqlx::query_as(
         "INSERT INTO shop_domains (shop_id, shop_domain) VALUES ($1, $2) RETURNING domain_id",
     )
@@ -531,7 +540,7 @@ async fn should_only_delete_urls_for_deleted_domain_not_sibling_domain() {
     let domain_id_to_delete =
         insert_shop_with_domain(&pool, shop_id_uuid, "delete-me.example.com").await;
     let domain_id_survivor =
-        insert_shop_with_domain(&pool, shop_id_uuid, "keep-me.example.com").await;
+        insert_domain_for_shop(&pool, shop_id_uuid, "keep-me.example.com").await;
 
     let url_a = Url::parse("https://delete-me.example.com/product/1").unwrap();
     let url_b = Url::parse("https://keep-me.example.com/product/1").unwrap();
