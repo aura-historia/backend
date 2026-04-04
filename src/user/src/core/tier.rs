@@ -47,6 +47,30 @@ mod tests {
     fn should_sort_user_tiers() {
         let mut tiers = vec![UserTier::Ultimate, UserTier::Free, UserTier::Pro];
         tiers.sort();
-        assert_eq!(tiers, vec![UserTier::Free, UserTier::Pro, UserTier::Ultimate]);
+        assert_eq!(
+            tiers,
+            vec![UserTier::Free, UserTier::Pro, UserTier::Ultimate]
+        );
+    }
+
+    #[test]
+    fn should_enforce_watchlist_limit() {
+        assert_eq!(UserTier::Free.watchlist_limit(), 20);
+        assert_eq!(UserTier::Pro.watchlist_limit(), 100);
+        assert_eq!(UserTier::Ultimate.watchlist_limit(), u32::MAX);
+    }
+
+    #[test]
+    fn should_enforce_search_filter_limit() {
+        assert_eq!(UserTier::Free.search_filter_limit(), 1);
+        assert_eq!(UserTier::Pro.search_filter_limit(), 5);
+        assert_eq!(UserTier::Ultimate.search_filter_limit(), u32::MAX);
+    }
+
+    #[test]
+    fn should_enforce_search_filter_matches_limit() {
+        assert_eq!(UserTier::Free.search_filter_matches_limit(), 10);
+        assert_eq!(UserTier::Pro.search_filter_matches_limit(), u32::MAX);
+        assert_eq!(UserTier::Ultimate.search_filter_matches_limit(), u32::MAX);
     }
 }
