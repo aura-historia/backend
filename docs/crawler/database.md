@@ -52,6 +52,7 @@ Every URL the spider has ever seen. Shared between the spider (writes) and the s
 |--------|------|-------|
 | `url` | TEXT PK | Normalised URL (no fragment, no trailing slash) |
 | `shop_id` | UUID FK → `shops` | Cascade on delete |
+| `domain_id` | UUID FK → `shop_domains` | Cascade on delete — links the URL to the specific domain it was discovered from |
 | `url_class` | TEXT | One of `product`, `category`, `imprint`, `info`, `other` |
 | `main_hash` | TEXT (64 chars) | SHA-256 of the page HTML, updated by the spider on each crawl |
 | `state` | TEXT | `UNKNOWN` \| `LISTED` \| `AVAILABLE` \| `RESERVED` \| `SOLD` \| `REMOVED` |
@@ -61,9 +62,13 @@ Every URL the spider has ever seen. Shared between the spider (writes) and the s
 | `last_scraped` | TIMESTAMPTZ (nullable) | Timestamp of the last successful scrape |
 | `created` / `updated` | TIMESTAMPTZ | |
 
+**Domain linkage**: `domain_id` is a direct FK to `shop_domains`. When a domain is removed from a shop during the shop registration sync, all URLs discovered from that domain are automatically cascade-deleted — preventing the scraper from continuing to process stale URLs from a domain that no longer belongs to the shop.
+
 **Change detection**: the scraper compares `main_hash` (current) with `last_scraped_hash` (last seen). If they match the page has not changed and the fetch is skipped.
 
-**Index**: `idx_shop_urls_class_last_scraped ON shop_urls (url_class, last_scraped)` supports the scraper candidate query efficiently.
+**Indexes**:
+- `idx_shop_urls_class_last_scraped ON shop_urls (url_class, last_scraped)` — supports the scraper candidate query.
+- `idx_shop_urls_domain_id ON shop_urls (domain_id)` — supports efficient cascade-delete lookups when a domain is removed.
 
 ---
 

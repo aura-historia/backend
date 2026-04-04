@@ -4,6 +4,7 @@ use sqlx::PgPool;
 
 pub struct SpiderCandidate {
     pub shop_id: ShopId,
+    pub domain_id: uuid::Uuid,
     pub shop_domain: String,
 }
 
@@ -26,6 +27,7 @@ impl SpiderCandidateServiceImpl {
 #[derive(sqlx::FromRow)]
 struct SpiderCandidateRow {
     shop_id: uuid::Uuid,
+    domain_id: uuid::Uuid,
     shop_domain: String,
 }
 
@@ -34,7 +36,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
     async fn get_candidates(&self, limit: i64) -> Result<Vec<SpiderCandidate>, sqlx::Error> {
         let rows = sqlx::query_as::<_, SpiderCandidateRow>(
             r#"
-            SELECT s.shop_id, sd.shop_domain
+            SELECT s.shop_id, sd.domain_id, sd.shop_domain
             FROM shops s
             JOIN shop_domains sd ON sd.shop_id = s.shop_id
             WHERE s.active = TRUE
@@ -51,6 +53,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
             .into_iter()
             .map(|row| SpiderCandidate {
                 shop_id: ShopId::from(row.shop_id),
+                domain_id: row.domain_id,
                 shop_domain: row.shop_domain,
             })
             .collect())

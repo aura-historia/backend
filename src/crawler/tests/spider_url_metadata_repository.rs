@@ -10,6 +10,30 @@ const RDS: Rds = Rds {
 };
 use url::Url;
 
+/// Helper: inserts a shop + domain and returns the generated domain_id.
+async fn insert_shop_with_domain(
+    pool: &sqlx::PgPool,
+    shop_id_uuid: uuid::Uuid,
+    domain: &str,
+) -> uuid::Uuid {
+    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
+        .bind(shop_id_uuid)
+        .execute(pool)
+        .await
+        .unwrap();
+
+    let row: (uuid::Uuid,) = sqlx::query_as(
+        "INSERT INTO shop_domains (shop_id, shop_domain) VALUES ($1, $2) RETURNING domain_id",
+    )
+    .bind(shop_id_uuid)
+    .bind(domain)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+
+    row.0
+}
+
 #[serial]
 #[localstack_test(services = [RDS])]
 async fn should_insert_new_url_when_url_does_not_exist() {
@@ -18,23 +42,14 @@ async fn should_insert_new_url_when_url_does_not_exist() {
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
     let shop_id_uuid: uuid::Uuid = shop_id.into();
-    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
-        .bind(shop_id_uuid)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO shop_domains (shop_id, shop_domain) VALUES ($1, $2)")
-        .bind(shop_id_uuid)
-        .bind("example.com")
-        .execute(&pool)
-        .await
-        .unwrap();
+    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "example.com").await;
+
     let url = Url::parse("https://example.com/product/123").unwrap();
     let url_class = UrlClass::Product;
     let main_hash = MainHash("a".repeat(64));
 
     let result = repository
-        .upsert_link(&shop_id, &url, &url_class, &main_hash)
+        .upsert_link(&shop_id, &domain_id, &url, &url_class, &main_hash)
         .await
         .unwrap();
 
@@ -42,6 +57,7 @@ async fn should_insert_new_url_when_url_does_not_exist() {
     assert_eq!(result.url_class, url_class);
     assert_eq!(result.main_hash, main_hash);
     assert_eq!(result.state, UrlState::Unknown);
+    assert_eq!(result.domain_id, domain_id);
 }
 
 #[serial]
@@ -52,23 +68,14 @@ async fn should_update_existing_url_when_url_already_exists() {
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
     let shop_id_uuid: uuid::Uuid = shop_id.into();
-    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
-        .bind(shop_id_uuid)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO shop_domains (shop_id, shop_domain) VALUES ($1, $2)")
-        .bind(shop_id_uuid)
-        .bind("example.com")
-        .execute(&pool)
-        .await
-        .unwrap();
+    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "example.com").await;
+
     let url = Url::parse("https://example.com/product/123").unwrap();
     let old_class = UrlClass::Other;
     let old_hash = MainHash("o".repeat(64));
 
     repository
-        .upsert_link(&shop_id, &url, &old_class, &old_hash)
+        .upsert_link(&shop_id, &domain_id, &url, &old_class, &old_hash)
         .await
         .unwrap();
 
@@ -76,7 +83,7 @@ async fn should_update_existing_url_when_url_already_exists() {
     let new_hash = MainHash("n".repeat(64));
 
     let result2 = repository
-        .upsert_link(&shop_id, &url, &new_class, &new_hash)
+        .upsert_link(&shop_id, &domain_id, &url, &new_class, &new_hash)
         .await
         .unwrap();
 
@@ -94,23 +101,14 @@ async fn should_update_last_scraped_timestamp_when_marking_as_scraped() {
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
     let shop_id_uuid: uuid::Uuid = shop_id.into();
-    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
-        .bind(shop_id_uuid)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO shop_domains (shop_id, shop_domain) VALUES ($1, $2)")
-        .bind(shop_id_uuid)
-        .bind("example.com")
-        .execute(&pool)
-        .await
-        .unwrap();
+    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "example.com").await;
+
     let url = Url::parse("https://example.com/product/123").unwrap();
     let url_class = UrlClass::Product;
     let main_hash = MainHash("a".repeat(64));
 
     repository
-        .upsert_link(&shop_id, &url, &url_class, &main_hash)
+        .upsert_link(&shop_id, &domain_id, &url, &url_class, &main_hash)
         .await
         .unwrap();
 
@@ -130,23 +128,14 @@ async fn should_update_state_when_setting_new_state() {
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
     let shop_id_uuid: uuid::Uuid = shop_id.into();
-    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
-        .bind(shop_id_uuid)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO shop_domains (shop_id, shop_domain) VALUES ($1, $2)")
-        .bind(shop_id_uuid)
-        .bind("example.com")
-        .execute(&pool)
-        .await
-        .unwrap();
+    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "example.com").await;
+
     let url = Url::parse("https://example.com/product/123").unwrap();
     let url_class = UrlClass::Product;
     let main_hash = MainHash("a".repeat(64));
 
     let result = repository
-        .upsert_link(&shop_id, &url, &url_class, &main_hash)
+        .upsert_link(&shop_id, &domain_id, &url, &url_class, &main_hash)
         .await
         .unwrap();
 
@@ -168,17 +157,8 @@ async fn should_upsert_multiple_links_when_inserting_batch() {
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
     let shop_id_uuid: uuid::Uuid = shop_id.into();
-    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
-        .bind(shop_id_uuid)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO shop_domains (shop_id, shop_domain) VALUES ($1, $2)")
-        .bind(shop_id_uuid)
-        .bind("example.com")
-        .execute(&pool)
-        .await
-        .unwrap();
+    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "example.com").await;
+
     let urls = vec![
         Url::parse("https://example.com/product/1").unwrap(),
         Url::parse("https://example.com/product/2").unwrap(),
@@ -187,7 +167,7 @@ async fn should_upsert_multiple_links_when_inserting_batch() {
     let hashes = vec![MainHash("a".repeat(64)), MainHash("b".repeat(64))];
 
     let inserted = repository
-        .upsert_links_batch(&shop_id, &urls, &classes, &hashes)
+        .upsert_links_batch(&shop_id, &domain_id, &urls, &classes, &hashes)
         .await
         .unwrap();
 
@@ -198,7 +178,7 @@ async fn should_upsert_multiple_links_when_inserting_batch() {
     let updated_hashes = vec![MainHash("c".repeat(64)), MainHash("d".repeat(64))];
 
     let updated = repository
-        .upsert_links_batch(&shop_id, &urls, &classes, &updated_hashes)
+        .upsert_links_batch(&shop_id, &domain_id, &urls, &classes, &updated_hashes)
         .await
         .unwrap();
 

@@ -95,7 +95,7 @@ This means upstream removals stop both crawling and scraping without deleting hi
 `src/spider/candidate_service.rs` queries:
 
 ```sql
-SELECT s.shop_id, sd.shop_domain
+SELECT s.shop_id, sd.domain_id, sd.shop_domain
 FROM shops s
 JOIN shop_domains sd ON sd.shop_id = s.shop_id
 WHERE sd.last_crawled IS NULL
@@ -103,7 +103,7 @@ WHERE sd.last_crawled IS NULL
 LIMIT $1
 ```
 
-Shops that have never been crawled, or were last crawled more than 7 days ago, are eligible.
+Shops that have never been crawled, or were last crawled more than 7 days ago, are eligible. Each candidate carries `shop_id`, `domain_id`, and `shop_domain`; `domain_id` is threaded through to `SpiderService::run()` so every URL written to `shop_urls` is linked to the exact domain it was discovered from.
 
 ### Optimistic distributed lock
 
@@ -123,7 +123,7 @@ If another worker already holds the lock the update affects 0 rows, the service 
 `src/spider/service/spider_service.rs` orchestrates the crawl:
 
 ```
-run()
+run(shop_domain, domain_id)
  ├── try_lock_shop()               — acquire optimistic lock
  ├── Spider::crawl(shop_url)       — returns mpsc::Receiver<CrawledPage>
  ├── load_pattern_for_shop()       — load persisted regex from shops.url_pattern (if any)
@@ -207,7 +207,7 @@ The two subsystems communicate exclusively through `shop_urls`:
 
 ```
 Spider writes:
-  INSERT INTO shop_urls (url, shop_id, url_class, main_hash, state, ...)
+  INSERT INTO shop_urls (url, shop_id, domain_id, url_class, main_hash, state, ...)
   ON CONFLICT (url) DO UPDATE SET main_hash = ..., url_class = ..., updated = NOW()
 
 Scraper reads:

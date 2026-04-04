@@ -145,7 +145,7 @@ impl CrawlerCronJob {
                         };
                         async move {
                             if let Err(e) = spider_service
-                                .run(&candidate.shop_id, &shop_url, threshold)
+                                .run(&candidate.shop_id, &candidate.domain_id, &shop_url, threshold)
                                 .await
                             {
                                 error!(shop_id = %candidate.shop_id, error = %e, "Spider run failed");
@@ -234,13 +234,14 @@ mod tests {
             Box::pin(async {
                 Ok(vec![SpiderCandidate {
                     shop_id: ShopId::new(),
+                    domain_id: uuid::Uuid::new_v4(),
                     shop_domain: "example.com".to_string(),
                 }])
             })
         });
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, _| {
+        spider_service.expect_run().returning(|_, _, _, _| {
             Box::pin(async {
                 Ok(SpiderRunResult {
                     total_links: 10,

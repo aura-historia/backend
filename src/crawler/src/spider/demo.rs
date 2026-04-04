@@ -122,8 +122,14 @@ async fn main() {
     );
 
     let shop_id: ShopId = uuid::Uuid::new_v4().into();
+    let demo_domain_id = uuid::Uuid::nil(); // demo only — no real domain row in DB
     match spider
-        .run(&shop_id, &shop_url, DEFAULT_CLASSIFY_THRESHOLD)
+        .run(
+            &shop_id,
+            &demo_domain_id,
+            &shop_url,
+            DEFAULT_CLASSIFY_THRESHOLD,
+        )
         .await
     {
         Ok(result) => {

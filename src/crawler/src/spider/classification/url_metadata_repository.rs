@@ -16,6 +16,7 @@ impl std::fmt::Display for MainHash {
 #[derive(Debug, Clone)]
 pub struct SpiderUrlRecord {
     pub shop_id: ShopId,
+    pub domain_id: uuid::Uuid,
     pub url: url::Url,
     pub url_class: UrlClass,
     pub main_hash: MainHash,
@@ -31,6 +32,7 @@ pub struct SpiderUrlRecord {
 impl FromRow<'_, sqlx::postgres::PgRow> for SpiderUrlRecord {
     fn from_row(row: &sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         let shop_id: uuid::Uuid = row.try_get("shop_id")?;
+        let domain_id: uuid::Uuid = row.try_get("domain_id")?;
         let url_str: String = row.try_get("url")?;
         let url = url::Url::parse(&url_str).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         let url_class_str: String = row.try_get("url_class")?;
@@ -45,6 +47,7 @@ impl FromRow<'_, sqlx::postgres::PgRow> for SpiderUrlRecord {
 
         Ok(Self {
             shop_id: shop_id.into(),
+            domain_id,
             url,
             url_class,
             main_hash,
@@ -65,6 +68,7 @@ pub trait UrlMetadataRepository: Send + Sync {
     async fn upsert_link(
         &self,
         shop_id: &ShopId,
+        domain_id: &uuid::Uuid,
         url: &url::Url,
         url_class: &UrlClass,
         main_hash: &MainHash,
@@ -73,6 +77,7 @@ pub trait UrlMetadataRepository: Send + Sync {
     async fn upsert_links_batch(
         &self,
         shop_id: &ShopId,
+        domain_id: &uuid::Uuid,
         urls: &[url::Url],
         url_classes: &[UrlClass],
         main_hashes: &[MainHash],
@@ -108,6 +113,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
     async fn upsert_link(
         &self,
         shop_id: &ShopId,
+        domain_id: &uuid::Uuid,
         url: &url::Url,
         url_class: &UrlClass,
         main_hash: &MainHash,
@@ -118,16 +124,18 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         let main_hash_str = main_hash.to_string();
 
         sqlx::query_as::<_, SpiderUrlRecord>(
-            "INSERT INTO shop_urls (shop_id, url, url_class, main_hash, created, updated)
-             VALUES ($1, $2, $3, $4, NOW(), NOW())
+            "INSERT INTO shop_urls (shop_id, domain_id, url, url_class, main_hash, created, updated)
+             VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
              ON CONFLICT (url)
              DO UPDATE SET
                  url_class = EXCLUDED.url_class,
                  main_hash = EXCLUDED.main_hash,
+                 domain_id = EXCLUDED.domain_id,
                  updated = NOW()
-             RETURNING shop_id, url, url_class, main_hash, state, price_currency, price_value, last_scraped_hash, last_scraped, created, updated",
+             RETURNING shop_id, domain_id, url, url_class, main_hash, state, price_currency, price_value, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(shop_id_uuid)
+        .bind(domain_id)
         .bind(url_str)
         .bind(url_class_str)
         .bind(main_hash_str)
@@ -138,6 +146,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
     async fn upsert_links_batch(
         &self,
         shop_id: &ShopId,
+        domain_id: &uuid::Uuid,
         urls: &[url::Url],
         url_classes: &[UrlClass],
         main_hashes: &[MainHash],
@@ -152,17 +161,19 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         let main_hash_strs: Vec<String> = main_hashes.iter().map(|h| h.to_string()).collect();
 
         sqlx::query_as::<_, SpiderUrlRecord>(
-            "INSERT INTO shop_urls (shop_id, url, url_class, main_hash, created, updated)
-             SELECT $1, t.url, t.url_class, t.main_hash, NOW(), NOW()
-             FROM UNNEST($2::text[], $3::text[], $4::text[]) AS t(url, url_class, main_hash)
+            "INSERT INTO shop_urls (shop_id, domain_id, url, url_class, main_hash, created, updated)
+             SELECT $1, $2, t.url, t.url_class, t.main_hash, NOW(), NOW()
+             FROM UNNEST($3::text[], $4::text[], $5::text[]) AS t(url, url_class, main_hash)
              ON CONFLICT (url)
              DO UPDATE SET
                  url_class = EXCLUDED.url_class,
                  main_hash = EXCLUDED.main_hash,
+                 domain_id = EXCLUDED.domain_id,
                  updated = NOW()
-             RETURNING shop_id, url, url_class, main_hash, state, price_currency, price_value, last_scraped_hash, last_scraped, created, updated",
+             RETURNING shop_id, domain_id, url, url_class, main_hash, state, price_currency, price_value, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(shop_id_uuid)
+        .bind(domain_id)
         .bind(url_strs)
         .bind(url_class_strs)
         .bind(main_hash_strs)
@@ -182,7 +193,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
             "UPDATE shop_urls
              SET last_scraped = NOW(), last_scraped_hash = $3, updated = NOW()
              WHERE shop_id = $1 AND url = $2
-             RETURNING shop_id, url, url_class, main_hash, state, price_currency, price_value, last_scraped_hash, last_scraped, created, updated",
+             RETURNING shop_id, domain_id, url, url_class, main_hash, state, price_currency, price_value, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(shop_id_uuid)
         .bind(url_str)
@@ -204,7 +215,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
             "UPDATE shop_urls
              SET state = $3, updated = NOW()
              WHERE shop_id = $1 AND url = $2
-             RETURNING shop_id, url, url_class, main_hash, state, price_currency, price_value, last_scraped_hash, last_scraped, created, updated",
+             RETURNING shop_id, domain_id, url, url_class, main_hash, state, price_currency, price_value, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(shop_id_uuid)
         .bind(url_str)
