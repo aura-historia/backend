@@ -20,11 +20,16 @@ async fn insert_shop_with_domain(
     shop_id_uuid: uuid::Uuid,
     domain: &str,
 ) -> uuid::Uuid {
-    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
-        .bind(shop_id_uuid)
-        .execute(pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO shops (shop_id, shop_name, shop_type, created, updated) \
+         VALUES ($1, $2, $3, NOW(), NOW())",
+    )
+    .bind(shop_id_uuid)
+    .bind("Test Shop")
+    .bind("COMMERCIAL_DEALER")
+    .execute(pool)
+    .await
+    .unwrap();
 
     insert_domain_for_shop(pool, shop_id_uuid, domain).await
 }
@@ -222,11 +227,16 @@ async fn spider_should_return_each_domain_separately_for_shop_with_multiple_doma
     let service = SpiderCandidateServiceImpl::new(pool.clone());
 
     let shop_id_uuid = uuid::Uuid::new_v4();
-    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
-        .bind(shop_id_uuid)
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO shops (shop_id, shop_name, shop_type, created, updated) \
+         VALUES ($1, $2, $3, NOW(), NOW())",
+    )
+    .bind(shop_id_uuid)
+    .bind("Test Shop")
+    .bind("COMMERCIAL_DEALER")
+    .execute(&pool)
+    .await
+    .unwrap();
 
     let domain_id_a =
         insert_domain_for_shop(&pool, shop_id_uuid, "spider-multi-a.example.com").await;
