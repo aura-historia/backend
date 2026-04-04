@@ -49,6 +49,8 @@ pub struct UserSearchFilterUpdate {
     pub condition_query: Option<AnyOfQuery<Condition>>,
     pub provenance_query: Option<AnyOfQuery<Provenance>>,
     pub restoration_query: Option<AnyOfQuery<Restoration>>,
+    pub auction_start_query: Option<RangeQuery<OffsetDateTime>>,
+    pub auction_end_query: Option<RangeQuery<OffsetDateTime>>,
     pub language: Option<Language>,
     pub currency: Option<Currency>,
     pub updated: OffsetDateTime,
@@ -76,6 +78,8 @@ impl UserSearchFilterUpdate {
             condition_query,
             provenance_query,
             restoration_query,
+            auction_start_query,
+            auction_end_query,
             language,
             currency,
             updated: _,
@@ -100,6 +104,8 @@ impl UserSearchFilterUpdate {
             && condition_query.is_none()
             && provenance_query.is_none()
             && restoration_query.is_none()
+            && auction_start_query.is_none()
+            && auction_end_query.is_none()
             && language.is_none()
             && currency.is_none()
     }
@@ -141,6 +147,8 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
             restoration_query: update
                 .restoration_query
                 .map(|values| values.into_iter().map(RestorationRecord::from).collect()),
+            auction_start_query: update.auction_start_query,
+            auction_end_query: update.auction_end_query,
             language: update.language.map(LanguageRecord::from),
             currency: update.currency.map(CurrencyRecord::from),
             updated: update.updated,
@@ -150,7 +158,7 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
 
 #[cfg(feature = "test-data")]
 mod fake {
-    use crate::service::user_search_filter_update::UserSearchFilterUpdate;
+    use crate::core::user_search_filter_update::UserSearchFilterUpdate;
     use fake::{Dummy, Fake, Faker};
     use product::core::product_search::faker::fake_range_query_datetime;
     use time::OffsetDateTime;
@@ -177,6 +185,8 @@ mod fake {
                 condition_query: config.fake_with_rng(rng),
                 provenance_query: config.fake_with_rng(rng),
                 restoration_query: config.fake_with_rng(rng),
+                auction_start_query: config.fake_with_rng(rng),
+                auction_end_query: config.fake_with_rng(rng),
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),

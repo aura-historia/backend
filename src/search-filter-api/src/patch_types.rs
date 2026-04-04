@@ -20,7 +20,7 @@ use product::data::product_state_data::ProductStateData;
 use product::data::provenance_data::ProvenanceData;
 use product::data::restoration_data::RestorationData;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
-use search_filter::service::user_search_filter_update::UserSearchFilterUpdate;
+use search_filter::core::user_search_filter_update::UserSearchFilterUpdate;
 use serde::{Deserialize, Serialize};
 use shop::core::shop_type::ShopType;
 use shop::data::shop_type_data::ShopTypeData;
@@ -140,6 +140,22 @@ pub struct PatchProductSearchData {
         skip_serializing_if = "Option::is_none"
     )]
     pub updated_query: Option<RangeQuery<OffsetDateTime>>,
+
+    #[serde(
+        rename = "auctionStart",
+        with = "common::query::range_query::range_rfc3339::option",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub auction_start_query: Option<RangeQuery<OffsetDateTime>>,
+
+    #[serde(
+        rename = "auctionEnd",
+        with = "common::query::range_query::range_rfc3339::option",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub auction_end_query: Option<RangeQuery<OffsetDateTime>>,
 }
 
 impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
@@ -220,6 +236,8 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
             }),
             created_query: patch.search.as_ref().and_then(|sf| sf.created_query),
             updated_query: patch.search.as_ref().and_then(|sf| sf.updated_query),
+            auction_start_query: patch.search.as_ref().and_then(|sf| sf.auction_start_query),
+            auction_end_query: patch.search.as_ref().and_then(|sf| sf.auction_end_query),
             updated: OffsetDateTime::now_utc(),
         }
     }
@@ -253,6 +271,8 @@ mod faker {
                 restoration_query: config.fake_with_rng(rng),
                 created_query: fake_range_query_datetime(config, rng),
                 updated_query: fake_range_query_datetime(config, rng),
+                auction_start_query: fake_range_query_datetime(config, rng),
+                auction_end_query: fake_range_query_datetime(config, rng),
             }
         }
     }
@@ -304,6 +324,14 @@ mod tests {
             "updated": {
                 "min": "2000-05-04T00:00:00Z",
                 "max": "2025-05-04T00:00:00Z",
+            },
+            "auctionStart": {
+                "min": "2000-05-04T00:00:00Z",
+                "max": "2025-05-04T00:00:00Z",
+            },
+            "auctionEnd": {
+                "min": "2000-05-04T00:00:00Z",
+                "max": "2025-05-04T00:00:00Z",
             }
         });
         let expected = PatchProductSearchData {
@@ -335,6 +363,14 @@ mod tests {
                 max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
             }),
             updated_query: Some(RangeQuery {
+                min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
+                max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
+            }),
+            auction_start_query: Some(RangeQuery {
+                min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
+                max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
+            }),
+            auction_end_query: Some(RangeQuery {
                 min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                 max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
             }),
@@ -376,6 +412,14 @@ mod tests {
                 "updated": {
                     "min": "2000-05-04T00:00:00Z",
                     "max": "2025-05-04T00:00:00Z",
+                },
+                "auctionStart": {
+                    "min": "2000-05-04T00:00:00Z",
+                    "max": "2025-05-04T00:00:00Z",
+                },
+                "auctionEnd": {
+                    "min": "2000-05-04T00:00:00Z",
+                    "max": "2025-05-04T00:00:00Z",
                 }
             }
         });
@@ -411,6 +455,14 @@ mod tests {
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
                 }),
                 updated_query: Some(RangeQuery {
+                    min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
+                    max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
+                }),
+                auction_start_query: Some(RangeQuery {
+                    min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
+                    max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
+                }),
+                auction_end_query: Some(RangeQuery {
                     min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
                 }),

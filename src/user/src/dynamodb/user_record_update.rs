@@ -1,4 +1,7 @@
-use crate::core::{first_name::FirstName, last_name::LastName};
+use crate::{
+    core::{first_name::FirstName, last_name::LastName},
+    dynamodb::tier_record::UserTierRecord,
+};
 use common::{
     currency::record::CurrencyRecord, dynamodb_update::DynamoDbUpdate,
     language::record::LanguageRecord,
@@ -24,6 +27,9 @@ pub struct UserRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prohibited_content_consent: Option<bool>,
 
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tier: Option<UserTierRecord>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -47,6 +53,7 @@ mod fake {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 prohibited_content_consent: config.fake_with_rng(rng),
+                tier: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),
             }
         }
