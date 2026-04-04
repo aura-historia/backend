@@ -57,9 +57,9 @@ use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServic
 use llm::builder::{LLMBackend, LLMBuilder};
 use shop::core::shop_type::ShopType;
 use sqlx::PgPool;
+use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
 use testcontainers::runners::AsyncRunner;
-use testcontainers::ImageExt;
 use testcontainers_modules::postgres::Postgres as PgImage;
 use tracing::{error, info};
 
@@ -86,13 +86,6 @@ impl ShopRegistrationSource for DemoShopSource {
 
 fn demo_shops() -> Vec<RegisteredShop> {
     vec![
-        RegisteredShop {
-            shop_id: ShopId::new(),
-            shop_name: "Nostalgie Palast".to_string(),
-            shop_slug: "nostalgie-palast".to_string(),
-            shop_type: ShopType::CommercialDealer,
-            domains: HashSet::from([Domain::try_from("nostalgie-palast.de").unwrap()]),
-        },
         RegisteredShop {
             shop_id: ShopId::new(),
             shop_name: "Antiquitäten Tübingen".to_string(),

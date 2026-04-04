@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::shop_id::ShopId;
+use crawler::spider::SpiderRunResult;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
 use crawler::spider::classification::url_pattern_repository::ShopUrlPatternRepositoryImpl;
@@ -30,14 +31,13 @@ use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderDiscoveryError;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::{SpiderService, SpiderServiceConfig, SpiderServiceImpl};
-use crawler::spider::SpiderRunResult;
 use sqlx::PgPool;
+use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
 use testcontainers::runners::AsyncRunner;
-use testcontainers::ImageExt;
 use testcontainers_modules::postgres::Postgres as PgImage;
 use thiserror::Error;
-use tracing::{error, info, Level};
+use tracing::{Level, error, info};
 
 #[derive(Debug, Error)]
 enum DemoError {
