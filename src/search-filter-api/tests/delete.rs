@@ -40,7 +40,12 @@ async fn should_delete_search_filter() {
     let personalization_service = MockProductPersonalizationService::default();
 
     let expected = service
-        .create_user_search_filter(&user.user_id, Faker.fake(), Faker.fake::<ProductSearch>())
+        .create_user_search_filter(
+            &user.user_id,
+            Faker.fake(),
+            Faker.fake::<ProductSearch>(),
+            Faker.fake(),
+        )
         .await
         .unwrap();
     let lambda_event = LambdaEvent {

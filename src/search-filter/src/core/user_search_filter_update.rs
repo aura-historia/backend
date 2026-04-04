@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::core::user_search_filter::EnhancedSearchDescription;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
 use common::category_key::CategoryId;
@@ -31,6 +32,7 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone, PartialEq)]
 pub struct UserSearchFilterUpdate {
     pub name: Option<UserSearchFilterName>,
+    pub enhanced_search_description: Option<EnhancedSearchDescription>,
     pub notifications: Option<bool>,
     pub product_query: Option<TextQuery<1>>,
     pub category_id: Option<AnyOfQuery<CategoryId>>,
@@ -59,7 +61,8 @@ pub struct UserSearchFilterUpdate {
 impl UserSearchFilterUpdate {
     pub fn is_empty(&self) -> bool {
         let UserSearchFilterUpdate {
-            name: search_filter_name,
+            name,
+            enhanced_search_description,
             notifications,
             product_query,
             category_id,
@@ -85,7 +88,8 @@ impl UserSearchFilterUpdate {
             updated: _,
         } = self;
 
-        search_filter_name.is_none()
+        name.is_none()
+            && enhanced_search_description.is_none()
             && notifications.is_none()
             && product_query.is_none()
             && category_id.is_none()
@@ -167,6 +171,7 @@ mod fake {
         fn dummy_with_rng<R: fake::RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             UserSearchFilterUpdate {
                 name: config.fake_with_rng(rng),
+                enhanced_search_description: config.fake_with_rng(rng),
                 notifications: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),

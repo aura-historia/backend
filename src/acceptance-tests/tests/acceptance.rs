@@ -4141,11 +4141,21 @@ async fn should_get_all_search_filters_when_authorized() {
     let expected2 = Faker.fake::<product::core::product_search::ProductSearch>();
     let expected2_name = Faker.fake::<UserSearchFilterName>();
     service
-        .create_user_search_filter(&user.sub.into(), expected1_name.clone(), expected1.clone())
+        .create_user_search_filter(
+            &user.sub.into(),
+            expected1_name.clone(),
+            expected1.clone(),
+            None,
+        )
         .await
         .unwrap();
     service
-        .create_user_search_filter(&user.sub.into(), expected2_name.clone(), expected2.clone())
+        .create_user_search_filter(
+            &user.sub.into(),
+            expected2_name.clone(),
+            expected2.clone(),
+            None,
+        )
         .await
         .unwrap();
 
@@ -4236,6 +4246,7 @@ async fn should_post_get_patch_delete_search_filter() {
     // PATCH
     let patch = PatchUserSearchFilterData {
         name: None,
+        enhanced_search_description: None,
         notifications: None,
         search: Some(PatchProductSearchData {
             language: Some(LanguageData::Fr),
@@ -4331,6 +4342,7 @@ async fn should_get_search_filter_products_when_authorized() {
             &user.sub.into(),
             Faker.fake(),
             Faker.fake::<product::core::product_search::ProductSearch>(),
+            None,
         )
         .await
         .unwrap();

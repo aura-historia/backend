@@ -1,7 +1,9 @@
 use crate::core::quota::SearchFilterQuota;
 use crate::core::search_filter_product_match::SearchFilterProductMatch;
 use crate::core::sort_search_filter_match_field::SortSearchFilterMatchField;
-use crate::core::user_search_filter::{UserSearchFilter, UserSearchFilterSummary};
+use crate::core::user_search_filter::{
+    EnhancedSearchDescription, UserSearchFilter, UserSearchFilterSummary,
+};
 use crate::core::user_search_filter_id::UserSearchFilterId;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::core::user_search_filter_update::UserSearchFilterUpdate;
@@ -138,6 +140,7 @@ pub trait UserSearchFilterService {
         user_id: &UserId,
         name: UserSearchFilterName,
         search_filter: ProductSearch,
+        enhanced_search_description: Option<EnhancedSearchDescription>,
     ) -> Result<UserSearchFilter, UserSearchFilterError>;
 
     async fn delete_user_search_filter(
@@ -283,6 +286,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
         user_id: &UserId,
         name: UserSearchFilterName,
         search: ProductSearch,
+        enhanced_search_description: Option<EnhancedSearchDescription>,
     ) -> Result<UserSearchFilter, UserSearchFilterError> {
         let user: User = self
             .user_service
@@ -310,6 +314,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             user_id: *user_id,
             user_search_filter_id: UserSearchFilterId::new(),
             name,
+            enhanced_search_description,
             notifications: true,
             search,
             created: OffsetDateTime::now_utc(),
@@ -833,7 +838,7 @@ mod tests {
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake())
+                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), Faker.fake())
                 .await;
             assert!(actual.is_ok());
         }
@@ -875,7 +880,7 @@ mod tests {
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake())
+                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), Faker.fake())
                 .await;
 
             assert!(actual.is_err());
@@ -909,7 +914,7 @@ mod tests {
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake())
+                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), Faker.fake())
                 .await
                 .unwrap_err();
 
@@ -935,7 +940,7 @@ mod tests {
             let repository = MockUserSearchFilterDynamoDbRepository::default();
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&user_id, Faker.fake(), Faker.fake())
+                .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
                 .await
                 .unwrap_err();
 
@@ -987,7 +992,7 @@ mod tests {
                 .expect("Should generate a search with forbidden features");
 
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), search)
+                .create_user_search_filter(&UserId::new(), Faker.fake(), search, Faker.fake())
                 .await
                 .unwrap_err();
 
@@ -1025,7 +1030,7 @@ mod tests {
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake())
+                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), Faker.fake())
                 .await;
 
             assert!(actual.is_ok());

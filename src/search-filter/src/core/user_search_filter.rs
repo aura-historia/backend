@@ -2,9 +2,11 @@ use crate::{
     core::user_search_filter_id::UserSearchFilterId,
     core::user_search_filter_name::UserSearchFilterName,
 };
-use common::user_id::UserId;
+use common::{string_newtype, user_id::UserId};
 use product::core::product_search::ProductSearch;
 use time::OffsetDateTime;
+
+string_newtype!(EnhancedSearchDescription);
 
 #[derive(Debug, Clone)]
 pub struct UserSearchFilterSummary {
@@ -23,6 +25,7 @@ pub struct UserSearchFilter {
     pub name: UserSearchFilterName,
     pub notifications: bool,
     pub search: ProductSearch,
+    pub enhanced_search_description: Option<EnhancedSearchDescription>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -53,6 +56,7 @@ mod faker {
                 name: config.fake_with_rng(rng),
                 notifications: true,
                 search: config.fake_with_rng(rng),
+                enhanced_search_description: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

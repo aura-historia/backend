@@ -17,6 +17,8 @@ pub struct UserSearchFilterDocument {
     pub user_search_filter_id: UserSearchFilterId,
     pub user_id: UserId,
     pub name: UserSearchFilterName,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enhanced_search_description: Option<String>,
     pub notifications: bool,
     pub query: ProductPercolatorQuery,
 
@@ -56,6 +58,9 @@ impl TryFrom<UserSearchFilterRecord> for UserSearchFilterDocument {
             user_search_filter_id: user_search_filter.user_search_filter_id,
             user_id: user_search_filter.user_id,
             name: user_search_filter.name,
+            enhanced_search_description: user_search_filter
+                .enhanced_search_description
+                .map(Into::into),
             notifications: user_search_filter.notifications,
             query,
             created: user_search_filter.created,

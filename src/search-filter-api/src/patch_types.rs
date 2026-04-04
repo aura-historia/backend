@@ -35,6 +35,9 @@ pub struct PatchUserSearchFilterData {
     pub name: Option<UserSearchFilterName>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub enhanced_search_description: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub notifications: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -162,6 +165,7 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
     fn from(patch: PatchUserSearchFilterData) -> Self {
         UserSearchFilterUpdate {
             name: patch.name,
+            enhanced_search_description: patch.enhanced_search_description.map(Into::into),
             notifications: patch.notifications,
             language: patch
                 .search
@@ -385,6 +389,7 @@ mod tests {
     fn should_deserialize_user_search_filter_patch() {
         let json = json!({
             "name": "hugos filter for peppino",
+            "enhancedSearchDescription": "I want foo",
             "search": {
                 "language": "de",
                 "currency": "EUR",
@@ -425,6 +430,7 @@ mod tests {
         });
         let expected = PatchUserSearchFilterData {
             name: Some("hugos filter for peppino".into()),
+            enhanced_search_description: Some("I want foo".into()),
             notifications: None,
             search: Some(PatchProductSearchData {
                 language: Some(LanguageData::De),
