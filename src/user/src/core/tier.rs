@@ -1,5 +1,5 @@
 #[cfg_attr(feature = "test-data", derive(::fake::Dummy))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum UserTier {
     #[default]
     Free,
@@ -30,5 +30,23 @@ impl UserTier {
             UserTier::Pro => u32::MAX,
             UserTier::Ultimate => u32::MAX,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UserTier;
+
+    #[test]
+    fn should_order_user_tiers() {
+        assert!(UserTier::Free < UserTier::Pro);
+        assert!(UserTier::Pro < UserTier::Ultimate);
+    }
+
+    #[test]
+    fn should_sort_user_tiers() {
+        let mut tiers = vec![UserTier::Ultimate, UserTier::Free, UserTier::Pro];
+        tiers.sort();
+        assert_eq!(tiers, vec![UserTier::Free, UserTier::Pro, UserTier::Ultimate]);
     }
 }
