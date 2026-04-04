@@ -460,9 +460,14 @@ mod service_tests {
     use regex::Regex;
     use tokio::sync::mpsc;
 
-    fn setup_mock_url_repo(mock: &mut MockUrlMetadataRepository, call_count: usize) {
+    fn setup_mock_url_repo(
+        mock: &mut MockUrlMetadataRepository,
+        call_count: usize,
+        expected_domain_id: uuid::Uuid,
+    ) {
         mock.expect_upsert_links_batch()
             .times(call_count)
+            .withf(move |_, domain_id, _, _, _| *domain_id == expected_domain_id)
             .returning(|_, _, _, _, _| Box::pin(async move { Ok(Vec::new()) }));
     }
 
@@ -501,6 +506,7 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let shop_id: ShopId = uuid::Uuid::new_v4().into();
+        let domain_id = uuid::Uuid::new_v4();
         let shop_url = "https://example.com";
 
         mock_spider
@@ -542,7 +548,7 @@ mod service_tests {
         setup_mock_lock_lifecycle(&mut mock_pattern_service, shop_url);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
 
-        setup_mock_url_repo(&mut mock_url_repo, 1);
+        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -551,7 +557,6 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let domain_id = uuid::Uuid::new_v4();
         let result = service.run(&shop_id, &domain_id, shop_url, 1).await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
@@ -566,6 +571,7 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let shop_id: ShopId = uuid::Uuid::new_v4().into();
+        let domain_id = uuid::Uuid::new_v4();
         let shop_url = "https://example.com";
 
         mock_spider
@@ -601,7 +607,7 @@ mod service_tests {
         setup_mock_lock_lifecycle(&mut mock_pattern_service, shop_url);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
 
-        setup_mock_url_repo(&mut mock_url_repo, 1);
+        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -610,7 +616,6 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let domain_id = uuid::Uuid::new_v4();
         let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
@@ -624,6 +629,7 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let shop_id: ShopId = uuid::Uuid::new_v4().into();
+        let domain_id = uuid::Uuid::new_v4();
         let shop_url = "https://example.com";
 
         mock_spider
@@ -658,7 +664,7 @@ mod service_tests {
         setup_mock_lock_lifecycle(&mut mock_pattern_service, shop_url);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
 
-        setup_mock_url_repo(&mut mock_url_repo, 1);
+        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -667,7 +673,6 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let domain_id = uuid::Uuid::new_v4();
         let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
         assert!(result.is_ok());
         let run_result = result.unwrap();

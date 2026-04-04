@@ -230,26 +230,32 @@ mod tests {
     #[tokio::test]
     async fn should_run_spider_candidates() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        spider_candidates.expect_get_candidates().returning(|_| {
-            Box::pin(async {
-                Ok(vec![SpiderCandidate {
-                    shop_id: ShopId::new(),
-                    domain_id: uuid::Uuid::new_v4(),
-                    shop_domain: "example.com".to_string(),
-                }])
-            })
-        });
+        let expected_domain_id = uuid::Uuid::new_v4();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_| {
+                Box::pin(async move {
+                    Ok(vec![SpiderCandidate {
+                        shop_id: ShopId::new(),
+                        domain_id: expected_domain_id,
+                        shop_domain: "example.com".to_string(),
+                    }])
+                })
+            });
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, _, _| {
-            Box::pin(async {
-                Ok(SpiderRunResult {
-                    total_links: 10,
-                    product_urls_count: 5,
-                    product_pattern: None,
+        spider_service
+            .expect_run()
+            .withf(move |_, domain_id, _, _| *domain_id == expected_domain_id)
+            .returning(|_, _, _, _| {
+                Box::pin(async {
+                    Ok(SpiderRunResult {
+                        total_links: 10,
+                        product_urls_count: 5,
+                        product_pattern: None,
+                    })
                 })
-            })
-        });
+            });
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
