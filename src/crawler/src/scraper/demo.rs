@@ -17,7 +17,7 @@
 //! | Env var          | Purpose                              | Default            |
 //! |------------------|--------------------------------------|--------------------|
 //! | `GEMINI_API_KEY` | API key forwarded to the LLM builder | *(required)*       |
-//! | `GEMINI_MODEL`   | Model name to use                    | `gemini-2.5-flash` |
+//! | `GEMINI_MODEL`   | Model name to use                    | `gemini-3.1-flash-lite-preview` |
 //! | `LOG_LEVEL`      | Log level for `init_logging`         | `info`             |
 //!
 //! # Running
@@ -48,9 +48,9 @@ use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
 use sqlx::PgPool;
 use std::sync::Arc;
-use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
 use testcontainers::runners::AsyncRunner;
+use testcontainers::ImageExt;
 use testcontainers_modules::postgres::Postgres as PgImage;
 use time::OffsetDateTime;
 use tracing::{error, info};
@@ -303,7 +303,8 @@ async fn apply_schema(pool: &PgPool) {
 fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     let api_key = std::env::var("GEMINI_API_KEY")
         .expect("GEMINI_API_KEY must be set — see the module-level doc comment");
-    let model = std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
+    let model = std::env::var("GEMINI_MODEL")
+        .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
 
     let schema_llm_builder = LLMBuilder::new()
         .backend(LLMBackend::Google)

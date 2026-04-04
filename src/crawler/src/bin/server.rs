@@ -10,7 +10,7 @@
 //! |------------------------|----------------------------------------------------------|
 //! | `DATABASE_URL`         | Postgres connection string                               |
 //! | `GEMINI_API_KEY`       | API key for the Gemini LLM backend                       |
-//! | `GEMINI_MODEL`         | Gemini model name (default: `gemini-2.5-flash`)          |
+//! | `GEMINI_MODEL`         | Gemini model name (default: `gemini-3.1-flash-lite-preview`)          |
 //! | `DYNAMODB_TABLE_NAME`  | DynamoDB table for product events                        |
 //! | `OPENSEARCH_ENDPOINT_URL` | OpenSearch base URL                                   |
 //! | `OPENSEARCH_USERNAME`  | OpenSearch username                                      |
@@ -145,7 +145,8 @@ async fn main() {
 
     // 2. Wire dependencies
     let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set");
-    let model = std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
+    let model = std::env::var("GEMINI_MODEL")
+        .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
 
     let state_llm_builder = LLMBuilder::new()
         .backend(LLMBackend::Google)

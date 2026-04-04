@@ -6,7 +6,7 @@
 //! | Env var / CLI flag  | Purpose                                             | Default                         |
 //! |---------------------|-----------------------------------------------------|---------------------------------|
 //! | `GEMINI_API_KEY`    | API key for the Gemini backend                      | *(required)*                    |
-//! | `GEMINI_MODEL`      | Model to use for LLM calls                         | `gemini-2.5-flash-lite-preview` |
+//! | `GEMINI_MODEL`      | Model to use for LLM calls                         | `gemini-3.1-flash-lite-preview` |
 //! | `LOG_LEVEL`         | Log level                                           | `info`                          |
 //! | `DATABASE_URL`      | Postgres connection string (required with flag)     | —                               |
 //! | `--use-server-db`   | Skip testcontainer; connect to `DATABASE_URL` instead | off                            |
@@ -57,9 +57,9 @@ use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServic
 use llm::builder::{LLMBackend, LLMBuilder};
 use shop::core::shop_type::ShopType;
 use sqlx::PgPool;
-use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
 use testcontainers::runners::AsyncRunner;
+use testcontainers::ImageExt;
 use testcontainers_modules::postgres::Postgres as PgImage;
 use tracing::{error, info};
 
@@ -140,7 +140,7 @@ async fn main() {
     };
 
     let model = std::env::var("GEMINI_MODEL")
-        .unwrap_or_else(|_| "gemini-2.5-flash-lite-preview".to_string());
+        .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
 
     // ------------------------------------------------------------------
     // Database — either spin up a testcontainer or use an existing Postgres

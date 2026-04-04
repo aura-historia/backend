@@ -5,7 +5,7 @@
 //! | Env var          | Purpose                 | Default                         |
 //! |------------------|-----------------------  |---------------------------------|
 //! | `GEMINI_API_KEY` | API key for Gemini      | *(required)*                    |
-//! | `GEMINI_MODEL`   | Model name to use       | `gemini-2.5-flash-lite-preview` |
+//! | `GEMINI_MODEL`   | Model name to use       | `gemini-3.1-flash-lite-preview` |
 //! | `LOG_LEVEL`      | Log level for this demo | `info`                          |
 //!
 //! # Running
@@ -22,7 +22,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::shop_id::ShopId;
-use crawler::spider::SpiderRunResult;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
 use crawler::spider::classification::url_pattern_repository::ShopUrlPatternRepositoryImpl;
@@ -31,13 +30,14 @@ use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderDiscoveryError;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::{SpiderService, SpiderServiceConfig, SpiderServiceImpl};
+use crawler::spider::SpiderRunResult;
 use sqlx::PgPool;
-use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
 use testcontainers::runners::AsyncRunner;
+use testcontainers::ImageExt;
 use testcontainers_modules::postgres::Postgres as PgImage;
 use thiserror::Error;
-use tracing::{Level, error, info};
+use tracing::{error, info, Level};
 
 #[derive(Debug, Error)]
 enum DemoError {
@@ -103,7 +103,7 @@ async fn main() {
 
     let crawler = Box::new(SpiderImpl::default());
     let model =
-        env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-flash-lite-preview".to_string());
+        env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
     let llm_builder = llm::builder::LLMBuilder::new()
         .backend(llm::builder::LLMBackend::Google)
         .api_key(&api_key)
