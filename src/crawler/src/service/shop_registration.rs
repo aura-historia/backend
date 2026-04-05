@@ -124,7 +124,9 @@ impl ShopRegistrationService {
             Err(e) => error!(error = %e, "Failed to deactivate shops not present in upstream sync"),
         }
 
-        info!(count, "Shop sync complete");
+        if count > 0 {
+            info!(count, "Shop sync complete");
+        }
         Ok(count)
     }
 }

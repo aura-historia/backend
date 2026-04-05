@@ -5,7 +5,7 @@ use crate::service::shop_registration::ShopRegistrationService;
 use crate::spider::advisory_lock::{DomainAdvisoryLock, UrlAdvisoryLock};
 use crate::spider::candidate_service::SpiderCandidateService;
 use crate::spider::service::SpiderService;
-use futures::{StreamExt, TryStreamExt};
+use futures::StreamExt;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
@@ -170,7 +170,6 @@ impl CrawlerCronJob {
     }
 
     async fn spider_loop(&self) {
-        info!("Spider loop started");
         loop {
             self.run_spider_once().await;
             tokio::time::sleep(self.config.spider_interval).await;
@@ -178,7 +177,6 @@ impl CrawlerCronJob {
     }
 
     async fn scraper_loop(&self) {
-        info!("Scraper loop started");
         loop {
             self.run_scraper_once().await;
             tokio::time::sleep(self.config.scraper_interval).await;
@@ -186,7 +184,6 @@ impl CrawlerCronJob {
     }
 
     async fn shop_sync_loop(&self) {
-        info!("Shop sync loop started");
         // Run immediately on startup, then every shop_sync_interval
         loop {
             self.run_shop_sync_once().await;
@@ -215,8 +212,6 @@ impl CrawlerCronJob {
                 if candidates.is_empty() {
                     return;
                 }
-                let count = candidates.len();
-
                 futures::stream::iter(candidates)
                     .map(|candidate| {
                         let spider_service = self.spider_service.clone();
@@ -259,7 +254,7 @@ impl CrawlerCronJob {
                                 .run(&candidate.shop_id, &candidate.domain_id, &shop_url, threshold)
                                 .await
                             {
-                                error!(shop_id = %candidate.shop_id, error = %e, "Spider run failed");
+                                error!(domain = %candidate.shop_domain, error = %e, "Spider run failed");
                             }
                             // `_lock` dropped here → pg_advisory_unlock called automatically
                         }
@@ -267,8 +262,6 @@ impl CrawlerCronJob {
                     .buffer_unordered(self.config.spider_concurrency)
                     .collect::<Vec<()>>()
                     .await;
-
-                info!(count, "Spider tick complete");
             }
             Err(e) => error!(error = %e, "Failed to retrieve spider candidates"),
         }
@@ -284,14 +277,16 @@ impl CrawlerCronJob {
                 if candidates.is_empty() {
                     return;
                 }
-                let count = candidates.len();
+                let total = candidates.len();
 
                 // Stream scrape results and push them in chunks as they arrive,
                 // rather than collecting everything into memory first.
                 let push_service = self.product_push.clone();
                 let push_batch_size = self.config.push_batch_size;
 
-                futures::stream::iter(candidates)
+                // Collect (Option<cmd>, errored) tuples so we can count
+                // succeeded/failed after the stream completes.
+                let results: Vec<(Option<_>, bool)> = futures::stream::iter(candidates)
                     .map(|candidate| {
                         let scraper_service = self.scraper_service.clone();
                         let pool = self.pool.clone();
@@ -308,7 +303,7 @@ impl CrawlerCronJob {
                                             url = %candidate.url,
                                             "Skipping URL — advisory lock held by another worker"
                                         );
-                                        return None;
+                                        return (None, false);
                                     }
                                     Err(e) => {
                                         error!(
@@ -316,13 +311,14 @@ impl CrawlerCronJob {
                                             error = %e,
                                             "Failed to acquire advisory lock for URL"
                                         );
-                                        return None;
+                                        return (None, true);
                                     }
                                 }
                             } else {
                                 None
                             };
 
+                            let domain = candidate.url.host_str().unwrap_or("unknown");
                             let result = match scraper_service
                                 .scrape(
                                     &candidate.shop_id,
@@ -333,34 +329,33 @@ impl CrawlerCronJob {
                                 .await
                             {
                                 Ok(Some(normalized_product)) => {
-                                    normalize_to_upsert(normalized_product, &candidate)
+                                    (normalize_to_upsert(normalized_product, &candidate), false)
                                 }
-                                Ok(None) => None,
+                                Ok(None) => (None, false),
                                 Err(e) => {
-                                    error!(shop_id = %candidate.shop_id, url = %candidate.url, error = %e, "Scraper run failed");
-                                    None
+                                    error!(domain = %domain, url = %candidate.url, error = %e, "Scraper run failed");
+                                    (None, true)
                                 }
                             };
                             // `_lock` dropped here → pg_advisory_unlock called automatically
-                            result                        }
-                    })
-                    .buffer_unordered(self.config.scraper_concurrency)
-                    .filter_map(|opt| async move { opt })
-                    // Accumulate into chunks of push_batch_size; each chunk is pushed
-                    // immediately without waiting for the rest of the scraper batch.
-                    .chunks(push_batch_size)
-                    .map(Ok::<_, std::convert::Infallible>)
-                    .try_for_each(|chunk| {
-                        let push = push_service.clone();
-                        async move {
-                            push.push(chunk).await;
-                            Ok(())
+                            result
                         }
                     })
-                    .await
-                    .ok();
+                    .buffer_unordered(self.config.scraper_concurrency)
+                    .collect()
+                    .await;
 
-                info!(count, "Scraper tick complete");
+                let failed: usize = results.iter().filter(|(_, errored)| *errored).count();
+
+                // Push successful products in batches
+                let commands: Vec<_> = results.into_iter().filter_map(|(opt, _)| opt).collect();
+                let succeeded = commands.len();
+
+                for chunk in commands.chunks(push_batch_size) {
+                    push_service.push(chunk.to_vec()).await;
+                }
+
+                info!(total, succeeded, failed, "Scraper batch complete");
             }
             Err(e) => error!(error = %e, "Failed to retrieve scraper candidates"),
         }

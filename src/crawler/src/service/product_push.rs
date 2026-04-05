@@ -28,7 +28,7 @@ use product::service::command_service::CommandProductService;
 use product::service::product_command::UpsertProductCommand;
 use shop::core::shop_type::ShopType;
 use time::OffsetDateTime;
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 
 use crate::scraper::candidate_service::ScraperCandidate;
 use crate::scraper::normalization::product::NormalizedProduct;
@@ -217,7 +217,7 @@ impl ProductPushService for FileProductPushService {
                 if let Err(e) = std::fs::write(&self.output_path, json) {
                     error!(error = %e, path = %self.output_path.display(), "Failed to write scraped_products.json");
                 } else {
-                    tracing::info!(
+                    debug!(
                         count,
                         path = %self.output_path.display(),
                         "Wrote scraped products to file"

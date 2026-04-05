@@ -48,12 +48,14 @@ pub trait ProductSchemaService {
     async fn save_product_schema(
         &self,
         shop_id: &ShopId,
+        domain: &str,
         product_schema: ProductCssSelectorSchema,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
 
     async fn get_product_schema(
         &self,
         shop_id: &ShopId,
+        domain: &str,
         html: &str,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
 }
@@ -154,7 +156,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         for attempt in 1..=MAX_RETRIES {
             debug!(
                 attempt,
-                maxRetries = MAX_RETRIES,
+                max_retries = MAX_RETRIES,
                 "Attempting to fix product schema via LLM"
             );
 
@@ -200,7 +202,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         }
 
         warn!(
-            maxRetries = MAX_RETRIES,
+            max_retries = MAX_RETRIES,
             "Exhausted all retries fixing product schema, giving up"
         );
         Err(last_err.unwrap_or_else(|| {
@@ -223,20 +225,21 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
     async fn save_product_schema(
         &self,
         shop_id: &ShopId,
+        domain: &str,
         product_schema: ProductCssSelectorSchema,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
         let existing = self.repository.find_product_schema(shop_id).await?;
 
         match existing {
             Some(_) => {
-                info!(shopId = %shop_id, "Updating existing product schema");
+                info!(domain = %domain, "Updating existing product schema");
                 self.repository
                     .update_product_schema(shop_id, &product_schema)
                     .await
                     .map_err(ProductSchemaServiceError::DatabaseError)
             }
             None => {
-                info!(shopId = %shop_id, "Inserting new product schema");
+                info!(domain = %domain, "Inserting new product schema");
                 let now = OffsetDateTime::now_utc();
                 let schema = ShopsProductSchema {
                     shop_id: *shop_id,
@@ -255,16 +258,18 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
     async fn get_product_schema(
         &self,
         shop_id: &ShopId,
+        domain: &str,
         html: &str,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
         if let Some(existing) = self.find_product_schema(shop_id).await? {
-            debug!(shopId = %shop_id, "Found existing product schema");
+            debug!(domain = %domain, "Found existing product schema");
             return Ok(existing);
         }
 
-        info!(shopId = %shop_id, "No product schema found for shop, creating via LLM");
+        info!(domain = %domain, "No product schema found for shop, creating via LLM");
         let product_schema = self.create_product_schema(html).await?;
-        self.save_product_schema(shop_id, product_schema).await
+        self.save_product_schema(shop_id, domain, product_schema)
+            .await
     }
 }
 
@@ -495,7 +500,7 @@ mod tests {
         };
 
         let result = service
-            .save_product_schema(&shop_id, css_schema)
+            .save_product_schema(&shop_id, "example.com", css_schema)
             .await
             .unwrap();
         assert_eq!(result.shop_id, expected.shop_id);
@@ -526,7 +531,7 @@ mod tests {
         };
 
         let result = service
-            .save_product_schema(&shop_id, css_schema)
+            .save_product_schema(&shop_id, "example.com", css_schema)
             .await
             .unwrap();
         assert_eq!(result.shop_id, updated.shop_id);
@@ -547,7 +552,9 @@ mod tests {
             repository: Box::new(repository),
         };
 
-        let result = service.save_product_schema(&shop_id, css_schema).await;
+        let result = service
+            .save_product_schema(&shop_id, "example.com", css_schema)
+            .await;
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
@@ -573,7 +580,9 @@ mod tests {
             repository: Box::new(repository),
         };
 
-        let result = service.save_product_schema(&shop_id, css_schema).await;
+        let result = service
+            .save_product_schema(&shop_id, "example.com", css_schema)
+            .await;
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
@@ -605,7 +614,7 @@ mod tests {
         };
 
         let result = service
-            .get_product_schema(&shop_id, "<html></html>")
+            .get_product_schema(&shop_id, "example.com", "<html></html>")
             .await
             .unwrap();
         assert_eq!(result.shop_id, existing.shop_id);
@@ -643,7 +652,7 @@ mod tests {
         };
 
         let result = service
-            .get_product_schema(&shop_id, "<html></html>")
+            .get_product_schema(&shop_id, "example.com", "<html></html>")
             .await
             .unwrap();
         assert_eq!(result.shop_id, saved.shop_id);
@@ -663,7 +672,9 @@ mod tests {
             repository: Box::new(repository),
         };
 
-        let result = service.get_product_schema(&shop_id, "<html></html>").await;
+        let result = service
+            .get_product_schema(&shop_id, "example.com", "<html></html>")
+            .await;
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),

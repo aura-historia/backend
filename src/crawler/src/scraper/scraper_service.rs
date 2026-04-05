@@ -11,7 +11,7 @@ use crate::scraper::normalization::product_normalization_service::ProductNormali
 use common::shop_id::ShopId;
 use scraper::Html;
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use url::Url;
 
 // ---------------------------------------------------------------------------
@@ -165,8 +165,11 @@ impl ScraperService for ScraperServiceImpl {
             }
             return Ok(None);
         }
+
+        let domain = url.host_str().unwrap_or("unknown");
+
         // 1. Fetch HTML --------------------------------------------------
-        debug!(shopId = %shop_id, url = %url, "Fetching product page HTML");
+        debug!(domain, url = %url, "Fetching product page HTML");
         let html =
             self.html_fetcher
                 .fetch(url)
@@ -177,10 +180,10 @@ impl ScraperService for ScraperServiceImpl {
                 })?;
 
         // 2. Obtain schema (from DB or freshly created by LLM) -----------
-        debug!(shopId = %shop_id, url = %url, "Obtaining product CSS selector schema");
+        debug!(domain, url = %url, "Obtaining product CSS selector schema");
         let shops_product_schema = self
             .schema_service
-            .get_product_schema(shop_id, &html)
+            .get_product_schema(shop_id, domain, &html)
             .await?;
 
         // 3. Apply schema → RawExtractedProduct -------------------------
@@ -197,12 +200,12 @@ impl ScraperService for ScraperServiceImpl {
             let parsed_html = Html::parse_document(&html);
             match schema.apply(&parsed_html) {
                 Ok(raw) => {
-                    debug!(shopId = %shop_id, url = %url, "Schema applied successfully");
+                    debug!(domain, url = %url, "Schema applied successfully");
                     ApplyOutcome::Ok(raw)
                 }
                 Err(apply_error) => {
                     warn!(
-                        shopId = %shop_id,
+                        domain,
                         url = %url,
                         error = %apply_error,
                         "Schema application failed, attempting LLM-based fix"
@@ -228,14 +231,16 @@ impl ScraperService for ScraperServiceImpl {
 
                 // Persist the fixed schema so subsequent scrapes benefit from it
                 self.schema_service
-                    .save_product_schema(shop_id, fixed_schema.clone())
+                    .save_product_schema(shop_id, domain, fixed_schema.clone())
                     .await?;
+
+                info!(domain, "Schema fixed via LLM");
 
                 // Re-apply synchronously — again drop Html before any await
                 let parsed_html = Html::parse_document(&html);
                 fixed_schema.apply(&parsed_html).map_err(|re_apply_error| {
                     warn!(
-                        shopId = %shop_id,
+                        domain,
                         url = %url,
                         error = %re_apply_error,
                         "Fixed schema also failed to apply"
@@ -251,7 +256,7 @@ impl ScraperService for ScraperServiceImpl {
         };
 
         // 4. Normalise --------------------------------------------------
-        debug!(shopId = %shop_id, url = %url, "Normalizing extracted product data");
+        debug!(domain, url = %url, "Normalizing extracted product data");
         let final_product = match self.normalization_service.normalize(raw, url.clone()).await {
             Ok(normalized) => normalized,
             Err(e) => return Err(ScraperError::NormalizationError(e)),
@@ -266,8 +271,8 @@ impl ScraperService for ScraperServiceImpl {
         }
 
         debug!(
-            shopId = %shop_id,
-            shopsProductId = %final_product.shops_product_id,
+            domain,
+            shops_product_id = %final_product.shops_product_id,
             url = %url,
             "Scraping complete"
         );
@@ -399,7 +404,7 @@ mod tests {
         schema_svc
             .expect_get_product_schema()
             .once()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = schema.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -449,7 +454,7 @@ mod tests {
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
             .expect_get_product_schema()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = schema.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -561,7 +566,7 @@ mod tests {
         schema_svc
             .expect_get_product_schema()
             .once()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = broken_schema.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -578,7 +583,7 @@ mod tests {
         schema_svc
             .expect_save_product_schema()
             .once()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = saved_schema.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -648,7 +653,7 @@ mod tests {
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
             .expect_get_product_schema()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = broken_schema.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -719,7 +724,7 @@ mod tests {
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
             .expect_get_product_schema()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = broken_schema.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -735,7 +740,7 @@ mod tests {
         schema_svc
             .expect_save_product_schema()
             .once()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = saved.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -864,7 +869,7 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let mut schema_svc = MockProductSchemaService::new();
-        schema_svc.expect_get_product_schema().returning(|_, _| {
+        schema_svc.expect_get_product_schema().returning(|_, _, _| {
             Box::pin(async {
                 Err(ProductSchemaServiceError::NoTextResponse(
                     "LLM timed out".to_string(),
@@ -911,7 +916,7 @@ mod tests {
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
             .expect_get_product_schema()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = schema.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -960,7 +965,7 @@ mod tests {
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
             .expect_get_product_schema()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = schema.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -1009,7 +1014,7 @@ mod tests {
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
             .expect_get_product_schema()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = schema.clone();
                 Box::pin(async move { Ok(s) })
             });

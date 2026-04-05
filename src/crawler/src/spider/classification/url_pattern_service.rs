@@ -137,7 +137,12 @@ impl UrlPatternService for UrlPatternServiceImpl {
 
         if let Some(ref p) = pattern {
             self.save_pattern_for_shop(shop_id, shop_url, p).await?;
-            info!(shopId = %shop_id, "Persisted product URL pattern");
+            match extract_shop_base_url(shop_url) {
+                Ok(extracted_domain) => {
+                    info!(domain = %extracted_domain, "Persisted product URL pattern")
+                }
+                Err(_) => info!(domain = %shop_url, "Persisted product URL pattern"),
+            }
         }
 
         Ok(pattern)

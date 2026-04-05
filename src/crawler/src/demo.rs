@@ -301,7 +301,10 @@ async fn main() {
 
 fn init_logging() {
     let raw_level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
-    let filter = tracing_subscriber::EnvFilter::new(format!("{},spider=warn", raw_level));
+    let filter = tracing_subscriber::EnvFilter::new(format!(
+        "{},spider=warn,sqlx::postgres::notice=warn",
+        raw_level
+    ));
     tracing_subscriber::fmt()
         .json()
         .with_env_filter(filter)

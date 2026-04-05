@@ -5,7 +5,7 @@ use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
 use product::dynamodb::product_state_record::ProductStateRecord;
 use regex::Regex;
 use time::OffsetDateTime;
-use tracing::info;
+use tracing::{debug, info, warn};
 
 // ---------------------------------------------------------------------------
 // Error
@@ -276,14 +276,14 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
         match existing {
             Some(_) => {
-                info!(raw = %key, "Updating existing state mapping...");
+                debug!(raw = %key, "Updating existing state mapping...");
                 self.repository
                     .update_mapping(&key, &normalized_record, &mapping_type)
                     .await
                     .map_err(StateMappingServiceError::DatabaseError)
             }
             None => {
-                info!(raw = %key, "Inserting new state mapping...");
+                debug!(raw = %key, "Inserting new state mapping...");
                 let now = OffsetDateTime::now_utc();
                 let record = ProductStateMappingRecord {
                     raw: key,
@@ -310,7 +310,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
         // ── Step 1: exact DB lookup ──────────────────────────────────────
         if let Some(existing) = self.repository.find_mapping(&key).await? {
-            info!(raw = %key, "Found exact state mapping in DB.");
+            debug!(raw = %key, "Found exact state mapping in DB.");
             return Ok(existing);
         }
 
@@ -322,7 +322,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
             // not break all lookups.
             match Regex::new(&mapping.raw) {
                 Ok(re) if re.is_match(&key) => {
-                    info!(
+                    debug!(
                         raw = %key,
                         pattern = %mapping.raw,
                         "Matched state via DB regex pattern."
@@ -331,7 +331,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
                 }
                 Ok(_) => {}
                 Err(err) => {
-                    tracing::warn!(
+                    warn!(
                         pattern = %mapping.raw,
                         error = %err,
                         "Skipping invalid regex pattern in product_state_mapping table."
@@ -341,7 +341,8 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
         }
 
         // ── Step 3: LLM fallback ─────────────────────────────────────────
-        info!(raw = %key, "No DB mapping found, asking LLM...");
+        let truncated_raw = if key.len() > 100 { &key[..100] } else { &key };
+        info!(raw = %truncated_raw, "No DB mapping found, asking LLM...");
         let record = self.create_state_mapping(&key).await?;
 
         // Persist the result so future lookups are instant.
