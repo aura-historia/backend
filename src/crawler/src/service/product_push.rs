@@ -15,14 +15,19 @@
 //!   [`ScraperCandidate`] metadata to a [`UpsertProductCommand`].
 
 use async_trait::async_trait;
+use common::language::data::LocalizedTextData;
+use common::price::data::PriceData;
 use common::shop_name::ShopName;
 use product::core::authenticity::Authenticity;
 use product::core::condition::Condition;
 use product::core::provenance::Provenance;
 use product::core::restoration::Restoration;
+use product::data::product_image_data::ProductImageData;
+use product::data::product_state_data::ProductStateData;
 use product::service::command_service::CommandProductService;
 use product::service::product_command::UpsertProductCommand;
 use shop::core::shop_type::ShopType;
+use time::OffsetDateTime;
 use tracing::{error, warn};
 
 use crate::scraper::candidate_service::ScraperCandidate;
@@ -76,9 +81,13 @@ impl ProductPushService for ProductPushServiceImpl {
 // File-based implementation (demo / dev)
 // ---------------------------------------------------------------------------
 
-/// Writes upserted commands as pretty-printed JSON to `scraped_products.json`.
+/// Writes upserted commands as pretty-printed JSON to the configured output path.
 ///
-/// This is used by the demo binary where no DynamoDB/AWS is available.
+/// Used by the demo binary where no DynamoDB/AWS is available.  Each entry in the
+/// JSON array is an [`UpsertCommandSnapshot`] containing the **full** product payload —
+/// title, description, price, images, state, auction dates — in addition to the shop
+/// identity fields.  This makes the file output a faithful representation of what would
+/// be forwarded to DynamoDB in production.
 pub struct FileProductPushService {
     output_path: std::path::PathBuf,
 }
@@ -91,7 +100,11 @@ impl FileProductPushService {
     }
 }
 
-/// Serialisable snapshot of a single upsert command, used only for demo output.
+/// Serialisable snapshot of a single upsert command, used only for demo/file output.
+///
+/// Captures the full product payload so that the JSON written to disk is a faithful
+/// representation of what would be sent to DynamoDB in production.  This includes title,
+/// description, price, images, state, and auction dates — not just the identity fields.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct UpsertCommandSnapshot {
     shop_id: String,
@@ -101,7 +114,51 @@ struct UpsertCommandSnapshot {
     seller_name: String,
     shop_type: String,
     url: Option<String>,
-    state: Option<String>,
+    state: Option<ProductStateData>,
+    title: Option<LocalizedTextData>,
+    description: Option<LocalizedTextData>,
+    price: Option<PriceData>,
+    price_estimate_min: Option<PriceData>,
+    price_estimate_max: Option<PriceData>,
+    images: Vec<ProductImageData>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_optional_datetime",
+        deserialize_with = "deserialize_optional_datetime",
+        default
+    )]
+    auction_start: Option<OffsetDateTime>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_optional_datetime",
+        deserialize_with = "deserialize_optional_datetime",
+        default
+    )]
+    auction_end: Option<OffsetDateTime>,
+}
+
+// `time::serde::rfc3339` only works on `OffsetDateTime` directly, not `Option<OffsetDateTime>`.
+// These thin wrappers adapt it for optional fields.
+fn serialize_optional_datetime<S>(
+    value: &Option<OffsetDateTime>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match value {
+        Some(dt) => time::serde::rfc3339::serialize(dt, serializer),
+        None => serializer.serialize_none(),
+    }
+}
+
+fn deserialize_optional_datetime<'de, D>(
+    deserializer: D,
+) -> Result<Option<OffsetDateTime>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    time::serde::rfc3339::option::deserialize(deserializer)
 }
 
 impl From<&UpsertProductCommand> for UpsertCommandSnapshot {
@@ -116,7 +173,19 @@ impl From<&UpsertProductCommand> for UpsertCommandSnapshot {
             seller_name: cmd.seller_name.as_ref().to_string(),
             shop_type: format!("{:?}", cmd.shop_type),
             url: cmd.url.as_ref().map(|u| u.to_string()),
-            state: cmd.state.as_ref().map(|s| format!("{s:?}")),
+            state: cmd.state.as_ref().map(|s| ProductStateData::from(*s)),
+            title: cmd.native_title.as_ref().map(|t| t.clone().into()),
+            description: cmd.native_description.as_ref().map(|d| d.clone().into()),
+            price: cmd.native_price.map(PriceData::from),
+            price_estimate_min: cmd.native_price_estimate_min.map(PriceData::from),
+            price_estimate_max: cmd.native_price_estimate_max.map(PriceData::from),
+            images: cmd
+                .images
+                .iter()
+                .map(|i| ProductImageData::from(i.clone()))
+                .collect(),
+            auction_start: cmd.auction_start,
+            auction_end: cmd.auction_end,
         }
     }
 }
@@ -334,7 +403,22 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&content).unwrap();
         assert_eq!(parsed.len(), 1);
+        // Identity fields
         assert_eq!(parsed[0]["shop_name"], "Test Shop");
+        assert_eq!(parsed[0]["state"], "AVAILABLE");
+        // Rich product fields are present in the output
+        assert!(
+            parsed[0].get("title").is_some(),
+            "title should be serialised"
+        );
+        assert!(
+            parsed[0].get("images").is_some(),
+            "images should be serialised"
+        );
+        assert!(
+            parsed[0].get("price").is_some(),
+            "price key should be present"
+        );
 
         let _ = std::fs::remove_file(&path);
     }

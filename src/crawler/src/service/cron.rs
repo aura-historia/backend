@@ -7,6 +7,7 @@ use crate::spider::candidate_service::SpiderCandidateService;
 use crate::spider::service::SpiderService;
 use futures::{StreamExt, TryStreamExt};
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info, warn};
@@ -24,6 +25,18 @@ pub struct CrawlerCronConfig {
     pub spider_concurrency: usize,
     pub scraper_concurrency: usize,
     pub spider_classify_threshold: usize,
+    /// Maximum number of Postgres connections in the pool.
+    ///
+    /// Each concurrent spider task holds one connection for its `DomainAdvisoryLock`
+    /// for the full duration of the crawl, and each concurrent scraper task holds one
+    /// for its `UrlAdvisoryLock`.  On top of those long-lived locks there are short-lived
+    /// query connections issued by repository impls and the shop-sync task.
+    ///
+    /// When `None` the value is computed automatically as:
+    ///   `spider_concurrency + scraper_concurrency + 10`
+    /// which provides comfortable headroom for queries and advisory-lock releases
+    /// without wasting idle connections.
+    pub db_max_connections: Option<u32>,
 }
 
 impl Default for CrawlerCronConfig {
@@ -38,7 +51,33 @@ impl Default for CrawlerCronConfig {
             spider_concurrency: 3,
             scraper_concurrency: 10,
             spider_classify_threshold: 200,
+            db_max_connections: None,
         }
+    }
+}
+
+impl CrawlerCronConfig {
+    /// Returns the effective `max_connections` for the Postgres pool.
+    ///
+    /// Uses the explicit override when set; otherwise auto-computes from the
+    /// concurrency settings.  The auto value is
+    /// `spider_concurrency + scraper_concurrency + 10`.
+    pub fn effective_db_max_connections(&self) -> u32 {
+        self.db_max_connections
+            .unwrap_or_else(|| (self.spider_concurrency + self.scraper_concurrency + 10) as u32)
+    }
+
+    /// Builds a [`PgPool`] whose size is appropriate for this config.
+    ///
+    /// Prefer this over calling `PgPool::connect` directly so that the pool is
+    /// always large enough to serve all concurrent advisory-lock connections plus
+    /// the repository queries issued within each task.
+    pub async fn connect_pool(&self, url: &str) -> Result<PgPool, sqlx::Error> {
+        PgPoolOptions::new()
+            .max_connections(self.effective_db_max_connections())
+            .acquire_timeout(Duration::from_secs(30))
+            .connect(url)
+            .await
     }
 }
 

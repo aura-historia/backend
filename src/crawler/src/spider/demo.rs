@@ -8,6 +8,12 @@
 //! | `GEMINI_MODEL`   | Model name to use       | `gemini-3.1-flash-lite-preview` |
 //! | `LOG_LEVEL`      | Log level for this demo | `info`                          |
 //!
+//! # Connection pool sizing
+//!
+//! This demo creates a single-use pool sized to **5 connections**: one for the advisory-lock
+//! connection, plus headroom for the repository queries issued during spidering.
+//! No pool exhaustion is expected here because only one shop is spidered at a time.
+//!
 //! # Running
 //!
 //! ```bash
@@ -32,6 +38,7 @@ use crawler::spider::discovery::website_spider::SpiderDiscoveryError;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::{SpiderService, SpiderServiceConfig, SpiderServiceImpl};
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
 use testcontainers::runners::AsyncRunner;
@@ -235,6 +242,9 @@ async fn insert_demo_shop(
     Ok(domain_id)
 }
 
+/// Spider demo pool size: 1 advisory-lock connection + 4 query connections.
+const DEMO_POOL_MAX_CONNECTIONS: u32 = 5;
+
 async fn start_postgres() -> Result<(testcontainers::ContainerAsync<PgImage>, PgPool), DemoError> {
     let _ = Command::new("docker")
         .args(["rm", "-f", DEMO_CONTAINER_NAME])
@@ -261,9 +271,18 @@ async fn start_postgres() -> Result<(testcontainers::ContainerAsync<PgImage>, Pg
 
     loop {
         attempt += 1;
-        match PgPool::connect(&connection_string).await {
+        let pool_result = PgPoolOptions::new()
+            .max_connections(DEMO_POOL_MAX_CONNECTIONS)
+            .acquire_timeout(Duration::from_secs(30))
+            .connect(&connection_string)
+            .await;
+        match pool_result {
             Ok(pool) => {
-                info!(attempt, "Connected to Postgres for spider demo");
+                info!(
+                    attempt,
+                    max_connections = DEMO_POOL_MAX_CONNECTIONS,
+                    "Connected to Postgres for spider demo"
+                );
                 return Ok((container, pool));
             }
             Err(error) if attempt < 20 => {

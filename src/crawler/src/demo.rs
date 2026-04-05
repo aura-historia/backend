@@ -13,6 +13,12 @@
 //!
 //! Scraped products are written to `scraped_products.json` instead of being forwarded to DynamoDB.
 //!
+//! # Connection pool sizing
+//!
+//! The pool is sized automatically via [`CrawlerCronConfig::effective_db_max_connections`]:
+//! `spider_concurrency + scraper_concurrency + 10`.  This ensures every concurrent
+//! advisory-lock connection plus repository queries fit without exhausting the pool.
+//!
 //! # Running (with testcontainer)
 //!
 //! ```bash
@@ -144,8 +150,23 @@ async fn main() {
     let model = std::env::var("GEMINI_MODEL")
         .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
 
+    // Build the cron config first so it can drive pool sizing below.
+    let config = CrawlerCronConfig {
+        spider_interval: Duration::from_secs(120), // Demo: retry spider every 2 minutes
+        scraper_interval: Duration::from_secs(30), // Demo: run scraper loop every 30 seconds
+        spider_batch_size: 5,
+        scraper_batch_size: 20,
+        spider_concurrency: 3,
+        scraper_concurrency: 10,
+        spider_classify_threshold: 100,
+        ..Default::default()
+    };
+
     // ------------------------------------------------------------------
-    // Database — either spin up a testcontainer or use an existing Postgres
+    // Database — either spin up a testcontainer or use an existing Postgres.
+    // The pool is sized to spider_concurrency + scraper_concurrency + 10 so
+    // that every concurrent advisory-lock connection plus repository queries
+    // fit without exhausting the pool.
     // ------------------------------------------------------------------
 
     // We keep the container alive for the process lifetime by holding it here.
@@ -160,8 +181,11 @@ async fn main() {
                 return;
             }
         };
-        info!("Connecting to existing Postgres via DATABASE_URL");
-        let pool = match PgPool::connect(&db_url).await {
+        info!(
+            max_connections = config.effective_db_max_connections(),
+            "Connecting to existing Postgres via DATABASE_URL"
+        );
+        let pool = match config.connect_pool(&db_url).await {
             Ok(p) => p,
             Err(e) => {
                 error!(error = %e, "Failed to connect to Postgres");
@@ -170,7 +194,7 @@ async fn main() {
         };
         (None, pool)
     } else {
-        match start_postgres().await {
+        match start_postgres(&config).await {
             Ok((container, pool)) => (Some(container), pool),
             Err(error) => {
                 error!(error = %error, "Failed to start Postgres for demo");
@@ -260,18 +284,6 @@ async fn main() {
     // Wire product push — demo writes to a local JSON file instead of DynamoDB
     let product_push = Box::new(FileProductPushService::new("scraped_products.json"));
 
-    // Build Cron Job
-    let config = CrawlerCronConfig {
-        spider_interval: Duration::from_secs(120), // Demo: retry spider every 2 minutes
-        scraper_interval: Duration::from_secs(30), // Demo: run scraper loop every 30 seconds
-        spider_batch_size: 5,
-        scraper_batch_size: 20,
-        spider_concurrency: 3,
-        scraper_concurrency: 10,
-        spider_classify_threshold: 100,
-        ..Default::default()
-    };
-
     let cron_job = CrawlerCronJob::new(
         config,
         pool.clone(),
@@ -296,7 +308,9 @@ fn init_logging() {
         .init();
 }
 
-async fn start_postgres() -> Result<(testcontainers::ContainerAsync<PgImage>, PgPool), String> {
+async fn start_postgres(
+    config: &CrawlerCronConfig,
+) -> Result<(testcontainers::ContainerAsync<PgImage>, PgPool), String> {
     let _ = Command::new("docker")
         .args(["rm", "-f", DEMO_CONTAINER_NAME])
         .output();
@@ -322,9 +336,13 @@ async fn start_postgres() -> Result<(testcontainers::ContainerAsync<PgImage>, Pg
 
     loop {
         attempt += 1;
-        match PgPool::connect(&connection_string).await {
+        match config.connect_pool(&connection_string).await {
             Ok(pool) => {
-                info!(attempt, "Connected to Postgres for crawler demo");
+                info!(
+                    attempt,
+                    max_connections = config.effective_db_max_connections(),
+                    "Connected to Postgres for crawler demo"
+                );
                 return Ok((container, pool));
             }
             Err(error) if attempt < 20 => {

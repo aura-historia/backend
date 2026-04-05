@@ -4,17 +4,33 @@
 //! [`CrawlerCronJob`] loop that continuously spiders shop websites, scrapes product pages,
 //! and pushes normalised products to DynamoDB via [`CommandProductServiceImpl`].
 //!
+//! # Connection pool sizing
+//!
+//! The Postgres pool is sized automatically via
+//! [`CrawlerCronConfig::effective_db_max_connections`]:
+//!
+//! ```text
+//! max_connections = spider_concurrency + scraper_concurrency + 10
+//! ```
+//!
+//! Each concurrent spider task holds one connection for its [`DomainAdvisoryLock`] and each
+//! scraper task holds one for its [`UrlAdvisoryLock`] for the full duration of the
+//! operation.  The `+10` headroom covers short-lived repository queries, the shop-sync
+//! task, and advisory-lock release spawns that briefly re-use a connection on drop.
+//!
+//! Override by setting `db_max_connections` explicitly in [`CrawlerCronConfig`].
+//!
 //! # Required environment variables
 //!
-//! | Variable               | Purpose                                                  |
-//! |------------------------|----------------------------------------------------------|
-//! | `DATABASE_URL`         | Postgres connection string                               |
-//! | `GEMINI_API_KEY`       | API key for the Gemini LLM backend                       |
-//! | `GEMINI_MODEL`         | Gemini model name (default: `gemini-3.1-flash-lite-preview`)          |
-//! | `DYNAMODB_TABLE_NAME`  | DynamoDB table for product events                        |
-//! | `OPENSEARCH_ENDPOINT_URL` | OpenSearch base URL                                   |
-//! | `OPENSEARCH_USERNAME`  | OpenSearch username                                      |
-//! | `OPENSEARCH_PASSWORD`  | OpenSearch password                                      |
+//! | Variable                  | Purpose                                                        |
+//! |---------------------------|----------------------------------------------------------------|
+//! | `DATABASE_URL`            | Postgres connection string                                     |
+//! | `GEMINI_API_KEY`          | API key for the Gemini LLM backend                             |
+//! | `GEMINI_MODEL`            | Gemini model name (default: `gemini-3.1-flash-lite-preview`)   |
+//! | `DYNAMODB_TABLE_NAME`     | DynamoDB table for product events                              |
+//! | `OPENSEARCH_ENDPOINT_URL` | OpenSearch base URL                                            |
+//! | `OPENSEARCH_USERNAME`     | OpenSearch username                                            |
+//! | `OPENSEARCH_PASSWORD`     | OpenSearch password                                            |
 
 use async_trait::async_trait;
 use aws_config::BehaviorVersion;
@@ -55,7 +71,6 @@ use product_classification::period::service::PeriodServiceImpl;
 use shop::core::shop_search::ShopSearch;
 use shop::opensearch::repository::ShopOpenSearchRepositoryImpl;
 use shop::service::query_service::{QueryShopService, QueryShopServiceImpl};
-use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
@@ -136,14 +151,34 @@ async fn main() {
 
     info!("Starting Crawler Server");
 
-    // 1. Connect to database
+    // 1. Build cron config (needed for pool sizing before everything else)
+    let config = CrawlerCronConfig {
+        spider_interval: Duration::from_secs(600),
+        scraper_interval: Duration::from_secs(60),
+        spider_batch_size: 10,
+        scraper_batch_size: 20,
+        spider_concurrency: 3,
+        scraper_concurrency: 10,
+        spider_classify_threshold: 200,
+        ..Default::default()
+    };
+
+    // 2. Connect to database — pool is sized to spider_concurrency + scraper_concurrency + 10
+    //    so that every concurrent advisory-lock connection plus repository queries fit without
+    //    hitting the default sqlx cap of 10.
     let db_url =
         std::env::var("DATABASE_URL").expect("DATABASE_URL environment variable must be set");
-    let pool = PgPool::connect(&db_url)
+    let pool = config
+        .connect_pool(&db_url)
         .await
         .expect("Failed to connect to database");
 
-    // 2. Wire dependencies
+    info!(
+        max_connections = config.effective_db_max_connections(),
+        "Connected to Postgres"
+    );
+
+    // 3. Wire dependencies
     let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set");
     let model = std::env::var("GEMINI_MODEL")
         .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
@@ -266,17 +301,6 @@ async fn main() {
     let product_push = Box::new(ProductPushServiceImpl::new(command_product_service));
 
     // 5. Build Cron Job
-    let config = CrawlerCronConfig {
-        spider_interval: Duration::from_secs(600),
-        scraper_interval: Duration::from_secs(60),
-        spider_batch_size: 10,
-        scraper_batch_size: 20,
-        spider_concurrency: 3,
-        scraper_concurrency: 10,
-        spider_classify_threshold: 200,
-        ..Default::default()
-    };
-
     let cron_job = CrawlerCronJob::new(
         config,
         pool.clone(),

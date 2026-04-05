@@ -20,10 +20,15 @@
 //! | `GEMINI_MODEL`   | Model name to use                    | `gemini-3.1-flash-lite-preview` |
 //! | `LOG_LEVEL`      | Log level for `init_logging`         | `info`             |
 //!
+//! # Connection pool sizing
+//!
+//! This demo scrapes each target sequentially (no advisory locks are held concurrently),
+//! so a pool of **5 connections** is more than sufficient for all repository queries.
+//!
 //! # Running
 //!
 //! ```bash
-//! GEMINI_API_KEY=sk-... cargo run --bin demo -p crawler
+//! GEMINI_API_KEY=sk-... cargo run --bin demo-scraper -p crawler
 //! ```
 
 use std::fs::File;
@@ -47,6 +52,7 @@ use llm::builder::{LLMBackend, LLMBuilder};
 use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
@@ -65,6 +71,9 @@ const POSTGRES_PASSWORD: &str = "postgres";
 const POSTGRES_DB: &str = "postgres";
 const POSTGRES_PORT: u16 = 5432;
 const DEMO_CONTAINER_NAME: &str = "aura-historia-scraper-demo";
+/// Scraper demo pool size: no advisory locks are held concurrently, so 5
+/// connections cover all parallel repository queries with room to spare.
+const DEMO_POOL_MAX_CONNECTIONS: u32 = 5;
 
 // ---------------------------------------------------------------------------
 // Scrape targets — fill in your own shop IDs and URLs below
@@ -254,9 +263,18 @@ async fn start_postgres() -> &'static PgPool {
         let mut delay = Duration::from_millis(100);
         loop {
             attempt += 1;
-            match PgPool::connect(&connection_string).await {
+            let pool_result = PgPoolOptions::new()
+                .max_connections(DEMO_POOL_MAX_CONNECTIONS)
+                .acquire_timeout(Duration::from_secs(30))
+                .connect(&connection_string)
+                .await;
+            match pool_result {
                 Ok(p) => {
-                    info!(attempt, "Connected to Postgres.");
+                    info!(
+                        attempt,
+                        max_connections = DEMO_POOL_MAX_CONNECTIONS,
+                        "Connected to Postgres."
+                    );
                     break p;
                 }
                 Err(e) if attempt < 20 => {
