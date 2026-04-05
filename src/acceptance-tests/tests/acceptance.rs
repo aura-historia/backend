@@ -2501,6 +2501,66 @@ async fn should_get_and_patch_user_account() {
     assert_eq!(patched, gotten2);
 }
 
+#[localstack_test(services = [Cloudformation()])]
+async fn should_delete_user_from_cognito_and_dynamodb() {
+    let cfn = get_cfn_output();
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    // Verify user record exists in DynamoDB
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &cfn.dynamodb_table_1_name);
+    let record_before = user_repository.get_user_record(&user_id).await.unwrap();
+    assert!(
+        record_before.is_some(),
+        "User record should exist before deletion"
+    );
+
+    // Call DELETE /api/v1/me via API Gateway
+    let delete_url = format!("{}/api/v1/me", cfn.api_gateway_endpoint_url);
+    let delete_response = reqwest::Client::new()
+        .delete(&delete_url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(204, delete_response.status().as_u16());
+
+    // Verify user record is deleted from DynamoDB
+    let record_after = user_repository.get_user_record(&user_id).await.unwrap();
+    assert!(
+        record_after.is_none(),
+        "User record should be deleted from DynamoDB"
+    );
+
+    // Verify user is deleted from Cognito
+    let cognito = get_cognito_client().await;
+    let cognito_user = cognito
+        .admin_get_user()
+        .user_pool_id(&cfn.cognito_user_pool_id)
+        .username(user.sub.to_string())
+        .send()
+        .await;
+    assert!(
+        cognito_user.is_err(),
+        "Cognito user should no longer exist after deletion"
+    );
+
+    // Verify the deleted user's access token no longer works
+    let get_url = format!("{}/api/v1/me/account", cfn.api_gateway_endpoint_url);
+    let get_response = reqwest::Client::new()
+        .get(&get_url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_ne!(
+        200,
+        get_response.status().as_u16(),
+        "Deleted user should not be able to access their account"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Product update → notify user
 // Verifies EventBridge → SQS → Lambda → Cognito/DynamoDB → SES routing
