@@ -9,8 +9,9 @@ use futures::StreamExt;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[derive(Clone)]
 pub struct CrawlerCronConfig {
@@ -94,6 +95,12 @@ pub struct CrawlerCronJob {
     scraper_service: Arc<dyn ScraperService>,
     shop_registration: Arc<ShopRegistrationService>,
     product_push: Arc<dyn ProductPushService>,
+    /// Rolling counters for periodic scraper performance summaries (reset every 500 URLs).
+    scraper_perf_urls: Arc<AtomicU64>,
+    scraper_perf_duration_ms: Arc<AtomicU64>,
+    /// Rolling counters for periodic spider performance summaries (reset every 50 domains).
+    spider_perf_domains: Arc<AtomicU64>,
+    spider_perf_duration_ms: Arc<AtomicU64>,
 }
 
 impl CrawlerCronJob {
@@ -117,6 +124,10 @@ impl CrawlerCronJob {
             scraper_service: scraper_service.into(),
             shop_registration: Arc::new(shop_registration),
             product_push: product_push.into(),
+            scraper_perf_urls: Arc::new(AtomicU64::new(0)),
+            scraper_perf_duration_ms: Arc::new(AtomicU64::new(0)),
+            spider_perf_domains: Arc::new(AtomicU64::new(0)),
+            spider_perf_duration_ms: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -144,6 +155,10 @@ impl CrawlerCronJob {
             scraper_service: scraper_service.into(),
             shop_registration: Arc::new(shop_registration),
             product_push: product_push.into(),
+            scraper_perf_urls: Arc::new(AtomicU64::new(0)),
+            scraper_perf_duration_ms: Arc::new(AtomicU64::new(0)),
+            spider_perf_domains: Arc::new(AtomicU64::new(0)),
+            spider_perf_duration_ms: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -210,9 +225,14 @@ impl CrawlerCronJob {
         {
             Ok(candidates) => {
                 if candidates.is_empty() {
+                    debug!("No spider candidates, skipping batch");
                     return;
                 }
-                futures::stream::iter(candidates)
+                let total = candidates.len();
+                let batch_start = tokio::time::Instant::now();
+                info!(candidates = total, "Spider batch starting");
+
+                let results: Vec<bool> = futures::stream::iter(candidates)
                     .map(|candidate| {
                         let spider_service = self.spider_service.clone();
                         let pool = self.pool.clone();
@@ -235,7 +255,7 @@ impl CrawlerCronJob {
                                             domain_id = %candidate.domain_id,
                                             "Skipping domain — advisory lock held by another worker"
                                         );
-                                        return;
+                                        return false;
                                     }
                                     Err(e) => {
                                         error!(
@@ -243,25 +263,53 @@ impl CrawlerCronJob {
                                             error = %e,
                                             "Failed to acquire advisory lock"
                                         );
-                                        return;
+                                        return false;
                                     }
                                 }
                             } else {
                                 None
                             };
 
-                            if let Err(e) = spider_service
+                            let success = spider_service
                                 .run(&candidate.shop_id, &candidate.domain_id, &shop_url, threshold)
                                 .await
-                            {
-                                error!(domain = %candidate.shop_domain, error = %e, "Spider run failed");
-                            }
+                                .map_err(|e| {
+                                    error!(domain = %candidate.shop_domain, error = %e, "Spider run failed");
+                                })
+                                .is_ok();
                             // `_lock` dropped here → pg_advisory_unlock called automatically
+                            success
                         }
                     })
                     .buffer_unordered(self.config.spider_concurrency)
-                    .collect::<Vec<()>>()
+                    .collect()
                     .await;
+
+                let succeeded = results.iter().filter(|&&ok| ok).count();
+                let failed = total - succeeded;
+                let duration_ms = batch_start.elapsed().as_millis() as u64;
+                info!(
+                    total,
+                    succeeded, failed, duration_ms, "Spider batch complete"
+                );
+
+                // Accumulate perf counters; emit summary every 50 domains.
+                self.spider_perf_domains
+                    .fetch_add(total as u64, Ordering::Relaxed);
+                self.spider_perf_duration_ms
+                    .fetch_add(duration_ms, Ordering::Relaxed);
+                let perf_domains = self.spider_perf_domains.load(Ordering::Relaxed);
+                if perf_domains >= 50 {
+                    let perf_ms = self.spider_perf_duration_ms.load(Ordering::Relaxed);
+                    let avg_ms = perf_ms / perf_domains;
+                    info!(
+                        domains_processed = perf_domains,
+                        avg_spider_ms = avg_ms,
+                        "Spider performance summary"
+                    );
+                    self.spider_perf_domains.store(0, Ordering::Relaxed);
+                    self.spider_perf_duration_ms.store(0, Ordering::Relaxed);
+                }
             }
             Err(e) => error!(error = %e, "Failed to retrieve spider candidates"),
         }
@@ -275,9 +323,12 @@ impl CrawlerCronJob {
         {
             Ok(candidates) => {
                 if candidates.is_empty() {
+                    debug!("No scraper candidates, skipping batch");
                     return;
                 }
                 let total = candidates.len();
+                let batch_start = tokio::time::Instant::now();
+                info!(candidates = total, "Scraper batch starting");
 
                 // Stream scrape results and push them in chunks as they arrive,
                 // rather than collecting everything into memory first.
@@ -355,7 +406,30 @@ impl CrawlerCronJob {
                     push_service.push(chunk.to_vec()).await;
                 }
 
-                info!(total, succeeded, failed, "Scraper batch complete");
+                let duration_ms = batch_start.elapsed().as_millis() as u64;
+                let skipped = total - succeeded - failed;
+                info!(
+                    total,
+                    succeeded, failed, skipped, duration_ms, "Scraper batch complete"
+                );
+
+                // Accumulate perf counters; emit summary every 500 URLs.
+                self.scraper_perf_urls
+                    .fetch_add(total as u64, Ordering::Relaxed);
+                self.scraper_perf_duration_ms
+                    .fetch_add(duration_ms, Ordering::Relaxed);
+                let perf_urls = self.scraper_perf_urls.load(Ordering::Relaxed);
+                if perf_urls >= 500 {
+                    let perf_ms = self.scraper_perf_duration_ms.load(Ordering::Relaxed);
+                    let avg_ms = perf_ms / perf_urls;
+                    info!(
+                        urls_processed = perf_urls,
+                        avg_scrape_ms = avg_ms,
+                        "Scraper performance summary"
+                    );
+                    self.scraper_perf_urls.store(0, Ordering::Relaxed);
+                    self.scraper_perf_duration_ms.store(0, Ordering::Relaxed);
+                }
             }
             Err(e) => error!(error = %e, "Failed to retrieve scraper candidates"),
         }

@@ -216,6 +216,7 @@ async fn main() {
         Box::new(schema_svc),
         Box::new(normalization_svc),
         Arc::new(ScraperCandidateServiceImpl::new(pool.clone())),
+        3,
     ));
 
     let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));

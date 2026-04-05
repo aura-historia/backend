@@ -147,8 +147,8 @@ async fn main() {
         }
     };
 
-    let model = std::env::var("GEMINI_MODEL")
-        .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
+    let model =
+        std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.1-pro-preview".to_string());
 
     // Build the cron config first so it can drive pool sizing below.
     let config = CrawlerCronConfig {
@@ -243,6 +243,7 @@ async fn main() {
         Box::new(schema_svc),
         Box::new(normalization_svc),
         Arc::new(ScraperCandidateServiceImpl::new(pool.clone())),
+        3,
     ));
 
     let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));

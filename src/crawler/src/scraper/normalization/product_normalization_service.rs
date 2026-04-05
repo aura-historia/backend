@@ -7,7 +7,8 @@ use super::{
 };
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use crate::scraper::normalization::{
-    product::NormalizedProduct, state_mapping_service::ProductStateMappingService,
+    product::NormalizedProduct,
+    state_mapping_service::{ProductStateMappingService, StateMappingServiceError},
 };
 
 use common::product_state::domain::ProductState;
@@ -60,7 +61,13 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
         let state_record = self
             .state_mapping_service
             .get_state_mapping(&raw.state)
-            .await?
+            .await
+            .map_err(|e| match e {
+                StateMappingServiceError::RawStateTooLong { len, max } => {
+                    NormalizationError::StateTextTooLong { len, max }
+                }
+                other => NormalizationError::StateMappingError(other),
+            })?
             .normalized;
         let state = ProductState::from(state_record);
 
@@ -132,7 +139,6 @@ mod tests {
         state::{ProductStateMappingRecord, StateMappingType},
         state_mapping_service::{MockProductStateMappingService, StateMappingServiceError},
     };
-
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
@@ -519,5 +525,54 @@ mod tests {
         let result = svc.normalize(raw, base_url()).await.unwrap();
         assert!(result.auction_start.is_none());
         assert!(result.auction_end.is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // RawStateTooLong → StateTextTooLong conversion
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn should_map_raw_state_too_long_to_state_text_too_long_normalization_error() {
+        let mut mock = MockProductStateMappingService::new();
+        mock.expect_get_state_mapping().returning(|_| {
+            Box::pin(async {
+                Err(StateMappingServiceError::RawStateTooLong {
+                    len: 1024,
+                    max: 512,
+                })
+            })
+        });
+
+        let svc = ProductNormalizationServiceImpl::new(Box::new(mock));
+        let err = svc.normalize(minimal_raw(), base_url()).await.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                NormalizationError::StateTextTooLong {
+                    len: 1024,
+                    max: 512
+                }
+            ),
+            "expected StateTextTooLong, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn should_map_other_state_mapping_errors_to_state_mapping_error() {
+        let mut mock = MockProductStateMappingService::new();
+        mock.expect_get_state_mapping().returning(|_| {
+            Box::pin(async {
+                Err(StateMappingServiceError::DatabaseError(
+                    sqlx::Error::RowNotFound,
+                ))
+            })
+        });
+
+        let svc = ProductNormalizationServiceImpl::new(Box::new(mock));
+        let err = svc.normalize(minimal_raw(), base_url()).await.unwrap_err();
+        assert!(
+            matches!(err, NormalizationError::StateMappingError(_)),
+            "expected StateMappingError, got {err:?}"
+        );
     }
 }

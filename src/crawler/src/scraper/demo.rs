@@ -358,6 +358,7 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
         Box::new(schema_svc),
         Box::new(normalization_svc),
         candidate_service,
+        3,
     )
 }
 
