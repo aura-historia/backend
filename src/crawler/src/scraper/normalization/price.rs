@@ -47,6 +47,53 @@ pub(super) fn detect_currency(raw: &str) -> Option<Currency> {
     }
 }
 
+/// Infers a fallback [`Currency`] from a URL's effective TLD.
+///
+/// This is used when `detect_currency` returns `None` — i.e. the extracted
+/// price string contains no currency symbol or ISO code.  The inference is
+/// deliberately conservative: only unambiguous country-specific TLDs map to a
+/// currency.  Generic TLDs (`.com`, `.net`, `.org`, …) return `None` so that
+/// bare numbers on internationally-hosted shops do not silently get a wrong
+/// currency applied.
+///
+/// Recognised mappings
+/// - `.de`, `.at`, `.fr`, `.es`, `.it`, `.nl`, `.be`, `.pt`, `.fi`, `.ie`, `.lu` → EUR
+/// - `.co.uk`, `.uk` → GBP
+/// - `.us` → USD
+/// - `.au`, `.com.au` → AUD
+/// - `.ca` → CAD
+/// - `.nz`, `.co.nz` → NZD
+pub fn infer_currency_from_url(url: &url::Url) -> Option<Currency> {
+    let host = url.host_str()?;
+    // Normalise to lowercase and strip a trailing dot (FQDN).
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+
+    // Two-level TLDs must be checked first (e.g. `co.uk` before `uk`).
+    if host.ends_with(".co.uk") || host.ends_with(".org.uk") || host.ends_with(".me.uk") {
+        return Some(Currency::Gbp);
+    }
+    if host.ends_with(".com.au") || host.ends_with(".net.au") || host.ends_with(".org.au") {
+        return Some(Currency::Aud);
+    }
+    if host.ends_with(".co.nz") || host.ends_with(".net.nz") || host.ends_with(".org.nz") {
+        return Some(Currency::Nzd);
+    }
+
+    // Single-label TLDs.
+    let tld = host.rsplit('.').next()?;
+    match tld {
+        "de" | "at" | "fr" | "es" | "it" | "nl" | "be" | "pt" | "fi" | "ie" | "lu" => {
+            Some(Currency::Eur)
+        }
+        "uk" => Some(Currency::Gbp),
+        "us" => Some(Currency::Usd),
+        "au" => Some(Currency::Aud),
+        "ca" => Some(Currency::Cad),
+        "nz" => Some(Currency::Nzd),
+        _ => None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Price parsing
 // ---------------------------------------------------------------------------
@@ -60,8 +107,17 @@ pub(super) fn detect_currency(raw: &str) -> Option<Currency> {
 ///   - `"£1 234.56"`    (space-thousands)
 ///   - `"1234.5"`       (single decimal digit)
 ///   - `"1'234.56"`     (apostrophe-thousands)
-pub(super) fn parse_price(raw: &str) -> Result<(MonetaryAmount, Currency), PriceError> {
-    let currency = detect_currency(raw).ok_or(PriceError::UnknownCurrency)?;
+///
+/// If no currency marker is found in `raw` the optional `fallback_currency` is
+/// used (e.g. inferred from the shop's domain TLD).  If neither is present
+/// [`PriceError::UnknownCurrency`] is returned.
+pub(super) fn parse_price(
+    raw: &str,
+    fallback_currency: Option<Currency>,
+) -> Result<(MonetaryAmount, Currency), PriceError> {
+    let currency = detect_currency(raw)
+        .or(fallback_currency)
+        .ok_or(PriceError::UnknownCurrency)?;
 
     // Remove known currency symbols / codes so they don't confuse the number
     // parser.
@@ -112,10 +168,15 @@ pub(super) fn parse_price(raw: &str) -> Result<(MonetaryAmount, Currency), Price
 ///
 /// - `None` input → `Ok(None)`
 /// - blank string → `Ok(None)`
-/// - unknown currency → `Err(make_currency_err(raw))`
+/// - unknown currency (and no `fallback_currency`) → `Err(make_currency_err(raw))`
 /// - unparseable amount → `Err(make_parse_err(raw))`
+///
+/// `fallback_currency` is used when the raw string contains no currency symbol
+/// or ISO code — typically derived from the shop's domain TLD via
+/// [`infer_currency_from_url`].
 pub(super) fn normalize_price_field(
     raw: Option<String>,
+    fallback_currency: Option<Currency>,
     make_currency_err: impl Fn(String) -> NormalizationError,
     make_parse_err: impl Fn(String) -> NormalizationError,
 ) -> Result<Option<Price>, NormalizationError> {
@@ -126,7 +187,7 @@ pub(super) fn normalize_price_field(
         return Ok(None);
     }
 
-    match parse_price(&trimmed) {
+    match parse_price(&trimmed, fallback_currency) {
         Ok((amount, currency)) => Ok(Some(Price::new(amount, currency))),
         Err(PriceError::UnknownCurrency) => Err(make_currency_err(trimmed)),
         Err(PriceError::ParseFailure) => Err(make_parse_err(trimmed)),
@@ -185,7 +246,10 @@ mod tests {
 
     use common::currency::domain::Currency;
 
-    use super::{PriceError, detect_currency, normalise_fraction, parse_price, split_decimal};
+    use super::{
+        PriceError, detect_currency, infer_currency_from_url, normalise_fraction, parse_price,
+        split_decimal,
+    };
 
     // -----------------------------------------------------------------------
     // detect_currency
@@ -253,7 +317,7 @@ mod tests {
         #[case] expected_amount: u64,
         #[case] expected_currency: Currency,
     ) {
-        let (amount, currency) = parse_price(raw).unwrap();
+        let (amount, currency) = parse_price(raw, None).unwrap();
         assert_eq!(*amount, expected_amount, "amount mismatch for '{}'", raw);
         assert_eq!(
             currency, expected_currency,
@@ -271,7 +335,7 @@ mod tests {
     #[case("€")]
     fn should_return_parse_failure_when_price_has_currency_but_no_number(#[case] raw: &str) {
         assert!(
-            matches!(parse_price(raw), Err(PriceError::ParseFailure)),
+            matches!(parse_price(raw, None), Err(PriceError::ParseFailure)),
             "expected ParseFailure for '{}'",
             raw
         );
@@ -284,9 +348,64 @@ mod tests {
     #[case("1234.56 CHF")]
     fn should_return_unknown_currency_when_no_currency_symbol_or_known_code(#[case] raw: &str) {
         assert!(
-            matches!(parse_price(raw), Err(PriceError::UnknownCurrency)),
+            matches!(parse_price(raw, None), Err(PriceError::UnknownCurrency)),
             "expected UnknownCurrency for '{}'",
             raw
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // parse_price — fallback currency
+    // -----------------------------------------------------------------------
+
+    #[rstest]
+    #[case("18,00", Currency::Eur, 1800u64)]
+    #[case("1590", Currency::Eur, 159000u64)]
+    #[case("1590", Currency::Gbp, 159000u64)]
+    #[case("1.234,56", Currency::Eur, 123456u64)]
+    fn should_parse_bare_price_when_fallback_currency_provided(
+        #[case] raw: &str,
+        #[case] fallback: Currency,
+        #[case] expected_amount: u64,
+    ) {
+        let (amount, currency) = parse_price(raw, Some(fallback)).unwrap();
+        assert_eq!(*amount, expected_amount, "amount mismatch for '{}'", raw);
+        assert_eq!(currency, fallback, "currency mismatch for '{}'", raw);
+    }
+
+    // -----------------------------------------------------------------------
+    // infer_currency_from_url
+    // -----------------------------------------------------------------------
+
+    #[rstest]
+    #[case("https://shop.example.de/item/1", Some(Currency::Eur))]
+    #[case("https://shop.example.at/item/1", Some(Currency::Eur))]
+    #[case("https://shop.example.fr/item/1", Some(Currency::Eur))]
+    #[case("https://shop.example.es/item/1", Some(Currency::Eur))]
+    #[case("https://shop.example.it/item/1", Some(Currency::Eur))]
+    #[case("https://shop.example.nl/item/1", Some(Currency::Eur))]
+    #[case("https://shop.example.be/item/1", Some(Currency::Eur))]
+    #[case("https://shop.example.co.uk/item/1", Some(Currency::Gbp))]
+    #[case("https://shop.example.uk/item/1", Some(Currency::Gbp))]
+    #[case("https://shop.example.us/item/1", Some(Currency::Usd))]
+    #[case("https://shop.example.au/item/1", Some(Currency::Aud))]
+    #[case("https://shop.example.com.au/item/1", Some(Currency::Aud))]
+    #[case("https://shop.example.ca/item/1", Some(Currency::Cad))]
+    #[case("https://shop.example.nz/item/1", Some(Currency::Nzd))]
+    #[case("https://shop.example.co.nz/item/1", Some(Currency::Nzd))]
+    #[case("https://shop.example.com/item/1", None)]
+    #[case("https://shop.example.net/item/1", None)]
+    #[case("https://shop.example.org/item/1", None)]
+    fn should_infer_currency_from_url_tld(
+        #[case] url_str: &str,
+        #[case] expected: Option<Currency>,
+    ) {
+        let url = url::Url::parse(url_str).unwrap();
+        assert_eq!(
+            infer_currency_from_url(&url),
+            expected,
+            "mismatch for '{}'",
+            url_str
         );
     }
 

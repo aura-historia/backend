@@ -250,11 +250,39 @@ impl ScraperService for ScraperServiceImpl {
                 })?;
 
         // 2. Obtain schema (from DB or freshly created by LLM) -----------
+        // Serialise initial creation through the same per-domain mutex used by
+        // the fix path.  Without this, N concurrent scraper tasks for the same
+        // domain all see a DB miss simultaneously and each fire an independent
+        // LLM creation call — all but one are wasted.
+        //
+        // Algorithm:
+        //   1. Acquire the per-domain mutex.
+        //   2. While holding it, check the DB one more time.
+        //   3. If a schema is now present (a sibling task created it while we
+        //      waited) → use it without calling the LLM.
+        //   4. Only call get_product_schema (which triggers LLM creation) if the
+        //      schema is still absent.
         debug!(domain, url = %url, "Obtaining product CSS selector schema");
-        let shops_product_schema = self
-            .schema_service
-            .get_product_schema(shop_id, domain, &html)
-            .await?;
+        let shops_product_schema = {
+            let domain_lock = {
+                let mut map = self.schema_fix_locks.lock().await;
+                map.entry(domain.to_string())
+                    .or_insert_with(|| Arc::new(Mutex::new(())))
+                    .clone()
+            };
+            let _domain_guard = domain_lock.lock().await;
+
+            // Re-check the DB while holding the lock.
+            if let Some(existing) = self.schema_service.find_product_schema(shop_id).await? {
+                debug!(domain, url = %url, "Schema found in DB after acquiring creation lock (another task created it)");
+                existing
+            } else {
+                // Still absent — we are the designated creator for this domain.
+                self.schema_service
+                    .get_product_schema(shop_id, domain, &html)
+                    .await?
+            }
+        };
 
         // 3. Apply schema → RawExtractedProduct -------------------------
         // Parse HTML and apply the schema synchronously before any await
@@ -604,20 +632,23 @@ impl ScraperService for ScraperServiceImpl {
 /// understands the context.
 fn normalization_error_to_schema_hint(err: &NormalizationError) -> Option<ApplySchemaError> {
     match err {
-        NormalizationError::PriceUnknownCurrency { .. }
-        | NormalizationError::PriceParseError { .. } => {
+        // PriceUnknownCurrency is NOT schema-fixable: the selector is correct
+        // but the extracted text has no currency marker.  Changing the CSS
+        // selector cannot fix this — the LLM would loop forever.  The fallback
+        // currency path (infer_currency_from_url) resolves this for known TLDs;
+        // for unknown TLDs the price is genuinely unparseable and no selector
+        // change will help.
+        NormalizationError::PriceParseError { .. } => {
             Some(ApplySchemaError::Price(ExtractionError::NoElementMatched {
                 selector: "price".to_string(),
             }))
         }
-        NormalizationError::PriceEstimateMinUnknownCurrency { .. }
-        | NormalizationError::PriceEstimateMinParseError { .. } => Some(
+        NormalizationError::PriceEstimateMinParseError { .. } => Some(
             ApplySchemaError::PriceEstimateMin(ExtractionError::NoElementMatched {
                 selector: "price_estimate_min".to_string(),
             }),
         ),
-        NormalizationError::PriceEstimateMaxUnknownCurrency { .. }
-        | NormalizationError::PriceEstimateMaxParseError { .. } => Some(
+        NormalizationError::PriceEstimateMaxParseError { .. } => Some(
             ApplySchemaError::PriceEstimateMax(ExtractionError::NoElementMatched {
                 selector: "price_estimate_max".to_string(),
             }),
@@ -637,8 +668,8 @@ fn normalization_error_to_schema_hint(err: &NormalizationError) -> Option<ApplyS
                 selector: "state".to_string(),
             }))
         }
-        // State mapping errors and image/auction errors are not schema fixable
-        // via the LLM selector path.
+        // PriceUnknownCurrency variants and state/image/auction errors are not
+        // fixable by changing a CSS selector.
         _ => None,
     }
 }
@@ -764,6 +795,12 @@ mod tests {
 
         let schema = shops_product_schema(id);
         let mut schema_svc = MockProductSchemaService::new();
+        // Bug 1 fix: find_product_schema is called first (DB-only check).
+        // Return None so the code falls through to get_product_schema (LLM creation).
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
             .expect_get_product_schema()
             .once()
@@ -816,6 +853,11 @@ mod tests {
 
         let schema = shops_product_schema(id);
         let mut schema_svc = MockProductSchemaService::new();
+        // Bug 1 fix: find_product_schema is called first (DB-only check).
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
             .expect_get_product_schema()
             .returning(move |_, _, _| {
@@ -955,6 +997,12 @@ mod tests {
 
         let mut schema_svc = MockProductSchemaService::new();
 
+        // Bug 1 fix: find_product_schema is called first (DB-only check before creation).
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
+
         // First call: initial schema fetch
         schema_svc
             .expect_get_product_schema()
@@ -1054,6 +1102,11 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let mut schema_svc = MockProductSchemaService::new();
+        // Bug 1 fix: find_product_schema is called first (DB-only check before creation).
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
             .expect_get_product_schema()
             .returning(move |_, _, _| {
@@ -1126,6 +1179,11 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let mut schema_svc = MockProductSchemaService::new();
+        // Bug 1 fix: find_product_schema is called first (DB-only check before creation).
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
             .expect_get_product_schema()
             .returning(move |_, _, _| {
@@ -1276,6 +1334,11 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let mut schema_svc = MockProductSchemaService::new();
+        // Bug 1 fix: find_product_schema is called first (DB-only check before creation).
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc.expect_get_product_schema().returning(|_, _, _| {
             Box::pin(async {
                 Err(ProductSchemaServiceError::NoTextResponse(
@@ -1322,6 +1385,11 @@ mod tests {
 
         let schema = shops_product_schema(id);
         let mut schema_svc = MockProductSchemaService::new();
+        // Bug 1 fix: find_product_schema is called first (DB-only check before creation).
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
             .expect_get_product_schema()
             .returning(move |_, _, _| {
@@ -1377,6 +1445,11 @@ mod tests {
 
         let schema = shops_product_schema(id);
         let mut schema_svc = MockProductSchemaService::new();
+        // Bug 1 fix: find_product_schema is called first (DB-only check before creation).
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
             .expect_get_product_schema()
             .returning(move |_, _, _| {
@@ -1427,6 +1500,11 @@ mod tests {
 
         let schema = shops_product_schema(id);
         let mut schema_svc = MockProductSchemaService::new();
+        // Bug 1 fix: find_product_schema is called first (DB-only check before creation).
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
             .expect_get_product_schema()
             .returning(move |_, _, _| {
@@ -1597,6 +1675,12 @@ mod tests {
 
         let mut schema_svc = MockProductSchemaService::new();
 
+        // Bug 1 fix: find_product_schema is called first (DB-only check before creation).
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
+
         // Initial schema fetch
         schema_svc
             .expect_get_product_schema()
@@ -1655,6 +1739,11 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let mut schema_svc = MockProductSchemaService::new();
+        // Bug 1 fix: find_product_schema is called first (DB-only check before creation).
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
         // First call: initial fetch
         schema_svc
             .expect_get_product_schema()

@@ -115,13 +115,6 @@ fn demo_shops() -> Vec<RegisteredShop> {
             shop_type: ShopType::CommercialDealer,
             domains: HashSet::from([Domain::try_from("antixx.de").unwrap()]),
         },
-        RegisteredShop {
-            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000004").unwrap(),
-            shop_name: "Nostalgie Palast".to_string(),
-            shop_slug: "nostalgie-palast".to_string(),
-            shop_type: ShopType::CommercialDealer,
-            domains: HashSet::from([Domain::try_from("nostalgie-palast.de").unwrap()]),
-        },
     ]
 }
 
@@ -155,9 +148,9 @@ async fn main() {
         spider_interval: Duration::from_secs(120), // Demo: retry spider every 2 minutes
         scraper_interval: Duration::from_secs(30), // Demo: run scraper loop every 30 seconds
         spider_batch_size: 5,
-        scraper_batch_size: 20,
+        scraper_batch_size: 100,
         spider_concurrency: 3,
-        scraper_concurrency: 10,
+        scraper_concurrency: 5,
         spider_classify_threshold: 100,
         ..Default::default()
     };

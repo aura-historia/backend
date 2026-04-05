@@ -2,7 +2,7 @@ pub use super::error::NormalizationError;
 use super::{
     datetime::normalize_datetime_field,
     image::normalize_images,
-    price::normalize_price_field,
+    price::{infer_currency_from_url, normalize_price_field},
     text::{normalize_description, normalize_shops_product_id, normalize_title_localized},
 };
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
@@ -75,18 +75,26 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
         let title = normalize_title_localized(&raw.title)?;
         let description = normalize_description(raw.description)?;
 
+        // Derive a fallback currency from the shop URL's TLD.  This is used
+        // when the raw price string contains no currency symbol or ISO code
+        // (e.g. bare "18,00" on a German site where EUR is implied).
+        let fallback_currency = infer_currency_from_url(&url);
+
         let price = normalize_price_field(
             raw.price,
+            fallback_currency,
             |r| NormalizationError::PriceUnknownCurrency { raw: r },
             |r| NormalizationError::PriceParseError { raw: r },
         )?;
         let price_estimate_min = normalize_price_field(
             raw.price_estimate_min,
+            fallback_currency,
             |r| NormalizationError::PriceEstimateMinUnknownCurrency { raw: r },
             |r| NormalizationError::PriceEstimateMinParseError { raw: r },
         )?;
         let price_estimate_max = normalize_price_field(
             raw.price_estimate_max,
+            fallback_currency,
             |r| NormalizationError::PriceEstimateMaxUnknownCurrency { raw: r },
             |r| NormalizationError::PriceEstimateMaxParseError { raw: r },
         )?;
