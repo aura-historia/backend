@@ -1,6 +1,6 @@
 use common::{
     api::error::ApiError, enhanced_match_reason::EnhancedMatchReason, personalized::Personalized,
-    product_id::ProductId, user_id::UserId,
+    product_id::ProductId, user_id::UserId, user_search_filter_name::UserSearchFilterName,
 };
 use notification::service::notification_service::{NotificationError, NotificationService};
 use product::core::{
@@ -386,6 +386,10 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
             Some(record) => SearchFilterUserState {
                 matched: true,
                 user_search_filter_id: Some(record.user_search_filter_id),
+                user_search_filter_name: record
+                    .user_search_filter_name
+                    .as_deref()
+                    .map(UserSearchFilterName::from),
                 match_reason: record
                     .enhanced_match_reason
                     .as_deref()
@@ -426,6 +430,10 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
                     Some(record) => SearchFilterUserState {
                         matched: true,
                         user_search_filter_id: Some(record.user_search_filter_id),
+                        user_search_filter_name: record
+                            .user_search_filter_name
+                            .as_deref()
+                            .map(UserSearchFilterName::from),
                         match_reason: record
                             .enhanced_match_reason
                             .as_deref()
@@ -1356,6 +1364,7 @@ mod tests {
         let mut search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
         let match_record: search_filter::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord = Faker.fake();
         let expected_filter_id = match_record.user_search_filter_id;
+        let expected_name = match_record.user_search_filter_name.clone();
         let expected_reason = match_record.enhanced_match_reason.clone();
         let expected_product_id = match_record.product_id;
 
@@ -1384,6 +1393,10 @@ mod tests {
         let state = actual.user_state.unwrap();
         assert!(state.matched);
         assert_eq!(state.user_search_filter_id, Some(expected_filter_id));
+        assert_eq!(
+            state.user_search_filter_name.map(String::from),
+            expected_name
+        );
         assert_eq!(state.match_reason.map(String::from), expected_reason);
     }
 
@@ -1414,6 +1427,7 @@ mod tests {
         let state = actual.user_state.unwrap();
         assert!(!state.matched);
         assert!(state.user_search_filter_id.is_none());
+        assert!(state.user_search_filter_name.is_none());
         assert!(state.match_reason.is_none());
     }
 
@@ -1429,6 +1443,7 @@ mod tests {
         let mut match_record: search_filter::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord = Faker.fake();
         match_record.product_id = product1_id;
         let expected_filter_id = match_record.user_search_filter_id;
+        let expected_name = match_record.user_search_filter_name.clone();
 
         let mut search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
         search_filter_repository
@@ -1459,9 +1474,14 @@ mod tests {
         let state0 = actual[0].user_state.clone().unwrap();
         assert!(state0.matched);
         assert_eq!(state0.user_search_filter_id, Some(expected_filter_id));
+        assert_eq!(
+            state0.user_search_filter_name.map(String::from),
+            expected_name
+        );
 
         let state1 = actual[1].user_state.clone().unwrap();
         assert!(!state1.matched);
         assert!(state1.user_search_filter_id.is_none());
+        assert!(state1.user_search_filter_name.is_none());
     }
 }

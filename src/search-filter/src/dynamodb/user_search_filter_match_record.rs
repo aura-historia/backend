@@ -6,6 +6,7 @@ use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
+use common::user_search_filter_name::UserSearchFilterName;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -18,6 +19,8 @@ pub struct UserSearchFilterMatchRecord {
     pub lsi2_sk: Option<String>,
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_search_filter_name: Option<String>,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub product_id: ProductId,
@@ -81,6 +84,9 @@ impl From<UserSearchFilterMatchRecord> for SearchFilterProductMatch {
         SearchFilterProductMatch {
             user_id: record.user_id,
             user_search_filter_id: record.user_search_filter_id,
+            user_search_filter_name: record
+                .user_search_filter_name
+                .map(UserSearchFilterName::from),
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id,
             product_id: record.product_id,
@@ -101,6 +107,7 @@ impl From<SearchFilterProductMatch> for UserSearchFilterMatchRecord {
             lsi2_sk: Some(mk_lsi2_sk(&m.shop_id, &m.shops_product_id, &m.created)),
             user_id: m.user_id,
             user_search_filter_id: m.user_search_filter_id,
+            user_search_filter_name: m.user_search_filter_name.map(Into::into),
             shop_id: m.shop_id,
             shops_product_id: m.shops_product_id,
             product_id: m.product_id,
@@ -131,6 +138,7 @@ mod faker {
                 lsi2_sk: Some(mk_lsi2_sk(&shop_id, &shops_product_id, &created)),
                 user_id,
                 user_search_filter_id: search_filter_id,
+                user_search_filter_name: config.fake_with_rng::<Option<String>, _>(rng),
                 shop_id,
                 shops_product_id,
                 product_id: config.fake_with_rng(rng),

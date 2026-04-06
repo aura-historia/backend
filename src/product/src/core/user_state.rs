@@ -1,6 +1,7 @@
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
 use common::user_search_filter_id::UserSearchFilterId;
+use common::user_search_filter_name::UserSearchFilterName;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ProductUserState {
@@ -40,6 +41,7 @@ impl Default for NotificationUserState {
 pub struct SearchFilterUserState {
     pub matched: bool,
     pub user_search_filter_id: Option<UserSearchFilterId>,
+    pub user_search_filter_name: Option<UserSearchFilterName>,
     pub match_reason: Option<EnhancedMatchReason>,
 }
 
@@ -66,6 +68,7 @@ mod tests {
         let state = SearchFilterUserState::default();
         assert!(!state.matched);
         assert!(state.user_search_filter_id.is_none());
+        assert!(state.user_search_filter_name.is_none());
         assert!(state.match_reason.is_none());
     }
 
@@ -74,6 +77,7 @@ mod tests {
         let state = ProductUserState::default();
         assert!(!state.search_filter.matched);
         assert!(state.search_filter.user_search_filter_id.is_none());
+        assert!(state.search_filter.user_search_filter_name.is_none());
         assert!(state.search_filter.match_reason.is_none());
     }
 }

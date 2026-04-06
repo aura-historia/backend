@@ -5,7 +5,6 @@ use crate::core::user_state::{
 use common::event_id::EventId;
 use common::user_search_filter_id::UserSearchFilterId;
 use serde::{Deserialize, Serialize};
-
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductUserStateData {
@@ -88,6 +87,8 @@ pub struct SearchFilterUserStateData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub user_search_filter_id: Option<UserSearchFilterId>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub user_search_filter_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub match_reason: Option<String>,
 }
 
@@ -96,6 +97,7 @@ impl From<SearchFilterUserState> for SearchFilterUserStateData {
         SearchFilterUserStateData {
             matched: value.matched,
             user_search_filter_id: value.user_search_filter_id,
+            user_search_filter_name: value.user_search_filter_name.map(Into::into),
             match_reason: value.match_reason.map(Into::into),
         }
     }
@@ -211,21 +213,28 @@ mod tests {
         let data = SearchFilterUserStateData::default();
         assert!(!data.matched);
         assert!(data.user_search_filter_id.is_none());
+        assert!(data.user_search_filter_name.is_none());
         assert!(data.match_reason.is_none());
     }
 
     #[test]
     fn should_convert_search_filter_user_state_to_data() {
+        use common::user_search_filter_name::UserSearchFilterName;
         let filter_id = UserSearchFilterId::new();
         let reason = EnhancedMatchReason::from("matched because of vintage style");
         let state = SearchFilterUserState {
             matched: true,
             user_search_filter_id: Some(filter_id),
+            user_search_filter_name: Some(UserSearchFilterName::from("Antique Watches")),
             match_reason: Some(reason),
         };
         let data: SearchFilterUserStateData = state.into();
         assert!(data.matched);
         assert_eq!(data.user_search_filter_id, Some(filter_id));
+        assert_eq!(
+            data.user_search_filter_name.as_deref(),
+            Some("Antique Watches")
+        );
         assert_eq!(
             data.match_reason.as_deref(),
             Some("matched because of vintage style")
@@ -238,6 +247,7 @@ mod tests {
         let data = SearchFilterUserStateData {
             matched: true,
             user_search_filter_id: Some(filter_id),
+            user_search_filter_name: Some("My Filter".to_string()),
             match_reason: Some("vintage match".to_string()),
         };
         let json = serde_json::to_value(data).unwrap();
@@ -246,6 +256,7 @@ mod tests {
             json["userSearchFilterId"].as_str().unwrap(),
             filter_id.to_string()
         );
+        assert_eq!(json["userSearchFilterName"], "My Filter");
         assert_eq!(json["matchReason"], "vintage match");
     }
 
@@ -254,11 +265,13 @@ mod tests {
         let data = SearchFilterUserStateData {
             matched: false,
             user_search_filter_id: None,
+            user_search_filter_name: None,
             match_reason: None,
         };
         let json = serde_json::to_value(data).unwrap();
         assert_eq!(json["matched"], false);
         assert!(json.get("userSearchFilterId").is_none());
+        assert!(json.get("userSearchFilterName").is_none());
         assert!(json.get("matchReason").is_none());
     }
 }
