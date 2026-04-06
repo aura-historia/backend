@@ -105,6 +105,7 @@ pub async fn handler(
                                                         shops_product_id: shops_product_id.clone(),
                                                         product_id: *product_id,
                                                         origin_event_id: event_id,
+                                                        enhanced_match_reason: None,
                                                         created: now,
                                                         updated: now,
                                                     }

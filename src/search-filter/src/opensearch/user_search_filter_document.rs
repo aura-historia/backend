@@ -1,3 +1,4 @@
+use crate::core::user_search_filter::EnhancedSearchDescription;
 use crate::core::user_search_filter::UserSearchFilter;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::core::{
@@ -41,6 +42,9 @@ impl From<UserSearchFilterDocument> for UserSearchFilterSummary {
             user_search_filter_id: document.user_search_filter_id,
             user_id: document.user_id,
             name: document.name,
+            enhanced_search_description: document
+                .enhanced_search_description
+                .map(EnhancedSearchDescription::from),
             notifications: document.notifications,
             created: document.created,
             updated: document.updated,

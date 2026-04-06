@@ -118,6 +118,7 @@ async fn seed_match_records(
             shops_product_id: product_record.shops_product_id.clone(),
             product_id: product_record.product_id,
             origin_event_id: Faker.fake(),
+            enhanced_match_reason: None,
             created,
             updated: created,
         };

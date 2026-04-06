@@ -6279,6 +6279,7 @@ dependencies = [
  "common",
  "fake",
  "field",
+ "llm",
  "mockall",
  "opensearch",
  "product",
