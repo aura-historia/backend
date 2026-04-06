@@ -88,7 +88,8 @@ async fn resolve_user_language(
     }
 }
 
-/// Builds a combined title string from the product's native title (English preferred).
+/// Builds a combined title string from the product's titles.
+/// Prefers the English translation; falls back to native title when English is unavailable.
 fn product_title_text(product: &Product) -> String {
     let titles = product.titles();
     titles
@@ -97,7 +98,8 @@ fn product_title_text(product: &Product) -> String {
         .unwrap_or_else(|| product.native_title.payload.to_string())
 }
 
-/// Builds a combined description string from the product's descriptions (English preferred).
+/// Builds a description string from the product's descriptions.
+/// Prefers the English translation; returns an empty string when no description is available.
 fn product_description_text(product: &Product) -> String {
     let descriptions = product.descriptions();
     descriptions

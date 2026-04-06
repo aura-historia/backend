@@ -52,7 +52,8 @@ impl EnhancedSearchMatchServiceImpl {
                 reason: <short explanation in the user's preferred language>\n\n\
                 If the product does NOT match, respond with exactly one line:\n\
                 match: no\n\n\
-                The reason must be compact and user-facing. Keep it to one or two sentences.",
+                The reason must be compact and user-facing. Keep it to one or two sentences. \
+                Do not include any additional text or explanations.",
             )
             .build()
             .expect("Failed to initialize LLM provider with valid configuration");
