@@ -4,7 +4,6 @@ use crate::core::sort_search_filter_match_field::SortSearchFilterMatchField;
 use crate::core::user_search_filter::{
     EnhancedSearchDescription, UserSearchFilter, UserSearchFilterSummary,
 };
-use crate::core::user_search_filter_id::UserSearchFilterId;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::core::user_search_filter_update::UserSearchFilterUpdate;
 use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
@@ -13,6 +12,7 @@ use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::batch::Batch;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::sort::Sort;
+use common::user_search_filter_id::UserSearchFilterId;
 use common::{sort::SortOrder, user_id::UserId};
 use product::core::product_search::{ProductSearch, ProductSearchSerdeField};
 use product::opensearch::product_document::ProductDocument;
@@ -712,7 +712,6 @@ mod tests {
     }
 
     mod find_search_filter {
-        use crate::core::user_search_filter_id::UserSearchFilterId;
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::service::user_search_filter_service::{
             UserSearchFilterError, UserSearchFilterService, UserSearchFilterServiceImpl,
@@ -722,6 +721,7 @@ mod tests {
             error::{ConnectorError, SdkError},
         };
         use common::user_id::UserId;
+        use common::user_search_filter_id::UserSearchFilterId;
         use fake::{Fake, Faker};
 
         #[tokio::test]
@@ -1038,7 +1038,6 @@ mod tests {
     }
 
     mod delete_search_filter {
-        use crate::core::user_search_filter_id::UserSearchFilterId;
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::service::user_search_filter_service::{
             UserSearchFilterError, UserSearchFilterService, UserSearchFilterServiceImpl,
@@ -1049,6 +1048,7 @@ mod tests {
             operation::delete_item::DeleteItemOutput,
         };
         use common::user_id::UserId;
+        use common::user_search_filter_id::UserSearchFilterId;
         use fake::{Fake, Faker};
 
         #[tokio::test]
@@ -1174,7 +1174,6 @@ mod tests {
     }
 
     mod update_search_filter {
-        use crate::core::user_search_filter_id::UserSearchFilterId;
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::service::user_search_filter_service::{
             UserSearchFilterError, UserSearchFilterService, UserSearchFilterServiceImpl,
@@ -1184,6 +1183,7 @@ mod tests {
             error::{ConnectorError, SdkError},
         };
         use common::user_id::UserId;
+        use common::user_search_filter_id::UserSearchFilterId;
         use fake::{Fake, Faker};
 
         #[tokio::test]
@@ -2010,7 +2010,6 @@ mod tests {
     }
 
     mod find_search_filter_product_match {
-        use crate::core::user_search_filter_id::UserSearchFilterId;
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
         use crate::service::user_search_filter_service::{
@@ -2019,6 +2018,7 @@ mod tests {
         use common::shop_id::ShopId;
         use common::shops_product_id::ShopsProductId;
         use common::user_id::UserId;
+        use common::user_search_filter_id::UserSearchFilterId;
         use fake::{Fake, Faker};
 
         #[tokio::test]
@@ -2139,13 +2139,13 @@ mod tests {
     }
 
     mod find_search_filter_product_matches_for_filter {
-        use crate::core::user_search_filter_id::UserSearchFilterId;
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
         use crate::service::user_search_filter_service::{
             UserSearchFilterService, UserSearchFilterServiceImpl,
         };
         use common::user_id::UserId;
+        use common::user_search_filter_id::UserSearchFilterId;
 
         #[rstest::rstest]
         #[case::empty(0)]
@@ -2305,13 +2305,13 @@ mod tests {
     }
 
     mod view_search_filter_matches {
-        use crate::core::user_search_filter_id::UserSearchFilterId;
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
         use crate::service::user_search_filter_service::{
             UserSearchFilterService, UserSearchFilterServiceImpl,
         };
         use common::user_id::UserId;
+        use common::user_search_filter_id::UserSearchFilterId;
 
         #[tokio::test]
         async fn should_return_empty_cursored_result_when_no_matches() {

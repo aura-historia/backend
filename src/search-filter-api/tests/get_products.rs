@@ -1,6 +1,7 @@
 use common::pagination::cursor::api::TimeCursoredData;
 use common::personalized::api::PersonalizedData;
 use common::user_id::UserId;
+use common::user_search_filter_id::UserSearchFilterId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use notification::dynamodb::repository::NotificationDynamoDbRepositoryImpl;
@@ -15,12 +16,11 @@ use product::dynamodb::{
 use product::service::get_service::GetProductServiceImpl;
 use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
-use search_filter::core::user_search_filter_id::UserSearchFilterId;
 use search_filter::dynamodb::repository::{
     UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
 };
 use search_filter::dynamodb::user_search_filter_match_record::{
-    UserSearchFilterMatchRecord, mk_lsi1_sk, mk_pk, mk_sk,
+    UserSearchFilterMatchRecord, mk_lsi1_sk, mk_lsi2_sk, mk_pk, mk_sk,
 };
 use search_filter::service::user_search_filter_service::{
     UserSearchFilterService, UserSearchFilterServiceImpl,
@@ -72,6 +72,7 @@ fn setup_services(
         watchlist_repository,
         notification_service,
         user_service,
+        search_filter_repository,
     );
     let service = UserSearchFilterServiceImpl::new(search_filter_repository, user_service);
     (service, get_product_service, personalization_service)
@@ -112,8 +113,14 @@ async fn seed_match_records(
                 &product_record.shops_product_id,
             ),
             lsi1_sk: mk_lsi1_sk(&created),
+            lsi2_sk: Some(mk_lsi2_sk(
+                &product_record.shop_id,
+                &product_record.shops_product_id,
+                &created,
+            )),
             user_id: *user_id,
             user_search_filter_id: *search_filter_id,
+            user_search_filter_name: None,
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id.clone(),
             product_id: product_record.product_id,

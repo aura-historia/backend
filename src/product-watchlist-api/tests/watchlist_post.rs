@@ -20,6 +20,7 @@ use product_watchlist::{
     service::product_watchlist_service::ProductWatchListServiceImpl,
 };
 use product_watchlist_api::watchlist_post::handle;
+use search_filter::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
 use test_api::*;
 use time::OffsetDateTime;
 use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
@@ -52,10 +53,15 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
         "",
         "",
     );
+    let mut search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    search_filter_repository
+        .expect_query_user_search_filter_match_records_for_product()
+        .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
+        &search_filter_repository,
     );
     let service =
         ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
@@ -154,10 +160,15 @@ async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
         "",
         "",
     );
+    let mut search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    search_filter_repository
+        .expect_query_user_search_filter_match_records_for_product()
+        .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
+        &search_filter_repository,
     );
     let service =
         ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);

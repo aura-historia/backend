@@ -1,16 +1,18 @@
-use crate::core::enhanced_match_reason::EnhancedMatchReason;
-use crate::core::user_search_filter_id::UserSearchFilterId;
+use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
 use common::product_id::ProductId;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
+use common::user_search_filter_id::UserSearchFilterId;
+use common::user_search_filter_name::UserSearchFilterName;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchFilterProductMatch {
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
+    pub user_search_filter_name: Option<UserSearchFilterName>,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub product_id: ProductId,
@@ -30,6 +32,7 @@ mod faker {
             SearchFilterProductMatch {
                 user_id: config.fake_with_rng(rng),
                 user_search_filter_id: config.fake_with_rng(rng),
+                user_search_filter_name: config.fake_with_rng(rng),
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 product_id: config.fake_with_rng(rng),

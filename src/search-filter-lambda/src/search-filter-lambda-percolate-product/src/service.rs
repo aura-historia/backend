@@ -1,3 +1,4 @@
+use common::enhanced_match_reason::EnhancedMatchReason;
 use common::has_key::HasKey;
 use common::language::domain::Language;
 use notification::core::notification::{NotificationPayload, NotificationSearchFilterPayload};
@@ -9,7 +10,6 @@ use product::core::product_event::domain::ProductDomainEventPayload;
 use product::core::title::Title;
 use product::opensearch::product_document::ProductDocument;
 use product::service::get_service::{GetProductError, GetProductService};
-use search_filter::core::enhanced_match_reason::EnhancedMatchReason;
 use search_filter::core::user_search_filter::UserSearchFilterSummary;
 use search_filter::service::enhanced_search_match_service::EnhancedSearchMatchService;
 use search_filter::service::user_search_filter_service::{
@@ -314,6 +314,7 @@ mod tests {
     use common::language::domain::Language;
     use common::product_state::domain::ProductState;
     use common::user_id::UserId;
+    use common::user_search_filter_id::UserSearchFilterId;
     use fake::{Fake, Faker};
     use product::core::product_event::ProductEventPayload;
     use product::core::product_event::domain::{
@@ -323,7 +324,6 @@ mod tests {
     use product::service::get_service::MockGetProductService;
     use search_filter::core::user_search_filter::EnhancedSearchDescription;
     use search_filter::core::user_search_filter::UserSearchFilterSummary;
-    use search_filter::core::user_search_filter_id::UserSearchFilterId;
     use search_filter::core::user_search_filter_name::UserSearchFilterName;
     use search_filter::service::enhanced_search_match_service::{
         EnhancedSearchMatchError, EnhancedSearchMatchResult, MockEnhancedSearchMatchService,

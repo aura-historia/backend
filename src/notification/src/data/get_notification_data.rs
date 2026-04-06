@@ -2,6 +2,7 @@ use crate::core::notification::{
     LocalizedNotification, LocalizedNotificationPayload, LocalizedNotificationWatchlistPayload,
 };
 use crate::core::notification_id::NotificationId;
+use common::user_search_filter_id::UserSearchFilterId;
 use common::{
     event_id::EventId, language::data::LocalizedTextData, price::data::PriceData,
     product_id::ProductId, shop_id::ShopId, shop_name::ShopName, shops_product_id::ShopsProductId,
@@ -9,7 +10,6 @@ use common::{
 };
 use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
-use search_filter::core::user_search_filter_id::UserSearchFilterId;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;

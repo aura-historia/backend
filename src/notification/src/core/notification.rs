@@ -1,4 +1,5 @@
 use crate::core::{notification_id::NotificationId, notification_type::NotificationType};
+use common::user_search_filter_id::UserSearchFilterId;
 use common::{
     currency::domain::Currency,
     event_id::EventId,
@@ -15,7 +16,6 @@ use common::{
 };
 use product::core::product_image::ProductImage;
 use product::core::title::Title;
-use search_filter::core::user_search_filter_id::UserSearchFilterId;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use std::collections::HashMap;
 use time::OffsetDateTime;

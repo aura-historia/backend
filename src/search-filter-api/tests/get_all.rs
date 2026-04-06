@@ -1,10 +1,10 @@
+use common::user_search_filter_id::UserSearchFilterId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use product::core::product_search::ProductSearch;
 use product::service::get_service::MockGetProductService;
 use product_personalization::service::MockProductPersonalizationService;
 use search_filter::core::user_search_filter::UserSearchFilter;
-use search_filter::core::user_search_filter_id::UserSearchFilterId;
 use search_filter::dynamodb::repository::{
     UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
 };

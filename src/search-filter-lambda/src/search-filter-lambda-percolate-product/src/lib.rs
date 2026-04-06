@@ -3,6 +3,7 @@ pub mod service;
 use crate::service::ProductEventSearchFilterNotificationsService;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
+use common::user_search_filter_name::UserSearchFilterName;
 use lambda_runtime::LambdaEvent;
 use notification::service::notification_service::NotificationService;
 use product::core::product_event::{ProductDomainEvent, ProductEventPayload};
@@ -64,6 +65,7 @@ pub async fn handler(
                                         Some((
                                             cmd_with_reason.command.user_id,
                                             search_filter_payload.user_search_filter_id,
+                                            search_filter_payload.user_search_filter_name.clone(),
                                             *shop_id,
                                             shops_product_id.clone(),
                                             *product_id,
@@ -90,13 +92,14 @@ pub async fn handler(
                                     .filter_map(|notification| {
                                         match_info
                                             .iter()
-                                            .find(|(user_id, _, _, _, _, _)| {
+                                            .find(|(user_id, _, _, _, _, _, _)| {
                                                 *user_id == notification.user_id
                                             })
                                             .map(
                                                 |(
                                                     user_id,
                                                     search_filter_id,
+                                                    search_filter_name,
                                                     shop_id,
                                                     shops_product_id,
                                                     product_id,
@@ -105,6 +108,11 @@ pub async fn handler(
                                                     SearchFilterProductMatch {
                                                         user_id: *user_id,
                                                         user_search_filter_id: *search_filter_id,
+                                                        user_search_filter_name: Some(
+                                                            UserSearchFilterName::from(
+                                                                search_filter_name.as_ref(),
+                                                            ),
+                                                        ),
                                                         shop_id: *shop_id,
                                                         shops_product_id: shops_product_id.clone(),
                                                         product_id: *product_id,

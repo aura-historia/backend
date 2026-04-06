@@ -4040,7 +4040,7 @@ async fn should_respond_200_and_personalize_similar_products_for_authenticated()
     assert!(
         actual
             .iter()
-            .all(|a| a.user_state.unwrap().watchlist.watching)
+            .all(|a| a.user_state.clone().unwrap().watchlist.watching)
     );
 }
 */
@@ -4119,7 +4119,14 @@ async fn should_post_get_patch_delete_watchlist_product() {
         .patch(patch_url.clone())
         .bearer_auth(&user.access_token)
         .json(&WatchlistProductPatch {
-            notifications: Some(!gotten.items[0].user_state.unwrap().watchlist.notifications),
+            notifications: Some(
+                !gotten.items[0]
+                    .user_state
+                    .clone()
+                    .unwrap()
+                    .watchlist
+                    .notifications,
+            ),
         })
         .send()
         .await

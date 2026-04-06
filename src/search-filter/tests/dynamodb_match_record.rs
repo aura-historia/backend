@@ -1,6 +1,7 @@
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
+use common::user_search_filter_id::UserSearchFilterId;
 use fake::{Fake, Faker};
 use search_filter::dynamodb::repository::{
     UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
@@ -88,8 +89,8 @@ async fn should_query_all_match_records_for_user() {
 async fn should_query_match_records_for_specific_filter() {
     let repository = get_repository().await;
     let user_id = UserId::new();
-    let filter_id = search_filter::core::user_search_filter_id::UserSearchFilterId::new();
-    let other_filter_id = search_filter::core::user_search_filter_id::UserSearchFilterId::new();
+    let filter_id = UserSearchFilterId::new();
+    let other_filter_id = UserSearchFilterId::new();
 
     // Create records for the target filter
     for _ in 0..3 {

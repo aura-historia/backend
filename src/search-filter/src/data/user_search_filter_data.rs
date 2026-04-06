@@ -1,8 +1,8 @@
 use crate::core::{
-    user_search_filter::UserSearchFilter, user_search_filter_id::UserSearchFilterId,
-    user_search_filter_name::UserSearchFilterName,
+    user_search_filter::UserSearchFilter, user_search_filter_name::UserSearchFilterName,
 };
 use common::user_id::UserId;
+use common::user_search_filter_id::UserSearchFilterId;
 use product::data::product_search_data::ProductSearchData;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -68,11 +68,11 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::user_search_filter_id::UserSearchFilterId;
     use crate::data::user_search_filter_data::UserSearchFilterData;
     use common::category_key::CategoryId;
     use common::period_key::PeriodId;
     use common::query::range_query::RangeQuery;
+    use common::user_search_filter_id::UserSearchFilterId;
     use common::{currency::data::CurrencyData, language::data::LanguageData, user_id::UserId};
     use product::data::authenticity_data::AuthenticityData;
     use product::data::condition_data::ConditionData;
