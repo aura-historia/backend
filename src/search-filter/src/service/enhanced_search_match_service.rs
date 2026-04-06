@@ -1,6 +1,9 @@
 use crate::core::enhanced_match_reason::EnhancedMatchReason;
+use crate::core::user_search_filter::EnhancedSearchDescription;
 use common::language::domain::Language;
 use llm::chat::ChatMessage;
+use product::core::description::Description;
+use product::core::title::Title;
 use tracing::debug;
 
 #[derive(Debug, thiserror::Error)]
@@ -26,9 +29,9 @@ pub struct EnhancedSearchMatchResult {
 pub trait EnhancedSearchMatchService {
     async fn evaluate(
         &self,
-        enhanced_search_description: &str,
-        product_title: &str,
-        product_description: &str,
+        enhanced_search_description: &EnhancedSearchDescription,
+        product_title: &Title,
+        product_description: &Description,
         language: Language,
     ) -> Result<EnhancedSearchMatchResult, EnhancedSearchMatchError>;
 }
@@ -43,6 +46,13 @@ impl EnhancedSearchMatchServiceImpl {
             .backend(llm::builder::LLMBackend::Google)
             .api_key(api_key)
             .model("gemini-2.5-flash-lite")
+            .temperature(0.0)
+            .max_tokens(256)
+            .timeout_seconds(30)
+            .resilient(true)
+            .resilient_attempts(3)
+            .resilient_backoff(500, 5_000)
+            .resilient_jitter(true)
             .system(
                 "You are a product matching assistant for an antiques marketplace. \
                 Given a user's search description and a product's title and description, \
@@ -65,9 +75,9 @@ impl EnhancedSearchMatchServiceImpl {
 impl EnhancedSearchMatchService for EnhancedSearchMatchServiceImpl {
     async fn evaluate(
         &self,
-        enhanced_search_description: &str,
-        product_title: &str,
-        product_description: &str,
+        enhanced_search_description: &EnhancedSearchDescription,
+        product_title: &Title,
+        product_description: &Description,
         language: Language,
     ) -> Result<EnhancedSearchMatchResult, EnhancedSearchMatchError> {
         let user_message = format!(

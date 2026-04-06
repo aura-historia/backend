@@ -2356,6 +2356,7 @@ Resources:
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
           OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/prod/username}}"
           OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/prod/password}}"
+          GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/gemini-api-key}}"
   SearchFilterPercolateProductMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:

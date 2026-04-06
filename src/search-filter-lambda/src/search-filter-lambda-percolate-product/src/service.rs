@@ -2,9 +2,11 @@ use common::has_key::HasKey;
 use common::language::domain::Language;
 use notification::core::notification::{NotificationPayload, NotificationSearchFilterPayload};
 use notification::service::command::CreateNotificationCommand;
+use product::core::description::Description;
 use product::core::product::Product;
 use product::core::product_event::ProductEvent;
 use product::core::product_event::domain::ProductDomainEventPayload;
+use product::core::title::Title;
 use product::opensearch::product_document::ProductDocument;
 use product::service::get_service::{GetProductError, GetProductService};
 use search_filter::core::enhanced_match_reason::EnhancedMatchReason;
@@ -88,24 +90,24 @@ async fn resolve_user_language(
     }
 }
 
-/// Builds a combined title string from the product's titles.
-/// Prefers the English translation; falls back to native title when English is unavailable.
-fn product_title_text(product: &Product) -> String {
+/// Resolves the product title, preferring the English translation.
+/// Falls back to native title when English is unavailable.
+fn product_title(product: &Product) -> Title {
     let titles = product.titles();
     titles
         .get(&Language::En)
-        .map(|t| t.to_string())
-        .unwrap_or_else(|| product.native_title.payload.to_string())
+        .cloned()
+        .unwrap_or_else(|| product.native_title.payload.clone())
 }
 
-/// Builds a description string from the product's descriptions.
-/// Prefers the English translation; returns an empty string when no description is available.
-fn product_description_text(product: &Product) -> String {
+/// Resolves the product description, preferring the English translation.
+/// Returns an empty description when none is available.
+fn product_description(product: &Product) -> Description {
     let descriptions = product.descriptions();
     descriptions
         .get(&Language::En)
-        .map(|d| d.to_string())
-        .unwrap_or_default()
+        .cloned()
+        .unwrap_or_else(|| Description::from(""))
 }
 
 #[async_trait::async_trait]
@@ -218,8 +220,8 @@ impl<'a> ProductEventSearchFilterNotificationsService
         }
 
         // Run enhanced AI matching for filters with enhanced_search_description
-        let title_text = product_title_text(&product);
-        let description_text = product_description_text(&product);
+        let title = product_title(&product);
+        let description = product_description(&product);
         let mut commands = Vec::with_capacity(unmatched_filters.len());
 
         for filter in unmatched_filters {
@@ -228,12 +230,7 @@ impl<'a> ProductEventSearchFilterNotificationsService
                     let language = resolve_user_language(self.user_service, &filter.user_id).await;
                     let eval_result = self
                         .enhanced_search_match_service
-                        .evaluate(
-                            enhanced_desc.as_ref(),
-                            &title_text,
-                            &description_text,
-                            language,
-                        )
+                        .evaluate(enhanced_desc, &title, &description, language)
                         .await;
 
                     match eval_result {
