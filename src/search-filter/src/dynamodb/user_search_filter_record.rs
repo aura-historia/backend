@@ -1,12 +1,11 @@
+use crate::core::user_search_filter::UserSearchFilter;
 use crate::core::user_search_filter_name::UserSearchFilterName;
-use crate::core::{
-    user_search_filter::UserSearchFilter, user_search_filter_id::UserSearchFilterId,
-};
 use common::category_key::CategoryId;
 use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::shop_name::ShopName;
+use common::user_search_filter_id::UserSearchFilterId;
 use common::year::Year;
 use common::{
     currency::record::CurrencyRecord, language::record::LanguageRecord,

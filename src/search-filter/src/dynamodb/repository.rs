@@ -1,4 +1,3 @@
-use crate::core::user_search_filter_id::UserSearchFilterId;
 use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
 use crate::dynamodb::user_search_filter_record::{UserSearchFilterRecord, mk_pk, mk_sk};
 use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
@@ -16,6 +15,7 @@ use aws_sdk_dynamodb::{
     },
     types::{AttributeValue, ReturnValue},
 };
+use common::user_search_filter_id::UserSearchFilterId;
 use common::{
     batch::Batch, dynamodb_update::DynamoDbUpdate, pagination::cursor::Cursor, shop_id::ShopId,
     shops_product_id::ShopsProductId, user_id::UserId,

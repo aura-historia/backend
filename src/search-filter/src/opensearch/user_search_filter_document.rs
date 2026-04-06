@@ -1,11 +1,10 @@
 use crate::core::user_search_filter::EnhancedSearchDescription;
 use crate::core::user_search_filter::UserSearchFilter;
+use crate::core::user_search_filter::UserSearchFilterSummary;
 use crate::core::user_search_filter_name::UserSearchFilterName;
-use crate::core::{
-    user_search_filter::UserSearchFilterSummary, user_search_filter_id::UserSearchFilterId,
-};
 use crate::dynamodb::user_search_filter_record::UserSearchFilterRecord;
 use common::user_id::UserId;
+use common::user_search_filter_id::UserSearchFilterId;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use time::OffsetDateTime;

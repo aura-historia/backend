@@ -1,5 +1,5 @@
-use crate::core::enhanced_match_reason::EnhancedMatchReason;
 use crate::core::user_search_filter::EnhancedSearchDescription;
+use common::enhanced_match_reason::EnhancedMatchReason;
 use common::language::domain::Language;
 use llm::chat::ChatMessage;
 use product::core::description::Description;

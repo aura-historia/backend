@@ -1,8 +1,5 @@
-use crate::{
-    core::user_search_filter_id::UserSearchFilterId,
-    core::user_search_filter_name::UserSearchFilterName,
-};
-use common::{string_newtype, user_id::UserId};
+use crate::core::user_search_filter_name::UserSearchFilterName;
+use common::{string_newtype, user_id::UserId, user_search_filter_id::UserSearchFilterId};
 use product::core::product_search::ProductSearch;
 use time::OffsetDateTime;
 

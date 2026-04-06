@@ -1,11 +1,11 @@
-use crate::core::enhanced_match_reason::EnhancedMatchReason;
 use crate::core::search_filter_product_match::SearchFilterProductMatch;
-use crate::core::user_search_filter_id::UserSearchFilterId;
+use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
 use common::product_id::ProductId;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
+use common::user_search_filter_id::UserSearchFilterId;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 

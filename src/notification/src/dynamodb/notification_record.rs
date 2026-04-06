@@ -11,6 +11,7 @@ use crate::{
         notification_type_record::NotificationTypeRecord,
     },
 };
+use common::user_search_filter_id::UserSearchFilterId;
 use common::{
     currency::domain::Currency,
     error::missing_field::MissingPersistenceField,
@@ -34,7 +35,6 @@ use product::core::title::Title;
 use product::dynamodb::{
     product_image_record::ProductImageRecord, product_state_record::ProductStateRecord,
 };
-use search_filter::core::user_search_filter_id::UserSearchFilterId;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;

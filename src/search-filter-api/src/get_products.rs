@@ -7,6 +7,7 @@ use common::pagination::cursor::{Cursor, CursoredResult};
 use common::personalized::api::PersonalizedData;
 use common::product_id::ProductKey;
 use common::user_id::api::extract_user_id_request_context;
+use common::user_search_filter_id::api::extract_user_search_filter_id_path;
 use common::{
     api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
     sort::api::extract_sort_query,
@@ -18,7 +19,6 @@ use product::data::user_state_data::ProductUserStateData;
 use product::service::get_service::GetProductService;
 use product_personalization::service::ProductPersonalizationService;
 use search_filter::core::sort_search_filter_match_field::SortSearchFilterMatchField;
-use search_filter::core::user_search_filter_id::api::extract_user_search_filter_id_path;
 use search_filter::data::sort_search_filter_match_field_data::SortSearchFilterMatchFieldData;
 use search_filter::service::user_search_filter_service::UserSearchFilterService;
 use std::collections::HashMap;
@@ -115,7 +115,7 @@ pub async fn handle(
 #[cfg(test)]
 mod tests {
     use super::handle;
-    use common::user_id::UserId;
+    use common::{user_id::UserId, user_search_filter_id::UserSearchFilterId};
     use fake::{Fake, Faker};
     use http::header::CACHE_CONTROL;
     use lambda_runtime::LambdaEvent;
@@ -144,10 +144,7 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
                 .jwt_claim("sub", UserId::new())
-                .path_parameter(
-                    "userSearchFilterId",
-                    search_filter::core::user_search_filter_id::UserSearchFilterId::new(),
-                )
+                .path_parameter("userSearchFilterId", UserSearchFilterId::new())
                 .query_string_parameter("language", "de")
                 .query_string_parameter("currency", "EUR")
                 .query_string_parameter("sort", "created")
@@ -180,10 +177,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .path_parameter(
-                    "userSearchFilterId",
-                    search_filter::core::user_search_filter_id::UserSearchFilterId::new(),
-                )
+                .path_parameter("userSearchFilterId", UserSearchFilterId::new())
                 .query_string_parameter("language", "de")
                 .query_string_parameter("currency", "EUR")
                 .build(),
@@ -220,10 +214,7 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
                 .jwt_claim("sub", UserId::new())
-                .path_parameter(
-                    "userSearchFilterId",
-                    search_filter::core::user_search_filter_id::UserSearchFilterId::new(),
-                )
+                .path_parameter("userSearchFilterId", UserSearchFilterId::new())
                 .query_string_parameter("language", "de")
                 .query_string_parameter("currency", "EUR")
                 .query_string_parameter("sort", "created")

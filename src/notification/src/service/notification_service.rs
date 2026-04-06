@@ -1583,6 +1583,7 @@ mod tests {
             operation::get_object::GetObjectOutput,
             primitives::{ByteStream, SdkBody},
         };
+        use common::user_search_filter_id::UserSearchFilterId;
 
         fn make_state_change_notification_record(
             user_id: UserId,
@@ -2160,8 +2161,7 @@ mod tests {
             record.external = true;
             record.notification_reason =
                 crate::dynamodb::notification_reason_record::NotificationReasonRecord::SearchFilterMatch;
-            record.user_search_filter_id =
-                Some(search_filter::core::user_search_filter_id::UserSearchFilterId::new());
+            record.user_search_filter_id = Some(UserSearchFilterId::new());
             record.user_search_filter_name = Some("My Filter".into());
             record
         }
@@ -2970,8 +2970,8 @@ mod tests {
     mod template_rendering_tests {
         use super::*;
         use crate::core::notification::NotificationSearchFilterPayload;
+        use common::user_search_filter_id::UserSearchFilterId;
         use rstest::rstest;
-        use search_filter::core::user_search_filter_id::UserSearchFilterId;
 
         fn load_template(relative_path: &str) -> String {
             let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

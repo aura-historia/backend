@@ -1,6 +1,7 @@
 use common::pagination::cursor::api::TimeCursoredData;
 use common::personalized::api::PersonalizedData;
 use common::user_id::UserId;
+use common::user_search_filter_id::UserSearchFilterId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use notification::dynamodb::repository::NotificationDynamoDbRepositoryImpl;
@@ -15,7 +16,6 @@ use product::dynamodb::{
 use product::service::get_service::GetProductServiceImpl;
 use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
-use search_filter::core::user_search_filter_id::UserSearchFilterId;
 use search_filter::dynamodb::repository::{
     UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
 };

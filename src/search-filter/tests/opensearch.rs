@@ -10,12 +10,12 @@ use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use common::user_id::UserId;
+use common::user_search_filter_id::UserSearchFilterId;
 use common::year::Year;
 use fake::{Fake, Faker};
 use opensearch::http::Url;
 use product::opensearch::product_document::ProductDocument;
 use product::opensearch::product_state_document::ProductStateDocument;
-use search_filter::core::user_search_filter_id::UserSearchFilterId;
 use search_filter::dynamodb::user_search_filter_record::UserSearchFilterRecord;
 use search_filter::opensearch::repository::{
     UserSearchFilterOpenSearchRepository, UserSearchFilterOpenSearchRepositoryImpl,
