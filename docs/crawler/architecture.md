@@ -18,12 +18,12 @@ CrawlerCronJob::run_loop()
 The spider and scraper loops follow the same pattern each tick:
 
 1. Ask the relevant **CandidateService** for a batch of work.
-2. Fan that batch out using `futures::stream::iter(...).buffer_unordered(concurrency)` — bounded parallelism, no unbounded spawning.
+2. For the scraper: fan the batch out using a `FuturesUnordered` pool driven by a `fill_slots` closure that groups candidates by domain and enforces a per-domain delay between consecutive requests. For the spider: fan the batch out using `futures::stream::iter(...).buffer_unordered(concurrency)`.
 3. Before processing each item, acquire a PostgreSQL advisory lock (`DomainAdvisoryLock` for spider domains, `UrlAdvisoryLock` for scraper URLs). If another worker already holds the lock the item is skipped (not failed) and the lock connection is released immediately.
 4. Call the relevant service (`SpiderService::run` or `ScraperService::scrape`). Errors are logged and swallowed so one failure doesn't abort the whole batch.
 5. After each batch completes, log a summary line with `total`, `succeeded`, `failed`, `skipped` (lock-skipped items), and `duration_ms`. Performance counters are accumulated across batches and a rolling average is emitted every 500 scraper URLs / every 50 spider domains.
 
-`CrawlerCronJob` carries four `Arc<AtomicU64>` fields for these rolling counters: `scraper_perf_urls`, `scraper_perf_duration_ms`, `spider_perf_domains`, `spider_perf_duration_ms`.
+`CrawlerCronJob` carries two `Arc<PerfCounter>` fields for these rolling counters: `scraper_perf` and `spider_perf`. Each `PerfCounter` encapsulates a count and a cumulative duration, and emits an `info!` summary when its rolling total reaches the threshold.
 
 The three loops run completely in parallel, each on its own cadence. There is no synchronisation between them beyond the database.
 
@@ -220,39 +220,37 @@ scrape(shop_id, url, current_hash, last_scraped_hash)
 
 ```
 [schema-fix flow A]
- ├── acquire per-domain mutex (schema_fix_locks) — serialises concurrent URLs for same domain
- ├── re-fetch schema from DB (a sibling task may have already fixed it)
- ├── re-apply refreshed schema
- │    ├── ok → use refreshed raw (no LLM needed)
- │    └── still fails →
- │         ├── increment_fix_attempts(domain)      — bail if >= max_schema_fix_attempts
- │         ├── LLM: fix_product_schema(schema, error, html)
- │         ├── persist fixed schema → save_product_schema()
- │         └── re-apply fixed schema
- │              ├── ok → schema_was_fixed = true
- │              └── fails → return SchemaFixFailed
+ ├── is_fix_budget_exhausted(domain)?  → bail with SchemaFixAttemptsExhausted
+ ├── increment_fix_attempts(domain)
+ ├── LLM: fix_product_schema(failed_schema, apply_error, html)
+ ├── re-apply fixed schema
+ │    ├── ok → persist fixed schema → save_product_schema()
+ │    │        schema_was_fixed = true
+ │    └── fails → return SchemaFixApplyFailed (not persisted)
 ```
+
+The dispatcher (`cron.rs`) guarantees at most one in-flight scrape per domain at a time, so no per-domain mutex is needed inside the fix path.
 
 **Schema-fix flow B** — triggered when normalization returns a schema-fixable error (bad state selector text, price parse failure, empty title, etc.):
 
 ```
-[schema-fix flow B]
+[schema-fix flow B — normalize_with_retry]
  ├── normalization_error_to_schema_hint(err) → Option<ApplySchemaError>
  │    None  → propagate NormalizationError (image URL errors, etc.)
- │    Some  → proceed with fix using hint as the synthetic apply error
- ├── acquire per-domain mutex (same map as flow A)
- ├── re-fetch schema; re-apply; re-normalize
- │    ├── ok → done
- │    └── still fails →
- │         ├── increment_fix_attempts(domain)
- │         ├── LLM: fix_product_schema(schema, hint_error, html)
- │         ├── persist fixed schema
- │         └── re-apply + re-normalize
- │              ├── ok → schema_was_fixed = true
- │              └── fails → NormalizationError
+ │    Some  → proceed with hint_error as synthetic apply error
+ │
+ │   Fix attempt 1: fix_and_apply_schema(schema, hint_error, html)
+ │    ├── schema_was_fixed = true if LLM fix applied
+ │    └── normalize(fixed_raw)
+ │         ├── ok → done
+ │         └── fails →
+ │              Fix attempt 2: fix_and_apply_schema(schema, hint_error, html)
+ │               └── normalize(final_raw)
+ │                    ├── ok → done
+ │                    └── fails → propagate NormalizationError
 ```
 
-**`scraper::Html` is `!Send`**: the parsed HTML object cannot be held across an `.await`. The code explicitly drops the `Html` inside a synchronous block before any async call, using a local `ApplyOutcome` enum to carry the result out.
+**`scraper::Html` is `!Send`**: the parsed HTML object cannot be held across an `.await`. `apply_schema()` is a synchronous helper that parses the HTML, applies the schema, and returns — ensuring no `Html` value is live when any `.await` point is reached.
 
 **Per-domain fix-attempt tracking**: `schema_fix_attempts: Arc<Mutex<HashMap<String, u32>>>` records how many times a schema fix was attempted (and still failed end-to-end) for each domain. Once the count reaches `max_schema_fix_attempts` the domain returns `SchemaFixAttemptsExhausted` without calling the LLM, preventing infinite fix loops. The counter is reset to zero when a fix attempt succeeds all the way through normalization.
 

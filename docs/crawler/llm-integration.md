@@ -32,8 +32,8 @@ The crawler uses three distinct LLM instances, each with its own system prompt, 
 
 **When called:**
 - On first scrape of a product URL for a given shop (cache miss in `shops_product_schema`).
-- On schema failure: if applying the schema throws an error (e.g. selector no longer valid), `fix_product_schema` is called with the broken schema + error message. This is serialised per domain via a `tokio::Mutex` so concurrent URLs for the same shop don't each trigger a separate LLM call.
-- On normalization failure: if `ProductNormalizationService::normalize` returns a schema-fixable error (e.g. `StateTextTooLong`, `PriceParseError`, `TitleEmpty`), the same `fix_product_schema` path is triggered using a synthetic `ApplySchemaError` hint derived from the normalization error. This is also serialised by the same per-domain mutex.
+- On schema failure: if applying the schema throws an error (e.g. selector no longer valid), `fix_product_schema` is called with the broken schema + error message. The dispatcher (`cron.rs`) guarantees at most one in-flight scrape per domain at a time, so no per-domain mutex is required.
+- On normalization failure: if `ProductNormalizationService::normalize` returns a schema-fixable error (e.g. `StateTextTooLong`, `PriceParseError`, `TitleEmpty`), the same `fix_product_schema` path is triggered via `normalize_with_retry` using a synthetic `ApplySchemaError` hint derived from the normalization error.
   - Note: `PriceUnknownCurrency` is **not** treated as schema-fixable. When a raw price string contains no currency marker the scraper first attempts to resolve the currency from the shop URL's TLD (e.g. `.de` → EUR). If that also fails the price cannot be parsed, but changing the CSS selector cannot fix this — the LLM fix loop would never terminate. The price is simply left unparseable for that product.
 - Fix attempts are tracked per domain across batches via `schema_fix_attempts: HashMap<String, u32>`. Once a domain reaches `max_schema_fix_attempts` failed attempts the domain is skipped with `SchemaFixAttemptsExhausted` — no further LLM calls are made. The counter resets when a fix attempt succeeds end-to-end (schema applied + normalization passed).
 
@@ -56,17 +56,14 @@ The crawler uses three distinct LLM instances, each with its own system prompt, 
 
 **LLM config:** `resilient=3`, `reasoning=true`, `timeout=180s`
 
-**Fix flow (domain-serialised, not via resilient builder):**
+**Fix flow (straight to LLM — no re-fetch, no per-domain mutex):**
 ```
-acquire per-domain mutex
-re-fetch schema from DB (sibling task may have already fixed it)
-try refreshed schema:
-  ok → use it (no LLM call)
-  still fails →
-    increment_fix_attempts(domain)   — bail if >= max_schema_fix_attempts
-    llm.fix_product_schema(schema, error, html)
-    if ok: persist and re-apply
-    else: return SchemaFixFailed
+is_fix_budget_exhausted(domain)?  → bail with SchemaFixAttemptsExhausted
+increment_fix_attempts(domain)
+llm.fix_product_schema(failed_schema, apply_error, html)
+re-apply fixed schema:
+  ok → persist (save_product_schema) and return (raw, schema_was_fixed=true)
+  still fails → return SchemaFixApplyFailed (not persisted)
 ```
 
 **Persistence:** Schema stored in `shops_product_schema` (keyed by `shop_id`). Shared across all product URLs of the same shop.
