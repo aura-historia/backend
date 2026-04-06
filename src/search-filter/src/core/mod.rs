@@ -1,3 +1,4 @@
+pub mod enhanced_match_reason;
 pub mod quota;
 pub mod search_filter_product_match;
 pub mod sort_search_filter_match_field;

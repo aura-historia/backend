@@ -2,15 +2,18 @@ use crate::{
     core::user_search_filter_id::UserSearchFilterId,
     core::user_search_filter_name::UserSearchFilterName,
 };
-use common::user_id::UserId;
+use common::{string_newtype, user_id::UserId};
 use product::core::product_search::ProductSearch;
 use time::OffsetDateTime;
+
+string_newtype!(EnhancedSearchDescription, max_length(500));
 
 #[derive(Debug, Clone)]
 pub struct UserSearchFilterSummary {
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
     pub name: UserSearchFilterName,
+    pub enhanced_search_description: Option<EnhancedSearchDescription>,
     pub notifications: bool,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -23,6 +26,7 @@ pub struct UserSearchFilter {
     pub name: UserSearchFilterName,
     pub notifications: bool,
     pub search: ProductSearch,
+    pub enhanced_search_description: Option<EnhancedSearchDescription>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -33,6 +37,7 @@ impl From<UserSearchFilter> for UserSearchFilterSummary {
             user_id: filter.user_id,
             user_search_filter_id: filter.user_search_filter_id,
             name: filter.name,
+            enhanced_search_description: filter.enhanced_search_description,
             notifications: filter.notifications,
             created: filter.created,
             updated: filter.updated,
@@ -53,6 +58,7 @@ mod faker {
                 name: config.fake_with_rng(rng),
                 notifications: true,
                 search: config.fake_with_rng(rng),
+                enhanced_search_description: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -65,10 +71,62 @@ mod faker {
                 user_id: config.fake_with_rng(rng),
                 user_search_filter_id: config.fake_with_rng(rng),
                 name: config.fake_with_rng(rng),
+                enhanced_search_description: None,
                 notifications: true,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_accept_short_enhanced_search_description() {
+        let desc = EnhancedSearchDescription::from("Golden cufflinks");
+        assert_eq!(desc.as_ref(), "Golden cufflinks");
+    }
+
+    #[test]
+    fn should_truncate_enhanced_search_description_exceeding_max_length() {
+        let long = "a".repeat(600);
+        let desc = EnhancedSearchDescription::from(long.as_str());
+        assert_eq!(desc.as_ref().len(), 500);
+    }
+
+    #[test]
+    fn should_keep_exactly_500_chars_for_enhanced_search_description() {
+        let exact = "b".repeat(500);
+        let desc = EnhancedSearchDescription::from(exact.as_str());
+        assert_eq!(desc.as_ref().len(), 500);
+    }
+
+    #[test]
+    fn should_trim_whitespace_for_enhanced_search_description() {
+        let desc = EnhancedSearchDescription::from("   hello   ");
+        assert_eq!(desc.as_ref(), "hello");
+    }
+
+    #[test]
+    fn should_handle_empty_enhanced_search_description() {
+        let desc = EnhancedSearchDescription::from("");
+        assert_eq!(desc.as_ref(), "");
+    }
+
+    #[test]
+    fn should_trim_then_truncate_for_enhanced_search_description() {
+        let padded = format!("   {}   ", "c".repeat(600));
+        let desc = EnhancedSearchDescription::from(padded.as_str());
+        assert_eq!(desc.as_ref().len(), 500);
+    }
+
+    #[test]
+    fn should_create_from_string_with_truncation() {
+        let long = "d".repeat(600);
+        let desc = EnhancedSearchDescription::from(long);
+        assert_eq!(desc.as_ref().len(), 500);
     }
 }

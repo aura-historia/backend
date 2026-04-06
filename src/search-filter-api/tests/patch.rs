@@ -41,12 +41,18 @@ async fn should_update_search_filter() {
         .unwrap();
 
     let initial = service
-        .create_user_search_filter(&user.user_id, Faker.fake(), Faker.fake::<ProductSearch>())
+        .create_user_search_filter(
+            &user.user_id,
+            Faker.fake(),
+            Faker.fake::<ProductSearch>(),
+            Faker.fake(),
+        )
         .await
         .unwrap();
 
     let patch = PatchUserSearchFilterData {
         name: Some("thorbens filter".into()),
+        enhanced_search_description: None,
         notifications: None,
         search: Some(PatchProductSearchData {
             language: None,

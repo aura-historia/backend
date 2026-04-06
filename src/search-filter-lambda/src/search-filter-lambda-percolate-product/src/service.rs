@@ -1,16 +1,22 @@
 use common::has_key::HasKey;
+use common::language::domain::Language;
 use notification::core::notification::{NotificationPayload, NotificationSearchFilterPayload};
 use notification::service::command::CreateNotificationCommand;
+use product::core::description::Description;
 use product::core::product::Product;
 use product::core::product_event::ProductEvent;
 use product::core::product_event::domain::ProductDomainEventPayload;
+use product::core::title::Title;
 use product::opensearch::product_document::ProductDocument;
 use product::service::get_service::{GetProductError, GetProductService};
+use search_filter::core::enhanced_match_reason::EnhancedMatchReason;
 use search_filter::core::user_search_filter::UserSearchFilterSummary;
+use search_filter::service::enhanced_search_match_service::EnhancedSearchMatchService;
 use search_filter::service::user_search_filter_service::{
     UserSearchFilterError, UserSearchFilterService,
 };
-use tracing::debug;
+use tracing::{debug, warn};
+use user::service::user_service::{UserService, UserServiceError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductEventSearchFilterNotificationsServiceError {
@@ -19,6 +25,16 @@ pub enum ProductEventSearchFilterNotificationsServiceError {
 
     #[error("UserSearchFilterError: {0}")]
     UserSearchFilterError(#[from] UserSearchFilterError),
+
+    #[error("UserServiceError: {0}")]
+    UserServiceError(#[from] UserServiceError),
+}
+
+/// A notification command paired with an optional enhanced match reason.
+#[derive(Debug)]
+pub struct NotificationCommandWithMatchReason {
+    pub command: CreateNotificationCommand,
+    pub enhanced_match_reason: Option<EnhancedMatchReason>,
 }
 
 #[async_trait::async_trait]
@@ -27,24 +43,71 @@ pub trait ProductEventSearchFilterNotificationsService {
     async fn determine_notification_commands(
         &self,
         event: ProductEvent,
-    ) -> Result<Vec<CreateNotificationCommand>, ProductEventSearchFilterNotificationsServiceError>;
+    ) -> Result<
+        Vec<NotificationCommandWithMatchReason>,
+        ProductEventSearchFilterNotificationsServiceError,
+    >;
 }
 
 pub struct ProductEventSearchFilterNotificationsServiceImpl<'a> {
     user_search_filter_service: &'a (dyn UserSearchFilterService + Sync),
     get_product_service: &'a (dyn GetProductService + Sync),
+    enhanced_search_match_service: &'a (dyn EnhancedSearchMatchService + Sync),
+    user_service: &'a (dyn UserService + Sync),
 }
 
 impl<'a> ProductEventSearchFilterNotificationsServiceImpl<'a> {
     pub fn new(
         user_search_filter_service: &'a (dyn UserSearchFilterService + Sync),
         get_product_service: &'a (dyn GetProductService + Sync),
+        enhanced_search_match_service: &'a (dyn EnhancedSearchMatchService + Sync),
+        user_service: &'a (dyn UserService + Sync),
     ) -> Self {
         Self {
             user_search_filter_service,
             get_product_service,
+            enhanced_search_match_service,
+            user_service,
         }
     }
+}
+
+/// Resolves the preferred language for a user, defaulting to English.
+async fn resolve_user_language(
+    user_service: &(dyn UserService + Sync),
+    user_id: &common::user_id::UserId,
+) -> Language {
+    match user_service.find_user(user_id).await {
+        Ok(user) => user.language.unwrap_or_default(),
+        Err(err) => {
+            warn!(
+                userId = %user_id,
+                error = %err,
+                "Failed loading user for language resolution. Defaulting to English."
+            );
+            Language::default()
+        }
+    }
+}
+
+/// Resolves the product title, preferring the English translation.
+/// Falls back to native title when English is unavailable.
+fn product_title(product: &Product) -> Title {
+    let titles = product.titles();
+    titles
+        .get(&Language::En)
+        .cloned()
+        .unwrap_or_else(|| product.native_title.payload.clone())
+}
+
+/// Resolves the product description, preferring the English translation.
+/// Returns an empty description when none is available.
+fn product_description(product: &Product) -> Description {
+    let descriptions = product.descriptions();
+    descriptions
+        .get(&Language::En)
+        .cloned()
+        .unwrap_or_else(|| Description::from(""))
 }
 
 #[async_trait::async_trait]
@@ -54,8 +117,10 @@ impl<'a> ProductEventSearchFilterNotificationsService
     async fn determine_notification_commands(
         &self,
         event: ProductEvent,
-    ) -> Result<Vec<CreateNotificationCommand>, ProductEventSearchFilterNotificationsServiceError>
-    {
+    ) -> Result<
+        Vec<NotificationCommandWithMatchReason>,
+        ProductEventSearchFilterNotificationsServiceError,
+    > {
         let product_key = event.payload.key();
         let product = match event.payload {
             product::core::product_event::ProductEventPayload::ProductDomainEvent(
@@ -154,10 +219,60 @@ impl<'a> ProductEventSearchFilterNotificationsService
             return Ok(vec![]);
         }
 
-        let commands = unmatched_filters
-            .into_iter()
-            .map(|filter| mk_search_filter_notification_command(&product, filter))
-            .collect();
+        // Run enhanced AI matching for filters with enhanced_search_description
+        let title = product_title(&product);
+        let description = product_description(&product);
+        let mut commands = Vec::with_capacity(unmatched_filters.len());
+
+        for filter in unmatched_filters {
+            match &filter.enhanced_search_description {
+                Some(enhanced_desc) => {
+                    let language = resolve_user_language(self.user_service, &filter.user_id).await;
+                    let eval_result = self
+                        .enhanced_search_match_service
+                        .evaluate(enhanced_desc, &title, &description, language)
+                        .await;
+
+                    match eval_result {
+                        Ok(result) if result.matches => {
+                            debug!(
+                                userId = %filter.user_id,
+                                searchFilterId = %filter.user_search_filter_id,
+                                "Enhanced search match confirmed for product."
+                            );
+                            commands.push(mk_search_filter_notification_command(
+                                &product,
+                                filter,
+                                result.reason,
+                            ));
+                        }
+                        Ok(_) => {
+                            debug!(
+                                userId = %filter.user_id,
+                                searchFilterId = %filter.user_search_filter_id,
+                                "Enhanced search match rejected product."
+                            );
+                        }
+                        Err(err) => {
+                            warn!(
+                                userId = %filter.user_id,
+                                searchFilterId = %filter.user_search_filter_id,
+                                error = %err,
+                                "Enhanced search match evaluation failed. Including filter without reason."
+                            );
+                            commands.push(mk_search_filter_notification_command(
+                                &product, filter, None,
+                            ));
+                        }
+                    }
+                }
+                None => {
+                    commands.push(mk_search_filter_notification_command(
+                        &product, filter, None,
+                    ));
+                }
+            }
+        }
 
         Ok(commands)
     }
@@ -166,24 +281,28 @@ impl<'a> ProductEventSearchFilterNotificationsService
 fn mk_search_filter_notification_command(
     product: &Product,
     filter: UserSearchFilterSummary,
-) -> CreateNotificationCommand {
-    CreateNotificationCommand {
-        user_id: filter.user_id,
-        notification_payload: NotificationPayload::SearchFilter {
-            product_id: product.product_id,
-            shop_id: product.shop_id,
-            shops_product_id: product.shops_product_id.clone(),
-            shop_slug_id: product.shop_slug_id.clone(),
-            product_slug_id: product.product_slug_id.clone(),
-            shop_name: product.shop_name.clone(),
-            title: product.titles(),
-            image: product.images.first().cloned(),
-            search_filter_payload: NotificationSearchFilterPayload {
-                user_search_filter_id: filter.user_search_filter_id,
-                user_search_filter_name: filter.name,
+    enhanced_match_reason: Option<EnhancedMatchReason>,
+) -> NotificationCommandWithMatchReason {
+    NotificationCommandWithMatchReason {
+        command: CreateNotificationCommand {
+            user_id: filter.user_id,
+            notification_payload: NotificationPayload::SearchFilter {
+                product_id: product.product_id,
+                shop_id: product.shop_id,
+                shops_product_id: product.shops_product_id.clone(),
+                shop_slug_id: product.shop_slug_id.clone(),
+                product_slug_id: product.product_slug_id.clone(),
+                shop_name: product.shop_name.clone(),
+                title: product.titles(),
+                image: product.images.first().cloned(),
+                search_filter_payload: NotificationSearchFilterPayload {
+                    user_search_filter_id: filter.user_search_filter_id,
+                    user_search_filter_name: filter.name,
+                },
             },
+            external: filter.notifications,
         },
-        external: filter.notifications,
+        enhanced_match_reason,
     }
 }
 
@@ -192,6 +311,7 @@ mod tests {
     use super::*;
     use common::event::Event;
     use common::event_id::EventId;
+    use common::language::domain::Language;
     use common::product_state::domain::ProductState;
     use common::user_id::UserId;
     use fake::{Fake, Faker};
@@ -201,12 +321,17 @@ mod tests {
         ProductStateChangeDomainEventPayload,
     };
     use product::service::get_service::MockGetProductService;
+    use search_filter::core::user_search_filter::EnhancedSearchDescription;
     use search_filter::core::user_search_filter::UserSearchFilterSummary;
     use search_filter::core::user_search_filter_id::UserSearchFilterId;
     use search_filter::core::user_search_filter_name::UserSearchFilterName;
+    use search_filter::service::enhanced_search_match_service::{
+        EnhancedSearchMatchError, EnhancedSearchMatchResult, MockEnhancedSearchMatchService,
+    };
     use search_filter::service::user_search_filter_service::MockUserSearchFilterService;
     use serde::de::Error as _;
     use time::OffsetDateTime;
+    use user::service::user_service::MockUserService;
 
     fn mk_event(product: &Product) -> ProductEvent {
         Event {
@@ -264,10 +389,40 @@ mod tests {
             user_id,
             user_search_filter_id: UserSearchFilterId::new(),
             name: UserSearchFilterName::from("Test Filter"),
+            enhanced_search_description: None,
             notifications: true,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
+    }
+
+    fn mk_filter_summary_with_enhanced(
+        user_id: UserId,
+        description: &str,
+    ) -> UserSearchFilterSummary {
+        UserSearchFilterSummary {
+            user_id,
+            user_search_filter_id: UserSearchFilterId::new(),
+            name: UserSearchFilterName::from("Enhanced Filter"),
+            enhanced_search_description: Some(EnhancedSearchDescription::from(description)),
+            notifications: true,
+            created: OffsetDateTime::now_utc(),
+            updated: OffsetDateTime::now_utc(),
+        }
+    }
+
+    fn mk_default_enhanced_match_service() -> MockEnhancedSearchMatchService {
+        MockEnhancedSearchMatchService::default()
+    }
+
+    fn mk_default_user_service() -> MockUserService {
+        MockUserService::default()
+    }
+
+    fn mk_user_with_language(language: Language) -> user::core::user::User {
+        let mut user: user::core::user::User = Faker.fake();
+        user.language = Some(language);
+        user
     }
 
     #[tokio::test]
@@ -286,8 +441,15 @@ mod tests {
             .expect_match_user_search_filters()
             .return_once(|_| Box::pin(async { Ok(vec![]) }));
 
-        let service =
-            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+        let enhanced_service = mk_default_enhanced_match_service();
+        let user_service = mk_default_user_service();
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
 
         let result = service.determine_notification_commands(event).await;
 
@@ -316,16 +478,24 @@ mod tests {
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
 
-        let service =
-            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+        let enhanced_service = mk_default_enhanced_match_service();
+        let user_service = mk_default_user_service();
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
 
         let result = service.determine_notification_commands(event).await;
 
         assert!(result.is_ok());
         let cmds = result.unwrap();
         assert_eq!(cmds.len(), 1);
-        assert_eq!(cmds[0].user_id, user_id);
-        assert!(cmds[0].external);
+        assert_eq!(cmds[0].command.user_id, user_id);
+        assert!(cmds[0].command.external);
+        assert!(cmds[0].enhanced_match_reason.is_none());
     }
 
     #[tokio::test]
@@ -339,9 +509,15 @@ mod tests {
         });
 
         let filter_service = MockUserSearchFilterService::default();
+        let enhanced_service = mk_default_enhanced_match_service();
+        let user_service = mk_default_user_service();
 
-        let service =
-            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
 
         let result = service.determine_notification_commands(event).await;
 
@@ -374,8 +550,15 @@ mod tests {
                 })
             });
 
-        let service =
-            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+        let enhanced_service = mk_default_enhanced_match_service();
+        let user_service = mk_default_user_service();
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
 
         let result = service.determine_notification_commands(event).await;
 
@@ -397,6 +580,7 @@ mod tests {
             user_id: UserId::new(),
             user_search_filter_id: filter_id,
             name: filter_name.clone(),
+            enhanced_search_description: None,
             notifications: true,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
@@ -415,14 +599,21 @@ mod tests {
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
 
-        let service =
-            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+        let enhanced_service = mk_default_enhanced_match_service();
+        let user_service = mk_default_user_service();
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
 
         let result = service.determine_notification_commands(event).await;
 
         let cmds = result.unwrap();
         assert_eq!(cmds.len(), 1);
-        match &cmds[0].notification_payload {
+        match &cmds[0].command.notification_payload {
             NotificationPayload::SearchFilter {
                 search_filter_payload,
                 ..
@@ -456,13 +647,20 @@ mod tests {
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
 
-        let service =
-            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+        let enhanced_service = mk_default_enhanced_match_service();
+        let user_service = mk_default_user_service();
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
 
         let result = service.determine_notification_commands(event).await;
 
         let cmds = result.unwrap();
-        match &cmds[0].notification_payload {
+        match &cmds[0].command.notification_payload {
             NotificationPayload::SearchFilter {
                 product_id,
                 shop_id,
@@ -509,15 +707,22 @@ mod tests {
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
 
-        let service =
-            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+        let enhanced_service = mk_default_enhanced_match_service();
+        let user_service = mk_default_user_service();
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
 
         let result = service.determine_notification_commands(event).await;
 
         assert!(result.is_ok());
         let cmds = result.unwrap();
         assert_eq!(cmds.len(), 1);
-        assert_eq!(cmds[0].user_id, user_id);
+        assert_eq!(cmds[0].command.user_id, user_id);
     }
 
     #[tokio::test]
@@ -541,8 +746,15 @@ mod tests {
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
 
-        let service =
-            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+        let enhanced_service = mk_default_enhanced_match_service();
+        let user_service = mk_default_user_service();
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
 
         let result = service.determine_notification_commands(event).await;
 
@@ -567,16 +779,23 @@ mod tests {
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
 
-        let service =
-            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+        let enhanced_service = mk_default_enhanced_match_service();
+        let user_service = mk_default_user_service();
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
 
         let result = service.determine_notification_commands(event).await;
 
         assert!(result.is_ok());
         let cmds = result.unwrap();
         assert_eq!(cmds.len(), 1);
-        assert_eq!(cmds[0].user_id, user_id);
-        assert!(cmds[0].external);
+        assert_eq!(cmds[0].command.user_id, user_id);
+        assert!(cmds[0].command.external);
     }
 
     #[tokio::test]
@@ -595,8 +814,15 @@ mod tests {
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
 
-        let service =
-            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+        let enhanced_service = mk_default_enhanced_match_service();
+        let user_service = mk_default_user_service();
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
 
         let result = service.determine_notification_commands(event).await;
 
@@ -624,14 +850,21 @@ mod tests {
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
 
-        let service =
-            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+        let enhanced_service = mk_default_enhanced_match_service();
+        let user_service = mk_default_user_service();
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
 
         let result = service.determine_notification_commands(event).await;
 
         let cmds = result.unwrap();
         assert_eq!(cmds.len(), 1);
-        match &cmds[0].notification_payload {
+        match &cmds[0].command.notification_payload {
             NotificationPayload::SearchFilter {
                 product_id,
                 shop_id,
@@ -658,8 +891,15 @@ mod tests {
             .expect_match_user_search_filters()
             .return_once(|_| Box::pin(async { Ok(vec![]) }));
 
-        let service =
-            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+        let enhanced_service = mk_default_enhanced_match_service();
+        let user_service = mk_default_user_service();
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
 
         let result = service.determine_notification_commands(event).await;
 
@@ -696,15 +936,22 @@ mod tests {
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
 
-        let service =
-            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+        let enhanced_service = mk_default_enhanced_match_service();
+        let user_service = mk_default_user_service();
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
 
         let result = service.determine_notification_commands(event).await;
 
         assert!(result.is_ok());
         let cmds = result.unwrap();
         assert_eq!(cmds.len(), 1);
-        assert_eq!(cmds[0].user_id, user_id);
+        assert_eq!(cmds[0].command.user_id, user_id);
     }
 
     // ---------------------------------------------------------------------------
@@ -738,14 +985,21 @@ mod tests {
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
 
-        let service =
-            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+        let enhanced_service = mk_default_enhanced_match_service();
+        let user_service = mk_default_user_service();
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
 
         let result = service.determine_notification_commands(event).await;
 
         let cmds = result.unwrap();
         assert_eq!(cmds.len(), 1);
-        let actual_image = match &cmds[0].notification_payload {
+        let actual_image = match &cmds[0].command.notification_payload {
             NotificationPayload::SearchFilter { image, .. } => image.clone(),
             _ => unreachable!("expected SearchFilter payload"),
         };
@@ -780,17 +1034,307 @@ mod tests {
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
 
-        let service =
-            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+        let enhanced_service = mk_default_enhanced_match_service();
+        let user_service = mk_default_user_service();
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
 
         let result = service.determine_notification_commands(event).await;
 
         let cmds = result.unwrap();
         assert_eq!(cmds.len(), 1);
-        let actual_image = match &cmds[0].notification_payload {
+        let actual_image = match &cmds[0].command.notification_payload {
             NotificationPayload::SearchFilter { image, .. } => image.clone(),
             _ => unreachable!("expected SearchFilter payload"),
         };
         assert!(actual_image.is_none(), "expected image to be None");
+    }
+
+    // ---------------------------------------------------------------------------
+    // Enhanced search match integration tests
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn should_include_reason_when_enhanced_match_confirms() {
+        let product: Product = Faker.fake();
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+        let user_id = UserId::new();
+        let summary = mk_filter_summary_with_enhanced(user_id, "Golden cufflinks with real ruby");
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| Box::pin(async move { Ok(vec![summary]) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+
+        let mut enhanced_service = MockEnhancedSearchMatchService::default();
+        enhanced_service
+            .expect_evaluate()
+            .return_once(|_, _, _, _| {
+                Box::pin(async {
+                    Ok(EnhancedSearchMatchResult {
+                        matches: true,
+                        reason: Some(EnhancedMatchReason::from("Matches golden cufflinks.")),
+                    })
+                })
+            });
+
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_find_user()
+            .return_once(|_| Box::pin(async { Ok(mk_user_with_language(Language::En)) }));
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
+
+        let result = service.determine_notification_commands(event).await;
+
+        let cmds = result.unwrap();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].command.user_id, user_id);
+        assert_eq!(
+            cmds[0].enhanced_match_reason,
+            Some(EnhancedMatchReason::from("Matches golden cufflinks."))
+        );
+    }
+
+    #[tokio::test]
+    async fn should_exclude_filter_when_enhanced_match_rejects() {
+        let product: Product = Faker.fake();
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+        let user_id = UserId::new();
+        let summary = mk_filter_summary_with_enhanced(user_id, "Golden cufflinks with real ruby");
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| Box::pin(async move { Ok(vec![summary]) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+
+        let mut enhanced_service = MockEnhancedSearchMatchService::default();
+        enhanced_service
+            .expect_evaluate()
+            .return_once(|_, _, _, _| {
+                Box::pin(async {
+                    Ok(EnhancedSearchMatchResult {
+                        matches: false,
+                        reason: None,
+                    })
+                })
+            });
+
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_find_user()
+            .return_once(|_| Box::pin(async { Ok(mk_user_with_language(Language::En)) }));
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
+
+        let result = service.determine_notification_commands(event).await;
+
+        let cmds = result.unwrap();
+        assert!(cmds.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_include_filter_without_reason_when_enhanced_match_errors() {
+        let product: Product = Faker.fake();
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+        let user_id = UserId::new();
+        let summary = mk_filter_summary_with_enhanced(user_id, "Golden cufflinks with real ruby");
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| Box::pin(async move { Ok(vec![summary]) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+
+        let mut enhanced_service = MockEnhancedSearchMatchService::default();
+        enhanced_service
+            .expect_evaluate()
+            .return_once(|_, _, _, _| {
+                Box::pin(async {
+                    Err(EnhancedSearchMatchError::InvalidResponse(
+                        "test error".to_string(),
+                    ))
+                })
+            });
+
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_find_user()
+            .return_once(|_| Box::pin(async { Ok(mk_user_with_language(Language::En)) }));
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
+
+        let result = service.determine_notification_commands(event).await;
+
+        let cmds = result.unwrap();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].command.user_id, user_id);
+        assert!(cmds[0].enhanced_match_reason.is_none());
+    }
+
+    #[tokio::test]
+    async fn should_default_to_english_when_user_not_found_for_enhanced_match() {
+        let product: Product = Faker.fake();
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+        let user_id = UserId::new();
+        let summary = mk_filter_summary_with_enhanced(user_id, "Golden cufflinks with real ruby");
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| Box::pin(async move { Ok(vec![summary]) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+
+        let mut enhanced_service = MockEnhancedSearchMatchService::default();
+        enhanced_service
+            .expect_evaluate()
+            .withf(|_, _, _, lang| *lang == Language::En)
+            .return_once(|_, _, _, _| {
+                Box::pin(async {
+                    Ok(EnhancedSearchMatchResult {
+                        matches: true,
+                        reason: Some(EnhancedMatchReason::from("Matches.")),
+                    })
+                })
+            });
+
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().return_once(|uid| {
+            let uid = *uid;
+            Box::pin(async move { Err(UserServiceError::UserNotFound(uid)) })
+        });
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
+
+        let result = service.determine_notification_commands(event).await;
+
+        let cmds = result.unwrap();
+        assert_eq!(cmds.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn should_mix_enhanced_and_plain_filters() {
+        let product: Product = Faker.fake();
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+        let user1 = UserId::new();
+        let user2 = UserId::new();
+        let plain_summary = mk_filter_summary(user1);
+        let enhanced_summary = mk_filter_summary_with_enhanced(user2, "Golden cufflinks");
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| {
+                Box::pin(async move { Ok(vec![plain_summary, enhanced_summary]) })
+            });
+        filter_service
+            .expect_find_search_filter_product_match()
+            .times(2)
+            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
+
+        let mut enhanced_service = MockEnhancedSearchMatchService::default();
+        enhanced_service
+            .expect_evaluate()
+            .return_once(|_, _, _, _| {
+                Box::pin(async {
+                    Ok(EnhancedSearchMatchResult {
+                        matches: true,
+                        reason: Some(EnhancedMatchReason::from("Confirmed match.")),
+                    })
+                })
+            });
+
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_find_user()
+            .return_once(|_| Box::pin(async { Ok(mk_user_with_language(Language::De)) }));
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
+
+        let result = service.determine_notification_commands(event).await;
+
+        let cmds = result.unwrap();
+        assert_eq!(cmds.len(), 2);
+
+        // Plain filter has no reason
+        let plain_cmd = cmds.iter().find(|c| c.command.user_id == user1).unwrap();
+        assert!(plain_cmd.enhanced_match_reason.is_none());
+
+        // Enhanced filter has reason
+        let enhanced_cmd = cmds.iter().find(|c| c.command.user_id == user2).unwrap();
+        assert_eq!(
+            enhanced_cmd.enhanced_match_reason,
+            Some(EnhancedMatchReason::from("Confirmed match."))
+        );
     }
 }

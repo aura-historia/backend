@@ -1,3 +1,4 @@
+use crate::core::enhanced_match_reason::EnhancedMatchReason;
 use crate::core::search_filter_product_match::SearchFilterProductMatch;
 use crate::core::user_search_filter_id::UserSearchFilterId;
 use common::event_id::EventId;
@@ -19,6 +20,8 @@ pub struct UserSearchFilterMatchRecord {
     pub shops_product_id: ShopsProductId,
     pub product_id: ProductId,
     pub origin_event_id: EventId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enhanced_match_reason: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -65,6 +68,7 @@ impl From<UserSearchFilterMatchRecord> for SearchFilterProductMatch {
             shops_product_id: record.shops_product_id,
             product_id: record.product_id,
             origin_event_id: record.origin_event_id,
+            enhanced_match_reason: record.enhanced_match_reason.map(EnhancedMatchReason::from),
             created: record.created,
             updated: record.updated,
         }
@@ -83,6 +87,7 @@ impl From<SearchFilterProductMatch> for UserSearchFilterMatchRecord {
             shops_product_id: m.shops_product_id,
             product_id: m.product_id,
             origin_event_id: m.origin_event_id,
+            enhanced_match_reason: m.enhanced_match_reason.map(Into::into),
             created: m.created,
             updated: m.updated,
         }
@@ -111,6 +116,7 @@ mod faker {
                 shops_product_id,
                 product_id: config.fake_with_rng(rng),
                 origin_event_id: config.fake_with_rng(rng),
+                enhanced_match_reason: config.fake_with_rng(rng),
                 created,
                 updated: OffsetDateTime::now_utc(),
             }

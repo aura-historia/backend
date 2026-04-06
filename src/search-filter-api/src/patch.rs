@@ -78,6 +78,7 @@ mod tests {
                 .path_parameter("userSearchFilterId", UserSearchFilterId::new())
                 .body_serde(&PatchUserSearchFilterData {
                     name: Some("foo".into()),
+                    enhanced_search_description: Some("bar".into()),
                     notifications: None,
                     search: None,
                 })

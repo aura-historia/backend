@@ -153,6 +153,7 @@
             "userSearchFilterId": { "type": "keyword" },
             "userId": { "type": "keyword" },
             "name": { "type": "keyword" },
+            "enhancedSearchDescription": { "type": "keyword" },
             "query": { "type": "percolator" },
             "categoryId": { "type": "keyword" },
             "periodId": { "type": "keyword" },

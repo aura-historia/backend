@@ -33,6 +33,7 @@ time = { workspace = true }
 product = { workspace = true, features = ["test-data"] }
 search-filter = { workspace = true, features = ["test-data"] }
 notification = { workspace = true, features = ["test-data"] }
+user = { workspace = true, features = ["test-data"] }
 opensearch = { workspace = true }
 rstest = { workspace = true }
 serde = { workspace = true }

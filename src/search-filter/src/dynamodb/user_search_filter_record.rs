@@ -36,6 +36,9 @@ pub struct UserSearchFilterRecord {
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
     pub name: UserSearchFilterName,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enhanced_search_description: Option<String>,
+
     #[serde(default = "default_notifications")]
     pub notifications: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -122,6 +125,7 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
             user_id: record.user_id,
             user_search_filter_id: record.user_search_filter_id,
             name: record.name,
+            enhanced_search_description: record.enhanced_search_description.map(Into::into),
             notifications: record.notifications,
             search: ProductSearch {
                 language: record.language.into(),
@@ -186,6 +190,9 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
             user_id: user_search_filter.user_id,
             user_search_filter_id: user_search_filter.user_search_filter_id,
             name: user_search_filter.name,
+            enhanced_search_description: user_search_filter
+                .enhanced_search_description
+                .map(Into::into),
             notifications: user_search_filter.notifications,
             product_query: user_search_filter.search.product_query,
             category_id: user_search_filter.search.category_id.into(),
@@ -264,6 +271,7 @@ mod fake {
                 user_id,
                 user_search_filter_id: search_filter_id,
                 name: config.fake_with_rng(rng),
+                enhanced_search_description: config.fake_with_rng(rng),
                 notifications: true,
                 product_query: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),

@@ -1,3 +1,4 @@
+use crate::core::user_search_filter::EnhancedSearchDescription;
 use crate::core::user_search_filter::UserSearchFilter;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::core::{
@@ -17,6 +18,8 @@ pub struct UserSearchFilterDocument {
     pub user_search_filter_id: UserSearchFilterId,
     pub user_id: UserId,
     pub name: UserSearchFilterName,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enhanced_search_description: Option<String>,
     pub notifications: bool,
     pub query: ProductPercolatorQuery,
 
@@ -39,6 +42,9 @@ impl From<UserSearchFilterDocument> for UserSearchFilterSummary {
             user_search_filter_id: document.user_search_filter_id,
             user_id: document.user_id,
             name: document.name,
+            enhanced_search_description: document
+                .enhanced_search_description
+                .map(EnhancedSearchDescription::from),
             notifications: document.notifications,
             created: document.created,
             updated: document.updated,
@@ -56,6 +62,9 @@ impl TryFrom<UserSearchFilterRecord> for UserSearchFilterDocument {
             user_search_filter_id: user_search_filter.user_search_filter_id,
             user_id: user_search_filter.user_id,
             name: user_search_filter.name,
+            enhanced_search_description: user_search_filter
+                .enhanced_search_description
+                .map(Into::into),
             notifications: user_search_filter.notifications,
             query,
             created: user_search_filter.created,

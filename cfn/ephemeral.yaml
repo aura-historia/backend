@@ -2408,6 +2408,7 @@ Resources:
           COMMIT_SHA: !Sub "${CommitSHA}"
           OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
           LOCALSTACK_MAPPED_PORT: !Ref LocalStackMappedPort
+          GEMINI_API_KEY: "test-key"
   SearchFilterPercolateProductMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:

@@ -37,7 +37,12 @@ async fn should_return_actual_search_filter() {
         .unwrap();
 
     let expected = service
-        .create_user_search_filter(&user.user_id, Faker.fake(), Faker.fake::<ProductSearch>())
+        .create_user_search_filter(
+            &user.user_id,
+            Faker.fake(),
+            Faker.fake::<ProductSearch>(),
+            Faker.fake(),
+        )
         .await
         .unwrap();
     let lambda_event = LambdaEvent {
