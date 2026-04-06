@@ -72,6 +72,7 @@ fn setup_services(
         watchlist_repository,
         notification_service,
         user_service,
+        search_filter_repository,
     );
     let service = UserSearchFilterServiceImpl::new(search_filter_repository, user_service);
     (service, get_product_service, personalization_service)
