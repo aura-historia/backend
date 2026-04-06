@@ -58,7 +58,7 @@ mod faker {
                 name: config.fake_with_rng(rng),
                 notifications: true,
                 search: config.fake_with_rng(rng),
-                enhanced_search_description: config.fake_with_rng(rng),
+                enhanced_search_description: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -71,7 +71,7 @@ mod faker {
                 user_id: config.fake_with_rng(rng),
                 user_search_filter_id: config.fake_with_rng(rng),
                 name: config.fake_with_rng(rng),
-                enhanced_search_description: config.fake_with_rng(rng),
+                enhanced_search_description: None,
                 notifications: true,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
