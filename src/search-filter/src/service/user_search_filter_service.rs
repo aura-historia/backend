@@ -199,6 +199,11 @@ pub trait UserSearchFilterService {
         &self,
         product_matches: Vec<SearchFilterProductMatch>,
     ) -> Result<CreateSearchFilterProductMatchesResult, UserSearchFilterError>;
+
+    async fn count_user_search_filter_matches_for_this_month(
+        &self,
+        user_id: &UserId,
+    ) -> Result<u64, UserSearchFilterError>;
 }
 
 #[derive(Debug)]
@@ -610,6 +615,30 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             processed,
             unprocessed,
         })
+    }
+
+    async fn count_user_search_filter_matches_for_this_month(
+        &self,
+        user_id: &UserId,
+    ) -> Result<u64, UserSearchFilterError> {
+        let now = OffsetDateTime::now_utc();
+        let from = now
+            .replace_day(1)
+            .expect("day 1 is always valid")
+            .replace_hour(0)
+            .expect("hour 0 is always valid")
+            .replace_minute(0)
+            .expect("minute 0 is always valid")
+            .replace_second(0)
+            .expect("second 0 is always valid")
+            .replace_nanosecond(0)
+            .expect("nanosecond 0 is always valid");
+        let to = now;
+        let count = self
+            .repository
+            .count_user_search_filter_match_records_for_between(user_id, &from, &to)
+            .await?;
+        Ok(count)
     }
 }
 
