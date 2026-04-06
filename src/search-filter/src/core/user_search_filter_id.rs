@@ -1,4 +1,4 @@
-common::uuid_v7_newtype!(UserSearchFilterId);
+pub use common::user_search_filter_id::UserSearchFilterId;
 
 #[cfg(feature = "data")]
 pub mod api {

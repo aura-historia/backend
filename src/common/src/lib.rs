@@ -5,6 +5,7 @@ pub mod api;
 pub mod batch;
 pub mod category_key;
 pub mod domain;
+pub mod enhanced_match_reason;
 pub mod period_key;
 
 #[cfg(feature = "dynamodb")]
@@ -40,5 +41,6 @@ pub mod slug_id;
 pub mod sort;
 pub mod string_newtype;
 pub mod user_id;
+pub mod user_search_filter_id;
 pub mod uuid_newtype;
 pub mod year;

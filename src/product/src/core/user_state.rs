@@ -1,10 +1,13 @@
+use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
+use common::user_search_filter_id::UserSearchFilterId;
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ProductUserState {
     pub watchlist: WatchlistUserState,
     pub prohibited_content: ProhibitedContentUserState,
     pub notification: NotificationUserState,
+    pub search_filter: SearchFilterUserState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -33,6 +36,13 @@ impl Default for NotificationUserState {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SearchFilterUserState {
+    pub matched: bool,
+    pub user_search_filter_id: Option<UserSearchFilterId>,
+    pub match_reason: Option<EnhancedMatchReason>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -49,5 +59,21 @@ mod tests {
         let state = ProductUserState::default();
         assert!(state.notification.seen);
         assert!(state.notification.origin_event_id.is_none());
+    }
+
+    #[test]
+    fn should_default_search_filter_user_state_to_not_matched() {
+        let state = SearchFilterUserState::default();
+        assert!(!state.matched);
+        assert!(state.user_search_filter_id.is_none());
+        assert!(state.match_reason.is_none());
+    }
+
+    #[test]
+    fn should_default_product_user_state_search_filter_to_not_matched() {
+        let state = ProductUserState::default();
+        assert!(!state.search_filter.matched);
+        assert!(state.search_filter.user_search_filter_id.is_none());
+        assert!(state.search_filter.match_reason.is_none());
     }
 }

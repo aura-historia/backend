@@ -14,6 +14,8 @@ pub struct UserSearchFilterMatchRecord {
     pub pk: String,
     pub sk: String,
     pub lsi1_sk: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lsi2_sk: Option<String>,
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
     pub shop_id: ShopId,
@@ -54,6 +56,21 @@ pub fn mk_lsi1_sk(created: &OffsetDateTime) -> String {
     format!("search_filter_match#{:020}", created.unix_timestamp_nanos())
 }
 
+pub fn mk_lsi2_sk(
+    shop_id: &ShopId,
+    shops_product_id: &ShopsProductId,
+    created: &OffsetDateTime,
+) -> String {
+    format!(
+        "search_filter_match#shop_id#{shop_id}#shops_product_id#{shops_product_id}#{:020}",
+        created.unix_timestamp_nanos()
+    )
+}
+
+pub fn mk_lsi2_sk_prefix_product(shop_id: &ShopId, shops_product_id: &ShopsProductId) -> String {
+    format!("search_filter_match#shop_id#{shop_id}#shops_product_id#{shops_product_id}#")
+}
+
 /// Lower bound for the `lsi1_sk` of all search filter match records.
 pub const LSI1_SK_LOWER_BOUND: &str = "search_filter_match#";
 /// Upper bound for the `lsi1_sk` of all search filter match records.
@@ -81,6 +98,7 @@ impl From<SearchFilterProductMatch> for UserSearchFilterMatchRecord {
             pk: mk_pk(&m.user_id),
             sk: mk_sk(&m.user_search_filter_id, &m.shop_id, &m.shops_product_id),
             lsi1_sk: mk_lsi1_sk(&m.created),
+            lsi2_sk: Some(mk_lsi2_sk(&m.shop_id, &m.shops_product_id, &m.created)),
             user_id: m.user_id,
             user_search_filter_id: m.user_search_filter_id,
             shop_id: m.shop_id,
@@ -110,6 +128,7 @@ mod faker {
                 pk: mk_pk(&user_id),
                 sk: mk_sk(&search_filter_id, &shop_id, &shops_product_id),
                 lsi1_sk: mk_lsi1_sk(&created),
+                lsi2_sk: Some(mk_lsi2_sk(&shop_id, &shops_product_id, &created)),
                 user_id,
                 user_search_filter_id: search_filter_id,
                 shop_id,
@@ -166,5 +185,30 @@ mod tests {
         let suffix = lsi1_sk.strip_prefix("search_filter_match#").unwrap();
         assert_eq!(20, suffix.len());
         assert!(suffix.chars().all(|c| c.is_ascii_digit()));
+    }
+
+    #[test]
+    fn should_format_lsi2_sk_correctly() {
+        let shop_id = ShopId::new();
+        let shops_product_id = ShopsProductId::new();
+        let created = OffsetDateTime::now_utc();
+        let lsi2_sk = mk_lsi2_sk(&shop_id, &shops_product_id, &created);
+        let expected_prefix =
+            format!("search_filter_match#shop_id#{shop_id}#shops_product_id#{shops_product_id}#");
+        assert!(lsi2_sk.starts_with(&expected_prefix));
+        let suffix = lsi2_sk.strip_prefix(&expected_prefix).unwrap();
+        assert_eq!(20, suffix.len());
+        assert!(suffix.chars().all(|c| c.is_ascii_digit()));
+    }
+
+    #[test]
+    fn should_format_lsi2_sk_prefix_product_correctly() {
+        let shop_id = ShopId::new();
+        let shops_product_id = ShopsProductId::new();
+        let prefix = mk_lsi2_sk_prefix_product(&shop_id, &shops_product_id);
+        assert_eq!(
+            prefix,
+            format!("search_filter_match#shop_id#{shop_id}#shops_product_id#{shops_product_id}#")
+        );
     }
 }

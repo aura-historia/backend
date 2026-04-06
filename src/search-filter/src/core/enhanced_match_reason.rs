@@ -1,3 +1,1 @@
-use common::string_newtype;
-
-string_newtype!(EnhancedMatchReason);
+pub use common::enhanced_match_reason::EnhancedMatchReason;

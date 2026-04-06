@@ -105,13 +105,14 @@ One record per (user, product). LSI1 allows sorting by creation time; GSI1 allow
 
 ### Search Filter Match
 
-Records which products matched a user's saved search filter. LSI1 allows paginating matches sorted by creation time.
+Records which products matched a user's saved search filter. LSI1 allows paginating matches sorted by creation time. LSI2 allows querying all matches for a specific product.
 
 | Attribute | Pattern |
 |-----------|---------|
 | `pk` | `user#{user_id}` |
 | `sk` | `search_filter_match#search_filter#{search_filter_id}#shop_id#{shop_id}#shops_product_id#{shops_product_id}` |
 | `lsi1_sk` | `search_filter_match#{nanoseconds_20_digits}` |
+| `lsi2_sk` | `search_filter_match#shop_id#{shop_id}#shops_product_id#{shops_product_id}#{nanoseconds_20_digits}` _(sparse)_ |
 
 **Bounds for LSI1 range queries:**
 
@@ -179,7 +180,7 @@ Single global record, overwritten on every sync.
 | Index | PK | SK | Used by |
 |-------|----|----|---------|
 | `lsi1` | same as table PK | `lsi1_sk` | Watchlist (sort by created), Search Filter Match (sort by created), Notification (route by reason) |
-| `lsi2` | same as table PK | `lsi2_sk` | Notification (query by product) |
+| `lsi2` | same as table PK | `lsi2_sk` | Notification (query by product), Search Filter Match (query by product) |
 
 ### Global Secondary Indexes
 
