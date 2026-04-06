@@ -1194,14 +1194,14 @@ mod tests {
 
         assert_eq!(actual.len(), 2);
 
-        let state0 = actual[0].user_state.unwrap();
+        let state0 = actual[0].user_state.clone().unwrap();
         assert!(state0.watchlist.watching);
         assert!(state0.watchlist.notifications);
         assert!(!state0.prohibited_content.consent);
         assert!(state0.notification.seen);
         assert!(!state0.search_filter.matched);
 
-        let state1 = actual[1].user_state.unwrap();
+        let state1 = actual[1].user_state.clone().unwrap();
         assert!(!state1.watchlist.watching);
         assert!(!state1.watchlist.notifications);
         assert!(!state1.prohibited_content.consent);
@@ -1456,11 +1456,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(actual.len(), 2);
-        let state0 = actual[0].user_state.unwrap();
+        let state0 = actual[0].user_state.clone().unwrap();
         assert!(state0.matched);
         assert_eq!(state0.user_search_filter_id, Some(expected_filter_id));
 
-        let state1 = actual[1].user_state.unwrap();
+        let state1 = actual[1].user_state.clone().unwrap();
         assert!(!state1.matched);
         assert!(state1.user_search_filter_id.is_none());
     }

@@ -1128,7 +1128,7 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
     assert!(
         actual
             .iter()
-            .all(|actual| actual.user_state.unwrap().watchlist.watching)
+            .all(|actual| actual.user_state.clone().unwrap().watchlist.watching)
     );
 }
 

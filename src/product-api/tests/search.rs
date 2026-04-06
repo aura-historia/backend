@@ -1735,7 +1735,7 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
         PersonalizedData<GetProductSummaryData, ProductUserStateData>,
     > = serde_json::from_value(json).unwrap();
     assert!(response_data.items.iter().all(|item| {
-        let user_state = item.user_state.unwrap();
+        let user_state = item.user_state.clone().unwrap();
         !user_state.watchlist.notifications && !user_state.watchlist.watching
     }));
 }

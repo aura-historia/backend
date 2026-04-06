@@ -143,7 +143,7 @@ async fn should_respond_with_patched_notifications(
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(
         new_notifications,
-        patched.user_state.unwrap().watchlist.notifications
+        patched.user_state.clone().unwrap().watchlist.notifications
     );
 
     let updated_watchlist_product_record = watchlist_repository

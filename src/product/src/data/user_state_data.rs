@@ -2,7 +2,6 @@ use crate::core::user_state::{
     NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
     WatchlistUserState,
 };
-use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
 use common::user_search_filter_id::UserSearchFilterId;
 use serde::{Deserialize, Serialize};
@@ -105,6 +104,7 @@ impl From<SearchFilterUserState> for SearchFilterUserStateData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common::enhanced_match_reason::EnhancedMatchReason;
 
     #[test]
     fn should_serialize_product_user_state_data_with_notification() {
