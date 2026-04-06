@@ -24,7 +24,6 @@ tracing = { workspace = true, optional = true }
 aws-sdk-dynamodb = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 opensearch = { workspace = true, optional = true }
-user = { workspace = true, optional = true }
 llm = { workspace = true, features = ["google", "rustls-tls"], optional = true }
 
 [dev-dependencies]
