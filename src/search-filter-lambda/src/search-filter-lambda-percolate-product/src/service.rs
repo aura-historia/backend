@@ -1427,4 +1427,174 @@ mod tests {
             Some(EnhancedMatchReason::from("Confirmed match."))
         );
     }
+
+    // ---------------------------------------------------------------------------
+    // Quota enforcement tests
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn should_skip_filter_when_user_exceeds_search_filter_match_quota() {
+        let product: Product = Faker.fake();
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+        let user_id = UserId::new();
+        let summary = mk_filter_summary(user_id);
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| Box::pin(async move { Ok(vec![summary]) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(10) }));
+
+        let enhanced_service = mk_default_enhanced_match_service();
+
+        // Free tier user with quota of 10 — already at limit
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().returning(|_| {
+            Box::pin(async {
+                let mut user: user::core::user::User = Faker.fake();
+                user.tier = user::core::tier::UserTier::Free;
+                Ok(user)
+            })
+        });
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
+
+        let result = service.determine_notification_commands(event).await;
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_allow_filter_when_user_below_search_filter_match_quota() {
+        let product: Product = Faker.fake();
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+        let user_id = UserId::new();
+        let summary = mk_filter_summary(user_id);
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| Box::pin(async move { Ok(vec![summary]) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(9) }));
+
+        let enhanced_service = mk_default_enhanced_match_service();
+
+        // Free tier user with quota of 10 — 9 used, 1 remaining
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().returning(|_| {
+            Box::pin(async {
+                let mut user: user::core::user::User = Faker.fake();
+                user.tier = user::core::tier::UserTier::Free;
+                Ok(user)
+            })
+        });
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
+
+        let result = service.determine_notification_commands(event).await;
+
+        assert!(result.is_ok());
+        let cmds = result.unwrap();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].command.user_id, user_id);
+    }
+
+    #[tokio::test]
+    async fn should_skip_quota_exceeded_user_but_allow_other_users() {
+        let product: Product = Faker.fake();
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+
+        let free_user_id = UserId::new();
+        let pro_user_id = UserId::new();
+        let free_summary = mk_filter_summary(free_user_id);
+        let pro_summary = mk_filter_summary(pro_user_id);
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| Box::pin(async move { Ok(vec![free_summary, pro_summary]) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .times(2)
+            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
+
+        // Free user has 10 matches (at quota), Pro user has 100 matches (unlimited)
+        let free_uid = free_user_id;
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(move |uid| {
+                let count = if *uid == free_uid { 10 } else { 100 };
+                Box::pin(async move { Ok(count) })
+            });
+
+        let enhanced_service = mk_default_enhanced_match_service();
+
+        let free_uid2 = free_user_id;
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().returning(move |uid| {
+            let tier = if *uid == free_uid2 {
+                user::core::tier::UserTier::Free
+            } else {
+                user::core::tier::UserTier::Pro
+            };
+            Box::pin(async move {
+                let mut user: user::core::user::User = Faker.fake();
+                user.tier = tier;
+                Ok(user)
+            })
+        });
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
+
+        let result = service.determine_notification_commands(event).await;
+
+        assert!(result.is_ok());
+        let cmds = result.unwrap();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].command.user_id, pro_user_id);
+    }
 }

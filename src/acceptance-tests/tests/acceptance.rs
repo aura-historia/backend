@@ -5093,3 +5093,113 @@ async fn should_respond_200_for_partner_put_products_when_updating_existing() {
     let body: serde_json::Value = response.json().await.unwrap();
     assert!(body["errors"].as_object().unwrap().is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// Search-filter-match quota enforcement
+// Verifies that users who have reached their monthly search-filter-match quota
+// do not have additional match records counted beyond their limit.
+// ---------------------------------------------------------------------------
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_count_search_filter_matches_for_current_month_for_quota_enforcement() {
+    use search_filter::core::quota::SearchFilterQuota;
+    use search_filter::dynamodb::repository::{
+        UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
+    };
+    use search_filter::dynamodb::user_search_filter_match_record::{
+        UserSearchFilterMatchRecord, mk_lsi1_sk, mk_pk, mk_sk,
+    };
+    use search_filter::service::user_search_filter_service::{
+        UserSearchFilterService, UserSearchFilterServiceImpl,
+    };
+    use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
+    use user::service::user_service::{UserService, UserServiceImpl};
+
+    let ddb_client = get_dynamodb_client().await;
+    let search_filter_repo = UserSearchFilterDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let user_repo = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let user_service = UserServiceImpl::new(&user_repo);
+
+    // Create a Free tier user
+    let user_id = UserId::new();
+    let user = user_service
+        .create_user(user::service::command::CreateUserCommand {
+            id: user_id,
+            email: "quota-test@example.com".parse().unwrap(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(user.tier, UserTier::Free);
+    let free_quota = UserTier::Free.search_filter_match_quota();
+    assert_eq!(free_quota, 10);
+
+    let filter_id = common::user_search_filter_id::UserSearchFilterId::new();
+    let now = OffsetDateTime::now_utc();
+
+    // Insert exactly `free_quota` match records dated within the current month
+    for i in 0..free_quota {
+        let shop_id = common::shop_id::ShopId::new();
+        let shops_product_id = common::shops_product_id::ShopsProductId::new();
+        let created = now - time::Duration::hours(i as i64);
+        let mut record = Faker.fake::<UserSearchFilterMatchRecord>();
+        record.pk = mk_pk(&user_id);
+        record.sk = mk_sk(&filter_id, &shop_id, &shops_product_id);
+        record.lsi1_sk = mk_lsi1_sk(&created);
+        record.user_id = user_id;
+        record.user_search_filter_id = filter_id;
+        record.shop_id = shop_id;
+        record.shops_product_id = shops_product_id;
+        record.created = created;
+        record.updated = created;
+        search_filter_repo
+            .put_user_search_filter_match_record(record)
+            .await
+            .unwrap();
+    }
+
+    // Also insert a record from last month — should NOT be counted
+    let last_month = now
+        .replace_day(1)
+        .unwrap()
+        .replace_hour(0)
+        .unwrap()
+        .replace_minute(0)
+        .unwrap()
+        .replace_second(0)
+        .unwrap()
+        .replace_nanosecond(0)
+        .unwrap()
+        - time::Duration::seconds(1);
+    let shop_id = common::shop_id::ShopId::new();
+    let shops_product_id = common::shops_product_id::ShopsProductId::new();
+    let mut record = Faker.fake::<UserSearchFilterMatchRecord>();
+    record.pk = mk_pk(&user_id);
+    record.sk = mk_sk(&filter_id, &shop_id, &shops_product_id);
+    record.lsi1_sk = mk_lsi1_sk(&last_month);
+    record.user_id = user_id;
+    record.user_search_filter_id = filter_id;
+    record.shop_id = shop_id;
+    record.shops_product_id = shops_product_id;
+    record.created = last_month;
+    record.updated = last_month;
+    search_filter_repo
+        .put_user_search_filter_match_record(record)
+        .await
+        .unwrap();
+
+    // Service counts only this month's matches
+    let service = UserSearchFilterServiceImpl::new(&search_filter_repo, &user_service);
+    let match_count = service
+        .count_user_search_filter_matches_for_this_month(&user_id)
+        .await
+        .unwrap();
+
+    // The user should be at exactly the free quota (10 this-month records)
+    assert_eq!(match_count as u32, free_quota);
+
+    // Quota check: count >= quota means the user has reached their limit
+    assert!(
+        (match_count as u32) >= free_quota,
+        "Expected user to have reached the search-filter-match quota ({free_quota}), but count was {match_count}"
+    );
+}
