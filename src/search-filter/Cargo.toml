@@ -12,6 +12,8 @@ serde_fields = { workspace = true }
 uuid = { workspace = true, features = ["v7"] }
 mockall = { workspace = true }
 async-trait = { workspace = true }
+user = { workspace = true, features = ["dynamodb", "service"] }
+serde_dynamo = { workspace = true, features = [ "aws-sdk-dynamodb+1" ] }
 
 # Optional
 fake = { workspace = true, optional = true }
@@ -20,7 +22,6 @@ shop = { workspace = true, optional = true }
 field = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 aws-sdk-dynamodb = { workspace = true, optional = true }
-serde_dynamo = { workspace = true, features = [ "aws-sdk-dynamodb+1" ], optional = true }
 serde_json = { workspace = true, optional = true }
 opensearch = { workspace = true, optional = true }
 user = { workspace = true, optional = true }
@@ -38,9 +39,9 @@ user = { workspace = true, features = ["full"] }
 
 [features]
 default = []
-dynamodb = ["common/dynamodb", "product", "product/dynamodb", "shop/dynamodb", "field", "tracing", "aws-sdk-dynamodb", "serde_dynamo", "serde_dynamo/aws-sdk-dynamodb+1"]
+dynamodb = ["common/dynamodb", "product", "product/dynamodb", "shop/dynamodb", "field", "tracing", "aws-sdk-dynamodb", "serde_dynamo/aws-sdk-dynamodb+1"]
 opensearch = ["common/opensearch", "dynamodb", "product/opensearch", "shop/opensearch", "serde_json", "dep:opensearch"]
-service = ["common/dynamodb", "product", "product/opensearch", "shop", "user", "user/service", "llm", "tracing", "serde_json"]
+service = ["common/dynamodb", "product", "product/opensearch", "shop", "user/service", "user/dynamodb", "llm", "tracing", "serde_json"]
 data = ["product", "product/data", "shop/data"]
 test-data = ["fake", "common/test-data", "product/test-data", "shop/test-data", "user/test-data"]
 full = ["dynamodb", "opensearch", "service", "data", "test-data"]

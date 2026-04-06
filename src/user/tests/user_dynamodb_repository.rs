@@ -82,3 +82,31 @@ async fn should_update_user_record(#[case] user_record_update: UserRecordUpdate)
 
     assert_eq!(updated, actual);
 }
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_delete_user_record_when_exists() {
+    let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let record = Faker.fake::<UserRecord>();
+
+    let _ = repository.put_user_record(record.clone()).await.unwrap();
+
+    let before = repository.get_user_record(&record.user_id).await.unwrap();
+    assert!(before.is_some());
+
+    let _ = repository
+        .delete_user_record(&record.user_id)
+        .await
+        .unwrap();
+
+    let after = repository.get_user_record(&record.user_id).await.unwrap();
+    assert!(after.is_none());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_not_error_when_deleting_non_existent_user_record() {
+    let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+
+    let result = repository.delete_user_record(&Faker.fake()).await;
+
+    assert!(result.is_ok());
+}

@@ -3,13 +3,16 @@ use crate::core::user::User;
 use crate::dynamodb::repository::UserDynamoDbRepository;
 use crate::dynamodb::tier_record::UserTierRecord;
 use crate::dynamodb::user_record_update::UserRecordUpdate;
+use crate::service::cognito_admin_service::{CognitoAdminError, CognitoAdminService};
 use crate::service::command::{CreateUserCommand, UpdateUserCommand};
 use aws_sdk_dynamodb::error::SdkError;
 use common::currency::record::CurrencyRecord;
 use common::language::record::LanguageRecord;
 use common::user_id::UserId;
 use time::OffsetDateTime;
-use tracing::info;
+use tracing::{error, info, warn};
+
+const MAX_DELETE_RETRIES: u32 = 5;
 
 #[derive(thiserror::Error, Debug)]
 pub enum UserServiceError {
@@ -27,13 +30,22 @@ pub enum UserServiceError {
 
     #[error("Encountered DynamoDB SdkError for UpdateItem: {0}")]
     SdkUpdateItemError(#[from] SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError>),
+
+    #[error("Encountered DynamoDB SdkError for DeleteItem: {0}")]
+    SdkDeleteItemError(#[from] SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError>),
+
+    #[error("Failed to delete Cognito user: {0}")]
+    CognitoAdminError(#[from] CognitoAdminError),
+
+    #[error("Cognito admin service not configured")]
+    CognitoAdminServiceNotConfigured,
 }
 
 #[cfg(feature = "data")]
 pub mod api {
     use crate::service::user_service::UserServiceError;
     use common::api::error::ApiError;
-    use common::api::error_code::{USER_EXISTS_ALREADY, USER_NOT_FOUND};
+    use common::api::error_code::{INTERNAL_SERVER_ERROR, USER_EXISTS_ALREADY, USER_NOT_FOUND};
 
     impl From<UserServiceError> for ApiError {
         fn from(err: UserServiceError) -> Self {
@@ -47,6 +59,13 @@ pub mod api {
                 UserServiceError::SdkGetItemError(sdk_error) => sdk_error.into(),
                 UserServiceError::SdkPutItemError(sdk_error) => sdk_error.into(),
                 UserServiceError::SdkUpdateItemError(sdk_error) => sdk_error.into(),
+                UserServiceError::SdkDeleteItemError(sdk_error) => sdk_error.into(),
+                UserServiceError::CognitoAdminError(_) => {
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
+                }
+                UserServiceError::CognitoAdminServiceNotConfigured => {
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
+                }
             }
         }
     }
@@ -64,15 +83,31 @@ pub trait UserService {
         user_id: &UserId,
         cmd: UpdateUserCommand,
     ) -> Result<User, UserServiceError>;
+
+    async fn delete_user(&self, user_id: &UserId) -> Result<(), UserServiceError>;
 }
 
 pub struct UserServiceImpl<'a> {
     repository: &'a (dyn UserDynamoDbRepository + Sync),
+    cognito_admin_service: Option<&'a (dyn CognitoAdminService + Sync)>,
 }
 
 impl<'a> UserServiceImpl<'a> {
     pub fn new(repository: &'a (dyn UserDynamoDbRepository + Sync)) -> Self {
-        Self { repository }
+        Self {
+            repository,
+            cognito_admin_service: None,
+        }
+    }
+
+    pub fn with_cognito(
+        repository: &'a (dyn UserDynamoDbRepository + Sync),
+        cognito_admin_service: &'a (dyn CognitoAdminService + Sync),
+    ) -> Self {
+        Self {
+            repository,
+            cognito_admin_service: Some(cognito_admin_service),
+        }
     }
 }
 
@@ -145,6 +180,49 @@ impl<'a> UserService for UserServiceImpl<'a> {
             Ok(user)
         }
     }
+
+    async fn delete_user(&self, user_id: &UserId) -> Result<(), UserServiceError> {
+        let cognito = self
+            .cognito_admin_service
+            .ok_or(UserServiceError::CognitoAdminServiceNotConfigured)?;
+
+        cognito.admin_delete_user(user_id).await?;
+        info!(userId = %user_id, "Deleted Cognito user.");
+
+        let mut last_err = None;
+        for attempt in 1..=MAX_DELETE_RETRIES {
+            match self.repository.delete_user_record(user_id).await {
+                Ok(_) => {
+                    info!(userId = %user_id, "Deleted User.");
+                    return Ok(());
+                }
+                Err(err) => {
+                    if attempt < MAX_DELETE_RETRIES {
+                        warn!(
+                            userId = %user_id,
+                            attempt,
+                            error = %err,
+                            "Failed deleting user record from DynamoDB, retrying."
+                        );
+                        tokio::time::sleep(std::time::Duration::from_millis(
+                            100 * 2_u64.saturating_pow(attempt - 1),
+                        ))
+                        .await;
+                    } else {
+                        error!(
+                            userId = %user_id,
+                            attempt,
+                            error = %err,
+                            "Failed deleting user record from DynamoDB after max retries."
+                        );
+                    }
+                    last_err = Some(err);
+                }
+            }
+        }
+
+        Err(last_err.unwrap().into())
+    }
 }
 
 #[cfg(test)]
@@ -167,9 +245,7 @@ mod tests {
             repository
                 .expect_get_user_record()
                 .return_once(|_| Box::pin(async { Ok(None) }));
-            let service = UserServiceImpl {
-                repository: &repository,
-            };
+            let service = UserServiceImpl::new(&repository);
             let actual = service.find_user(&user_id).await;
 
             assert!(actual.is_err());
@@ -206,9 +282,7 @@ mod tests {
             repository
                 .expect_get_user_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
-            let service = UserServiceImpl {
-                repository: &repository,
-            };
+            let service = UserServiceImpl::new(&repository);
             let actual = service.find_user(&user_id).await;
 
             assert!(actual.is_err());
@@ -237,9 +311,7 @@ mod tests {
             repository
                 .expect_get_user_record()
                 .return_once(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
-            let service = UserServiceImpl {
-                repository: &repository,
-            };
+            let service = UserServiceImpl::new(&repository);
             let actual = service.create_user(cmd.clone()).await;
 
             assert!(actual.is_err());
@@ -275,9 +347,7 @@ mod tests {
             repository
                 .expect_get_user_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
-            let service = UserServiceImpl {
-                repository: &repository,
-            };
+            let service = UserServiceImpl::new(&repository);
             let actual = service.create_user(Faker.fake()).await;
 
             assert!(actual.is_err());
@@ -314,9 +384,7 @@ mod tests {
             repository
                 .expect_put_user_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
-            let service = UserServiceImpl {
-                repository: &repository,
-            };
+            let service = UserServiceImpl::new(&repository);
             let actual = service.create_user(Faker.fake()).await;
 
             assert!(actual.is_err());
@@ -336,9 +404,7 @@ mod tests {
             repository
                 .expect_put_user_record()
                 .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
-            let service = UserServiceImpl {
-                repository: &repository,
-            };
+            let service = UserServiceImpl::new(&repository);
             let actual = service.create_user(Faker.fake()).await.unwrap();
 
             assert!(!actual.prohibited_content_consent);
@@ -367,9 +433,7 @@ mod tests {
             repository
                 .expect_get_user_record()
                 .return_once(|_| Box::pin(async { Ok(None) }));
-            let service = UserServiceImpl {
-                repository: &repository,
-            };
+            let service = UserServiceImpl::new(&repository);
             let actual = service.update_user(&user_id, Faker.fake()).await;
 
             assert!(actual.is_err());
@@ -405,9 +469,7 @@ mod tests {
             repository
                 .expect_get_user_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
-            let service = UserServiceImpl {
-                repository: &repository,
-            };
+            let service = UserServiceImpl::new(&repository);
             let actual = service.update_user(&user_id, Faker.fake()).await;
 
             assert!(actual.is_err());
@@ -444,9 +506,7 @@ mod tests {
             repository
                 .expect_update_user_record()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
-            let service = UserServiceImpl {
-                repository: &repository,
-            };
+            let service = UserServiceImpl::new(&repository);
             let update = UpdateUserCommand {
                 first_name: Some("foo".into()),
                 last_name: None,
@@ -476,9 +536,7 @@ mod tests {
             repository
                 .expect_get_user_record()
                 .return_once(move |_| Box::pin(async move { Ok(Some(existing_record)) }));
-            let service = UserServiceImpl {
-                repository: &repository,
-            };
+            let service = UserServiceImpl::new(&repository);
             let actual = service
                 .update_user(&user_id, UpdateUserCommand::default())
                 .await
@@ -500,14 +558,136 @@ mod tests {
                     assert_eq!(Some(true), update.prohibited_content_consent);
                     Box::pin(async { Ok(Some(Faker.fake())) })
                 });
-            let service = UserServiceImpl {
-                repository: &repository,
-            };
+            let service = UserServiceImpl::new(&repository);
             let update = UpdateUserCommand {
                 prohibited_content_consent: Some(true),
                 ..Default::default()
             };
             let _ = service.update_user(&user_id, update).await.unwrap();
+        }
+    }
+
+    mod delete_user {
+        use crate::{
+            dynamodb::repository::MockUserDynamoDbRepository,
+            service::{
+                cognito_admin_service::{CognitoAdminError, MockCognitoAdminService},
+                user_service::{UserService, UserServiceError, UserServiceImpl},
+            },
+        };
+        use aws_sdk_dynamodb::{error::SdkError, operation::delete_item::DeleteItemOutput};
+        use common::user_id::UserId;
+
+        #[tokio::test]
+        async fn should_err_cognito_admin_service_not_configured_when_none() {
+            let repository = MockUserDynamoDbRepository::default();
+            let service = UserServiceImpl::new(&repository);
+            let actual = service.delete_user(&UserId::new()).await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                UserServiceError::CognitoAdminServiceNotConfigured => {}
+                other => {
+                    panic!(
+                        "expected UserServiceError::CognitoAdminServiceNotConfigured, got: {other}"
+                    )
+                }
+            }
+        }
+
+        #[tokio::test]
+        async fn should_delete_cognito_user_and_dynamodb_record() {
+            let user_id = UserId::new();
+            let mut repository = MockUserDynamoDbRepository::default();
+            repository
+                .expect_delete_user_record()
+                .return_once(|_| Box::pin(async { Ok(DeleteItemOutput::builder().build()) }));
+            let mut cognito = MockCognitoAdminService::default();
+            cognito
+                .expect_admin_delete_user()
+                .return_once(|_| Box::pin(async { Ok(()) }));
+            let service = UserServiceImpl::with_cognito(&repository, &cognito);
+
+            let actual = service.delete_user(&user_id).await;
+
+            assert!(actual.is_ok());
+        }
+
+        #[tokio::test]
+        async fn should_propagate_cognito_admin_error() {
+            let user_id = UserId::new();
+            let repository = MockUserDynamoDbRepository::default();
+            let mut cognito = MockCognitoAdminService::default();
+            cognito.expect_admin_delete_user().return_once(|_| {
+                Box::pin(async {
+                    Err(CognitoAdminError::AdminDeleteUser(
+                        "Something went wrong".into(),
+                    ))
+                })
+            });
+            let service = UserServiceImpl::with_cognito(&repository, &cognito);
+
+            let actual = service.delete_user(&user_id).await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                UserServiceError::CognitoAdminError(_) => {}
+                other => panic!("expected UserServiceError::CognitoAdminError, got: {other}"),
+            }
+        }
+
+        #[tokio::test]
+        async fn should_propagate_sdk_error_for_delete_after_retries() {
+            let user_id = UserId::new();
+            let mut repository = MockUserDynamoDbRepository::default();
+            repository.expect_delete_user_record().returning(move |_| {
+                Box::pin(async { Err(SdkError::construction_failure("Something went wrong")) })
+            });
+            let mut cognito = MockCognitoAdminService::default();
+            cognito
+                .expect_admin_delete_user()
+                .return_once(|_| Box::pin(async { Ok(()) }));
+            let service = UserServiceImpl::with_cognito(&repository, &cognito);
+
+            let actual = service.delete_user(&user_id).await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                UserServiceError::SdkDeleteItemError(_) => {}
+                other => {
+                    panic!("expected UserServiceError::SdkDeleteItemError, got: {other}")
+                }
+            }
+        }
+
+        #[tokio::test]
+        async fn should_succeed_on_retry_after_initial_failure() {
+            let user_id = UserId::new();
+            let call_count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+            let call_count_clone = call_count.clone();
+            let mut repository = MockUserDynamoDbRepository::default();
+            repository.expect_delete_user_record().returning(move |_| {
+                let count = call_count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if count == 0 {
+                    Box::pin(async { Err(SdkError::construction_failure("Transient failure")) })
+                } else {
+                    Box::pin(async { Ok(DeleteItemOutput::builder().build()) })
+                }
+            });
+            let mut cognito = MockCognitoAdminService::default();
+            cognito
+                .expect_admin_delete_user()
+                .return_once(|_| Box::pin(async { Ok(()) }));
+            let service = UserServiceImpl::with_cognito(&repository, &cognito);
+
+            let actual = service.delete_user(&user_id).await;
+
+            assert!(actual.is_ok());
+            assert_eq!(
+                2,
+                call_count.load(std::sync::atomic::Ordering::SeqCst),
+                "should have retried once"
+            );
         }
     }
 }
