@@ -95,25 +95,25 @@ fn demo_shops() -> Vec<RegisteredShop> {
     // rather than creating a new shop row every time the demo starts.
     vec![
         RegisteredShop {
-            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000001").unwrap(),
-            shop_name: "Antik Storys".to_string(),
-            shop_slug: "antik-storys".to_string(),
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000004").unwrap(),
+            shop_name: "Lotissimo".to_string(),
+            shop_slug: "lot-tissimo".to_string(),
             shop_type: ShopType::CommercialDealer,
-            domains: HashSet::from([Domain::try_from("antikstorys.com").unwrap()]),
+            domains: HashSet::from([Domain::try_from("lot-tissimo.com").unwrap()]),
         },
         RegisteredShop {
-            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000002").unwrap(),
-            shop_name: "Antik Shop".to_string(),
-            shop_slug: "antik-shop".to_string(),
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000005").unwrap(),
+            shop_name: "Antiquitäten Tübingen".to_string(),
+            shop_slug: "antiquitäten-tuebingen".to_string(),
             shop_type: ShopType::CommercialDealer,
-            domains: HashSet::from([Domain::try_from("antik-shop.de").unwrap()]),
+            domains: HashSet::from([Domain::try_from("antiquitaeten-tuebingen.de").unwrap()]),
         },
         RegisteredShop {
-            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000003").unwrap(),
-            shop_name: "Antixx".to_string(),
-            shop_slug: "antixx".to_string(),
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000006").unwrap(),
+            shop_name: "20th Century Militaria".to_string(),
+            shop_slug: "militaria".to_string(),
             shop_type: ShopType::CommercialDealer,
-            domains: HashSet::from([Domain::try_from("antixx.de").unwrap()]),
+            domains: HashSet::from([Domain::try_from("20thcenturymilitaria.com").unwrap()]),
         },
     ]
 }
@@ -146,12 +146,12 @@ async fn main() {
     // Build the cron config first so it can drive pool sizing below.
     let config = CrawlerCronConfig {
         spider_interval: Duration::from_secs(1200000000), // Demo: retry spider every 2 minutes
-        scraper_interval: Duration::from_secs(30),        // Demo: run scraper loop every 30 seconds
+        scraper_interval: Duration::from_secs(300000),    // Demo: run scraper loop every 30 seconds
         spider_batch_size: 5,
         scraper_batch_size: 100,
         spider_concurrency: 3,
         scraper_concurrency: 5,
-        spider_classify_threshold: 100,
+        spider_classify_threshold: 400,
         ..Default::default()
     };
 

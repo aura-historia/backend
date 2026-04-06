@@ -88,7 +88,7 @@ pub struct ProductCssSelectorSchema {
 }
 
 /// Errors that can occur when applying a [`ProductCssSelectorSchema`] to an HTML document.
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum ApplySchemaError {
     #[error("failed to extract `shops_product_id`: {0}")]
     ShopsProductId(#[source] ExtractionError),

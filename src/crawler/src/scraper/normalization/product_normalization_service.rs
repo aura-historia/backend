@@ -151,7 +151,6 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
 #[cfg(test)]
 mod tests {
     use time::macros::datetime;
-    use tracing::debug;
     use url::Url;
 
     use common::{
