@@ -2,7 +2,7 @@
 //!
 //! # Overview
 //!
-//! After a product URL is scraped and normalised into a [`NormalizedProduct`], it must be
+//! After a product URL is scraped and normalized into a [`NormalizedProduct`], it must be
 //! forwarded to the product backend so that it can be created or updated in the data store.
 //! This module provides:
 //!
@@ -100,7 +100,7 @@ impl FileProductPushService {
     }
 }
 
-/// Serialisable snapshot of a single upsert command, used only for demo/file output.
+/// Serializable snapshot of a single upsert command, used only for demo/file output.
 ///
 /// Captures the full product payload so that the JSON written to disk is a faithful
 /// representation of what would be sent to DynamoDB in production.  This includes title,

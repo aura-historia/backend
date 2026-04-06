@@ -145,8 +145,8 @@ async fn main() {
 
     // Build the cron config first so it can drive pool sizing below.
     let config = CrawlerCronConfig {
-        spider_interval: Duration::from_secs(120), // Demo: retry spider every 2 minutes
-        scraper_interval: Duration::from_secs(30), // Demo: run scraper loop every 30 seconds
+        spider_interval: Duration::from_secs(1200000000), // Demo: retry spider every 2 minutes
+        scraper_interval: Duration::from_secs(30),        // Demo: run scraper loop every 30 seconds
         spider_batch_size: 5,
         scraper_batch_size: 100,
         spider_concurrency: 3,

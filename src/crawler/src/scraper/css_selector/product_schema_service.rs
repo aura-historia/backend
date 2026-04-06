@@ -111,9 +111,21 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
             ProductSchemaServiceError::NoTextResponse("Expected text response".to_string())
         })?;
 
-        let schema = serde_json::from_str(strip_markdown_json_embedding(&res))
-            .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?;
-        info!("LLM created new product CSS selector schema");
+        let schema: ProductCssSelectorSchema =
+            serde_json::from_str(strip_markdown_json_embedding(&res))
+                .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?;
+        info!(
+            shops_product_id_selector = %schema.shops_product_id.selector,
+            title_selector = %schema.title.selector,
+            state_selector = %schema.state.selector,
+            images_selector = %schema.images.selector,
+            has_price = schema.price.is_some(),
+            has_price_estimate_min = schema.price_estimate_min.is_some(),
+            has_price_estimate_max = schema.price_estimate_max.is_some(),
+            has_auction_start = schema.auction_start.is_some(),
+            has_auction_end = schema.auction_end.is_some(),
+            "LLM created new product CSS selector schema"
+        );
         Ok(schema)
     }
 
@@ -185,7 +197,17 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
                 &text,
             )) {
                 Ok(fixed_schema) => {
-                    info!(attempt, "LLM successfully produced a fixed product schema");
+                    info!(
+                        attempt,
+                        shops_product_id_selector = %fixed_schema.shops_product_id.selector,
+                        title_selector = %fixed_schema.title.selector,
+                        state_selector = %fixed_schema.state.selector,
+                        images_selector = %fixed_schema.images.selector,
+                        has_price = fixed_schema.price.is_some(),
+                        has_price_estimate_min = fixed_schema.price_estimate_min.is_some(),
+                        has_price_estimate_max = fixed_schema.price_estimate_max.is_some(),
+                        "LLM successfully produced a fixed product schema"
+                    );
                     return Ok(fixed_schema);
                 }
                 Err(parse_err) => {

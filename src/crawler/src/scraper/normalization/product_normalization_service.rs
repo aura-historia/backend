@@ -13,6 +13,7 @@ use crate::scraper::normalization::{
 
 use common::product_state::domain::ProductState;
 
+use tracing::debug;
 use url::Url;
 
 // ---------------------------------------------------------------------------
@@ -57,6 +58,20 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
         raw: RawExtractedProduct,
         url: Url,
     ) -> Result<NormalizedProduct, NormalizationError> {
+        debug!(
+            url = %url,
+            shops_product_id = %raw.shops_product_id,
+            title = %raw.title,
+            state = %raw.state,
+            price = ?raw.price,
+            price_estimate_min = ?raw.price_estimate_min,
+            price_estimate_max = ?raw.price_estimate_max,
+            images_count = raw.images.len(),
+            has_description = !raw.description.is_empty(),
+            has_auction_start = raw.auction_start.is_some(),
+            has_auction_end = raw.auction_end.is_some(),
+            "Normalizing raw extracted product"
+        );
         // Resolve state first — this is the only async step.
         let state_record = self
             .state_mapping_service
@@ -79,6 +94,11 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
         // when the raw price string contains no currency symbol or ISO code
         // (e.g. bare "18,00" on a German site where EUR is implied).
         let fallback_currency = infer_currency_from_url(&url);
+        debug!(
+            url = %url,
+            fallback_currency = ?fallback_currency,
+            "TLD-inferred fallback currency for price normalization"
+        );
 
         let price = normalize_price_field(
             raw.price,
@@ -131,6 +151,7 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
 #[cfg(test)]
 mod tests {
     use time::macros::datetime;
+    use tracing::debug;
     use url::Url;
 
     use common::{

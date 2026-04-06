@@ -1,4 +1,4 @@
-use crate::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
+﻿use crate::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
 use crate::scraper::normalization::state_mapping_repository::ProductStateMappingRepository;
 use common::product_state::domain::ProductState;
 use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
@@ -240,6 +240,12 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
         let parsed = parse_llm_response(&res)
             .ok_or_else(|| StateMappingServiceError::UnparsableResponse(res.clone()))?;
+        debug!(
+            raw = %key,
+            llm_response = %res,
+            mapping_type = ?parsed,
+            "LLM state mapping response parsed successfully"
+        );
 
         let now = OffsetDateTime::now_utc();
         let record = match parsed {

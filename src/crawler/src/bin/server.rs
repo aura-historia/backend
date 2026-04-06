@@ -2,7 +2,7 @@
 //!
 //! Wires all dependencies (Postgres, OpenSearch, DynamoDB, LLM) and starts the
 //! [`CrawlerCronJob`] loop that continuously spiders shop websites, scrapes product pages,
-//! and pushes normalised products to DynamoDB via [`CommandProductServiceImpl`].
+//! and pushes normalized products to DynamoDB via [`CommandProductServiceImpl`].
 //!
 //! # Connection pool sizing
 //!

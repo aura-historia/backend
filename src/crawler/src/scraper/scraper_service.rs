@@ -298,7 +298,21 @@ impl ScraperService for ScraperServiceImpl {
             let parsed_html = Html::parse_document(&html);
             match schema.apply(&parsed_html) {
                 Ok(raw) => {
-                    debug!(domain, url = %url, "Schema applied successfully");
+                    debug!(
+                        domain,
+                        url = %url,
+                        shops_product_id = %raw.shops_product_id,
+                        title = %raw.title,
+                        state = %raw.state,
+                        price = ?raw.price,
+                        price_estimate_min = ?raw.price_estimate_min,
+                        price_estimate_max = ?raw.price_estimate_max,
+                        images_count = raw.images.len(),
+                        has_description = !raw.description.is_empty(),
+                        has_auction_start = raw.auction_start.is_some(),
+                        has_auction_end = raw.auction_end.is_some(),
+                        "Schema applied successfully"
+                    );
                     ApplyOutcome::Ok(raw)
                 }
                 Err(apply_error) => {
