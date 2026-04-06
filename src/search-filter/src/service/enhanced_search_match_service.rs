@@ -49,7 +49,7 @@ impl EnhancedSearchMatchServiceImpl {
                 The reason must be compact and user-facing. Keep it to one or two sentences.",
             )
             .build()
-            .expect("shouldn't fail building LLM provider");
+            .expect("Failed to initialize LLM provider with valid configuration");
         Self { llm }
     }
 }
@@ -71,7 +71,7 @@ impl EnhancedSearchMatchService for EnhancedSearchMatchServiceImpl {
             language = language.format_human_readable(),
         );
 
-        debug!("Requesting enhanced search match evaluation from Gemini API.");
+        debug!("Requesting enhanced search match evaluation.");
 
         let response = self
             .llm
