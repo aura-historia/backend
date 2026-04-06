@@ -11,10 +11,14 @@ pub enum EnhancedSearchMatchError {
     InvalidResponse(String),
 }
 
+/// Result of an enhanced search match evaluation.
+///
+/// When the product matches, `reason` contains a compact user-facing explanation.
+/// When the product does not match, `reason` is `None`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnhancedSearchMatchResult {
     pub matches: bool,
-    pub reason: EnhancedMatchReason,
+    pub reason: Option<EnhancedMatchReason>,
 }
 
 #[async_trait::async_trait]
@@ -42,10 +46,12 @@ impl EnhancedSearchMatchServiceImpl {
             .system(
                 "You are a product matching assistant for an antiques marketplace. \
                 Given a user's search description and a product's title and description, \
-                determine whether the product matches what the user is looking for. \
-                Respond ONLY with exactly two lines:\n\
-                match: <yes|no>\n\
+                determine whether the product matches what the user is looking for.\n\n\
+                If the product matches, respond with exactly two lines:\n\
+                match: yes\n\
                 reason: <short explanation in the user's preferred language>\n\n\
+                If the product does NOT match, respond with exactly one line:\n\
+                match: no\n\n\
                 The reason must be compact and user-facing. Keep it to one or two sentences.",
             )
             .build()
@@ -102,16 +108,24 @@ fn parse_enhanced_match_response(
         }
     }
 
-    match (match_decision, reason) {
-        (Some(matches), Some(reason)) => Ok(EnhancedSearchMatchResult {
-            matches,
-            reason: EnhancedMatchReason::from(reason),
+    match match_decision {
+        Some(true) => {
+            let reason = reason.ok_or_else(|| {
+                EnhancedSearchMatchError::InvalidResponse(format!(
+                    "Match is 'yes' but no reason provided in response: {response}"
+                ))
+            })?;
+            Ok(EnhancedSearchMatchResult {
+                matches: true,
+                reason: Some(EnhancedMatchReason::from(reason)),
+            })
+        }
+        Some(false) => Ok(EnhancedSearchMatchResult {
+            matches: false,
+            reason: None,
         }),
-        (None, _) => Err(EnhancedSearchMatchError::InvalidResponse(format!(
+        None => Err(EnhancedSearchMatchError::InvalidResponse(format!(
             "Could not parse match decision from response: {response}"
-        ))),
-        (_, None) => Err(EnhancedSearchMatchError::InvalidResponse(format!(
-            "Could not parse reason from response: {response}"
         ))),
     }
 }
@@ -125,47 +139,48 @@ mod tests {
     #[case(
         "match: yes\nreason: The product matches the description.",
         true,
-        "The product matches the description."
+        Some("The product matches the description.")
     )]
+    #[case("match: no", false, None)]
     #[case(
-        "match: no\nreason: The product does not match.",
-        false,
-        "The product does not match."
+        "match: YES\nreason: Exact match found.",
+        true,
+        Some("Exact match found.")
     )]
-    #[case("match: YES\nreason: Exact match found.", true, "Exact match found.")]
-    #[case(
-        "match: No\nreason: Missing key features.",
-        false,
-        "Missing key features."
-    )]
+    #[case("match: No", false, None)]
     #[case(
         "  match: yes  \n  reason: Passt perfekt zur Beschreibung.  ",
         true,
-        "Passt perfekt zur Beschreibung."
+        Some("Passt perfekt zur Beschreibung.")
     )]
     #[case(
         "match: yes\nreason: Le produit correspond à la description.",
         true,
-        "Le produit correspond à la description."
+        Some("Le produit correspond à la description.")
     )]
+    #[case("match: no\nreason: Ignored reason for non-match.", false, None)]
+    #[case("match: NO", false, None)]
     fn should_parse_valid_response(
         #[case] response: &str,
         #[case] expected_matches: bool,
-        #[case] expected_reason: &str,
+        #[case] expected_reason: Option<&str>,
     ) {
         let result = parse_enhanced_match_response(response).unwrap();
         assert_eq!(result.matches, expected_matches);
-        assert_eq!(result.reason, EnhancedMatchReason::from(expected_reason));
+        assert_eq!(
+            result.reason,
+            expected_reason.map(EnhancedMatchReason::from)
+        );
     }
 
     #[rstest]
+    #[case("match: yes", "no reason provided")]
+    #[case("invalid response", "Could not parse match decision")]
+    #[case("", "Could not parse match decision")]
     #[case(
         "reason: Some reason without match line.",
         "Could not parse match decision"
     )]
-    #[case("match: yes", "Could not parse reason")]
-    #[case("invalid response", "Could not parse match decision")]
-    #[case("", "Could not parse match decision")]
     fn should_fail_parsing_invalid_response(
         #[case] response: &str,
         #[case] expected_error_contains: &str,
@@ -180,27 +195,32 @@ mod tests {
     }
 
     #[test]
-    fn should_return_matches_true_for_matching_product() {
+    fn should_return_match_with_reason_for_matching_product() {
         let response = "match: yes\nreason: Goldene Manschettenknöpfe mit 800er Silber und 24K Goldauflage gefunden.";
         let result = parse_enhanced_match_response(response).unwrap();
         assert!(result.matches);
         assert_eq!(
             result.reason,
-            EnhancedMatchReason::from(
+            Some(EnhancedMatchReason::from(
                 "Goldene Manschettenknöpfe mit 800er Silber und 24K Goldauflage gefunden."
-            )
+            ))
         );
     }
 
     #[test]
-    fn should_return_matches_false_for_non_matching_product() {
+    fn should_return_no_match_without_reason_for_non_matching_product() {
+        let response = "match: no";
+        let result = parse_enhanced_match_response(response).unwrap();
+        assert!(!result.matches);
+        assert_eq!(result.reason, None);
+    }
+
+    #[test]
+    fn should_discard_reason_when_match_is_no() {
         let response = "match: no\nreason: El producto es una pulsera, no gemelos.";
         let result = parse_enhanced_match_response(response).unwrap();
         assert!(!result.matches);
-        assert_eq!(
-            result.reason,
-            EnhancedMatchReason::from("El producto es una pulsera, no gemelos.")
-        );
+        assert_eq!(result.reason, None);
     }
 
     #[test]
@@ -210,7 +230,20 @@ mod tests {
         assert!(result.matches);
         assert_eq!(
             result.reason,
-            EnhancedMatchReason::from("Perfect match for the criteria.")
+            Some(EnhancedMatchReason::from("Perfect match for the criteria."))
+        );
+    }
+
+    #[test]
+    fn should_error_when_match_yes_but_no_reason() {
+        let response = "match: yes";
+        let result = parse_enhanced_match_response(response);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("no reason provided")
         );
     }
 }
