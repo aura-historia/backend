@@ -6,14 +6,12 @@ use common::{
         error_code::BAD_BODY_VALUE,
     },
     user_id::api::extract_user_id_request_context,
+    user_search_filter_id::api::extract_user_search_filter_id_path,
 };
 use lambda_runtime::LambdaEvent;
-use search_filter::core::user_search_filter_id::api::extract_user_search_filter_id_path;
+use search_filter::core::user_search_filter_update::UserSearchFilterUpdate;
 use search_filter::data::user_search_filter_data::UserSearchFilterData;
-use search_filter::service::{
-    user_search_filter_service::UserSearchFilterService,
-    user_search_filter_update::UserSearchFilterUpdate,
-};
+use search_filter::service::user_search_filter_service::UserSearchFilterService;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
@@ -59,11 +57,11 @@ pub async fn handle(
 mod tests {
     use crate::{handler, patch::PatchUserSearchFilterData};
     use common::user_id::UserId;
+    use common::user_search_filter_id::UserSearchFilterId;
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
     use product::service::get_service::MockGetProductService;
     use product_personalization::service::MockProductPersonalizationService;
-    use search_filter::core::user_search_filter_id::UserSearchFilterId;
     use search_filter::service::user_search_filter_service::{
         MockUserSearchFilterService, UserSearchFilterError,
     };
@@ -78,6 +76,7 @@ mod tests {
                 .path_parameter("userSearchFilterId", UserSearchFilterId::new())
                 .body_serde(&PatchUserSearchFilterData {
                     name: Some("foo".into()),
+                    enhanced_search_description: Some("bar".into()),
                     notifications: None,
                     search: None,
                 })

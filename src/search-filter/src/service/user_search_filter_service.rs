@@ -1,17 +1,20 @@
+use crate::core::quota::SearchFilterQuota;
 use crate::core::search_filter_product_match::SearchFilterProductMatch;
 use crate::core::sort_search_filter_match_field::SortSearchFilterMatchField;
-use crate::core::user_search_filter::{UserSearchFilter, UserSearchFilterSummary};
-use crate::core::user_search_filter_id::UserSearchFilterId;
+use crate::core::user_search_filter::{
+    EnhancedSearchDescription, UserSearchFilter, UserSearchFilterSummary,
+};
 use crate::core::user_search_filter_name::UserSearchFilterName;
+use crate::core::user_search_filter_update::UserSearchFilterUpdate;
 use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
 use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
-use crate::service::user_search_filter_update::UserSearchFilterUpdate;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::batch::Batch;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::sort::Sort;
+use common::user_search_filter_id::UserSearchFilterId;
 use common::{sort::SortOrder, user_id::UserId};
-use product::core::product_search::ProductSearch;
+use product::core::product_search::{ProductSearch, ProductSearchSerdeField};
 use product::opensearch::product_document::ProductDocument;
 use time::OffsetDateTime;
 use tracing::{error, info};
@@ -62,7 +65,12 @@ pub enum UserSearchFilterError {
     #[error(
         "Exceeded the maximum amount of search filters. There are already {0}/{1} search filters occupied."
     )]
-    SearchFilterQuotaExceeded(u32, usize),
+    SearchFilterQuotaExceeded(u32, u32),
+
+    #[error(
+        "Search filter contains forbidden search field '{0}' which requires a higher user tier."
+    )]
+    SearchFilterFeatureForbidden(ProductSearchSerdeField),
 
     #[error("UserServiceError: {0}")]
     UserServiceError(UserServiceError),
@@ -74,7 +82,7 @@ pub mod api {
     use common::api::error::ApiError;
     use common::api::error_code::{
         INTERNAL_SERVER_ERROR, SEARCH_FILTER_NOT_FOUND, SEARCH_FILTER_QUOTA_EXCEEDED,
-        USER_NOT_FOUND,
+        SEARCH_FILTER_RESTRICTED_FEATURE, USER_NOT_FOUND,
     };
 
     impl From<UserSearchFilterError> for ApiError {
@@ -100,6 +108,9 @@ pub mod api {
                 }
                 UserSearchFilterError::SearchFilterQuotaExceeded(_, _) => {
                     ApiError::unprocessable_entity(SEARCH_FILTER_QUOTA_EXCEEDED, Box::new(err))
+                }
+                UserSearchFilterError::SearchFilterFeatureForbidden(_) => {
+                    ApiError::unprocessable_entity(SEARCH_FILTER_RESTRICTED_FEATURE, Box::new(err))
                 }
                 UserSearchFilterError::UserServiceError(_) => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
@@ -129,6 +140,7 @@ pub trait UserSearchFilterService {
         user_id: &UserId,
         name: UserSearchFilterName,
         search_filter: ProductSearch,
+        enhanced_search_description: Option<EnhancedSearchDescription>,
     ) -> Result<UserSearchFilter, UserSearchFilterError>;
 
     async fn delete_user_search_filter(
@@ -187,6 +199,11 @@ pub trait UserSearchFilterService {
         &self,
         product_matches: Vec<SearchFilterProductMatch>,
     ) -> Result<CreateSearchFilterProductMatchesResult, UserSearchFilterError>;
+
+    async fn count_user_search_filter_matches_for_this_month(
+        &self,
+        user_id: &UserId,
+    ) -> Result<u64, UserSearchFilterError>;
 }
 
 #[derive(Debug)]
@@ -274,6 +291,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
         user_id: &UserId,
         name: UserSearchFilterName,
         search: ProductSearch,
+        enhanced_search_description: Option<EnhancedSearchDescription>,
     ) -> Result<UserSearchFilter, UserSearchFilterError> {
         let user: User = self
             .user_service
@@ -284,13 +302,13 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
                 other => UserSearchFilterError::UserServiceError(other),
             })?;
 
-        let limit = user.tier.search_filter_limit();
+        let limit = user.tier.search_filter_quota();
         let filter_count = self
             .repository
             .query_user_search_filter_records(user_id, true)
             .await?
             .len();
-        if filter_count >= limit {
+        if filter_count as u32 >= limit {
             return Err(UserSearchFilterError::SearchFilterQuotaExceeded(
                 filter_count as u32,
                 limit,
@@ -301,11 +319,17 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             user_id: *user_id,
             user_search_filter_id: UserSearchFilterId::new(),
             name,
+            enhanced_search_description,
             notifications: true,
             search,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };
+
+        let () = user
+            .tier
+            .check_search_filter_features(&user_search_filter.search)
+            .map_err(UserSearchFilterError::SearchFilterFeatureForbidden)?;
 
         let _ = self
             .repository
@@ -340,6 +364,19 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
         user_search_filter_id: &UserSearchFilterId,
         update: UserSearchFilterUpdate,
     ) -> Result<UserSearchFilter, UserSearchFilterError> {
+        let user: User = self
+            .user_service
+            .find_user(user_id)
+            .await
+            .map_err(|e| match e {
+                UserServiceError::UserNotFound(id) => UserSearchFilterError::UserNotFound(id),
+                other => UserSearchFilterError::UserServiceError(other),
+            })?;
+        let () = user
+            .tier
+            .check_search_filter_update_features(&update)
+            .map_err(UserSearchFilterError::SearchFilterFeatureForbidden)?;
+
         // exists guard
         let _ = self
             .find_user_search_filter(user_id, user_search_filter_id)
@@ -579,6 +616,30 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             unprocessed,
         })
     }
+
+    async fn count_user_search_filter_matches_for_this_month(
+        &self,
+        user_id: &UserId,
+    ) -> Result<u64, UserSearchFilterError> {
+        let now = OffsetDateTime::now_utc();
+        let from = now
+            .replace_day(1)
+            .expect("day 1 is always valid")
+            .replace_hour(0)
+            .expect("hour 0 is always valid")
+            .replace_minute(0)
+            .expect("minute 0 is always valid")
+            .replace_second(0)
+            .expect("second 0 is always valid")
+            .replace_nanosecond(0)
+            .expect("nanosecond 0 is always valid");
+        let to = now;
+        let count = self
+            .repository
+            .count_user_search_filter_match_records_for_between(user_id, &from, &to)
+            .await?;
+        Ok(count)
+    }
 }
 
 fn extract_failed_sort_keys(
@@ -680,7 +741,6 @@ mod tests {
     }
 
     mod find_search_filter {
-        use crate::core::user_search_filter_id::UserSearchFilterId;
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::service::user_search_filter_service::{
             UserSearchFilterError, UserSearchFilterService, UserSearchFilterServiceImpl,
@@ -690,6 +750,7 @@ mod tests {
             error::{ConnectorError, SdkError},
         };
         use common::user_id::UserId;
+        use common::user_search_filter_id::UserSearchFilterId;
         use fake::{Fake, Faker};
 
         #[tokio::test]
@@ -772,6 +833,7 @@ mod tests {
     }
 
     mod create_search_filter {
+        use crate::core::quota::SearchFilterQuota;
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::service::user_search_filter_service::{
             UserSearchFilterError, UserSearchFilterService, UserSearchFilterServiceImpl,
@@ -783,6 +845,7 @@ mod tests {
         };
         use common::user_id::UserId;
         use fake::{Fake, Faker};
+        use user::core::user::User;
         use user::service::user_service::{MockUserService, UserServiceError};
 
         #[tokio::test]
@@ -804,7 +867,7 @@ mod tests {
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake())
+                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), Faker.fake())
                 .await;
             assert!(actual.is_ok());
         }
@@ -846,7 +909,7 @@ mod tests {
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake())
+                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), Faker.fake())
                 .await;
 
             assert!(actual.is_err());
@@ -863,26 +926,30 @@ mod tests {
             let mut repository = MockUserSearchFilterDynamoDbRepository::default();
             let mut user_service = MockUserService::default();
 
-            user_service
-                .expect_find_user()
-                .return_once(|_| Box::pin(async { Ok(fake::Fake::fake(&fake::Faker)) }));
+            user_service.expect_find_user().return_once(|_| {
+                Box::pin(async {
+                    let mut user: User = fake::Fake::fake(&fake::Faker);
+                    user.tier = user::core::tier::UserTier::Free;
+                    Ok(user)
+                })
+            });
 
-            let limit = user::core::tier::UserTier::Free.search_filter_limit();
+            let limit = user::core::tier::UserTier::Free.search_filter_quota();
             repository
                 .expect_query_user_search_filter_records()
                 .return_once(move |_, _| {
-                    Box::pin(async move { Ok(fake::vec![UserSearchFilterRecord; limit]) })
+                    Box::pin(async move { Ok(fake::vec![UserSearchFilterRecord; limit as usize]) })
                 });
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake())
+                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), Faker.fake())
                 .await
                 .unwrap_err();
 
             match actual {
                 UserSearchFilterError::SearchFilterQuotaExceeded(actual_count, actual_limit) => {
-                    assert_eq!(limit, actual_count as usize);
+                    assert_eq!(limit, actual_count);
                     assert_eq!(limit, actual_limit);
                 }
                 err => panic!(
@@ -902,7 +969,7 @@ mod tests {
             let repository = MockUserSearchFilterDynamoDbRepository::default();
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&user_id, Faker.fake(), Faker.fake())
+                .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
                 .await
                 .unwrap_err();
 
@@ -913,10 +980,93 @@ mod tests {
                 err => panic!("Expected 'UserSearchFilterError::UserNotFound' but got '{err}'"),
             }
         }
+
+        #[tokio::test]
+        async fn should_err_search_filter_feature_forbidden_when_free_tier_creates_with_forbidden_features()
+         {
+            use crate::core::quota::SearchFilterQuota;
+            use product::core::product_search::ProductSearch;
+            use user::core::user::User;
+
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            let mut user_service = MockUserService::default();
+
+            user_service.expect_find_user().return_once(|_| {
+                Box::pin(async {
+                    let mut user: User = fake::Fake::fake(&fake::Faker);
+                    user.tier = user::core::tier::UserTier::Free;
+                    Ok(user)
+                })
+            });
+
+            repository
+                .expect_query_user_search_filter_records()
+                .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
+
+            // Generate searches until we find one with forbidden features for Free tier
+            let search: ProductSearch = (0..100)
+                .find_map(|_| {
+                    let s: ProductSearch = Faker.fake();
+                    if user::core::tier::UserTier::Free
+                        .check_search_filter_features(&s)
+                        .is_err()
+                    {
+                        Some(s)
+                    } else {
+                        None
+                    }
+                })
+                .expect("Should generate a search with forbidden features");
+
+            let actual = service
+                .create_user_search_filter(&UserId::new(), Faker.fake(), search, Faker.fake())
+                .await
+                .unwrap_err();
+
+            match actual {
+                UserSearchFilterError::SearchFilterFeatureForbidden(_) => {}
+                err => panic!(
+                    "Expected 'UserSearchFilterError::SearchFilterFeatureForbidden' but got '{err}'"
+                ),
+            }
+        }
+
+        #[tokio::test]
+        async fn should_allow_pro_tier_to_use_all_features() {
+            use user::core::user::User;
+
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            let mut user_service = MockUserService::default();
+
+            user_service.expect_find_user().return_once(|_| {
+                Box::pin(async {
+                    let mut user: User = fake::Fake::fake(&fake::Faker);
+                    user.tier = user::core::tier::UserTier::Pro;
+                    Ok(user)
+                })
+            });
+
+            repository
+                .expect_query_user_search_filter_records()
+                .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+
+            repository
+                .expect_put_user_search_filter_record()
+                .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
+
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
+
+            let actual = service
+                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), Faker.fake())
+                .await;
+
+            assert!(actual.is_ok());
+        }
     }
 
     mod delete_search_filter {
-        use crate::core::user_search_filter_id::UserSearchFilterId;
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::service::user_search_filter_service::{
             UserSearchFilterError, UserSearchFilterService, UserSearchFilterServiceImpl,
@@ -927,6 +1077,7 @@ mod tests {
             operation::delete_item::DeleteItemOutput,
         };
         use common::user_id::UserId;
+        use common::user_search_filter_id::UserSearchFilterId;
         use fake::{Fake, Faker};
 
         #[tokio::test]
@@ -1052,7 +1203,6 @@ mod tests {
     }
 
     mod update_search_filter {
-        use crate::core::user_search_filter_id::UserSearchFilterId;
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::service::user_search_filter_service::{
             UserSearchFilterError, UserSearchFilterService, UserSearchFilterServiceImpl,
@@ -1062,6 +1212,7 @@ mod tests {
             error::{ConnectorError, SdkError},
         };
         use common::user_id::UserId;
+        use common::user_search_filter_id::UserSearchFilterId;
         use fake::{Fake, Faker};
 
         #[tokio::test]
@@ -1073,7 +1224,10 @@ mod tests {
             repository
                 .expect_update_user_search_filter_record()
                 .return_once(|_, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
-            let user_service = user::service::user_service::MockUserService::default();
+            let mut user_service = user::service::user_service::MockUserService::default();
+            user_service
+                .expect_find_user()
+                .return_once(|_| Box::pin(async { Ok(fake::Fake::fake(&fake::Faker)) }));
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
                 .update_user_search_filter(&UserId::new(), &UserSearchFilterId::new(), Faker.fake())
@@ -1087,7 +1241,10 @@ mod tests {
             repository
                 .expect_get_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Ok(None) }));
-            let user_service = user::service::user_service::MockUserService::default();
+            let mut user_service = user::service::user_service::MockUserService::default();
+            user_service
+                .expect_find_user()
+                .return_once(|_| Box::pin(async { Ok(fake::Fake::fake(&fake::Faker)) }));
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let user_id = UserId::new();
@@ -1133,7 +1290,10 @@ mod tests {
             repository
                 .expect_get_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
-            let user_service = user::service::user_service::MockUserService::default();
+            let mut user_service = user::service::user_service::MockUserService::default();
+            user_service
+                .expect_find_user()
+                .return_once(|_| Box::pin(async { Ok(fake::Fake::fake(&fake::Faker)) }));
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
                 .update_user_search_filter(&UserId::new(), &UserSearchFilterId::new(), Faker.fake())
@@ -1173,7 +1333,10 @@ mod tests {
             repository
                 .expect_update_user_search_filter_record()
                 .return_once(|_, _, _| Box::pin(async { Err(expected) }));
-            let user_service = user::service::user_service::MockUserService::default();
+            let mut user_service = user::service::user_service::MockUserService::default();
+            user_service
+                .expect_find_user()
+                .return_once(|_| Box::pin(async { Ok(fake::Fake::fake(&fake::Faker)) }));
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
                 .update_user_search_filter(&UserId::new(), &UserSearchFilterId::new(), Faker.fake())
@@ -1184,6 +1347,83 @@ mod tests {
                 UserSearchFilterError::SdkUpdateItemError(_) => {}
                 _ => panic!("expected SearchFilterError::SdkUpdateItemError"),
             }
+        }
+
+        #[tokio::test]
+        async fn should_err_search_filter_feature_forbidden_when_free_tier_updates_with_forbidden_features()
+         {
+            use crate::core::quota::SearchFilterQuota;
+            use crate::core::user_search_filter_update::UserSearchFilterUpdate;
+            use user::core::user::User;
+
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_get_user_search_filter_record()
+                .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+            let mut user_service = user::service::user_service::MockUserService::default();
+            user_service.expect_find_user().return_once(|_| {
+                Box::pin(async {
+                    let mut user: User = fake::Fake::fake(&fake::Faker);
+                    user.tier = user::core::tier::UserTier::Free;
+                    Ok(user)
+                })
+            });
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
+
+            // Generate updates until we find one with forbidden features for Free tier
+            let update: UserSearchFilterUpdate = (0..100)
+                .find_map(|_| {
+                    let u: UserSearchFilterUpdate = Faker.fake();
+                    if user::core::tier::UserTier::Free
+                        .check_search_filter_update_features(&u)
+                        .is_err()
+                    {
+                        Some(u)
+                    } else {
+                        None
+                    }
+                })
+                .expect("Should generate an update with forbidden features");
+
+            let actual = service
+                .update_user_search_filter(&UserId::new(), &UserSearchFilterId::new(), update)
+                .await
+                .unwrap_err();
+
+            match actual {
+                UserSearchFilterError::SearchFilterFeatureForbidden(_) => {}
+                err => panic!(
+                    "Expected 'UserSearchFilterError::SearchFilterFeatureForbidden' but got '{err}'"
+                ),
+            }
+        }
+
+        #[tokio::test]
+        async fn should_allow_pro_tier_to_update_with_all_features() {
+            use user::core::user::User;
+
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_get_user_search_filter_record()
+                .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+            repository
+                .expect_update_user_search_filter_record()
+                .return_once(|_, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+            let mut user_service = user::service::user_service::MockUserService::default();
+            user_service.expect_find_user().return_once(|_| {
+                Box::pin(async {
+                    let mut user: User = fake::Fake::fake(&fake::Faker);
+                    user.tier = user::core::tier::UserTier::Pro;
+                    Ok(user)
+                })
+            });
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
+
+            let actual = service
+                .update_user_search_filter(&UserId::new(), &UserSearchFilterId::new(), Faker.fake())
+                .await;
+
+            assert!(actual.is_ok());
         }
     }
 
@@ -1799,7 +2039,6 @@ mod tests {
     }
 
     mod find_search_filter_product_match {
-        use crate::core::user_search_filter_id::UserSearchFilterId;
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
         use crate::service::user_search_filter_service::{
@@ -1808,6 +2047,7 @@ mod tests {
         use common::shop_id::ShopId;
         use common::shops_product_id::ShopsProductId;
         use common::user_id::UserId;
+        use common::user_search_filter_id::UserSearchFilterId;
         use fake::{Fake, Faker};
 
         #[tokio::test]
@@ -1928,13 +2168,13 @@ mod tests {
     }
 
     mod find_search_filter_product_matches_for_filter {
-        use crate::core::user_search_filter_id::UserSearchFilterId;
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
         use crate::service::user_search_filter_service::{
             UserSearchFilterService, UserSearchFilterServiceImpl,
         };
         use common::user_id::UserId;
+        use common::user_search_filter_id::UserSearchFilterId;
 
         #[rstest::rstest]
         #[case::empty(0)]
@@ -2094,13 +2334,13 @@ mod tests {
     }
 
     mod view_search_filter_matches {
-        use crate::core::user_search_filter_id::UserSearchFilterId;
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
         use crate::service::user_search_filter_service::{
             UserSearchFilterService, UserSearchFilterServiceImpl,
         };
         use common::user_id::UserId;
+        use common::user_search_filter_id::UserSearchFilterId;
 
         #[tokio::test]
         async fn should_return_empty_cursored_result_when_no_matches() {
@@ -2166,6 +2406,68 @@ mod tests {
                 .view_search_filter_matches(&UserId::new(), &UserSearchFilterId::new(), &None, None)
                 .await;
             assert!(actual.is_err());
+        }
+    }
+
+    mod count_user_search_filter_matches_for_this_month {
+        use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
+        use crate::service::user_search_filter_service::{
+            UserSearchFilterError, UserSearchFilterService, UserSearchFilterServiceImpl,
+        };
+        use common::user_id::UserId;
+
+        #[tokio::test]
+        async fn should_return_count_when_matches_exist() {
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_count_user_search_filter_match_records_for_between()
+                .return_once(|_, _, _| Box::pin(async { Ok(7) }));
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
+
+            let actual = service
+                .count_user_search_filter_matches_for_this_month(&UserId::new())
+                .await;
+            assert!(actual.is_ok());
+            assert_eq!(actual.unwrap(), 7);
+        }
+
+        #[tokio::test]
+        async fn should_return_zero_when_no_matches() {
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_count_user_search_filter_match_records_for_between()
+                .return_once(|_, _, _| Box::pin(async { Ok(0) }));
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
+
+            let actual = service
+                .count_user_search_filter_matches_for_this_month(&UserId::new())
+                .await;
+            assert!(actual.is_ok());
+            assert_eq!(actual.unwrap(), 0);
+        }
+
+        #[tokio::test]
+        async fn should_propagate_sdk_error() {
+            use aws_sdk_dynamodb::error::SdkError;
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_count_user_search_filter_match_records_for_between()
+                .return_once(|_, _, _| {
+                    Box::pin(async { Err(SdkError::construction_failure("test error")) })
+                });
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
+
+            let actual = service
+                .count_user_search_filter_matches_for_this_month(&UserId::new())
+                .await;
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                UserSearchFilterError::SdkQueryError(_) => {}
+                _ => panic!("expected SdkQueryError"),
+            }
         }
     }
 }

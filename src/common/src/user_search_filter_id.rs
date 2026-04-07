@@ -1,14 +1,14 @@
-common::uuid_v7_newtype!(UserSearchFilterId);
+crate::uuid_v7_newtype!(UserSearchFilterId);
 
-#[cfg(feature = "data")]
+#[cfg(feature = "api")]
 pub mod api {
-    use crate::core::user_search_filter_id::UserSearchFilterId;
-    use common::{
+    use crate::{
         api::{
             error::ApiError,
             error_code::{BAD_PATH_PARAMETER_VALUE, INVALID_UUID},
         },
         error::missing_field::MissingRequiredField,
+        user_search_filter_id::UserSearchFilterId,
     };
     use std::collections::HashMap;
 

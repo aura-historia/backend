@@ -9,6 +9,8 @@ use search_filter::service::user_search_filter_service::{
 };
 use search_filter_api::handle;
 use test_api::*;
+use user::core::tier::UserTier;
+use user::service::command::UpdateUserCommand;
 use user::service::user_service::UserService;
 
 #[localstack_test(services = [DynamoDB()])]
@@ -24,20 +26,30 @@ async fn should_return_actual_search_filter() {
     let get_product_service = MockGetProductService::default();
     let personalization_service = MockProductPersonalizationService::default();
 
-    let user_id = user_service
-        .create_user(Faker.fake())
+    let user = user_service.create_user(Faker.fake()).await.unwrap();
+    let update_cmd = UpdateUserCommand {
+        tier: Some(UserTier::Ultimate),
+        ..Default::default()
+    };
+    user_service
+        .update_user(&user.user_id, update_cmd)
         .await
-        .unwrap()
-        .user_id;
+        .unwrap();
+
     let expected = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake::<ProductSearch>())
+        .create_user_search_filter(
+            &user.user_id,
+            Faker.fake(),
+            Faker.fake::<ProductSearch>(),
+            Faker.fake(),
+        )
         .await
         .unwrap();
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
             .route_key("GET /api/v1/me/search-filters/{userSearchFilterId}")
-            .jwt_claim("sub", user_id)
+            .jwt_claim("sub", user.user_id)
             .path_parameter("userSearchFilterId", expected.user_search_filter_id)
             .build(),
         context: Default::default(),
@@ -54,7 +66,7 @@ async fn should_return_actual_search_filter() {
     assert_eq!(200, response.status_code);
     let json = extract_apigw_response_json_body!(response);
 
-    assert_eq!(user_id.to_string(), json["userId"]);
+    assert_eq!(user.user_id.to_string(), json["userId"]);
     assert_eq!(
         expected.user_search_filter_id.to_string(),
         json["userSearchFilterId"]

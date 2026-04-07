@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::core::user_search_filter::EnhancedSearchDescription;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
 use common::category_key::CategoryId;
@@ -31,6 +32,7 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone, PartialEq)]
 pub struct UserSearchFilterUpdate {
     pub name: Option<UserSearchFilterName>,
+    pub enhanced_search_description: Option<EnhancedSearchDescription>,
     pub notifications: Option<bool>,
     pub product_query: Option<TextQuery<1>>,
     pub category_id: Option<AnyOfQuery<CategoryId>>,
@@ -49,6 +51,8 @@ pub struct UserSearchFilterUpdate {
     pub condition_query: Option<AnyOfQuery<Condition>>,
     pub provenance_query: Option<AnyOfQuery<Provenance>>,
     pub restoration_query: Option<AnyOfQuery<Restoration>>,
+    pub auction_start_query: Option<RangeQuery<OffsetDateTime>>,
+    pub auction_end_query: Option<RangeQuery<OffsetDateTime>>,
     pub language: Option<Language>,
     pub currency: Option<Currency>,
     pub updated: OffsetDateTime,
@@ -57,7 +61,8 @@ pub struct UserSearchFilterUpdate {
 impl UserSearchFilterUpdate {
     pub fn is_empty(&self) -> bool {
         let UserSearchFilterUpdate {
-            name: search_filter_name,
+            name,
+            enhanced_search_description,
             notifications,
             product_query,
             category_id,
@@ -76,12 +81,15 @@ impl UserSearchFilterUpdate {
             condition_query,
             provenance_query,
             restoration_query,
+            auction_start_query,
+            auction_end_query,
             language,
             currency,
             updated: _,
         } = self;
 
-        search_filter_name.is_none()
+        name.is_none()
+            && enhanced_search_description.is_none()
             && notifications.is_none()
             && product_query.is_none()
             && category_id.is_none()
@@ -100,6 +108,8 @@ impl UserSearchFilterUpdate {
             && condition_query.is_none()
             && provenance_query.is_none()
             && restoration_query.is_none()
+            && auction_start_query.is_none()
+            && auction_end_query.is_none()
             && language.is_none()
             && currency.is_none()
     }
@@ -141,6 +151,8 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
             restoration_query: update
                 .restoration_query
                 .map(|values| values.into_iter().map(RestorationRecord::from).collect()),
+            auction_start_query: update.auction_start_query,
+            auction_end_query: update.auction_end_query,
             language: update.language.map(LanguageRecord::from),
             currency: update.currency.map(CurrencyRecord::from),
             updated: update.updated,
@@ -150,7 +162,7 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
 
 #[cfg(feature = "test-data")]
 mod fake {
-    use crate::service::user_search_filter_update::UserSearchFilterUpdate;
+    use crate::core::user_search_filter_update::UserSearchFilterUpdate;
     use fake::{Dummy, Fake, Faker};
     use product::core::product_search::faker::fake_range_query_datetime;
     use time::OffsetDateTime;
@@ -159,6 +171,7 @@ mod fake {
         fn dummy_with_rng<R: fake::RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             UserSearchFilterUpdate {
                 name: config.fake_with_rng(rng),
+                enhanced_search_description: config.fake_with_rng(rng),
                 notifications: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
@@ -177,6 +190,8 @@ mod fake {
                 condition_query: config.fake_with_rng(rng),
                 provenance_query: config.fake_with_rng(rng),
                 restoration_query: config.fake_with_rng(rng),
+                auction_start_query: config.fake_with_rng(rng),
+                auction_end_query: config.fake_with_rng(rng),
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),

@@ -91,6 +91,10 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 use test_api::*;
 use time::OffsetDateTime;
+use user::core::tier::UserTier;
+use user::dynamodb::tier_record::UserTierRecord;
+use user::service::command::UpdateUserCommand;
+use user::service::user_service::UserService;
 use user::{
     data::{get_user_data::GetUserAccountData, patch_user_data::PatchUserAccountData},
     dynamodb::{
@@ -2497,6 +2501,66 @@ async fn should_get_and_patch_user_account() {
     assert_eq!(patched, gotten2);
 }
 
+#[localstack_test(services = [Cloudformation()])]
+async fn should_delete_user_from_cognito_and_dynamodb() {
+    let cfn = get_cfn_output();
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    // Verify user record exists in DynamoDB
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &cfn.dynamodb_table_1_name);
+    let record_before = user_repository.get_user_record(&user_id).await.unwrap();
+    assert!(
+        record_before.is_some(),
+        "User record should exist before deletion"
+    );
+
+    // Call DELETE /api/v1/me via API Gateway
+    let delete_url = format!("{}/api/v1/me", cfn.api_gateway_endpoint_url);
+    let delete_response = reqwest::Client::new()
+        .delete(&delete_url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(204, delete_response.status().as_u16());
+
+    // Verify user record is deleted from DynamoDB
+    let record_after = user_repository.get_user_record(&user_id).await.unwrap();
+    assert!(
+        record_after.is_none(),
+        "User record should be deleted from DynamoDB"
+    );
+
+    // Verify user is deleted from Cognito
+    let cognito = get_cognito_client().await;
+    let cognito_user = cognito
+        .admin_get_user()
+        .user_pool_id(&cfn.cognito_user_pool_id)
+        .username(user.sub.to_string())
+        .send()
+        .await;
+    assert!(
+        cognito_user.is_err(),
+        "Cognito user should no longer exist after deletion"
+    );
+
+    // Verify the deleted user's access token no longer works
+    let get_url = format!("{}/api/v1/me/account", cfn.api_gateway_endpoint_url);
+    let get_response = reqwest::Client::new()
+        .get(&get_url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_ne!(
+        200,
+        get_response.status().as_u16(),
+        "Deleted user should not be able to access their account"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Product update → notify user
 // Verifies EventBridge → SQS → Lambda → Cognito/DynamoDB → SES routing
@@ -2549,6 +2613,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
                 language: Some(common::language::record::LanguageRecord::De),
                 currency: Some(common::currency::record::CurrencyRecord::Eur),
                 prohibited_content_consent: None,
+                tier: Some(UserTierRecord::Free),
                 updated: OffsetDateTime::now_utc(),
             },
         )
@@ -3975,7 +4040,7 @@ async fn should_respond_200_and_personalize_similar_products_for_authenticated()
     assert!(
         actual
             .iter()
-            .all(|a| a.user_state.unwrap().watchlist.watching)
+            .all(|a| a.user_state.clone().unwrap().watchlist.watching)
     );
 }
 */
@@ -4054,7 +4119,14 @@ async fn should_post_get_patch_delete_watchlist_product() {
         .patch(patch_url.clone())
         .bearer_auth(&user.access_token)
         .json(&WatchlistProductPatch {
-            notifications: Some(!gotten.items[0].user_state.unwrap().watchlist.notifications),
+            notifications: Some(
+                !gotten.items[0]
+                    .user_state
+                    .clone()
+                    .unwrap()
+                    .watchlist
+                    .notifications,
+            ),
         })
         .send()
         .await
@@ -4122,16 +4194,35 @@ async fn should_get_all_search_filters_when_authorized() {
     let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
     let user = create_random_test_user().await;
+    let update_cmd = UpdateUserCommand {
+        tier: Some(UserTier::Ultimate),
+        ..Default::default()
+    };
+    user_service
+        .update_user(&user.sub.into(), update_cmd)
+        .await
+        .unwrap();
+
     let expected1 = Faker.fake::<product::core::product_search::ProductSearch>();
     let expected1_name = Faker.fake::<UserSearchFilterName>();
     let expected2 = Faker.fake::<product::core::product_search::ProductSearch>();
     let expected2_name = Faker.fake::<UserSearchFilterName>();
     service
-        .create_user_search_filter(&user.sub.into(), expected1_name.clone(), expected1.clone())
+        .create_user_search_filter(
+            &user.sub.into(),
+            expected1_name.clone(),
+            expected1.clone(),
+            None,
+        )
         .await
         .unwrap();
     service
-        .create_user_search_filter(&user.sub.into(), expected2_name.clone(), expected2.clone())
+        .create_user_search_filter(
+            &user.sub.into(),
+            expected2_name.clone(),
+            expected2.clone(),
+            None,
+        )
         .await
         .unwrap();
 
@@ -4169,6 +4260,19 @@ async fn should_get_all_search_filters_when_authorized() {
 #[localstack_test(services = [Cloudformation()])]
 async fn should_post_get_patch_delete_search_filter() {
     let user = create_random_test_user().await;
+    let update_cmd = UpdateUserCommand {
+        tier: Some(UserTier::Ultimate),
+        ..Default::default()
+    };
+    let user_repository = UserDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &get_cfn_output().dynamodb_table_1_name,
+    );
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    user_service
+        .update_user(&user.sub.into(), update_cmd)
+        .await
+        .unwrap();
 
     // POST
     let expected = Faker.fake::<PostUserSearchFilterData>();
@@ -4209,6 +4313,7 @@ async fn should_post_get_patch_delete_search_filter() {
     // PATCH
     let patch = PatchUserSearchFilterData {
         name: None,
+        enhanced_search_description: None,
         notifications: None,
         search: Some(PatchProductSearchData {
             language: Some(LanguageData::Fr),
@@ -4228,6 +4333,8 @@ async fn should_post_get_patch_delete_search_filter() {
             condition_query: None,
             provenance_query: None,
             restoration_query: None,
+            auction_start_query: None,
+            auction_end_query: None,
             created_query: None,
             updated_query: None,
         }),
@@ -4289,11 +4396,20 @@ async fn should_get_search_filter_products_when_authorized() {
     let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
     let user = create_random_test_user().await;
+    let update_cmd = UpdateUserCommand {
+        tier: Some(UserTier::Ultimate),
+        ..Default::default()
+    };
+    user_service
+        .update_user(&user.sub.into(), update_cmd)
+        .await
+        .unwrap();
     let search_filter = service
         .create_user_search_filter(
             &user.sub.into(),
             Faker.fake(),
             Faker.fake::<product::core::product_search::ProductSearch>(),
+            None,
         )
         .await
         .unwrap();
@@ -4976,4 +5092,114 @@ async fn should_respond_200_for_partner_put_products_when_updating_existing() {
 
     let body: serde_json::Value = response.json().await.unwrap();
     assert!(body["errors"].as_object().unwrap().is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Search-filter-match quota enforcement
+// Verifies that users who have reached their monthly search-filter-match quota
+// do not have additional match records counted beyond their limit.
+// ---------------------------------------------------------------------------
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_count_search_filter_matches_for_current_month_for_quota_enforcement() {
+    use search_filter::core::quota::SearchFilterQuota;
+    use search_filter::dynamodb::repository::{
+        UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
+    };
+    use search_filter::dynamodb::user_search_filter_match_record::{
+        UserSearchFilterMatchRecord, mk_lsi1_sk, mk_pk, mk_sk,
+    };
+    use search_filter::service::user_search_filter_service::{
+        UserSearchFilterService, UserSearchFilterServiceImpl,
+    };
+    use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
+    use user::service::user_service::{UserService, UserServiceImpl};
+
+    let ddb_client = get_dynamodb_client().await;
+    let search_filter_repo = UserSearchFilterDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let user_repo = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let user_service = UserServiceImpl::new(&user_repo);
+
+    // Create a Free tier user
+    let user_id = UserId::new();
+    let user = user_service
+        .create_user(user::service::command::CreateUserCommand {
+            id: user_id,
+            email: "quota-test@example.com".parse().unwrap(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(user.tier, UserTier::Free);
+    let free_quota = UserTier::Free.search_filter_match_quota();
+    assert_eq!(free_quota, 10);
+
+    let filter_id = common::user_search_filter_id::UserSearchFilterId::new();
+    let now = OffsetDateTime::now_utc();
+
+    // Insert exactly `free_quota` match records dated within the current month
+    for i in 0..free_quota {
+        let shop_id = common::shop_id::ShopId::new();
+        let shops_product_id = common::shops_product_id::ShopsProductId::new();
+        let created = now - time::Duration::hours(i as i64);
+        let mut record = Faker.fake::<UserSearchFilterMatchRecord>();
+        record.pk = mk_pk(&user_id);
+        record.sk = mk_sk(&filter_id, &shop_id, &shops_product_id);
+        record.lsi1_sk = mk_lsi1_sk(&created);
+        record.user_id = user_id;
+        record.user_search_filter_id = filter_id;
+        record.shop_id = shop_id;
+        record.shops_product_id = shops_product_id;
+        record.created = created;
+        record.updated = created;
+        search_filter_repo
+            .put_user_search_filter_match_record(record)
+            .await
+            .unwrap();
+    }
+
+    // Also insert a record from last month — should NOT be counted
+    let last_month = now
+        .replace_day(1)
+        .unwrap()
+        .replace_hour(0)
+        .unwrap()
+        .replace_minute(0)
+        .unwrap()
+        .replace_second(0)
+        .unwrap()
+        .replace_nanosecond(0)
+        .unwrap()
+        - time::Duration::seconds(1);
+    let shop_id = common::shop_id::ShopId::new();
+    let shops_product_id = common::shops_product_id::ShopsProductId::new();
+    let mut record = Faker.fake::<UserSearchFilterMatchRecord>();
+    record.pk = mk_pk(&user_id);
+    record.sk = mk_sk(&filter_id, &shop_id, &shops_product_id);
+    record.lsi1_sk = mk_lsi1_sk(&last_month);
+    record.user_id = user_id;
+    record.user_search_filter_id = filter_id;
+    record.shop_id = shop_id;
+    record.shops_product_id = shops_product_id;
+    record.created = last_month;
+    record.updated = last_month;
+    search_filter_repo
+        .put_user_search_filter_match_record(record)
+        .await
+        .unwrap();
+
+    // Service counts only this month's matches
+    let service = UserSearchFilterServiceImpl::new(&search_filter_repo, &user_service);
+    let match_count = service
+        .count_user_search_filter_matches_for_this_month(&user_id)
+        .await
+        .unwrap();
+
+    // The user should be at exactly the free quota (10 this-month records)
+    assert_eq!(match_count as u32, free_quota);
+
+    // Quota check: count >= quota means the user has reached their limit
+    assert!(
+        (match_count as u32) >= free_quota,
+        "Expected user to have reached the search-filter-match quota ({free_quota}), but count was {match_count}"
+    );
 }

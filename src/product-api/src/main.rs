@@ -14,6 +14,7 @@ use product::service::semantic_service::SemanticSearchServiceImpl;
 use product_api::handler;
 use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
+use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::UserServiceImpl;
 
@@ -48,6 +49,8 @@ async fn main() -> Result<(), Error> {
     let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let product_opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch);
+    let search_filter_repository =
+        UserSearchFilterDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
 
     static NOOP_SES: NoopSesAdapter = NoopSesAdapter;
     static NOOP_S3: NoopS3Adapter = NoopS3Adapter;
@@ -72,6 +75,7 @@ async fn main() -> Result<(), Error> {
         &watchlist_repository,
         &notification_service,
         &user_service,
+        &search_filter_repository,
     );
 
     let access_token_verifier_service =

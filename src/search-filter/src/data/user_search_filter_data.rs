@@ -1,8 +1,8 @@
 use crate::core::{
-    user_search_filter::UserSearchFilter, user_search_filter_id::UserSearchFilterId,
-    user_search_filter_name::UserSearchFilterName,
+    user_search_filter::UserSearchFilter, user_search_filter_name::UserSearchFilterName,
 };
 use common::user_id::UserId;
+use common::user_search_filter_id::UserSearchFilterId;
 use product::data::product_search_data::ProductSearchData;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -13,6 +13,9 @@ pub struct UserSearchFilterData {
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
     pub name: UserSearchFilterName,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enhanced_search_description: Option<String>,
 
     pub notifications: bool,
 
@@ -31,6 +34,9 @@ impl From<UserSearchFilter> for UserSearchFilterData {
             user_id: user_search_filter.user_id,
             user_search_filter_id: user_search_filter.user_search_filter_id,
             name: user_search_filter.name,
+            enhanced_search_description: user_search_filter
+                .enhanced_search_description
+                .map(Into::into),
             notifications: user_search_filter.notifications,
             search: user_search_filter.search.into(),
             created: user_search_filter.created,
@@ -50,6 +56,7 @@ mod faker {
                 user_id: config.fake_with_rng(rng),
                 user_search_filter_id: config.fake_with_rng(rng),
                 name: config.fake_with_rng(rng),
+                enhanced_search_description: config.fake_with_rng(rng),
                 notifications: true,
                 search: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
@@ -61,11 +68,11 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::user_search_filter_id::UserSearchFilterId;
     use crate::data::user_search_filter_data::UserSearchFilterData;
     use common::category_key::CategoryId;
     use common::period_key::PeriodId;
     use common::query::range_query::RangeQuery;
+    use common::user_search_filter_id::UserSearchFilterId;
     use common::{currency::data::CurrencyData, language::data::LanguageData, user_id::UserId};
     use product::data::authenticity_data::AuthenticityData;
     use product::data::condition_data::ConditionData;
@@ -85,6 +92,7 @@ mod tests {
             user_id,
             user_search_filter_id: search_filter_id,
             name: "My Boop Filter".into(),
+            enhanced_search_description: Some("This is a filter for Boop products".into()),
             notifications: true,
             search: ProductSearchData {
                 language: LanguageData::De,
@@ -136,6 +144,7 @@ mod tests {
             "userId": user_id.to_string(),
             "userSearchFilterId": search_filter_id.to_string(),
             "name": "My Boop Filter",
+            "enhancedSearchDescription": "This is a filter for Boop products",
             "notifications": true,
             "search": {
                 "language": "de",
@@ -193,6 +202,7 @@ mod tests {
             "userId": user_id.to_string(),
             "userSearchFilterId": search_filter_id.to_string(),
             "name": "My Boop Filter",
+            "enhancedSearchDescription": "This is a filter for Boop products",
             "notifications": true,
             "search": {
                 "language": "de",
@@ -241,6 +251,7 @@ mod tests {
             user_id,
             user_search_filter_id: search_filter_id,
             name: "My Boop Filter".into(),
+            enhanced_search_description: Some("This is a filter for Boop products".into()),
             notifications: true,
             search: ProductSearchData {
                 language: LanguageData::De,

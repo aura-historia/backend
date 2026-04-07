@@ -65,6 +65,7 @@ pub async fn handle(
                     .map(|personalized| {
                         let consent = personalized
                             .user_state
+                            .clone()
                             .map(|s| s.prohibited_content.consent)
                             .unwrap_or(false);
                         PersonalizedData {

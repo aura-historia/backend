@@ -1,10 +1,14 @@
 use crate::{
-    core::watchlist_product::WatchlistProduct,
-    dynamodb::record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
-    dynamodb::record_update::WatchlistProductRecordUpdate,
-    dynamodb::repository::WatchlistProductDynamoDbRepository,
-    service::command::UpdateWatchlistProductCommand,
-    service::sort_watchlist_product_field::SortWatchlistProductField,
+    core::{quota::WatchlistQuota, watchlist_product::WatchlistProduct},
+    dynamodb::{
+        record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
+        record_update::WatchlistProductRecordUpdate,
+        repository::WatchlistProductDynamoDbRepository,
+    },
+    service::{
+        command::UpdateWatchlistProductCommand,
+        sort_watchlist_product_field::SortWatchlistProductField,
+    },
 };
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::slug_id::SlugId;
@@ -76,7 +80,7 @@ pub enum WatchProductError {
     #[error(
         "Exceeded the maximum amount of watchlist entries. There are already {0}/{1} watchlist entries occupied."
     )]
-    WatchlistEntryCountExceeded(u32, usize),
+    WatchlistEntryCountExceeded(u32, u32),
 
     #[error("UserServiceError: {0}")]
     UserServiceError(UserServiceError),
@@ -242,12 +246,12 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
 
         let now = OffsetDateTime::now_utc();
 
-        let limit = user.tier.watchlist_limit();
+        let limit = user.tier.watchlist_quota();
         let watchlist_count = self
             .watchlist_repository
             .count_watchlist_records(user_id, &Default::default(), true)
             .await?;
-        if watchlist_count as usize >= limit {
+        if watchlist_count >= limit as u64 {
             return Err(WatchProductError::WatchlistEntryCountExceeded(
                 watchlist_count as u32,
                 limit,
@@ -493,6 +497,7 @@ mod tests {
 
     mod create_watchlist_product {
         use crate::{
+            core::quota::WatchlistQuota,
             dynamodb::repository::MockWatchlistProductDynamoDbRepository,
             service::product_watchlist_service::{
                 ProductWatchListService, ProductWatchListServiceImpl, WatchProductError,
@@ -506,6 +511,7 @@ mod tests {
         use common::{shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId};
         use fake::{Fake, Faker};
         use product::dynamodb::repository::MockProductDynamoDbRepository;
+        use user::core::user::User;
 
         #[tokio::test]
         async fn should_watch_when_success() {
@@ -524,7 +530,7 @@ mod tests {
                 .expect_count_watchlist_records()
                 .return_once(|_, _, _| {
                     Box::pin(async {
-                        Ok(user::core::tier::UserTier::Free.watchlist_limit() as u64 - 1)
+                        Ok(user::core::tier::UserTier::Free.watchlist_quota() as u64 - 1)
                     })
                 });
             watchlist_repository
@@ -613,9 +619,13 @@ mod tests {
         #[tokio::test]
         async fn should_err_watchlist_quota_exceeded_when_exceeded() {
             let mut user_service = user::service::user_service::MockUserService::default();
-            user_service
-                .expect_find_user()
-                .return_once(|_| Box::pin(async { Ok(fake::Fake::fake(&fake::Faker)) }));
+            user_service.expect_find_user().return_once(|_| {
+                Box::pin(async {
+                    let mut user: User = fake::Fake::fake(&fake::Faker);
+                    user.tier = user::core::tier::UserTier::Free;
+                    Ok(user)
+                })
+            });
 
             let mut product_repository = MockProductDynamoDbRepository::default();
             product_repository
@@ -627,7 +637,7 @@ mod tests {
                 .expect_count_watchlist_records()
                 .return_once(|_, _, _| {
                     Box::pin(async {
-                        Ok(user::core::tier::UserTier::Free.watchlist_limit() as u64)
+                        Ok(user::core::tier::UserTier::Free.watchlist_quota() as u64)
                     })
                 });
 
@@ -646,11 +656,11 @@ mod tests {
             match actual {
                 WatchProductError::WatchlistEntryCountExceeded(actual_count, actual_limit) => {
                     assert_eq!(
-                        user::core::tier::UserTier::Free.watchlist_limit(),
-                        actual_count as usize
+                        user::core::tier::UserTier::Free.watchlist_quota(),
+                        actual_count
                     );
                     assert_eq!(
-                        user::core::tier::UserTier::Free.watchlist_limit(),
+                        user::core::tier::UserTier::Free.watchlist_quota(),
                         actual_limit
                     );
                 }
@@ -745,7 +755,7 @@ mod tests {
                 .return_once(|_, _, _| {
                     Box::pin(async {
                         Ok(fake::rand::random_range(
-                            0..user::core::tier::UserTier::Free.watchlist_limit() as u64,
+                            0..user::core::tier::UserTier::Free.watchlist_quota() as u64,
                         ))
                     })
                 });

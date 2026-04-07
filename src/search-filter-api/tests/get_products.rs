@@ -1,6 +1,7 @@
 use common::pagination::cursor::api::TimeCursoredData;
 use common::personalized::api::PersonalizedData;
 use common::user_id::UserId;
+use common::user_search_filter_id::UserSearchFilterId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use notification::dynamodb::repository::NotificationDynamoDbRepositoryImpl;
@@ -15,12 +16,11 @@ use product::dynamodb::{
 use product::service::get_service::GetProductServiceImpl;
 use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
-use search_filter::core::user_search_filter_id::UserSearchFilterId;
 use search_filter::dynamodb::repository::{
     UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
 };
 use search_filter::dynamodb::user_search_filter_match_record::{
-    UserSearchFilterMatchRecord, mk_lsi1_sk, mk_pk, mk_sk,
+    UserSearchFilterMatchRecord, mk_lsi1_sk, mk_lsi2_sk, mk_pk, mk_sk,
 };
 use search_filter::service::user_search_filter_service::{
     UserSearchFilterService, UserSearchFilterServiceImpl,
@@ -28,7 +28,9 @@ use search_filter::service::user_search_filter_service::{
 use search_filter_api::handle;
 use test_api::*;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use user::core::tier::UserTier;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
+use user::service::command::UpdateUserCommand;
 use user::service::user_service::{UserService, UserServiceImpl};
 
 fn setup_services(
@@ -70,6 +72,7 @@ fn setup_services(
         watchlist_repository,
         notification_service,
         user_service,
+        search_filter_repository,
     );
     let service = UserSearchFilterServiceImpl::new(search_filter_repository, user_service);
     (service, get_product_service, personalization_service)
@@ -77,12 +80,17 @@ fn setup_services(
 
 async fn create_user(client: &'static aws_sdk_dynamodb::Client) -> UserId {
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
-    let user_service = UserServiceImpl::new(&user_repository);
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user = user_service.create_user(Faker.fake()).await.unwrap();
+    let update_cmd = UpdateUserCommand {
+        tier: Some(UserTier::Ultimate),
+        ..Default::default()
+    };
     user_service
-        .create_user(Faker.fake())
+        .update_user(&user.user_id, update_cmd)
         .await
-        .unwrap()
-        .user_id
+        .unwrap();
+    user.user_id
 }
 
 async fn seed_match_records(
@@ -105,12 +113,19 @@ async fn seed_match_records(
                 &product_record.shops_product_id,
             ),
             lsi1_sk: mk_lsi1_sk(&created),
+            lsi2_sk: Some(mk_lsi2_sk(
+                &product_record.shop_id,
+                &product_record.shops_product_id,
+                &created,
+            )),
             user_id: *user_id,
             user_search_filter_id: *search_filter_id,
+            user_search_filter_name: None,
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id.clone(),
             product_id: product_record.product_id,
             origin_event_id: Faker.fake(),
+            enhanced_match_reason: None,
             created,
             updated: created,
         };
@@ -137,7 +152,7 @@ async fn should_200_when_sort_created_asc() {
 
     let user_id = create_user(client).await;
     let search_filter = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake())
+        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
         .await
         .unwrap();
 
@@ -210,7 +225,7 @@ async fn should_200_when_sort_created_asc_search_after() {
 
     let user_id = create_user(client).await;
     let search_filter = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake())
+        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
         .await
         .unwrap();
 
@@ -287,7 +302,7 @@ async fn should_200_when_sort_created_desc() {
 
     let user_id = create_user(client).await;
     let search_filter = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake())
+        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
         .await
         .unwrap();
 
@@ -361,7 +376,7 @@ async fn should_200_when_sort_created_desc_search_after() {
 
     let user_id = create_user(client).await;
     let search_filter = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake())
+        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
         .await
         .unwrap();
 
@@ -430,7 +445,7 @@ async fn should_200_empty_when_no_matches() {
 
     let user_id = create_user(client).await;
     let search_filter = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake())
+        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
         .await
         .unwrap();
 
@@ -483,11 +498,11 @@ async fn should_only_return_matches_for_specific_filter() {
 
     let user_id = create_user(client).await;
     let filter_a = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake())
+        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
         .await
         .unwrap();
     let filter_b = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake())
+        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
         .await
         .unwrap();
 
