@@ -468,7 +468,7 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
             .await
             .map_err(|e| ProductPersonalizationError::SearchFilterMatchError(e.to_string()))?;
 
-        let (search_filter_state, mut product) = match match_records.first() {
+        let (search_filter_state, product) = match match_records.first() {
             Some(record) => {
                 let has_current_month_match = is_current_month(&record.created);
                 let hidden = if has_current_month_match {
