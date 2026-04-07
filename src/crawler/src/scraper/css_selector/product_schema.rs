@@ -153,7 +153,6 @@ impl ProductCssSelectorSchema {
             None => vec![],
             Some(rule) => match rule.apply(html) {
                 Ok(vals) => vals,
-                Err(ExtractionError::NoElementMatched { .. }) => vec![],
                 Err(e) => return Err(ApplySchemaError::Description(e)),
             },
         };
@@ -162,7 +161,6 @@ impl ProductCssSelectorSchema {
             None => None,
             Some(rule) => match rule.apply(html) {
                 Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
-                Err(ExtractionError::NoElementMatched { .. }) => None,
                 Err(e) => return Err(ApplySchemaError::Price(e)),
             },
         };
@@ -171,7 +169,6 @@ impl ProductCssSelectorSchema {
             None => None,
             Some(rule) => match rule.apply(html) {
                 Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
-                Err(ExtractionError::NoElementMatched { .. }) => None,
                 Err(e) => return Err(ApplySchemaError::PriceEstimateMin(e)),
             },
         };
@@ -180,7 +177,6 @@ impl ProductCssSelectorSchema {
             None => None,
             Some(rule) => match rule.apply(html) {
                 Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
-                Err(ExtractionError::NoElementMatched { .. }) => None,
                 Err(e) => return Err(ApplySchemaError::PriceEstimateMax(e)),
             },
         };
@@ -199,7 +195,6 @@ impl ProductCssSelectorSchema {
             None => None,
             Some(rule) => match rule.apply(html) {
                 Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
-                Err(ExtractionError::NoElementMatched { .. }) => None,
                 Err(e) => return Err(ApplySchemaError::AuctionStart(e)),
             },
         };
@@ -208,7 +203,6 @@ impl ProductCssSelectorSchema {
             None => None,
             Some(rule) => match rule.apply(html) {
                 Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
-                Err(ExtractionError::NoElementMatched { .. }) => None,
                 Err(e) => return Err(ApplySchemaError::AuctionEnd(e)),
             },
         };
