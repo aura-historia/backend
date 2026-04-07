@@ -28,6 +28,7 @@ use product_api::search::handle;
 use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use search_filter::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
+use search_filter::service::user_search_filter_service::MockUserSearchFilterService;
 use shop::data::shop_type_data::ShopTypeData;
 use std::collections::HashSet;
 use std::time::Duration;
@@ -45,11 +46,13 @@ async fn should_200_when_no_hits() {
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -92,11 +95,13 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -252,11 +257,13 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -417,11 +424,13 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -544,11 +553,13 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -675,11 +686,13 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -807,11 +820,13 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -948,11 +963,13 @@ async fn should_200_when_created_query(
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -1061,11 +1078,13 @@ async fn should_200_when_updated_query(
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -1175,11 +1194,13 @@ async fn should_200_when_year_query(#[case] min: Option<Year>, #[case] max: Opti
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -1270,11 +1291,13 @@ async fn should_200_when_authenticity_query(#[case] query: HashSet<AuthenticityD
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -1368,11 +1391,13 @@ async fn should_200_when_condition_query(#[case] query: HashSet<ConditionData>) 
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -1464,11 +1489,13 @@ async fn should_200_when_provenance_query(#[case] query: HashSet<ProvenanceData>
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -1560,11 +1587,13 @@ async fn should_200_when_restoration_query(#[case] query: HashSet<RestorationDat
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -1651,11 +1680,13 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
     search_filter_repository
         .expect_query_user_search_filter_match_records_all()
         .returning(|_| Box::pin(async { Ok(vec![]) }));
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -1760,11 +1791,13 @@ async fn should_respond_200_and_respect_language_query_param(
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -1862,11 +1895,13 @@ async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -1962,11 +1997,13 @@ async fn should_200_when_shop_name_query_for_keyword_filter(#[case] query: HashS
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -2069,11 +2106,13 @@ async fn should_200_when_exclude_shop_name_query(#[case] query: HashSet<&str>) {
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -2168,11 +2207,13 @@ async fn should_200_when_category_id_filter_is_given() {
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -2262,11 +2303,13 @@ async fn should_200_when_period_id_filter_is_given() {
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -2356,11 +2399,13 @@ async fn should_200_when_auction_start_range_is_given() {
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -2452,11 +2497,13 @@ async fn should_200_when_auction_end_range_is_given() {
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -2554,11 +2601,13 @@ async fn should_200_when_seller_name_query_for_keyword_filter(#[case] query: Has
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
@@ -2660,11 +2709,13 @@ async fn should_200_when_exclude_seller_name_query(#[case] query: HashSet<&str>)
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);

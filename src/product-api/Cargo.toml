@@ -11,7 +11,7 @@ product-personalization = { workspace = true }
 notification = { workspace = true, features = ["service"] }
 user = { workspace = true, features = ["dynamodb", "service"] }
 cognito = { workspace = true }
-search-filter = { workspace = true, features = ["dynamodb"] }
+search-filter = { workspace = true, features = ["dynamodb", "service"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["macros"] }
@@ -30,6 +30,7 @@ product = { workspace = true, features = ["test-data"] }
 product-watchlist = { workspace = true, features = ["test-data"] }
 notification = { workspace = true, features = ["test-data"] }
 user = { workspace = true, features = ["test-data"] }
+search-filter = { workspace = true, features = ["test-data"] }
 shop = { workspace = true, features = ["data"] }
 test-api = { workspace = true, features = ["api-gateway", "dynamodb", "opensearch", "sqs"] }
 serial_test = { workspace = true }

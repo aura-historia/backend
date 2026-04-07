@@ -22,6 +22,7 @@ use product_watchlist::service::product_watchlist_service::{
     ProductWatchListService, ProductWatchListServiceImpl,
 };
 use search_filter::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
+use search_filter::service::user_search_filter_service::MockUserSearchFilterService;
 use std::time::Duration;
 use test_api::*;
 use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
@@ -812,11 +813,13 @@ async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
     let user_service = UserServiceImpl::new(&user_repository_pp);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
@@ -894,11 +897,13 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
     search_filter_repository
         .expect_query_user_search_filter_match_records_all()
         .returning(|_| Box::pin(async { Ok(vec![]) }));
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
@@ -1007,11 +1012,13 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
     search_filter_repository
         .expect_query_user_search_filter_match_records_all()
         .returning(|_| Box::pin(async { Ok(vec![]) }));
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
@@ -1165,11 +1172,13 @@ async fn should_respond_200_and_respect_language_query_param(
     search_filter_repository
         .expect_query_user_search_filter_match_records_all()
         .returning(|_| Box::pin(async { Ok(vec![]) }));
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
