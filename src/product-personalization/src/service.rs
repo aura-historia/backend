@@ -1667,4 +1667,409 @@ mod tests {
         assert!(state1.user_search_filter_id.is_none());
         assert!(state1.user_search_filter_name.is_none());
     }
+
+    // ---- Quota-aware search filter personalization tests ----
+
+    #[tokio::test]
+    async fn should_personalize_search_filter_hidden_when_quota_exceeded_for_current_month_match() {
+        let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
+        let notification_service = MockNotificationService::default();
+
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().returning(|_| {
+            Box::pin(async {
+                let mut user: User = Faker.fake();
+                user.tier = user::core::tier::UserTier::Free;
+                Ok(user)
+            })
+        });
+
+        let mut search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let mut match_record: search_filter::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord = Faker.fake();
+        match_record.created = OffsetDateTime::now_utc();
+        let expected_product_id = match_record.product_id;
+
+        search_filter_repository
+            .expect_query_user_search_filter_match_records_for_product()
+            .returning(move |_, _, _| {
+                let record = match_record.clone();
+                Box::pin(async move { Ok(vec![record]) })
+            });
+
+        let mut user_search_filter_service = MockUserSearchFilterService::default();
+        user_search_filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(100) }));
+
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+            &search_filter_repository,
+            &user_search_filter_service,
+        );
+
+        let mut input = Faker.fake::<LocalizedProductView>();
+        input.product_id = expected_product_id;
+        input.title.localization = common::language::domain::Language::En;
+
+        let actual = service
+            .personalize_search_filter(&Faker.fake(), input)
+            .await
+            .unwrap();
+
+        let state = actual.user_state.unwrap();
+        assert!(state.matched);
+        assert!(state.hidden);
+        assert_eq!(
+            actual.item.product_id,
+            common::product_id::ProductId::from(uuid::Uuid::nil())
+        );
+        assert_eq!(
+            actual.item.title.payload.to_string(),
+            "Hidden Product Title"
+        );
+        assert_eq!(
+            actual.item.condition,
+            product::core::condition::Condition::Unknown
+        );
+        assert_eq!(
+            actual.item.provenance,
+            product::core::provenance::Provenance::Unknown
+        );
+        assert_eq!(
+            actual.item.authenticity,
+            product::core::authenticity::Authenticity::Unknown
+        );
+        assert_eq!(
+            actual.item.restoration,
+            product::core::restoration::Restoration::Unknown
+        );
+        assert_eq!(
+            actual.item.state,
+            common::product_state::domain::ProductState::Unknown
+        );
+        assert!(actual.item.images.is_empty());
+        assert!(actual.item.description.is_none());
+        assert!(actual.item.price.is_none());
+        assert_eq!(actual.item.created, OffsetDateTime::UNIX_EPOCH);
+        assert_eq!(actual.item.updated, OffsetDateTime::UNIX_EPOCH);
+    }
+
+    #[tokio::test]
+    async fn should_personalize_search_filter_not_hidden_when_quota_not_exceeded() {
+        let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
+        let notification_service = MockNotificationService::default();
+
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().returning(|_| {
+            Box::pin(async {
+                let mut user: User = Faker.fake();
+                user.tier = user::core::tier::UserTier::Free;
+                Ok(user)
+            })
+        });
+
+        let mut search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let mut match_record: search_filter::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord = Faker.fake();
+        match_record.created = OffsetDateTime::now_utc();
+        let expected_product_id = match_record.product_id;
+        let expected_filter_id = match_record.user_search_filter_id;
+
+        search_filter_repository
+            .expect_query_user_search_filter_match_records_for_product()
+            .returning(move |_, _, _| {
+                let record = match_record.clone();
+                Box::pin(async move { Ok(vec![record]) })
+            });
+
+        let mut user_search_filter_service = MockUserSearchFilterService::default();
+        user_search_filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(0) }));
+
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+            &search_filter_repository,
+            &user_search_filter_service,
+        );
+
+        let mut input = Faker.fake::<LocalizedProductView>();
+        input.product_id = expected_product_id;
+        let original_title = input.title.payload.to_string();
+
+        let actual = service
+            .personalize_search_filter(&Faker.fake(), input)
+            .await
+            .unwrap();
+
+        let state = actual.user_state.unwrap();
+        assert!(state.matched);
+        assert!(!state.hidden);
+        assert_eq!(state.user_search_filter_id, Some(expected_filter_id));
+        assert_eq!(actual.item.product_id, expected_product_id);
+        assert_eq!(actual.item.title.payload.to_string(), original_title);
+    }
+
+    #[tokio::test]
+    async fn should_personalize_search_filter_not_hidden_when_match_from_previous_month() {
+        let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
+        let notification_service = MockNotificationService::default();
+        let user_service = MockUserService::default();
+
+        let mut search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let mut match_record: search_filter::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord = Faker.fake();
+        match_record.created = time::macros::datetime!(2020-01-15 12:00:00 UTC);
+        let expected_product_id = match_record.product_id;
+
+        search_filter_repository
+            .expect_query_user_search_filter_match_records_for_product()
+            .returning(move |_, _, _| {
+                let record = match_record.clone();
+                Box::pin(async move { Ok(vec![record]) })
+            });
+
+        let mut user_search_filter_service = MockUserSearchFilterService::default();
+        user_search_filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .never();
+
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+            &search_filter_repository,
+            &user_search_filter_service,
+        );
+
+        let mut input = Faker.fake::<LocalizedProductView>();
+        input.product_id = expected_product_id;
+
+        let actual = service
+            .personalize_search_filter(&Faker.fake(), input)
+            .await
+            .unwrap();
+
+        let state = actual.user_state.unwrap();
+        assert!(state.matched);
+        assert!(!state.hidden);
+    }
+
+    #[tokio::test]
+    async fn should_personalize_search_filter_all_hide_only_current_month_matches_when_quota_exceeded()
+     {
+        let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
+        let notification_service = MockNotificationService::default();
+
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().returning(|_| {
+            Box::pin(async {
+                let mut user: User = Faker.fake();
+                user.tier = user::core::tier::UserTier::Free;
+                Ok(user)
+            })
+        });
+
+        let current_product_id = ProductId::new();
+        let old_product_id = ProductId::new();
+        let unmatched_product_id = ProductId::new();
+
+        let mut current_match: search_filter::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord = Faker.fake();
+        current_match.product_id = current_product_id;
+        current_match.created = OffsetDateTime::now_utc();
+
+        let mut old_match: search_filter::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord = Faker.fake();
+        old_match.product_id = old_product_id;
+        old_match.created = time::macros::datetime!(2020-01-15 12:00:00 UTC);
+
+        let mut search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        search_filter_repository
+            .expect_query_user_search_filter_match_records_all()
+            .return_once(move |_| Box::pin(async move { Ok(vec![current_match, old_match]) }));
+
+        let mut user_search_filter_service = MockUserSearchFilterService::default();
+        user_search_filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(100) }));
+
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+            &search_filter_repository,
+            &user_search_filter_service,
+        );
+
+        let mut input1 = Faker.fake::<LocalizedProductView>();
+        input1.product_id = current_product_id;
+        let mut input2 = Faker.fake::<LocalizedProductView>();
+        input2.product_id = old_product_id;
+        let mut input3 = Faker.fake::<LocalizedProductView>();
+        input3.product_id = unmatched_product_id;
+
+        let actual = service
+            .personalize_search_filter_all(&Faker.fake(), vec![input1, input2, input3])
+            .await
+            .unwrap();
+
+        assert_eq!(actual.len(), 3);
+
+        // Current-month match: hidden and anonymized
+        let state0 = actual[0].user_state.clone().unwrap();
+        assert!(state0.matched);
+        assert!(state0.hidden);
+        assert_eq!(
+            actual[0].item.product_id,
+            common::product_id::ProductId::from(uuid::Uuid::nil())
+        );
+
+        // Old match: visible, not hidden
+        let state1 = actual[1].user_state.clone().unwrap();
+        assert!(state1.matched);
+        assert!(!state1.hidden);
+        assert_eq!(actual[1].item.product_id, old_product_id);
+
+        // Unmatched: default, not hidden
+        let state2 = actual[2].user_state.clone().unwrap();
+        assert!(!state2.matched);
+        assert!(!state2.hidden);
+        assert_eq!(actual[2].item.product_id, unmatched_product_id);
+    }
+
+    #[tokio::test]
+    async fn should_personalize_search_filter_all_skip_quota_check_when_no_current_month_matches() {
+        let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
+        let notification_service = MockNotificationService::default();
+        let user_service = MockUserService::default();
+
+        let old_product_id = ProductId::new();
+        let mut old_match: search_filter::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord = Faker.fake();
+        old_match.product_id = old_product_id;
+        old_match.created = time::macros::datetime!(2020-01-15 12:00:00 UTC);
+
+        let mut search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        search_filter_repository
+            .expect_query_user_search_filter_match_records_all()
+            .return_once(move |_| Box::pin(async move { Ok(vec![old_match]) }));
+
+        let mut user_search_filter_service = MockUserSearchFilterService::default();
+        user_search_filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .never();
+
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+            &search_filter_repository,
+            &user_search_filter_service,
+        );
+
+        let mut input = Faker.fake::<LocalizedProductView>();
+        input.product_id = old_product_id;
+
+        let actual = service
+            .personalize_search_filter_all(&Faker.fake(), vec![input])
+            .await
+            .unwrap();
+
+        assert_eq!(actual.len(), 1);
+        let state = actual[0].user_state.clone().unwrap();
+        assert!(state.matched);
+        assert!(!state.hidden);
+    }
+
+    #[test]
+    fn should_anonymize_product_with_correct_hidden_values() {
+        use crate::service::anonymize_product;
+        let mut product = Faker.fake::<LocalizedProductView>();
+        product.title.localization = common::language::domain::Language::En;
+
+        anonymize_product(&mut product);
+
+        assert_eq!(
+            product.product_id,
+            common::product_id::ProductId::from(uuid::Uuid::nil())
+        );
+        assert_eq!(
+            product.shop_id,
+            common::shop_id::ShopId::from(uuid::Uuid::nil())
+        );
+        assert_eq!(
+            product.seller_id,
+            common::shop_id::ShopId::from(uuid::Uuid::nil())
+        );
+        assert_eq!(product.title.payload.to_string(), "Hidden Product Title");
+        assert!(product.description.is_none());
+        assert!(product.price.is_none());
+        assert!(product.price_estimate_min.is_none());
+        assert!(product.price_estimate_max.is_none());
+        assert_eq!(
+            product.state,
+            common::product_state::domain::ProductState::Unknown
+        );
+        assert!(product.images.is_empty());
+        assert!(product.origin_year.is_none());
+        assert_eq!(
+            product.authenticity,
+            product::core::authenticity::Authenticity::Unknown
+        );
+        assert_eq!(
+            product.condition,
+            product::core::condition::Condition::Unknown
+        );
+        assert_eq!(
+            product.provenance,
+            product::core::provenance::Provenance::Unknown
+        );
+        assert_eq!(
+            product.restoration,
+            product::core::restoration::Restoration::Unknown
+        );
+        assert!(product.auction_start.is_none());
+        assert!(product.auction_end.is_none());
+        assert_eq!(product.created, OffsetDateTime::UNIX_EPOCH);
+        assert_eq!(product.updated, OffsetDateTime::UNIX_EPOCH);
+        assert!(product.category_id.is_none());
+        assert!(product.category_name.is_none());
+        assert!(product.period_id.is_none());
+        assert!(product.period_name.is_none());
+        assert_eq!(
+            product.shop_name,
+            common::shop_name::ShopName::from("Hidden")
+        );
+        assert_eq!(
+            product.seller_name,
+            common::shop_name::ShopName::from("Hidden")
+        );
+    }
+
+    #[test]
+    fn should_provide_language_specific_hidden_titles() {
+        use crate::service::hidden_title;
+        use common::language::domain::Language;
+
+        assert_eq!(
+            hidden_title(Language::De).to_string(),
+            "Versteckter Produkttitel"
+        );
+        assert_eq!(
+            hidden_title(Language::En).to_string(),
+            "Hidden Product Title"
+        );
+        assert_eq!(
+            hidden_title(Language::Fr).to_string(),
+            "Titre du produit masqué"
+        );
+        assert_eq!(
+            hidden_title(Language::Es).to_string(),
+            "Título de producto oculto"
+        );
+        assert_eq!(
+            hidden_title(Language::It).to_string(),
+            "Titolo del prodotto nascosto"
+        );
+    }
 }

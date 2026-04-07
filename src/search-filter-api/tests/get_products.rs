@@ -68,14 +68,21 @@ fn setup_services(
             "",
             "",
         )));
+    let service: &'static UserSearchFilterServiceImpl<'static> = Box::leak(Box::new(
+        UserSearchFilterServiceImpl::new(search_filter_repository, user_service),
+    ));
     let personalization_service = ProductPersonalizationServiceImpl::new(
         watchlist_repository,
         notification_service,
         user_service,
         search_filter_repository,
+        service,
     );
-    let service = UserSearchFilterServiceImpl::new(search_filter_repository, user_service);
-    (service, get_product_service, personalization_service)
+    (
+        UserSearchFilterServiceImpl::new(search_filter_repository, user_service),
+        get_product_service,
+        personalization_service,
+    )
 }
 
 async fn create_user(client: &'static aws_sdk_dynamodb::Client) -> UserId {
@@ -566,4 +573,102 @@ async fn should_only_return_matches_for_specific_filter() {
             .collect::<Vec<_>>()
     );
     assert_eq!(5, actual.total.unwrap());
+}
+
+async fn create_free_user(client: &'static aws_sdk_dynamodb::Client) -> UserId {
+    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user = user_service.create_user(Faker.fake()).await.unwrap();
+    user.user_id
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_hide_products_when_search_filter_match_quota_exceeded() {
+    let client = get_dynamodb_client().await;
+    let (service, get_product_service, personalization_service) = setup_services(client);
+    let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
+
+    let product_records = fake::vec![ProductRecord; 3];
+    let put_res = product_repository
+        .put_product_records(product_records.clone().try_into().unwrap())
+        .await
+        .unwrap();
+    assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
+
+    // Create a Free-tier user (limited quota)
+    let user_id = create_free_user(client).await;
+    let search_filter = service
+        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
+        .await
+        .unwrap();
+
+    // Seed enough match records to exceed quota (Free tier quota is 10)
+    let extra_product_records = fake::vec![ProductRecord; 10];
+    let put_res = product_repository
+        .put_product_records(extra_product_records.clone().try_into().unwrap())
+        .await
+        .unwrap();
+    assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
+
+    seed_match_records(
+        client,
+        &user_id,
+        &search_filter.user_search_filter_id,
+        &extra_product_records,
+    )
+    .await;
+
+    // Seed the 3 target products as matches (these go over quota)
+    seed_match_records(
+        client,
+        &user_id,
+        &search_filter.user_search_filter_id,
+        &product_records,
+    )
+    .await;
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/me/search-filters/{userSearchFilterId}/products")
+            .jwt_claim("sub", user_id)
+            .path_parameter("userSearchFilterId", search_filter.user_search_filter_id)
+            .query_string_parameter("language", "en")
+            .query_string_parameter("currency", "EUR")
+            .query_string_parameter("sort", "created")
+            .query_string_parameter("order", "asc")
+            .query_string_parameter("searchAfter", "2021-12-31T23:59:59Z")
+            .query_string_parameter("size", "20")
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handle(
+        lambda_event,
+        &service,
+        &get_product_service,
+        &personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+
+    let actual: TimeCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
+        serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
+
+    // All items should be present but hidden (quota exceeded)
+    assert_eq!(13, actual.total.unwrap());
+    for item in &actual.items {
+        let user_state = item.user_state.as_ref().unwrap();
+        assert!(user_state.search_filter.matched);
+        assert!(user_state.search_filter.hidden);
+
+        // Verify anonymization: product_id should be nil
+        assert_eq!(
+            item.item.product_id.to_string(),
+            "00000000-0000-0000-0000-000000000000"
+        );
+        // Title should be the hidden placeholder
+        assert_eq!(item.item.title.text, "Hidden Product Title");
+    }
 }
