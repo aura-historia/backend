@@ -24,6 +24,7 @@ use product_watchlist::{
 };
 use product_watchlist_api::watchlist_get::handle;
 use search_filter::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
+use search_filter::service::user_search_filter_service::MockUserSearchFilterService;
 use test_api::*;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
@@ -53,11 +54,13 @@ async fn should_200_when_sort_created_asc() {
     search_filter_repository
         .expect_query_user_search_filter_match_records_all()
         .returning(|_| Box::pin(async { Ok(vec![]) }));
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let service =
         ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
@@ -165,11 +168,13 @@ async fn should_200_when_sort_created_asc_search_after() {
     search_filter_repository
         .expect_query_user_search_filter_match_records_all()
         .returning(|_| Box::pin(async { Ok(vec![]) }));
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let service =
         ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
@@ -287,11 +292,13 @@ async fn should_200_when_sort_created_desc() {
     search_filter_repository
         .expect_query_user_search_filter_match_records_all()
         .returning(|_| Box::pin(async { Ok(vec![]) }));
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let service =
         ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
@@ -400,11 +407,13 @@ async fn should_200_when_sort_created_desc_search_after() {
     search_filter_repository
         .expect_query_user_search_filter_match_records_all()
         .returning(|_| Box::pin(async { Ok(vec![]) }));
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let service =
         ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
@@ -554,11 +563,13 @@ async fn should_respond_200_and_respect_language_query_param(
     search_filter_repository
         .expect_query_user_search_filter_match_records_all()
         .returning(|_| Box::pin(async { Ok(vec![]) }));
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let service =
         ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);

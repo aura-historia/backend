@@ -19,6 +19,7 @@ use product_watchlist::service::product_watchlist_service::ProductWatchListServi
 use product_watchlist_api::watchlist_patch::WatchlistProductPatch;
 use product_watchlist_api::watchlist_patch::handle;
 use search_filter::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
+use search_filter::service::user_search_filter_service::MockUserSearchFilterService;
 use test_api::*;
 use time::OffsetDateTime;
 use user::dynamodb::repository::UserDynamoDbRepository;
@@ -64,11 +65,13 @@ async fn should_respond_with_patched_notifications(
     search_filter_repository
         .expect_query_user_search_filter_match_records_for_product()
         .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
+    let user_search_filter_service = MockUserSearchFilterService::default();
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
+        &user_search_filter_service,
     );
     let service =
         ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository, &user_service);
