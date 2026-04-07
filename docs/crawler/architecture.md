@@ -19,7 +19,7 @@ The spider and scraper loops follow the same pattern each tick:
 
 1. Ask the relevant **CandidateService** for a batch of work.
 2. For the scraper: fan the batch out using a `FuturesUnordered` pool driven by a `fill_slots` closure that groups candidates by domain and enforces a per-domain delay between consecutive requests. For the spider: fan the batch out using `futures::stream::iter(...).buffer_unordered(concurrency)`.
-3. Before processing each item, acquire a PostgreSQL advisory lock (`DomainAdvisoryLock` for spider domains, `UrlAdvisoryLock` for scraper URLs). If another worker already holds the lock the item is skipped (not failed) and the lock connection is released immediately.
+3. Before processing each item, acquire an in-memory lock (`DomainLock` for spider domains, `UrlLock` for scraper URLs) via `LocalLockManager`. If another worker already holds the lock the item is skipped (not failed).
 4. Call the relevant service (`SpiderService::run` or `ScraperService::scrape`). Errors are logged and swallowed so one failure doesn't abort the whole batch.
 5. After each batch completes, log a summary line with `total`, `succeeded`, `failed`, `skipped` (lock-skipped items), and `duration_ms`. Performance counters are accumulated across batches and a rolling average is emitted every 500 scraper URLs / every 50 spider domains.
 
@@ -122,14 +122,14 @@ WHERE  shop_domain = $1
 
 If another worker already holds the lock the update affects 0 rows, the service returns an empty `SpiderRunResult`, and no crawl happens. The lock is released unconditionally at the end of the run (even on error), using a `locked_at = NULL` update.
 
-### PostgreSQL advisory locks (cron-job level)
+### In-memory cron locks (single-process level)
 
-The cron job acquires a **PostgreSQL advisory lock** before dispatching each spider or scraper task, so two concurrent workers never process the same domain or URL at the same time — even across multiple process replicas.
+The cron job acquires an in-memory lock before dispatching each spider or scraper task, so two concurrent Tokio tasks never process the same domain or URL at the same time in the same process.
 
-- **`DomainAdvisoryLock`** — acquired per spider candidate using `pg_try_advisory_lock(domain_id_as_i64)`. If the lock is held by another worker the domain is skipped (logged as a `warn`) and counted as `skipped` in the batch summary. The lock is held for the full duration of the crawl and released automatically when the `DomainAdvisoryLock` guard is dropped.
-- **`UrlAdvisoryLock`** — acquired per scraper candidate using a hash of the URL string. Same skip-on-contention semantics.
+- **`DomainLock`** — acquired per spider candidate using the UUID XOR-folded `i64` key.
+- **`UrlLock`** — acquired per scraper candidate using the FNV-1a `i64` hash of the URL.
 
-Advisory locks are session-level PostgreSQL locks; they require a dedicated connection held open for the duration of the task. The pool size (`db_max_connections`) is sized accordingly — see [Configuration](./configuration.md).
+Both are backed by `LocalLockManager` (`Arc<DashMap<String, Instant>>`) and released automatically by RAII when the guard is dropped.
 
 ### Crawl execution — `SpiderServiceImpl`
 

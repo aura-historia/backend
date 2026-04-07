@@ -107,21 +107,11 @@ The schema seeds ~50 common exact-value mappings (EN/DE/FR/ES/IT) and ~25 regex 
 
 ## Key Query Patterns
 
-### Advisory locks
+### In-memory locks
 
-The cron job uses PostgreSQL session-level advisory locks to prevent two concurrent workers from processing the same domain or URL simultaneously.
+The cron job uses an in-memory `LocalLockManager` (`Arc<DashMap<String, Instant>>`) to prevent two concurrent Tokio tasks from processing the same domain or URL simultaneously in the same process.
 
-```sql
--- Acquire (non-blocking): returns TRUE if acquired, FALSE if already held
-SELECT pg_try_advisory_lock($lock_key)
-
--- Release (called when the guard is dropped)
-SELECT pg_advisory_unlock($lock_key)
-```
-
-`DomainAdvisoryLock` uses the `domain_id` UUID hashed to an `i64` as the lock key. `UrlAdvisoryLock` uses a hash of the URL string. Both are released automatically when their Rust guard value is dropped, even if the task panics — as long as the Postgres session remains alive.
-
-Because each lock holds a connection open for the full duration of the task, the pool must be sized to `spider_concurrency + scraper_concurrency + N_spare`. See `CrawlerCronConfig::effective_db_max_connections`.
+`DomainLock` uses the `domain_id` UUID XOR-folded to an `i64` key. `UrlLock` uses an FNV-1a hash of the URL string. Both are released automatically when their Rust guard value is dropped.
 
 ### Batch upsert into `shop_urls` (UNNEST)
 

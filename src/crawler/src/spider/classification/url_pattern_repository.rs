@@ -4,7 +4,7 @@
 //! domain. Once a pattern has been discovered by the spider it is stored here so that subsequent
 //! runs can skip the classification step and use the cached pattern directly.
 //!
-//! Locking is handled at the Postgres session level via advisory locks; see
+//! Locking is handled at the crawler dispatcher level via in-memory domain/url locks; see
 //! [`crate::spider::advisory_lock`]. No `locked_at` column or lock methods live here.
 
 use async_trait::async_trait;
@@ -87,7 +87,7 @@ pub trait ShopUrlPatternRepository: Send + Sync {
 ///
 /// Patterns are stored in the `shops` table keyed by `shop_id`.
 /// Domain-level crawl state (`last_crawled`) lives in `shop_domains`.
-/// Locking is delegated to Postgres advisory locks; see [`crate::spider::advisory_lock`].
+/// Locking is delegated to the cron-level in-memory lock manager; see [`crate::spider::advisory_lock`].
 pub struct ShopUrlPatternRepositoryImpl {
     pool: PgPool,
 }

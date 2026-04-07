@@ -19,7 +19,7 @@ Controls the three background tasks spawned by `CrawlerCronJob`.
 | `spider_concurrency` | `usize` | 3 | Max concurrent spider runs (fan-out via `buffer_unordered`) |
 | `scraper_concurrency` | `usize` | 10 | Max concurrent scrape operations |
 | `spider_classify_threshold` | `usize` | 200 | Passed through to `SpiderServiceConfig::classify_threshold` — number of URLs buffered before triggering mid-run LLM URL classification |
-| `db_max_connections` | `Option<u32>` | `None` (auto) | Maximum Postgres connections in the pool. Each concurrent spider task holds one connection for its `DomainAdvisoryLock` and each scraper task holds one for its `UrlAdvisoryLock` for the full duration of the run. When `None`, auto-computed as `spider_concurrency + scraper_concurrency + 10`. |
+| `db_max_connections` | `Option<u32>` | `None` (auto) | Maximum Postgres connections in the pool. Locks are now in-memory (`LocalLockManager`), so this setting mainly controls query capacity. When `None`, auto-computed as `spider_concurrency + scraper_concurrency + 10`. |
 
 ---
 
@@ -44,11 +44,11 @@ Controls per-run behavior of the spider.
 
 - **`classify_threshold` vs `max_sample_urls`**: Classification is triggered at `classify_threshold` URLs buffered, but only up to `max_sample_urls` are sent to the LLM. If more URLs arrive before the threshold is hit, they are still buffered (for DB persistence) but only the first `max_sample_urls` are included in the LLM prompt. `spider_classify_threshold` in `CrawlerCronConfig` is passed directly to `SpiderServiceConfig::classify_threshold` at construction time.
 
-- **`spider_batch_size` + `spider_concurrency`**: At each tick, up to `spider_batch_size` shops are selected and up to `spider_concurrency` are crawled concurrently. If a domain's advisory lock (`DomainAdvisoryLock`) is held by another worker the item is skipped immediately (counted as `skipped` in the batch log) rather than failing.
+- **`spider_batch_size` + `spider_concurrency`**: At each tick, up to `spider_batch_size` shops are selected and up to `spider_concurrency` are crawled concurrently. If a domain's in-memory lock (`DomainLock`) is held by another task the item is skipped immediately (counted as `skipped` in the batch log) rather than failing.
 
-- **`lock_timeout`**: Prevents a crashed spider run from blocking a shop indefinitely via the `shop_domains.locked_at` optimistic lock. If `locked_at` is older than `lock_timeout`, the lock is treated as expired and can be acquired by the next run. The cron-level advisory lock (`DomainAdvisoryLock`) is self-healing at the Postgres session level — it is released automatically if the process dies.
+- **`lock_timeout`**: Prevents a crashed spider run from blocking a shop indefinitely via the `shop_domains.locked_at` optimistic lock. If `locked_at` is older than `lock_timeout`, the lock is treated as expired and can be acquired by the next run. The cron-level in-memory lock is process-local and released when the process exits.
 
-- **`db_max_connections`**: Each concurrent spider/scraper task holds one dedicated Postgres connection open for its advisory lock for the full duration of the run. The auto-computed value (`spider_concurrency + scraper_concurrency + 10`) ensures there is always headroom for the short-lived query connections issued by repositories and the shop-sync task. Override with an explicit value if running additional connection consumers.
+- **`db_max_connections`**: With in-memory locks, pool usage is dominated by repository queries instead of long-lived lock sessions. The auto-computed value (`spider_concurrency + scraper_concurrency + 10`) keeps comfortable headroom for the spider/scraper/query mix.
 
 - **`push_batch_size`**: Controls how often the scraper loop flushes scraped products to the backend push service. Smaller values reduce peak memory at the cost of more push calls; larger values amortise push overhead but hold more results in memory.
 

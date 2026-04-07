@@ -22,7 +22,7 @@
 //!
 //! # Connection pool sizing
 //!
-//! This demo scrapes each target sequentially (no advisory locks are held concurrently),
+//! This demo scrapes each target sequentially,
 //! so a pool of **5 connections** is more than sufficient for all repository queries.
 //!
 //! # Running
@@ -71,8 +71,7 @@ const POSTGRES_PASSWORD: &str = "postgres";
 const POSTGRES_DB: &str = "postgres";
 const POSTGRES_PORT: u16 = 5432;
 const DEMO_CONTAINER_NAME: &str = "aura-historia-scraper-demo";
-/// Scraper demo pool size: no advisory locks are held concurrently, so 5
-/// connections cover all parallel repository queries with room to spare.
+/// Scraper demo pool size: 5 connections cover all repository queries with room to spare.
 const DEMO_POOL_MAX_CONNECTIONS: u32 = 5;
 
 // ---------------------------------------------------------------------------

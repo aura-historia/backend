@@ -53,6 +53,7 @@ use crawler::service::shop_registration::{
     RegisteredShop, ShopRegistrationRepositoryImpl, ShopRegistrationService,
     ShopRegistrationSource, ShopSyncError,
 };
+use crawler::spider::advisory_lock::LocalLockManager;
 use crawler::spider::candidate_service::SpiderCandidateServiceImpl;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
@@ -164,9 +165,6 @@ async fn main() {
 
     // ------------------------------------------------------------------
     // Database — either spin up a testcontainer or use an existing Postgres.
-    // The pool is sized to spider_concurrency + scraper_concurrency + 10 so
-    // that every concurrent advisory-lock connection plus repository queries
-    // fit without exhausting the pool.
     // ------------------------------------------------------------------
 
     // We keep the container alive for the process lifetime by holding it here.
@@ -287,7 +285,7 @@ async fn main() {
 
     let cron_job = CrawlerCronJob::new(
         config,
-        pool.clone(),
+        Arc::new(LocalLockManager::new()),
         spider_candidates,
         spider_svc,
         scraper_candidates,

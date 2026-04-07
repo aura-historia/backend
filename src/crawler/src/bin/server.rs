@@ -13,10 +13,8 @@
 //! max_connections = spider_concurrency + scraper_concurrency + 10
 //! ```
 //!
-//! Each concurrent spider task holds one connection for its [`DomainAdvisoryLock`] and each
-//! scraper task holds one for its [`UrlAdvisoryLock`] for the full duration of the
-//! operation.  The `+10` headroom covers short-lived repository queries, the shop-sync
-//! task, and advisory-lock release spawns that briefly re-use a connection on drop.
+//! The pool still uses `spider_concurrency + scraper_concurrency + 10` as a practical
+//! default to absorb bursts from repository queries and the shop-sync task.
 //!
 //! Override by setting `db_max_connections` explicitly in [`CrawlerCronConfig`].
 //!
@@ -50,6 +48,7 @@ use crawler::service::shop_registration::{
     RegisteredShop, ShopRegistrationRepositoryImpl, ShopRegistrationService,
     ShopRegistrationSource, ShopSyncError,
 };
+use crawler::spider::advisory_lock::LocalLockManager;
 use crawler::spider::candidate_service::SpiderCandidateServiceImpl;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
@@ -164,8 +163,7 @@ async fn main() {
     };
 
     // 2. Connect to database — pool is sized to spider_concurrency + scraper_concurrency + 10
-    //    so that every concurrent advisory-lock connection plus repository queries fit without
-    //    hitting the default sqlx cap of 10.
+    //    to keep headroom for concurrent repository queries.
     let db_url =
         std::env::var("DATABASE_URL").expect("DATABASE_URL environment variable must be set");
     let pool = config
@@ -304,7 +302,7 @@ async fn main() {
     // 5. Build Cron Job
     let cron_job = CrawlerCronJob::new(
         config,
-        pool.clone(),
+        Arc::new(LocalLockManager::new()),
         spider_candidates,
         spider_svc,
         scraper_candidates,
