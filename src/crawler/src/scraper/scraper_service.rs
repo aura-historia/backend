@@ -732,8 +732,6 @@ mod tests {
 
         let schema = shops_product_schema(id);
         let mut schema_svc = MockProductSchemaService::new();
-        // Bug 1 fix: find_product_schema is called first (DB-only check).
-        // Return None so the code falls through to get_product_schema (LLM creation).
         schema_svc
             .expect_find_product_schema()
             .once()
@@ -790,7 +788,6 @@ mod tests {
 
         let schema = shops_product_schema(id);
         let mut schema_svc = MockProductSchemaService::new();
-        // Bug 1 fix: find_product_schema is called first (DB-only check).
         schema_svc
             .expect_find_product_schema()
             .once()
@@ -1502,7 +1499,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Schema fix attempt limiting (Bug 3)
+    // Schema fix attempt limiting
     // -----------------------------------------------------------------------
 
     fn broken_shops_product_schema(id: ShopId) -> ShopsProductSchema {
