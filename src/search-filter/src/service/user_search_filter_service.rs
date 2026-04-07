@@ -199,6 +199,11 @@ pub trait UserSearchFilterService {
         &self,
         product_matches: Vec<SearchFilterProductMatch>,
     ) -> Result<CreateSearchFilterProductMatchesResult, UserSearchFilterError>;
+
+    async fn count_user_search_filter_matches_for_this_month(
+        &self,
+        user_id: &UserId,
+    ) -> Result<u64, UserSearchFilterError>;
 }
 
 #[derive(Debug)]
@@ -610,6 +615,30 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             processed,
             unprocessed,
         })
+    }
+
+    async fn count_user_search_filter_matches_for_this_month(
+        &self,
+        user_id: &UserId,
+    ) -> Result<u64, UserSearchFilterError> {
+        let now = OffsetDateTime::now_utc();
+        let from = now
+            .replace_day(1)
+            .expect("day 1 is always valid")
+            .replace_hour(0)
+            .expect("hour 0 is always valid")
+            .replace_minute(0)
+            .expect("minute 0 is always valid")
+            .replace_second(0)
+            .expect("second 0 is always valid")
+            .replace_nanosecond(0)
+            .expect("nanosecond 0 is always valid");
+        let to = now;
+        let count = self
+            .repository
+            .count_user_search_filter_match_records_for_between(user_id, &from, &to)
+            .await?;
+        Ok(count)
     }
 }
 
@@ -2377,6 +2406,68 @@ mod tests {
                 .view_search_filter_matches(&UserId::new(), &UserSearchFilterId::new(), &None, None)
                 .await;
             assert!(actual.is_err());
+        }
+    }
+
+    mod count_user_search_filter_matches_for_this_month {
+        use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
+        use crate::service::user_search_filter_service::{
+            UserSearchFilterError, UserSearchFilterService, UserSearchFilterServiceImpl,
+        };
+        use common::user_id::UserId;
+
+        #[tokio::test]
+        async fn should_return_count_when_matches_exist() {
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_count_user_search_filter_match_records_for_between()
+                .return_once(|_, _, _| Box::pin(async { Ok(7) }));
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
+
+            let actual = service
+                .count_user_search_filter_matches_for_this_month(&UserId::new())
+                .await;
+            assert!(actual.is_ok());
+            assert_eq!(actual.unwrap(), 7);
+        }
+
+        #[tokio::test]
+        async fn should_return_zero_when_no_matches() {
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_count_user_search_filter_match_records_for_between()
+                .return_once(|_, _, _| Box::pin(async { Ok(0) }));
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
+
+            let actual = service
+                .count_user_search_filter_matches_for_this_month(&UserId::new())
+                .await;
+            assert!(actual.is_ok());
+            assert_eq!(actual.unwrap(), 0);
+        }
+
+        #[tokio::test]
+        async fn should_propagate_sdk_error() {
+            use aws_sdk_dynamodb::error::SdkError;
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_count_user_search_filter_match_records_for_between()
+                .return_once(|_, _, _| {
+                    Box::pin(async { Err(SdkError::construction_failure("test error")) })
+                });
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
+
+            let actual = service
+                .count_user_search_filter_matches_for_this_month(&UserId::new())
+                .await;
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                UserSearchFilterError::SdkQueryError(_) => {}
+                _ => panic!("expected SdkQueryError"),
+            }
         }
     }
 }

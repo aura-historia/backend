@@ -10,11 +10,13 @@ use product::core::product_event::domain::ProductDomainEventPayload;
 use product::core::title::Title;
 use product::opensearch::product_document::ProductDocument;
 use product::service::get_service::{GetProductError, GetProductService};
+use search_filter::core::quota::SearchFilterQuota;
 use search_filter::core::user_search_filter::UserSearchFilterSummary;
 use search_filter::service::enhanced_search_match_service::EnhancedSearchMatchService;
 use search_filter::service::user_search_filter_service::{
     UserSearchFilterError, UserSearchFilterService,
 };
+use std::collections::HashMap;
 use tracing::{debug, warn};
 use user::service::user_service::{UserService, UserServiceError};
 
@@ -219,12 +221,58 @@ impl<'a> ProductEventSearchFilterNotificationsService
             return Ok(vec![]);
         }
 
+        // Filter out users who have exceeded their monthly search-filter-match quota
+        let mut quota_eligible_filters = Vec::with_capacity(unmatched_filters.len());
+        let mut user_quota_cache: HashMap<common::user_id::UserId, bool> = HashMap::new();
+
+        for filter in unmatched_filters {
+            let eligible = match user_quota_cache.get(&filter.user_id) {
+                Some(&cached) => cached,
+                None => {
+                    let eligible = match self.user_service.find_user(&filter.user_id).await {
+                        Ok(user) => {
+                            let match_count = self
+                                .user_search_filter_service
+                                .count_user_search_filter_matches_for_this_month(&filter.user_id)
+                                .await?;
+                            let quota = user.tier.search_filter_match_quota();
+                            (match_count as u32) < quota
+                        }
+                        Err(err) => {
+                            warn!(
+                                userId = %filter.user_id,
+                                error = %err,
+                                "Failed loading user for quota check. Skipping filter."
+                            );
+                            false
+                        }
+                    };
+                    user_quota_cache.insert(filter.user_id, eligible);
+                    eligible
+                }
+            };
+
+            if eligible {
+                quota_eligible_filters.push(filter);
+            } else {
+                debug!(
+                    userId = %filter.user_id,
+                    searchFilterId = %filter.user_search_filter_id,
+                    "Skipping filter for user who exceeded search-filter-match quota."
+                );
+            }
+        }
+
+        if quota_eligible_filters.is_empty() {
+            return Ok(vec![]);
+        }
+
         // Run enhanced AI matching for filters with enhanced_search_description
         let title = product_title(&product);
         let description = product_description(&product);
-        let mut commands = Vec::with_capacity(unmatched_filters.len());
+        let mut commands = Vec::with_capacity(quota_eligible_filters.len());
 
-        for filter in unmatched_filters {
+        for filter in quota_eligible_filters {
             match &filter.enhanced_search_description {
                 Some(enhanced_desc) => {
                     let language = resolve_user_language(self.user_service, &filter.user_id).await;
@@ -416,7 +464,15 @@ mod tests {
     }
 
     fn mk_default_user_service() -> MockUserService {
-        MockUserService::default()
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().returning(|_| {
+            Box::pin(async {
+                let mut user: user::core::user::User = Faker.fake();
+                user.tier = user::core::tier::UserTier::Pro;
+                Ok(user)
+            })
+        });
+        user_service
     }
 
     fn mk_user_with_language(language: Language) -> user::core::user::User {
@@ -477,6 +533,9 @@ mod tests {
         filter_service
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(0) }));
 
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
@@ -598,6 +657,9 @@ mod tests {
         filter_service
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(0) }));
 
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
@@ -646,6 +708,9 @@ mod tests {
         filter_service
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(0) }));
 
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
@@ -706,6 +771,9 @@ mod tests {
         filter_service
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(0) }));
 
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
@@ -778,6 +846,9 @@ mod tests {
         filter_service
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(0) }));
 
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
@@ -813,6 +884,9 @@ mod tests {
         filter_service
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(0) }));
 
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
@@ -849,6 +923,9 @@ mod tests {
         filter_service
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(0) }));
 
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
@@ -935,6 +1012,9 @@ mod tests {
         filter_service
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(0) }));
 
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
@@ -984,6 +1064,9 @@ mod tests {
         filter_service
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(0) }));
 
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
@@ -1033,6 +1116,9 @@ mod tests {
         filter_service
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(0) }));
 
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
@@ -1079,6 +1165,9 @@ mod tests {
         filter_service
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(0) }));
 
         let mut enhanced_service = MockEnhancedSearchMatchService::default();
         enhanced_service
@@ -1095,7 +1184,7 @@ mod tests {
         let mut user_service = MockUserService::default();
         user_service
             .expect_find_user()
-            .return_once(|_| Box::pin(async { Ok(mk_user_with_language(Language::En)) }));
+            .returning(|_| Box::pin(async { Ok(mk_user_with_language(Language::En)) }));
 
         let service = ProductEventSearchFilterNotificationsServiceImpl::new(
             &filter_service,
@@ -1135,6 +1224,9 @@ mod tests {
         filter_service
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(0) }));
 
         let mut enhanced_service = MockEnhancedSearchMatchService::default();
         enhanced_service
@@ -1151,7 +1243,7 @@ mod tests {
         let mut user_service = MockUserService::default();
         user_service
             .expect_find_user()
-            .return_once(|_| Box::pin(async { Ok(mk_user_with_language(Language::En)) }));
+            .returning(|_| Box::pin(async { Ok(mk_user_with_language(Language::En)) }));
 
         let service = ProductEventSearchFilterNotificationsServiceImpl::new(
             &filter_service,
@@ -1186,6 +1278,9 @@ mod tests {
         filter_service
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(0) }));
 
         let mut enhanced_service = MockEnhancedSearchMatchService::default();
         enhanced_service
@@ -1201,7 +1296,7 @@ mod tests {
         let mut user_service = MockUserService::default();
         user_service
             .expect_find_user()
-            .return_once(|_| Box::pin(async { Ok(mk_user_with_language(Language::En)) }));
+            .returning(|_| Box::pin(async { Ok(mk_user_with_language(Language::En)) }));
 
         let service = ProductEventSearchFilterNotificationsServiceImpl::new(
             &filter_service,
@@ -1219,7 +1314,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_default_to_english_when_user_not_found_for_enhanced_match() {
+    async fn should_skip_filter_when_user_not_found_for_quota_check() {
         let product: Product = Faker.fake();
         let event = mk_event(&product);
         let product_clone = product.clone();
@@ -1238,22 +1333,14 @@ mod tests {
         filter_service
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(0) }));
 
-        let mut enhanced_service = MockEnhancedSearchMatchService::default();
-        enhanced_service
-            .expect_evaluate()
-            .withf(|_, _, _, lang| *lang == Language::En)
-            .return_once(|_, _, _, _| {
-                Box::pin(async {
-                    Ok(EnhancedSearchMatchResult {
-                        matches: true,
-                        reason: Some(EnhancedMatchReason::from("Matches.")),
-                    })
-                })
-            });
+        let enhanced_service = mk_default_enhanced_match_service();
 
         let mut user_service = MockUserService::default();
-        user_service.expect_find_user().return_once(|uid| {
+        user_service.expect_find_user().returning(|uid| {
             let uid = *uid;
             Box::pin(async move { Err(UserServiceError::UserNotFound(uid)) })
         });
@@ -1268,7 +1355,7 @@ mod tests {
         let result = service.determine_notification_commands(event).await;
 
         let cmds = result.unwrap();
-        assert_eq!(cmds.len(), 1);
+        assert!(cmds.is_empty());
     }
 
     #[tokio::test]
@@ -1296,6 +1383,9 @@ mod tests {
             .expect_find_search_filter_product_match()
             .times(2)
             .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(0) }));
 
         let mut enhanced_service = MockEnhancedSearchMatchService::default();
         enhanced_service
@@ -1312,7 +1402,7 @@ mod tests {
         let mut user_service = MockUserService::default();
         user_service
             .expect_find_user()
-            .return_once(|_| Box::pin(async { Ok(mk_user_with_language(Language::De)) }));
+            .returning(|_| Box::pin(async { Ok(mk_user_with_language(Language::De)) }));
 
         let service = ProductEventSearchFilterNotificationsServiceImpl::new(
             &filter_service,
@@ -1336,5 +1426,175 @@ mod tests {
             enhanced_cmd.enhanced_match_reason,
             Some(EnhancedMatchReason::from("Confirmed match."))
         );
+    }
+
+    // ---------------------------------------------------------------------------
+    // Quota enforcement tests
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn should_skip_filter_when_user_exceeds_search_filter_match_quota() {
+        let product: Product = Faker.fake();
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+        let user_id = UserId::new();
+        let summary = mk_filter_summary(user_id);
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| Box::pin(async move { Ok(vec![summary]) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(10) }));
+
+        let enhanced_service = mk_default_enhanced_match_service();
+
+        // Free tier user with quota of 10 — already at limit
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().returning(|_| {
+            Box::pin(async {
+                let mut user: user::core::user::User = Faker.fake();
+                user.tier = user::core::tier::UserTier::Free;
+                Ok(user)
+            })
+        });
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
+
+        let result = service.determine_notification_commands(event).await;
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_allow_filter_when_user_below_search_filter_match_quota() {
+        let product: Product = Faker.fake();
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+        let user_id = UserId::new();
+        let summary = mk_filter_summary(user_id);
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| Box::pin(async move { Ok(vec![summary]) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(9) }));
+
+        let enhanced_service = mk_default_enhanced_match_service();
+
+        // Free tier user with quota of 10 — 9 used, 1 remaining
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().returning(|_| {
+            Box::pin(async {
+                let mut user: user::core::user::User = Faker.fake();
+                user.tier = user::core::tier::UserTier::Free;
+                Ok(user)
+            })
+        });
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
+
+        let result = service.determine_notification_commands(event).await;
+
+        assert!(result.is_ok());
+        let cmds = result.unwrap();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].command.user_id, user_id);
+    }
+
+    #[tokio::test]
+    async fn should_skip_quota_exceeded_user_but_allow_other_users() {
+        let product: Product = Faker.fake();
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+
+        let free_user_id = UserId::new();
+        let pro_user_id = UserId::new();
+        let free_summary = mk_filter_summary(free_user_id);
+        let pro_summary = mk_filter_summary(pro_user_id);
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| Box::pin(async move { Ok(vec![free_summary, pro_summary]) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .times(2)
+            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
+
+        // Free user has 10 matches (at quota), Pro user has 100 matches (unlimited)
+        let free_uid = free_user_id;
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(move |uid| {
+                let count = if *uid == free_uid { 10 } else { 100 };
+                Box::pin(async move { Ok(count) })
+            });
+
+        let enhanced_service = mk_default_enhanced_match_service();
+
+        let free_uid2 = free_user_id;
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().returning(move |uid| {
+            let tier = if *uid == free_uid2 {
+                user::core::tier::UserTier::Free
+            } else {
+                user::core::tier::UserTier::Pro
+            };
+            Box::pin(async move {
+                let mut user: user::core::user::User = Faker.fake();
+                user.tier = tier;
+                Ok(user)
+            })
+        });
+
+        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
+
+        let result = service.determine_notification_commands(event).await;
+
+        assert!(result.is_ok());
+        let cmds = result.unwrap();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].command.user_id, pro_user_id);
     }
 }
