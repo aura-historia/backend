@@ -43,8 +43,11 @@ use uuid::Uuid;
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Builds a `UserSearchFilterRecord` whose percolation query matches the
-/// product produced by [`mk_product_record`].
+/// Builds a `UserSearchFilterRecord` whose percolation query matches
+/// products with state `Listed` (via `state_query`). All other filter
+/// fields are empty/permissive so the filter matches any product that
+/// is in the Listed state — allowing tests to control matching through
+/// the product record's state alone.
 fn mk_search_filter_record(
     user_id: UserId,
     filter_id: UserSearchFilterId,
@@ -188,7 +191,7 @@ async fn fill_quota(
     for i in 0..count {
         let shop_id = ShopId::new();
         let shops_product_id = ShopsProductId::new();
-        let created = now - time::Duration::hours(i as i64);
+        let created = now - time::Duration::seconds(i as i64);
         let mut record = Faker.fake::<UserSearchFilterMatchRecord>();
         record.pk = mk_pk(&user_id);
         record.sk = mk_sk(&filter_id, &shop_id, &shops_product_id);
