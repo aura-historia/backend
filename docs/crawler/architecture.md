@@ -252,7 +252,7 @@ The dispatcher (`cron.rs`) guarantees at most one in-flight scrape per domain at
 
 **`scraper::Html` is `!Send`**: the parsed HTML object cannot be held across an `.await`. `apply_schema()` is a synchronous helper that parses the HTML, applies the schema, and returns — ensuring no `Html` value is live when any `.await` point is reached.
 
-**Per-domain fix-attempt tracking**: `schema_fix_attempts: Arc<Mutex<HashMap<String, u32>>>` records how many times a schema fix was attempted (and still failed end-to-end) for each domain. Once the count reaches `max_schema_fix_attempts` the domain returns `SchemaFixAttemptsExhausted` without calling the LLM, preventing infinite fix loops. The counter is reset to zero when a fix attempt succeeds all the way through normalization.
+**Per-domain fix-attempt tracking**: `schema_fix_attempts: Arc<Mutex<HashMap<String, u32>>>` records how many *consecutive* LLM-fix attempts have failed end-to-end for each domain. Once the count reaches `max_schema_fix_attempts` the domain returns `SchemaFixAttemptsExhausted` without calling the LLM, preventing infinite fix loops. The counter is reset to zero after **every** successful scrape for the domain (with or without a fix), so it measures failures since the last clean scrape rather than total lifetime failures. This prevents premature budget exhaustion on domains whose pages have heterogeneous layouts.
 
 ---
 

@@ -151,40 +151,38 @@ impl ProductCssSelectorSchema {
 
         let description = match &self.description {
             None => vec![],
-            Some(rule) => rule.apply(html).map_err(ApplySchemaError::Description)?,
+            Some(rule) => match rule.apply(html) {
+                Ok(vals) => vals,
+                Err(ExtractionError::NoElementMatched { .. }) => vec![],
+                Err(e) => return Err(ApplySchemaError::Description(e)),
+            },
         };
 
         let price = match &self.price {
             None => None,
-            Some(rule) => Some(
-                rule.apply(html)
-                    .map_err(ApplySchemaError::Price)?
-                    .into_iter()
-                    .next()
-                    .unwrap_or_default(),
-            ),
+            Some(rule) => match rule.apply(html) {
+                Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
+                Err(ExtractionError::NoElementMatched { .. }) => None,
+                Err(e) => return Err(ApplySchemaError::Price(e)),
+            },
         };
 
         let price_estimate_min = match &self.price_estimate_min {
             None => None,
-            Some(rule) => Some(
-                rule.apply(html)
-                    .map_err(ApplySchemaError::PriceEstimateMin)?
-                    .into_iter()
-                    .next()
-                    .unwrap_or_default(),
-            ),
+            Some(rule) => match rule.apply(html) {
+                Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
+                Err(ExtractionError::NoElementMatched { .. }) => None,
+                Err(e) => return Err(ApplySchemaError::PriceEstimateMin(e)),
+            },
         };
 
         let price_estimate_max = match &self.price_estimate_max {
             None => None,
-            Some(rule) => Some(
-                rule.apply(html)
-                    .map_err(ApplySchemaError::PriceEstimateMax)?
-                    .into_iter()
-                    .next()
-                    .unwrap_or_default(),
-            ),
+            Some(rule) => match rule.apply(html) {
+                Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
+                Err(ExtractionError::NoElementMatched { .. }) => None,
+                Err(e) => return Err(ApplySchemaError::PriceEstimateMax(e)),
+            },
         };
 
         let state = self
@@ -199,24 +197,20 @@ impl ProductCssSelectorSchema {
 
         let auction_start = match &self.auction_start {
             None => None,
-            Some(rule) => Some(
-                rule.apply(html)
-                    .map_err(ApplySchemaError::AuctionStart)?
-                    .into_iter()
-                    .next()
-                    .unwrap_or_default(),
-            ),
+            Some(rule) => match rule.apply(html) {
+                Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
+                Err(ExtractionError::NoElementMatched { .. }) => None,
+                Err(e) => return Err(ApplySchemaError::AuctionStart(e)),
+            },
         };
 
         let auction_end = match &self.auction_end {
             None => None,
-            Some(rule) => Some(
-                rule.apply(html)
-                    .map_err(ApplySchemaError::AuctionEnd)?
-                    .into_iter()
-                    .next()
-                    .unwrap_or_default(),
-            ),
+            Some(rule) => match rule.apply(html) {
+                Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
+                Err(ExtractionError::NoElementMatched { .. }) => None,
+                Err(e) => return Err(ApplySchemaError::AuctionEnd(e)),
+            },
         };
 
         Ok(RawExtractedProduct {

@@ -327,15 +327,14 @@ impl CrawlerCronJob {
                                 None
                             };
 
-                            let success = spider_service
+                            // `_lock` dropped here → pg_advisory_unlock called automatically
+                            spider_service
                                 .run(&candidate.shop_id, &candidate.domain_id, &shop_url, threshold)
                                 .await
                                 .map_err(|e| {
                                     error!(domain = %candidate.shop_domain, error = %e, "Spider run failed");
                                 })
-                                .is_ok();
-                            // `_lock` dropped here → pg_advisory_unlock called automatically
-                            success
+                                .is_ok()
                         }
                     })
                     .buffer_unordered(self.config.spider_concurrency)
@@ -541,7 +540,7 @@ impl CrawlerCronJob {
                     continue;
                 };
                 // Drop the queue entry once it is drained.
-                if by_domain.get(&domain).map_or(true, |q| q.is_empty()) {
+                if by_domain.get(&domain).is_none_or(|q| q.is_empty()) {
                     by_domain.remove(&domain);
                 }
 

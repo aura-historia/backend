@@ -146,10 +146,18 @@ pub struct ScraperServiceImpl {
     schema_service: Box<dyn ProductSchemaService + Send + Sync>,
     normalization_service: Box<dyn ProductNormalizationService + Send + Sync>,
     candidate_service: Arc<dyn ScraperCandidateService>,
-    /// Tracks how many times a LLM schema-fix attempt was made for each domain
-    /// and resulted in a schema that still failed.  Persists across batches
-    /// for the lifetime of the service.  Once a domain reaches
-    /// `max_schema_fix_attempts` failed attempts it is skipped entirely.
+    /// Tracks how many *consecutive* LLM schema-fix attempts have been made for
+    /// each domain where the fixed schema still failed to apply.  Persists
+    /// across batches for the lifetime of the service.  Once a domain reaches
+    /// `max_schema_fix_attempts` consecutive failed attempts it is skipped
+    /// entirely until the counter is reset.
+    ///
+    /// The counter is reset to zero on **every** successful scrape for the
+    /// domain (with or without a fix), so it represents consecutive failures
+    /// since the last clean scrape, not total lifetime failures.  This prevents
+    /// premature budget exhaustion on domains whose pages have heterogeneous
+    /// layouts (e.g. each auction house sub-page requires slightly different
+    /// selectors).
     ///
     /// The dispatcher (`cron.rs`) guarantees at most one in-flight scrape per
     /// domain at a time, so we only need to protect against concurrent accesses
@@ -213,11 +221,14 @@ impl ScraperServiceImpl {
     async fn is_fix_budget_exhausted(&self, domain: &str) -> bool {
         let map = self.schema_fix_attempts.lock().await;
         map.get(domain)
-            .map_or(false, |&count| count >= self.max_schema_fix_attempts)
+            .is_some_and(|&count| count >= self.max_schema_fix_attempts)
     }
 
-    /// Resets the failed schema-fix attempt counter for `domain` (called when
-    /// a fix attempt succeeds end-to-end including normalization).
+    /// Resets the consecutive failed schema-fix attempt counter for `domain`.
+    ///
+    /// Called after every successful scrape — with or without a fix — so the
+    /// counter represents failures since the last clean scrape rather than
+    /// total lifetime failures.
     async fn reset_fix_attempts(&self, domain: &str) {
         let mut map = self.schema_fix_attempts.lock().await;
         map.remove(domain);
@@ -272,6 +283,7 @@ impl ScraperServiceImpl {
     /// time, so no per-domain locking is needed here.
     ///
     /// Returns `(raw, schema_was_fixed)` on success.
+    #[allow(clippy::too_many_arguments)]
     async fn fix_and_apply_schema(
         &self,
         shop_id: &ShopId,
@@ -431,9 +443,13 @@ impl ScraperService for ScraperServiceImpl {
             warn!(error = %e, "Failed to mark product as scraped after success");
         }
 
-        if schema_was_fixed || fixed_in_normalize {
-            self.reset_fix_attempts(domain).await;
-        }
+        // Reset the consecutive-failure counter on every successful scrape, not
+        // only when a fix was applied.  This prevents the budget from exhausting
+        // on domains whose pages have heterogeneous layouts: some pages may need
+        // an LLM fix while others apply cleanly with the current schema.  A
+        // clean apply is evidence that the schema is still working, so the
+        // counter should be cleared.
+        self.reset_fix_attempts(domain).await;
 
         debug!(
             domain,
