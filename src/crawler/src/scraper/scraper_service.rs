@@ -381,7 +381,7 @@ impl ScraperService for ScraperServiceImpl {
         let shops_product_schema = self.obtain_schema(shop_id, domain, url, &html).await?;
 
         // 3. Apply schema → RawExtractedProduct -------------------------
-        let (raw, schema_was_fixed) =
+        let (raw, _schema_was_fixed) =
             match Self::apply_schema(&shops_product_schema.product_schema, &html) {
                 Ok(raw) => {
                     debug!(
@@ -423,7 +423,7 @@ impl ScraperService for ScraperServiceImpl {
 
         // 4. Normalise --------------------------------------------------
         debug!(domain, url = %url, "Normalizing extracted product data");
-        let (final_product, fixed_in_normalize) = self
+        let (final_product, _fixed_in_normalize) = self
             .normalize_with_retry(
                 shop_id,
                 domain,

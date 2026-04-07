@@ -63,9 +63,9 @@ use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServic
 use llm::builder::{LLMBackend, LLMBuilder};
 use shop::core::shop_type::ShopType;
 use sqlx::PgPool;
-use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
 use testcontainers::runners::AsyncRunner;
+use testcontainers::ImageExt;
 use testcontainers_modules::postgres::Postgres as PgImage;
 use tracing::{error, info};
 
@@ -96,17 +96,17 @@ fn demo_shops() -> Vec<RegisteredShop> {
     vec![
         RegisteredShop {
             shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000004").unwrap(),
-            shop_name: "Lotissimo".to_string(),
-            shop_slug: "lot-tissimo".to_string(),
+            shop_name: "Antixx".to_string(),
+            shop_slug: "antixx".to_string(),
             shop_type: ShopType::CommercialDealer,
-            domains: HashSet::from([Domain::try_from("lot-tissimo.com").unwrap()]),
+            domains: HashSet::from([Domain::try_from("antixx.de").unwrap()]),
         },
         RegisteredShop {
             shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000005").unwrap(),
-            shop_name: "Antiquitäten Tübingen".to_string(),
-            shop_slug: "antiquitäten-tuebingen".to_string(),
+            shop_name: "Antik und Stil".to_string(),
+            shop_slug: "antik-und-stil".to_string(),
             shop_type: ShopType::CommercialDealer,
-            domains: HashSet::from([Domain::try_from("antiquitaeten-tuebingen.de").unwrap()]),
+            domains: HashSet::from([Domain::try_from("antik-und-stil.com").unwrap()]),
         },
         RegisteredShop {
             shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000006").unwrap(),
@@ -114,6 +114,13 @@ fn demo_shops() -> Vec<RegisteredShop> {
             shop_slug: "militaria".to_string(),
             shop_type: ShopType::CommercialDealer,
             domains: HashSet::from([Domain::try_from("20thcenturymilitaria.com").unwrap()]),
+        },
+        RegisteredShop {
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000007").unwrap(),
+            shop_name: "Antichita Daziano".to_string(),
+            shop_slug: "antichita-daziano".to_string(),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::from([Domain::try_from("antichitadaziano.com").unwrap()]),
         },
     ]
 }
