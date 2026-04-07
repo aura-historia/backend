@@ -15,7 +15,6 @@ use product_api::handler;
 use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
-use search_filter::service::user_search_filter_service::UserSearchFilterServiceImpl;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::UserServiceImpl;
 
@@ -72,14 +71,11 @@ async fn main() -> Result<(), Error> {
         "",
         "",
     );
-    let user_search_filter_service =
-        UserSearchFilterServiceImpl::new(&search_filter_repository, &user_service);
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
-        &user_search_filter_service,
     );
 
     let access_token_verifier_service =

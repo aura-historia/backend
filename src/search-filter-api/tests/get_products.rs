@@ -68,21 +68,14 @@ fn setup_services(
             "",
             "",
         )));
-    let service: &'static UserSearchFilterServiceImpl<'static> = Box::leak(Box::new(
-        UserSearchFilterServiceImpl::new(search_filter_repository, user_service),
-    ));
     let personalization_service = ProductPersonalizationServiceImpl::new(
         watchlist_repository,
         notification_service,
         user_service,
         search_filter_repository,
-        service,
     );
-    (
-        UserSearchFilterServiceImpl::new(search_filter_repository, user_service),
-        get_product_service,
-        personalization_service,
-    )
+    let service = UserSearchFilterServiceImpl::new(search_filter_repository, user_service);
+    (service, get_product_service, personalization_service)
 }
 
 async fn create_user(client: &'static aws_sdk_dynamodb::Client) -> UserId {
@@ -588,24 +581,17 @@ async fn should_hide_products_when_search_filter_match_quota_exceeded() {
     let (service, get_product_service, personalization_service) = setup_services(client);
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
 
-    let product_records = fake::vec![ProductRecord; 3];
-    let put_res = product_repository
-        .put_product_records(product_records.clone().try_into().unwrap())
-        .await
-        .unwrap();
-    assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
-
-    // Create a Free-tier user (limited quota)
+    // Create a Free-tier user (quota of 10 matches per month)
     let user_id = create_free_user(client).await;
     let search_filter = service
         .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
         .await
         .unwrap();
 
-    // Seed enough match records to exceed quota (Free tier quota is 10)
-    let extra_product_records = fake::vec![ProductRecord; 10];
+    // Seed 10 match records that fill the quota — these should remain visible
+    let within_quota_records = fake::vec![ProductRecord; 10];
     let put_res = product_repository
-        .put_product_records(extra_product_records.clone().try_into().unwrap())
+        .put_product_records(within_quota_records.clone().try_into().unwrap())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
@@ -614,16 +600,23 @@ async fn should_hide_products_when_search_filter_match_quota_exceeded() {
         client,
         &user_id,
         &search_filter.user_search_filter_id,
-        &extra_product_records,
+        &within_quota_records,
     )
     .await;
 
-    // Seed the 3 target products as matches (these go over quota)
+    // Seed 3 more match records that exceed the quota — these should be hidden
+    let beyond_quota_records = fake::vec![ProductRecord; 3];
+    let put_res = product_repository
+        .put_product_records(beyond_quota_records.clone().try_into().unwrap())
+        .await
+        .unwrap();
+    assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
+
     seed_match_records(
         client,
         &user_id,
         &search_filter.user_search_filter_id,
-        &product_records,
+        &beyond_quota_records,
     )
     .await;
 
@@ -656,19 +649,36 @@ async fn should_hide_products_when_search_filter_match_quota_exceeded() {
     let actual: TimeCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
 
-    // All items should be present but hidden (quota exceeded)
     assert_eq!(13, actual.total.unwrap());
+
+    let within_quota_product_ids: std::collections::HashSet<_> = within_quota_records
+        .iter()
+        .map(|r| r.product_id.to_string())
+        .collect();
+
+    let mut visible_count = 0;
+    let mut hidden_count = 0;
+
     for item in &actual.items {
         let user_state = item.user_state.as_ref().unwrap();
         assert!(user_state.search_filter.matched);
-        assert!(user_state.search_filter.hidden);
 
-        // Verify anonymization: product_id should be nil
-        assert_eq!(
-            item.item.product_id.to_string(),
-            "00000000-0000-0000-0000-000000000000"
-        );
-        // Title should be the hidden placeholder
-        assert_eq!(item.item.title.text, "Hidden Product Title");
+        if within_quota_product_ids.contains(&item.item.product_id.to_string()) {
+            // Within-quota items should be visible
+            assert!(!user_state.search_filter.hidden);
+            visible_count += 1;
+        } else {
+            // Beyond-quota items should be hidden and anonymized
+            assert!(user_state.search_filter.hidden);
+            assert_eq!(
+                item.item.product_id.to_string(),
+                "00000000-0000-0000-0000-000000000000"
+            );
+            assert_eq!(item.item.title.text, "Hidden Product Title");
+            hidden_count += 1;
+        }
     }
+
+    assert_eq!(visible_count, 10);
+    assert_eq!(hidden_count, 3);
 }

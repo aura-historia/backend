@@ -8,7 +8,7 @@ common = { workspace = true, features = ["api"] }
 product = { workspace = true, features = ["dynamodb", "service"] }
 product-watchlist = { workspace = true, features = ["data", "dynamodb", "service"] }
 notification = { workspace = true, features = ["service"] }
-search-filter = { workspace = true, features = ["dynamodb", "service"] }
+search-filter = { workspace = true, features = ["dynamodb"] }
 user = { workspace = true, features = ["dynamodb", "service"] }
 async-trait = { workspace = true }
 futures = { workspace = true }

@@ -54,7 +54,6 @@ async fn main() -> Result<(), Error> {
         &notification_service,
         &user_service,
         &repository,
-        &service,
     );
 
     debug!("Lambda initialized.");

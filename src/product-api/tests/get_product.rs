@@ -36,7 +36,6 @@ use product_watchlist::{
     },
 };
 use search_filter::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
-use search_filter::service::user_search_filter_service::MockUserSearchFilterService;
 use std::time::{Duration, SystemTime};
 use test_api::*;
 use user::dynamodb::{
@@ -55,13 +54,11 @@ async fn should_respond_200_without_history_when_anon() {
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
-    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
-        &user_search_filter_service,
     );
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
@@ -165,13 +162,11 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
     search_filter_repository
         .expect_query_user_search_filter_match_records_for_product()
         .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
-    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
-        &user_search_filter_service,
     );
 
     let user_record = Faker.fake::<UserRecord>();
@@ -291,13 +286,11 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
     search_filter_repository
         .expect_query_user_search_filter_match_records_for_product()
         .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
-    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
-        &user_search_filter_service,
     );
 
     let user_record = Faker.fake::<UserRecord>();
@@ -463,13 +456,11 @@ async fn should_respond_200_and_respect_language_query_param(
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
-    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
-        &user_search_filter_service,
     );
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
@@ -558,13 +549,11 @@ async fn should_respond_200_for_path_params_slugs() {
     let user_service = UserServiceImpl::new(&user_repository);
     let notification_service = MockNotificationService::default();
     let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
-    let user_search_filter_service = MockUserSearchFilterService::default();
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &search_filter_repository,
-        &user_search_filter_service,
     );
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
