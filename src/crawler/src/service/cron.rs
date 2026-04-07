@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::sync::Semaphore;
+use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
 
@@ -301,7 +302,6 @@ struct ScrapeCandidateOutcome {
 }
 
 struct ScrapeDomainOutcome {
-    commands: Vec<product::service::product_command::UpsertProductCommand>,
     succeeded: usize,
     failed: usize,
     skipped: usize,
@@ -363,9 +363,9 @@ async fn scrape_domain_candidates(
     domain: String,
     candidates: Vec<ScraperCandidate>,
     domain_delay: Duration,
+    command_tx: mpsc::UnboundedSender<product::service::product_command::UpsertProductCommand>,
 ) -> ScrapeDomainOutcome {
     let mut outcome = ScrapeDomainOutcome {
-        commands: Vec::new(),
         succeeded: 0,
         failed: 0,
         skipped: 0,
@@ -385,7 +385,11 @@ async fn scrape_domain_candidates(
             outcome.failed += 1;
         } else if let Some(cmd) = candidate_outcome.command {
             outcome.succeeded += 1;
-            outcome.commands.push(cmd);
+            if command_tx.send(cmd).is_err() {
+                error!("Command channel closed while scraper worker is running");
+                outcome.failed += 1;
+                outcome.succeeded = outcome.succeeded.saturating_sub(1);
+            }
         } else if candidate_outcome.skipped {
             outcome.skipped += 1;
         } else {
@@ -442,34 +446,60 @@ impl CrawlerCronJob {
         let domain_delay = self.config.scraper_domain_delay;
         let semaphore = Arc::new(Semaphore::new(scraper_concurrency));
         let mut join_set: JoinSet<ScrapeDomainOutcome> = JoinSet::new();
+        let (command_tx, mut command_rx) =
+            mpsc::unbounded_channel::<product::service::product_command::UpsertProductCommand>();
 
         let mut succeeded = 0usize;
         let mut failed = 0usize;
         let mut skipped = 0usize;
-        let mut pending_commands: Vec<product::service::product_command::UpsertProductCommand> =
-            Vec::new();
         let push_batch_size = self.config.push_batch_size;
+        let push_service = Arc::clone(&self.product_push);
+
+        let push_collector = tokio::spawn(async move {
+            let mut pending_commands: Vec<product::service::product_command::UpsertProductCommand> =
+                Vec::new();
+
+            while let Some(cmd) = command_rx.recv().await {
+                pending_commands.push(cmd);
+                if pending_commands.len() >= push_batch_size {
+                    let batch = std::mem::take(&mut pending_commands);
+                    push_service.push(batch).await;
+                }
+            }
+
+            if !pending_commands.is_empty() {
+                push_service.push(pending_commands).await;
+            }
+        });
 
         for (domain, candidates) in by_domain {
             let scraper = Arc::clone(&self.scraper_service);
             let lock_manager = Arc::clone(&self.lock_manager);
             let permit_pool = Arc::clone(&semaphore);
+            let domain_tx = command_tx.clone();
 
             join_set.spawn(async move {
                 let Ok(_permit) = permit_pool.acquire_owned().await else {
                     error!("Scraper semaphore closed unexpectedly");
                     return ScrapeDomainOutcome {
-                        commands: Vec::new(),
                         succeeded: 0,
                         failed: 1,
                         skipped: 0,
                     };
                 };
 
-                scrape_domain_candidates(scraper, lock_manager, domain, candidates, domain_delay)
-                    .await
+                scrape_domain_candidates(
+                    scraper,
+                    lock_manager,
+                    domain,
+                    candidates,
+                    domain_delay,
+                    domain_tx,
+                )
+                .await
             });
         }
+        drop(command_tx);
 
         while let Some(joined) = join_set.join_next().await {
             let outcome = match joined {
@@ -484,16 +514,11 @@ impl CrawlerCronJob {
             succeeded += outcome.succeeded;
             failed += outcome.failed;
             skipped += outcome.skipped;
-
-            pending_commands.extend(outcome.commands);
-            if pending_commands.len() >= push_batch_size {
-                let batch = std::mem::take(&mut pending_commands);
-                self.product_push.push(batch).await;
-            }
         }
 
-        if !pending_commands.is_empty() {
-            self.product_push.push(pending_commands).await;
+        if let Err(e) = push_collector.await {
+            error!(error = %e, "Scraper push collector task failed to join");
+            failed += 1;
         }
 
         let duration_ms = batch_start.elapsed().as_millis() as u64;
