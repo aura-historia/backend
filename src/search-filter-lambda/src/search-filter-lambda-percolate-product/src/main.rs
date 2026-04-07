@@ -19,9 +19,7 @@ use search_filter::{
         user_search_filter_service::UserSearchFilterServiceImpl,
     },
 };
-use search_filter_lambda_percolate_product::{
-    handler, service::ProductEventSearchFilterNotificationsServiceImpl,
-};
+use search_filter_lambda_percolate_product::{handler, service::ProductMatcherServiceImpl};
 use tracing::debug;
 use user::{
     dynamodb::repository::UserDynamoDbRepositoryImpl, service::user_service::UserServiceImpl,
@@ -85,7 +83,7 @@ async fn main() -> Result<(), Error> {
         &stage_name,
         &commit_sha,
     );
-    let product_event_search_filter_service = ProductEventSearchFilterNotificationsServiceImpl::new(
+    let product_matcher_service = ProductMatcherServiceImpl::new(
         &user_search_filter_service,
         &get_product_service,
         &enhanced_search_match_service,
@@ -96,7 +94,7 @@ async fn main() -> Result<(), Error> {
 
     run(service_fn(|event: LambdaEvent<SqsEvent>| async {
         handler(
-            &product_event_search_filter_service,
+            &product_matcher_service,
             &notification_service,
             &user_search_filter_service,
             event,

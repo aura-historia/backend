@@ -1,4 +1,5 @@
 use common::enhanced_match_reason::EnhancedMatchReason;
+use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::language::domain::Language;
 use notification::core::notification::{NotificationPayload, NotificationSearchFilterPayload};
@@ -11,17 +12,19 @@ use product::core::title::Title;
 use product::opensearch::product_document::ProductDocument;
 use product::service::get_service::{GetProductError, GetProductService};
 use search_filter::core::quota::SearchFilterQuota;
+use search_filter::core::search_filter_product_match::SearchFilterProductMatch;
 use search_filter::core::user_search_filter::UserSearchFilterSummary;
 use search_filter::service::enhanced_search_match_service::EnhancedSearchMatchService;
 use search_filter::service::user_search_filter_service::{
     UserSearchFilterError, UserSearchFilterService,
 };
 use std::collections::HashMap;
+use time::OffsetDateTime;
 use tracing::{debug, warn};
 use user::service::user_service::{UserService, UserServiceError};
 
 #[derive(Debug, thiserror::Error)]
-pub enum ProductEventSearchFilterNotificationsServiceError {
+pub enum ProductMatcherServiceError {
     #[error("GetProductError: {0}")]
     GetProductError(#[from] GetProductError),
 
@@ -32,33 +35,39 @@ pub enum ProductEventSearchFilterNotificationsServiceError {
     UserServiceError(#[from] UserServiceError),
 }
 
-/// A notification command paired with an optional enhanced match reason.
-#[derive(Debug)]
-pub struct NotificationCommandWithMatchReason {
-    pub command: CreateNotificationCommand,
+/// An eligible match between a search filter and a product,
+/// carrying the filter summary and optional enhanced match reason.
+#[derive(Debug, Clone)]
+pub struct EligibleMatch {
+    pub filter: UserSearchFilterSummary,
     pub enhanced_match_reason: Option<EnhancedMatchReason>,
+}
+
+/// The result of processing a product event: all eligible matches
+/// and the subset of notification commands for quota-eligible users.
+#[derive(Debug)]
+pub struct ProductMatcherResult {
+    pub matches: Vec<SearchFilterProductMatch>,
+    pub notification_commands: Vec<CreateNotificationCommand>,
 }
 
 #[async_trait::async_trait]
 #[mockall::automock]
-pub trait ProductEventSearchFilterNotificationsService {
-    async fn determine_notification_commands(
+pub trait ProductMatcherService {
+    async fn process_product_event(
         &self,
         event: ProductEvent,
-    ) -> Result<
-        Vec<NotificationCommandWithMatchReason>,
-        ProductEventSearchFilterNotificationsServiceError,
-    >;
+    ) -> Result<ProductMatcherResult, ProductMatcherServiceError>;
 }
 
-pub struct ProductEventSearchFilterNotificationsServiceImpl<'a> {
+pub struct ProductMatcherServiceImpl<'a> {
     user_search_filter_service: &'a (dyn UserSearchFilterService + Sync),
     get_product_service: &'a (dyn GetProductService + Sync),
     enhanced_search_match_service: &'a (dyn EnhancedSearchMatchService + Sync),
     user_service: &'a (dyn UserService + Sync),
 }
 
-impl<'a> ProductEventSearchFilterNotificationsServiceImpl<'a> {
+impl<'a> ProductMatcherServiceImpl<'a> {
     pub fn new(
         user_search_filter_service: &'a (dyn UserSearchFilterService + Sync),
         get_product_service: &'a (dyn GetProductService + Sync),
@@ -112,17 +121,19 @@ fn product_description(product: &Product) -> Description {
         .unwrap_or_else(|| Description::from(""))
 }
 
-#[async_trait::async_trait]
-impl<'a> ProductEventSearchFilterNotificationsService
-    for ProductEventSearchFilterNotificationsServiceImpl<'a>
-{
-    async fn determine_notification_commands(
+impl<'a> ProductMatcherServiceImpl<'a> {
+    /// Determines eligible matches for a product event by:
+    /// 1. Resolving the product from the event
+    /// 2. Running percolation against stored search filters
+    /// 3. Filtering out already-matched search filters
+    /// 4. Running enhanced AI matching for filters with enhanced_search_description
+    ///
+    /// Returns the resolved product and a list of eligible matches.
+    async fn determine_eligible_matches(
         &self,
         event: ProductEvent,
-    ) -> Result<
-        Vec<NotificationCommandWithMatchReason>,
-        ProductEventSearchFilterNotificationsServiceError,
-    > {
+    ) -> Result<(EventId, Product, Vec<EligibleMatch>), ProductMatcherServiceError> {
+        let event_id = event.event_id;
         let product_key = event.payload.key();
         let product = match event.payload {
             product::core::product_event::ProductEventPayload::ProductDomainEvent(
@@ -184,7 +195,7 @@ impl<'a> ProductEventSearchFilterNotificationsService
             .await?;
 
         if matched_filters.is_empty() {
-            return Ok(vec![]);
+            return Ok((event_id, product, vec![]));
         }
 
         debug!(
@@ -218,14 +229,80 @@ impl<'a> ProductEventSearchFilterNotificationsService
         }
 
         if unmatched_filters.is_empty() {
-            return Ok(vec![]);
+            return Ok((event_id, product, vec![]));
         }
 
-        // Filter out users who have exceeded their monthly search-filter-match quota
-        let mut quota_eligible_filters = Vec::with_capacity(unmatched_filters.len());
-        let mut user_quota_cache: HashMap<common::user_id::UserId, bool> = HashMap::new();
+        // Run enhanced AI matching for filters with enhanced_search_description
+        let title = product_title(&product);
+        let description = product_description(&product);
+        let mut eligible_matches = Vec::with_capacity(unmatched_filters.len());
 
         for filter in unmatched_filters {
+            match &filter.enhanced_search_description {
+                Some(enhanced_desc) => {
+                    let language = resolve_user_language(self.user_service, &filter.user_id).await;
+                    let eval_result = self
+                        .enhanced_search_match_service
+                        .evaluate(enhanced_desc, &title, &description, language)
+                        .await;
+
+                    match eval_result {
+                        Ok(result) if result.matches => {
+                            debug!(
+                                userId = %filter.user_id,
+                                searchFilterId = %filter.user_search_filter_id,
+                                "Enhanced search match confirmed for product."
+                            );
+                            eligible_matches.push(EligibleMatch {
+                                filter,
+                                enhanced_match_reason: result.reason,
+                            });
+                        }
+                        Ok(_) => {
+                            debug!(
+                                userId = %filter.user_id,
+                                searchFilterId = %filter.user_search_filter_id,
+                                "Enhanced search match rejected product."
+                            );
+                        }
+                        Err(err) => {
+                            warn!(
+                                userId = %filter.user_id,
+                                searchFilterId = %filter.user_search_filter_id,
+                                error = %err,
+                                "Enhanced search match evaluation failed. Including filter without reason."
+                            );
+                            eligible_matches.push(EligibleMatch {
+                                filter,
+                                enhanced_match_reason: None,
+                            });
+                        }
+                    }
+                }
+                None => {
+                    eligible_matches.push(EligibleMatch {
+                        filter,
+                        enhanced_match_reason: None,
+                    });
+                }
+            }
+        }
+
+        Ok((event_id, product, eligible_matches))
+    }
+
+    /// Determines notification commands from eligible matches by filtering
+    /// out users who have exceeded their monthly search-filter-match quota.
+    async fn determine_notification_commands(
+        &self,
+        eligible_matches: &[EligibleMatch],
+        product: &Product,
+    ) -> Result<Vec<CreateNotificationCommand>, ProductMatcherServiceError> {
+        let mut commands = Vec::with_capacity(eligible_matches.len());
+        let mut user_quota_cache: HashMap<common::user_id::UserId, bool> = HashMap::new();
+
+        for eligible_match in eligible_matches {
+            let filter = &eligible_match.filter;
             let eligible = match user_quota_cache.get(&filter.user_id) {
                 Some(&cached) => cached,
                 None => {
@@ -242,7 +319,7 @@ impl<'a> ProductEventSearchFilterNotificationsService
                             warn!(
                                 userId = %filter.user_id,
                                 error = %err,
-                                "Failed loading user for quota check. Skipping filter."
+                                "Failed loading user for quota check. Skipping notification."
                             );
                             false
                         }
@@ -253,72 +330,13 @@ impl<'a> ProductEventSearchFilterNotificationsService
             };
 
             if eligible {
-                quota_eligible_filters.push(filter);
+                commands.push(mk_notification_command(product, filter));
             } else {
                 debug!(
                     userId = %filter.user_id,
                     searchFilterId = %filter.user_search_filter_id,
-                    "Skipping filter for user who exceeded search-filter-match quota."
+                    "Skipping notification for user who exceeded search-filter-match quota."
                 );
-            }
-        }
-
-        if quota_eligible_filters.is_empty() {
-            return Ok(vec![]);
-        }
-
-        // Run enhanced AI matching for filters with enhanced_search_description
-        let title = product_title(&product);
-        let description = product_description(&product);
-        let mut commands = Vec::with_capacity(quota_eligible_filters.len());
-
-        for filter in quota_eligible_filters {
-            match &filter.enhanced_search_description {
-                Some(enhanced_desc) => {
-                    let language = resolve_user_language(self.user_service, &filter.user_id).await;
-                    let eval_result = self
-                        .enhanced_search_match_service
-                        .evaluate(enhanced_desc, &title, &description, language)
-                        .await;
-
-                    match eval_result {
-                        Ok(result) if result.matches => {
-                            debug!(
-                                userId = %filter.user_id,
-                                searchFilterId = %filter.user_search_filter_id,
-                                "Enhanced search match confirmed for product."
-                            );
-                            commands.push(mk_search_filter_notification_command(
-                                &product,
-                                filter,
-                                result.reason,
-                            ));
-                        }
-                        Ok(_) => {
-                            debug!(
-                                userId = %filter.user_id,
-                                searchFilterId = %filter.user_search_filter_id,
-                                "Enhanced search match rejected product."
-                            );
-                        }
-                        Err(err) => {
-                            warn!(
-                                userId = %filter.user_id,
-                                searchFilterId = %filter.user_search_filter_id,
-                                error = %err,
-                                "Enhanced search match evaluation failed. Including filter without reason."
-                            );
-                            commands.push(mk_search_filter_notification_command(
-                                &product, filter, None,
-                            ));
-                        }
-                    }
-                }
-                None => {
-                    commands.push(mk_search_filter_notification_command(
-                        &product, filter, None,
-                    ));
-                }
             }
         }
 
@@ -326,31 +344,72 @@ impl<'a> ProductEventSearchFilterNotificationsService
     }
 }
 
-fn mk_search_filter_notification_command(
-    product: &Product,
-    filter: UserSearchFilterSummary,
-    enhanced_match_reason: Option<EnhancedMatchReason>,
-) -> NotificationCommandWithMatchReason {
-    NotificationCommandWithMatchReason {
-        command: CreateNotificationCommand {
-            user_id: filter.user_id,
-            notification_payload: NotificationPayload::SearchFilter {
-                product_id: product.product_id,
+#[async_trait::async_trait]
+impl<'a> ProductMatcherService for ProductMatcherServiceImpl<'a> {
+    async fn process_product_event(
+        &self,
+        event: ProductEvent,
+    ) -> Result<ProductMatcherResult, ProductMatcherServiceError> {
+        let (event_id, product, eligible_matches) = self.determine_eligible_matches(event).await?;
+
+        if eligible_matches.is_empty() {
+            return Ok(ProductMatcherResult {
+                matches: vec![],
+                notification_commands: vec![],
+            });
+        }
+
+        // Build SearchFilterProductMatch records for ALL eligible matches
+        let now = OffsetDateTime::now_utc();
+        let matches: Vec<SearchFilterProductMatch> = eligible_matches
+            .iter()
+            .map(|m| SearchFilterProductMatch {
+                user_id: m.filter.user_id,
+                user_search_filter_id: m.filter.user_search_filter_id,
+                user_search_filter_name: Some(m.filter.name.clone()),
                 shop_id: product.shop_id,
                 shops_product_id: product.shops_product_id.clone(),
-                shop_slug_id: product.shop_slug_id.clone(),
-                product_slug_id: product.product_slug_id.clone(),
-                shop_name: product.shop_name.clone(),
-                title: product.titles(),
-                image: product.images.first().cloned(),
-                search_filter_payload: NotificationSearchFilterPayload {
-                    user_search_filter_id: filter.user_search_filter_id,
-                    user_search_filter_name: filter.name,
-                },
+                product_id: product.product_id,
+                origin_event_id: event_id,
+                enhanced_match_reason: m.enhanced_match_reason.clone(),
+                created: now,
+                updated: now,
+            })
+            .collect();
+
+        // Determine notifications only for quota-eligible users
+        let notification_commands = self
+            .determine_notification_commands(&eligible_matches, &product)
+            .await?;
+
+        Ok(ProductMatcherResult {
+            matches,
+            notification_commands,
+        })
+    }
+}
+
+fn mk_notification_command(
+    product: &Product,
+    filter: &UserSearchFilterSummary,
+) -> CreateNotificationCommand {
+    CreateNotificationCommand {
+        user_id: filter.user_id,
+        notification_payload: NotificationPayload::SearchFilter {
+            product_id: product.product_id,
+            shop_id: product.shop_id,
+            shops_product_id: product.shops_product_id.clone(),
+            shop_slug_id: product.shop_slug_id.clone(),
+            product_slug_id: product.product_slug_id.clone(),
+            shop_name: product.shop_name.clone(),
+            title: product.titles(),
+            image: product.images.first().cloned(),
+            search_filter_payload: NotificationSearchFilterPayload {
+                user_search_filter_id: filter.user_search_filter_id,
+                user_search_filter_name: filter.name.clone(),
             },
-            external: filter.notifications,
         },
-        enhanced_match_reason,
+        external: filter.notifications,
     }
 }
 
@@ -482,7 +541,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_empty_when_no_filters_match_for_determine_commands() {
+    async fn should_return_empty_when_no_filters_match() {
         let product: Product = Faker.fake();
         let event = mk_event(&product);
         let product_clone = product.clone();
@@ -500,21 +559,23 @@ mod tests {
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        let r = result.unwrap();
+        assert!(r.matches.is_empty());
+        assert!(r.notification_commands.is_empty());
     }
 
     #[tokio::test]
-    async fn should_return_commands_when_filters_match_for_determine_commands() {
+    async fn should_return_matches_and_commands_when_filters_match() {
         let product: Product = Faker.fake();
         let event = mk_event(&product);
         let product_clone = product.clone();
@@ -540,21 +601,22 @@ mod tests {
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
         assert!(result.is_ok());
-        let cmds = result.unwrap();
-        assert_eq!(cmds.len(), 1);
-        assert_eq!(cmds[0].command.user_id, user_id);
-        assert!(cmds[0].command.external);
-        assert!(cmds[0].enhanced_match_reason.is_none());
+        let r = result.unwrap();
+        assert_eq!(r.matches.len(), 1);
+        assert_eq!(r.matches[0].user_id, user_id);
+        assert_eq!(r.notification_commands.len(), 1);
+        assert_eq!(r.notification_commands[0].user_id, user_id);
+        assert!(r.notification_commands[0].external);
     }
 
     #[tokio::test]
@@ -571,19 +633,19 @@ mod tests {
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            ProductEventSearchFilterNotificationsServiceError::GetProductError(_)
+            ProductMatcherServiceError::GetProductError(_)
         ));
     }
 
@@ -612,19 +674,19 @@ mod tests {
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            ProductEventSearchFilterNotificationsServiceError::UserSearchFilterError(_)
+            ProductMatcherServiceError::UserSearchFilterError(_)
         ));
     }
 
@@ -664,18 +726,18 @@ mod tests {
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
-        let cmds = result.unwrap();
-        assert_eq!(cmds.len(), 1);
-        match &cmds[0].command.notification_payload {
+        let r = result.unwrap();
+        assert_eq!(r.notification_commands.len(), 1);
+        match &r.notification_commands[0].notification_payload {
             NotificationPayload::SearchFilter {
                 search_filter_payload,
                 ..
@@ -685,6 +747,9 @@ mod tests {
             }
             _ => panic!("Expected SearchFilter payload"),
         }
+        // Also verify the match record has the filter id and name
+        assert_eq!(r.matches[0].user_search_filter_id, filter_id);
+        assert_eq!(r.matches[0].user_search_filter_name, Some(filter_name));
     }
 
     #[tokio::test]
@@ -715,17 +780,17 @@ mod tests {
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
-        let cmds = result.unwrap();
-        match &cmds[0].command.notification_payload {
+        let r = result.unwrap();
+        match &r.notification_commands[0].notification_payload {
             NotificationPayload::SearchFilter {
                 product_id,
                 shop_id,
@@ -736,10 +801,12 @@ mod tests {
             }
             _ => panic!("Expected SearchFilter payload"),
         }
+        assert_eq!(r.matches[0].product_id, expected_product_id);
+        assert_eq!(r.matches[0].shop_id, expected_shop_id);
     }
 
     #[tokio::test]
-    async fn should_filter_out_already_matched_filters_for_determine_commands() {
+    async fn should_filter_out_already_matched_filters() {
         let product: Product = Faker.fake();
         let event = mk_event(&product);
         let product_clone = product.clone();
@@ -778,19 +845,21 @@ mod tests {
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
         assert!(result.is_ok());
-        let cmds = result.unwrap();
-        assert_eq!(cmds.len(), 1);
-        assert_eq!(cmds[0].command.user_id, user_id);
+        let r = result.unwrap();
+        assert_eq!(r.matches.len(), 1);
+        assert_eq!(r.matches[0].user_id, user_id);
+        assert_eq!(r.notification_commands.len(), 1);
+        assert_eq!(r.notification_commands[0].user_id, user_id);
     }
 
     #[tokio::test]
@@ -817,21 +886,23 @@ mod tests {
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        let r = result.unwrap();
+        assert!(r.matches.is_empty());
+        assert!(r.notification_commands.is_empty());
     }
 
     #[tokio::test]
-    async fn should_return_commands_when_created_event_for_determine_commands() {
+    async fn should_return_matches_and_commands_when_created_event() {
         let product: Product = Faker.fake();
         let event = mk_created_event(&product);
         let user_id = UserId::new();
@@ -853,20 +924,22 @@ mod tests {
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
         assert!(result.is_ok());
-        let cmds = result.unwrap();
-        assert_eq!(cmds.len(), 1);
-        assert_eq!(cmds[0].command.user_id, user_id);
-        assert!(cmds[0].command.external);
+        let r = result.unwrap();
+        assert_eq!(r.matches.len(), 1);
+        assert_eq!(r.matches[0].user_id, user_id);
+        assert_eq!(r.notification_commands.len(), 1);
+        assert_eq!(r.notification_commands[0].user_id, user_id);
+        assert!(r.notification_commands[0].external);
     }
 
     #[tokio::test]
@@ -891,18 +964,18 @@ mod tests {
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
         assert!(result.is_ok());
-        let cmds = result.unwrap();
-        assert_eq!(cmds.len(), 1);
+        let r = result.unwrap();
+        assert_eq!(r.matches.len(), 1);
     }
 
     #[tokio::test]
@@ -930,18 +1003,18 @@ mod tests {
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
-        let cmds = result.unwrap();
-        assert_eq!(cmds.len(), 1);
-        match &cmds[0].command.notification_payload {
+        let r = result.unwrap();
+        assert_eq!(r.notification_commands.len(), 1);
+        match &r.notification_commands[0].notification_payload {
             NotificationPayload::SearchFilter {
                 product_id,
                 shop_id,
@@ -971,17 +1044,19 @@ mod tests {
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        let r = result.unwrap();
+        assert!(r.matches.is_empty());
+        assert!(r.notification_commands.is_empty());
     }
 
     #[tokio::test]
@@ -1019,19 +1094,21 @@ mod tests {
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
         assert!(result.is_ok());
-        let cmds = result.unwrap();
-        assert_eq!(cmds.len(), 1);
-        assert_eq!(cmds[0].command.user_id, user_id);
+        let r = result.unwrap();
+        assert_eq!(r.matches.len(), 1);
+        assert_eq!(r.matches[0].user_id, user_id);
+        assert_eq!(r.notification_commands.len(), 1);
+        assert_eq!(r.notification_commands[0].user_id, user_id);
     }
 
     // ---------------------------------------------------------------------------
@@ -1071,18 +1148,18 @@ mod tests {
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
-        let cmds = result.unwrap();
-        assert_eq!(cmds.len(), 1);
-        let actual_image = match &cmds[0].command.notification_payload {
+        let r = result.unwrap();
+        assert_eq!(r.notification_commands.len(), 1);
+        let actual_image = match &r.notification_commands[0].notification_payload {
             NotificationPayload::SearchFilter { image, .. } => image.clone(),
             _ => unreachable!("expected SearchFilter payload"),
         };
@@ -1123,18 +1200,18 @@ mod tests {
         let enhanced_service = mk_default_enhanced_match_service();
         let user_service = mk_default_user_service();
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
-        let cmds = result.unwrap();
-        assert_eq!(cmds.len(), 1);
-        let actual_image = match &cmds[0].command.notification_payload {
+        let r = result.unwrap();
+        assert_eq!(r.notification_commands.len(), 1);
+        let actual_image = match &r.notification_commands[0].notification_payload {
             NotificationPayload::SearchFilter { image, .. } => image.clone(),
             _ => unreachable!("expected SearchFilter payload"),
         };
@@ -1186,22 +1263,24 @@ mod tests {
             .expect_find_user()
             .returning(|_| Box::pin(async { Ok(mk_user_with_language(Language::En)) }));
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
-        let cmds = result.unwrap();
-        assert_eq!(cmds.len(), 1);
-        assert_eq!(cmds[0].command.user_id, user_id);
+        let r = result.unwrap();
+        assert_eq!(r.matches.len(), 1);
+        assert_eq!(r.matches[0].user_id, user_id);
         assert_eq!(
-            cmds[0].enhanced_match_reason,
+            r.matches[0].enhanced_match_reason,
             Some(EnhancedMatchReason::from("Matches golden cufflinks."))
         );
+        assert_eq!(r.notification_commands.len(), 1);
+        assert_eq!(r.notification_commands[0].user_id, user_id);
     }
 
     #[tokio::test]
@@ -1224,9 +1303,6 @@ mod tests {
         filter_service
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
-        filter_service
-            .expect_count_user_search_filter_matches_for_this_month()
-            .returning(|_| Box::pin(async { Ok(0) }));
 
         let mut enhanced_service = MockEnhancedSearchMatchService::default();
         enhanced_service
@@ -1245,17 +1321,18 @@ mod tests {
             .expect_find_user()
             .returning(|_| Box::pin(async { Ok(mk_user_with_language(Language::En)) }));
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
-        let cmds = result.unwrap();
-        assert!(cmds.is_empty());
+        let r = result.unwrap();
+        assert!(r.matches.is_empty());
+        assert!(r.notification_commands.is_empty());
     }
 
     #[tokio::test]
@@ -1298,28 +1375,30 @@ mod tests {
             .expect_find_user()
             .returning(|_| Box::pin(async { Ok(mk_user_with_language(Language::En)) }));
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
-        let cmds = result.unwrap();
-        assert_eq!(cmds.len(), 1);
-        assert_eq!(cmds[0].command.user_id, user_id);
-        assert!(cmds[0].enhanced_match_reason.is_none());
+        let r = result.unwrap();
+        assert_eq!(r.matches.len(), 1);
+        assert_eq!(r.matches[0].user_id, user_id);
+        assert!(r.matches[0].enhanced_match_reason.is_none());
+        assert_eq!(r.notification_commands.len(), 1);
+        assert_eq!(r.notification_commands[0].user_id, user_id);
     }
 
     #[tokio::test]
-    async fn should_skip_filter_when_user_not_found_for_quota_check() {
+    async fn should_create_match_but_skip_notification_when_user_not_found_for_quota_check() {
         let product: Product = Faker.fake();
         let event = mk_event(&product);
         let product_clone = product.clone();
         let user_id = UserId::new();
-        let summary = mk_filter_summary_with_enhanced(user_id, "Golden cufflinks with real ruby");
+        let summary = mk_filter_summary(user_id);
 
         let mut get_service = MockGetProductService::default();
         get_service
@@ -1333,9 +1412,6 @@ mod tests {
         filter_service
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
-        filter_service
-            .expect_count_user_search_filter_matches_for_this_month()
-            .returning(|_| Box::pin(async { Ok(0) }));
 
         let enhanced_service = mk_default_enhanced_match_service();
 
@@ -1345,17 +1421,21 @@ mod tests {
             Box::pin(async move { Err(UserServiceError::UserNotFound(uid)) })
         });
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
-        let cmds = result.unwrap();
-        assert!(cmds.is_empty());
+        let r = result.unwrap();
+        // Match is still created
+        assert_eq!(r.matches.len(), 1);
+        assert_eq!(r.matches[0].user_id, user_id);
+        // But notification is skipped
+        assert!(r.notification_commands.is_empty());
     }
 
     #[tokio::test]
@@ -1404,26 +1484,27 @@ mod tests {
             .expect_find_user()
             .returning(|_| Box::pin(async { Ok(mk_user_with_language(Language::De)) }));
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
-        let cmds = result.unwrap();
-        assert_eq!(cmds.len(), 2);
+        let r = result.unwrap();
+        assert_eq!(r.matches.len(), 2);
+        assert_eq!(r.notification_commands.len(), 2);
 
-        // Plain filter has no reason
-        let plain_cmd = cmds.iter().find(|c| c.command.user_id == user1).unwrap();
-        assert!(plain_cmd.enhanced_match_reason.is_none());
+        // Plain filter has no reason on match
+        let plain_match = r.matches.iter().find(|m| m.user_id == user1).unwrap();
+        assert!(plain_match.enhanced_match_reason.is_none());
 
-        // Enhanced filter has reason
-        let enhanced_cmd = cmds.iter().find(|c| c.command.user_id == user2).unwrap();
+        // Enhanced filter has reason on match
+        let enhanced_match = r.matches.iter().find(|m| m.user_id == user2).unwrap();
         assert_eq!(
-            enhanced_cmd.enhanced_match_reason,
+            enhanced_match.enhanced_match_reason,
             Some(EnhancedMatchReason::from("Confirmed match."))
         );
     }
@@ -1433,7 +1514,8 @@ mod tests {
     // ---------------------------------------------------------------------------
 
     #[tokio::test]
-    async fn should_skip_filter_when_user_exceeds_search_filter_match_quota() {
+    async fn should_create_match_but_skip_notification_when_user_exceeds_search_filter_match_quota()
+    {
         let product: Product = Faker.fake();
         let event = mk_event(&product);
         let product_clone = product.clone();
@@ -1468,21 +1550,26 @@ mod tests {
             })
         });
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        let r = result.unwrap();
+        // Match is created even though quota is exceeded
+        assert_eq!(r.matches.len(), 1);
+        assert_eq!(r.matches[0].user_id, user_id);
+        // But notification is NOT created
+        assert!(r.notification_commands.is_empty());
     }
 
     #[tokio::test]
-    async fn should_allow_filter_when_user_below_search_filter_match_quota() {
+    async fn should_create_match_and_notification_when_user_below_search_filter_match_quota() {
         let product: Product = Faker.fake();
         let event = mk_event(&product);
         let product_clone = product.clone();
@@ -1517,23 +1604,25 @@ mod tests {
             })
         });
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
         assert!(result.is_ok());
-        let cmds = result.unwrap();
-        assert_eq!(cmds.len(), 1);
-        assert_eq!(cmds[0].command.user_id, user_id);
+        let r = result.unwrap();
+        assert_eq!(r.matches.len(), 1);
+        assert_eq!(r.matches[0].user_id, user_id);
+        assert_eq!(r.notification_commands.len(), 1);
+        assert_eq!(r.notification_commands[0].user_id, user_id);
     }
 
     #[tokio::test]
-    async fn should_skip_quota_exceeded_user_but_allow_other_users() {
+    async fn should_create_matches_for_both_but_skip_notification_for_quota_exceeded_user() {
         let product: Product = Faker.fake();
         let event = mk_event(&product);
         let product_clone = product.clone();
@@ -1583,18 +1672,23 @@ mod tests {
             })
         });
 
-        let service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        let service = ProductMatcherServiceImpl::new(
             &filter_service,
             &get_service,
             &enhanced_service,
             &user_service,
         );
 
-        let result = service.determine_notification_commands(event).await;
+        let result = service.process_product_event(event).await;
 
         assert!(result.is_ok());
-        let cmds = result.unwrap();
-        assert_eq!(cmds.len(), 1);
-        assert_eq!(cmds[0].command.user_id, pro_user_id);
+        let r = result.unwrap();
+        // Both users get matches
+        assert_eq!(r.matches.len(), 2);
+        assert!(r.matches.iter().any(|m| m.user_id == free_user_id));
+        assert!(r.matches.iter().any(|m| m.user_id == pro_user_id));
+        // Only pro user gets notification
+        assert_eq!(r.notification_commands.len(), 1);
+        assert_eq!(r.notification_commands[0].user_id, pro_user_id);
     }
 }
