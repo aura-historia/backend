@@ -25,6 +25,7 @@ dependencies = [
  "reqwest 0.12.28",
  "search-filter",
  "search-filter-api",
+ "search-filter-lambda-percolate-product",
  "serde",
  "serde_json",
  "serial_test",

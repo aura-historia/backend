@@ -36,6 +36,7 @@ product-classification = { workspace = true, features = ["test-data", "data"] }
 product-watchlist-api = { workspace = true }
 notification-api = { workspace = true }
 search-filter-api = { workspace = true, features = ["test-data"] }
+search-filter-lambda-percolate-product = { workspace = true }
 url = { workspace = true }
 futures-util = { workspace = true }
 time = { workspace = true }
