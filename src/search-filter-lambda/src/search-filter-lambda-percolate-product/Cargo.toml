@@ -34,6 +34,9 @@ product = { workspace = true, features = ["test-data"] }
 search-filter = { workspace = true, features = ["test-data"] }
 notification = { workspace = true, features = ["test-data"] }
 user = { workspace = true, features = ["test-data"] }
+common = { workspace = true, features = ["test-data"] }
+test-api = { workspace = true, features = ["dynamodb", "opensearch"] }
+serial_test = { workspace = true }
 opensearch = { workspace = true }
 rstest = { workspace = true }
 serde = { workspace = true }
