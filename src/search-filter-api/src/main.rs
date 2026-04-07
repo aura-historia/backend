@@ -52,6 +52,7 @@ async fn main() -> Result<(), Error> {
         &watchlist_repository,
         &notification_service,
         &user_service,
+        &repository,
     );
 
     let service = UserSearchFilterServiceImpl::new(&repository, &user_service);

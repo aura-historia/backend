@@ -1,10 +1,10 @@
+use common::user_search_filter_id::UserSearchFilterId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use product::core::product_search::ProductSearch;
 use product::service::get_service::MockGetProductService;
 use product_personalization::service::MockProductPersonalizationService;
 use search_filter::core::user_search_filter::UserSearchFilter;
-use search_filter::core::user_search_filter_id::UserSearchFilterId;
 use search_filter::dynamodb::repository::{
     UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
 };
@@ -38,6 +38,7 @@ async fn should_return_actual_search_filters_sorted_oldest_for_order_asc() {
             user_id,
             user_search_filter_id: UserSearchFilterId::new(),
             name: Faker.fake(),
+            enhanced_search_description: Faker.fake(),
             notifications: true,
             search: search_filter,
             created: time::OffsetDateTime::now_utc(),
@@ -117,6 +118,7 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
             user_id,
             user_search_filter_id: UserSearchFilterId::new(),
             name: Faker.fake(),
+            enhanced_search_description: Faker.fake(),
             notifications: true,
             search: search_filter,
             created: time::OffsetDateTime::now_utc(),

@@ -1,7 +1,9 @@
+use common::user_search_filter_id::UserSearchFilterId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use product::service::get_service::MockGetProductService;
 use product_personalization::service::MockProductPersonalizationService;
+use search_filter::core::quota::SearchFilterQuota;
 use search_filter::data::user_search_filter_data::UserSearchFilterData;
 use search_filter::dynamodb::repository::{
     UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
@@ -13,6 +15,7 @@ use search_filter_api::post_types::PostUserSearchFilterData;
 use test_api::*;
 use user::core::tier::UserTier;
 
+use user::service::command::UpdateUserCommand;
 use user::service::user_service::UserService;
 
 #[localstack_test(services = [DynamoDB()])]
@@ -24,15 +27,22 @@ async fn should_save_search_filter() {
         "table_1",
     );
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
-    let created_user = user_service.create_user(Faker.fake()).await.unwrap();
-    let user_id = created_user.user_id;
+    let user = user_service.create_user(Faker.fake()).await.unwrap();
+    let update_cmd = UpdateUserCommand {
+        tier: Some(UserTier::Ultimate),
+        ..Default::default()
+    };
+    user_service
+        .update_user(&user.user_id, update_cmd)
+        .await
+        .unwrap();
 
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::POST)
             .route_key("POST /api/v1/me/search-filters")
             .body_serde(&Faker.fake::<PostUserSearchFilterData>())
-            .jwt_claim("sub", user_id)
+            .jwt_claim("sub", user.user_id)
             .build(),
         context: Default::default(),
     };
@@ -52,10 +62,10 @@ async fn should_save_search_filter() {
 
     let json = extract_apigw_response_json_body!(response);
     let actual: UserSearchFilterData = serde_json::from_value(json).unwrap();
-    assert_eq!(user_id, actual.user_id);
+    assert_eq!(user.user_id, actual.user_id);
 
     let record = repository
-        .get_user_search_filter_record(&user_id, &actual.user_search_filter_id)
+        .get_user_search_filter_record(&user.user_id, &actual.user_search_filter_id)
         .await
         .unwrap();
     assert!(record.is_some());
@@ -74,9 +84,9 @@ async fn should_422_when_search_filter_quota_is_exceeded() {
     let user_id = created_user.user_id;
 
     // Fill the quota by inserting records directly via repository (bypassing the service limit)
-    let limit = UserTier::Free.search_filter_limit();
+    let limit = UserTier::Free.search_filter_quota();
     for _ in 0..limit {
-        let filter_id = search_filter::core::user_search_filter_id::UserSearchFilterId::new();
+        let filter_id = UserSearchFilterId::new();
         let record = UserSearchFilterRecord {
             pk: mk_pk(&user_id),
             sk: mk_sk(&filter_id),

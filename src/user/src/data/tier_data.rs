@@ -6,12 +6,16 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum UserTierData {
     Free,
+    Pro,
+    Ultimate,
 }
 
 impl From<UserTierData> for UserTier {
     fn from(value: UserTierData) -> UserTier {
         match value {
             UserTierData::Free => UserTier::Free,
+            UserTierData::Pro => UserTier::Pro,
+            UserTierData::Ultimate => UserTier::Ultimate,
         }
     }
 }
@@ -20,6 +24,8 @@ impl From<UserTier> for UserTierData {
     fn from(value: UserTier) -> UserTierData {
         match value {
             UserTier::Free => UserTierData::Free,
+            UserTier::Pro => UserTierData::Pro,
+            UserTier::Ultimate => UserTierData::Ultimate,
         }
     }
 }

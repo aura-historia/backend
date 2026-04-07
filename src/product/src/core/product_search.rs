@@ -13,10 +13,11 @@ use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::shop_name::ShopName;
 use common::year::Year;
+use serde_fields::SerdeField;
 use shop::core::shop_type::ShopType;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, SerdeField)]
 pub struct ProductSearch {
     pub language: Language,
     pub currency: Currency,

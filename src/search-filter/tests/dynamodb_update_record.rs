@@ -39,6 +39,8 @@ async fn should_update_search_filter_record() {
         condition_query: Default::default(),
         provenance_query: Default::default(),
         restoration_query: Default::default(),
+        auction_start_query: None,
+        auction_end_query: None,
         language: None,
         currency: None,
         updated,

@@ -14,7 +14,10 @@ use product::{
 };
 use search_filter::{
     opensearch::repository::UserSearchFilterOpenSearchRepositoryImpl,
-    service::user_search_filter_service::UserSearchFilterServiceImpl,
+    service::{
+        enhanced_search_match_service::EnhancedSearchMatchServiceImpl,
+        user_search_filter_service::UserSearchFilterServiceImpl,
+    },
 };
 use search_filter_lambda_percolate_product::{
     handler, service::ProductEventSearchFilterNotificationsServiceImpl,
@@ -40,6 +43,8 @@ async fn main() -> Result<(), Error> {
         std::env::var("STAGE_NAME").expect("shouldn't fail loading env-var 'STAGE_NAME'");
     let commit_sha =
         std::env::var("COMMIT_SHA").expect("shouldn't fail loading env-var 'COMMIT_SHA'");
+    let gemini_api_key =
+        std::env::var("GEMINI_API_KEY").expect("shouldn't fail loading env-var 'GEMINI_API_KEY'");
 
     let client = aws_sdk_dynamodb::Client::new(&aws_config);
     let product_repository = ProductDynamoDbRepositoryImpl::new(&client, &table_name);
@@ -69,6 +74,8 @@ async fn main() -> Result<(), Error> {
         &search_filter_opensearch_repo,
     );
 
+    let enhanced_search_match_service = EnhancedSearchMatchServiceImpl::new(&gemini_api_key);
+
     let notification_service = NotificationServiceImpl::new(
         &notification_repository,
         &user_service,
@@ -81,6 +88,8 @@ async fn main() -> Result<(), Error> {
     let product_event_search_filter_service = ProductEventSearchFilterNotificationsServiceImpl::new(
         &user_search_filter_service,
         &get_product_service,
+        &enhanced_search_match_service,
+        &user_service,
     );
 
     debug!("Lambda initialized.");

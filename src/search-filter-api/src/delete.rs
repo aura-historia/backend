@@ -2,9 +2,9 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use common::{
     api::{api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError},
     user_id::api::extract_user_id_request_context,
+    user_search_filter_id::api::extract_user_search_filter_id_path,
 };
 use lambda_runtime::LambdaEvent;
-use search_filter::core::user_search_filter_id::api::extract_user_search_filter_id_path;
 use search_filter::service::user_search_filter_service::UserSearchFilterService;
 
 pub async fn handle(
@@ -26,11 +26,11 @@ pub async fn handle(
 mod tests {
     use crate::handle;
     use common::user_id::UserId;
+    use common::user_search_filter_id::UserSearchFilterId;
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
     use product::service::get_service::MockGetProductService;
     use product_personalization::service::MockProductPersonalizationService;
-    use search_filter::core::user_search_filter_id::UserSearchFilterId;
     use search_filter::service::user_search_filter_service::{
         MockUserSearchFilterService, UserSearchFilterError,
     };

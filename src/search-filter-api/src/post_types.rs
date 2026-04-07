@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct PostUserSearchFilterData {
     pub name: UserSearchFilterName,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enhanced_search_description: Option<String>,
     pub search: ProductSearchData,
 }
 
@@ -18,6 +20,7 @@ mod faker {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             PostUserSearchFilterData {
                 name: config.fake_with_rng(rng),
+                enhanced_search_description: config.fake_with_rng(rng),
                 search: config.fake_with_rng(rng),
             }
         }
@@ -45,6 +48,7 @@ mod tests {
     fn should_deserialize_post_user_search_filter() {
         let json = json!({
             "name": "hugos filter for peppino",
+            "enhancedSearchDescription": "a filter for peppino",
             "search": {
                 "language": "de",
                 "currency": "EUR",
@@ -86,6 +90,7 @@ mod tests {
         });
         let expected = PostUserSearchFilterData {
             name: "hugos filter for peppino".into(),
+            enhanced_search_description: Some("a filter for peppino".into()),
             search: ProductSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,

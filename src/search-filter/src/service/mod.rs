@@ -1,3 +1,5 @@
 #[cfg(feature = "dynamodb")]
 pub mod user_search_filter_service;
-pub mod user_search_filter_update;
+
+#[cfg(feature = "service")]
+pub mod enhanced_search_match_service;

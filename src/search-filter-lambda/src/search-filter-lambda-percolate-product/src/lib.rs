@@ -3,6 +3,7 @@ pub mod service;
 use crate::service::ProductEventSearchFilterNotificationsService;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
+use common::user_search_filter_name::UserSearchFilterName;
 use lambda_runtime::LambdaEvent;
 use notification::service::notification_service::NotificationService;
 use product::core::product_event::{ProductDomainEvent, ProductEventPayload};
@@ -44,35 +45,39 @@ pub async fn handler(
                         .determine_notification_commands(product_event)
                         .await;
                     match notification_cmds_res {
-                        Ok(cmds) => {
-                            if cmds.is_empty() {
+                        Ok(cmds_with_reasons) => {
+                            if cmds_with_reasons.is_empty() {
                                 continue;
                             }
 
-                            // Collect product match info before creating notifications
-                            let match_info: Vec<_> = cmds
+                            // Collect product match info (including enhanced_match_reason) before creating notifications
+                            let match_info: Vec<_> = cmds_with_reasons
                                 .iter()
-                                .filter_map(|cmd| {
+                                .filter_map(|cmd_with_reason| {
                                     if let notification::core::notification::NotificationPayload::SearchFilter {
                                         product_id,
                                         shop_id,
                                         shops_product_id,
                                         search_filter_payload,
                                         ..
-                                    } = &cmd.notification_payload
+                                    } = &cmd_with_reason.command.notification_payload
                                     {
                                         Some((
-                                            cmd.user_id,
+                                            cmd_with_reason.command.user_id,
                                             search_filter_payload.user_search_filter_id,
+                                            search_filter_payload.user_search_filter_name.clone(),
                                             *shop_id,
                                             shops_product_id.clone(),
                                             *product_id,
+                                            cmd_with_reason.enhanced_match_reason.clone(),
                                         ))
                                     } else {
                                         None
                                     }
                                 })
                                 .collect();
+
+                            let cmds = cmds_with_reasons.into_iter().map(|c| c.command).collect();
 
                             let create_notifications_res = notification_service
                                 .create_notifications(&event_id, cmds)
@@ -87,24 +92,33 @@ pub async fn handler(
                                     .filter_map(|notification| {
                                         match_info
                                             .iter()
-                                            .find(|(user_id, _, _, _, _)| {
+                                            .find(|(user_id, _, _, _, _, _, _)| {
                                                 *user_id == notification.user_id
                                             })
                                             .map(
                                                 |(
                                                     user_id,
                                                     search_filter_id,
+                                                    search_filter_name,
                                                     shop_id,
                                                     shops_product_id,
                                                     product_id,
+                                                    enhanced_match_reason,
                                                 )| {
                                                     SearchFilterProductMatch {
                                                         user_id: *user_id,
                                                         user_search_filter_id: *search_filter_id,
+                                                        user_search_filter_name: Some(
+                                                            UserSearchFilterName::from(
+                                                                search_filter_name.as_ref(),
+                                                            ),
+                                                        ),
                                                         shop_id: *shop_id,
                                                         shops_product_id: shops_product_id.clone(),
                                                         product_id: *product_id,
                                                         origin_event_id: event_id,
+                                                        enhanced_match_reason:
+                                                            enhanced_match_reason.clone(),
                                                         created: now,
                                                         updated: now,
                                                     }
@@ -190,7 +204,7 @@ pub async fn handler(
 mod tests {
     use super::*;
     use crate::service::{
-        MockProductEventSearchFilterNotificationsService,
+        MockProductEventSearchFilterNotificationsService, NotificationCommandWithMatchReason,
         ProductEventSearchFilterNotificationsServiceError,
     };
     use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
@@ -326,9 +340,13 @@ mod tests {
     async fn should_succeed_when_notifications_created() {
         let mut service = MockProductEventSearchFilterNotificationsService::default();
         let cmd: CreateNotificationCommand = Faker.fake();
+        let cmd_with_reason = NotificationCommandWithMatchReason {
+            command: cmd,
+            enhanced_match_reason: None,
+        };
         service
             .expect_determine_notification_commands()
-            .return_once(move |_| Box::pin(async move { Ok(vec![cmd]) }));
+            .return_once(move |_| Box::pin(async move { Ok(vec![cmd_with_reason]) }));
 
         let mut notification_service = MockNotificationService::default();
         notification_service

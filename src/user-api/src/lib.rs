@@ -4,6 +4,7 @@ use common::api::error_code::INTERNAL_SERVER_ERROR;
 use lambda_runtime::LambdaEvent;
 use user::service::user_service::UserService;
 
+mod delete;
 mod get;
 mod patch;
 
@@ -40,6 +41,7 @@ pub async fn handle(
     match event.payload.route_key.as_deref() {
         Some("GET /api/v1/me/account") => get::handle(event, service).await,
         Some("PATCH /api/v1/me/account") => patch::handle(event, service).await,
+        Some("DELETE /api/v1/me") => delete::handle(event, service).await,
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,
             format!("Unknown route-key '{unknown}' in AWS-Payload").into(),

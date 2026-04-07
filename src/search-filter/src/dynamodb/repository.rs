@@ -1,4 +1,3 @@
-use crate::core::user_search_filter_id::UserSearchFilterId;
 use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
 use crate::dynamodb::user_search_filter_record::{UserSearchFilterRecord, mk_pk, mk_sk};
 use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
@@ -16,6 +15,7 @@ use aws_sdk_dynamodb::{
     },
     types::{AttributeValue, ReturnValue},
 };
+use common::user_search_filter_id::UserSearchFilterId;
 use common::{
     batch::Batch, dynamodb_update::DynamoDbUpdate, pagination::cursor::Cursor, shop_id::ShopId,
     shops_product_id::ShopsProductId, user_id::UserId,
@@ -95,6 +95,20 @@ pub trait UserSearchFilterDynamoDbRepository {
         &self,
         records: Batch<UserSearchFilterMatchRecord, 25>,
     ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError, HttpResponse>>;
+
+    async fn count_user_search_filter_match_records_for_between(
+        &self,
+        user_id: &UserId,
+        from: &OffsetDateTime,
+        to: &OffsetDateTime,
+    ) -> Result<u64, SdkError<QueryError, HttpResponse>>;
+
+    async fn query_user_search_filter_match_records_for_product(
+        &self,
+        user_id: &UserId,
+        shop_id: &ShopId,
+        shops_product_id: &ShopsProductId,
+    ) -> Result<Vec<UserSearchFilterMatchRecord>, SdkError<QueryError, HttpResponse>>;
 }
 
 #[derive(Debug, Clone)]
@@ -525,5 +539,93 @@ impl<'a> UserSearchFilterDynamoDbRepository for UserSearchFilterDynamoDbReposito
             )])))
             .send()
             .await
+    }
+
+    async fn count_user_search_filter_match_records_for_between(
+        &self,
+        user_id: &UserId,
+        from: &OffsetDateTime,
+        to: &OffsetDateTime,
+    ) -> Result<u64, SdkError<QueryError, HttpResponse>> {
+        use crate::dynamodb::user_search_filter_match_record as match_record;
+
+        let lsi1_sk_lower = match_record::mk_lsi1_sk(from);
+        let lsi1_sk_upper = match_record::mk_lsi1_sk(to);
+
+        let items: u64 = self
+            .client
+            .query()
+            .table_name(&self.table)
+            .index_name("lsi1")
+            .key_condition_expression(
+                "#pk = :pk_val AND #lsi1_sk BETWEEN :lsi1_sk_lower AND :lsi1_sk_upper",
+            )
+            .filter_expression("begins_with(#sk, :sk_prefix)")
+            .expression_attribute_names("#pk", "pk")
+            .expression_attribute_names("#lsi1_sk", "lsi1_sk")
+            .expression_attribute_names("#sk", "sk")
+            .expression_attribute_values(":pk_val", AttributeValue::S(match_record::mk_pk(user_id)))
+            .expression_attribute_values(":lsi1_sk_lower", AttributeValue::S(lsi1_sk_lower))
+            .expression_attribute_values(":lsi1_sk_upper", AttributeValue::S(lsi1_sk_upper))
+            .expression_attribute_values(
+                ":sk_prefix",
+                AttributeValue::S(match_record::mk_sk_prefix_all().to_string()),
+            )
+            .select(aws_sdk_dynamodb::types::Select::Count)
+            .into_paginator()
+            .send()
+            .try_collect()
+            .await?
+            .into_iter()
+            .map(|qo| qo.count as u64)
+            .sum();
+
+        Ok(items)
+    }
+
+    async fn query_user_search_filter_match_records_for_product(
+        &self,
+        user_id: &UserId,
+        shop_id: &ShopId,
+        shops_product_id: &ShopsProductId,
+    ) -> Result<Vec<UserSearchFilterMatchRecord>, SdkError<QueryError, HttpResponse>> {
+        use crate::dynamodb::user_search_filter_match_record as match_record;
+        let records = self
+            .client
+            .query()
+            .table_name(&self.table)
+            .index_name("lsi2")
+            .key_condition_expression(
+                "#pk = :pk_val AND begins_with(#lsi2_sk, :lsi2_sk_prefix)",
+            )
+            .expression_attribute_names("#pk", "pk")
+            .expression_attribute_names("#lsi2_sk", "lsi2_sk")
+            .expression_attribute_values(
+                ":pk_val",
+                AttributeValue::S(match_record::mk_pk(user_id)),
+            )
+            .expression_attribute_values(
+                ":lsi2_sk_prefix",
+                AttributeValue::S(match_record::mk_lsi2_sk_prefix_product(
+                    shop_id,
+                    shops_product_id,
+                )),
+            )
+            .into_paginator()
+            .send()
+            .try_collect()
+            .await?
+            .into_iter()
+            .flat_map(|qo| qo.items.unwrap_or_default())
+            .map(serde_dynamo::from_item::<_, UserSearchFilterMatchRecord>)
+            .filter_map(|result| match result {
+                Ok(record) => Some(record),
+                Err(err) => {
+                    error!(error = %err, type = %std::any::type_name::<UserSearchFilterMatchRecord>(), "Failed deserializing UserSearchFilterMatchRecord.");
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        Ok(records)
     }
 }

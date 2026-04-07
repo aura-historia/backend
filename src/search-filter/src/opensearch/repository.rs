@@ -1,7 +1,7 @@
-use crate::core::user_search_filter_id::UserSearchFilterId;
 use crate::opensearch::user_search_filter_document::UserSearchFilterDocument;
 use common::opensearch::delete_response::DeleteResponse;
 use common::opensearch::index_response::IndexResponse;
+use common::user_search_filter_id::UserSearchFilterId;
 use opensearch::{DeleteParts, IndexParts, SearchParts};
 use product::opensearch::product_document::ProductDocument;
 use serde::ser::Error;

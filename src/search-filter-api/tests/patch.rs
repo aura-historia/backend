@@ -13,6 +13,8 @@ use search_filter::service::user_search_filter_service::{
 use search_filter_api::handle;
 use search_filter_api::patch_types::{PatchProductSearchData, PatchUserSearchFilterData};
 use test_api::*;
+use user::core::tier::UserTier;
+use user::service::command::UpdateUserCommand;
 use user::service::user_service::UserService;
 
 #[localstack_test(services = [DynamoDB()])]
@@ -28,18 +30,29 @@ async fn should_update_search_filter() {
     let get_product_service = MockGetProductService::default();
     let personalization_service = MockProductPersonalizationService::default();
 
-    let user_id = user_service
-        .create_user(Faker.fake())
+    let user = user_service.create_user(Faker.fake()).await.unwrap();
+    let update_cmd = UpdateUserCommand {
+        tier: Some(UserTier::Ultimate),
+        ..Default::default()
+    };
+    user_service
+        .update_user(&user.user_id, update_cmd)
         .await
-        .unwrap()
-        .user_id;
+        .unwrap();
+
     let initial = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake::<ProductSearch>())
+        .create_user_search_filter(
+            &user.user_id,
+            Faker.fake(),
+            Faker.fake::<ProductSearch>(),
+            Faker.fake(),
+        )
         .await
         .unwrap();
 
     let patch = PatchUserSearchFilterData {
         name: Some("thorbens filter".into()),
+        enhanced_search_description: None,
         notifications: None,
         search: Some(PatchProductSearchData {
             language: None,
@@ -62,6 +75,8 @@ async fn should_update_search_filter() {
             condition_query: Default::default(),
             provenance_query: Default::default(),
             restoration_query: Default::default(),
+            auction_start_query: None,
+            auction_end_query: None,
             created_query: None,
             updated_query: None,
         }),
@@ -70,7 +85,7 @@ async fn should_update_search_filter() {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::PATCH)
             .route_key("PATCH /api/v1/me/search-filters/{userSearchFilterId}")
-            .jwt_claim("sub", user_id)
+            .jwt_claim("sub", user.user_id)
             .path_parameter("userSearchFilterId", initial.user_search_filter_id)
             .body_serde(&patch)
             .build(),

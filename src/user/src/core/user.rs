@@ -41,7 +41,7 @@ mod fake {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 prohibited_content_consent: config.fake_with_rng(rng),
-                tier: config.fake_with_rng(rng),
+                tier: crate::core::tier::UserTier::Ultimate,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

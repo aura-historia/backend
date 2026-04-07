@@ -67,6 +67,19 @@ pub struct UserSearchFilterRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restoration_query: Option<HashSet<RestorationRecord>>,
 
+    #[serde(
+        with = "common::query::range_query::range_rfc3339::option",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub auction_start_query: Option<RangeQuery<OffsetDateTime>>,
+    #[serde(
+        with = "common::query::range_query::range_rfc3339::option",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub auction_end_query: Option<RangeQuery<OffsetDateTime>>,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<LanguageRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -106,6 +119,8 @@ mod fake {
                 condition_query: config.fake_with_rng(rng),
                 provenance_query: config.fake_with_rng(rng),
                 restoration_query: config.fake_with_rng(rng),
+                auction_start_query: fake_range_query_datetime(config, rng),
+                auction_end_query: fake_range_query_datetime(config, rng),
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),
