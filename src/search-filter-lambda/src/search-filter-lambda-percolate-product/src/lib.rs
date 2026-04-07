@@ -1,21 +1,18 @@
 pub mod service;
 
-use crate::service::ProductEventSearchFilterNotificationsService;
+use crate::service::ProductMatcherService;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
-use common::user_search_filter_name::UserSearchFilterName;
 use lambda_runtime::LambdaEvent;
 use notification::service::notification_service::NotificationService;
 use product::core::product_event::{ProductDomainEvent, ProductEventPayload};
 use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
-use search_filter::core::search_filter_product_match::SearchFilterProductMatch;
 use search_filter::service::user_search_filter_service::UserSearchFilterService;
-use time::OffsetDateTime;
 use tracing::{error, info, warn};
 
-#[tracing::instrument(skip(product_event_notification_service, notification_service, search_filter_service, event), fields(requestId = %event.context.request_id))]
+#[tracing::instrument(skip(product_matcher_service, notification_service, search_filter_service, event), fields(requestId = %event.context.request_id))]
 pub async fn handler(
-    product_event_notification_service: &impl ProductEventSearchFilterNotificationsService,
+    product_matcher_service: &impl ProductMatcherService,
     notification_service: &impl NotificationService,
     search_filter_service: &impl UserSearchFilterService,
     event: LambdaEvent<SqsEvent>,
@@ -41,104 +38,30 @@ pub async fn handler(
                 Ok(domain_event) => {
                     let event_id = domain_event.event_id;
                     let product_event = domain_event.map_payload(ProductEventPayload::from);
-                    let notification_cmds_res = product_event_notification_service
-                        .determine_notification_commands(product_event)
+                    let matcher_result = product_matcher_service
+                        .process_product_event(product_event)
                         .await;
-                    match notification_cmds_res {
-                        Ok(cmds_with_reasons) => {
-                            if cmds_with_reasons.is_empty() {
+                    match matcher_result {
+                        Ok(result) => {
+                            if result.matches.is_empty() && result.notification_commands.is_empty()
+                            {
                                 continue;
                             }
 
-                            // Collect product match info (including enhanced_match_reason) before creating notifications
-                            let match_info: Vec<_> = cmds_with_reasons
-                                .iter()
-                                .filter_map(|cmd_with_reason| {
-                                    if let notification::core::notification::NotificationPayload::SearchFilter {
-                                        product_id,
-                                        shop_id,
-                                        shops_product_id,
-                                        search_filter_payload,
-                                        ..
-                                    } = &cmd_with_reason.command.notification_payload
-                                    {
-                                        Some((
-                                            cmd_with_reason.command.user_id,
-                                            search_filter_payload.user_search_filter_id,
-                                            search_filter_payload.user_search_filter_name.clone(),
-                                            *shop_id,
-                                            shops_product_id.clone(),
-                                            *product_id,
-                                            cmd_with_reason.enhanced_match_reason.clone(),
-                                        ))
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect();
-
-                            let cmds = cmds_with_reasons.into_iter().map(|c| c.command).collect();
-
-                            let create_notifications_res = notification_service
-                                .create_notifications(&event_id, cmds)
-                                .await;
-
-                            // Create search-filter product-matches for every successfully created notification
-                            let now = OffsetDateTime::now_utc();
-                            let product_matches: Vec<SearchFilterProductMatch> =
-                                create_notifications_res
-                                    .processed
-                                    .iter()
-                                    .filter_map(|notification| {
-                                        match_info
-                                            .iter()
-                                            .find(|(user_id, _, _, _, _, _, _)| {
-                                                *user_id == notification.user_id
-                                            })
-                                            .map(
-                                                |(
-                                                    user_id,
-                                                    search_filter_id,
-                                                    search_filter_name,
-                                                    shop_id,
-                                                    shops_product_id,
-                                                    product_id,
-                                                    enhanced_match_reason,
-                                                )| {
-                                                    SearchFilterProductMatch {
-                                                        user_id: *user_id,
-                                                        user_search_filter_id: *search_filter_id,
-                                                        user_search_filter_name: Some(
-                                                            UserSearchFilterName::from(
-                                                                search_filter_name.as_ref(),
-                                                            ),
-                                                        ),
-                                                        shop_id: *shop_id,
-                                                        shops_product_id: shops_product_id.clone(),
-                                                        product_id: *product_id,
-                                                        origin_event_id: event_id,
-                                                        enhanced_match_reason:
-                                                            enhanced_match_reason.clone(),
-                                                        created: now,
-                                                        updated: now,
-                                                    }
-                                                },
-                                            )
-                                    })
-                                    .collect();
-
-                            if !product_matches.is_empty() {
+                            // First: persist all eligible matches
+                            if !result.matches.is_empty() {
                                 let match_result = search_filter_service
-                                    .create_search_filter_product_matches(product_matches)
+                                    .create_search_filter_product_matches(result.matches)
                                     .await;
                                 match match_result {
-                                    Ok(result) if !result.unprocessed.is_empty() => {
+                                    Ok(res) if !res.unprocessed.is_empty() => {
                                         warn!(
                                             messageId = message_id,
-                                            unprocessed = result.unprocessed.len(),
+                                            unprocessed = res.unprocessed.len(),
                                             "Some SearchFilterProductMatches were not persisted. Marking message as failed."
                                         );
                                         failed_message_ids.push(message_id.clone());
+                                        continue;
                                     }
                                     Err(err) => {
                                         warn!(
@@ -147,22 +70,30 @@ pub async fn handler(
                                             "Failed creating SearchFilterProductMatches. Marking message as failed."
                                         );
                                         failed_message_ids.push(message_id.clone());
+                                        continue;
                                     }
                                     _ => {}
                                 }
                             }
 
-                            if !create_notifications_res.unprocessed.is_empty() {
-                                warn!(
-                                    messageId = message_id,
-                                    unprocessed = create_notifications_res.unprocessed.len(),
-                                    "Some CreateNotificationCommands were not processed. Marking message as failed to trigger retry."
-                                );
-                                failed_message_ids.push(message_id);
+                            // Then: create notifications for quota-eligible users
+                            if !result.notification_commands.is_empty() {
+                                let create_notifications_res = notification_service
+                                    .create_notifications(&event_id, result.notification_commands)
+                                    .await;
+
+                                if !create_notifications_res.unprocessed.is_empty() {
+                                    warn!(
+                                        messageId = message_id,
+                                        unprocessed = create_notifications_res.unprocessed.len(),
+                                        "Some CreateNotificationCommands were not processed. Marking message as failed to trigger retry."
+                                    );
+                                    failed_message_ids.push(message_id);
+                                }
                             }
                         }
                         Err(err) => {
-                            error!(messageId = message_id, error = %err, "Failed creating CreateNotificationCommands.");
+                            error!(messageId = message_id, error = %err, "Failed processing product event.");
                             failed_message_ids.push(message_id);
                         }
                     }
@@ -204,8 +135,7 @@ pub async fn handler(
 mod tests {
     use super::*;
     use crate::service::{
-        MockProductEventSearchFilterNotificationsService, NotificationCommandWithMatchReason,
-        ProductEventSearchFilterNotificationsServiceError,
+        MockProductMatcherService, ProductMatcherResult, ProductMatcherServiceError,
     };
     use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
     use fake::{Fake, Faker};
@@ -233,7 +163,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_empty_batch_response_when_no_records() {
-        let service = MockProductEventSearchFilterNotificationsService::default();
+        let service = MockProductMatcherService::default();
         let notification_service = MockNotificationService::default();
         let search_filter_service = MockUserSearchFilterService::default();
         let event = mk_sqs_event(vec![]);
@@ -253,7 +183,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_failed_batch_when_deserialization_fails() {
-        let service = MockProductEventSearchFilterNotificationsService::default();
+        let service = MockProductMatcherService::default();
         let notification_service = MockNotificationService::default();
         let search_filter_service = MockUserSearchFilterService::default();
         let event = mk_sqs_event(vec![mk_sqs_message("{\"not\":\"a valid event\"}")]);
@@ -273,21 +203,17 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_failed_batch_when_service_errors() {
-        let mut service = MockProductEventSearchFilterNotificationsService::default();
-        service
-            .expect_determine_notification_commands()
-            .return_once(|_| {
-                Box::pin(async {
-                    Err(
-                        ProductEventSearchFilterNotificationsServiceError::GetProductError(
-                            product::service::get_service::GetProductError::ProductNotFound(
-                                Faker.fake(),
-                                Faker.fake(),
-                            ),
-                        ),
-                    )
-                })
-            });
+        let mut service = MockProductMatcherService::default();
+        service.expect_process_product_event().return_once(|_| {
+            Box::pin(async {
+                Err(ProductMatcherServiceError::GetProductError(
+                    product::service::get_service::GetProductError::ProductNotFound(
+                        Faker.fake(),
+                        Faker.fake(),
+                    ),
+                ))
+            })
+        });
 
         let notification_service = MockNotificationService::default();
         let search_filter_service = MockUserSearchFilterService::default();
@@ -310,11 +236,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_succeed_when_notification_commands_empty() {
-        let mut service = MockProductEventSearchFilterNotificationsService::default();
-        service
-            .expect_determine_notification_commands()
-            .return_once(|_| Box::pin(async { Ok(vec![]) }));
+    async fn should_succeed_when_result_is_empty() {
+        let mut service = MockProductMatcherService::default();
+        service.expect_process_product_event().return_once(|_| {
+            Box::pin(async {
+                Ok(ProductMatcherResult {
+                    matches: vec![],
+                    notification_commands: vec![],
+                })
+            })
+        });
 
         let notification_service = MockNotificationService::default();
         let search_filter_service = MockUserSearchFilterService::default();
@@ -337,16 +268,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_succeed_when_notifications_created() {
-        let mut service = MockProductEventSearchFilterNotificationsService::default();
+    async fn should_succeed_when_matches_and_notifications_created() {
         let cmd: CreateNotificationCommand = Faker.fake();
-        let cmd_with_reason = NotificationCommandWithMatchReason {
-            command: cmd,
-            enhanced_match_reason: None,
-        };
+        let product_match: search_filter::core::search_filter_product_match::SearchFilterProductMatch = Faker.fake();
+
+        let mut service = MockProductMatcherService::default();
         service
-            .expect_determine_notification_commands()
-            .return_once(move |_| Box::pin(async move { Ok(vec![cmd_with_reason]) }));
+            .expect_process_product_event()
+            .return_once(move |_| {
+                Box::pin(async move {
+                    Ok(ProductMatcherResult {
+                        matches: vec![product_match],
+                        notification_commands: vec![cmd],
+                    })
+                })
+            });
 
         let mut notification_service = MockNotificationService::default();
         notification_service
@@ -360,7 +296,17 @@ mod tests {
                 })
             });
 
-        let search_filter_service = MockUserSearchFilterService::default();
+        let mut search_filter_service = MockUserSearchFilterService::default();
+        search_filter_service
+            .expect_create_search_filter_product_matches()
+            .return_once(|_| {
+                Box::pin(async {
+                    Ok(search_filter::service::user_search_filter_service::CreateSearchFilterProductMatchesResult {
+                        processed: vec![],
+                        unprocessed: vec![],
+                    })
+                })
+            });
 
         let domain_event_record: ProductDomainEventRecord = Faker.fake();
         let event_bridge_body = mk_event_bridge_body(&domain_event_record);
@@ -381,7 +327,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_skip_when_message_body_empty() {
-        let service = MockProductEventSearchFilterNotificationsService::default();
+        let service = MockProductMatcherService::default();
         let notification_service = MockNotificationService::default();
         let search_filter_service = MockUserSearchFilterService::default();
         let mut msg = SqsMessage::default();
