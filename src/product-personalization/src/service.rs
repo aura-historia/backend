@@ -1,10 +1,17 @@
 use common::{
-    api::error::ApiError, enhanced_match_reason::EnhancedMatchReason, personalized::Personalized,
-    product_id::ProductId, user_id::UserId, user_search_filter_name::UserSearchFilterName,
+    api::error::ApiError, enhanced_match_reason::EnhancedMatchReason, language::domain::Language,
+    localized::Localized, personalized::Personalized, product_id::ProductId,
+    product_state::domain::ProductState, user_id::UserId,
+    user_search_filter_name::UserSearchFilterName,
 };
 use notification::service::notification_service::{NotificationError, NotificationService};
 use product::core::{
+    authenticity::Authenticity,
+    condition::Condition,
     product::LocalizedProductView,
+    provenance::Provenance,
+    restoration::Restoration,
+    title::Title,
     user_state::{
         NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
         WatchlistUserState,
@@ -14,8 +21,11 @@ use product_watchlist::{
     dynamodb::repository::WatchlistProductDynamoDbRepository,
     service::product_watchlist_service::WatchProductError,
 };
+use search_filter::core::quota::SearchFilterQuota;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepository;
+use search_filter::service::user_search_filter_service::UserSearchFilterService;
 use std::collections::HashMap;
+use time::OffsetDateTime;
 use user::service::user_service::{UserService, UserServiceError};
 
 #[derive(Debug, thiserror::Error)]
@@ -28,6 +38,8 @@ pub enum ProductPersonalizationError {
     NotificationError(#[from] NotificationError),
     #[error("SearchFilterMatchError: {0}")]
     SearchFilterMatchError(String),
+    #[error("UserSearchFilterError: {0}")]
+    UserSearchFilterError(String),
 }
 
 impl From<ProductPersonalizationError> for ApiError {
@@ -36,7 +48,8 @@ impl From<ProductPersonalizationError> for ApiError {
             ProductPersonalizationError::WatchProductError(e) => e.into(),
             ProductPersonalizationError::UserServiceError(_)
             | ProductPersonalizationError::NotificationError(_)
-            | ProductPersonalizationError::SearchFilterMatchError(_) => {
+            | ProductPersonalizationError::SearchFilterMatchError(_)
+            | ProductPersonalizationError::UserSearchFilterError(_) => {
                 ApiError::internal_server_error(
                     common::api::error_code::INTERNAL_SERVER_ERROR,
                     Box::new(value),
@@ -139,6 +152,7 @@ pub struct ProductPersonalizationServiceImpl<'a> {
     notification_service: &'a (dyn NotificationService + Sync),
     user_service: &'a (dyn UserService + Sync),
     search_filter_repository: &'a (dyn UserSearchFilterDynamoDbRepository + Sync),
+    user_search_filter_service: &'a (dyn UserSearchFilterService + Sync),
 }
 
 impl<'a> ProductPersonalizationServiceImpl<'a> {
@@ -147,12 +161,14 @@ impl<'a> ProductPersonalizationServiceImpl<'a> {
         notification_service: &'a (dyn NotificationService + Sync),
         user_service: &'a (dyn UserService + Sync),
         search_filter_repository: &'a (dyn UserSearchFilterDynamoDbRepository + Sync),
+        user_search_filter_service: &'a (dyn UserSearchFilterService + Sync),
     ) -> Self {
         Self {
             watchlist_repository,
             notification_service,
             user_service,
             search_filter_repository,
+            user_search_filter_service,
         }
     }
 
@@ -175,6 +191,76 @@ impl<'a> ProductPersonalizationServiceImpl<'a> {
             origin_event_id,
         })
     }
+
+    async fn is_search_filter_match_quota_exceeded(
+        &self,
+        user_id: &UserId,
+    ) -> Result<bool, ProductPersonalizationError> {
+        let user = self.user_service.find_user(user_id).await?;
+        let quota = user.tier.search_filter_match_quota();
+        if quota == u32::MAX {
+            return Ok(false);
+        }
+        let count = self
+            .user_search_filter_service
+            .count_user_search_filter_matches_for_this_month(user_id)
+            .await
+            .map_err(|e| ProductPersonalizationError::UserSearchFilterError(e.to_string()))?;
+        Ok(count as u32 >= quota)
+    }
+}
+
+fn hidden_title(language: Language) -> Title {
+    match language {
+        Language::De => Title::from("Versteckter Produkttitel"),
+        Language::En => Title::from("Hidden Product Title"),
+        Language::Fr => Title::from("Titre du produit masqué"),
+        Language::Es => Title::from("Título de producto oculto"),
+        Language::It => Title::from("Titolo del prodotto nascosto"),
+    }
+}
+
+fn anonymize_product(product: &mut LocalizedProductView) {
+    let nil = uuid::Uuid::nil();
+    product.product_id = ProductId::from(nil);
+    product.product_slug_id = common::slug_id::SlugId::raw("");
+    product.shop_slug_id = common::slug_id::SlugId::raw("");
+    product.seller_slug_id = common::slug_id::SlugId::raw("");
+    product.event_id = common::event_id::EventId::from(nil);
+    product.shop_id = common::shop_id::ShopId::from(nil);
+    product.seller_id = common::shop_id::ShopId::from(nil);
+    product.shops_product_id = common::shops_product_id::ShopsProductId::from(
+        "00000000-0000-0000-0000-000000000000".to_string(),
+    );
+    product.shop_name = common::shop_name::ShopName::from("Hidden");
+    product.seller_name = common::shop_name::ShopName::from("Hidden");
+    product.category_id = None;
+    product.category_name = None;
+    product.period_id = None;
+    product.period_name = None;
+    let lang = product.title.localization;
+    product.title = Localized::new(lang, hidden_title(lang));
+    product.description = None;
+    product.price = None;
+    product.price_estimate_min = None;
+    product.price_estimate_max = None;
+    product.state = ProductState::Unknown;
+    product.url = url::Url::parse("https://hidden.example.com").expect("valid url");
+    product.images = vec![];
+    product.origin_year = None;
+    product.authenticity = Authenticity::Unknown;
+    product.condition = Condition::Unknown;
+    product.provenance = Provenance::Unknown;
+    product.restoration = Restoration::Unknown;
+    product.auction_start = None;
+    product.auction_end = None;
+    product.created = OffsetDateTime::UNIX_EPOCH;
+    product.updated = OffsetDateTime::UNIX_EPOCH;
+}
+
+fn is_current_month(dt: &OffsetDateTime) -> bool {
+    let now = OffsetDateTime::now_utc();
+    dt.year() == now.year() && dt.month() == now.month()
 }
 
 #[async_trait::async_trait]
@@ -382,20 +468,38 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
             .await
             .map_err(|e| ProductPersonalizationError::SearchFilterMatchError(e.to_string()))?;
 
-        let search_filter_state = match match_records.first() {
-            Some(record) => SearchFilterUserState {
-                matched: true,
-                user_search_filter_id: Some(record.user_search_filter_id),
-                user_search_filter_name: record
-                    .user_search_filter_name
-                    .as_deref()
-                    .map(UserSearchFilterName::from),
-                match_reason: record
-                    .enhanced_match_reason
-                    .as_deref()
-                    .map(EnhancedMatchReason::from),
-            },
-            None => SearchFilterUserState::default(),
+        let (search_filter_state, mut product) = match match_records.first() {
+            Some(record) => {
+                let has_current_month_match = is_current_month(&record.created);
+                let hidden = if has_current_month_match {
+                    self.is_search_filter_match_quota_exceeded(user_id).await?
+                } else {
+                    false
+                };
+
+                let mut product = product;
+                if hidden {
+                    anonymize_product(&mut product);
+                }
+
+                (
+                    SearchFilterUserState {
+                        matched: true,
+                        hidden,
+                        user_search_filter_id: Some(record.user_search_filter_id),
+                        user_search_filter_name: record
+                            .user_search_filter_name
+                            .as_deref()
+                            .map(UserSearchFilterName::from),
+                        match_reason: record
+                            .enhanced_match_reason
+                            .as_deref()
+                            .map(EnhancedMatchReason::from),
+                    },
+                    product,
+                )
+            }
+            None => (SearchFilterUserState::default(), product),
         };
 
         Ok(Personalized {
@@ -423,22 +527,39 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
             .map(|record| (record.product_id, record))
             .collect();
 
+        let any_current_month = match_by_product
+            .values()
+            .any(|record| is_current_month(&record.created));
+
+        let quota_exceeded = if any_current_month {
+            self.is_search_filter_match_quota_exceeded(user_id).await?
+        } else {
+            false
+        };
+
         let result = products
             .into_iter()
-            .map(|product| {
+            .map(|mut product| {
                 let search_filter_state = match match_by_product.get(&product.product_id) {
-                    Some(record) => SearchFilterUserState {
-                        matched: true,
-                        user_search_filter_id: Some(record.user_search_filter_id),
-                        user_search_filter_name: record
-                            .user_search_filter_name
-                            .as_deref()
-                            .map(UserSearchFilterName::from),
-                        match_reason: record
-                            .enhanced_match_reason
-                            .as_deref()
-                            .map(EnhancedMatchReason::from),
-                    },
+                    Some(record) => {
+                        let hidden = quota_exceeded && is_current_month(&record.created);
+                        if hidden {
+                            anonymize_product(&mut product);
+                        }
+                        SearchFilterUserState {
+                            matched: true,
+                            hidden,
+                            user_search_filter_id: Some(record.user_search_filter_id),
+                            user_search_filter_name: record
+                                .user_search_filter_name
+                                .as_deref()
+                                .map(UserSearchFilterName::from),
+                            match_reason: record
+                                .enhanced_match_reason
+                                .as_deref()
+                                .map(EnhancedMatchReason::from),
+                        }
+                    }
                     None => SearchFilterUserState::default(),
                 };
                 Personalized {
@@ -451,6 +572,9 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
         Ok(result)
     }
 
+    // NOTE: Search-filter personalization MUST happen last as it may destructively
+    // modify the `LocalizedProductView` (anonymize products when search-filter-match
+    // quota is exceeded).
     async fn personalize(
         &self,
         user_id: &UserId,
@@ -464,6 +588,8 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
         let notification = self
             .personalize_product_notification(user_id, prohibited_content.item)
             .await?;
+        // Search-filter personalization MUST happen last as it may destructively
+        // modify the LocalizedProductView when the search-filter-match quota is exceeded.
         let search_filter = self
             .personalize_search_filter(user_id, notification.item)
             .await?;
@@ -519,6 +645,8 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
             .iter()
             .map(|(item, _)| item.clone())
             .collect();
+        // Search-filter personalization MUST happen last as it may destructively
+        // modify the LocalizedProductView when the search-filter-match quota is exceeded.
         let search_filter_results = self
             .personalize_search_filter_all(user_id, products_for_search_filter)
             .await?;
@@ -527,8 +655,8 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
             .into_iter()
             .zip(notification_results)
             .zip(search_filter_results)
-            .map(|(((item, watchlist), notif), sf)| Personalized {
-                item,
+            .map(|(((_, watchlist), notif), sf)| Personalized {
+                item: sf.item,
                 user_state: Some(ProductUserState {
                     watchlist,
                     prohibited_content: ProhibitedContentUserState { consent },
@@ -553,6 +681,7 @@ mod tests {
         record::WatchlistProductRecord, repository::MockWatchlistProductDynamoDbRepository,
     };
     use search_filter::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
+    use search_filter::service::user_search_filter_service::MockUserSearchFilterService;
     use time::OffsetDateTime;
     use user::core::user::User;
     use user::service::user_service::MockUserService;
@@ -590,11 +719,13 @@ mod tests {
         let user_service = MockUserService::default();
         let notification_service = MockNotificationService::default();
         let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let mut input = Faker.fake::<LocalizedProductView>();
@@ -639,11 +770,13 @@ mod tests {
         let user_service = MockUserService::default();
         let notification_service = MockNotificationService::default();
         let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let mut input = Faker.fake::<LocalizedProductView>();
@@ -669,11 +802,13 @@ mod tests {
         let user_service = MockUserService::default();
         let notification_service = MockNotificationService::default();
         let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let mut input = Faker.fake::<LocalizedProductView>();
@@ -750,11 +885,13 @@ mod tests {
         let user_service = MockUserService::default();
         let notification_service = MockNotificationService::default();
         let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let mut watched_in1 = Faker.fake::<LocalizedProductView>();
@@ -875,11 +1012,13 @@ mod tests {
 
         let notification_service = MockNotificationService::default();
         let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let mut input = Faker.fake::<LocalizedProductView>();
@@ -901,11 +1040,13 @@ mod tests {
 
         let notification_service = MockNotificationService::default();
         let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let mut input = Faker.fake::<LocalizedProductView>();
@@ -931,11 +1072,13 @@ mod tests {
 
         let notification_service = MockNotificationService::default();
         let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let mut input = Faker.fake::<LocalizedProductView>();
@@ -961,11 +1104,13 @@ mod tests {
 
         let notification_service = MockNotificationService::default();
         let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let mut input = Faker.fake::<LocalizedProductView>();
@@ -990,11 +1135,13 @@ mod tests {
 
         let notification_service = MockNotificationService::default();
         let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let mut input = Faker.fake::<LocalizedProductView>();
@@ -1016,11 +1163,13 @@ mod tests {
 
         let notification_service = MockNotificationService::default();
         let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let mut input1 = Faker.fake::<LocalizedProductView>();
@@ -1049,11 +1198,13 @@ mod tests {
 
         let notification_service = MockNotificationService::default();
         let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let mut input1 = Faker.fake::<LocalizedProductView>();
@@ -1116,11 +1267,13 @@ mod tests {
         search_filter_repository
             .expect_query_user_search_filter_match_records_for_product()
             .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let mut input = Faker.fake::<LocalizedProductView>();
@@ -1180,11 +1333,13 @@ mod tests {
         search_filter_repository
             .expect_query_user_search_filter_match_records_all()
             .returning(|_| Box::pin(async { Ok(vec![]) }));
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let mut input1 = Faker.fake::<LocalizedProductView>();
@@ -1227,11 +1382,13 @@ mod tests {
             .returning(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
 
         let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let input = Faker.fake::<LocalizedProductView>();
@@ -1254,11 +1411,13 @@ mod tests {
             .returning(|_, _, _, _| Box::pin(async { Ok(vec![make_test_notification(false)]) }));
 
         let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let input = Faker.fake::<LocalizedProductView>();
@@ -1281,11 +1440,13 @@ mod tests {
             .returning(|_, _, _, _| Box::pin(async { Ok(vec![make_test_notification(true)]) }));
 
         let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let input = Faker.fake::<LocalizedProductView>();
@@ -1325,11 +1486,13 @@ mod tests {
             });
 
         let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let mut input1 = Faker.fake::<LocalizedProductView>();
@@ -1358,7 +1521,14 @@ mod tests {
     #[tokio::test]
     async fn should_personalize_search_filter_matched_when_record_exists() {
         let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
-        let user_service = MockUserService::default();
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().returning(|_| {
+            Box::pin(async {
+                let mut user: User = Faker.fake();
+                user.tier = user::core::tier::UserTier::Ultimate;
+                Ok(user)
+            })
+        });
         let notification_service = MockNotificationService::default();
 
         let mut search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
@@ -1375,11 +1545,13 @@ mod tests {
                 Box::pin(async move { Ok(vec![record]) })
             });
 
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let mut input = Faker.fake::<LocalizedProductView>();
@@ -1411,11 +1583,13 @@ mod tests {
             .expect_query_user_search_filter_match_records_for_product()
             .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
 
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let input = Faker.fake::<LocalizedProductView>();
@@ -1434,7 +1608,14 @@ mod tests {
     #[tokio::test]
     async fn should_personalize_search_filter_all_mixed_states() {
         let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
-        let user_service = MockUserService::default();
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().returning(|_| {
+            Box::pin(async {
+                let mut user: User = Faker.fake();
+                user.tier = user::core::tier::UserTier::Ultimate;
+                Ok(user)
+            })
+        });
         let notification_service = MockNotificationService::default();
 
         let product1_id = ProductId::new();
@@ -1453,11 +1634,13 @@ mod tests {
                 Box::pin(async move { Ok(vec![record]) })
             });
 
+        let user_search_filter_service = MockUserSearchFilterService::default();
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
             &user_service,
             &search_filter_repository,
+            &user_search_filter_service,
         );
 
         let mut input1 = Faker.fake::<LocalizedProductView>();
