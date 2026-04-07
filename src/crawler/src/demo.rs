@@ -13,12 +13,6 @@
 //!
 //! Scraped products are written to `scraped_products.json` instead of being forwarded to DynamoDB.
 //!
-//! # Connection pool sizing
-//!
-//! The pool is sized automatically via [`CrawlerCronConfig::effective_db_max_connections`]:
-//! `spider_concurrency + scraper_concurrency + 10`.  This ensures every concurrent
-//! advisory-lock connection plus repository queries fit without exhausting the pool.
-//!
 //! # Running (with testcontainer)
 //!
 //! ```bash
@@ -64,9 +58,9 @@ use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServic
 use llm::builder::{LLMBackend, LLMBuilder};
 use shop::core::shop_type::ShopType;
 use sqlx::PgPool;
-use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
 use testcontainers::runners::AsyncRunner;
+use testcontainers::ImageExt;
 use testcontainers_modules::postgres::Postgres as PgImage;
 use tracing::{error, info};
 
@@ -153,8 +147,8 @@ async fn main() {
 
     // Build the cron config first so it can drive pool sizing below.
     let config = CrawlerCronConfig {
-        spider_interval: Duration::from_secs(1200000000), // Demo: retry spider every 2 minutes
-        scraper_interval: Duration::from_secs(300000),    // Demo: run scraper loop every 30 seconds
+        spider_interval: Duration::from_secs(120), // Demo: retry spider every 2 minutes
+        scraper_interval: Duration::from_secs(30), // Demo: run scraper loop every 30 seconds
         spider_batch_size: 5,
         scraper_batch_size: 100,
         spider_concurrency: 3,

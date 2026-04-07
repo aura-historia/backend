@@ -5,14 +5,14 @@ use crate::service::shop_registration::ShopRegistrationService;
 use crate::spider::advisory_lock::{DomainLock, LocalLockManager, UrlLock};
 use crate::spider::candidate_service::SpiderCandidateService;
 use crate::spider::service::SpiderService;
-use futures::StreamExt;
-use futures::stream::FuturesUnordered;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
 
 #[derive(Clone)]
@@ -22,25 +22,14 @@ pub struct CrawlerCronConfig {
     pub shop_sync_interval: Duration,
     pub spider_batch_size: i64,
     pub scraper_batch_size: i64,
-    /// Number of scraped products to accumulate before flushing a push to the backend.
-    /// Keeps memory bounded and avoids holding all results until the last scrape finishes.
+    /// Number of scraped products to accumulate before flush.
     pub push_batch_size: usize,
     pub spider_concurrency: usize,
     pub scraper_concurrency: usize,
     pub spider_classify_threshold: usize,
-    /// Minimum delay between consecutive HTTP requests to the **same domain**.
-    ///
-    /// After each scrape completes the pipeline waits this long before
-    /// dispatching the next URL for that domain.  This acts as a per-domain
-    /// rate limiter and avoids triggering anti-bot protections.
-    ///
-    /// Set to `Duration::ZERO` to disable the delay entirely.
+    /// Delay between consecutive scraper requests for the same domain.
     pub scraper_domain_delay: Duration,
-    /// Maximum number of Postgres connections in the pool.
-    ///
-    /// When `None` the value is computed automatically as:
-    ///   `spider_concurrency + scraper_concurrency + 10`
-    /// to leave headroom for short-lived query bursts.
+    /// Maximum Postgres connections for crawler queries.
     pub db_max_connections: Option<u32>,
 }
 
@@ -63,21 +52,11 @@ impl Default for CrawlerCronConfig {
 }
 
 impl CrawlerCronConfig {
-    /// Returns the effective `max_connections` for the Postgres pool.
-    ///
-    /// Uses the explicit override when set; otherwise auto-computes from the
-    /// concurrency settings.  The auto value is
-    /// `spider_concurrency + scraper_concurrency + 10`.
     pub fn effective_db_max_connections(&self) -> u32 {
         self.db_max_connections
             .unwrap_or_else(|| (self.spider_concurrency + self.scraper_concurrency + 10) as u32)
     }
 
-    /// Builds a [`PgPool`] whose size is appropriate for this config.
-    ///
-    /// Prefer this over calling `PgPool::connect` directly so that the pool is
-    /// always large enough for concurrent crawler queries plus short-lived
-    /// repository bursts.
     pub async fn connect_pool(&self, url: &str) -> Result<PgPool, sqlx::Error> {
         PgPoolOptions::new()
             .max_connections(self.effective_db_max_connections())
@@ -86,10 +65,6 @@ impl CrawlerCronConfig {
             .await
     }
 }
-
-// ---------------------------------------------------------------------------
-// PerfCounter — rolling performance summary emitted every N items
-// ---------------------------------------------------------------------------
 
 struct PerfCounter {
     count: AtomicU64,
@@ -119,8 +94,6 @@ impl PerfCounter {
         }
     }
 
-    /// Accumulates `count` items processed in `duration_ms` and emits an
-    /// `info!` summary every time the rolling total reaches the threshold.
     fn record(&self, count: u64, duration_ms: u64) {
         self.count.fetch_add(count, Ordering::Relaxed);
         self.duration_ms.fetch_add(duration_ms, Ordering::Relaxed);
@@ -218,7 +191,6 @@ impl CrawlerCronJob {
     }
 
     async fn shop_sync_loop(&self) {
-        // Run immediately on startup, then every shop_sync_interval
         loop {
             self.run_shop_sync_once().await;
             tokio::time::sleep(self.config.shop_sync_interval).await;
@@ -251,38 +223,61 @@ impl CrawlerCronJob {
                 let batch_start = tokio::time::Instant::now();
                 info!(candidates = total, "Spider batch starting");
 
-                let results: Vec<bool> = futures::stream::iter(candidates)
-                    .map(|candidate| {
-                        let spider_service = self.spider_service.clone();
-                        let lock_manager = Arc::clone(&self.lock_manager);
-                        let threshold = self.config.spider_classify_threshold;
-                        let shop_url = if candidate.shop_domain.starts_with("http") {
-                            candidate.shop_domain.clone()
-                        } else {
-                            format!("https://{}", candidate.shop_domain)
-                        };
-                        async move {
-                            let Some(_lock) = DomainLock::try_acquire(&lock_manager, candidate.domain_id)
-                            else {
-                                warn!(
-                                    domain_id = %candidate.domain_id,
-                                    "Skipping domain — lock held by another worker"
-                                );
-                                return false;
-                            };
+                let spider_concurrency = self.config.spider_concurrency;
+                if spider_concurrency == 0 {
+                    warn!("spider_concurrency is 0, skipping spider batch");
+                    return;
+                }
 
-                            spider_service
-                                .run(&candidate.shop_id, &candidate.domain_id, &shop_url, threshold)
-                                .await
-                                .map_err(|e| {
-                                    error!(domain = %candidate.shop_domain, error = %e, "Spider run failed");
-                                })
-                                .is_ok()
+                let semaphore = Arc::new(Semaphore::new(spider_concurrency));
+                let mut join_set: JoinSet<bool> = JoinSet::new();
+
+                for candidate in candidates {
+                    let spider_service = Arc::clone(&self.spider_service);
+                    let lock_manager = Arc::clone(&self.lock_manager);
+                    let permit_pool = Arc::clone(&semaphore);
+                    let threshold = self.config.spider_classify_threshold;
+                    let shop_url = if candidate.shop_domain.starts_with("http") {
+                        candidate.shop_domain.clone()
+                    } else {
+                        format!("https://{}", candidate.shop_domain)
+                    };
+
+                    join_set.spawn(async move {
+                        let Ok(_permit) = permit_pool.acquire_owned().await else {
+                            error!("Spider semaphore closed unexpectedly");
+                            return false;
+                        };
+
+                        let Some(_lock) = DomainLock::try_acquire(&lock_manager, candidate.domain_id)
+                        else {
+                            warn!(
+                                domain_id = %candidate.domain_id,
+                                "Skipping domain — lock held by another worker"
+                            );
+                            return false;
+                        };
+
+                        spider_service
+                            .run(&candidate.shop_id, &candidate.domain_id, &shop_url, threshold)
+                            .await
+                            .map_err(|e| {
+                                error!(domain = %candidate.shop_domain, error = %e, "Spider run failed");
+                            })
+                            .is_ok()
+                    });
+                }
+
+                let mut results: Vec<bool> = Vec::new();
+                while let Some(joined) = join_set.join_next().await {
+                    match joined {
+                        Ok(ok) => results.push(ok),
+                        Err(e) => {
+                            error!(error = %e, "Spider worker task failed to join");
+                            results.push(false);
                         }
-                    })
-                    .buffer_unordered(self.config.spider_concurrency)
-                    .collect()
-                    .await;
+                    }
+                }
 
                 let succeeded = results.iter().filter(|&&ok| ok).count();
                 let failed = total - succeeded;
@@ -299,39 +294,35 @@ impl CrawlerCronJob {
     }
 }
 
-// ---------------------------------------------------------------------------
-// ScrapeOutcome — result of a single scrape future in the pipeline
-// ---------------------------------------------------------------------------
-
-struct ScrapeOutcome {
-    domain: String,
+struct ScrapeCandidateOutcome {
     command: Option<product::service::product_command::UpsertProductCommand>,
     errored: bool,
+    skipped: bool,
 }
 
-// ---------------------------------------------------------------------------
-// scrape_candidate — free async fn executed for every slot in the pipeline
-// ---------------------------------------------------------------------------
+struct ScrapeDomainOutcome {
+    commands: Vec<product::service::product_command::UpsertProductCommand>,
+    succeeded: usize,
+    failed: usize,
+    skipped: usize,
+}
 
-/// Acquires a per-URL lock, runs the scraper, releases the lock, waits the
-/// per-domain delay, then returns a `ScrapeOutcome`.
 async fn scrape_candidate(
     scraper: Arc<dyn ScraperService>,
     lock_manager: Arc<LocalLockManager>,
     candidate: ScraperCandidate,
     domain: String,
-    domain_delay: Duration,
-) -> ScrapeOutcome {
+) -> ScrapeCandidateOutcome {
     let Some(_lock) = UrlLock::try_acquire(&lock_manager, &candidate.url) else {
         warn!(url = %candidate.url, "Skipping URL — lock held by another worker");
-        return ScrapeOutcome {
-            domain,
+        return ScrapeCandidateOutcome {
             command: None,
             errored: false,
+            skipped: true,
         };
     };
 
-    let outcome = match scraper
+    match scraper
         .scrape(
             &candidate.shop_id,
             &candidate.url,
@@ -340,15 +331,15 @@ async fn scrape_candidate(
         )
         .await
     {
-        Ok(Some(product)) => ScrapeOutcome {
+        Ok(Some(product)) => ScrapeCandidateOutcome {
             command: normalize_to_upsert(product, &candidate),
-            domain,
             errored: false,
+            skipped: false,
         },
-        Ok(None) => ScrapeOutcome {
-            domain,
+        Ok(None) => ScrapeCandidateOutcome {
             command: None,
             errored: false,
+            skipped: true,
         },
         Err(e) => {
             error!(
@@ -357,18 +348,53 @@ async fn scrape_candidate(
                 error = %e,
                 "Scraper run failed"
             );
-            ScrapeOutcome {
-                domain,
+            ScrapeCandidateOutcome {
                 command: None,
                 errored: true,
+                skipped: false,
             }
         }
+    }
+}
+
+async fn scrape_domain_candidates(
+    scraper: Arc<dyn ScraperService>,
+    lock_manager: Arc<LocalLockManager>,
+    domain: String,
+    candidates: Vec<ScraperCandidate>,
+    domain_delay: Duration,
+) -> ScrapeDomainOutcome {
+    let mut outcome = ScrapeDomainOutcome {
+        commands: Vec::new(),
+        succeeded: 0,
+        failed: 0,
+        skipped: 0,
     };
-    // Per-domain delay: keep this domain's slot occupied for the configured
-    // duration so the next request to the same domain is not dispatched
-    // immediately.  The in-memory lock has already been released above.
-    if !domain_delay.is_zero() {
-        tokio::time::sleep(domain_delay).await;
+
+    let len = candidates.len();
+    for (idx, candidate) in candidates.into_iter().enumerate() {
+        let candidate_outcome = scrape_candidate(
+            Arc::clone(&scraper),
+            Arc::clone(&lock_manager),
+            candidate,
+            domain.clone(),
+        )
+        .await;
+
+        if candidate_outcome.errored {
+            outcome.failed += 1;
+        } else if let Some(cmd) = candidate_outcome.command {
+            outcome.succeeded += 1;
+            outcome.commands.push(cmd);
+        } else if candidate_outcome.skipped {
+            outcome.skipped += 1;
+        } else {
+            outcome.succeeded += 1;
+        }
+
+        if idx + 1 < len && !domain_delay.is_zero() {
+            tokio::time::sleep(domain_delay).await;
+        }
     }
 
     outcome
@@ -376,9 +402,6 @@ async fn scrape_candidate(
 
 impl CrawlerCronJob {
     async fn run_scraper_once(&self) {
-        // Fetch enough candidates to keep all concurrent slots busy.  We ask
-        // for scraper_concurrency × scraper_batch_size URLs so that every
-        // domain gets a meaningful queue even when there are many domains.
         let total_fetch = (self.config.scraper_concurrency as i64) * self.config.scraper_batch_size;
 
         let all_candidates = match self.scraper_candidates.get_candidates(total_fetch).await {
@@ -396,109 +419,85 @@ impl CrawlerCronJob {
 
         let total = all_candidates.len();
         let batch_start = tokio::time::Instant::now();
+        let scraper_concurrency = self.config.scraper_concurrency;
+        if scraper_concurrency == 0 {
+            warn!("scraper_concurrency is 0, skipping scraper batch");
+            return;
+        }
+
         info!(
             candidates = total,
-            concurrency = self.config.scraper_concurrency,
+            concurrency = scraper_concurrency,
             "Scraper batch starting"
         );
 
-        // Group candidates by domain so we can ensure at most one in-flight
-        // request per domain at any time.
-        //
-        // URLs without a recognizable host are placed under the empty-string
-        // key so they are still dispatched (and will fail gracefully inside
-        // `scrape()` with `ScraperError::NoHost`).
-        let mut by_domain: HashMap<String, VecDeque<ScraperCandidate>> = HashMap::new();
+        let mut by_domain: HashMap<String, Vec<ScraperCandidate>> = HashMap::new();
         for candidate in all_candidates {
             let domain = candidate.url.host_str().unwrap_or("").to_string();
-            by_domain.entry(domain).or_default().push_back(candidate);
+            by_domain.entry(domain).or_default().push(candidate);
         }
 
         debug!(domains = by_domain.len(), "Candidates grouped by domain");
 
-        let concurrency = self.config.scraper_concurrency;
         let domain_delay = self.config.scraper_domain_delay;
-        let mut in_flight: HashSet<String> = HashSet::new();
-        let mut futures: FuturesUnordered<
-            std::pin::Pin<Box<dyn std::future::Future<Output = ScrapeOutcome> + Send>>,
-        > = FuturesUnordered::new();
+        let semaphore = Arc::new(Semaphore::new(scraper_concurrency));
+        let mut join_set: JoinSet<ScrapeDomainOutcome> = JoinSet::new();
 
         let mut succeeded = 0usize;
         let mut failed = 0usize;
+        let mut skipped = 0usize;
         let mut pending_commands: Vec<product::service::product_command::UpsertProductCommand> =
             Vec::new();
-        let push_service = self.product_push.clone();
         let push_batch_size = self.config.push_batch_size;
 
-        // Fill open concurrency slots from domains that are not currently
-        // in-flight.  Runs once to prime the pipeline and again after each
-        // future completes.
-        let fill_slots = |by_domain: &mut HashMap<
-            String,
-            VecDeque<crate::scraper::candidate_service::ScraperCandidate>,
-        >,
-                          in_flight: &mut HashSet<String>,
-                          futures: &mut FuturesUnordered<
-            std::pin::Pin<Box<dyn std::future::Future<Output = ScrapeOutcome> + Send>>,
-        >| {
-            let available: Vec<String> = by_domain
-                .keys()
-                .filter(|d| !in_flight.contains(*d))
-                .cloned()
-                .collect();
+        for (domain, candidates) in by_domain {
+            let scraper = Arc::clone(&self.scraper_service);
+            let lock_manager = Arc::clone(&self.lock_manager);
+            let permit_pool = Arc::clone(&semaphore);
 
-            for domain in available {
-                if in_flight.len() >= concurrency {
-                    break;
-                }
-                let Some(candidate) = by_domain.get_mut(&domain).and_then(|q| q.pop_front()) else {
-                    continue;
+            join_set.spawn(async move {
+                let Ok(_permit) = permit_pool.acquire_owned().await else {
+                    error!("Scraper semaphore closed unexpectedly");
+                    return ScrapeDomainOutcome {
+                        commands: Vec::new(),
+                        succeeded: 0,
+                        failed: 1,
+                        skipped: 0,
+                    };
                 };
-                // Drop the queue entry once it is drained.
-                if by_domain.get(&domain).is_none_or(|q| q.is_empty()) {
-                    by_domain.remove(&domain);
-                }
 
-                in_flight.insert(domain.clone());
-                futures.push(Box::pin(scrape_candidate(
-                    self.scraper_service.clone(),
-                    Arc::clone(&self.lock_manager),
-                    candidate,
-                    domain,
-                    domain_delay,
-                )));
-            }
-        };
-
-        // Prime the pipeline — fill all slots before entering the drain loop.
-        fill_slots(&mut by_domain, &mut in_flight, &mut futures);
-
-        // Drain: as each future completes, free its domain slot and refill.
-        while let Some(outcome) = futures.next().await {
-            in_flight.remove(&outcome.domain);
-
-            if outcome.errored {
-                failed += 1;
-            } else if let Some(cmd) = outcome.command {
-                succeeded += 1;
-                pending_commands.push(cmd);
-                // Flush eagerly to bound memory use.
-                if pending_commands.len() >= push_batch_size {
-                    let batch = std::mem::take(&mut pending_commands);
-                    push_service.push(batch).await;
-                }
-            }
-
-            fill_slots(&mut by_domain, &mut in_flight, &mut futures);
+                scrape_domain_candidates(scraper, lock_manager, domain, candidates, domain_delay)
+                    .await
+            });
         }
 
-        // Final flush of any remaining products.
+        while let Some(joined) = join_set.join_next().await {
+            let outcome = match joined {
+                Ok(outcome) => outcome,
+                Err(e) => {
+                    error!(error = %e, "Scraper domain worker task failed to join");
+                    failed += 1;
+                    continue;
+                }
+            };
+
+            succeeded += outcome.succeeded;
+            failed += outcome.failed;
+            skipped += outcome.skipped;
+
+            pending_commands.extend(outcome.commands);
+            if pending_commands.len() >= push_batch_size {
+                let batch = std::mem::take(&mut pending_commands);
+                self.product_push.push(batch).await;
+            }
+        }
+
         if !pending_commands.is_empty() {
-            push_service.push(pending_commands).await;
+            self.product_push.push(pending_commands).await;
         }
 
         let duration_ms = batch_start.elapsed().as_millis() as u64;
-        let skipped = total - succeeded - failed;
+        skipped += total.saturating_sub(succeeded + failed + skipped);
         info!(
             total,
             succeeded, failed, skipped, duration_ms, "Scraper batch complete"
@@ -589,6 +588,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_skip_spider_candidate_when_domain_lock_is_already_held() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let locked_domain_id = uuid::Uuid::new_v4();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_| {
+                Box::pin(async move {
+                    Ok(vec![SpiderCandidate {
+                        shop_id: ShopId::new(),
+                        domain_id: locked_domain_id,
+                        shop_domain: "example.com".to_string(),
+                    }])
+                })
+            });
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service.expect_run().times(0);
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+
+        let scraper_service = MockScraperService::new();
+        let lock_manager = Arc::new(LocalLockManager::new());
+        let _prelock = DomainLock::try_acquire(&lock_manager, locked_domain_id).unwrap();
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::clone(&lock_manager),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_shop_registration(),
+            noop_product_push(),
+        );
+
+        job.run_spider_once().await;
+    }
+
+    #[tokio::test]
     async fn should_run_scraper_candidates_and_push_products() {
         let mut spider_candidates = MockSpiderCandidateService::new();
         spider_candidates
@@ -617,7 +658,6 @@ mod tests {
             .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
 
         let mut push_service = MockProductPushService::new();
-        // When scraper returns None, push should NOT be called
         push_service.expect_push().times(0);
 
         let job = CrawlerCronJob::new(
@@ -636,7 +676,6 @@ mod tests {
 
     #[tokio::test]
     async fn should_scrape_candidates_from_multiple_domains() {
-        // Two candidates from different domains — both must be scraped.
         let mut spider_candidates = MockSpiderCandidateService::new();
         spider_candidates
             .expect_get_candidates()
@@ -668,7 +707,6 @@ mod tests {
         });
 
         let mut scraper_service = MockScraperService::new();
-        // Both URLs must be scraped exactly once.
         scraper_service
             .expect_scrape()
             .times(2)
@@ -692,10 +730,73 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_skip_scraper_candidate_when_url_lock_is_already_held() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+        let spider_service = MockSpiderService::new();
+
+        let locked_url = url::Url::parse("https://domain-a.com/product/1").unwrap();
+        let open_url = url::Url::parse("https://domain-a.com/product/2").unwrap();
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(move |_| {
+                let locked_url = locked_url.clone();
+                let open_url = open_url.clone();
+                Box::pin(async move {
+                    Ok(vec![
+                        ScraperCandidate {
+                            shop_id: ShopId::new(),
+                            shop_name: "Shop A".to_string(),
+                            shop_type: ShopType::CommercialDealer,
+                            url: locked_url,
+                            main_hash: "h1".to_string(),
+                            last_scraped_hash: None,
+                        },
+                        ScraperCandidate {
+                            shop_id: ShopId::new(),
+                            shop_name: "Shop A".to_string(),
+                            shop_type: ShopType::CommercialDealer,
+                            url: open_url,
+                            main_hash: "h2".to_string(),
+                            last_scraped_hash: None,
+                        },
+                    ])
+                })
+            });
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .times(1)
+            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
+
+        let mut push_service = MockProductPushService::new();
+        push_service.expect_push().times(0);
+
+        let lock_manager = Arc::new(LocalLockManager::new());
+        let prelocked = url::Url::parse("https://domain-a.com/product/1").unwrap();
+        let _prelock = UrlLock::try_acquire(&lock_manager, &prelocked).unwrap();
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::clone(&lock_manager),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_shop_registration(),
+            Box::new(push_service),
+        );
+
+        job.run_scraper_once().await;
+    }
+
+    #[tokio::test]
     async fn should_scrape_all_urls_from_same_domain() {
-        // Three candidates all from the same domain — all must be scraped,
-        // just sequentially (the pipeline ensures at most one in-flight per
-        // domain at a time).
         let mut spider_candidates = MockSpiderCandidateService::new();
         spider_candidates
             .expect_get_candidates()
@@ -735,7 +836,6 @@ mod tests {
         });
 
         let mut scraper_service = MockScraperService::new();
-        // All three URLs must be scraped.
         scraper_service
             .expect_scrape()
             .times(3)

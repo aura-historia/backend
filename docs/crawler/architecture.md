@@ -18,7 +18,7 @@ CrawlerCronJob::run_loop()
 The spider and scraper loops follow the same pattern each tick:
 
 1. Ask the relevant **CandidateService** for a batch of work.
-2. For the scraper: fan the batch out using a `FuturesUnordered` pool driven by a `fill_slots` closure that groups candidates by domain and enforces a per-domain delay between consecutive requests. For the spider: fan the batch out using `futures::stream::iter(...).buffer_unordered(concurrency)`.
+2. Fan the batch out as Tokio worker tasks: one task per spider domain candidate, and one task per scraper domain group (all URLs of that domain handled sequentially in that task).
 3. Before processing each item, acquire an in-memory lock (`DomainLock` for spider domains, `UrlLock` for scraper URLs) via `LocalLockManager`. If another worker already holds the lock the item is skipped (not failed).
 4. Call the relevant service (`SpiderService::run` or `ScraperService::scrape`). Errors are logged and swallowed so one failure doesn't abort the whole batch.
 5. After each batch completes, log a summary line with `total`, `succeeded`, `failed`, `skipped` (lock-skipped items), and `duration_ms`. Performance counters are accumulated across batches and a rolling average is emitted every 500 scraper URLs / every 50 spider domains.
@@ -124,12 +124,22 @@ If another worker already holds the lock the update affects 0 rows, the service 
 
 ### In-memory cron locks (single-process level)
 
-The cron job acquires an in-memory lock before dispatching each spider or scraper task, so two concurrent Tokio tasks never process the same domain or URL at the same time in the same process.
+The cron job acquires an in-memory lock before dispatching spider and scraper work, so two concurrent Tokio tasks never process the same domain or URL at the same time in the same process.
 
 - **`DomainLock`** — acquired per spider candidate using the UUID XOR-folded `i64` key.
 - **`UrlLock`** — acquired per scraper candidate using the FNV-1a `i64` hash of the URL.
 
 Both are backed by `LocalLockManager` (`Arc<DashMap<String, Instant>>`) and released automatically by RAII when the guard is dropped.
+
+### Scraper domain workers
+
+`run_scraper_once` groups candidate URLs by host and spawns one task per domain group (bounded by `scraper_concurrency` via semaphore). Each domain task:
+
+1. Scrapes that domain's URLs sequentially.
+2. Applies `scraper_domain_delay` between consecutive URLs for that domain.
+3. Returns commands/counts to the caller for batched push.
+
+This keeps the scheduling logic simple while preserving per-domain pacing and multi-domain parallelism.
 
 ### Crawl execution — `SpiderServiceImpl`
 

@@ -16,8 +16,8 @@ Controls the three background tasks spawned by `CrawlerCronJob`.
 | `spider_batch_size` | `i64` | 10 | Max shops selected per spider tick (`LIMIT` in candidate query) |
 | `scraper_batch_size` | `i64` | 100 | Max URLs selected per scraper tick |
 | `push_batch_size` | `usize` | 25 | Number of scraped products accumulated before flushing a push to the backend. Keeps memory bounded and avoids holding all results until the last scrape finishes. |
-| `spider_concurrency` | `usize` | 3 | Max concurrent spider runs (fan-out via `buffer_unordered`) |
-| `scraper_concurrency` | `usize` | 10 | Max concurrent scrape operations |
+| `spider_concurrency` | `usize` | 3 | Max concurrent spider domain worker tasks per tick |
+| `scraper_concurrency` | `usize` | 10 | Max concurrent scraper domain worker tasks per tick |
 | `spider_classify_threshold` | `usize` | 200 | Passed through to `SpiderServiceConfig::classify_threshold` — number of URLs buffered before triggering mid-run LLM URL classification |
 | `db_max_connections` | `Option<u32>` | `None` (auto) | Maximum Postgres connections in the pool. Locks are now in-memory (`LocalLockManager`), so this setting mainly controls query capacity. When `None`, auto-computed as `spider_concurrency + scraper_concurrency + 10`. |
 
@@ -45,6 +45,8 @@ Controls per-run behavior of the spider.
 - **`classify_threshold` vs `max_sample_urls`**: Classification is triggered at `classify_threshold` URLs buffered, but only up to `max_sample_urls` are sent to the LLM. If more URLs arrive before the threshold is hit, they are still buffered (for DB persistence) but only the first `max_sample_urls` are included in the LLM prompt. `spider_classify_threshold` in `CrawlerCronConfig` is passed directly to `SpiderServiceConfig::classify_threshold` at construction time.
 
 - **`spider_batch_size` + `spider_concurrency`**: At each tick, up to `spider_batch_size` shops are selected and up to `spider_concurrency` are crawled concurrently. If a domain's in-memory lock (`DomainLock`) is held by another task the item is skipped immediately (counted as `skipped` in the batch log) rather than failing.
+
+- **`scraper_batch_size` + `scraper_concurrency` + `scraper_domain_delay`**: The scraper tick selects up to `scraper_concurrency * scraper_batch_size` URLs, groups them by domain, and runs one worker task per domain (bounded by `scraper_concurrency`). Each domain worker processes its URLs sequentially and sleeps `scraper_domain_delay` between URLs for that domain.
 
 - **`lock_timeout`**: Prevents a crashed spider run from blocking a shop indefinitely via the `shop_domains.locked_at` optimistic lock. If `locked_at` is older than `lock_timeout`, the lock is treated as expired and can be acquired by the next run. The cron-level in-memory lock is process-local and released when the process exits.
 
