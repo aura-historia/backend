@@ -5211,7 +5211,7 @@ async fn should_count_search_filter_matches_for_current_month_for_quota_enforcem
 // ---------------------------------------------------------------------------
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_create_match_but_not_notification_when_user_exceeds_search_filter_match_quota() {
+async fn should_create_match_but_not_notification_when_user_exceeded_search_filter_match_quota() {
     use common::user_search_filter_id::UserSearchFilterId;
     use common::user_search_filter_name::UserSearchFilterName;
     use product::core::product::Product;

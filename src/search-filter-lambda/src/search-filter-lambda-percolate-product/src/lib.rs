@@ -61,6 +61,7 @@ pub async fn handler(
                                             "Some SearchFilterProductMatches were not persisted. Marking message as failed."
                                         );
                                         failed_message_ids.push(message_id.clone());
+                                        continue;
                                     }
                                     Err(err) => {
                                         warn!(
@@ -69,6 +70,7 @@ pub async fn handler(
                                             "Failed creating SearchFilterProductMatches. Marking message as failed."
                                         );
                                         failed_message_ids.push(message_id.clone());
+                                        continue;
                                     }
                                     _ => {}
                                 }
