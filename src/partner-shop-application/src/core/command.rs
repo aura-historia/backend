@@ -17,26 +17,26 @@ pub struct CreatePartnerShopApplicationCommand {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdatePartnerShopApplicationCommand {
     pub state: Option<PartnerShopApplicationState>,
-    pub new_shop_name: Option<ShopName>,
-    pub new_shop_type: Option<ShopType>,
-    pub new_shop_domains: Option<HashSet<Domain>>,
-    pub new_shop_image: Option<Url>,
+    pub shop_name: Option<ShopName>,
+    pub shop_type: Option<ShopType>,
+    pub shop_domains: Option<HashSet<Domain>>,
+    pub shop_image: Option<Url>,
 }
 
 impl UpdatePartnerShopApplicationCommand {
     pub fn is_empty(&self) -> bool {
         self.state.is_none()
-            && self.new_shop_name.is_none()
-            && self.new_shop_type.is_none()
-            && self.new_shop_domains.is_none()
-            && self.new_shop_image.is_none()
+            && self.shop_name.is_none()
+            && self.shop_type.is_none()
+            && self.shop_domains.is_none()
+            && self.shop_image.is_none()
     }
 
     pub fn has_payload_info_update(&self) -> bool {
-        self.new_shop_name.is_some()
-            || self.new_shop_type.is_some()
-            || self.new_shop_domains.is_some()
-            || self.new_shop_image.is_some()
+        self.shop_name.is_some()
+            || self.shop_type.is_some()
+            || self.shop_domains.is_some()
+            || self.shop_image.is_some()
     }
 
     pub fn into_payload_info(self) -> Option<PartnerShopApplicationPayloadInfo> {
@@ -44,10 +44,10 @@ impl UpdatePartnerShopApplicationCommand {
             return None;
         }
         Some(PartnerShopApplicationPayloadInfo {
-            new_shop_name: self.new_shop_name,
-            new_shop_type: self.new_shop_type,
-            new_shop_domains: self.new_shop_domains,
-            new_shop_image: self.new_shop_image,
+            shop_name: self.shop_name,
+            shop_type: self.shop_type,
+            shop_domains: self.shop_domains,
+            shop_image: self.shop_image,
         })
     }
 }
@@ -100,7 +100,7 @@ mod faker {
         #[test]
         fn should_not_be_empty_when_new_shop_name_is_set() {
             let cmd = UpdatePartnerShopApplicationCommand {
-                new_shop_name: Some(ShopName::from("Test".to_string())),
+                shop_name: Some(ShopName::from("Test".to_string())),
                 ..Default::default()
             };
             assert!(!cmd.is_empty());

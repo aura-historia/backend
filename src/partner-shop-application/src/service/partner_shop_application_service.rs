@@ -157,10 +157,10 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
 
         let record_update = PartnerShopApplicationRecordUpdate {
             state: update.state.map(Into::into),
-            new_shop_name: update.new_shop_name,
-            new_shop_type: update.new_shop_type.map(Into::into),
-            new_shop_domains: update.new_shop_domains,
-            new_shop_image: update.new_shop_image,
+            shop_name: update.shop_name,
+            shop_type: update.shop_type.map(Into::into),
+            shop_domains: update.shop_domains,
+            shop_image: update.shop_image,
             updated: OffsetDateTime::now_utc(),
         };
 

@@ -28,10 +28,10 @@ pub enum PartnerShopApplicationPayload {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PartnerShopApplicationPayloadInfo {
-    pub new_shop_name: Option<ShopName>,
-    pub new_shop_type: Option<ShopType>,
-    pub new_shop_domains: Option<HashSet<Domain>>,
-    pub new_shop_image: Option<Url>,
+    pub shop_name: Option<ShopName>,
+    pub shop_type: Option<ShopType>,
+    pub shop_domains: Option<HashSet<Domain>>,
+    pub shop_image: Option<Url>,
 }
 
 #[cfg(feature = "test-data")]

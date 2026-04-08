@@ -66,10 +66,10 @@ fn should_update_partner_shop_application_record_state() {
             &initial.id,
             PartnerShopApplicationRecordUpdate {
                 state: Some(PartnerShopApplicationStateRecord::Approved),
-                new_shop_name: None,
-                new_shop_type: None,
-                new_shop_domains: None,
-                new_shop_image: None,
+                shop_name: None,
+                shop_type: None,
+                shop_domains: None,
+                shop_image: None,
                 updated: updated_time,
             },
         )

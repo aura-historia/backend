@@ -31,16 +31,16 @@ pub struct PartnerShopApplicationRecord {
     pub existing_shop_id: Option<ShopId>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub new_shop_name: Option<ShopName>,
+    pub shop_name: Option<ShopName>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub new_shop_type: Option<ShopTypeRecord>,
+    pub shop_type: Option<ShopTypeRecord>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub new_shop_domains: Option<HashSet<Domain>>,
+    pub shop_domains: Option<HashSet<Domain>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub new_shop_image: Option<Url>,
+    pub shop_image: Option<Url>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -66,31 +66,25 @@ pub fn mk_gsi1_sk(id: &PartnerShopApplicationId) -> String {
 
 impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
     fn from(application: PartnerShopApplication) -> Self {
-        let (
-            payload_type,
-            existing_shop_id,
-            new_shop_name,
-            new_shop_type,
-            new_shop_domains,
-            new_shop_image,
-        ) = match application.payload {
-            PartnerShopApplicationPayload::Existing(shop_id) => (
-                PartnerShopApplicationPayloadTypeRecord::Existing,
-                Some(shop_id),
-                None,
-                None,
-                None,
-                None,
-            ),
-            PartnerShopApplicationPayload::New(cmd) => (
-                PartnerShopApplicationPayloadTypeRecord::New,
-                None,
-                Some(cmd.name),
-                Some(cmd.shop_type.into()),
-                Some(cmd.domains),
-                cmd.image,
-            ),
-        };
+        let (payload_type, existing_shop_id, shop_name, shop_type, shop_domains, shop_image) =
+            match application.payload {
+                PartnerShopApplicationPayload::Existing(shop_id) => (
+                    PartnerShopApplicationPayloadTypeRecord::Existing,
+                    Some(shop_id),
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
+                PartnerShopApplicationPayload::New(cmd) => (
+                    PartnerShopApplicationPayloadTypeRecord::New,
+                    None,
+                    Some(cmd.name),
+                    Some(cmd.shop_type.into()),
+                    Some(cmd.domains),
+                    cmd.image,
+                ),
+            };
 
         PartnerShopApplicationRecord {
             pk: mk_pk(&application.applicant_user_id),
@@ -102,10 +96,10 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
             applicant_user_id: application.applicant_user_id,
             payload_type,
             existing_shop_id,
-            new_shop_name,
-            new_shop_type,
-            new_shop_domains,
-            new_shop_image,
+            shop_name,
+            shop_type,
+            shop_domains,
+            shop_image,
             created: application.created,
             updated: application.updated,
         }
@@ -124,14 +118,14 @@ impl TryFrom<PartnerShopApplicationRecord> for PartnerShopApplication {
                 PartnerShopApplicationPayload::Existing(shop_id)
             }
             PartnerShopApplicationPayloadTypeRecord::New => {
-                let name = record.new_shop_name.ok_or_else(|| {
-                    common::error::missing_field::MissingPersistenceField::new("new_shop_name")
+                let name = record.shop_name.ok_or_else(|| {
+                    common::error::missing_field::MissingPersistenceField::new("shop_name")
                 })?;
-                let shop_type_record = record.new_shop_type.ok_or_else(|| {
-                    common::error::missing_field::MissingPersistenceField::new("new_shop_type")
+                let shop_type_record = record.shop_type.ok_or_else(|| {
+                    common::error::missing_field::MissingPersistenceField::new("shop_type")
                 })?;
-                let domains = record.new_shop_domains.unwrap_or_default();
-                let image = record.new_shop_image;
+                let domains = record.shop_domains.unwrap_or_default();
+                let image = record.shop_image;
 
                 PartnerShopApplicationPayload::New(CreateShopCommand {
                     name,

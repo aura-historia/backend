@@ -13,16 +13,16 @@ pub struct PartnerShopApplicationRecordUpdate {
     pub state: Option<PartnerShopApplicationStateRecord>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub new_shop_name: Option<ShopName>,
+    pub shop_name: Option<ShopName>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub new_shop_type: Option<ShopTypeRecord>,
+    pub shop_type: Option<ShopTypeRecord>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub new_shop_domains: Option<HashSet<Domain>>,
+    pub shop_domains: Option<HashSet<Domain>>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub new_shop_image: Option<Url>,
+    pub shop_image: Option<Url>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
@@ -39,10 +39,10 @@ mod tests {
     fn should_create_update_expr_with_state_and_updated() {
         let update = PartnerShopApplicationRecordUpdate {
             state: Some(PartnerShopApplicationStateRecord::Approved),
-            new_shop_name: None,
-            new_shop_type: None,
-            new_shop_domains: None,
-            new_shop_image: None,
+            shop_name: None,
+            shop_type: None,
+            shop_domains: None,
+            shop_image: None,
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -56,10 +56,10 @@ mod tests {
     fn should_create_update_expr_with_only_updated() {
         let update = PartnerShopApplicationRecordUpdate {
             state: None,
-            new_shop_name: None,
-            new_shop_type: None,
-            new_shop_domains: None,
-            new_shop_image: None,
+            shop_name: None,
+            shop_type: None,
+            shop_domains: None,
+            shop_image: None,
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -73,16 +73,16 @@ mod tests {
     fn should_create_update_expr_with_new_shop_name() {
         let update = PartnerShopApplicationRecordUpdate {
             state: None,
-            new_shop_name: Some(ShopName::from("Updated Shop".to_string())),
-            new_shop_type: None,
-            new_shop_domains: None,
-            new_shop_image: None,
+            shop_name: Some(ShopName::from("Updated Shop".to_string())),
+            shop_type: None,
+            shop_domains: None,
+            shop_image: None,
             updated: OffsetDateTime::now_utc(),
         };
 
         let expr = update.into_update_expr().unwrap();
         assert!(expr.update_expr.contains("SET"));
-        assert!(expr.expr_attr_names.contains_key("#new_shop_name"));
+        assert!(expr.expr_attr_names.contains_key("#shop_name"));
         assert!(expr.expr_attr_names.contains_key("#updated"));
     }
 
@@ -90,20 +90,20 @@ mod tests {
     fn should_create_update_expr_with_all_shop_fields() {
         let update = PartnerShopApplicationRecordUpdate {
             state: Some(PartnerShopApplicationStateRecord::InReview),
-            new_shop_name: Some(ShopName::from("Updated".to_string())),
-            new_shop_type: Some(ShopTypeRecord::Marketplace),
-            new_shop_domains: Some(HashSet::new()),
-            new_shop_image: Some(Url::parse("https://example.com/image.png").unwrap()),
+            shop_name: Some(ShopName::from("Updated".to_string())),
+            shop_type: Some(ShopTypeRecord::Marketplace),
+            shop_domains: Some(HashSet::new()),
+            shop_image: Some(Url::parse("https://example.com/image.png").unwrap()),
             updated: OffsetDateTime::now_utc(),
         };
 
         let expr = update.into_update_expr().unwrap();
         assert!(expr.update_expr.contains("SET"));
         assert!(expr.expr_attr_names.contains_key("#state"));
-        assert!(expr.expr_attr_names.contains_key("#new_shop_name"));
-        assert!(expr.expr_attr_names.contains_key("#new_shop_type"));
-        assert!(expr.expr_attr_names.contains_key("#new_shop_domains"));
-        assert!(expr.expr_attr_names.contains_key("#new_shop_image"));
+        assert!(expr.expr_attr_names.contains_key("#shop_name"));
+        assert!(expr.expr_attr_names.contains_key("#shop_type"));
+        assert!(expr.expr_attr_names.contains_key("#shop_domains"));
+        assert!(expr.expr_attr_names.contains_key("#shop_image"));
         assert!(expr.expr_attr_names.contains_key("#updated"));
     }
 }
