@@ -1,14 +1,20 @@
 use crate::core::{
     partner_shop_application::{
         CreateShopCommand, PartnerShopApplication, PartnerShopApplicationPayload,
-        PartnerShopApplicationState,
     },
     partner_shop_application_id::PartnerShopApplicationId,
 };
-use common::{shop_id::ShopId, user_id::UserId};
+use crate::dynamodb::{
+    partner_shop_application_payload_type_record::PartnerShopApplicationPayloadTypeRecord,
+    partner_shop_application_state_record::PartnerShopApplicationStateRecord,
+};
+use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, user_id::UserId};
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
+use shop::dynamodb::shop_type_record::ShopTypeRecord;
+use std::collections::HashSet;
 use time::OffsetDateTime;
+use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct PartnerShopApplicationRecord {
@@ -25,50 +31,21 @@ pub struct PartnerShopApplicationRecord {
     pub existing_shop_id: Option<ShopId>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub new_shop_command: Option<serde_json::Value>,
+    pub new_shop_name: Option<ShopName>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_shop_type: Option<ShopTypeRecord>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_shop_domains: Option<HashSet<Domain>>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_shop_image: Option<Url>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum PartnerShopApplicationStateRecord {
-    Submitted,
-    InReview,
-    Rejected,
-    Approved,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum PartnerShopApplicationPayloadTypeRecord {
-    Existing,
-    New,
-}
-
-impl From<PartnerShopApplicationState> for PartnerShopApplicationStateRecord {
-    fn from(state: PartnerShopApplicationState) -> Self {
-        match state {
-            PartnerShopApplicationState::Submitted => PartnerShopApplicationStateRecord::Submitted,
-            PartnerShopApplicationState::InReview => PartnerShopApplicationStateRecord::InReview,
-            PartnerShopApplicationState::Rejected => PartnerShopApplicationStateRecord::Rejected,
-            PartnerShopApplicationState::Approved => PartnerShopApplicationStateRecord::Approved,
-        }
-    }
-}
-
-impl From<PartnerShopApplicationStateRecord> for PartnerShopApplicationState {
-    fn from(record: PartnerShopApplicationStateRecord) -> Self {
-        match record {
-            PartnerShopApplicationStateRecord::Submitted => PartnerShopApplicationState::Submitted,
-            PartnerShopApplicationStateRecord::InReview => PartnerShopApplicationState::InReview,
-            PartnerShopApplicationStateRecord::Rejected => PartnerShopApplicationState::Rejected,
-            PartnerShopApplicationStateRecord::Approved => PartnerShopApplicationState::Approved,
-        }
-    }
 }
 
 pub fn mk_pk(user_id: &UserId) -> String {
@@ -89,16 +66,29 @@ pub fn mk_gsi1_sk(id: &PartnerShopApplicationId) -> String {
 
 impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
     fn from(application: PartnerShopApplication) -> Self {
-        let (payload_type, existing_shop_id, new_shop_command) = match &application.payload {
+        let (
+            payload_type,
+            existing_shop_id,
+            new_shop_name,
+            new_shop_type,
+            new_shop_domains,
+            new_shop_image,
+        ) = match application.payload {
             PartnerShopApplicationPayload::Existing(shop_id) => (
                 PartnerShopApplicationPayloadTypeRecord::Existing,
-                Some(*shop_id),
+                Some(shop_id),
+                None,
+                None,
+                None,
                 None,
             ),
             PartnerShopApplicationPayload::New(cmd) => (
                 PartnerShopApplicationPayloadTypeRecord::New,
                 None,
-                Some(serialize_create_shop_command(cmd)),
+                Some(cmd.name),
+                Some(cmd.shop_type.into()),
+                Some(cmd.domains),
+                cmd.image,
             ),
         };
 
@@ -112,7 +102,10 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
             applicant_user_id: application.applicant_user_id,
             payload_type,
             existing_shop_id,
-            new_shop_command,
+            new_shop_name,
+            new_shop_type,
+            new_shop_domains,
+            new_shop_image,
             created: application.created,
             updated: application.updated,
         }
@@ -131,15 +124,21 @@ impl TryFrom<PartnerShopApplicationRecord> for PartnerShopApplication {
                 PartnerShopApplicationPayload::Existing(shop_id)
             }
             PartnerShopApplicationPayloadTypeRecord::New => {
-                let cmd_value = record.new_shop_command.ok_or_else(|| {
-                    common::error::missing_field::MissingPersistenceField::new("new_shop_command")
+                let name = record.new_shop_name.ok_or_else(|| {
+                    common::error::missing_field::MissingPersistenceField::new("new_shop_name")
                 })?;
-                let cmd = deserialize_create_shop_command(cmd_value).map_err(|_| {
-                    common::error::missing_field::MissingPersistenceField::new(
-                        "new_shop_command (deserialization failed)",
-                    )
+                let shop_type_record = record.new_shop_type.ok_or_else(|| {
+                    common::error::missing_field::MissingPersistenceField::new("new_shop_type")
                 })?;
-                PartnerShopApplicationPayload::New(cmd)
+                let domains = record.new_shop_domains.unwrap_or_default();
+                let image = record.new_shop_image;
+
+                PartnerShopApplicationPayload::New(CreateShopCommand {
+                    name,
+                    shop_type: shop_type_record.into(),
+                    domains,
+                    image,
+                })
             }
         };
 
@@ -154,68 +153,10 @@ impl TryFrom<PartnerShopApplicationRecord> for PartnerShopApplication {
     }
 }
 
-fn serialize_create_shop_command(cmd: &CreateShopCommand) -> serde_json::Value {
-    use common::domain::Domain;
-    serde_json::json!({
-        "name": cmd.name.to_string(),
-        "shop_type": format!("{:?}", cmd.shop_type),
-        "domains": cmd.domains.iter().map(|d: &Domain| d.to_string()).collect::<Vec<_>>(),
-        "image": cmd.image.as_ref().map(|u: &url::Url| u.to_string()),
-    })
-}
-
-fn deserialize_create_shop_command(value: serde_json::Value) -> Result<CreateShopCommand, String> {
-    use common::{domain::Domain, shop_name::ShopName};
-    use shop::core::shop_type::ShopType;
-    use std::collections::HashSet;
-
-    let obj = value.as_object().ok_or("expected object")?;
-
-    let name = obj
-        .get("name")
-        .and_then(|v| v.as_str())
-        .map(|s| ShopName::from(s.to_string()))
-        .ok_or("missing name")?;
-
-    let shop_type = obj
-        .get("shop_type")
-        .and_then(|v| v.as_str())
-        .and_then(|s| match s {
-            "AuctionHouse" => Some(ShopType::AuctionHouse),
-            "AuctionPlatform" => Some(ShopType::AuctionPlatform),
-            "CommercialDealer" => Some(ShopType::CommercialDealer),
-            "Marketplace" => Some(ShopType::Marketplace),
-            _ => None,
-        })
-        .ok_or("missing or invalid shop_type")?;
-
-    let domains: HashSet<Domain> = obj
-        .get("domains")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str())
-                .filter_map(|s| Domain::try_from(s.to_string()).ok())
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let image = obj
-        .get("image")
-        .and_then(|v| v.as_str())
-        .and_then(|s| url::Url::parse(s).ok());
-
-    Ok(CreateShopCommand {
-        name,
-        shop_type,
-        domains,
-        image,
-    })
-}
-
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
+    use crate::core::partner_shop_application::PartnerShopApplication;
     use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for PartnerShopApplicationRecord {
@@ -225,32 +166,9 @@ mod faker {
         }
     }
 
-    impl Dummy<Faker> for PartnerShopApplicationStateRecord {
-        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            let index: u8 = config.fake_with_rng(rng);
-            match index % 4 {
-                0 => PartnerShopApplicationStateRecord::Submitted,
-                1 => PartnerShopApplicationStateRecord::InReview,
-                2 => PartnerShopApplicationStateRecord::Rejected,
-                _ => PartnerShopApplicationStateRecord::Approved,
-            }
-        }
-    }
-
-    impl Dummy<Faker> for PartnerShopApplicationPayloadTypeRecord {
-        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            if config.fake_with_rng::<bool, R>(rng) {
-                PartnerShopApplicationPayloadTypeRecord::Existing
-            } else {
-                PartnerShopApplicationPayloadTypeRecord::New
-            }
-        }
-    }
-
     #[cfg(test)]
     mod tests {
         use super::*;
-        use crate::core::partner_shop_application::PartnerShopApplication;
         use fake::{Fake, Faker};
 
         #[test]
@@ -262,7 +180,7 @@ mod faker {
         fn should_convert_domain_to_record_and_back_for_existing_payload() {
             let application = PartnerShopApplication {
                 id: PartnerShopApplicationId::new(),
-                state: PartnerShopApplicationState::Submitted,
+                state: crate::core::partner_shop_application_state::PartnerShopApplicationState::Submitted,
                 applicant_user_id: UserId::new(),
                 payload: PartnerShopApplicationPayload::Existing(ShopId::new()),
                 created: OffsetDateTime::now_utc(),
@@ -280,7 +198,7 @@ mod faker {
 
         #[test]
         fn should_convert_domain_to_record_and_back_for_new_payload() {
-            use common::{domain::Domain, shop_name::ShopName};
+            use common::domain::Domain;
             use shop::core::shop_type::ShopType;
 
             let cmd = CreateShopCommand {
@@ -292,7 +210,7 @@ mod faker {
 
             let application = PartnerShopApplication {
                 id: PartnerShopApplicationId::new(),
-                state: PartnerShopApplicationState::InReview,
+                state: crate::core::partner_shop_application_state::PartnerShopApplicationState::InReview,
                 applicant_user_id: UserId::new(),
                 payload: PartnerShopApplicationPayload::New(cmd),
                 created: OffsetDateTime::now_utc(),
@@ -313,7 +231,6 @@ mod faker {
 #[cfg(test)]
 mod key_tests {
     use super::*;
-    use common::user_id::UserId;
 
     #[test]
     fn should_format_pk_correctly() {
@@ -339,20 +256,5 @@ mod key_tests {
         let id = PartnerShopApplicationId::new();
         let gsi1_sk = mk_gsi1_sk(&id);
         assert_eq!(gsi1_sk, format!("partner_shop_application_id#{id}"));
-    }
-
-    #[test]
-    fn should_convert_state_domain_to_record_and_back() {
-        let states = [
-            PartnerShopApplicationState::Submitted,
-            PartnerShopApplicationState::InReview,
-            PartnerShopApplicationState::Rejected,
-            PartnerShopApplicationState::Approved,
-        ];
-        for state in states {
-            let record: PartnerShopApplicationStateRecord = state.into();
-            let converted: PartnerShopApplicationState = record.into();
-            assert_eq!(state, converted);
-        }
     }
 }

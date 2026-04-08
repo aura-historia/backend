@@ -1,8 +1,7 @@
 use crate::{
     core::{
-        partner_shop_application::{
-            CreatePartnerShopApplication, PartnerShopApplication, UpdatePartnerShopApplication,
-        },
+        command::{CreatePartnerShopApplicationCommand, UpdatePartnerShopApplicationCommand},
+        partner_shop_application::PartnerShopApplication,
         partner_shop_application_id::PartnerShopApplicationId,
     },
     dynamodb::{
@@ -54,7 +53,7 @@ pub enum PartnerShopApplicationError {
 pub trait PartnerShopApplicationService {
     async fn create_partner_shop_application(
         &self,
-        cmd: CreatePartnerShopApplication,
+        cmd: CreatePartnerShopApplicationCommand,
     ) -> Result<PartnerShopApplication, PartnerShopApplicationError>;
 
     async fn find_partner_shop_application(
@@ -67,7 +66,7 @@ pub trait PartnerShopApplicationService {
         &self,
         user_id: &UserId,
         id: &PartnerShopApplicationId,
-        update: UpdatePartnerShopApplication,
+        update: UpdatePartnerShopApplicationCommand,
     ) -> Result<PartnerShopApplication, PartnerShopApplicationError>;
 
     async fn delete_partner_shop_application(
@@ -78,6 +77,11 @@ pub trait PartnerShopApplicationService {
 
     async fn find_all_partner_shop_applications(
         &self,
+    ) -> Result<Vec<PartnerShopApplication>, PartnerShopApplicationError>;
+
+    async fn find_all_partner_shop_applications_by_user(
+        &self,
+        user_id: &UserId,
     ) -> Result<Vec<PartnerShopApplication>, PartnerShopApplicationError>;
 }
 
@@ -95,12 +99,13 @@ impl<'a> PartnerShopApplicationServiceImpl<'a> {
 impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a> {
     async fn create_partner_shop_application(
         &self,
-        cmd: CreatePartnerShopApplication,
+        cmd: CreatePartnerShopApplicationCommand,
     ) -> Result<PartnerShopApplication, PartnerShopApplicationError> {
         let now = OffsetDateTime::now_utc();
         let application = PartnerShopApplication {
             id: PartnerShopApplicationId::new(),
-            state: crate::core::partner_shop_application::PartnerShopApplicationState::Submitted,
+            state:
+                crate::core::partner_shop_application_state::PartnerShopApplicationState::Submitted,
             applicant_user_id: cmd.applicant_user_id,
             payload: cmd.payload,
             created: now,
@@ -138,7 +143,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
         &self,
         user_id: &UserId,
         id: &PartnerShopApplicationId,
-        update: UpdatePartnerShopApplication,
+        update: UpdatePartnerShopApplicationCommand,
     ) -> Result<PartnerShopApplication, PartnerShopApplicationError> {
         let existing_record = self
             .repository
@@ -152,6 +157,10 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
 
         let record_update = PartnerShopApplicationRecordUpdate {
             state: update.state.map(Into::into),
+            new_shop_name: update.new_shop_name,
+            new_shop_type: update.new_shop_type.map(Into::into),
+            new_shop_domains: update.new_shop_domains,
+            new_shop_image: update.new_shop_image,
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -212,14 +221,32 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
 
         Ok(applications)
     }
+
+    async fn find_all_partner_shop_applications_by_user(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Vec<PartnerShopApplication>, PartnerShopApplicationError> {
+        let records = self
+            .repository
+            .query_all_partner_shop_application_records_by_user(user_id)
+            .await?;
+
+        let mut applications = Vec::with_capacity(records.len());
+        for record in records {
+            applications.push(record.try_into()?);
+        }
+
+        Ok(applications)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        core::partner_shop_application::{
-            PartnerShopApplicationPayload, PartnerShopApplicationState,
+        core::{
+            partner_shop_application::PartnerShopApplicationPayload,
+            partner_shop_application_state::PartnerShopApplicationState,
         },
         dynamodb::repository::MockPartnerShopApplicationDynamoDbRepository,
     };
@@ -249,7 +276,7 @@ mod tests {
                 .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
 
             let service = make_service(&repository);
-            let cmd = CreatePartnerShopApplication {
+            let cmd = CreatePartnerShopApplicationCommand {
                 applicant_user_id: UserId::new(),
                 payload: PartnerShopApplicationPayload::Existing(ShopId::new()),
             };
@@ -290,7 +317,7 @@ mod tests {
                 .return_once(|_| Box::pin(async { Err(expected) }));
 
             let service = make_service(&repository);
-            let cmd: CreatePartnerShopApplication = Faker.fake();
+            let cmd: CreatePartnerShopApplicationCommand = Faker.fake();
             let actual = service.create_partner_shop_application(cmd).await;
 
             assert!(actual.is_err());
@@ -405,7 +432,7 @@ mod tests {
                 .update_partner_shop_application(
                     &expected.applicant_user_id,
                     &expected.id,
-                    UpdatePartnerShopApplication::default(),
+                    UpdatePartnerShopApplicationCommand::default(),
                 )
                 .await
                 .unwrap();
@@ -421,7 +448,7 @@ mod tests {
 
             let mut updated_record = record.clone();
             updated_record.state =
-                crate::dynamodb::partner_shop_application_record::PartnerShopApplicationStateRecord::Approved;
+                crate::dynamodb::partner_shop_application_state_record::PartnerShopApplicationStateRecord::Approved;
 
             repository
                 .expect_get_partner_shop_application_record()
@@ -436,8 +463,9 @@ mod tests {
                 .update_partner_shop_application(
                     &expected.applicant_user_id,
                     &expected.id,
-                    UpdatePartnerShopApplication {
+                    UpdatePartnerShopApplicationCommand {
                         state: Some(PartnerShopApplicationState::Approved),
+                        ..Default::default()
                     },
                 )
                 .await
@@ -460,8 +488,9 @@ mod tests {
                 .update_partner_shop_application(
                     &user_id,
                     &id,
-                    UpdatePartnerShopApplication {
+                    UpdatePartnerShopApplicationCommand {
                         state: Some(PartnerShopApplicationState::InReview),
+                        ..Default::default()
                     },
                 )
                 .await
@@ -633,6 +662,87 @@ mod tests {
 
             let service = make_service(&repository);
             let actual = service.find_all_partner_shop_applications().await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                PartnerShopApplicationError::SdkQueryError(_) => {}
+                err => panic!("Expected 'SdkQueryError', got '{err}'"),
+            }
+        }
+    }
+
+    mod find_all_by_user {
+        use super::*;
+
+        #[tokio::test]
+        async fn should_find_all_partner_shop_applications_by_user() {
+            let mut repository = MockPartnerShopApplicationDynamoDbRepository::default();
+            let user_id = UserId::new();
+            let applications: Vec<PartnerShopApplication> = (0..3).map(|_| Faker.fake()).collect();
+            let records: Vec<PartnerShopApplicationRecord> = applications
+                .iter()
+                .cloned()
+                .map(PartnerShopApplicationRecord::from)
+                .collect();
+
+            repository
+                .expect_query_all_partner_shop_application_records_by_user()
+                .return_once(move |_| Box::pin(async move { Ok(records) }));
+
+            let service = make_service(&repository);
+            let actual = service
+                .find_all_partner_shop_applications_by_user(&user_id)
+                .await
+                .unwrap();
+
+            assert_eq!(3, actual.len());
+        }
+
+        #[tokio::test]
+        async fn should_return_empty_when_no_applications_exist_for_user() {
+            let mut repository = MockPartnerShopApplicationDynamoDbRepository::default();
+            repository
+                .expect_query_all_partner_shop_application_records_by_user()
+                .return_once(|_| Box::pin(async { Ok(vec![]) }));
+
+            let service = make_service(&repository);
+            let actual = service
+                .find_all_partner_shop_applications_by_user(&UserId::new())
+                .await
+                .unwrap();
+
+            assert!(actual.is_empty());
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(DynamoSdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(DynamoSdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(DynamoSdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(DynamoSdkError::response_error(
+            "Something went wrong",
+            DynamoHttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[case::service_error(DynamoSdkError::service_error(
+            aws_sdk_dynamodb::operation::query::QueryError::unhandled("Something went wrong"),
+            DynamoHttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[trace]
+        async fn should_propagate_sdk_error_query_by_user(
+            #[case] expected: DynamoSdkError<
+                aws_sdk_dynamodb::operation::query::QueryError,
+                DynamoHttpResponse,
+            >,
+        ) {
+            let mut repository = MockPartnerShopApplicationDynamoDbRepository::default();
+            repository
+                .expect_query_all_partner_shop_application_records_by_user()
+                .return_once(|_| Box::pin(async { Err(expected) }));
+
+            let service = make_service(&repository);
+            let actual = service
+                .find_all_partner_shop_applications_by_user(&UserId::new())
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {

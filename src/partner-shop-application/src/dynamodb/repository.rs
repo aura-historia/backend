@@ -48,6 +48,11 @@ pub trait PartnerShopApplicationDynamoDbRepository {
     async fn query_all_partner_shop_application_records(
         &self,
     ) -> Result<Vec<PartnerShopApplicationRecord>, SdkError<QueryError>>;
+
+    async fn query_all_partner_shop_application_records_by_user(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Vec<PartnerShopApplicationRecord>, SdkError<QueryError>>;
 }
 
 #[derive(Debug, Clone)]
@@ -193,6 +198,47 @@ impl<'a> PartnerShopApplicationDynamoDbRepository
                     Ok(record) => Some(record),
                     Err(err) => {
                         error!(
+                            error = %err,
+                            r#type = %std::any::type_name::<PartnerShopApplicationRecord>(),
+                            "Failed deserializing PartnerShopApplicationRecord."
+                        );
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        Ok(records)
+    }
+
+    async fn query_all_partner_shop_application_records_by_user(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Vec<PartnerShopApplicationRecord>, SdkError<QueryError>> {
+        let records = self
+            .client
+            .query()
+            .table_name(&self.table)
+            .key_condition_expression("#pk = :pk_val AND begins_with(#sk, :sk_prefix)")
+            .expression_attribute_names("#pk", "pk")
+            .expression_attribute_names("#sk", "sk")
+            .expression_attribute_values(":pk_val", AttributeValue::S(mk_pk(user_id)))
+            .expression_attribute_values(
+                ":sk_prefix",
+                AttributeValue::S("partner_shop_application_id#".to_string()),
+            )
+            .into_paginator()
+            .send()
+            .try_collect()
+            .await?
+            .into_iter()
+            .flat_map(|query_output| query_output.items.unwrap_or_default())
+            .filter_map(|item| {
+                match serde_dynamo::from_item::<_, PartnerShopApplicationRecord>(item) {
+                    Ok(record) => Some(record),
+                    Err(err) => {
+                        error!(
+                            userId = %user_id,
                             error = %err,
                             r#type = %std::any::type_name::<PartnerShopApplicationRecord>(),
                             "Failed deserializing PartnerShopApplicationRecord."

@@ -5,6 +5,7 @@ use partner_shop_application::{
     dynamodb::{
         partner_shop_application_record::{PartnerShopApplicationRecord, mk_pk},
         partner_shop_application_record_update::PartnerShopApplicationRecordUpdate,
+        partner_shop_application_state_record::PartnerShopApplicationStateRecord,
         repository::{
             PartnerShopApplicationDynamoDbRepository, PartnerShopApplicationDynamoDbRepositoryImpl,
         },
@@ -64,9 +65,11 @@ fn should_update_partner_shop_application_record_state() {
             &initial.applicant_user_id,
             &initial.id,
             PartnerShopApplicationRecordUpdate {
-                state: Some(
-                    partner_shop_application::dynamodb::partner_shop_application_record::PartnerShopApplicationStateRecord::Approved,
-                ),
+                state: Some(PartnerShopApplicationStateRecord::Approved),
+                new_shop_name: None,
+                new_shop_type: None,
+                new_shop_domains: None,
+                new_shop_image: None,
                 updated: updated_time,
             },
         )
@@ -79,10 +82,7 @@ fn should_update_partner_shop_application_record_state() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(
-        partner_shop_application::dynamodb::partner_shop_application_record::PartnerShopApplicationStateRecord::Approved,
-        actual.state
-    );
+    assert_eq!(PartnerShopApplicationStateRecord::Approved, actual.state);
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -169,4 +169,42 @@ fn should_put_and_get_multiple_records_for_same_user() {
             .unwrap();
         assert!(actual.is_some());
     }
+}
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_query_all_partner_shop_application_records_by_user() {
+    let repository = get_repository().await;
+    let user_id = UserId::new();
+
+    let mut records = fake::vec![PartnerShopApplicationRecord; 3];
+    for record in &mut records {
+        record.applicant_user_id = user_id;
+        record.pk = mk_pk(&user_id);
+        let _ = repository
+            .put_partner_shop_application_record(record.clone())
+            .await
+            .unwrap();
+    }
+
+    let actual = repository
+        .query_all_partner_shop_application_records_by_user(&user_id)
+        .await
+        .unwrap();
+
+    assert_eq!(3, actual.len());
+    for record in &actual {
+        assert_eq!(user_id, record.applicant_user_id);
+    }
+}
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_return_empty_when_querying_by_user_with_no_records() {
+    let repository = get_repository().await;
+
+    let actual = repository
+        .query_all_partner_shop_application_records_by_user(&UserId::new())
+        .await
+        .unwrap();
+
+    assert!(actual.is_empty());
 }

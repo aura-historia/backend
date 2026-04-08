@@ -1,15 +1,14 @@
-use crate::core::partner_shop_application_id::PartnerShopApplicationId;
-use common::{shop_id::ShopId, user_id::UserId};
+use crate::core::{
+    partner_shop_application_id::PartnerShopApplicationId,
+    partner_shop_application_state::PartnerShopApplicationState,
+};
+use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, user_id::UserId};
+use shop::core::shop_type::ShopType;
+use std::collections::HashSet;
 use time::OffsetDateTime;
+use url::Url;
 
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PartnerShopApplicationState {
-    Submitted,
-    InReview,
-    Rejected,
-    Approved,
-}
+pub use shop::service::command::CreateShopCommand;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PartnerShopApplication {
@@ -27,24 +26,12 @@ pub enum PartnerShopApplicationPayload {
     New(CreateShopCommand),
 }
 
-pub use shop::service::command::CreateShopCommand;
-
 #[derive(Debug, Clone, PartialEq)]
-pub struct CreatePartnerShopApplication {
-    pub applicant_user_id: UserId,
-    pub payload: PartnerShopApplicationPayload,
-}
-
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct UpdatePartnerShopApplication {
-    pub state: Option<PartnerShopApplicationState>,
-}
-
-impl UpdatePartnerShopApplication {
-    pub fn is_empty(&self) -> bool {
-        self.state.is_none()
-    }
+pub struct PartnerShopApplicationPayloadInfo {
+    pub new_shop_name: Option<ShopName>,
+    pub new_shop_type: Option<ShopType>,
+    pub new_shop_domains: Option<HashSet<Domain>>,
+    pub new_shop_image: Option<Url>,
 }
 
 #[cfg(feature = "test-data")]
@@ -76,18 +63,10 @@ mod faker {
         }
     }
 
-    impl Dummy<Faker> for CreatePartnerShopApplication {
-        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            CreatePartnerShopApplication {
-                applicant_user_id: config.fake_with_rng(rng),
-                payload: config.fake_with_rng(rng),
-            }
-        }
-    }
-
     #[cfg(test)]
     mod tests {
         use super::*;
+        use crate::core::partner_shop_application_state::PartnerShopApplicationState;
         use fake::{Fake, Faker};
 
         #[test]
@@ -98,16 +77,6 @@ mod faker {
         #[test]
         fn should_fake_partner_shop_application_payload() {
             let _ = Faker.fake::<PartnerShopApplicationPayload>();
-        }
-
-        #[test]
-        fn should_fake_create_partner_shop_application() {
-            let _ = Faker.fake::<CreatePartnerShopApplication>();
-        }
-
-        #[test]
-        fn should_fake_update_partner_shop_application() {
-            let _ = Faker.fake::<UpdatePartnerShopApplication>();
         }
 
         #[test]
