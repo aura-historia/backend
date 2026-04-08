@@ -31,7 +31,8 @@ tokio = { workspace = true, features = ["macros"] }
 
 [features]
 default = []
+data = ["common/api", "shop/data"]
 dynamodb = ["aws-sdk-dynamodb", "serde_dynamo", "serde_dynamo/aws-sdk-dynamodb+1", "serde_json", "tracing", "common/dynamodb"]
 service = ["dynamodb"]
 test-data = ["fake", "common/test-data", "shop/test-data"]
-full = ["test-data", "dynamodb", "service"]
+full = ["test-data", "data", "dynamodb", "service"]

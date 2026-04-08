@@ -83,6 +83,7 @@ jobs:
           - src/shop-api
           - src/shop-lambda/src/shop-lambda-opensearch-index
           - src/user-api
+          - src/partner-shop-application-api
           - src/cognito-post-confirmation
           - src/notification-send
           - src/notification-api
