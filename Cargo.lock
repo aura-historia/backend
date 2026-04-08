@@ -203,6 +203,7 @@ dependencies = [
  "notification",
  "notification-api",
  "notification-send",
+ "partner-shop-application",
  "product",
  "product-api",
  "product-api-partner",
@@ -4470,6 +4471,32 @@ dependencies = [
  "regex-syntax",
  "structmeta",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "partner-shop-application"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-sdk-dynamodb",
+ "common",
+ "fake",
+ "mockall",
+ "partner-shop-application",
+ "rstest",
+ "serde",
+ "serde_dynamo",
+ "serde_fields",
+ "serde_json",
+ "serial_test",
+ "shop",
+ "test-api",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
 ]
 
 [[package]]

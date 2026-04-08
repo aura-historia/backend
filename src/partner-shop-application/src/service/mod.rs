@@ -1,0 +1,1 @@
+pub mod partner_shop_application_service;
