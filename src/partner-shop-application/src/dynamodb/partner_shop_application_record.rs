@@ -157,7 +157,7 @@ impl TryFrom<PartnerShopApplicationRecord> for PartnerShopApplication {
 fn serialize_create_shop_command(cmd: &CreateShopCommand) -> serde_json::Value {
     use common::domain::Domain;
     serde_json::json!({
-        "name": String::from(cmd.name.clone()),
+        "name": cmd.name.to_string(),
         "shop_type": format!("{:?}", cmd.shop_type),
         "domains": cmd.domains.iter().map(|d: &Domain| d.to_string()).collect::<Vec<_>>(),
         "image": cmd.image.as_ref().map(|u: &url::Url| u.to_string()),
