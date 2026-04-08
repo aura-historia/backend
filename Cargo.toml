@@ -33,6 +33,7 @@ notification-api = { workspace = true }
 product-pipeline = { workspace = true }
 fxrate = { workspace = true }
 fxrate-lambda = { workspace = true }
+partner-shop-application = { workspace = true }
 
 [workspace]
 members = [
@@ -67,6 +68,7 @@ members = [
     "src/fxrate-lambda",
     "src/crawler",
     "src/ci-determinator",
+    "src/partner-shop-application",
 ]
 
 [workspace.dependencies]
@@ -202,3 +204,4 @@ lingua = { version = "1.7.2", default-features = false, features = ["english", "
 dotenvy = "0.15"
 url-normalize = "0.1.1"
 prefixed-api-key = { version = "0.3.0" }
+partner-shop-application = { path = "src/partner-shop-application" }
