@@ -567,3 +567,122 @@ async fn should_only_return_matches_for_specific_filter() {
     );
     assert_eq!(5, actual.total.unwrap());
 }
+
+async fn create_free_user(client: &'static aws_sdk_dynamodb::Client) -> UserId {
+    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user = user_service.create_user(Faker.fake()).await.unwrap();
+    user.user_id
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_hide_products_when_search_filter_match_quota_exceeded() {
+    let client = get_dynamodb_client().await;
+    let (service, get_product_service, personalization_service) = setup_services(client);
+    let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
+
+    // Create a Free-tier user (quota of 10 matches per month)
+    let user_id = create_free_user(client).await;
+    let free_search = product::core::product_search::ProductSearch {
+        product_query: Faker.fake(),
+        ..Default::default()
+    };
+    let search_filter = service
+        .create_user_search_filter(&user_id, Faker.fake(), free_search, Faker.fake())
+        .await
+        .unwrap();
+
+    // Seed 10 match records that fill the quota — these should remain visible
+    let within_quota_records = fake::vec![ProductRecord; 10];
+    let put_res = product_repository
+        .put_product_records(within_quota_records.clone().try_into().unwrap())
+        .await
+        .unwrap();
+    assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
+
+    seed_match_records(
+        client,
+        &user_id,
+        &search_filter.user_search_filter_id,
+        &within_quota_records,
+    )
+    .await;
+
+    // Seed 3 more match records that exceed the quota — these should be hidden
+    let beyond_quota_records = fake::vec![ProductRecord; 3];
+    let put_res = product_repository
+        .put_product_records(beyond_quota_records.clone().try_into().unwrap())
+        .await
+        .unwrap();
+    assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
+
+    seed_match_records(
+        client,
+        &user_id,
+        &search_filter.user_search_filter_id,
+        &beyond_quota_records,
+    )
+    .await;
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/me/search-filters/{userSearchFilterId}/products")
+            .jwt_claim("sub", user_id)
+            .path_parameter("userSearchFilterId", search_filter.user_search_filter_id)
+            .query_string_parameter("language", "en")
+            .query_string_parameter("currency", "EUR")
+            .query_string_parameter("sort", "created")
+            .query_string_parameter("order", "asc")
+            .query_string_parameter("searchAfter", "2021-12-31T23:59:59Z")
+            .query_string_parameter("size", "20")
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handle(
+        lambda_event,
+        &service,
+        &get_product_service,
+        &personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+
+    let actual: TimeCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
+        serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
+
+    assert_eq!(13, actual.total.unwrap());
+
+    let within_quota_product_ids: std::collections::HashSet<_> = within_quota_records
+        .iter()
+        .map(|r| r.product_id.to_string())
+        .collect();
+
+    let mut visible_count = 0;
+    let mut hidden_count = 0;
+
+    for item in &actual.items {
+        let user_state = item.user_state.as_ref().unwrap();
+        assert!(user_state.search_filter.matched);
+
+        if within_quota_product_ids.contains(&item.item.product_id.to_string()) {
+            // Within-quota items should be visible
+            assert!(!user_state.search_filter.hidden);
+            visible_count += 1;
+        } else {
+            // Beyond-quota items should be hidden and anonymized
+            assert!(user_state.search_filter.hidden);
+            assert_eq!(
+                item.item.product_id.to_string(),
+                "00000000-0000-0000-0000-000000000000"
+            );
+            assert_eq!(item.item.title.text, "Hidden Product Title");
+            hidden_count += 1;
+        }
+    }
+
+    assert_eq!(visible_count, 10);
+    assert_eq!(hidden_count, 3);
+}

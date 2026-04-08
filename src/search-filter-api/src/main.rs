@@ -48,14 +48,13 @@ async fn main() -> Result<(), Error> {
         "",
         "",
     );
+    let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
         &user_service,
         &repository,
     );
-
-    let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
     debug!("Lambda initialized.");
 
