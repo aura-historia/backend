@@ -40,6 +40,7 @@ impl Default for NotificationUserState {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SearchFilterUserState {
     pub matched: bool,
+    pub hidden: bool,
     pub user_search_filter_id: Option<UserSearchFilterId>,
     pub user_search_filter_name: Option<UserSearchFilterName>,
     pub match_reason: Option<EnhancedMatchReason>,
@@ -67,6 +68,7 @@ mod tests {
     fn should_default_search_filter_user_state_to_not_matched() {
         let state = SearchFilterUserState::default();
         assert!(!state.matched);
+        assert!(!state.hidden);
         assert!(state.user_search_filter_id.is_none());
         assert!(state.user_search_filter_name.is_none());
         assert!(state.match_reason.is_none());
@@ -76,6 +78,7 @@ mod tests {
     fn should_default_product_user_state_search_filter_to_not_matched() {
         let state = ProductUserState::default();
         assert!(!state.search_filter.matched);
+        assert!(!state.search_filter.hidden);
         assert!(state.search_filter.user_search_filter_id.is_none());
         assert!(state.search_filter.user_search_filter_name.is_none());
         assert!(state.search_filter.match_reason.is_none());
