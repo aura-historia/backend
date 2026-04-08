@@ -245,9 +245,7 @@ fn anonymize_product(product: &mut LocalizedProductView) {
     product.event_id = common::event_id::EventId::from(nil);
     product.shop_id = common::shop_id::ShopId::from(nil);
     product.seller_id = common::shop_id::ShopId::from(nil);
-    product.shops_product_id = common::shops_product_id::ShopsProductId::from(
-        "00000000-0000-0000-0000-000000000000".to_string(),
-    );
+    product.shops_product_id = common::shops_product_id::ShopsProductId::from(nil.to_string());
     product.shop_name = common::shop_name::ShopName::from("Hidden");
     product.seller_name = common::shop_name::ShopName::from("Hidden");
     product.category_id = None;
@@ -261,7 +259,7 @@ fn anonymize_product(product: &mut LocalizedProductView) {
     product.price_estimate_min = None;
     product.price_estimate_max = None;
     product.state = ProductState::Unknown;
-    product.url = url::Url::parse("https://hidden.example.com").expect("valid url");
+    product.url = url::Url::parse("https://aura-historia.com/pricing").expect("valid url");
     product.images = vec![];
     product.origin_year = None;
     product.authenticity = Authenticity::Unknown;
