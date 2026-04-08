@@ -583,8 +583,12 @@ async fn should_hide_products_when_search_filter_match_quota_exceeded() {
 
     // Create a Free-tier user (quota of 10 matches per month)
     let user_id = create_free_user(client).await;
+    let free_search = product::core::product_search::ProductSearch {
+        product_query: Faker.fake(),
+        ..Default::default()
+    };
     let search_filter = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
+        .create_user_search_filter(&user_id, Faker.fake(), free_search, Faker.fake())
         .await
         .unwrap();
 
