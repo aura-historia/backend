@@ -51,4 +51,9 @@ pub enum NormalizationError {
 
     #[error("failed to normalize `auction_end`: could not parse '{raw}' as a date/time")]
     AuctionEndParseError { raw: String },
+
+    #[error(
+        "failed to normalize `state`: extracted text is too long ({len} bytes, max {max}) — CSS selector likely extracting wrong content"
+    )]
+    StateTextTooLong { len: usize, max: usize },
 }

@@ -57,10 +57,13 @@ UNKNOWN
 After raw HTML extraction via CSS selectors, `ProductNormalizationService` transforms each field:
 
 ### State
-Three-tier lookup (see [LLM Integration — State Lookup Hierarchy](./llm-integration.md#state-lookup-hierarchy-3-tier)):
+Four-tier lookup (see [LLM Integration — State Lookup Hierarchy](./llm-integration.md#state-lookup-hierarchy-4-tier)):
+0. **Length guard**: if `len(trim+lowercase(raw)) > 512` bytes, return `NormalizationError::StateTextTooLong` — which the scraper routes into the schema-fix path (the `state` CSS selector is extracting the wrong element).
 1. Exact match in `product_state_mapping`
 2. Regex scan over persisted patterns
 3. LLM call → persist → return
+
+`StateTextTooLong` (and other normalization errors that indicate a wrong selector — bad price, empty title, etc.) feed back into the schema-fix flow in `ScraperServiceImpl` rather than being terminal failures. This means normalization errors can trigger an LLM schema correction, just like an `apply()` failure does.
 
 ### Title
 - Language detected using `lingua` (language detection library).
@@ -69,6 +72,8 @@ Three-tier lookup (see [LLM Integration — State Lookup Hierarchy](./llm-integr
 
 ### Price
 - Multi-locale currency parsing: handles formats like `1.200,50 €`, `$1,200.50`, `1 200 CHF`.
+- **Fallback currency from TLD**: if the extracted price string contains no currency symbol or ISO code (e.g. bare `"18,00"` or `"1590"` on a German site), the currency is inferred from the shop URL's TLD — `.de`/`.at`/`.fr`/`.es`/`.it`/`.nl`/`.be`/`.pt`/`.fi`/`.ie`/`.lu` → EUR; `.co.uk`/`.uk` → GBP; `.us` → USD; `.au`/`.com.au` → AUD; `.ca` → CAD; `.nz`/`.co.nz` → NZD. Generic TLDs (`.com`, `.net`, `.org`, …) have no fallback.
+- `PriceUnknownCurrency` (bare price with unrecognised TLD) is **not** routed into the LLM schema-fix loop — the selector is correct; changing it cannot help.
 - Extracts both `price_value` (numeric) and `price_currency` (ISO 4217 code).
 - Stored separately on `shop_urls`.
 

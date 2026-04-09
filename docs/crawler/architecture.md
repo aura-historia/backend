@@ -18,8 +18,12 @@ CrawlerCronJob::run_loop()
 The spider and scraper loops follow the same pattern each tick:
 
 1. Ask the relevant **CandidateService** for a batch of work.
-2. Fan that batch out using `futures::stream::iter(...).buffer_unordered(concurrency)` — bounded parallelism, no unbounded spawning.
-3. For each item, call the relevant service (`SpiderService::run` or `ScraperService::scrape`). Errors are logged and swallowed so one failure doesn't abort the whole batch.
+2. Fan the batch out as Tokio worker tasks: one task per spider domain candidate, and one task per scraper domain group (all URLs of that domain handled sequentially in that task).
+3. Before processing each item, acquire an in-memory lock (`DomainLock` for spider domains, `UrlLock` for scraper URLs) via `LocalLockManager`. If another worker already holds the lock the item is skipped (not failed).
+4. Call the relevant service (`SpiderService::run` or `ScraperService::scrape`). Errors are logged and swallowed so one failure doesn't abort the whole batch.
+5. After each batch completes, log a summary line with `total`, `succeeded`, `failed`, `skipped` (lock-skipped items), and `duration_ms`. Performance counters are accumulated across batches and a rolling average is emitted every 500 scraper URLs / every 50 spider domains.
+
+`CrawlerCronJob` carries two `Arc<PerfCounter>` fields for these rolling counters: `scraper_perf` and `spider_perf`. Each `PerfCounter` encapsulates a count and a cumulative duration, and emits an `info!` summary when its rolling total reaches the threshold.
 
 The three loops run completely in parallel, each on its own cadence. There is no synchronisation between them beyond the database.
 
@@ -105,7 +109,7 @@ LIMIT $1
 
 Shops that have never been crawled, or were last crawled more than 7 days ago, are eligible. Each candidate carries `shop_id`, `domain_id`, and `shop_domain`; `domain_id` is threaded through to `SpiderService::run()` so every URL written to `shop_urls` is linked to the exact domain it was discovered from.
 
-### Optimistic distributed lock
+### Optimistic distributed lock (spider-service level)
 
 Before a crawl starts, `SpiderServiceImpl::run` calls `try_lock_shop`, which atomically sets `shop_domains.locked_at = NOW()` only if the field is currently `NULL` or older than 30 minutes:
 
@@ -117,6 +121,25 @@ WHERE  shop_domain = $1
 ```
 
 If another worker already holds the lock the update affects 0 rows, the service returns an empty `SpiderRunResult`, and no crawl happens. The lock is released unconditionally at the end of the run (even on error), using a `locked_at = NULL` update.
+
+### In-memory cron locks (single-process level)
+
+The cron job acquires an in-memory lock before dispatching spider and scraper work, so two concurrent Tokio tasks never process the same domain or URL at the same time in the same process.
+
+- **`DomainLock`** — acquired per spider candidate using the UUID XOR-folded `i64` key.
+- **`UrlLock`** — acquired per scraper candidate using the FNV-1a `i64` hash of the URL.
+
+Both are backed by `LocalLockManager` (`Arc<DashMap<String, Instant>>`) and released automatically by RAII when the guard is dropped.
+
+### Scraper domain workers
+
+`run_scraper_once` groups candidate URLs by host and spawns one task per domain group (bounded by `scraper_concurrency` via semaphore). Each domain task:
+
+1. Scrapes that domain's URLs sequentially.
+2. Applies `scraper_domain_delay` between consecutive URLs for that domain.
+3. Returns commands/counts to the caller for batched push.
+
+This keeps the scheduling logic simple while preserving per-domain pacing and multi-domain parallelism.
 
 ### Crawl execution — `SpiderServiceImpl`
 
@@ -161,15 +184,17 @@ run(shop_domain, domain_id)
 `src/scraper/candidate_service.rs` queries:
 
 ```sql
-SELECT shop_id, url, main_hash, last_scraped_hash
-FROM   shop_urls
-WHERE  url_class  = 'product'
-  AND  state      IN ('UNKNOWN', 'LISTED', 'AVAILABLE', 'RESERVED')
-  AND  (last_scraped IS NULL OR last_scraped < NOW() - INTERVAL '1 day')
+SELECT su.shop_id, su.url, su.main_hash, su.last_scraped_hash
+FROM   shop_urls su
+JOIN   shops s ON s.shop_id = su.shop_id
+WHERE  su.url_class  = 'product'
+  AND  su.state      IN ('UNKNOWN', 'LISTED', 'AVAILABLE', 'RESERVED')
+  AND  (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
+  AND  s.active = TRUE
 LIMIT  $1
 ```
 
-Only product URLs that haven't been scraped today and are in an active state are eligible. This is exactly the output written by the spider — the two subsystems are connected here.
+Only product URLs for **active** shops that haven't been scraped today and are in an active state are eligible.
 
 ### Scrape execution — `ScraperServiceImpl`
 
@@ -184,9 +209,11 @@ scrape(shop_id, url, current_hash, last_scraped_hash)
  │    ├── DB hit  → return cached CSS selector schema
  │    └── DB miss → LLM generates schema → persist → return
  ├── schema.apply(Html::parse_document(&html))  → RawExtractedProduct
- │    └── fails → LLM: fix_product_schema() → persist fixed schema → re-apply
+ │    └── fails → [schema-fix flow A] (see below)
  ├── ProductNormalizationService::normalize(raw, url)
  │    ├── state: ProductStateMappingService::get_state_mapping(raw.state)
+ │    │    ├── [guard] len > MAX_STATE_RAW_LEN (512 bytes)?
+ │    │    │    └── warn + return StateTextTooLong → triggers schema-fix flow B
  │    │    ├── exact DB lookup   (e.g. "sold" → SOLD)
  │    │    ├── regex DB scan     (e.g. "3 left" matches \b[1-9]...\bleft\b → AVAILABLE)
  │    │    └── LLM fallback → persist result for future lookups
@@ -194,10 +221,48 @@ scrape(shop_id, url, current_hash, last_scraped_hash)
  │    ├── price: parse currency + amount (multi-locale)
  │    ├── images: resolve relative URLs against page URL
  │    └── dates: parse ISO 8601 / RFC 3339
- └── mark_as_scraped(shop_id, url, current_hash) → updates shop_urls
+ │    └── other normalization error (price/title bad) → [schema-fix flow B]
+ ├── mark_as_scraped(shop_id, url, current_hash) → updates shop_urls
+ └── if schema was fixed this run → reset_fix_attempts(domain)
 ```
 
-**`scraper::Html` is `!Send`**: the parsed HTML object cannot be held across an `.await`. The code explicitly drops the `Html` inside a synchronous block before any async call, using a local `ApplyOutcome` enum to carry the result out.
+**Schema-fix flow A** — triggered when `schema.apply()` fails:
+
+```
+[schema-fix flow A]
+ ├── is_fix_budget_exhausted(domain)?  → bail with SchemaFixAttemptsExhausted
+ ├── increment_fix_attempts(domain)
+ ├── LLM: fix_product_schema(failed_schema, apply_error, html)
+ ├── re-apply fixed schema
+ │    ├── ok → persist fixed schema → save_product_schema()
+ │    │        schema_was_fixed = true
+ │    └── fails → return SchemaFixApplyFailed (not persisted)
+```
+
+The dispatcher (`cron.rs`) guarantees at most one in-flight scrape per domain at a time, so no per-domain mutex is needed inside the fix path.
+
+**Schema-fix flow B** — triggered when normalization returns a schema-fixable error (bad state selector text, price parse failure, empty title, etc.):
+
+```
+[schema-fix flow B — normalize_with_retry]
+ ├── normalization_error_to_schema_hint(err) → Option<ApplySchemaError>
+ │    None  → propagate NormalizationError (image URL errors, etc.)
+ │    Some  → proceed with hint_error as synthetic apply error
+ │
+ │   Fix attempt 1: fix_and_apply_schema(schema, hint_error, html)
+ │    ├── schema_was_fixed = true if LLM fix applied
+ │    └── normalize(fixed_raw)
+ │         ├── ok → done
+ │         └── fails →
+ │              Fix attempt 2: fix_and_apply_schema(schema, hint_error, html)
+ │               └── normalize(final_raw)
+ │                    ├── ok → done
+ │                    └── fails → propagate NormalizationError
+```
+
+**`scraper::Html` is `!Send`**: the parsed HTML object cannot be held across an `.await`. `apply_schema()` is a synchronous helper that parses the HTML, applies the schema, and returns — ensuring no `Html` value is live when any `.await` point is reached.
+
+**Per-domain fix-attempt tracking**: `schema_fix_attempts: Arc<Mutex<HashMap<String, u32>>>` records how many *consecutive* LLM-fix attempts have failed end-to-end for each domain. Once the count reaches `max_schema_fix_attempts` the domain returns `SchemaFixAttemptsExhausted` without calling the LLM, preventing infinite fix loops. The counter is reset to zero after **every** successful scrape for the domain (with or without a fix), so it measures failures since the last clean scrape rather than total lifetime failures. This prevents premature budget exhaustion on domains whose pages have heterogeneous layouts.
 
 ---
 

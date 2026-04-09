@@ -161,7 +161,7 @@ impl SpiderServiceImpl {
             })?;
 
         if state.pattern.is_unknown() {
-            warn!(shopUrl = %shop_url, stage, "Found no product URL pattern");
+            warn!(shop_url = %shop_url, stage, "Found no product URL pattern");
         }
 
         Ok(())
@@ -176,8 +176,8 @@ impl SpiderServiceImpl {
     ) -> Result<(), SpiderServiceError> {
         if !state.classification_done && state.total_crawled >= classify_threshold {
             info!(
-                shopUrl = %shop_url,
-                urlCount = state.inference_sample.len(),
+                shop_url = %shop_url,
+                url_count = state.inference_sample.len(),
                 "Threshold reached, requesting product URL pattern"
             );
 
@@ -208,9 +208,9 @@ impl SpiderServiceImpl {
     fn log_progress(&self, state: &CrawlRunState, shop_url: &str) {
         if state.total_crawled.is_multiple_of(500) {
             info!(
-                shopUrl = %shop_url,
-                totalCrawled = state.total_crawled,
-                productsSoFar = state.products_found,
+                shop_url = %shop_url,
+                total_crawled = state.total_crawled,
+                products_found = state.products_found,
                 "Crawl progress"
             );
         }
@@ -224,8 +224,8 @@ impl SpiderServiceImpl {
     ) -> Result<(), SpiderServiceError> {
         if !state.classification_done && !state.page_buffer.is_empty() {
             info!(
-                shopUrl = %shop_url,
-                urlCount = state.inference_sample.len(),
+                shop_url = %shop_url,
+                url_count = state.inference_sample.len(),
                 "Threshold not reached, classifying collected URLs"
             );
 
@@ -248,7 +248,7 @@ impl SpiderServiceImpl {
             && !state.inference_sample.is_empty()
         {
             warn!(
-                shopUrl = %shop_url,
+                shop_url = %shop_url,
                 "Persisted product URL pattern did not match crawl results, reclassifying"
             );
 
@@ -279,7 +279,7 @@ impl SpiderServiceImpl {
             .mark_as_crawled(shop_id, shop_url)
             .await
         {
-            warn!(shopUrl = %shop_url, error = %error, "Failed to mark shop as crawled");
+            warn!(shop_url = %shop_url, error = %error, "Failed to mark shop as crawled");
         }
     }
 
@@ -296,7 +296,7 @@ impl SpiderServiceImpl {
         let mut state = CrawlRunState::new(initial_pattern);
 
         if state.pattern_loaded_from_store {
-            info!(shopUrl = %shop_url, "Loaded persisted product URL pattern");
+            info!(shop_url = %shop_url, "Loaded persisted product URL pattern");
         }
 
         while let Some(page) = crawl_rx.recv().await {
@@ -316,7 +316,7 @@ impl SpiderServiceImpl {
             self.log_progress(&state, shop_url);
         }
 
-        info!(shopUrl = %shop_url, totalCrawled = state.total_crawled, "Crawl complete");
+        info!(shop_url = %shop_url, total_crawled = state.total_crawled, "Crawl complete");
 
         self.classify_at_end_if_needed(&mut state, shop_id, shop_url)
             .await?;
@@ -331,7 +331,7 @@ impl SpiderServiceImpl {
             .map(|regex| regex.as_str().to_string());
 
         info!(
-            confirmedProductCount = state.products_found,
+            confirmed_product_count = state.products_found,
             "Collected confirmed product URLs"
         );
 
@@ -354,34 +354,10 @@ impl SpiderService for SpiderServiceImpl {
         shop_url: &str,
         classify_threshold: usize,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
-        info!(shopUrl = %shop_url, "Starting crawl");
-        info!(
-            classifyThreshold = classify_threshold,
-            "Configured one-time classification threshold"
-        );
+        info!(shop_url = %shop_url, classify_threshold, "Starting crawl");
 
-        if !self
-            .pattern_service
-            .try_lock_shop(shop_id, shop_url)
-            .await?
-        {
-            warn!(shopUrl = %shop_url, "Shop is already being crawled by another worker");
-            return Ok(SpiderRunResult {
-                total_links: 0,
-                product_urls_count: 0,
-                product_pattern: None,
-            });
-        }
-
-        let run_result = self
-            .run_locked(shop_id, domain_id, shop_url, classify_threshold)
-            .await;
-
-        if let Err(error) = self.pattern_service.unlock_shop(shop_id, shop_url).await {
-            warn!(shopUrl = %shop_url, error = %error, "Failed to release shop crawl lock");
-        }
-
-        run_result
+        self.run_locked(shop_id, domain_id, shop_url, classify_threshold)
+            .await
     }
 }
 
@@ -481,24 +457,6 @@ mod service_tests {
             .returning(|_, _| Box::pin(async { Ok(()) }));
     }
 
-    fn setup_mock_lock_lifecycle(mock: &mut MockUrlPatternService, shop_url: &'static str) {
-        mock.expect_try_lock_shop()
-            .with(
-                mockall::predicate::always(),
-                mockall::predicate::eq(shop_url),
-            )
-            .times(1)
-            .returning(|_, _| Box::pin(async { Ok(true) }));
-
-        mock.expect_unlock_shop()
-            .with(
-                mockall::predicate::always(),
-                mockall::predicate::eq(shop_url),
-            )
-            .times(1)
-            .returning(|_, _| Box::pin(async { Ok(()) }));
-    }
-
     #[tokio::test]
     async fn should_run_spider_and_classify_urls() {
         let mut mock_spider = MockSpider::new();
@@ -545,7 +503,6 @@ mod service_tests {
             .expect_classify_and_save()
             .returning(|_, _, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
 
-        setup_mock_lock_lifecycle(&mut mock_pattern_service, shop_url);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
 
         setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
@@ -604,7 +561,6 @@ mod service_tests {
             .times(1)
             .returning(|_, _, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
 
-        setup_mock_lock_lifecycle(&mut mock_pattern_service, shop_url);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
 
         setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
@@ -661,7 +617,6 @@ mod service_tests {
             .times(1)
             .returning(|_, _, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
 
-        setup_mock_lock_lifecycle(&mut mock_pattern_service, shop_url);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
 
         setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);

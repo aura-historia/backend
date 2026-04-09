@@ -67,20 +67,6 @@ pub trait UrlPatternService: Send + Sync {
         shop_id: &ShopId,
         shop_url: &str,
     ) -> Result<(), UrlPatternServiceError>;
-
-    /// Attempts to acquire a lock for this shop crawl.
-    async fn try_lock_shop(
-        &self,
-        shop_id: &ShopId,
-        shop_url: &str,
-    ) -> Result<bool, UrlPatternServiceError>;
-
-    /// Releases a previously acquired shop crawl lock.
-    async fn unlock_shop(
-        &self,
-        shop_id: &ShopId,
-        shop_url: &str,
-    ) -> Result<(), UrlPatternServiceError>;
 }
 
 pub struct UrlPatternServiceImpl {
@@ -151,7 +137,12 @@ impl UrlPatternService for UrlPatternServiceImpl {
 
         if let Some(ref p) = pattern {
             self.save_pattern_for_shop(shop_id, shop_url, p).await?;
-            info!(shopId = %shop_id, "Persisted product URL pattern");
+            match extract_shop_base_url(shop_url) {
+                Ok(extracted_domain) => {
+                    info!(domain = %extracted_domain, "Persisted product URL pattern")
+                }
+                Err(_) => info!(domain = %shop_url, "Persisted product URL pattern"),
+            }
         }
 
         Ok(pattern)
@@ -170,40 +161,6 @@ impl UrlPatternService for UrlPatternServiceImpl {
         })?;
         self.repository
             .mark_as_crawled(shop_id, &extracted_domain)
-            .await?;
-        Ok(())
-    }
-
-    async fn try_lock_shop(
-        &self,
-        shop_id: &ShopId,
-        shop_url: &str,
-    ) -> Result<bool, UrlPatternServiceError> {
-        let extracted_domain = extract_shop_base_url(shop_url).map_err(|error| {
-            UrlPatternServiceError::InvalidShopUrl {
-                shop_url: shop_url.to_string(),
-                source: error,
-            }
-        })?;
-        Ok(self
-            .repository
-            .try_lock_shop(shop_id, &extracted_domain)
-            .await?)
-    }
-
-    async fn unlock_shop(
-        &self,
-        shop_id: &ShopId,
-        shop_url: &str,
-    ) -> Result<(), UrlPatternServiceError> {
-        let extracted_domain = extract_shop_base_url(shop_url).map_err(|error| {
-            UrlPatternServiceError::InvalidShopUrl {
-                shop_url: shop_url.to_string(),
-                source: error,
-            }
-        })?;
-        self.repository
-            .unlock_shop(shop_id, &extracted_domain)
             .await?;
         Ok(())
     }
@@ -324,39 +281,6 @@ mod service_tests {
         let result = service
             .mark_as_crawled(&shop_id, "https://example.com")
             .await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn should_try_lock_shop_in_repo() {
-        let mut mock_repo = MockShopUrlPatternRepository::new();
-        mock_repo
-            .expect_try_lock_shop()
-            .returning(|_, _| Box::pin(async { Ok(true) }));
-
-        let mock_client =
-            crate::spider::classification::url_classification_service::MockUrlClassificationService::new();
-        let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
-
-        let shop_id = uuid::Uuid::new_v4().into();
-        let result = service.try_lock_shop(&shop_id, "https://example.com").await;
-        assert!(result.is_ok());
-        assert!(result.unwrap());
-    }
-
-    #[tokio::test]
-    async fn should_unlock_shop_in_repo() {
-        let mut mock_repo = MockShopUrlPatternRepository::new();
-        mock_repo
-            .expect_unlock_shop()
-            .returning(|_, _| Box::pin(async { Ok(()) }));
-
-        let mock_client =
-            crate::spider::classification::url_classification_service::MockUrlClassificationService::new();
-        let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
-
-        let shop_id = uuid::Uuid::new_v4().into();
-        let result = service.unlock_shop(&shop_id, "https://example.com").await;
         assert!(result.is_ok());
     }
 }

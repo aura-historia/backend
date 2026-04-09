@@ -1,5 +1,31 @@
+//! Production server binary for the crawler.
+//!
+//! Wires all dependencies (Postgres, OpenSearch, DynamoDB, LLM) and starts the
+//! [`CrawlerCronJob`] loop that continuously spiders shop websites, scrapes product pages,
+//! and pushes normalized products to DynamoDB via [`CommandProductServiceImpl`].
+//!
+//! # Connection pool sizing
+//!
+//! `db_max_connections` defaults to
+//! `spider_concurrency + scraper_concurrency + 10`.
+//! Override it explicitly in [`CrawlerCronConfig`] if needed.
+//!
+//! # Required environment variables
+//!
+//! | Variable                  | Purpose                                                        |
+//! |---------------------------|----------------------------------------------------------------|
+//! | `DATABASE_URL`            | Postgres connection string                                     |
+//! | `GEMINI_API_KEY`          | API key for the Gemini LLM backend                             |
+//! | `GEMINI_MODEL`            | Gemini model name (default: `gemini-3.1-flash-lite-preview`)   |
+//! | `DYNAMODB_TABLE_NAME`     | DynamoDB table for product events                              |
+//! | `OPENSEARCH_ENDPOINT_URL` | OpenSearch base URL                                            |
+//! | `OPENSEARCH_USERNAME`     | OpenSearch username                                            |
+//! | `OPENSEARCH_PASSWORD`     | OpenSearch password                                            |
+
 use async_trait::async_trait;
+use aws_config::BehaviorVersion;
 use common::pagination::cursor::Cursor;
+use common::price::domain::FixedFxRate;
 use common::shop_id::ShopId;
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
@@ -9,10 +35,12 @@ use crawler::scraper::normalization::state_mapping_repository::ProductStateMappi
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
 use crawler::scraper::scraper_service::{ScraperServiceImpl, SpiderHtmlFetcher};
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
+use crawler::service::product_push::ProductPushServiceImpl;
 use crawler::service::shop_registration::{
     RegisteredShop, ShopRegistrationRepositoryImpl, ShopRegistrationService,
     ShopRegistrationSource, ShopSyncError,
 };
+use crawler::spider::advisory_lock::LocalLockManager;
 use crawler::spider::candidate_service::SpiderCandidateServiceImpl;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
@@ -23,10 +51,17 @@ use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServic
 use llm::builder::{LLMBackend, LLMBuilder};
 use opensearch::auth::Credentials;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
+use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
+use product::service::command_service::CommandProductServiceImpl;
+use product_classification::category::dynamodb_repository::CategoryDynamoDbRepositoryImpl;
+use product_classification::category::opensearch_repository::CategoryOpenSearchRepositoryImpl;
+use product_classification::category::service::CategoryServiceImpl;
+use product_classification::period::dynamodb_repository::PeriodDynamoDbRepositoryImpl;
+use product_classification::period::opensearch_repository::PeriodOpenSearchRepositoryImpl;
+use product_classification::period::service::PeriodServiceImpl;
 use shop::core::shop_search::ShopSearch;
 use shop::opensearch::repository::ShopOpenSearchRepositoryImpl;
 use shop::service::query_service::{QueryShopService, QueryShopServiceImpl};
-use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
@@ -60,11 +95,13 @@ impl ShopRegistrationSource for OpenSearchShopSource {
                 let slug: String = shop.shop_slug_id.into();
                 let name: String = shop.name.into();
                 let shop_id: ShopId = shop.shop_id;
+                let shop_type = shop.shop_type;
 
                 all_shops.push(RegisteredShop {
                     shop_id,
                     shop_name: name,
                     shop_slug: slug,
+                    shop_type,
                     domains: shop.domains,
                 });
             }
@@ -105,16 +142,36 @@ async fn main() {
 
     info!("Starting Crawler Server");
 
-    // 1. Connect to database
+    // 1. Build cron config (needed for pool sizing before everything else)
+    let config = CrawlerCronConfig {
+        spider_interval: Duration::from_secs(600),
+        scraper_interval: Duration::from_secs(60),
+        spider_batch_size: 10,
+        scraper_batch_size: 20,
+        spider_concurrency: 3,
+        scraper_concurrency: 10,
+        spider_classify_threshold: 200,
+        ..Default::default()
+    };
+
+    // 2. Connect to database — pool is sized to spider_concurrency + scraper_concurrency + 10
+    //    to keep headroom for concurrent repository queries.
     let db_url =
         std::env::var("DATABASE_URL").expect("DATABASE_URL environment variable must be set");
-    let pool = PgPool::connect(&db_url)
+    let pool = config
+        .connect_pool(&db_url)
         .await
         .expect("Failed to connect to database");
 
-    // 2. Wire dependencies
-    let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set");
-    let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
+    info!(
+        max_connections = config.effective_db_max_connections(),
+        "Connected to Postgres"
+    );
+
+    // 3. Wire scraper + spider dependencies
+    let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set");
+    let model = std::env::var("GEMINI_MODEL")
+        .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
 
     let state_llm_builder = LLMBuilder::new()
         .backend(LLMBackend::Google)
@@ -149,6 +206,7 @@ async fn main() {
         Box::new(schema_svc),
         Box::new(normalization_svc),
         Arc::new(ScraperCandidateServiceImpl::new(pool.clone())),
+        3,
     ));
 
     let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
@@ -180,34 +238,72 @@ async fn main() {
 
     let spider_candidates = Box::new(SpiderCandidateServiceImpl::new(pool.clone()));
 
-    // 3. Wire shop registration (sync from OpenSearch)
+    // 4. Wire shop registration (sync from OpenSearch)
     let opensearch_client = build_opensearch_client();
     let shop_source = Box::new(OpenSearchShopSource { opensearch_client });
     let shop_repo = Box::new(ShopRegistrationRepositoryImpl::new(pool.clone()));
     let shop_registration = ShopRegistrationService::new(shop_source, shop_repo);
 
-    // 4. Build Cron Job
-    let config = CrawlerCronConfig {
-        spider_interval: Duration::from_secs(600),
-        scraper_interval: Duration::from_secs(60),
-        spider_batch_size: 10,
-        scraper_batch_size: 20,
-        spider_concurrency: 3,
-        scraper_concurrency: 10,
-        spider_classify_threshold: 200,
-        ..Default::default()
-    };
+    // 5. Wire product push — backed by DynamoDB in production
+    let table_name = std::env::var("DYNAMODB_TABLE_NAME").expect("DYNAMODB_TABLE_NAME must be set");
+    let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
+        .load()
+        .await;
+    let dynamodb = aws_sdk_dynamodb::Client::new(&aws_config);
 
+    let product_dynamodb_repo = Box::leak(Box::new(ProductDynamoDbRepositoryImpl::new(
+        Box::leak(Box::new(dynamodb.clone())),
+        table_name.clone(),
+    )));
+    let fx_rate = Box::leak(Box::new(FixedFxRate()));
+
+    let period_dynamodb_repo = Box::leak(Box::new(PeriodDynamoDbRepositoryImpl::new(
+        Box::leak(Box::new(dynamodb.clone())),
+        table_name.clone(),
+    )));
+    let category_dynamodb_repo = Box::leak(Box::new(CategoryDynamoDbRepositoryImpl::new(
+        Box::leak(Box::new(dynamodb.clone())),
+        table_name.clone(),
+    )));
+
+    let opensearch_for_classification = build_opensearch_client();
+    let period_opensearch_repo = Box::leak(Box::new(PeriodOpenSearchRepositoryImpl::new(
+        Box::leak(Box::new(opensearch_for_classification)),
+    )));
+    let category_opensearch_repo = Box::leak(Box::new(CategoryOpenSearchRepositoryImpl::new(
+        Box::leak(Box::new(build_opensearch_client())),
+    )));
+
+    let period_svc = Box::leak(Box::new(PeriodServiceImpl::new(
+        period_dynamodb_repo,
+        period_opensearch_repo,
+    )));
+    let category_svc = Box::leak(Box::new(CategoryServiceImpl::new(
+        category_dynamodb_repo,
+        category_opensearch_repo,
+    )));
+
+    let command_product_service = Box::new(CommandProductServiceImpl::new(
+        product_dynamodb_repo,
+        fx_rate,
+        period_svc,
+        category_svc,
+    ));
+    let product_push = Box::new(ProductPushServiceImpl::new(command_product_service));
+
+    // 6. Build cron job
     let cron_job = CrawlerCronJob::new(
         config,
+        Arc::new(LocalLockManager::new()),
         spider_candidates,
         spider_svc,
         scraper_candidates,
         scraper_svc,
         shop_registration,
+        product_push,
     );
 
-    // 5. Run forever
+    // 7. Run forever
     info!("Crawler Server is fully initialized. Starting background tasks...");
     cron_job.run_loop().await;
 }

@@ -32,7 +32,10 @@ The crawler uses three distinct LLM instances, each with its own system prompt, 
 
 **When called:**
 - On first scrape of a product URL for a given shop (cache miss in `shops_product_schema`).
-- On schema failure: if applying the schema throws an error (e.g. selector no longer valid), `fix_product_schema` is called — up to 3 retries — with the broken schema + error message to produce a corrected one.
+- On schema failure: if applying the schema throws an error (e.g. selector no longer valid), `fix_product_schema` is called with the broken schema + error message. The dispatcher (`cron.rs`) guarantees at most one in-flight scrape per domain at a time, so no per-domain mutex is required.
+- On normalization failure: if `ProductNormalizationService::normalize` returns a schema-fixable error (e.g. `StateTextTooLong`, `PriceParseError`, `TitleEmpty`), the same `fix_product_schema` path is triggered via `normalize_with_retry` using a synthetic `ApplySchemaError` hint derived from the normalization error.
+  - Note: `PriceUnknownCurrency` is **not** treated as schema-fixable. When a raw price string contains no currency marker the scraper first attempts to resolve the currency from the shop URL's TLD (e.g. `.de` → EUR). If that also fails the price cannot be parsed, but changing the CSS selector cannot fix this — the LLM fix loop would never terminate. The price is simply left unparseable for that product.
+- Fix attempts are tracked per domain across batches via `schema_fix_attempts: HashMap<String, u32>`. The counter counts *consecutive* failed LLM-fix attempts (where the LLM returned a schema that still failed to apply). Once a domain reaches `max_schema_fix_attempts` consecutive failed attempts the domain is skipped with `SchemaFixAttemptsExhausted` — no further LLM calls are made. The counter resets after **every** successful scrape for that domain (with or without a fix), so it represents failures since the last clean scrape, not total lifetime failures. This prevents premature budget exhaustion on domains whose pages have heterogeneous layouts.
 
 **HTML pre-processing (before sending to LLM):**
 - `<script>`, `<style>`, `<nav>`, `<footer>`, `<header>`, `<form>` elements stripped.
@@ -53,13 +56,14 @@ The crawler uses three distinct LLM instances, each with its own system prompt, 
 
 **LLM config:** `resilient=3`, `reasoning=true`, `timeout=180s`
 
-**Fix flow (manual retry, not via resilient builder):**
+**Fix flow (straight to LLM — no re-fetch, no per-domain mutex):**
 ```
-for attempt in 0..3:
-    result = llm.fix_product_schema(schema, error)
-    if ok: persist and return
-    else: continue
-return Err
+is_fix_budget_exhausted(domain)?  → bail with SchemaFixAttemptsExhausted
+increment_fix_attempts(domain)
+llm.fix_product_schema(failed_schema, apply_error, html)
+re-apply fixed schema:
+  ok → persist (save_product_schema) and return (raw, schema_was_fixed=true)
+  still fails → return SchemaFixApplyFailed (not persisted)
 ```
 
 **Persistence:** Schema stored in `shops_product_schema` (keyed by `shop_id`). Shared across all product URLs of the same shop.
@@ -72,6 +76,7 @@ return Err
 
 **When called:**
 - During normalization, if the raw state string is not found in `product_state_mapping` by exact match or by any persisted regex.
+- **Not called** when the raw state text exceeds `MAX_STATE_RAW_LEN` (512 bytes) — such inputs are rejected before any DB or LLM call (see State Lookup Hierarchy below).
 
 **Output (plain text, one of two formats):**
 ```
@@ -92,13 +97,18 @@ The `REGEX` variant is used when the LLM determines the raw value follows a patt
 
 ---
 
-## State Lookup Hierarchy (3-tier)
+## State Lookup Hierarchy (4-tier)
 
 ```
+0. Length guard: len(trim+lowercase(raw)) > MAX_STATE_RAW_LEN (512 bytes)?
+     └── warn + return RawStateTooLong → NormalizationError::StateTextTooLong
+         → triggers schema-fix flow B in ScraperServiceImpl (state selector is wrong)
 1. Exact match on product_state_mapping.raw
 2. Regex scan: iterate all REGEX rows, test pattern against raw value
 3. LLM call → persist result → return
 ```
+
+`MAX_STATE_RAW_LEN = 512` is defined in `state_mapping_service.rs`. It protects against the PostgreSQL B-tree index key-size cap (~2704 bytes for `TEXT PRIMARY KEY`) and prevents the LLM from being called with garbage CSS-extracted text (e.g. full product title + description when the selector targets the wrong element). Any raw value longer than 512 bytes is almost certainly not a real state string.
 
 This means the LLM is only invoked once per novel raw state string (or pattern). Over time the mapping table grows and LLM calls become rare.
 
@@ -109,5 +119,5 @@ This means the LLM is only invoked once per novel raw state string (or pattern).
 | Instance | Trigger | Output format | Timeout | Cached in |
 |---|---|---|---|---|
 | URL Classification | Spider: at threshold / end of stream / zero-product reclassify | JSON `{pattern}` | 180s | `shops.url_pattern` |
-| Product Schema | Scraper: first scrape per shop / schema fix | JSON CSS selectors | 180s | `shops_product_schema` |
-| State Mapping | Scraper: novel raw state string | Plain text `STATE:` or `REGEX:` | 60s | `product_state_mapping` |
+| Product Schema | Scraper: first scrape per shop / schema-apply failure / normalization-triggered fix | JSON CSS selectors | 180s | `shops_product_schema` |
+| State Mapping | Scraper: novel raw state string (after length guard passes) | Plain text `STATE:` or `REGEX:` | 60s | `product_state_mapping` |

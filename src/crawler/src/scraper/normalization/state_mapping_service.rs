@@ -1,15 +1,24 @@
-use crate::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
+﻿use crate::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
 use crate::scraper::normalization::state_mapping_repository::ProductStateMappingRepository;
 use common::product_state::domain::ProductState;
 use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
 use product::dynamodb::product_state_record::ProductStateRecord;
 use regex::Regex;
 use time::OffsetDateTime;
-use tracing::info;
+use tracing::{debug, info, warn};
 
 // ---------------------------------------------------------------------------
 // Error
 // ---------------------------------------------------------------------------
+
+/// Maximum byte length accepted for a raw state string before we reject it
+/// (and signal that the CSS selector is extracting wrong content).
+///
+/// PostgreSQL B-tree indexes cap at ~2704 bytes for `TEXT PRIMARY KEY`, and a
+/// legitimate state string is never more than a few words.  Any input longer
+/// than this constant is almost certainly garbage extracted by a badly-targeted
+/// CSS selector.
+pub const MAX_STATE_RAW_LEN: usize = 512;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StateMappingServiceError {
@@ -24,6 +33,11 @@ pub enum StateMappingServiceError {
 
     #[error("Database error: {0}")]
     DatabaseError(#[from] sqlx::Error),
+
+    #[error(
+        "state text too long ({len} bytes, max {max}): CSS selector is likely extracting wrong content"
+    )]
+    RawStateTooLong { len: usize, max: usize },
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +240,12 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
         let parsed = parse_llm_response(&res)
             .ok_or_else(|| StateMappingServiceError::UnparsableResponse(res.clone()))?;
+        debug!(
+            raw = %key,
+            llm_response = %res,
+            mapping_type = ?parsed,
+            "LLM state mapping response parsed successfully"
+        );
 
         let now = OffsetDateTime::now_utc();
         let record = match parsed {
@@ -276,14 +296,14 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
         match existing {
             Some(_) => {
-                info!(raw = %key, "Updating existing state mapping...");
+                debug!(raw = %key, "Updating existing state mapping...");
                 self.repository
                     .update_mapping(&key, &normalized_record, &mapping_type)
                     .await
                     .map_err(StateMappingServiceError::DatabaseError)
             }
             None => {
-                info!(raw = %key, "Inserting new state mapping...");
+                debug!(raw = %key, "Inserting new state mapping...");
                 let now = OffsetDateTime::now_utc();
                 let record = ProductStateMappingRecord {
                     raw: key,
@@ -308,9 +328,24 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
     ) -> Result<ProductStateMappingRecord, StateMappingServiceError> {
         let key = raw.trim().to_lowercase();
 
+        // ── Guard: reject text that is too long to fit in the DB index ───
+        if key.len() > MAX_STATE_RAW_LEN {
+            let truncated = &key[..key.len().min(120)];
+            warn!(
+                raw = %truncated,
+                len = key.len(),
+                max = MAX_STATE_RAW_LEN,
+                "Rejecting state text: too long (CSS selector likely extracting wrong content)"
+            );
+            return Err(StateMappingServiceError::RawStateTooLong {
+                len: key.len(),
+                max: MAX_STATE_RAW_LEN,
+            });
+        }
+
         // ── Step 1: exact DB lookup ──────────────────────────────────────
         if let Some(existing) = self.repository.find_mapping(&key).await? {
-            info!(raw = %key, "Found exact state mapping in DB.");
+            debug!(raw = %key, "Found exact state mapping in DB.");
             return Ok(existing);
         }
 
@@ -322,7 +357,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
             // not break all lookups.
             match Regex::new(&mapping.raw) {
                 Ok(re) if re.is_match(&key) => {
-                    info!(
+                    debug!(
                         raw = %key,
                         pattern = %mapping.raw,
                         "Matched state via DB regex pattern."
@@ -331,7 +366,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
                 }
                 Ok(_) => {}
                 Err(err) => {
-                    tracing::warn!(
+                    warn!(
                         pattern = %mapping.raw,
                         error = %err,
                         "Skipping invalid regex pattern in product_state_mapping table."
@@ -341,7 +376,8 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
         }
 
         // ── Step 3: LLM fallback ─────────────────────────────────────────
-        info!(raw = %key, "No DB mapping found, asking LLM...");
+        let truncated_raw = if key.len() > 100 { &key[..100] } else { &key };
+        info!(raw = %truncated_raw, "No DB mapping found, asking LLM...");
         let record = self.create_state_mapping(&key).await?;
 
         // Persist the result so future lookups are instant.
@@ -1565,5 +1601,62 @@ mod tests {
             Regex::new(pattern).is_ok(),
             "pattern should be valid Rust regex: {pattern:?}"
         );
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // get_state_mapping — length guard (RawStateTooLong)
+    // ────────────────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn should_return_raw_state_too_long_error_without_calling_llm_or_db_when_state_too_long()
+    {
+        // A string just over the limit — LLM and DB must never be called.
+        let long_state = "a".repeat(MAX_STATE_RAW_LEN + 1);
+
+        let repo = MockProductStateMappingRepository::new(); // no expectations set
+        let svc = ProductStateMappingServiceImpl {
+            llm: Box::new(MockLlmProvider), // panics if called
+            repository: Box::new(repo),
+        };
+
+        let err = svc.get_state_mapping(&long_state).await.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                StateMappingServiceError::RawStateTooLong { len, max }
+                if len == MAX_STATE_RAW_LEN + 1 && max == MAX_STATE_RAW_LEN
+            ),
+            "expected RawStateTooLong, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn should_accept_state_at_exactly_max_length_for_get() {
+        // A string exactly at the limit should proceed to the DB lookup
+        // (which returns None here) and then to the LLM path.
+        let exactly_max = "b".repeat(MAX_STATE_RAW_LEN);
+        let exactly_max_clone = exactly_max.clone();
+
+        let mut repo = MockProductStateMappingRepository::new();
+        // Step 1: exact key lookup — miss
+        repo.expect_find_mapping()
+            .returning(|_| Box::pin(async { Ok(None) }));
+        // Step 2: regex scan — empty
+        repo.expect_find_all_regex_mappings()
+            .return_once(|| Box::pin(async { Ok(vec![]) }));
+        // Step 3 (save_state_mapping): insert since find returns None
+        let record = value_record(&"b".repeat(MAX_STATE_RAW_LEN), ProductStateRecord::Unknown);
+        let record_clone = record.clone();
+        repo.expect_insert_mapping()
+            .return_once(move |_| Box::pin(async move { Ok(record_clone) }));
+
+        let svc = ProductStateMappingServiceImpl {
+            llm: Box::new(MockLlmProviderReturning("STATE:UNKNOWN")),
+            repository: Box::new(repo),
+        };
+
+        // Should succeed — no RawStateTooLong error.
+        let result = svc.get_state_mapping(&exactly_max_clone).await;
+        assert!(result.is_ok(), "expected Ok, got {result:?}");
     }
 }

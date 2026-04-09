@@ -16,14 +16,19 @@
 //!
 //! | Env var          | Purpose                              | Default            |
 //! |------------------|--------------------------------------|--------------------|
-//! | `OPENAI_API_KEY` | API key forwarded to the LLM builder | *(required)*       |
-//! | `OPENAI_MODEL`   | Model name to use                    | `gemini-2.5-flash` |
+//! | `GEMINI_API_KEY` | API key forwarded to the LLM builder | *(required)*       |
+//! | `GEMINI_MODEL`   | Model name to use                    | `gemini-3.1-flash-lite-preview` |
 //! | `LOG_LEVEL`      | Log level for `init_logging`         | `info`             |
+//!
+//! # Connection pool sizing
+//!
+//! This demo scrapes each target sequentially,
+//! so a pool of **5 connections** is more than sufficient for all repository queries.
 //!
 //! # Running
 //!
 //! ```bash
-//! OPENAI_API_KEY=sk-... cargo run --bin demo -p crawler
+//! GEMINI_API_KEY=sk-... cargo run --bin demo-scraper -p crawler
 //! ```
 
 use std::fs::File;
@@ -47,6 +52,7 @@ use llm::builder::{LLMBackend, LLMBuilder};
 use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
@@ -65,6 +71,8 @@ const POSTGRES_PASSWORD: &str = "postgres";
 const POSTGRES_DB: &str = "postgres";
 const POSTGRES_PORT: u16 = 5432;
 const DEMO_CONTAINER_NAME: &str = "aura-historia-scraper-demo";
+/// Scraper demo pool size: 5 connections cover all repository queries with room to spare.
+const DEMO_POOL_MAX_CONNECTIONS: u32 = 5;
 
 // ---------------------------------------------------------------------------
 // Scrape targets — fill in your own shop IDs and URLs below
@@ -254,9 +262,18 @@ async fn start_postgres() -> &'static PgPool {
         let mut delay = Duration::from_millis(100);
         loop {
             attempt += 1;
-            match PgPool::connect(&connection_string).await {
+            let pool_result = PgPoolOptions::new()
+                .max_connections(DEMO_POOL_MAX_CONNECTIONS)
+                .acquire_timeout(Duration::from_secs(30))
+                .connect(&connection_string)
+                .await;
+            match pool_result {
                 Ok(p) => {
-                    info!(attempt, "Connected to Postgres.");
+                    info!(
+                        attempt,
+                        max_connections = DEMO_POOL_MAX_CONNECTIONS,
+                        "Connected to Postgres."
+                    );
                     break p;
                 }
                 Err(e) if attempt < 20 => {
@@ -301,9 +318,10 @@ async fn apply_schema(pool: &PgPool) {
 /// Both LLM-backed services receive a fresh [`LLMBuilder`] each — they apply
 /// their own system prompts internally via their `::new` constructors.
 fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
-    let api_key = std::env::var("OPENAI_API_KEY")
-        .expect("OPENAI_API_KEY must be set — see the module-level doc comment");
-    let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
+    let api_key = std::env::var("GEMINI_API_KEY")
+        .expect("GEMINI_API_KEY must be set — see the module-level doc comment");
+    let model = std::env::var("GEMINI_MODEL")
+        .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
 
     let schema_llm_builder = LLMBuilder::new()
         .backend(LLMBackend::Google)
@@ -339,6 +357,7 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
         Box::new(schema_svc),
         Box::new(normalization_svc),
         candidate_service,
+        3,
     )
 }
 

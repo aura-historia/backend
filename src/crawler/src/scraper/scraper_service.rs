@@ -1,17 +1,21 @@
 use crate::scraper::candidate_service::ScraperCandidateService;
 use crate::scraper::css_selector::product_schema::{
-    ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
+    ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct, ShopsProductSchema,
 };
 use crate::scraper::css_selector::product_schema_service::{
     ProductSchemaService, ProductSchemaServiceError,
 };
+
+use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::normalization::error::NormalizationError;
 use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::normalization::product_normalization_service::ProductNormalizationService;
 use common::shop_id::ShopId;
 use scraper::Html;
+use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tokio::sync::Mutex;
+use tracing::{debug, info, warn};
 use url::Url;
 
 // ---------------------------------------------------------------------------
@@ -78,6 +82,9 @@ pub enum ScraperError {
     #[error("HTTP error while fetching '{url}': {details}")]
     HttpError { url: Url, details: String },
 
+    #[error("URL has no host: {url}")]
+    NoHost { url: Url },
+
     #[error("Schema service error: {0}")]
     SchemaServiceError(#[from] ProductSchemaServiceError),
 
@@ -91,6 +98,21 @@ pub enum ScraperError {
         apply_error: ApplySchemaError,
         fix_error: ProductSchemaServiceError,
     },
+
+    /// The LLM-fixed schema was persisted but still failed to apply.
+    #[error(
+        "Fixed schema failed to apply after being persisted: {apply_error} (context: {context})"
+    )]
+    SchemaFixApplyFailed {
+        apply_error: ApplySchemaError,
+        context: String,
+    },
+
+    /// The maximum number of schema-fix attempts for this domain has been
+    /// reached.  The domain is skipped to avoid repeated LLM calls that
+    /// consistently produce non-working schemas.
+    #[error("Schema fix attempts exhausted for domain '{domain}', skipping")]
+    SchemaFixAttemptsExhausted { domain: String },
 
     #[error("Normalization error: {0}")]
     NormalizationError(#[from] NormalizationError),
@@ -124,6 +146,25 @@ pub struct ScraperServiceImpl {
     schema_service: Box<dyn ProductSchemaService + Send + Sync>,
     normalization_service: Box<dyn ProductNormalizationService + Send + Sync>,
     candidate_service: Arc<dyn ScraperCandidateService>,
+    /// Tracks how many *consecutive* LLM schema-fix attempts have been made for
+    /// each domain where the fixed schema still failed to apply.  Persists
+    /// across batches for the lifetime of the service.  Once a domain reaches
+    /// `max_schema_fix_attempts` consecutive failed attempts it is skipped
+    /// entirely until the counter is reset.
+    ///
+    /// The counter is reset to zero on **every** successful scrape for the
+    /// domain (with or without a fix), so it represents consecutive failures
+    /// since the last clean scrape, not total lifetime failures.  This prevents
+    /// premature budget exhaustion on domains whose pages have heterogeneous
+    /// layouts (e.g. each auction house sub-page requires slightly different
+    /// selectors).
+    ///
+    /// The dispatcher (`cron.rs`) guarantees at most one in-flight scrape per
+    /// domain at a time, so we only need to protect against concurrent accesses
+    /// from *different* domains — a standard `Mutex<HashMap>` is sufficient.
+    schema_fix_attempts: Arc<Mutex<HashMap<String, u32>>>,
+    /// Maximum number of failed schema-fix attempts before a domain is skipped.
+    max_schema_fix_attempts: u32,
 }
 
 impl ScraperServiceImpl {
@@ -132,12 +173,169 @@ impl ScraperServiceImpl {
         schema_service: Box<dyn ProductSchemaService + Send + Sync>,
         normalization_service: Box<dyn ProductNormalizationService + Send + Sync>,
         candidate_service: Arc<dyn ScraperCandidateService>,
+        max_schema_fix_attempts: u32,
     ) -> Self {
         Self {
             html_fetcher,
             schema_service,
             normalization_service,
             candidate_service,
+            schema_fix_attempts: Arc::new(Mutex::new(HashMap::new())),
+            max_schema_fix_attempts,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Per-domain fix-attempt tracking helpers
+// ---------------------------------------------------------------------------
+
+impl ScraperServiceImpl {
+    /// Pre-increments the fix-attempt counter for `domain` before the LLM call
+    /// is made.
+    ///
+    /// Returns `Err(SchemaFixAttemptsExhausted)` when the budget is already
+    /// exhausted; otherwise increments and returns `Ok(())`.
+    async fn increment_fix_attempts(&self, domain: &str) -> Result<(), ScraperError> {
+        let mut map = self.schema_fix_attempts.lock().await;
+        let count = map.entry(domain.to_string()).or_insert(0);
+        if *count >= self.max_schema_fix_attempts {
+            warn!(
+                domain,
+                attempts = *count,
+                max = self.max_schema_fix_attempts,
+                "Schema fix attempts exhausted, skipping domain"
+            );
+            return Err(ScraperError::SchemaFixAttemptsExhausted {
+                domain: domain.to_string(),
+            });
+        }
+        *count += 1;
+        Ok(())
+    }
+
+    /// Returns `true` when `domain` has already exhausted its fix budget.
+    ///
+    /// This is a cheap read-only check (no counter mutation) that can be called
+    /// *before* acquiring the per-domain fix lock to short-circuit early.
+    async fn is_fix_budget_exhausted(&self, domain: &str) -> bool {
+        let map = self.schema_fix_attempts.lock().await;
+        map.get(domain)
+            .is_some_and(|&count| count >= self.max_schema_fix_attempts)
+    }
+
+    /// Resets the consecutive failed schema-fix attempt counter for `domain`.
+    ///
+    /// Called after every successful scrape — with or without a fix — so the
+    /// counter represents failures since the last clean scrape rather than
+    /// total lifetime failures.
+    async fn reset_fix_attempts(&self, domain: &str) {
+        let mut map = self.schema_fix_attempts.lock().await;
+        map.remove(domain);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Extracted helper methods for the scrape pipeline
+// ---------------------------------------------------------------------------
+
+impl ScraperServiceImpl {
+    /// Obtains the CSS selector schema for `shop_id`, loading it from the DB
+    /// or generating it via the LLM if it does not yet exist.
+    ///
+    /// The dispatcher guarantees at most one in-flight scrape per domain at a
+    /// time, so no additional locking is required here.
+    async fn obtain_schema(
+        &self,
+        shop_id: &ShopId,
+        domain: &str,
+        url: &Url,
+        html: &str,
+    ) -> Result<ShopsProductSchema, ScraperError> {
+        debug!(domain, url = %url, "Obtaining product CSS selector schema");
+        if let Some(existing) = self.schema_service.find_product_schema(shop_id).await? {
+            debug!(domain, url = %url, "Schema found in DB");
+            Ok(existing)
+        } else {
+            Ok(self
+                .schema_service
+                .get_product_schema(shop_id, domain, html)
+                .await?)
+        }
+    }
+
+    /// Applies `schema` to `html` synchronously (scraper::Html is !Send).
+    fn apply_schema(
+        schema: &ProductCssSelectorSchema,
+        html: &str,
+    ) -> Result<RawExtractedProduct, ApplySchemaError> {
+        let parsed_html = Html::parse_document(html);
+        schema.apply(&parsed_html)
+    }
+
+    /// Asks the LLM to fix `failed_schema` and re-applies the result to `html`.
+    ///
+    /// The caller passes the schema that just failed so this function goes
+    /// straight to the LLM fix step without re-fetching from the DB.  Used by
+    /// both the apply-error path and the normalization-error path in `scrape()`.
+    ///
+    /// The dispatcher guarantees at most one in-flight scrape per domain at a
+    /// time, so no per-domain locking is needed here.
+    ///
+    /// Returns `(raw, schema_was_fixed)` on success.
+    #[allow(clippy::too_many_arguments)]
+    async fn fix_and_apply_schema(
+        &self,
+        shop_id: &ShopId,
+        domain: &str,
+        url: &Url,
+        html: &str,
+        failed_schema: &ProductCssSelectorSchema,
+        apply_error: &ApplySchemaError,
+        context: &str,
+    ) -> Result<(RawExtractedProduct, bool), ScraperError> {
+        // Short-circuit: bail immediately if fix budget already exhausted.
+        if self.is_fix_budget_exhausted(domain).await {
+            return Err(ScraperError::SchemaFixAttemptsExhausted {
+                domain: domain.to_string(),
+            });
+        }
+
+        // Pre-increment before calling the LLM.
+        self.increment_fix_attempts(domain).await?;
+
+        let fixed_schema = self
+            .schema_service
+            .fix_product_schema(failed_schema, apply_error, html)
+            .await
+            .map_err(|fix_error| ScraperError::SchemaFixFailed {
+                apply_error: apply_error.clone(),
+                fix_error,
+            })?;
+
+        match Self::apply_schema(&fixed_schema, html) {
+            Ok(raw) => {
+                // Only persist the fixed schema if it actually works on
+                // this page.  Saving a schema that still fails would
+                // poison every subsequent URL for the domain.
+                self.schema_service
+                    .save_product_schema(shop_id, domain, fixed_schema.clone())
+                    .await?;
+                info!(domain, url = %url, "Schema fixed via LLM ({context})");
+                Ok((raw, true))
+            }
+            Err(re_apply_error) => {
+                warn!(
+                    domain,
+                    url = %url,
+                    error = %re_apply_error,
+                    "Fixed schema also failed to apply ({context}), not persisting"
+                );
+                Err(ScraperError::SchemaFixApplyFailed {
+                    apply_error: re_apply_error,
+                    context: context.to_string(),
+                })
+            }
         }
     }
 }
@@ -151,11 +349,9 @@ impl ScraperService for ScraperServiceImpl {
         current_hash: &str,
         last_scraped_hash: Option<&str>,
     ) -> Result<Option<NormalizedProduct>, ScraperError> {
+        // 0. Skip if content hasn't changed since last scrape.
         if last_scraped_hash == Some(current_hash) {
-            debug!(
-                url = %url,
-                "Hash matches last scraped hash, skipping fetch."
-            );
+            debug!(url = %url, "Hash matches last scraped hash, skipping fetch.");
             if let Err(e) = self
                 .candidate_service
                 .mark_as_scraped(shop_id, url, current_hash)
@@ -165,8 +361,13 @@ impl ScraperService for ScraperServiceImpl {
             }
             return Ok(None);
         }
+
+        let domain = url
+            .host_str()
+            .ok_or_else(|| ScraperError::NoHost { url: url.clone() })?;
+
         // 1. Fetch HTML --------------------------------------------------
-        debug!(shopId = %shop_id, url = %url, "Fetching product page HTML");
+        debug!(domain, url = %url, "Fetching product page HTML");
         let html =
             self.html_fetcher
                 .fetch(url)
@@ -177,86 +378,63 @@ impl ScraperService for ScraperServiceImpl {
                 })?;
 
         // 2. Obtain schema (from DB or freshly created by LLM) -----------
-        debug!(shopId = %shop_id, url = %url, "Obtaining product CSS selector schema");
-        let shops_product_schema = self
-            .schema_service
-            .get_product_schema(shop_id, &html)
-            .await?;
+        let shops_product_schema = self.obtain_schema(shop_id, domain, url, &html).await?;
 
         // 3. Apply schema → RawExtractedProduct -------------------------
-        // Parse HTML and apply the schema synchronously before any await
-        // boundary — scraper::Html is !Send so it must not be held across awaits.
-        let schema: &ProductCssSelectorSchema = &shops_product_schema.product_schema;
-
-        enum ApplyOutcome {
-            Ok(RawExtractedProduct),
-            NeedsFix { apply_error: ApplySchemaError },
-        }
-
-        let outcome = {
-            let parsed_html = Html::parse_document(&html);
-            match schema.apply(&parsed_html) {
+        let (raw, _schema_was_fixed) =
+            match Self::apply_schema(&shops_product_schema.product_schema, &html) {
                 Ok(raw) => {
-                    debug!(shopId = %shop_id, url = %url, "Schema applied successfully");
-                    ApplyOutcome::Ok(raw)
+                    debug!(
+                        domain,
+                        url = %url,
+                        shops_product_id = %raw.shops_product_id,
+                        title = %raw.title,
+                        state = %raw.state,
+                        price = ?raw.price,
+                        price_estimate_min = ?raw.price_estimate_min,
+                        price_estimate_max = ?raw.price_estimate_max,
+                        images_count = raw.images.len(),
+                        has_description = !raw.description.is_empty(),
+                        has_auction_start = raw.auction_start.is_some(),
+                        has_auction_end = raw.auction_end.is_some(),
+                        "Schema applied successfully"
+                    );
+                    (raw, false)
                 }
                 Err(apply_error) => {
                     warn!(
-                        shopId = %shop_id,
+                        domain,
                         url = %url,
                         error = %apply_error,
                         "Schema application failed, attempting LLM-based fix"
                     );
-                    ApplyOutcome::NeedsFix { apply_error }
+                    self.fix_and_apply_schema(
+                        shop_id,
+                        domain,
+                        url,
+                        &html,
+                        &shops_product_schema.product_schema,
+                        &apply_error,
+                        "apply-error fix",
+                    )
+                    .await?
                 }
-            }
-        };
-
-        let raw = match outcome {
-            ApplyOutcome::Ok(raw) => raw,
-            ApplyOutcome::NeedsFix { apply_error } => {
-                // 3a. Schema failed — ask LLM to fix it, then persist and retry.
-                // Html has been dropped above so we can safely await here.
-                let fixed_schema = self
-                    .schema_service
-                    .fix_product_schema(schema, &apply_error, &html)
-                    .await
-                    .map_err(|fix_error| ScraperError::SchemaFixFailed {
-                        apply_error,
-                        fix_error,
-                    })?;
-
-                // Persist the fixed schema so subsequent scrapes benefit from it
-                self.schema_service
-                    .save_product_schema(shop_id, fixed_schema.clone())
-                    .await?;
-
-                // Re-apply synchronously — again drop Html before any await
-                let parsed_html = Html::parse_document(&html);
-                fixed_schema.apply(&parsed_html).map_err(|re_apply_error| {
-                    warn!(
-                        shopId = %shop_id,
-                        url = %url,
-                        error = %re_apply_error,
-                        "Fixed schema also failed to apply"
-                    );
-                    ScraperError::SchemaFixFailed {
-                        apply_error: re_apply_error,
-                        fix_error: ProductSchemaServiceError::NoTextResponse(
-                            "Fixed schema failed to apply after being persisted".to_string(),
-                        ),
-                    }
-                })?
-            }
-        };
+            };
 
         // 4. Normalise --------------------------------------------------
-        debug!(shopId = %shop_id, url = %url, "Normalizing extracted product data");
-        let final_product = match self.normalization_service.normalize(raw, url.clone()).await {
-            Ok(normalized) => normalized,
-            Err(e) => return Err(ScraperError::NormalizationError(e)),
-        };
+        debug!(domain, url = %url, "Normalizing extracted product data");
+        let (final_product, _fixed_in_normalize) = self
+            .normalize_with_retry(
+                shop_id,
+                domain,
+                url,
+                &html,
+                &shops_product_schema.product_schema,
+                raw,
+            )
+            .await?;
 
+        // 5. Bookkeeping ------------------------------------------------
         if let Err(e) = self
             .candidate_service
             .mark_as_scraped(shop_id, url, current_hash)
@@ -265,13 +443,171 @@ impl ScraperService for ScraperServiceImpl {
             warn!(error = %e, "Failed to mark product as scraped after success");
         }
 
+        // Reset the consecutive-failure counter on every successful scrape, not
+        // only when a fix was applied.  This prevents the budget from exhausting
+        // on domains whose pages have heterogeneous layouts: some pages may need
+        // an LLM fix while others apply cleanly with the current schema.  A
+        // clean apply is evidence that the schema is still working, so the
+        // counter should be cleared.
+        self.reset_fix_attempts(domain).await;
+
         debug!(
-            shopId = %shop_id,
-            shopsProductId = %final_product.shops_product_id,
+            domain,
+            shops_product_id = %final_product.shops_product_id,
             url = %url,
             "Scraping complete"
         );
         Ok(Some(final_product))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Normalization with retry
+// ---------------------------------------------------------------------------
+
+impl ScraperServiceImpl {
+    /// Normalizes `raw` and, if normalization fails with a schema-fixable error,
+    /// asks the LLM to fix the schema and retries — up to two fix attempts.
+    ///
+    /// Returns `(normalized_product, schema_was_fixed)`.
+    async fn normalize_with_retry(
+        &self,
+        shop_id: &ShopId,
+        domain: &str,
+        url: &Url,
+        html: &str,
+        schema: &ProductCssSelectorSchema,
+        raw: RawExtractedProduct,
+    ) -> Result<(NormalizedProduct, bool), ScraperError> {
+        let mut schema_was_fixed = false;
+
+        // Attempt 1: normalize the raw product as-is.
+        let norm_err = match self
+            .normalization_service
+            .normalize(raw.clone(), url.clone())
+            .await
+        {
+            Ok(normalized) => return Ok((normalized, false)),
+            Err(e) => e,
+        };
+
+        let hint = normalization_error_to_schema_hint(&norm_err);
+        let Some(hint_error) = hint else {
+            return Err(ScraperError::NormalizationError(norm_err));
+        };
+
+        warn!(
+            domain,
+            url = %url,
+            error = %norm_err,
+            "Normalization failed with schema-fixable error, attempting LLM-based schema fix"
+        );
+
+        // Fix attempt 1: fix the schema and re-apply.
+        let (fixed_raw, fixed) = self
+            .fix_and_apply_schema(
+                shop_id,
+                domain,
+                url,
+                html,
+                schema,
+                &hint_error,
+                "normalization-triggered fix",
+            )
+            .await?;
+        if fixed {
+            schema_was_fixed = true;
+        }
+
+        // Attempt 2: normalize the re-applied extraction.
+        if let Ok(normalized) = self
+            .normalization_service
+            .normalize(fixed_raw.clone(), url.clone())
+            .await
+        {
+            debug!(domain, url = %url, "Refreshed schema normalized successfully");
+            return Ok((normalized, schema_was_fixed));
+        }
+
+        // Fix attempt 2: one more LLM fix attempt using the same hint.
+        let (final_raw, fixed) = self
+            .fix_and_apply_schema(
+                shop_id,
+                domain,
+                url,
+                html,
+                schema,
+                &hint_error,
+                "normalization-triggered fix (retry)",
+            )
+            .await?;
+        if fixed {
+            schema_was_fixed = true;
+        }
+
+        // Attempt 3: final normalize — propagate any error.
+        let normalized = self
+            .normalization_service
+            .normalize(final_raw, url.clone())
+            .await?;
+        Ok((normalized, schema_was_fixed))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Maps a [`NormalizationError`] to a synthetic [`ApplySchemaError`] hint that
+/// can be fed to the LLM schema-fix path, or returns `None` for errors that
+/// cannot be attributed to a wrong CSS selector (e.g. state mapping DB
+/// errors).
+///
+/// The hint tells the LLM *which field* produced bad text so it can update the
+/// selector.  We use `NoElementMatched` as the inner error because it carries
+/// only a selector name string — we set it to the field name so the LLM
+/// understands the context.
+fn normalization_error_to_schema_hint(err: &NormalizationError) -> Option<ApplySchemaError> {
+    match err {
+        // PriceUnknownCurrency is NOT schema-fixable: the selector is correct
+        // but the extracted text has no currency marker.  Changing the CSS
+        // selector cannot fix this — the LLM would loop forever.  The fallback
+        // currency path (infer_currency_from_url) resolves this for known TLDs;
+        // for unknown TLDs the price is genuinely unparseable and no selector
+        // change will help.
+        NormalizationError::PriceParseError { .. } => {
+            Some(ApplySchemaError::Price(ExtractionError::NoElementMatched {
+                selector: "price".to_string(),
+            }))
+        }
+        NormalizationError::PriceEstimateMinParseError { .. } => Some(
+            ApplySchemaError::PriceEstimateMin(ExtractionError::NoElementMatched {
+                selector: "price_estimate_min".to_string(),
+            }),
+        ),
+        NormalizationError::PriceEstimateMaxParseError { .. } => Some(
+            ApplySchemaError::PriceEstimateMax(ExtractionError::NoElementMatched {
+                selector: "price_estimate_max".to_string(),
+            }),
+        ),
+        NormalizationError::TitleEmpty | NormalizationError::TitleUnknownLanguage { .. } => {
+            Some(ApplySchemaError::Title(ExtractionError::NoElementMatched {
+                selector: "title".to_string(),
+            }))
+        }
+        NormalizationError::ShopsProductIdEmpty => Some(ApplySchemaError::ShopsProductId(
+            ExtractionError::NoElementMatched {
+                selector: "shops_product_id".to_string(),
+            },
+        )),
+        NormalizationError::StateTextTooLong { .. } => {
+            Some(ApplySchemaError::State(ExtractionError::NoElementMatched {
+                selector: "state".to_string(),
+            }))
+        }
+        // PriceUnknownCurrency variants and state/image/auction errors are not
+        // fixable by changing a CSS selector.
+        _ => None,
     }
 }
 
@@ -397,9 +733,13 @@ mod tests {
         let schema = shops_product_schema(id);
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
+        schema_svc
             .expect_get_product_schema()
             .once()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = schema.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -421,6 +761,7 @@ mod tests {
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
+            3,
         );
 
         let result = service
@@ -448,8 +789,12 @@ mod tests {
         let schema = shops_product_schema(id);
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
+        schema_svc
             .expect_get_product_schema()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = schema.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -472,6 +817,7 @@ mod tests {
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
+            3,
         );
 
         let result = service
@@ -504,6 +850,7 @@ mod tests {
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
+            3,
         );
 
         let result = service
@@ -523,32 +870,6 @@ mod tests {
         let id = shop_id();
         let url = product_url();
 
-        // Build a broken schema (wrong selectors) so `apply` will error
-        let broken_schema = {
-            let bad_rule = ExtractionRule {
-                selector: CssSelector::from("#does-not-exist"),
-                additional_selectors: vec![],
-                extract: ExtractionKind::Text,
-                cardinality: ExtractionCardinality::First,
-            };
-            ShopsProductSchema {
-                shop_id: id,
-                product_schema: ProductCssSelectorSchema {
-                    shops_product_id: bad_rule.clone(),
-                    title: bad_rule.clone(),
-                    description: None,
-                    price: None,
-                    price_estimate_min: None,
-                    price_estimate_max: None,
-                    state: bad_rule.clone(),
-                    images: bad_rule,
-                    auction_start: None,
-                    auction_end: None,
-                },
-                created: OffsetDateTime::now_utc(),
-                updated: OffsetDateTime::now_utc(),
-            }
-        };
         let good_schema = minimal_schema();
 
         let mut fetcher = MockHtmlFetcher::new();
@@ -559,10 +880,16 @@ mod tests {
         let mut schema_svc = MockProductSchemaService::new();
 
         schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
+
+        // Initial schema fetch returns a broken schema.
+        schema_svc
             .expect_get_product_schema()
             .once()
-            .returning(move |_, _| {
-                let s = broken_schema.clone();
+            .returning(move |_, _, _| {
+                let s = broken_shops_product_schema(id);
                 Box::pin(async move { Ok(s) })
             });
 
@@ -578,7 +905,7 @@ mod tests {
         schema_svc
             .expect_save_product_schema()
             .once()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = saved_schema.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -600,6 +927,7 @@ mod tests {
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
+            3,
         );
 
         let result = service
@@ -646,9 +974,14 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let mut schema_svc = MockProductSchemaService::new();
+
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
             .expect_get_product_schema()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = broken_schema.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -668,6 +1001,7 @@ mod tests {
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
+            3,
         );
 
         let err = service
@@ -682,7 +1016,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_save_fixed_schema_before_applying_it_when_fix_succeeds() {
+    async fn should_save_fixed_schema_only_when_it_applies_successfully() {
         let id = shop_id();
         let url = product_url();
 
@@ -717,9 +1051,14 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let mut schema_svc = MockProductSchemaService::new();
+
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
             .expect_get_product_schema()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = broken_schema.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -735,7 +1074,7 @@ mod tests {
         schema_svc
             .expect_save_product_schema()
             .once()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = saved.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -757,6 +1096,7 @@ mod tests {
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
+            3,
         );
 
         service
@@ -795,6 +1135,7 @@ mod tests {
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
+            3,
         );
 
         let err = service
@@ -835,6 +1176,7 @@ mod tests {
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
+            3,
         );
 
         let err = service
@@ -864,7 +1206,12 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let mut schema_svc = MockProductSchemaService::new();
-        schema_svc.expect_get_product_schema().returning(|_, _| {
+
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
+        schema_svc.expect_get_product_schema().returning(|_, _, _| {
             Box::pin(async {
                 Err(ProductSchemaServiceError::NoTextResponse(
                     "LLM timed out".to_string(),
@@ -880,6 +1227,7 @@ mod tests {
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
+            3,
         );
 
         let err = service
@@ -909,17 +1257,27 @@ mod tests {
 
         let schema = shops_product_schema(id);
         let mut schema_svc = MockProductSchemaService::new();
+
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
             .expect_get_product_schema()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = schema.clone();
                 Box::pin(async move { Ok(s) })
             });
 
         let mut norm_svc = MockProductNormalizationService::new();
-        norm_svc
-            .expect_normalize()
-            .returning(|_, _| Box::pin(async { Err(NormalizationError::ShopsProductIdEmpty) }));
+        norm_svc.expect_normalize().returning(|_, _| {
+            Box::pin(async {
+                Err(NormalizationError::InvalidImageUrl {
+                    raw: "not-a-url".to_string(),
+                    source: url::Url::parse("://bad").unwrap_err(),
+                })
+            })
+        });
 
         let cand_svc = MockScraperCandidateService::new();
 
@@ -928,6 +1286,7 @@ mod tests {
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
+            3,
         );
 
         let err = service
@@ -958,9 +1317,14 @@ mod tests {
 
         let schema = shops_product_schema(id);
         let mut schema_svc = MockProductSchemaService::new();
+
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
             .expect_get_product_schema()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = schema.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -985,6 +1349,7 @@ mod tests {
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
+            3,
         );
 
         service
@@ -1007,9 +1372,14 @@ mod tests {
 
         let schema = shops_product_schema(id);
         let mut schema_svc = MockProductSchemaService::new();
+
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
             .expect_get_product_schema()
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let s = schema.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -1030,6 +1400,7 @@ mod tests {
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
+            3,
         );
 
         let result = service
@@ -1086,6 +1457,7 @@ mod tests {
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
+            3,
         );
     }
 
@@ -1123,6 +1495,207 @@ mod tests {
         assert!(
             display.to_lowercase().contains("normalization"),
             "display should mention normalization: {display}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Schema fix attempt limiting
+    // -----------------------------------------------------------------------
+
+    fn broken_shops_product_schema(id: ShopId) -> ShopsProductSchema {
+        let bad_rule = ExtractionRule {
+            selector: CssSelector::from("#does-not-exist"),
+            additional_selectors: vec![],
+            extract: ExtractionKind::Text,
+            cardinality: ExtractionCardinality::First,
+        };
+        ShopsProductSchema {
+            shop_id: id,
+            product_schema: ProductCssSelectorSchema {
+                shops_product_id: bad_rule.clone(),
+                title: bad_rule.clone(),
+                description: None,
+                price: None,
+                price_estimate_min: None,
+                price_estimate_max: None,
+                state: bad_rule.clone(),
+                images: bad_rule,
+                auction_start: None,
+                auction_end: None,
+            },
+            created: OffsetDateTime::now_utc(),
+            updated: OffsetDateTime::now_utc(),
+        }
+    }
+
+    /// After `max_schema_fix_attempts` failed fix attempts the service must
+    /// return `SchemaFixAttemptsExhausted` without calling `fix_product_schema`
+    /// again.  We use `max=0` to immediately exhaust the budget on the first
+    /// attempt, so no LLM call is made at all.
+    #[tokio::test]
+    async fn should_return_exhausted_error_after_max_failed_fix_attempts() {
+        let id = shop_id();
+        let url = product_url();
+
+        let mut fetcher = MockHtmlFetcher::new();
+        fetcher
+            .expect_fetch()
+            .returning(|_| Box::pin(async { Ok(sample_html()) }));
+
+        let mut schema_svc = MockProductSchemaService::new();
+
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
+
+        // Initial schema fetch returns a broken schema.
+        schema_svc
+            .expect_get_product_schema()
+            .once()
+            .returning(move |_, _, _| {
+                let s = broken_shops_product_schema(id);
+                Box::pin(async move { Ok(s) })
+            });
+        // fix_product_schema must NOT be registered — max=0 means skip immediately.
+        // If called, the mock will panic with an unexpected call.
+
+        let norm_svc = MockProductNormalizationService::new();
+        let cand_svc = MockScraperCandidateService::new();
+
+        let service = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+            0, // max = 0 → immediately exhausted, no LLM calls
+        );
+
+        let err = service.scrape(&id, &url, "hash1", None).await.unwrap_err();
+
+        assert!(
+            matches!(err, ScraperError::SchemaFixAttemptsExhausted { .. }),
+            "should return SchemaFixAttemptsExhausted when max=0, got: {err}"
+        );
+    }
+
+    /// After a successful schema fix (LLM fix applied and normalized cleanly)
+    /// the failure counter is reset to zero, allowing future fix attempts.
+    #[tokio::test]
+    async fn should_reset_fix_attempts_counter_after_successful_fix() {
+        let id = shop_id();
+        let url = product_url();
+
+        // The LLM "fixes" the broken schema with a working one.
+        let good = minimal_schema();
+        let good_clone = good.clone();
+
+        let mut fetcher = MockHtmlFetcher::new();
+        fetcher
+            .expect_fetch()
+            .returning(|_| Box::pin(async { Ok(sample_html()) }));
+
+        let mut schema_svc = MockProductSchemaService::new();
+
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
+        // Initial schema fetch returns a broken schema.
+        schema_svc
+            .expect_get_product_schema()
+            .once()
+            .returning(move |_, _, _| {
+                let s = broken_shops_product_schema(id);
+                Box::pin(async move { Ok(s) })
+            });
+        // LLM returns a working schema
+        schema_svc
+            .expect_fix_product_schema()
+            .once()
+            .returning(move |_, _, _| {
+                let s = good_clone.clone();
+                Box::pin(async move { Ok(s) })
+            });
+        let saved = shops_product_schema(id);
+        schema_svc
+            .expect_save_product_schema()
+            .once()
+            .returning(move |_, _, _| {
+                let s = saved.clone();
+                Box::pin(async move { Ok(s) })
+            });
+
+        let norm = normalized_product(url.clone());
+        let mut norm_svc = MockProductNormalizationService::new();
+        norm_svc.expect_normalize().once().returning(move |_, _| {
+            let n = norm.clone();
+            Box::pin(async move { Ok(n) })
+        });
+
+        let mut cand_svc = MockScraperCandidateService::new();
+        cand_svc
+            .expect_mark_as_scraped()
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+
+        // max = 1 so only 1 failed attempt is allowed before exhaustion
+        let service = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+            1,
+        );
+
+        // This scrape should succeed (fix applied + normalization ok) and reset the counter
+        let result = service
+            .scrape(&id, &url, "hash1", None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(result.shops_product_id, ShopsProductId::from("SKU-42"));
+
+        // Counter is now 0 — verify by checking the internal state directly
+        let attempts = service.schema_fix_attempts.lock().await;
+        assert!(
+            attempts.get("example.com").is_none(),
+            "fix attempt counter should be reset after successful fix"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // normalization_error_to_schema_hint — StateTextTooLong
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn should_return_state_schema_hint_for_state_text_too_long() {
+        let err = NormalizationError::StateTextTooLong {
+            len: 1024,
+            max: 512,
+        };
+        let hint = normalization_error_to_schema_hint(&err);
+        assert!(
+            matches!(
+                hint,
+                Some(ApplySchemaError::State(
+                    ExtractionError::NoElementMatched { .. }
+                ))
+            ),
+            "expected State schema hint for StateTextTooLong, got {hint:?}"
+        );
+    }
+
+    #[test]
+    fn should_return_none_for_state_mapping_error_in_schema_hint() {
+        use crate::scraper::normalization::state_mapping_service::StateMappingServiceError;
+        let err = NormalizationError::StateMappingError(StateMappingServiceError::DatabaseError(
+            sqlx::Error::RowNotFound,
+        ));
+        let hint = normalization_error_to_schema_hint(&err);
+        assert!(
+            hint.is_none(),
+            "StateMappingError should not produce a schema hint"
         );
     }
 }

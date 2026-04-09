@@ -46,7 +46,7 @@ pub enum ExtractionCardinality {
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum ExtractionError {
     #[error("invalid CSS selector `{selector}`: {reason}")]
     InvalidSelector { selector: String, reason: String },

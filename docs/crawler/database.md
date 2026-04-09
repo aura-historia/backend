@@ -99,11 +99,19 @@ Translation table from raw state strings scraped from pages (e.g. `"Nur noch 2 v
 
 The schema seeds ~50 common exact-value mappings (EN/DE/FR/ES/IT) and ~25 regex patterns for quantity-style strings. Novel strings fall through to the LLM and are then persisted here so future lookups are instant.
 
+**B-tree index key-size limit**: `raw TEXT PRIMARY KEY` has an implicit B-tree index. PostgreSQL caps B-tree index entries at roughly 2704 bytes. A legitimate state string is at most a few words; any longer text is almost certainly garbage from a misdirected CSS selector. The application enforces `MAX_STATE_RAW_LEN = 512` bytes (in `state_mapping_service.rs`) to reject such inputs before any DB or LLM call — preventing the `INDEX_TOO_LARGE` error that would otherwise cause every scrape of the affected shop to fail permanently.
+
 **Index**: `idx_product_state_mapping_regex ON product_state_mapping (mapping_type) WHERE mapping_type = 'REGEX'` — partial index so the regex scan (`find_all_regex_mappings`) only reads regex rows.
 
 ---
 
 ## Key Query Patterns
+
+### In-memory locks
+
+The cron job uses an in-memory `LocalLockManager` (`Arc<DashMap<String, Instant>>`) to prevent two concurrent Tokio tasks from processing the same domain or URL simultaneously in the same process.
+
+`DomainLock` uses the `domain_id` UUID XOR-folded to an `i64` key. `UrlLock` uses an FNV-1a hash of the URL string. Both are released automatically when their Rust guard value is dropped.
 
 ### Batch upsert into `shop_urls` (UNNEST)
 
@@ -146,11 +154,13 @@ LIMIT  $1
 ### Scraper candidate selection
 
 ```sql
-SELECT shop_id, url, main_hash, last_scraped_hash
-FROM   shop_urls
-WHERE  url_class = 'product'
-  AND  state IN ('UNKNOWN', 'LISTED', 'AVAILABLE', 'RESERVED')
-  AND  (last_scraped IS NULL OR last_scraped < NOW() - INTERVAL '1 day')
+SELECT su.shop_id, su.url, su.main_hash, su.last_scraped_hash
+FROM   shop_urls su
+JOIN   shops s ON s.shop_id = su.shop_id
+WHERE  su.url_class = 'product'
+  AND  su.state IN ('UNKNOWN', 'LISTED', 'AVAILABLE', 'RESERVED')
+  AND  (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
+  AND  s.active = TRUE
 LIMIT  $1
 ```
 

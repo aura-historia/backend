@@ -1,3 +1,30 @@
+//! Demo binary — runs the full crawler pipeline (spider + scraper) against a set of hardcoded
+//! antique shops without needing a running shop-service or DynamoDB.
+//!
+//! # Configuration
+//!
+//! | Env var / CLI flag  | Purpose                                             | Default                         |
+//! |---------------------|-----------------------------------------------------|---------------------------------|
+//! | `GEMINI_API_KEY`    | API key for the Gemini backend                      | *(required)*                    |
+//! | `GEMINI_MODEL`      | Model to use for LLM calls                         | `gemini-3.1-flash-lite-preview` |
+//! | `LOG_LEVEL`         | Log level                                           | `info`                          |
+//! | `DATABASE_URL`      | Postgres connection string (required with flag)     | —                               |
+//! | `--use-server-db`   | Skip testcontainer; connect to `DATABASE_URL` instead | off                            |
+//!
+//! Scraped products are written to `scraped_products.json` instead of being forwarded to DynamoDB.
+//!
+//! # Running (with testcontainer)
+//!
+//! ```bash
+//! GEMINI_API_KEY=... cargo run --bin demo -p crawler
+//! ```
+//!
+//! # Running (with an existing Postgres)
+//!
+//! ```bash
+//! DATABASE_URL=postgres://... GEMINI_API_KEY=... cargo run --bin demo -p crawler -- --use-server-db
+//! ```
+
 use std::collections::HashSet;
 use std::env;
 use std::process::Command;
@@ -15,10 +42,12 @@ use crawler::scraper::normalization::state_mapping_repository::ProductStateMappi
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
 use crawler::scraper::scraper_service::{ScraperServiceImpl, SpiderHtmlFetcher};
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
+use crawler::service::product_push::FileProductPushService;
 use crawler::service::shop_registration::{
     RegisteredShop, ShopRegistrationRepositoryImpl, ShopRegistrationService,
     ShopRegistrationSource, ShopSyncError,
 };
+use crawler::spider::advisory_lock::LocalLockManager;
 use crawler::spider::candidate_service::SpiderCandidateServiceImpl;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
@@ -27,7 +56,7 @@ use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
 use llm::builder::{LLMBackend, LLMBuilder};
-
+use shop::core::shop_type::ShopType;
 use sqlx::PgPool;
 use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
@@ -57,26 +86,47 @@ impl ShopRegistrationSource for DemoShopSource {
 }
 
 fn demo_shops() -> Vec<RegisteredShop> {
+    // UUIDs are stable across runs so the upsert-on-conflict keeps the same rows
+    // rather than creating a new shop row every time the demo starts.
     vec![
         RegisteredShop {
-            shop_id: ShopId::new(),
-            shop_name: "Nostalgie Palast".to_string(),
-            shop_slug: "nostalgie-palast".to_string(),
-            domains: HashSet::from([Domain::try_from("nostalgie-palast.de").unwrap()]),
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000004").unwrap(),
+            shop_name: "Antixx".to_string(),
+            shop_slug: "antixx".to_string(),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::from([Domain::try_from("antixx.de").unwrap()]),
         },
         RegisteredShop {
-            shop_id: ShopId::new(),
-            shop_name: "Antiquitäten Tübingen".to_string(),
-            shop_slug: "antiquitaeten-tuebingen".to_string(),
-            domains: HashSet::from([Domain::try_from("antiquitaeten-tuebingen.de").unwrap()]),
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000005").unwrap(),
+            shop_name: "Antik und Stil".to_string(),
+            shop_slug: "antik-und-stil".to_string(),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::from([Domain::try_from("antik-und-stil.com").unwrap()]),
         },
         RegisteredShop {
-            shop_id: ShopId::new(),
-            shop_name: "Antik Shop".to_string(),
-            shop_slug: "antik-shop".to_string(),
-            domains: HashSet::from([Domain::try_from("antik-shop.de").unwrap()]),
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000006").unwrap(),
+            shop_name: "20th Century Militaria".to_string(),
+            shop_slug: "militaria".to_string(),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::from([Domain::try_from("20thcenturymilitaria.com").unwrap()]),
+        },
+        RegisteredShop {
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000007").unwrap(),
+            shop_name: "Antichita Daziano".to_string(),
+            shop_slug: "antichita-daziano".to_string(),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::from([Domain::try_from("antichitadaziano.com").unwrap()]),
         },
     ]
+}
+
+// ---------------------------------------------------------------------------
+// CLI flag parsing
+// ---------------------------------------------------------------------------
+
+/// Returns `true` if `--use-server-db` was passed as a command-line argument.
+fn use_server_db() -> bool {
+    env::args().any(|arg| arg == "--use-server-db")
 }
 
 #[tokio::main]
@@ -84,22 +134,64 @@ async fn main() {
     dotenvy::dotenv().ok();
     init_logging();
 
-    let api_key = match env::var("OPENAI_API_KEY") {
+    let api_key = match env::var("GEMINI_API_KEY") {
         Ok(api_key) => api_key,
         Err(e) => {
-            error!("Missing OPENAI_API_KEY: {e}. Please set it to run the demo.");
+            error!("Missing GEMINI_API_KEY: {e}. Please set it to run the demo.");
             return;
         }
     };
 
-    let model = std::env::var("OPENAI_MODEL")
-        .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
+    let model =
+        std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.1-pro-preview".to_string());
 
-    let (_postgres_container, pool) = match start_postgres().await {
-        Ok(state) => state,
-        Err(error) => {
-            error!(error = %error, "Failed to start Postgres for demo");
-            return;
+    // Build the cron config first so it can drive pool sizing below.
+    let config = CrawlerCronConfig {
+        spider_interval: Duration::from_secs(120), // Demo: retry spider every 2 minutes
+        scraper_interval: Duration::from_secs(30), // Demo: run scraper loop every 30 seconds
+        spider_batch_size: 5,
+        scraper_batch_size: 100,
+        spider_concurrency: 3,
+        scraper_concurrency: 5,
+        spider_classify_threshold: 400,
+        ..Default::default()
+    };
+
+    // ------------------------------------------------------------------
+    // Database — either spin up a testcontainer or use an existing Postgres.
+    // ------------------------------------------------------------------
+
+    // We keep the container alive for the process lifetime by holding it here.
+    let (_container, pool) = if use_server_db() {
+        let db_url = match env::var("DATABASE_URL") {
+            Ok(url) => url,
+            Err(_) => {
+                error!(
+                    "--use-server-db was passed but DATABASE_URL is not set. \
+                    Please export DATABASE_URL=postgres://... before running."
+                );
+                return;
+            }
+        };
+        info!(
+            max_connections = config.effective_db_max_connections(),
+            "Connecting to existing Postgres via DATABASE_URL"
+        );
+        let pool = match config.connect_pool(&db_url).await {
+            Ok(p) => p,
+            Err(e) => {
+                error!(error = %e, "Failed to connect to Postgres");
+                return;
+            }
+        };
+        (None, pool)
+    } else {
+        match start_postgres(&config).await {
+            Ok((container, pool)) => (Some(container), pool),
+            Err(error) => {
+                error!(error = %error, "Failed to start Postgres for demo");
+                return;
+            }
         }
     };
 
@@ -143,6 +235,7 @@ async fn main() {
         Box::new(schema_svc),
         Box::new(normalization_svc),
         Arc::new(ScraperCandidateServiceImpl::new(pool.clone())),
+        3,
     ));
 
     let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
@@ -181,41 +274,39 @@ async fn main() {
     let shop_repo = Box::new(ShopRegistrationRepositoryImpl::new(pool.clone()));
     let shop_registration = ShopRegistrationService::new(shop_source, shop_repo);
 
-    // 5. Build Cron Job
-    let config = CrawlerCronConfig {
-        spider_interval: Duration::from_secs(120), // Demo: retry spider every 2 minutes
-        scraper_interval: Duration::from_secs(30), // Demo: run scraper loop every 30 seconds
-        spider_batch_size: 5,
-        scraper_batch_size: 20,
-        spider_concurrency: 3,
-        scraper_concurrency: 10,
-        spider_classify_threshold: 100,
-        ..Default::default()
-    };
+    // Wire product push — demo writes to a local JSON file instead of DynamoDB
+    let product_push = Box::new(FileProductPushService::new("scraped_products.json"));
 
     let cron_job = CrawlerCronJob::new(
         config,
+        Arc::new(LocalLockManager::new()),
         spider_candidates,
         spider_svc,
         scraper_candidates,
         scraper_svc,
         shop_registration,
+        product_push,
     );
 
-    info!("Crawler Server is fully initialized. Starting background tasks. Press Ctrl+C to stop.");
+    info!("Crawler demo is fully initialized. Starting background tasks. Press Ctrl+C to stop.");
     cron_job.run_loop().await;
 }
 
 fn init_logging() {
     let raw_level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
-    let filter = tracing_subscriber::EnvFilter::new(format!("{},spider=warn", raw_level));
+    let filter = tracing_subscriber::EnvFilter::new(format!(
+        "{},spider=warn,sqlx::postgres::notice=warn",
+        raw_level
+    ));
     tracing_subscriber::fmt()
         .json()
         .with_env_filter(filter)
         .init();
 }
 
-async fn start_postgres() -> Result<(testcontainers::ContainerAsync<PgImage>, PgPool), String> {
+async fn start_postgres(
+    config: &CrawlerCronConfig,
+) -> Result<(testcontainers::ContainerAsync<PgImage>, PgPool), String> {
     let _ = Command::new("docker")
         .args(["rm", "-f", DEMO_CONTAINER_NAME])
         .output();
@@ -241,9 +332,13 @@ async fn start_postgres() -> Result<(testcontainers::ContainerAsync<PgImage>, Pg
 
     loop {
         attempt += 1;
-        match PgPool::connect(&connection_string).await {
+        match config.connect_pool(&connection_string).await {
             Ok(pool) => {
-                info!(attempt, "Connected to Postgres for crawler demo");
+                info!(
+                    attempt,
+                    max_connections = config.effective_db_max_connections(),
+                    "Connected to Postgres for crawler demo"
+                );
                 return Ok((container, pool));
             }
             Err(error) if attempt < 20 => {
