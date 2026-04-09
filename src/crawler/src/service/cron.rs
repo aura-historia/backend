@@ -1,10 +1,11 @@
 use crate::scraper::candidate_service::{ScraperCandidate, ScraperCandidateService};
-use crate::scraper::scraper_service::ScraperService;
+use crate::scraper::scraper_service::{ScraperError, ScraperService};
 use crate::service::product_push::{ProductPushService, normalize_to_upsert};
 use crate::service::shop_registration::ShopRegistrationService;
 use crate::spider::advisory_lock::{DomainLock, LocalLockManager, UrlLock};
 use crate::spider::candidate_service::SpiderCandidateService;
 use crate::spider::service::SpiderService;
+use crate::{network::policy::retry_cooldown_for, network::policy::NetworkErrorKind};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use std::collections::HashMap;
@@ -234,6 +235,7 @@ impl CrawlerCronJob {
                 let mut join_set: JoinSet<bool> = JoinSet::new();
 
                 for candidate in candidates {
+                    let spider_candidates = Arc::clone(&self.spider_candidates);
                     let spider_service = Arc::clone(&self.spider_service);
                     let lock_manager = Arc::clone(&self.lock_manager);
                     let permit_pool = Arc::clone(&semaphore);
@@ -259,13 +261,44 @@ impl CrawlerCronJob {
                             return false;
                         };
 
-                        spider_service
+                        match spider_service
                             .run(&candidate.shop_id, &candidate.domain_id, &shop_url, threshold)
                             .await
-                            .map_err(|e| {
+                        {
+                            Ok(_) => {
+                                if let Err(err) =
+                                    spider_candidates.reset_crawl_failure(&candidate.domain_id).await
+                                {
+                                    warn!(
+                                        error = %err,
+                                        domain = %candidate.shop_domain,
+                                        "Failed to reset crawl failure metadata"
+                                    );
+                                }
+                                true
+                            }
+                            Err(e) => {
+                                let cooldown = retry_cooldown_for(NetworkErrorKind::Unknown);
+                                let next_crawl_at = time::OffsetDateTime::now_utc()
+                                    + time::Duration::seconds(cooldown.as_secs() as i64);
+                                if let Err(err) = spider_candidates
+                                    .mark_crawl_failure(
+                                        &candidate.domain_id,
+                                        "spider_run_error",
+                                        next_crawl_at,
+                                    )
+                                    .await
+                                {
+                                    warn!(
+                                        error = %err,
+                                        domain = %candidate.shop_domain,
+                                        "Failed to persist crawl failure metadata"
+                                    );
+                                }
                                 error!(domain = %candidate.shop_domain, error = %e, "Spider run failed");
-                            })
-                            .is_ok()
+                                false
+                            }
+                        }
                     });
                 }
 
@@ -309,6 +342,7 @@ struct ScrapeDomainOutcome {
 
 async fn scrape_candidate(
     scraper: Arc<dyn ScraperService>,
+    scraper_candidates: Arc<dyn ScraperCandidateService>,
     lock_manager: Arc<LocalLockManager>,
     candidate: ScraperCandidate,
     domain: String,
@@ -342,6 +376,32 @@ async fn scrape_candidate(
             skipped: true,
         },
         Err(e) => {
+            if let ScraperError::HttpError { kind, .. } = &e {
+                let cooldown = retry_cooldown_for(*kind);
+                let next_retry_at = time::OffsetDateTime::now_utc()
+                    + time::Duration::seconds(cooldown.as_secs() as i64);
+                let status_code = match kind {
+                    NetworkErrorKind::HttpStatus(code) => Some(*code as i32),
+                    _ => None,
+                };
+                if let Err(mark_err) = scraper_candidates
+                    .mark_fetch_failure(
+                        &candidate.shop_id,
+                        &candidate.url,
+                        &format!("{kind:?}"),
+                        status_code,
+                        next_retry_at,
+                    )
+                    .await
+                {
+                    warn!(
+                        error = %mark_err,
+                        url = %candidate.url,
+                        "Failed to persist scraper failure metadata"
+                    );
+                }
+            }
+
             error!(
                 domain = %domain,
                 url = %candidate.url,
@@ -359,6 +419,7 @@ async fn scrape_candidate(
 
 async fn scrape_domain_candidates(
     scraper: Arc<dyn ScraperService>,
+    scraper_candidates: Arc<dyn ScraperCandidateService>,
     lock_manager: Arc<LocalLockManager>,
     domain: String,
     candidates: Vec<ScraperCandidate>,
@@ -375,6 +436,7 @@ async fn scrape_domain_candidates(
     for (idx, candidate) in candidates.into_iter().enumerate() {
         let candidate_outcome = scrape_candidate(
             Arc::clone(&scraper),
+            Arc::clone(&scraper_candidates),
             Arc::clone(&lock_manager),
             candidate,
             domain.clone(),
@@ -474,6 +536,7 @@ impl CrawlerCronJob {
 
         for (domain, candidates) in by_domain {
             let scraper = Arc::clone(&self.scraper_service);
+            let scraper_candidates = Arc::clone(&self.scraper_candidates);
             let lock_manager = Arc::clone(&self.lock_manager);
             let permit_pool = Arc::clone(&semaphore);
             let domain_tx = command_tx.clone();
@@ -490,6 +553,7 @@ impl CrawlerCronJob {
 
                 scrape_domain_candidates(
                     scraper,
+                    scraper_candidates,
                     lock_manager,
                     domain,
                     candidates,
@@ -576,6 +640,10 @@ mod tests {
                     }])
                 })
             });
+        spider_candidates
+            .expect_reset_crawl_failure()
+            .withf(move |domain_id| *domain_id == expected_domain_id)
+            .returning(|_| Box::pin(async { Ok(()) }));
 
         let mut spider_service = MockSpiderService::new();
         spider_service
@@ -590,6 +658,52 @@ mod tests {
                     })
                 })
             });
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+
+        let scraper_service = MockScraperService::new();
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_shop_registration(),
+            noop_product_push(),
+        );
+
+        job.run_spider_once().await;
+    }
+
+    #[tokio::test]
+    async fn should_mark_crawl_failure_when_spider_run_errors() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let expected_domain_id = uuid::Uuid::new_v4();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_| {
+                Box::pin(async move {
+                    Ok(vec![SpiderCandidate {
+                        shop_id: ShopId::new(),
+                        domain_id: expected_domain_id,
+                        shop_domain: "example.com".to_string(),
+                    }])
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_failure()
+            .withf(move |domain_id, _, _| *domain_id == expected_domain_id)
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service
+            .expect_run()
+            .returning(|_, _, _, _| Box::pin(async { Err(crate::spider::service::SpiderServiceError::Database(sqlx::Error::RowNotFound)) }));
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
@@ -681,6 +795,61 @@ mod tests {
         scraper_service
             .expect_scrape()
             .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
+
+        let mut push_service = MockProductPushService::new();
+        push_service.expect_push().times(0);
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_shop_registration(),
+            Box::new(push_service),
+        );
+
+        job.run_scraper_once().await;
+    }
+
+    #[tokio::test]
+    async fn should_mark_fetch_failure_for_retryable_scraper_http_error() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+        let spider_service = MockSpiderService::new();
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates.expect_get_candidates().returning(|_| {
+            Box::pin(async {
+                Ok(vec![ScraperCandidate {
+                    shop_id: ShopId::new(),
+                    shop_name: "Test Shop".to_string(),
+                    shop_type: ShopType::CommercialDealer,
+                    url: url::Url::parse("https://example.com/product/1").unwrap(),
+                    main_hash: "hash1".to_string(),
+                    last_scraped_hash: None,
+                }])
+            })
+        });
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .once()
+            .returning(|_, _, _, _, _| Box::pin(async { Ok(()) }));
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service.expect_scrape().returning(|_, url, _, _| {
+            let url = url.clone();
+            Box::pin(async move {
+                Err(ScraperError::HttpError {
+                    url,
+                    kind: crate::network::policy::NetworkErrorKind::Timeout,
+                    details: "timeout".to_string(),
+                })
+            })
+        });
 
         let mut push_service = MockProductPushService::new();
         push_service.expect_push().times(0);

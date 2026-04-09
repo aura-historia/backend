@@ -33,7 +33,7 @@ use crawler::scraper::css_selector::product_schema_service::ProductSchemaService
 use crawler::scraper::normalization::product_normalization_service::ProductNormalizationServiceImpl;
 use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
-use crawler::scraper::scraper_service::{ScraperServiceImpl, SpiderHtmlFetcher};
+use crawler::scraper::scraper_service::{ReqwestHtmlFetcher, ScraperServiceImpl};
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crawler::service::product_push::ProductPushServiceImpl;
 use crawler::service::shop_registration::{
@@ -200,7 +200,7 @@ async fn main() {
 
     let scraper_candidates = Box::new(ScraperCandidateServiceImpl::new(pool.clone()));
 
-    let fetcher = Box::new(SpiderHtmlFetcher::new());
+    let fetcher = Box::new(ReqwestHtmlFetcher::new());
     let scraper_svc = Box::new(ScraperServiceImpl::new(
         fetcher,
         Box::new(schema_svc),

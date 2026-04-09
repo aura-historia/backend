@@ -47,7 +47,7 @@ use crawler::scraper::normalization::product::NormalizedProduct;
 use crawler::scraper::normalization::product_normalization_service::ProductNormalizationServiceImpl;
 use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
-use crawler::scraper::scraper_service::{ScraperService, ScraperServiceImpl, SpiderHtmlFetcher};
+use crawler::scraper::scraper_service::{ReqwestHtmlFetcher, ScraperService, ScraperServiceImpl};
 use llm::builder::{LLMBackend, LLMBuilder};
 use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
@@ -348,7 +348,7 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
         .expect("failed to build ProductSchemaServiceImpl");
 
     // HTTP fetcher using spider.
-    let fetcher = Box::new(SpiderHtmlFetcher::new());
+    let fetcher = Box::new(ReqwestHtmlFetcher::new());
 
     let candidate_service = Arc::new(ScraperCandidateServiceImpl::new(pool.clone()));
 

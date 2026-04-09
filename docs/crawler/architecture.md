@@ -194,7 +194,18 @@ WHERE  su.url_class  = 'product'
 LIMIT  $1
 ```
 
-Only product URLs for **active** shops that haven't been scraped today and are in an active state are eligible.
+Only product URLs for **active** shops that haven't been scraped today, are in an active state, and whose retry cooldown has elapsed are eligible.
+
+### Retry metadata and cooldowns
+
+The scraper now persists network-failure metadata on each URL row:
+
+- `failure_count` — total consecutive fetch failures since the last successful scrape.
+- `last_error_kind` — classified failure category (timeout/connect/http status/etc.).
+- `last_status_code` — HTTP status when available.
+- `next_retry_at` — earliest timestamp when the URL is eligible again.
+
+On each successful scrape (`mark_as_scraped`) these fields are reset. On retryable HTTP failures, the cron worker records a cooldown (`mark_fetch_failure`) so the URL is skipped until `next_retry_at`.
 
 ### Scrape execution — `ScraperServiceImpl`
 
@@ -285,3 +296,11 @@ Scraper writes back:
 The spider decides *which* URLs are products (by running the LLM-found regex). The scraper only processes URLs the spider has already labelled as `url_class = 'product'`. There is no direct function call or shared in-memory state between them — just the database row.
 
 The `main_hash` column (SHA-256 of the page HTML, computed by the spider crate) is the change-detection signal: if `main_hash` equals `last_scraped_hash`, the scraper skips the fetch entirely.
+
+The crawler now also tracks crawl-level cooldown metadata on `shop_domains`:
+
+- `crawl_failure_count`
+- `last_crawl_error_kind`
+- `next_crawl_at`
+
+Spider candidate selection excludes domains with `next_crawl_at > NOW()`. On a successful crawl the metadata is reset; on failure a cooldown is written to defer the next attempt.
