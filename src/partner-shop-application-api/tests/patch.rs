@@ -28,7 +28,7 @@ async fn should_200_when_updating_application() {
 
     let new_shop_name: ShopName = Faker.fake();
     let patch_data = PatchPartnerShopApplicationData {
-        shop_name: Some(new_shop_name.clone()),
+        shop_name: Some(new_shop_name),
         shop_type: None,
         shop_domains: None,
         shop_image: None,

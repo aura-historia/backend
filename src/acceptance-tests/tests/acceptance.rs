@@ -4924,6 +4924,13 @@ async fn should_respond_200_for_partner_application_patch() {
         .await
         .unwrap();
     assert_eq!(200, patch_response.status());
+
+    // Verify the response reflects the update
+    let patched = patch_response
+        .json::<GetPartnerShopApplicationData>()
+        .await
+        .unwrap();
+    assert_eq!(created.id, patched.id);
 }
 
 #[localstack_test(services = [Cloudformation()])]
