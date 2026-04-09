@@ -5,7 +5,7 @@ use crate::service::shop_registration::ShopRegistrationService;
 use crate::spider::advisory_lock::{DomainLock, LocalLockManager, UrlLock};
 use crate::spider::candidate_service::SpiderCandidateService;
 use crate::spider::service::SpiderService;
-use crate::{network::policy::retry_cooldown_for, network::policy::NetworkErrorKind};
+use crate::{network::policy::NetworkErrorKind, network::policy::retry_cooldown_for};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use std::collections::HashMap;
@@ -701,9 +701,13 @@ mod tests {
             .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service
-            .expect_run()
-            .returning(|_, _, _, _| Box::pin(async { Err(crate::spider::service::SpiderServiceError::Database(sqlx::Error::RowNotFound)) }));
+        spider_service.expect_run().returning(|_, _, _, _| {
+            Box::pin(async {
+                Err(crate::spider::service::SpiderServiceError::Database(
+                    sqlx::Error::RowNotFound,
+                ))
+            })
+        });
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates

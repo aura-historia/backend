@@ -73,7 +73,10 @@ pub fn backoff_delay(policy: RetryPolicy, attempt: u32) -> Duration {
         return Duration::ZERO;
     }
     let factor = 2u32.saturating_pow(attempt.saturating_sub(1));
-    let raw_ms = policy.base_delay.as_millis().saturating_mul(u128::from(factor));
+    let raw_ms = policy
+        .base_delay
+        .as_millis()
+        .saturating_mul(u128::from(factor));
     let capped_ms = raw_ms.min(policy.max_delay.as_millis());
     Duration::from_millis(capped_ms as u64)
 }

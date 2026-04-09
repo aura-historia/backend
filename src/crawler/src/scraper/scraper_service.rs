@@ -1,12 +1,12 @@
+use crate::network::policy::{
+    NetworkAction, NetworkErrorKind, RetryPolicy, action_for, backoff_delay, classify_reqwest_error,
+};
 use crate::scraper::candidate_service::ScraperCandidateService;
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct, ShopsProductSchema,
 };
 use crate::scraper::css_selector::product_schema_service::{
     ProductSchemaService, ProductSchemaServiceError,
-};
-use crate::network::policy::{
-    NetworkAction, NetworkErrorKind, RetryPolicy, action_for, backoff_delay, classify_reqwest_error,
 };
 use crate::spider::classification::url_metadata::UrlState;
 
@@ -80,20 +80,22 @@ impl ReqwestHtmlFetcher {
     }
 
     async fn fetch_once(&self, url: &Url) -> Result<String, FetchError> {
-        let response = self
-            .client
-            .get(url.clone())
-            .send()
-            .await
+        let response =
+            self.client
+                .get(url.clone())
+                .send()
+                .await
+                .map_err(|err| FetchError::Network {
+                    kind: classify_reqwest_error(&err),
+                    details: err.to_string(),
+                })?;
+
+        let response = response
+            .error_for_status()
             .map_err(|err| FetchError::Network {
                 kind: classify_reqwest_error(&err),
                 details: err.to_string(),
             })?;
-
-        let response = response.error_for_status().map_err(|err| FetchError::Network {
-            kind: classify_reqwest_error(&err),
-            details: err.to_string(),
-        })?;
 
         response.text().await.map_err(|err| FetchError::Network {
             kind: classify_reqwest_error(&err),
