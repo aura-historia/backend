@@ -1,3 +1,4 @@
+use common::shop_name::ShopName;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use partner_shop_application::{
@@ -25,9 +26,9 @@ async fn should_200_when_updating_application() {
         .await
         .unwrap();
 
+    let new_shop_name: ShopName = Faker.fake();
     let patch_data = PatchPartnerShopApplicationData {
-        state: Some(PartnerShopApplicationStateData::InReview),
-        shop_name: None,
+        shop_name: Some(new_shop_name.clone()),
         shop_type: None,
         shop_domains: None,
         shop_image: None,
@@ -47,5 +48,5 @@ async fn should_200_when_updating_application() {
 
     let actual: GetPartnerShopApplicationData =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
-    assert_eq!(PartnerShopApplicationStateData::InReview, actual.state);
+    assert_eq!(PartnerShopApplicationStateData::Submitted, actual.state);
 }
