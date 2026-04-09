@@ -18,6 +18,7 @@ dependencies = [
  "notification",
  "notification-api",
  "opensearch",
+ "partner-shop-application",
  "product",
  "product-classification",
  "product-watchlist",
@@ -204,6 +205,7 @@ dependencies = [
  "notification-api",
  "notification-send",
  "partner-shop-application",
+ "partner-shop-application-api",
  "product",
  "product-api",
  "product-api-partner",
@@ -4497,6 +4499,29 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "partner-shop-application-api"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.4.0",
+ "lambda_runtime",
+ "partner-shop-application",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "shop",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
