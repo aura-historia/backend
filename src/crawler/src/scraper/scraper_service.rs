@@ -61,6 +61,12 @@ pub struct ReqwestHtmlFetcher {
     retry_policy: RetryPolicy,
 }
 
+impl Default for ReqwestHtmlFetcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReqwestHtmlFetcher {
     pub fn new() -> Self {
         Self::with_retry_policy(RetryPolicy::default())
