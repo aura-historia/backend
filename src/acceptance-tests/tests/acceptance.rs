@@ -25,6 +25,12 @@ use notification::{
 };
 use notification_api::notification_get::EventIdCursoredData;
 use opensearch::GetParts;
+use partner_shop_application::data::{
+    get_partner_shop_application_data::GetPartnerShopApplicationData,
+    partner_shop_application_state_data::PartnerShopApplicationStateData,
+    patch_partner_shop_application_data::PatchPartnerShopApplicationData,
+    post_partner_shop_application_data::PostPartnerShopApplicationPayloadData,
+};
 use product::data::get_data::GetProductData;
 use product::data::user_state_data::ProductUserStateData;
 use product::dynamodb::product_record;
@@ -4778,6 +4784,198 @@ async fn should_get_patch_delete_notifications() {
         .unwrap();
     assert!(after_delete_all.items.is_empty());
     assert_eq!(0, after_delete_all.total.unwrap_or(0));
+}
+
+// ---------------------------------------------------------------------------
+// API: Partner Shop Application CRUD
+// Verifies API Gateway routing and Lambda execution for the partner shop
+// application endpoints with Cognito JWT authentication.
+// ---------------------------------------------------------------------------
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_partner_application_get_all() {
+    let user = create_random_test_user().await;
+
+    let url = format!(
+        "{}/api/v1/me/partner-applications",
+        get_cfn_output().api_gateway_endpoint_url,
+    );
+    let response = reqwest::Client::new()
+        .get(&url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let actual = response
+        .json::<Vec<GetPartnerShopApplicationData>>()
+        .await
+        .unwrap();
+    assert!(actual.is_empty());
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_201_for_partner_application_post() {
+    let user = create_random_test_user().await;
+    let url = format!(
+        "{}/api/v1/me/partner-applications",
+        get_cfn_output().api_gateway_endpoint_url,
+    );
+
+    let post_data = PostPartnerShopApplicationPayloadData::Existing {
+        shop_id: Faker.fake(),
+    };
+    let response = reqwest::Client::new()
+        .post(&url)
+        .bearer_auth(&user.access_token)
+        .json(&post_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(201, response.status());
+
+    let created = response
+        .json::<GetPartnerShopApplicationData>()
+        .await
+        .unwrap();
+    assert_eq!(PartnerShopApplicationStateData::Submitted, created.state);
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_partner_application_get_one() {
+    let user = create_random_test_user().await;
+    let base_url = format!(
+        "{}/api/v1/me/partner-applications",
+        get_cfn_output().api_gateway_endpoint_url,
+    );
+
+    // Create first
+    let post_data = PostPartnerShopApplicationPayloadData::Existing {
+        shop_id: Faker.fake(),
+    };
+    let create_response = reqwest::Client::new()
+        .post(&base_url)
+        .bearer_auth(&user.access_token)
+        .json(&post_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(201, create_response.status());
+    let created = create_response
+        .json::<GetPartnerShopApplicationData>()
+        .await
+        .unwrap();
+
+    // GET one
+    let get_url = format!("{}/{}", base_url, created.id);
+    let get_response = reqwest::Client::new()
+        .get(&get_url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, get_response.status());
+    let gotten = get_response
+        .json::<GetPartnerShopApplicationData>()
+        .await
+        .unwrap();
+    assert_eq!(created.id, gotten.id);
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_partner_application_patch() {
+    let user = create_random_test_user().await;
+    let base_url = format!(
+        "{}/api/v1/me/partner-applications",
+        get_cfn_output().api_gateway_endpoint_url,
+    );
+
+    // Create first
+    let post_data = PostPartnerShopApplicationPayloadData::Existing {
+        shop_id: Faker.fake(),
+    };
+    let create_response = reqwest::Client::new()
+        .post(&base_url)
+        .bearer_auth(&user.access_token)
+        .json(&post_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(201, create_response.status());
+    let created = create_response
+        .json::<GetPartnerShopApplicationData>()
+        .await
+        .unwrap();
+
+    // PATCH
+    let patch_url = format!("{}/{}", base_url, created.id);
+    let patch_data = PatchPartnerShopApplicationData {
+        shop_name: Some("Updated Shop".into()),
+        shop_type: None,
+        shop_domains: None,
+        shop_image: None,
+    };
+    let patch_response = reqwest::Client::new()
+        .patch(&patch_url)
+        .bearer_auth(&user.access_token)
+        .json(&patch_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, patch_response.status());
+
+    // Verify the response reflects the update
+    let patched = patch_response
+        .json::<GetPartnerShopApplicationData>()
+        .await
+        .unwrap();
+    assert_eq!(created.id, patched.id);
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_204_for_partner_application_delete() {
+    let user = create_random_test_user().await;
+    let base_url = format!(
+        "{}/api/v1/me/partner-applications",
+        get_cfn_output().api_gateway_endpoint_url,
+    );
+
+    // Create first
+    let post_data = PostPartnerShopApplicationPayloadData::Existing {
+        shop_id: Faker.fake(),
+    };
+    let create_response = reqwest::Client::new()
+        .post(&base_url)
+        .bearer_auth(&user.access_token)
+        .json(&post_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(201, create_response.status());
+    let created = create_response
+        .json::<GetPartnerShopApplicationData>()
+        .await
+        .unwrap();
+
+    // DELETE
+    let delete_url = format!("{}/{}", base_url, created.id);
+    let delete_response = reqwest::Client::new()
+        .delete(&delete_url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(204, delete_response.status());
+
+    // Verify deleted
+    let get_response = reqwest::Client::new()
+        .get(&delete_url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(404, get_response.status());
 }
 
 // ---------------------------------------------------------------------------

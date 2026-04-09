@@ -18,6 +18,7 @@ dependencies = [
  "notification",
  "notification-api",
  "opensearch",
+ "partner-shop-application",
  "product",
  "product-classification",
  "product-watchlist",
@@ -204,6 +205,7 @@ dependencies = [
  "notification-api",
  "notification-send",
  "partner-shop-application",
+ "partner-shop-application-api",
  "product",
  "product-api",
  "product-api-partner",
@@ -4504,6 +4506,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "partner-shop-application-api"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.4.0",
+ "lambda_runtime",
+ "partner-shop-application",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "shop",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "pathdiff"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7980,9 +8005,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.51.0"
+version = "1.51.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bd1c4c0fc4a7ab90fc15ef6daaa3ec3b893f004f915f2392557ed23237820cd"
+checksum = "f66bf9585cda4b724d3e78ab34b73fb2bbaba9011b9bfdf69dc836382ea13b8c"
 dependencies = [
  "bytes",
  "libc",

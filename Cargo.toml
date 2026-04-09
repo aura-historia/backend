@@ -34,6 +34,7 @@ product-pipeline = { workspace = true }
 fxrate = { workspace = true }
 fxrate-lambda = { workspace = true }
 partner-shop-application = { workspace = true }
+partner-shop-application-api = { workspace = true }
 
 [workspace]
 members = [
@@ -69,6 +70,7 @@ members = [
     "src/crawler",
     "src/ci-determinator",
     "src/partner-shop-application",
+    "src/partner-shop-application-api",
 ]
 
 [workspace.dependencies]
@@ -164,7 +166,7 @@ testcontainers = "0.24.0"
 testcontainers-modules = "0.12.1"
 thiserror = "2.0.18"
 time = "0.3.47"
-tokio = { version = "1.51.0", default-features = false }
+tokio = { version = "1.51.1", default-features = false }
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
 typed-builder = "0.23.2"
@@ -205,3 +207,4 @@ dotenvy = "0.15"
 url-normalize = "0.1.1"
 prefixed-api-key = { version = "0.3.0" }
 partner-shop-application = { path = "src/partner-shop-application" }
+partner-shop-application-api = { path = "src/partner-shop-application-api" }

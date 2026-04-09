@@ -1,0 +1,59 @@
+use fake::{Fake, Faker};
+use lambda_runtime::LambdaEvent;
+use partner_shop_application::{
+    data::get_partner_shop_application_data::GetPartnerShopApplicationData,
+    dynamodb::repository::PartnerShopApplicationDynamoDbRepositoryImpl,
+    service::partner_shop_application_service::{
+        PartnerShopApplicationService, PartnerShopApplicationServiceImpl,
+    },
+};
+use partner_shop_application_api::handler;
+use test_api::*;
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_200_respond_empty_list_when_no_applications_exist() {
+    let repository =
+        PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let service = PartnerShopApplicationServiceImpl::new(&repository);
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/me/partner-applications")
+            .jwt_claim("sub", common::user_id::UserId::new())
+            .build(),
+        context: Default::default(),
+    };
+    let response = handler(lambda_event, &service).await.unwrap();
+    let actual: Vec<GetPartnerShopApplicationData> =
+        serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
+
+    assert!(actual.is_empty());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_200_respond_applications_when_they_exist() {
+    let repository =
+        PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let service = PartnerShopApplicationServiceImpl::new(&repository);
+
+    let application = service
+        .create_partner_shop_application(Faker.fake())
+        .await
+        .unwrap();
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/me/partner-applications")
+            .jwt_claim("sub", application.applicant_user_id)
+            .build(),
+        context: Default::default(),
+    };
+    let response = handler(lambda_event, &service).await.unwrap();
+    let actual: Vec<GetPartnerShopApplicationData> =
+        serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
+
+    assert_eq!(1, actual.len());
+    assert_eq!(application.id, actual[0].id);
+}

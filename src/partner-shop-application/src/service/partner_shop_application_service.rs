@@ -48,6 +48,31 @@ pub enum PartnerShopApplicationError {
     MissingPersistenceField(#[from] common::error::missing_field::MissingPersistenceField),
 }
 
+#[cfg(feature = "data")]
+pub mod api {
+    use super::PartnerShopApplicationError;
+    use common::api::error::ApiError;
+    use common::api::error_code::{INTERNAL_SERVER_ERROR, PARTNER_SHOP_APPLICATION_NOT_FOUND};
+
+    impl From<PartnerShopApplicationError> for ApiError {
+        fn from(err: PartnerShopApplicationError) -> Self {
+            match err {
+                PartnerShopApplicationError::NotFound(_, _) => {
+                    ApiError::not_found(PARTNER_SHOP_APPLICATION_NOT_FOUND, Box::new(err))
+                }
+                PartnerShopApplicationError::SdkGetItemError(sdk_error) => sdk_error.into(),
+                PartnerShopApplicationError::SdkQueryError(sdk_error) => sdk_error.into(),
+                PartnerShopApplicationError::SdkPutItemError(sdk_error) => sdk_error.into(),
+                PartnerShopApplicationError::SdkUpdateItemError(sdk_error) => sdk_error.into(),
+                PartnerShopApplicationError::SdkDeleteItemError(sdk_error) => sdk_error.into(),
+                PartnerShopApplicationError::MissingPersistenceField(_) => {
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
+                }
+            }
+        }
+    }
+}
+
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait PartnerShopApplicationService {
