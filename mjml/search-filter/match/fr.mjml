@@ -1,22 +1,22 @@
 <mjml>
     <mj-head>
         <mj-attributes>
-            <mj-all font-family="Inter, Helvetica, Arial, sans-serif" />
-            <mj-text color="#4A4338" font-size="15px" line-height="1.6" />
-            <mj-button background-color="#A67C52" color="#ffffff" border-radius="6px" font-size="15px" inner-padding="12px 32px" />
+            <mj-all font-family="Manrope, Helvetica, Arial, sans-serif" />
+            <mj-text color="#1c1c16" font-size="15px" line-height="1.6" />
+            <mj-button background-color="#42120f" color="#ffffff" border-radius="4px" font-size="15px" inner-padding="12px 32px" />
             <mj-section padding="0" />
             <mj-column padding="0" />
             <mj-divider border-color="#E8E0D6" border-width="1px" />
         </mj-attributes>
         <mj-style>
-            a { color: #A67C52; }
-            .filter-name { color: #A67C52; font-weight: 600; }
+            a { color: #42120f; }
+            .filter-name { color: #42120f; font-weight: 600; }
         </mj-style>
         <mj-title>Nouveau résultat pour « {{search_filter_name}} »</mj-title>
         <mj-preview>Une nouvelle antiquité correspond à votre filtre de recherche « {{search_filter_name}} » : {{title}}</mj-preview>
     </mj-head>
 
-    <mj-body background-color="#F8F4EE" width="600px">
+    <mj-body background-color="#F7F4E9" width="600px">
 
         <!-- Header -->
         <mj-section padding="32px 24px 20px">
@@ -24,14 +24,14 @@
 
         <mj-section padding="0 24px">
             <mj-column>
-                <mj-divider border-color="#A67C52" border-width="2px" padding="0" />
+                <mj-divider border-color="#42120f" border-width="2px" padding="0" />
             </mj-column>
         </mj-section>
 
         <!-- Content card -->
         <mj-section background-color="#ffffff" padding="32px 32px 16px" border-radius="12px">
             <mj-column>
-                <mj-text font-size="16px" color="#4A4338" padding-bottom="8px">
+                <mj-text font-size="16px" color="#1c1c16" padding-bottom="8px">
                     {{#if user_first_name}}Bonjour {{user_first_name}},{{else}}Bonjour,{{/if}}
                 </mj-text>
                 <mj-text>
@@ -43,10 +43,10 @@
         <!-- Product info -->
         <mj-section background-color="#ffffff" padding="0 32px" border-radius="12px">
             <mj-column>
-                <mj-text font-family="'Cormorant Garamond', Georgia, serif" font-size="22px" font-weight="600" color="#2A261F" padding-bottom="4px">
+                <mj-text font-family="'Newsreader', Georgia, serif" font-size="22px" font-weight="600" color="#1c1c16" padding-bottom="4px">
                     {{title}}
                 </mj-text>
-                <mj-text font-size="14px" color="#7D7567" padding-bottom="16px">
+                <mj-text font-size="14px" color="#6d625d" padding-bottom="16px">
                     Proposé par <b>{{shop_name}}</b>
                 </mj-text>
             </mj-column>
@@ -60,7 +60,7 @@
                 </mj-button>
             </mj-column>
             <mj-column>
-                <mj-button href="https://aura-historia.com/shops/{{shop_slug_id}}" background-color="#EDEDED" color="#4A4338" border="1px solid #CFCFCF" align="center">
+                <mj-button href="https://aura-historia.com/shops/{{shop_slug_id}}" background-color="#ffffff" color="#42120f" border="1px solid #d8c1bf" align="center">
                     Visiter la boutique
                 </mj-button>
             </mj-column>
@@ -76,8 +76,8 @@
         <!-- Footer -->
         <mj-section padding="24px 24px 0">
             <mj-column>
-                <mj-text color="#7D7567" font-size="13px" line-height="1.5" align="center">
-                    Vous recevez cet e-mail car ce produit correspond à votre filtre de recherche <a href="https://aura-historia.com/search-filters/{{search_filter_id}}" style="color:#A67C52;">« {{search_filter_name}} »</a>.
+                <mj-text color="#6d625d" font-size="13px" line-height="1.5" align="center">
+                    Vous recevez cet e-mail car ce produit correspond à votre filtre de recherche <a href="https://aura-historia.com/search-filters/{{search_filter_id}}" style="color:#42120f;">« {{search_filter_name}} »</a>.
                 </mj-text>
             </mj-column>
         </mj-section>
@@ -90,12 +90,12 @@
 
         <mj-section padding="8px 24px 32px">
             <mj-column>
-                <mj-text color="#7D7567" font-size="12px" line-height="1.6" align="center">
+                <mj-text color="#6d625d" font-size="12px" line-height="1.6" align="center">
                     © 2026 Aura Historia — Tous droits réservés.
                     <br />
-                    <a href="mailto:contact@aura-historia.com" style="color:#A67C52;text-decoration:none;">contact@aura-historia.com</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://aura-historia.com" style="color:#A67C52;text-decoration:none;">aura-historia.com</a>
+                    <a href="mailto:contact@aura-historia.com" style="color:#42120f;text-decoration:none;">contact@aura-historia.com</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://aura-historia.com" style="color:#42120f;text-decoration:none;">aura-historia.com</a>
                     <br /><br />
-                    Si vous ne souhaitez plus recevoir de notifications pour ce filtre de recherche, vous pouvez les désactiver dans les <a href="https://aura-historia.com/search-filters/{{search_filter_id}}" style="color:#A67C52;">paramètres de vos filtres de recherche</a>.
+                    Si vous ne souhaitez plus recevoir de notifications pour ce filtre de recherche, vous pouvez les désactiver dans les <a href="https://aura-historia.com/search-filters/{{search_filter_id}}" style="color:#42120f;">paramètres de vos filtres de recherche</a>.
                 </mj-text>
             </mj-column>
         </mj-section>
