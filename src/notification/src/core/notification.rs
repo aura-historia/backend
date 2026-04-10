@@ -80,6 +80,10 @@ pub enum NotificationPayload {
         image: Option<ProductImage>,
         search_filter_payload: NotificationSearchFilterPayload,
     },
+    PartnerApplication {
+        shop_name: ShopName,
+        partner_application_payload: NotificationPartnerApplicationPayload,
+    },
 }
 
 impl NotificationPayload {
@@ -137,6 +141,13 @@ impl NotificationPayload {
                 image,
                 search_filter_payload,
             },
+            NotificationPayload::PartnerApplication {
+                shop_name,
+                partner_application_payload,
+            } => LocalizedNotificationPayload::PartnerApplication {
+                shop_name,
+                partner_application_payload,
+            },
         }
     }
 }
@@ -184,6 +195,13 @@ pub struct NotificationSearchFilterPayload {
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq)]
+pub enum NotificationPartnerApplicationPayload {
+    Approved,
+    Rejected,
+}
+
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedNotification {
     pub user_id: UserId,
     pub origin_event_id: EventId,
@@ -219,6 +237,10 @@ pub enum LocalizedNotificationPayload {
         title: Localized<Language, Title>,
         image: Option<ProductImage>,
         search_filter_payload: NotificationSearchFilterPayload,
+    },
+    PartnerApplication {
+        shop_name: ShopName,
+        partner_application_payload: NotificationPartnerApplicationPayload,
     },
 }
 

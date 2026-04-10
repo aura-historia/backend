@@ -3,7 +3,8 @@ use crate::service::{s3_adapter::S3Adapter, ses_adapter::SesAdapter};
 use crate::{
     core::{
         notification::{
-            LocalizedNotification, Notification, NotificationPayload, NotificationWatchlistPayload,
+            LocalizedNotification, Notification, NotificationPartnerApplicationPayload,
+            NotificationPayload, NotificationWatchlistPayload,
         },
         notification_id::NotificationId,
     },
@@ -322,6 +323,17 @@ fn derive_mail_template(payload: &NotificationPayload, language: &Language) -> M
             }
         },
         NotificationPayload::SearchFilter { .. } => MailTemplateType::SearchFilterMatch,
+        NotificationPayload::PartnerApplication {
+            partner_application_payload,
+            ..
+        } => match partner_application_payload {
+            NotificationPartnerApplicationPayload::Approved => {
+                MailTemplateType::PartnerApplicationApproval
+            }
+            NotificationPartnerApplicationPayload::Rejected => {
+                MailTemplateType::PartnerApplicationRejection
+            }
+        },
     };
     MailTemplate {
         template_type,
@@ -393,6 +405,25 @@ fn build_email_subject(payload: &NotificationPayload, language: &Language) -> St
                 _ => format!("New match for \"{filter_name}\": {resolved_title}"),
             }
         }
+        NotificationPayload::PartnerApplication {
+            shop_name,
+            partner_application_payload,
+        } => match partner_application_payload {
+            NotificationPartnerApplicationPayload::Approved => match language {
+                Language::De => format!("Partnerantrag genehmigt: {shop_name}"),
+                Language::Fr => format!("Demande de partenariat approuvée : {shop_name}"),
+                Language::Es => format!("Solicitud de asociación aprobada: {shop_name}"),
+                Language::It => format!("Richiesta di partnership approvata: {shop_name}"),
+                _ => format!("Partner application approved: {shop_name}"),
+            },
+            NotificationPartnerApplicationPayload::Rejected => match language {
+                Language::De => format!("Partnerantrag abgelehnt: {shop_name}"),
+                Language::Fr => format!("Demande de partenariat refusée : {shop_name}"),
+                Language::Es => format!("Solicitud de asociación rechazada: {shop_name}"),
+                Language::It => format!("Richiesta di partnership rifiutata: {shop_name}"),
+                _ => format!("Partner application rejected: {shop_name}"),
+            },
+        },
     }
 }
 
@@ -489,6 +520,26 @@ fn build_email_template_data(
                 "notification_type": "search_filter_match",
                 "search_filter_id": search_filter_payload.user_search_filter_id.to_string(),
                 "search_filter_name": search_filter_payload.user_search_filter_name.to_string(),
+            });
+
+            if let Some(first_name) = user_first_name {
+                data["user_first_name"] = serde_json::json!(first_name.to_string());
+            }
+
+            data
+        }
+        NotificationPayload::PartnerApplication {
+            shop_name,
+            partner_application_payload,
+        } => {
+            let notification_type = match partner_application_payload {
+                NotificationPartnerApplicationPayload::Approved => "partner_application_approval",
+                NotificationPartnerApplicationPayload::Rejected => "partner_application_rejection",
+            };
+            let mut data = serde_json::json!({
+                "shop_name": shop_name.to_string(),
+                "language": format!("{language:?}"),
+                "notification_type": notification_type,
             });
 
             if let Some(first_name) = user_first_name {
@@ -3430,6 +3481,186 @@ mod tests {
             assert!(
                 rendered.contains("Victorian Furniture"),
                 "Rendered template should contain search filter name"
+            );
+        }
+
+        fn make_partner_application_approval_notification() -> Notification {
+            Notification {
+                user_id: UserId::new(),
+                origin_event_id: EventId::new(),
+                notification_id: NotificationId::new(),
+                notification_type: None,
+                notification_payload: NotificationPayload::PartnerApplication {
+                    shop_name: "Heritage Antiques".into(),
+                    partner_application_payload: NotificationPartnerApplicationPayload::Approved,
+                },
+                seen: false,
+                external: false,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
+        }
+
+        fn make_partner_application_rejection_notification() -> Notification {
+            Notification {
+                user_id: UserId::new(),
+                origin_event_id: EventId::new(),
+                notification_id: NotificationId::new(),
+                notification_type: None,
+                notification_payload: NotificationPayload::PartnerApplication {
+                    shop_name: "Heritage Antiques".into(),
+                    partner_application_payload: NotificationPartnerApplicationPayload::Rejected,
+                },
+                seen: false,
+                external: false,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
+        }
+
+        #[rstest]
+        #[case("en")]
+        #[case("de")]
+        #[case("fr")]
+        #[case("es")]
+        #[case("it")]
+        fn should_render_partner_application_approval_template_without_unreplaced_handlebars_for(
+            #[case] lang: &str,
+        ) {
+            let template_path = format!("mjml/partner-application/approval/{lang}.mjml");
+            let template = load_template(&template_path);
+            let notification = make_partner_application_approval_notification();
+            let language = language_for_code(lang);
+            let first_name = user::core::first_name::FirstName::from("Thomas");
+            let data = build_email_template_data(
+                &notification,
+                &language,
+                &Currency::Eur,
+                Some(&first_name),
+            );
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars
+                .render_template(&template, &data)
+                .unwrap_or_else(|e| panic!("Handlebars failed for {template_path}: {e}"));
+
+            assert_no_unreplaced_handlebars(&rendered, &template_path);
+        }
+
+        #[rstest]
+        #[case("en")]
+        #[case("de")]
+        #[case("fr")]
+        #[case("es")]
+        #[case("it")]
+        fn should_render_partner_application_rejection_template_without_unreplaced_handlebars_for(
+            #[case] lang: &str,
+        ) {
+            let template_path = format!("mjml/partner-application/rejection/{lang}.mjml");
+            let template = load_template(&template_path);
+            let notification = make_partner_application_rejection_notification();
+            let language = language_for_code(lang);
+            let first_name = user::core::first_name::FirstName::from("Thomas");
+            let data = build_email_template_data(
+                &notification,
+                &language,
+                &Currency::Eur,
+                Some(&first_name),
+            );
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars
+                .render_template(&template, &data)
+                .unwrap_or_else(|e| panic!("Handlebars failed for {template_path}: {e}"));
+
+            assert_no_unreplaced_handlebars(&rendered, &template_path);
+        }
+
+        #[rstest]
+        #[case("en")]
+        #[case("de")]
+        #[case("fr")]
+        #[case("es")]
+        #[case("it")]
+        fn should_render_partner_application_approval_template_without_user_first_name_for(
+            #[case] lang: &str,
+        ) {
+            let template_path = format!("mjml/partner-application/approval/{lang}.mjml");
+            let template = load_template(&template_path);
+            let notification = make_partner_application_approval_notification();
+            let language = language_for_code(lang);
+            let data = build_email_template_data(&notification, &language, &Currency::Eur, None);
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars
+                .render_template(&template, &data)
+                .unwrap_or_else(|e| panic!("Handlebars failed for {template_path}: {e}"));
+
+            assert_no_unreplaced_handlebars(&rendered, &template_path);
+            assert!(
+                !rendered.contains("Thomas"),
+                "Template should not contain user first name when not provided"
+            );
+        }
+
+        #[rstest]
+        #[case("en")]
+        #[case("de")]
+        #[case("fr")]
+        #[case("es")]
+        #[case("it")]
+        fn should_render_partner_application_rejection_template_without_user_first_name_for(
+            #[case] lang: &str,
+        ) {
+            let template_path = format!("mjml/partner-application/rejection/{lang}.mjml");
+            let template = load_template(&template_path);
+            let notification = make_partner_application_rejection_notification();
+            let language = language_for_code(lang);
+            let data = build_email_template_data(&notification, &language, &Currency::Eur, None);
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars
+                .render_template(&template, &data)
+                .unwrap_or_else(|e| panic!("Handlebars failed for {template_path}: {e}"));
+
+            assert_no_unreplaced_handlebars(&rendered, &template_path);
+            assert!(
+                !rendered.contains("Thomas"),
+                "Template should not contain user first name when not provided"
+            );
+        }
+
+        #[test]
+        fn should_include_shop_name_in_partner_application_approval_template() {
+            let template_path = "mjml/partner-application/approval/en.mjml";
+            let template = load_template(template_path);
+            let notification = make_partner_application_approval_notification();
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars.render_template(&template, &data).unwrap();
+
+            assert!(
+                rendered.contains("Heritage Antiques"),
+                "Rendered approval template should contain shop name"
+            );
+        }
+
+        #[test]
+        fn should_include_shop_name_in_partner_application_rejection_template() {
+            let template_path = "mjml/partner-application/rejection/en.mjml";
+            let template = load_template(template_path);
+            let notification = make_partner_application_rejection_notification();
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars.render_template(&template, &data).unwrap();
+
+            assert!(
+                rendered.contains("Heritage Antiques"),
+                "Rendered rejection template should contain shop name"
             );
         }
     }

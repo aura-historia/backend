@@ -7,6 +7,8 @@ pub enum NotificationReasonRecord {
     WatchlistStateChanged,
     WatchlistPriceChanged,
     SearchFilterMatch,
+    PartnerApplicationApproved,
+    PartnerApplicationRejected,
 }
 
 impl NotificationReasonRecord {
@@ -19,5 +21,12 @@ impl NotificationReasonRecord {
 
     pub fn is_search_filter(&self) -> bool {
         matches!(self, Self::SearchFilterMatch)
+    }
+
+    pub fn is_partner_application(&self) -> bool {
+        matches!(
+            self,
+            Self::PartnerApplicationApproved | Self::PartnerApplicationRejected
+        )
     }
 }

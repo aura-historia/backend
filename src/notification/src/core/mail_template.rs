@@ -8,6 +8,8 @@ pub enum MailTemplateType {
     WatchlistUpdatePrice,
     WatchlistUpdateState,
     SearchFilterMatch,
+    PartnerApplicationApproval,
+    PartnerApplicationRejection,
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -23,6 +25,8 @@ impl MailTemplateType {
             MailTemplateType::WatchlistUpdatePrice => "mjml/watchlist/product-update/price",
             MailTemplateType::WatchlistUpdateState => "mjml/watchlist/product-update/state",
             MailTemplateType::SearchFilterMatch => "mjml/search-filter/match",
+            MailTemplateType::PartnerApplicationApproval => "mjml/partner-application/approval",
+            MailTemplateType::PartnerApplicationRejection => "mjml/partner-application/rejection",
         }
     }
 
@@ -31,6 +35,8 @@ impl MailTemplateType {
             MailTemplateType::WatchlistUpdatePrice => "WATCHLIST_UPDATE_PRICE",
             MailTemplateType::WatchlistUpdateState => "WATCHLIST_UPDATE_STATE",
             MailTemplateType::SearchFilterMatch => "SEARCH_FILTER_MATCH",
+            MailTemplateType::PartnerApplicationApproval => "PARTNER_APPLICATION_APPROVAL",
+            MailTemplateType::PartnerApplicationRejection => "PARTNER_APPLICATION_REJECTION",
         }
     }
 }

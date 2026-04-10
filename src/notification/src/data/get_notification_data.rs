@@ -1,5 +1,6 @@
 use crate::core::notification::{
     LocalizedNotification, LocalizedNotificationPayload, LocalizedNotificationWatchlistPayload,
+    NotificationPartnerApplicationPayload,
 };
 use crate::core::notification_id::NotificationId;
 use common::user_search_filter_id::UserSearchFilterId;
@@ -60,6 +61,11 @@ pub enum NotificationPayloadData {
         image: Option<ProductImageData>,
         search_filter_payload: SearchFilterPayloadData,
     },
+    #[serde(rename_all = "camelCase")]
+    PartnerApplication {
+        shop_name: ShopName,
+        partner_application_payload: PartnerApplicationPayloadData,
+    },
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -84,6 +90,14 @@ pub enum WatchlistPayloadData {
 pub struct SearchFilterPayloadData {
     pub user_search_filter_id: UserSearchFilterId,
     pub user_search_filter_name: UserSearchFilterName,
+}
+
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PartnerApplicationPayloadData {
+    Approved,
+    Rejected,
 }
 
 impl From<LocalizedNotificationWatchlistPayload> for WatchlistPayloadData {
@@ -153,6 +167,20 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
                 search_filter_payload: SearchFilterPayloadData {
                     user_search_filter_id: search_filter_payload.user_search_filter_id,
                     user_search_filter_name: search_filter_payload.user_search_filter_name,
+                },
+            },
+            LocalizedNotificationPayload::PartnerApplication {
+                shop_name,
+                partner_application_payload,
+            } => NotificationPayloadData::PartnerApplication {
+                shop_name,
+                partner_application_payload: match partner_application_payload {
+                    NotificationPartnerApplicationPayload::Approved => {
+                        PartnerApplicationPayloadData::Approved
+                    }
+                    NotificationPartnerApplicationPayload::Rejected => {
+                        PartnerApplicationPayloadData::Rejected
+                    }
                 },
             },
         }

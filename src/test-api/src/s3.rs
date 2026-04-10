@@ -73,6 +73,16 @@ mod mail_templates {
         "mjml/search-filter/match/es.mjml",
         "mjml/search-filter/match/fr.mjml",
         "mjml/search-filter/match/it.mjml",
+        "mjml/partner-application/approval/de.mjml",
+        "mjml/partner-application/approval/en.mjml",
+        "mjml/partner-application/approval/es.mjml",
+        "mjml/partner-application/approval/fr.mjml",
+        "mjml/partner-application/approval/it.mjml",
+        "mjml/partner-application/rejection/de.mjml",
+        "mjml/partner-application/rejection/en.mjml",
+        "mjml/partner-application/rejection/es.mjml",
+        "mjml/partner-application/rejection/fr.mjml",
+        "mjml/partner-application/rejection/it.mjml",
     ];
 
     static S3_CLIENT: OnceCell<aws_sdk_s3::Client> = OnceCell::const_new();
