@@ -35,6 +35,7 @@ fxrate = { workspace = true }
 fxrate-lambda = { workspace = true }
 partner-shop-application = { workspace = true }
 partner-shop-application-api = { workspace = true }
+partner-shop-application-lambda = { workspace = true }
 
 [workspace]
 members = [
@@ -71,6 +72,7 @@ members = [
     "src/ci-determinator",
     "src/partner-shop-application",
     "src/partner-shop-application-api",
+    "src/partner-shop-application-lambda",
 ]
 
 [workspace.dependencies]
@@ -209,3 +211,4 @@ url-normalize = "0.1.1"
 prefixed-api-key = { version = "0.3.0" }
 partner-shop-application = { path = "src/partner-shop-application" }
 partner-shop-application-api = { path = "src/partner-shop-application-api" }
+partner-shop-application-lambda = { path = "src/partner-shop-application-lambda" }

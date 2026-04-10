@@ -136,6 +136,9 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
         }
 
         let update = ShopRecordUpdate {
+            partner_user_id: None,
+            gsi1_pk: None,
+            gsi1_sk: None,
             shop_type: command.shop_type.map(Into::into),
             domains: command.domains.clone(),
             image: command.image.clone(),
