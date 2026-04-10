@@ -24,6 +24,9 @@ pub enum UserServiceError {
     #[error("User with UserId '{0}' cannot be created because user exists already.")]
     UserExistsAlready(UserId),
 
+    #[error("This action requires the 'ADMIN' role.")]
+    AdminRoleRequired,
+
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
     SdkGetItemError(#[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>),
 
@@ -47,7 +50,9 @@ pub enum UserServiceError {
 pub mod api {
     use crate::service::user_service::UserServiceError;
     use common::api::error::ApiError;
-    use common::api::error_code::{INTERNAL_SERVER_ERROR, USER_EXISTS_ALREADY, USER_NOT_FOUND};
+    use common::api::error_code::{
+        FORBIDDEN, INTERNAL_SERVER_ERROR, USER_EXISTS_ALREADY, USER_NOT_FOUND,
+    };
 
     impl From<UserServiceError> for ApiError {
         fn from(err: UserServiceError) -> Self {
@@ -57,6 +62,9 @@ pub mod api {
                 }
                 UserServiceError::UserExistsAlready(_) => {
                     ApiError::conflict(USER_EXISTS_ALREADY, Box::new(err))
+                }
+                UserServiceError::AdminRoleRequired => {
+                    ApiError::forbidden(FORBIDDEN).with_detail(err.to_string())
                 }
                 UserServiceError::SdkGetItemError(sdk_error) => sdk_error.into(),
                 UserServiceError::SdkPutItemError(sdk_error) => sdk_error.into(),
@@ -77,6 +85,8 @@ pub mod api {
 #[mockall::automock]
 pub trait UserService {
     async fn find_user(&self, user_id: &UserId) -> Result<User, UserServiceError>;
+
+    async fn check_admin(&self, user_id: &UserId) -> Result<(), UserServiceError>;
 
     async fn create_user(&self, cmd: CreateUserCommand) -> Result<User, UserServiceError>;
 
@@ -123,6 +133,14 @@ impl<'a> UserService for UserServiceImpl<'a> {
             .ok_or(UserServiceError::UserNotFound(*user_id))?;
 
         Ok(user_record.into())
+    }
+
+    async fn check_admin(&self, user_id: &UserId) -> Result<(), UserServiceError> {
+        let user = self.find_user(user_id).await?;
+        if user.role != UserRole::Admin {
+            return Err(UserServiceError::AdminRoleRequired);
+        }
+        Ok(())
     }
 
     async fn create_user(&self, cmd: CreateUserCommand) -> Result<User, UserServiceError> {

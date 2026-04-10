@@ -36,7 +36,7 @@ pub struct UserRecord {
 
     pub tier: UserTierRecord,
 
-    #[serde(default = "UserRoleRecord::default_user")]
+    #[serde(default)]
     pub role: UserRoleRecord,
 
     #[serde(with = "time::serde::rfc3339")]

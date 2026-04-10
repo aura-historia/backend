@@ -10,7 +10,7 @@ use partner_shop_application::data::get_partner_shop_application_data::GetPartne
 use partner_shop_application::service::partner_shop_application_service::PartnerShopApplicationService;
 use user::service::user_service::UserService;
 
-use crate::admin_auth::require_admin;
+use crate::admin_auth::check_admin;
 use crate::path::extract_partner_application_id_path;
 
 pub async fn handle(
@@ -21,7 +21,7 @@ pub async fn handle(
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
 
-    require_admin(&user_id, user_service).await?;
+    check_admin(&user_id, user_service).await?;
 
     let application_id = extract_partner_application_id_path(&event.payload.path_parameters)?;
 
@@ -75,28 +75,20 @@ mod tests {
         },
     };
     use test_api::ApiGatewayV2httpRequestProxy;
-    use user::core::role::UserRole;
-    use user::core::user::User;
-    use user::service::user_service::MockUserService;
+    use user::service::user_service::{MockUserService, UserServiceError};
 
-    fn mock_admin_user_service(user_id: UserId) -> MockUserService {
+    fn mock_admin_user_service() -> MockUserService {
         let mut user_service = MockUserService::default();
-        user_service.expect_find_user().return_once(move |_| {
-            let mut user: User = Faker.fake();
-            user.user_id = user_id;
-            user.role = UserRole::Admin;
-            Box::pin(async move { Ok(user) })
-        });
+        user_service
+            .expect_check_admin()
+            .return_once(move |_| Box::pin(async move { Ok(()) }));
         user_service
     }
 
-    fn mock_non_admin_user_service(user_id: UserId) -> MockUserService {
+    fn mock_non_admin_user_service() -> MockUserService {
         let mut user_service = MockUserService::default();
-        user_service.expect_find_user().return_once(move |_| {
-            let mut user: User = Faker.fake();
-            user.user_id = user_id;
-            user.role = UserRole::User;
-            Box::pin(async move { Ok(user) })
+        user_service.expect_check_admin().return_once(move |_| {
+            Box::pin(async move { Err(UserServiceError::AdminRoleRequired) })
         });
         user_service
     }
@@ -104,7 +96,7 @@ mod tests {
     #[tokio::test]
     async fn should_200_when_updating_application() {
         let user_id = UserId::new();
-        let user_service = mock_admin_user_service(user_id);
+        let user_service = mock_admin_user_service();
         let mut service = MockPartnerShopApplicationService::default();
         service
             .expect_update_partner_shop_application_by_id()
@@ -130,7 +122,7 @@ mod tests {
     #[tokio::test]
     async fn should_403_when_user_is_not_admin() {
         let user_id = UserId::new();
-        let user_service = mock_non_admin_user_service(user_id);
+        let user_service = mock_non_admin_user_service();
         let service = MockPartnerShopApplicationService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -172,7 +164,7 @@ mod tests {
     #[tokio::test]
     async fn should_400_when_path_param_partner_application_id_missing() {
         let user_id = UserId::new();
-        let user_service = mock_admin_user_service(user_id);
+        let user_service = mock_admin_user_service();
         let service = MockPartnerShopApplicationService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -193,7 +185,7 @@ mod tests {
     #[tokio::test]
     async fn should_400_when_body_is_empty() {
         let user_id = UserId::new();
-        let user_service = mock_admin_user_service(user_id);
+        let user_service = mock_admin_user_service();
         let service = MockPartnerShopApplicationService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -214,7 +206,7 @@ mod tests {
     #[tokio::test]
     async fn should_404_when_application_not_exists() {
         let user_id = UserId::new();
-        let user_service = mock_admin_user_service(user_id);
+        let user_service = mock_admin_user_service();
         let mut service = MockPartnerShopApplicationService::default();
         service
             .expect_update_partner_shop_application_by_id()
