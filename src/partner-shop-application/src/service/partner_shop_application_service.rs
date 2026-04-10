@@ -64,7 +64,7 @@ pub enum PartnerShopApplicationError {
 pub mod api {
     use super::PartnerShopApplicationError;
     use common::api::error::ApiError;
-    use common::api::error_code::{INTERNAL_SERVER_ERROR, PARTNER_SHOP_APPLICATION_NOT_FOUND};
+    use common::api::error_code::{CONFLICT, INTERNAL_SERVER_ERROR, PARTNER_SHOP_APPLICATION_NOT_FOUND};
 
     impl From<PartnerShopApplicationError> for ApiError {
         fn from(err: PartnerShopApplicationError) -> Self {
@@ -87,7 +87,7 @@ pub mod api {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
                 PartnerShopApplicationError::NotInReviewState(_) => {
-                    ApiError::conflict("PARTNER_SHOP_APPLICATION_NOT_IN_REVIEW", Box::new(err))
+                    ApiError::conflict(CONFLICT, Box::new(err))
                 }
                 PartnerShopApplicationError::MissingTaskToken(_) => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
@@ -147,11 +147,21 @@ pub trait PartnerShopApplicationService {
 
 pub struct PartnerShopApplicationServiceImpl<'a> {
     repository: &'a (dyn PartnerShopApplicationDynamoDbRepository + Sync),
+    sfn_adapter: &'a (dyn crate::service::sfn_adapter::SfnAdapter + Send + Sync),
+    state_machine_arn: &'a str,
 }
 
 impl<'a> PartnerShopApplicationServiceImpl<'a> {
-    pub fn new(repository: &'a (dyn PartnerShopApplicationDynamoDbRepository + Sync)) -> Self {
-        Self { repository }
+    pub fn new(
+        repository: &'a (dyn PartnerShopApplicationDynamoDbRepository + Sync),
+        sfn_adapter: &'a (dyn crate::service::sfn_adapter::SfnAdapter + Send + Sync),
+        state_machine_arn: &'a str,
+    ) -> Self {
+        Self {
+            repository,
+            sfn_adapter,
+            state_machine_arn,
+        }
     }
 }
 
@@ -176,10 +186,18 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             .put_partner_shop_application_record(record)
             .await?;
 
+        let sfn_input = serde_json::json!({
+            "partner_application_id": application.id.to_string(),
+            "applicant_user_id": application.applicant_user_id.to_string(),
+        });
+        self.sfn_adapter
+            .start_execution(self.state_machine_arn, &sfn_input.to_string())
+            .await?;
+
         info!(
             partnerShopApplicationId = %application.id,
             userId = %application.applicant_user_id,
-            "PartnerShopApplication created."
+            "PartnerShopApplication created and step function started."
         );
 
         Ok(application)
@@ -313,6 +331,50 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
 
         let user_id = existing_record.applicant_user_id;
 
+        // Check if this is a state change that should go through the step function
+        if let Some(new_state) = &update.state {
+            use crate::core::partner_shop_application_state::PartnerShopApplicationState;
+            if matches!(
+                new_state,
+                PartnerShopApplicationState::Approved
+                    | PartnerShopApplicationState::Rejected
+            ) {
+                let current_state: PartnerShopApplicationState =
+                    existing_record.state.clone().into();
+                if current_state != PartnerShopApplicationState::InReview {
+                    return Err(PartnerShopApplicationError::NotInReviewState(*id));
+                }
+
+                let task_token = existing_record
+                    .task_token
+                    .clone()
+                    .ok_or(PartnerShopApplicationError::MissingTaskToken(*id))?;
+
+                let decision = match new_state {
+                    PartnerShopApplicationState::Approved => "APPROVED",
+                    PartnerShopApplicationState::Rejected => "REJECTED",
+                    _ => unreachable!(),
+                };
+
+                let output = serde_json::json!({
+                    "decision": decision,
+                    "partner_application_id": id.to_string(),
+                    "applicant_user_id": user_id.to_string(),
+                });
+                self.sfn_adapter
+                    .send_task_success(&task_token, &output.to_string())
+                    .await?;
+
+                info!(
+                    partnerShopApplicationId = %id,
+                    decision = decision,
+                    "Step function resumed with decision."
+                );
+
+                return Ok(existing_record.try_into()?);
+            }
+        }
+
         let record_update = PartnerShopApplicationRecordUpdate {
             state: update.state.map(Into::into),
             shop_name: update.shop_name,
@@ -379,10 +441,11 @@ mod tests {
     use common::{shop_id::ShopId, user_id::UserId};
     use fake::{Fake, Faker};
 
-    fn make_service(
-        repository: &MockPartnerShopApplicationDynamoDbRepository,
-    ) -> PartnerShopApplicationServiceImpl<'_> {
-        PartnerShopApplicationServiceImpl::new(repository)
+    fn make_service<'a>(
+        repository: &'a MockPartnerShopApplicationDynamoDbRepository,
+        sfn_adapter: &'a crate::service::sfn_adapter::MockSfnAdapter,
+    ) -> PartnerShopApplicationServiceImpl<'a> {
+        PartnerShopApplicationServiceImpl::new(repository, sfn_adapter, "arn:aws:states:us-east-1:123456789:stateMachine:test")
     }
 
     mod create {
@@ -395,7 +458,11 @@ mod tests {
                 .expect_put_partner_shop_application_record()
                 .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
 
-            let service = make_service(&repository);
+            let mut sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            sfn_adapter
+                .expect_start_execution()
+                .return_once(|_, _| Box::pin(async { Ok("execution-arn".to_string()) }));
+            let service = make_service(&repository, &sfn_adapter);
             let cmd = CreatePartnerShopApplicationCommand {
                 applicant_user_id: UserId::new(),
                 payload: PartnerShopApplicationPayload::Existing(ShopId::new()),
@@ -436,7 +503,8 @@ mod tests {
                 .expect_put_partner_shop_application_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
 
-            let service = make_service(&repository);
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = make_service(&repository, &sfn_adapter);
             let cmd: CreatePartnerShopApplicationCommand = Faker.fake();
             let actual = service.create_partner_shop_application(cmd).await;
 
@@ -461,7 +529,8 @@ mod tests {
                 .expect_get_partner_shop_application_record()
                 .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
 
-            let service = make_service(&repository);
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = make_service(&repository, &sfn_adapter);
             let actual = service
                 .find_partner_shop_application(&expected.applicant_user_id, &expected.id)
                 .await
@@ -479,7 +548,8 @@ mod tests {
                 .expect_get_partner_shop_application_record()
                 .return_once(|_, _| Box::pin(async { Ok(None) }));
 
-            let service = make_service(&repository);
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = make_service(&repository, &sfn_adapter);
             let user_id = UserId::new();
             let id = PartnerShopApplicationId::new();
             let actual = service
@@ -521,7 +591,8 @@ mod tests {
                 .expect_get_partner_shop_application_record()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
 
-            let service = make_service(&repository);
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = make_service(&repository, &sfn_adapter);
             let actual = service
                 .find_partner_shop_application(&UserId::new(), &PartnerShopApplicationId::new())
                 .await;
@@ -547,7 +618,8 @@ mod tests {
                 .expect_get_partner_shop_application_record()
                 .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
 
-            let service = make_service(&repository);
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = make_service(&repository, &sfn_adapter);
             let actual = service
                 .update_partner_shop_application(
                     &expected.applicant_user_id,
@@ -578,7 +650,8 @@ mod tests {
                 .expect_update_partner_shop_application_record()
                 .return_once(move |_, _, _| Box::pin(async move { Ok(Some(updated_record)) }));
 
-            let service = make_service(&repository);
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = make_service(&repository, &sfn_adapter);
             let actual = service
                 .update_partner_shop_application(
                     &expected.applicant_user_id,
@@ -601,7 +674,8 @@ mod tests {
                 .expect_get_partner_shop_application_record()
                 .return_once(|_, _| Box::pin(async { Ok(None) }));
 
-            let service = make_service(&repository);
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = make_service(&repository, &sfn_adapter);
             let user_id = UserId::new();
             let id = PartnerShopApplicationId::new();
             let actual = service
@@ -643,7 +717,8 @@ mod tests {
                 .expect_delete_partner_shop_application_record()
                 .return_once(|_, _| Box::pin(async { Ok(DeleteItemOutput::builder().build()) }));
 
-            let service = make_service(&repository);
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = make_service(&repository, &sfn_adapter);
             let actual = service
                 .delete_partner_shop_application(&expected.applicant_user_id, &expected.id)
                 .await;
@@ -658,7 +733,8 @@ mod tests {
                 .expect_get_partner_shop_application_record()
                 .return_once(|_, _| Box::pin(async { Ok(None) }));
 
-            let service = make_service(&repository);
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = make_service(&repository, &sfn_adapter);
             let user_id = UserId::new();
             let id = PartnerShopApplicationId::new();
             let actual = service
@@ -706,7 +782,8 @@ mod tests {
                 .expect_delete_partner_shop_application_record()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
 
-            let service = make_service(&repository);
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = make_service(&repository, &sfn_adapter);
             let actual = service
                 .delete_partner_shop_application(&existing.applicant_user_id, &existing.id)
                 .await;
@@ -736,7 +813,8 @@ mod tests {
                 .expect_query_all_partner_shop_application_records()
                 .return_once(move || Box::pin(async move { Ok(records) }));
 
-            let service = make_service(&repository);
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = make_service(&repository, &sfn_adapter);
             let actual = service.find_all_partner_shop_applications().await.unwrap();
 
             assert_eq!(3, actual.len());
@@ -749,7 +827,8 @@ mod tests {
                 .expect_query_all_partner_shop_application_records()
                 .return_once(|| Box::pin(async { Ok(vec![]) }));
 
-            let service = make_service(&repository);
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = make_service(&repository, &sfn_adapter);
             let actual = service.find_all_partner_shop_applications().await.unwrap();
 
             assert!(actual.is_empty());
@@ -780,7 +859,8 @@ mod tests {
                 .expect_query_all_partner_shop_application_records()
                 .return_once(|| Box::pin(async { Err(expected) }));
 
-            let service = make_service(&repository);
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = make_service(&repository, &sfn_adapter);
             let actual = service.find_all_partner_shop_applications().await;
 
             assert!(actual.is_err());
@@ -809,7 +889,8 @@ mod tests {
                 .expect_query_all_partner_shop_application_records_by_user()
                 .return_once(move |_| Box::pin(async move { Ok(records) }));
 
-            let service = make_service(&repository);
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = make_service(&repository, &sfn_adapter);
             let actual = service
                 .find_all_partner_shop_applications_by_user(&user_id)
                 .await
@@ -825,7 +906,8 @@ mod tests {
                 .expect_query_all_partner_shop_application_records_by_user()
                 .return_once(|_| Box::pin(async { Ok(vec![]) }));
 
-            let service = make_service(&repository);
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = make_service(&repository, &sfn_adapter);
             let actual = service
                 .find_all_partner_shop_applications_by_user(&UserId::new())
                 .await
@@ -859,7 +941,8 @@ mod tests {
                 .expect_query_all_partner_shop_application_records_by_user()
                 .return_once(|_| Box::pin(async { Err(expected) }));
 
-            let service = make_service(&repository);
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = make_service(&repository, &sfn_adapter);
             let actual = service
                 .find_all_partner_shop_applications_by_user(&UserId::new())
                 .await;
