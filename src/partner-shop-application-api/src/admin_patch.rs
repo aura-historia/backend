@@ -10,7 +10,6 @@ use partner_shop_application::data::get_partner_shop_application_data::GetPartne
 use partner_shop_application::service::partner_shop_application_service::PartnerShopApplicationService;
 use user::service::user_service::UserService;
 
-use crate::admin_auth::check_admin;
 use crate::path::extract_partner_application_id_path;
 
 pub async fn handle(
@@ -21,7 +20,7 @@ pub async fn handle(
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
 
-    check_admin(&user_id, user_service).await?;
+    user_service.check_admin(&user_id).await?;
 
     let application_id = extract_partner_application_id_path(&event.payload.path_parameters)?;
 

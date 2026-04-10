@@ -7,7 +7,6 @@ use lambda_runtime::LambdaEvent;
 use partner_shop_application::service::partner_shop_application_service::PartnerShopApplicationService;
 use user::service::user_service::UserService;
 
-mod admin_auth;
 mod admin_get_all;
 mod admin_get_one;
 mod admin_patch;
