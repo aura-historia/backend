@@ -34,6 +34,7 @@ mod tests {
         },
     };
     use test_api::ApiGatewayV2httpRequestProxy;
+    use user::service::user_service::MockUserService;
 
     #[tokio::test]
     async fn should_204_when_delete_succeeds() {
@@ -41,6 +42,7 @@ mod tests {
         service
             .expect_delete_partner_shop_application()
             .return_once(move |_, _| Box::pin(async move { Ok(()) }));
+        let user_service = MockUserService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::DELETE)
@@ -51,13 +53,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &service).await.unwrap();
+        let response = handle(lambda_event, &service, &user_service).await.unwrap();
         assert_eq!(204, response.status_code);
     }
 
     #[tokio::test]
     async fn should_401_when_jwt_claim_sub_is_missing() {
         let service = MockPartnerShopApplicationService::default();
+        let user_service = MockUserService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::DELETE)
@@ -67,13 +70,16 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &service).await.unwrap_err();
+        let response = handle(lambda_event, &service, &user_service)
+            .await
+            .unwrap_err();
         assert_eq!(401, response.status);
     }
 
     #[tokio::test]
     async fn should_400_when_path_param_partner_application_id_missing() {
         let service = MockPartnerShopApplicationService::default();
+        let user_service = MockUserService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::DELETE)
@@ -83,7 +89,9 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &service).await.unwrap_err();
+        let response = handle(lambda_event, &service, &user_service)
+            .await
+            .unwrap_err();
         assert_eq!(400, response.status);
     }
 
@@ -97,6 +105,7 @@ mod tests {
                 let id = *id;
                 Box::pin(async move { Err(PartnerShopApplicationError::NotFound(user_id, id)) })
             });
+        let user_service = MockUserService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::DELETE)
@@ -107,7 +116,9 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &service).await.unwrap_err();
+        let response = handle(lambda_event, &service, &user_service)
+            .await
+            .unwrap_err();
         assert_eq!(404, response.status);
     }
 }

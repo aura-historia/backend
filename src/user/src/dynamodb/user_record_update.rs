@@ -1,6 +1,6 @@
 use crate::{
     core::{first_name::FirstName, last_name::LastName},
-    dynamodb::tier_record::UserTierRecord,
+    dynamodb::{role_record::UserRoleRecord, tier_record::UserTierRecord},
 };
 use common::{
     currency::record::CurrencyRecord, dynamodb_update::DynamoDbUpdate,
@@ -30,6 +30,9 @@ pub struct UserRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tier: Option<UserTierRecord>,
 
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<UserRoleRecord>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -54,6 +57,7 @@ mod fake {
                 currency: config.fake_with_rng(rng),
                 prohibited_content_consent: config.fake_with_rng(rng),
                 tier: config.fake_with_rng(rng),
+                role: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),
             }
         }

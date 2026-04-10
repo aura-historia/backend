@@ -5,6 +5,8 @@ use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use partner_shop_application::dynamodb::repository::PartnerShopApplicationDynamoDbRepositoryImpl;
 use partner_shop_application::service::partner_shop_application_service::PartnerShopApplicationServiceImpl;
 use partner_shop_application_api::handler;
+use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
+use user::service::user_service::UserServiceImpl;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -23,10 +25,15 @@ async fn main() -> Result<(), Error> {
         PartnerShopApplicationDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let service = PartnerShopApplicationServiceImpl::new(&repository);
 
+    let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
+    let user_service = UserServiceImpl::new(&user_repository);
+
     debug!("Lambda initialized.");
 
     run(service_fn(
-        |event: LambdaEvent<ApiGatewayV2httpRequest>| async { handler(event, &service).await },
+        |event: LambdaEvent<ApiGatewayV2httpRequest>| async {
+            handler(event, &service, &user_service).await
+        },
     ))
     .await
 }

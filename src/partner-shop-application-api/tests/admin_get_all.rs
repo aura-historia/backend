@@ -1,3 +1,4 @@
+use common::user_id::UserId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use partner_shop_application::{
@@ -9,41 +10,39 @@ use partner_shop_application::{
 };
 use partner_shop_application_api::handler;
 use test_api::*;
+use user::core::role::UserRole;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
-use user::service::user_service::UserServiceImpl;
+use user::service::command::CreateUserCommand;
+use user::service::user_service::{UserService, UserServiceImpl};
 
-#[localstack_test(services = [DynamoDB()])]
-async fn should_200_respond_empty_list_when_no_applications_exist() {
-    let repository =
-        PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = PartnerShopApplicationServiceImpl::new(&repository);
-    let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let user_service = UserServiceImpl::new(&user_repository);
-
-    let lambda_event = LambdaEvent {
-        payload: ApiGatewayV2httpRequestProxy::builder()
-            .http_method(http::Method::GET)
-            .route_key("GET /api/v1/me/partner-applications")
-            .jwt_claim("sub", common::user_id::UserId::new())
-            .build(),
-        context: Default::default(),
+async fn create_admin_user(user_service: &impl UserService) -> UserId {
+    let user_id = UserId::new();
+    let cmd = CreateUserCommand {
+        id: user_id,
+        email: format!("admin-{}@test.com", user_id).try_into().unwrap(),
     };
-    let response = handler(lambda_event, &service, &user_service)
+    user_service.create_user(cmd).await.unwrap();
+
+    let update_cmd = user::service::command::UpdateUserCommand {
+        role: Some(UserRole::Admin),
+        ..Default::default()
+    };
+    user_service
+        .update_user(&user_id, update_cmd)
         .await
         .unwrap();
-    let actual: Vec<GetPartnerShopApplicationData> =
-        serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
-
-    assert!(actual.is_empty());
+    user_id
 }
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_200_respond_applications_when_they_exist() {
+async fn should_200_respond_all_applications_for_admin() {
     let repository =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = PartnerShopApplicationServiceImpl::new(&repository);
     let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
+
+    let admin_user_id = create_admin_user(&user_service).await;
 
     let application = service
         .create_partner_shop_application(Faker.fake())
@@ -53,17 +52,47 @@ async fn should_200_respond_applications_when_they_exist() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
-            .route_key("GET /api/v1/me/partner-applications")
-            .jwt_claim("sub", application.applicant_user_id)
+            .route_key("GET /api/v1/partner-applications")
+            .jwt_claim("sub", admin_user_id)
             .build(),
         context: Default::default(),
     };
     let response = handler(lambda_event, &service, &user_service)
         .await
         .unwrap();
+    assert_eq!(200, response.status_code);
+
     let actual: Vec<GetPartnerShopApplicationData> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
-
     assert_eq!(1, actual.len());
     assert_eq!(application.id, actual[0].id);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_403_respond_when_non_admin_calls_admin_get_all() {
+    let repository =
+        PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let service = PartnerShopApplicationServiceImpl::new(&repository);
+    let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository);
+
+    let user_id = UserId::new();
+    let cmd = CreateUserCommand {
+        id: user_id,
+        email: format!("user-{}@test.com", user_id).try_into().unwrap(),
+    };
+    user_service.create_user(cmd).await.unwrap();
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/partner-applications")
+            .jwt_claim("sub", user_id)
+            .build(),
+        context: Default::default(),
+    };
+    let response = handler(lambda_event, &service, &user_service)
+        .await
+        .unwrap();
+    assert_eq!(403, response.status_code);
 }

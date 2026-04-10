@@ -1,6 +1,6 @@
 use crate::{
     core::{first_name::FirstName, last_name::LastName, user::User},
-    dynamodb::tier_record::UserTierRecord,
+    dynamodb::{role_record::UserRoleRecord, tier_record::UserTierRecord},
 };
 use common::{
     currency::{domain::Currency, record::CurrencyRecord},
@@ -36,6 +36,9 @@ pub struct UserRecord {
 
     pub tier: UserTierRecord,
 
+    #[serde(default)]
+    pub role: UserRoleRecord,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -63,6 +66,7 @@ impl From<User> for UserRecord {
             currency: user.currency.map(CurrencyRecord::from),
             prohibited_content_consent: user.prohibited_content_consent,
             tier: UserTierRecord::from(user.tier),
+            role: UserRoleRecord::from(user.role),
             created: user.created,
             updated: user.updated,
         }
@@ -80,6 +84,7 @@ impl From<UserRecord> for User {
             currency: record.currency.map(Currency::from),
             prohibited_content_consent: record.prohibited_content_consent,
             tier: record.tier.into(),
+            role: record.role.into(),
             created: record.created,
             updated: record.updated,
         }
