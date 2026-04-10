@@ -518,6 +518,7 @@ mod tests {
                 currency: None,
                 prohibited_content_consent: None,
                 tier: None,
+                role: None,
             };
             let actual = service.update_user(&user_id, update).await;
 

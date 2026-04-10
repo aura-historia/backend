@@ -27,7 +27,10 @@ async fn create_admin_user(user_service: &impl UserService) -> UserId {
         role: Some(UserRole::Admin),
         ..Default::default()
     };
-    user_service.update_user(&user_id, update_cmd).await.unwrap();
+    user_service
+        .update_user(&user_id, update_cmd)
+        .await
+        .unwrap();
     user_id
 }
 

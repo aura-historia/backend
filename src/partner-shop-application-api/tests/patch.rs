@@ -13,9 +13,9 @@ use partner_shop_application::{
     },
 };
 use partner_shop_application_api::handler;
+use test_api::*;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::UserServiceImpl;
-use test_api::*;
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_when_updating_application() {
@@ -47,7 +47,9 @@ async fn should_200_when_updating_application() {
             .build(),
         context: Default::default(),
     };
-    let response = handler(lambda_event, &service, &user_service).await.unwrap();
+    let response = handler(lambda_event, &service, &user_service)
+        .await
+        .unwrap();
     assert_eq!(200, response.status_code);
 
     let actual: GetPartnerShopApplicationData =

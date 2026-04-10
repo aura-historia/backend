@@ -1041,6 +1041,7 @@ mod tests {
             currency: Some(Currency::Eur),
             prohibited_content_consent: false,
             tier: user::core::tier::UserTier::Free,
+            role: user::core::role::UserRole::User,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -2004,6 +2005,7 @@ mod tests {
                 currency: None,
                 prohibited_content_consent: false,
                 tier: user::core::tier::UserTier::Free,
+                role: user::core::role::UserRole::User,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };

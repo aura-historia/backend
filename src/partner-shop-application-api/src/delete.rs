@@ -70,7 +70,9 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &service, &user_service).await.unwrap_err();
+        let response = handle(lambda_event, &service, &user_service)
+            .await
+            .unwrap_err();
         assert_eq!(401, response.status);
     }
 
@@ -87,7 +89,9 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &service, &user_service).await.unwrap_err();
+        let response = handle(lambda_event, &service, &user_service)
+            .await
+            .unwrap_err();
         assert_eq!(400, response.status);
     }
 
@@ -112,7 +116,9 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &service, &user_service).await.unwrap_err();
+        let response = handle(lambda_event, &service, &user_service)
+            .await
+            .unwrap_err();
         assert_eq!(404, response.status);
     }
 }
