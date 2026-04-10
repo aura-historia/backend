@@ -26,6 +26,7 @@ use notification::{
 use notification_api::notification_get::EventIdCursoredData;
 use opensearch::GetParts;
 use partner_shop_application::data::{
+    admin_patch_partner_shop_application_data::AdminPatchPartnerShopApplicationData,
     get_partner_shop_application_data::GetPartnerShopApplicationData,
     partner_shop_application_state_data::PartnerShopApplicationStateData,
     patch_partner_shop_application_data::PatchPartnerShopApplicationData,
@@ -97,6 +98,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 use test_api::*;
 use time::OffsetDateTime;
+use user::core::role::UserRole;
 use user::core::tier::UserTier;
 use user::dynamodb::tier_record::UserTierRecord;
 use user::service::command::UpdateUserCommand;
@@ -4976,6 +4978,174 @@ async fn should_respond_204_for_partner_application_delete() {
         .await
         .unwrap();
     assert_eq!(404, get_response.status());
+}
+
+// ---------------------------------------------------------------------------
+// API: Admin Partner Shop Application
+// Verifies API Gateway routing and Lambda execution for the admin partner shop
+// application endpoints with Cognito JWT authentication and admin role check.
+// ---------------------------------------------------------------------------
+
+async fn create_admin_test_user() -> TestUser {
+    let user = create_random_test_user().await;
+    let cfn = get_cfn_output();
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &cfn.dynamodb_table_1_name);
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let update_cmd = UpdateUserCommand {
+        role: Some(UserRole::Admin),
+        ..Default::default()
+    };
+    user_service
+        .update_user(&user.sub.into(), update_cmd)
+        .await
+        .unwrap();
+    user
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_admin_partner_application_get_all() {
+    let admin = create_admin_test_user().await;
+    let user = create_random_test_user().await;
+
+    // Create an application as a normal user
+    let user_url = format!(
+        "{}/api/v1/me/partner-applications",
+        get_cfn_output().api_gateway_endpoint_url,
+    );
+    let post_data = PostPartnerShopApplicationPayloadData::Existing {
+        shop_id: Faker.fake(),
+    };
+    let create_response = reqwest::Client::new()
+        .post(&user_url)
+        .bearer_auth(&user.access_token)
+        .json(&post_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(201, create_response.status());
+
+    // Admin GET all
+    let admin_url = format!(
+        "{}/api/v1/partner-applications",
+        get_cfn_output().api_gateway_endpoint_url,
+    );
+    let response = reqwest::Client::new()
+        .get(&admin_url)
+        .bearer_auth(&admin.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let actual = response
+        .json::<Vec<GetPartnerShopApplicationData>>()
+        .await
+        .unwrap();
+    assert!(!actual.is_empty());
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_admin_partner_application_get_one() {
+    let admin = create_admin_test_user().await;
+    let user = create_random_test_user().await;
+
+    // Create an application as a normal user
+    let user_url = format!(
+        "{}/api/v1/me/partner-applications",
+        get_cfn_output().api_gateway_endpoint_url,
+    );
+    let post_data = PostPartnerShopApplicationPayloadData::Existing {
+        shop_id: Faker.fake(),
+    };
+    let create_response = reqwest::Client::new()
+        .post(&user_url)
+        .bearer_auth(&user.access_token)
+        .json(&post_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(201, create_response.status());
+    let created = create_response
+        .json::<GetPartnerShopApplicationData>()
+        .await
+        .unwrap();
+
+    // Admin GET one
+    let admin_url = format!(
+        "{}/api/v1/partner-applications/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        created.id,
+    );
+    let response = reqwest::Client::new()
+        .get(&admin_url)
+        .bearer_auth(&admin.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let actual = response
+        .json::<GetPartnerShopApplicationData>()
+        .await
+        .unwrap();
+    assert_eq!(created.id, actual.id);
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_admin_partner_application_patch() {
+    let admin = create_admin_test_user().await;
+    let user = create_random_test_user().await;
+
+    // Create an application as a normal user
+    let user_url = format!(
+        "{}/api/v1/me/partner-applications",
+        get_cfn_output().api_gateway_endpoint_url,
+    );
+    let post_data = PostPartnerShopApplicationPayloadData::Existing {
+        shop_id: Faker.fake(),
+    };
+    let create_response = reqwest::Client::new()
+        .post(&user_url)
+        .bearer_auth(&user.access_token)
+        .json(&post_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(201, create_response.status());
+    let created = create_response
+        .json::<GetPartnerShopApplicationData>()
+        .await
+        .unwrap();
+
+    // Admin PATCH
+    let admin_url = format!(
+        "{}/api/v1/partner-applications/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        created.id,
+    );
+    let patch_data = AdminPatchPartnerShopApplicationData {
+        state: Some(PartnerShopApplicationStateData::Approved),
+        shop_name: None,
+        shop_type: None,
+        shop_domains: None,
+        shop_image: None,
+    };
+    let response = reqwest::Client::new()
+        .patch(&admin_url)
+        .bearer_auth(&admin.access_token)
+        .json(&patch_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let patched = response
+        .json::<GetPartnerShopApplicationData>()
+        .await
+        .unwrap();
+    assert_eq!(created.id, patched.id);
+    assert_eq!(PartnerShopApplicationStateData::Approved, patched.state);
 }
 
 // ---------------------------------------------------------------------------

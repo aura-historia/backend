@@ -2,6 +2,7 @@ use crate::core::role::UserRole;
 use crate::core::tier::UserTier;
 use crate::core::user::User;
 use crate::dynamodb::repository::UserDynamoDbRepository;
+use crate::dynamodb::role_record::UserRoleRecord;
 use crate::dynamodb::tier_record::UserTierRecord;
 use crate::dynamodb::user_record_update::UserRecordUpdate;
 use crate::service::cognito_admin_service::{CognitoAdminError, CognitoAdminService};
@@ -168,6 +169,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                 currency: cmd.currency.map(CurrencyRecord::from),
                 prohibited_content_consent: cmd.prohibited_content_consent,
                 tier: cmd.tier.map(UserTierRecord::from),
+                role: cmd.role.map(UserRoleRecord::from),
                 updated: OffsetDateTime::now_utc(),
             };
             let user = self.repository

@@ -1,4 +1,4 @@
-use crate::core::{first_name::FirstName, last_name::LastName, tier::UserTier};
+use crate::core::{first_name::FirstName, last_name::LastName, role::UserRole, tier::UserTier};
 use common::{currency::domain::Currency, language::domain::Language, user_id::UserId};
 use serde_email::Email;
 
@@ -16,6 +16,7 @@ pub struct UpdateUserCommand {
     pub currency: Option<Currency>,
     pub prohibited_content_consent: Option<bool>,
     pub tier: Option<UserTier>,
+    pub role: Option<UserRole>,
 }
 
 impl UpdateUserCommand {
@@ -26,6 +27,7 @@ impl UpdateUserCommand {
             && self.currency.is_none()
             && self.prohibited_content_consent.is_none()
             && self.tier.is_none()
+            && self.role.is_none()
     }
 }
 
@@ -59,6 +61,7 @@ mod fake {
                 currency: config.fake_with_rng(rng),
                 prohibited_content_consent: config.fake_with_rng(rng),
                 tier: config.fake_with_rng(rng),
+                role: config.fake_with_rng(rng),
             }
         }
     }
