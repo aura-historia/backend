@@ -18,18 +18,13 @@
 
     <mj-body background-color="#F8F4EE" width="600px">
 
-        <!-- Header / Brand -->
-        <mj-section background-color="#2A261F" padding="24px 32px">
-            <mj-column>
-                <mj-text font-family="'Cormorant Garamond', Georgia, serif" font-size="26px" font-weight="700" color="#F8F4EE" align="center" letter-spacing="2px" padding="0">
-                    Aura Historia
-                </mj-text>
-            </mj-column>
+        <!-- Header -->
+        <mj-section padding="32px 24px 20px">
         </mj-section>
 
-        <mj-section padding="0">
+        <mj-section padding="0 24px">
             <mj-column>
-                <mj-divider border-color="#A67C52" border-width="3px" padding="0" />
+                <mj-divider border-color="#A67C52" border-width="2px" padding="0" />
             </mj-column>
         </mj-section>
 
@@ -65,33 +60,31 @@
                 </mj-button>
             </mj-column>
             <mj-column>
-                <mj-button href="https://aura-historia.com/shops/{{shop_slug_id}}" background-color="transparent" color="#A67C52" inner-padding="10px 30px" border="1.5px solid #A67C52" align="center">
+                <mj-button href="https://aura-historia.com/shops/{{shop_slug_id}}" background-color="#EDEDED" color="#4A4338" border="1px solid #CFCFCF" align="center">
                     Visit Shop
                 </mj-button>
             </mj-column>
         </mj-section>
 
-        <!-- Brand tagline -->
-        <mj-section padding="24px 24px 0">
+        <!-- Banner -->
+        <mj-section padding="24px 0 0">
             <mj-column>
-                <mj-text font-family="'Cormorant Garamond', Georgia, serif" font-size="13px" color="#7D7567" align="center" letter-spacing="2px" padding="0">
-                    DISCOVER · COLLECT · TREASURE
-                </mj-text>
+                <mj-image src="https://assets.aura-historia.com/branding/banner_twitter_slogan.png" alt="Aura Historia" width="600px" border-radius="8px" />
             </mj-column>
         </mj-section>
 
         <!-- Footer -->
-        <mj-section padding="12px 24px 0">
-            <mj-column>
-                <mj-divider />
-            </mj-column>
-        </mj-section>
-
-        <mj-section padding="16px 24px 0">
+        <mj-section padding="24px 24px 0">
             <mj-column>
                 <mj-text color="#7D7567" font-size="13px" line-height="1.5" align="center">
                     You are receiving this email because this product matches your search filter <a href="https://aura-historia.com/search-filters/{{search_filter_id}}" style="color:#A67C52;">"{{search_filter_name}}"</a>.
                 </mj-text>
+            </mj-column>
+        </mj-section>
+
+        <mj-section padding="8px 24px 0">
+            <mj-column>
+                <mj-divider />
             </mj-column>
         </mj-section>
 
