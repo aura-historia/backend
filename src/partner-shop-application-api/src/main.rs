@@ -4,6 +4,7 @@ use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use partner_shop_application::dynamodb::repository::PartnerShopApplicationDynamoDbRepositoryImpl;
 use partner_shop_application::service::partner_shop_application_service::PartnerShopApplicationServiceImpl;
+use partner_shop_application::service::sfn_adapter::SfnAdapterImpl;
 use partner_shop_application_api::handler;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::UserServiceImpl;
@@ -18,12 +19,16 @@ async fn main() -> Result<(), Error> {
 
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")
         .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
+    let state_machine_arn = std::env::var("STATE_MACHINE_ARN")
+        .expect("shouldn't fail loading env-var 'STATE_MACHINE_ARN'");
 
     let dynamodb_client = aws_sdk_dynamodb::Client::new(&aws_config);
+    let sfn_client = aws_sdk_sfn::Client::new(&aws_config);
 
     let repository =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
-    let service = PartnerShopApplicationServiceImpl::new(&repository);
+    let sfn_adapter = SfnAdapterImpl::new(&sfn_client);
+    let service = PartnerShopApplicationServiceImpl::new(&repository, &sfn_adapter, &state_machine_arn);
 
     let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let user_service = UserServiceImpl::new(&user_repository);
