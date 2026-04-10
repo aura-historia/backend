@@ -9,6 +9,8 @@ use partner_shop_application::{
     },
 };
 use partner_shop_application_api::handler;
+use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
+use user::service::user_service::UserServiceImpl;
 use test_api::*;
 
 #[localstack_test(services = [DynamoDB()])]
@@ -16,6 +18,8 @@ async fn should_204_when_deleting_existing_application() {
     let repository =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = PartnerShopApplicationServiceImpl::new(&repository);
+    let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository);
 
     let application = service
         .create_partner_shop_application(Faker.fake())
@@ -31,7 +35,7 @@ async fn should_204_when_deleting_existing_application() {
             .build(),
         context: Default::default(),
     };
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handler(lambda_event, &service, &user_service).await.unwrap();
     assert_eq!(204, response.status_code);
 
     let deleted = repository

@@ -5,7 +5,12 @@ use common::api::{
 };
 use lambda_runtime::LambdaEvent;
 use partner_shop_application::service::partner_shop_application_service::PartnerShopApplicationService;
+use user::service::user_service::UserService;
 
+mod admin_auth;
+mod admin_get_all;
+mod admin_get_one;
+mod admin_patch;
 mod delete;
 mod get_all;
 mod get_one;
@@ -15,7 +20,7 @@ mod post;
 mod path;
 
 #[tracing::instrument(
-    skip(event, service),
+    skip(event, service, user_service),
     fields(
         requestId = %event.context.request_id,
         method = event.payload.request_context.http.method.as_str(),
@@ -29,9 +34,10 @@ mod path;
 )]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl PartnerShopApplicationService,
+    service: &(impl PartnerShopApplicationService + Sync),
+    user_service: &(impl UserService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(event, service).await {
+    match handle(event, service, user_service).await {
         Ok(response) => Ok(response),
         Err(err) => {
             log_api_error(&err);
@@ -42,7 +48,8 @@ pub async fn handler(
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl PartnerShopApplicationService,
+    service: &(impl PartnerShopApplicationService + Sync),
+    user_service: &(impl UserService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
         Some("GET /api/v1/me/partner-applications") => get_all::handle(event, service).await,
@@ -55,6 +62,15 @@ pub async fn handle(
         }
         Some("DELETE /api/v1/me/partner-applications/{partnerApplicationId}") => {
             delete::handle(event, service).await
+        }
+        Some("GET /api/v1/partner-applications") => {
+            admin_get_all::handle(event, service, user_service).await
+        }
+        Some("GET /api/v1/partner-applications/{partnerApplicationId}") => {
+            admin_get_one::handle(event, service, user_service).await
+        }
+        Some("PATCH /api/v1/partner-applications/{partnerApplicationId}") => {
+            admin_patch::handle(event, service, user_service).await
         }
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,

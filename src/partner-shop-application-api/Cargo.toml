@@ -7,6 +7,7 @@ edition = "2024"
 common = { workspace = true, features = ["api"] }
 partner-shop-application = { workspace = true, features = ["data", "service"] }
 shop = { workspace = true, features = ["data"] }
+user = { workspace = true, features = ["data", "service"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 aws-config = { workspace = true }
@@ -22,6 +23,7 @@ time = { workspace = true }
 [dev-dependencies]
 partner-shop-application = { workspace = true, features = ["test-data"] }
 common = { workspace = true, features = ["test-data"] }
+user = { workspace = true, features = ["test-data"] }
 test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
 serial_test = { workspace = true }
 fake = { workspace = true }
