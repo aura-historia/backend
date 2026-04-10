@@ -70,6 +70,7 @@ fn should_update_partner_shop_application_record_state() {
                 shop_type: None,
                 shop_domains: None,
                 shop_image: None,
+                task_token: None,
                 updated: updated_time,
             },
         )

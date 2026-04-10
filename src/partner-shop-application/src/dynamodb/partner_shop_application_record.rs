@@ -42,6 +42,9 @@ pub struct PartnerShopApplicationRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shop_image: Option<Url>,
 
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub task_token: Option<String>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -100,6 +103,7 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
             shop_type,
             shop_domains,
             shop_image,
+            task_token: None,
             created: application.created,
             updated: application.updated,
         }

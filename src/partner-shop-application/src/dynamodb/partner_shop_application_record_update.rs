@@ -24,6 +24,9 @@ pub struct PartnerShopApplicationRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_image: Option<Url>,
 
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_token: Option<String>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -43,6 +46,7 @@ mod tests {
             shop_type: None,
             shop_domains: None,
             shop_image: None,
+            task_token: None,
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -60,6 +64,7 @@ mod tests {
             shop_type: None,
             shop_domains: None,
             shop_image: None,
+            task_token: None,
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -77,6 +82,7 @@ mod tests {
             shop_type: None,
             shop_domains: None,
             shop_image: None,
+            task_token: None,
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -94,6 +100,7 @@ mod tests {
             shop_type: Some(ShopTypeRecord::Marketplace),
             shop_domains: Some(HashSet::new()),
             shop_image: Some(Url::parse("https://example.com/image.png").unwrap()),
+            task_token: None,
             updated: OffsetDateTime::now_utc(),
         };
 
