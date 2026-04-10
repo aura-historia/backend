@@ -222,7 +222,7 @@ impl<'a> PartnerShopApplicationDynamoDbRepository
         &self,
         id: &PartnerShopApplicationId,
     ) -> Result<Option<PartnerShopApplicationRecord>, SdkError<QueryError>> {
-        let records: Vec<PartnerShopApplicationRecord> = self
+        let record = self
             .client
             .query()
             .table_name(&self.table)
@@ -235,12 +235,14 @@ impl<'a> PartnerShopApplicationDynamoDbRepository
                 AttributeValue::S(mk_gsi1_pk().to_string()),
             )
             .expression_attribute_values(":gsi1_sk_val", AttributeValue::S(mk_gsi1_sk(id)))
+            .limit(1)
             .send()
             .await?
             .items
             .unwrap_or_default()
             .into_iter()
-            .filter_map(|item| {
+            .next()
+            .and_then(|item| {
                 match serde_dynamo::from_item::<_, PartnerShopApplicationRecord>(item) {
                     Ok(record) => Some(record),
                     Err(err) => {
@@ -253,10 +255,9 @@ impl<'a> PartnerShopApplicationDynamoDbRepository
                         None
                     }
                 }
-            })
-            .collect();
+            });
 
-        Ok(records.into_iter().next())
+        Ok(record)
     }
 
     async fn query_all_partner_shop_application_records_by_user(
