@@ -49,6 +49,15 @@ pub enum PartnerShopApplicationError {
 
     #[error("Missing persistence field: {0}")]
     MissingPersistenceField(#[from] common::error::missing_field::MissingPersistenceField),
+
+    #[error("SFN adapter error: {0}")]
+    SfnAdapterError(#[from] crate::service::sfn_adapter::SfnAdapterError),
+
+    #[error("Application not in review state - cannot resume step function for id '{0}'.")]
+    NotInReviewState(PartnerShopApplicationId),
+
+    #[error("Missing task token for application '{0}'.")]
+    MissingTaskToken(PartnerShopApplicationId),
 }
 
 #[cfg(feature = "data")]
@@ -72,6 +81,15 @@ pub mod api {
                 PartnerShopApplicationError::SdkUpdateItemError(sdk_error) => sdk_error.into(),
                 PartnerShopApplicationError::SdkDeleteItemError(sdk_error) => sdk_error.into(),
                 PartnerShopApplicationError::MissingPersistenceField(_) => {
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
+                }
+                PartnerShopApplicationError::SfnAdapterError(_) => {
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
+                }
+                PartnerShopApplicationError::NotInReviewState(_) => {
+                    ApiError::conflict("PARTNER_SHOP_APPLICATION_NOT_IN_REVIEW", Box::new(err))
+                }
+                PartnerShopApplicationError::MissingTaskToken(_) => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
             }
