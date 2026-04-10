@@ -1,4 +1,4 @@
-use crate::core::{first_name::FirstName, last_name::LastName, tier::UserTier};
+use crate::core::{first_name::FirstName, last_name::LastName, role::UserRole, tier::UserTier};
 use common::{currency::domain::Currency, language::domain::Language, user_id::UserId};
 use serde_email::Email;
 use time::OffsetDateTime;
@@ -13,6 +13,7 @@ pub struct User {
     pub currency: Option<Currency>,
     pub prohibited_content_consent: bool,
     pub tier: UserTier,
+    pub role: UserRole,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -42,6 +43,7 @@ mod fake {
                 currency: config.fake_with_rng(rng),
                 prohibited_content_consent: config.fake_with_rng(rng),
                 tier: crate::core::tier::UserTier::Ultimate,
+                role: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

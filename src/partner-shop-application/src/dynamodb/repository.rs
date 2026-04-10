@@ -1,6 +1,8 @@
 use crate::core::partner_shop_application_id::PartnerShopApplicationId;
 use crate::dynamodb::{
-    partner_shop_application_record::{PartnerShopApplicationRecord, mk_gsi1_pk, mk_pk, mk_sk},
+    partner_shop_application_record::{
+        PartnerShopApplicationRecord, mk_gsi1_pk, mk_gsi1_sk, mk_pk, mk_sk,
+    },
     partner_shop_application_record_update::PartnerShopApplicationRecordUpdate,
 };
 use aws_sdk_dynamodb::{
@@ -48,6 +50,11 @@ pub trait PartnerShopApplicationDynamoDbRepository {
     async fn query_all_partner_shop_application_records(
         &self,
     ) -> Result<Vec<PartnerShopApplicationRecord>, SdkError<QueryError>>;
+
+    async fn query_partner_shop_application_record_by_id(
+        &self,
+        id: &PartnerShopApplicationId,
+    ) -> Result<Option<PartnerShopApplicationRecord>, SdkError<QueryError>>;
 
     async fn query_all_partner_shop_application_records_by_user(
         &self,
@@ -209,6 +216,47 @@ impl<'a> PartnerShopApplicationDynamoDbRepository
             .collect();
 
         Ok(records)
+    }
+
+    async fn query_partner_shop_application_record_by_id(
+        &self,
+        id: &PartnerShopApplicationId,
+    ) -> Result<Option<PartnerShopApplicationRecord>, SdkError<QueryError>> {
+        let records: Vec<PartnerShopApplicationRecord> = self
+            .client
+            .query()
+            .table_name(&self.table)
+            .index_name("gsi1")
+            .key_condition_expression("#gsi1_pk = :gsi1_pk_val AND #gsi1_sk = :gsi1_sk_val")
+            .expression_attribute_names("#gsi1_pk", "gsi1_pk")
+            .expression_attribute_names("#gsi1_sk", "gsi1_sk")
+            .expression_attribute_values(
+                ":gsi1_pk_val",
+                AttributeValue::S(mk_gsi1_pk().to_string()),
+            )
+            .expression_attribute_values(":gsi1_sk_val", AttributeValue::S(mk_gsi1_sk(id)))
+            .send()
+            .await?
+            .items
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|item| {
+                match serde_dynamo::from_item::<_, PartnerShopApplicationRecord>(item) {
+                    Ok(record) => Some(record),
+                    Err(err) => {
+                        error!(
+                            partnerShopApplicationId = %id,
+                            error = %err,
+                            r#type = %std::any::type_name::<PartnerShopApplicationRecord>(),
+                            "Failed deserializing PartnerShopApplicationRecord."
+                        );
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        Ok(records.into_iter().next())
     }
 
     async fn query_all_partner_shop_application_records_by_user(

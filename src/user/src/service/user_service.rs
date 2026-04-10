@@ -1,3 +1,4 @@
+use crate::core::role::UserRole;
 use crate::core::tier::UserTier;
 use crate::core::user::User;
 use crate::dynamodb::repository::UserDynamoDbRepository;
@@ -138,6 +139,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                     currency: None,
                     prohibited_content_consent: false,
                     tier: UserTier::Free,
+                    role: UserRole::User,
                     created: now,
                     updated: now,
                 };

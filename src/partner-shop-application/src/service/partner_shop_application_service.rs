@@ -21,6 +21,9 @@ pub enum PartnerShopApplicationError {
     #[error("There exists no PartnerShopApplication for user '{0}' with id '{1}'.")]
     NotFound(UserId, PartnerShopApplicationId),
 
+    #[error("There exists no PartnerShopApplication with id '{0}'.")]
+    NotFoundById(PartnerShopApplicationId),
+
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
     SdkGetItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
@@ -58,6 +61,9 @@ pub mod api {
         fn from(err: PartnerShopApplicationError) -> Self {
             match err {
                 PartnerShopApplicationError::NotFound(_, _) => {
+                    ApiError::not_found(PARTNER_SHOP_APPLICATION_NOT_FOUND, Box::new(err))
+                }
+                PartnerShopApplicationError::NotFoundById(_) => {
                     ApiError::not_found(PARTNER_SHOP_APPLICATION_NOT_FOUND, Box::new(err))
                 }
                 PartnerShopApplicationError::SdkGetItemError(sdk_error) => sdk_error.into(),
@@ -103,6 +109,17 @@ pub trait PartnerShopApplicationService {
     async fn find_all_partner_shop_applications(
         &self,
     ) -> Result<Vec<PartnerShopApplication>, PartnerShopApplicationError>;
+
+    async fn find_partner_shop_application_by_id(
+        &self,
+        id: &PartnerShopApplicationId,
+    ) -> Result<PartnerShopApplication, PartnerShopApplicationError>;
+
+    async fn update_partner_shop_application_by_id(
+        &self,
+        id: &PartnerShopApplicationId,
+        update: UpdatePartnerShopApplicationCommand,
+    ) -> Result<PartnerShopApplication, PartnerShopApplicationError>;
 
     async fn find_all_partner_shop_applications_by_user(
         &self,
@@ -245,6 +262,64 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
         }
 
         Ok(applications)
+    }
+
+    async fn find_partner_shop_application_by_id(
+        &self,
+        id: &PartnerShopApplicationId,
+    ) -> Result<PartnerShopApplication, PartnerShopApplicationError> {
+        let record = self
+            .repository
+            .query_partner_shop_application_record_by_id(id)
+            .await?
+            .ok_or(PartnerShopApplicationError::NotFoundById(*id))?;
+
+        Ok(record.try_into()?)
+    }
+
+    async fn update_partner_shop_application_by_id(
+        &self,
+        id: &PartnerShopApplicationId,
+        update: UpdatePartnerShopApplicationCommand,
+    ) -> Result<PartnerShopApplication, PartnerShopApplicationError> {
+        let existing_record = self
+            .repository
+            .query_partner_shop_application_record_by_id(id)
+            .await?
+            .ok_or(PartnerShopApplicationError::NotFoundById(*id))?;
+
+        if update.is_empty() {
+            return Ok(existing_record.try_into()?);
+        }
+
+        let user_id = existing_record.applicant_user_id;
+
+        let record_update = PartnerShopApplicationRecordUpdate {
+            state: update.state.map(Into::into),
+            shop_name: update.shop_name,
+            shop_type: update.shop_type.map(Into::into),
+            shop_domains: update.shop_domains,
+            shop_image: update.shop_image,
+            updated: OffsetDateTime::now_utc(),
+        };
+
+        let updated_record = self
+            .repository
+            .update_partner_shop_application_record(&user_id, id, record_update)
+            .await?
+            .ok_or_else(|| {
+                PartnerShopApplicationError::SdkUpdateItemError(SdkError::construction_failure(
+                    "Failed retrieving new PartnerShopApplication on update",
+                ))
+            })?;
+
+        info!(
+            partnerShopApplicationId = %id,
+            userId = %user_id,
+            "PartnerShopApplication updated by admin."
+        );
+
+        Ok(updated_record.try_into()?)
     }
 
     async fn find_all_partner_shop_applications_by_user(
