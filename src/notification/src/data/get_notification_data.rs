@@ -1,7 +1,9 @@
 use crate::core::notification::{
     LocalizedNotification, LocalizedNotificationPayload, LocalizedNotificationWatchlistPayload,
+    NotificationPartnerApplicationPayload,
 };
 use crate::core::notification_id::NotificationId;
+use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::{
     event_id::EventId, language::data::LocalizedTextData, price::data::PriceData,
@@ -60,6 +62,11 @@ pub enum NotificationPayloadData {
         image: Option<ProductImageData>,
         search_filter_payload: SearchFilterPayloadData,
     },
+    #[serde(rename_all = "camelCase")]
+    PartnerApplication {
+        shop_name: ShopName,
+        partner_application_payload: PartnerApplicationPayloadData,
+    },
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -84,6 +91,20 @@ pub enum WatchlistPayloadData {
 pub struct SearchFilterPayloadData {
     pub user_search_filter_id: UserSearchFilterId,
     pub user_search_filter_name: UserSearchFilterName,
+}
+
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PartnerApplicationPayloadData {
+    #[serde(rename_all = "camelCase")]
+    Approved {
+        partner_application_id: PartnerShopApplicationId,
+    },
+    #[serde(rename_all = "camelCase")]
+    Rejected {
+        partner_application_id: PartnerShopApplicationId,
+    },
 }
 
 impl From<LocalizedNotificationWatchlistPayload> for WatchlistPayloadData {
@@ -153,6 +174,24 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
                 search_filter_payload: SearchFilterPayloadData {
                     user_search_filter_id: search_filter_payload.user_search_filter_id,
                     user_search_filter_name: search_filter_payload.user_search_filter_name,
+                },
+            },
+            LocalizedNotificationPayload::PartnerApplication {
+                shop_name,
+                partner_application_payload,
+            } => NotificationPayloadData::PartnerApplication {
+                shop_name,
+                partner_application_payload: match partner_application_payload {
+                    NotificationPartnerApplicationPayload::Approved {
+                        partner_application_id,
+                    } => PartnerApplicationPayloadData::Approved {
+                        partner_application_id,
+                    },
+                    NotificationPartnerApplicationPayload::Rejected {
+                        partner_application_id,
+                    } => PartnerApplicationPayloadData::Rejected {
+                        partner_application_id,
+                    },
                 },
             },
         }

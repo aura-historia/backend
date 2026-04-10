@@ -1,8 +1,8 @@
 use crate::{
     core::{
         notification::{
-            Notification, NotificationPayload, NotificationSearchFilterPayload,
-            NotificationWatchlistPayload,
+            Notification, NotificationPartnerApplicationPayload, NotificationPayload,
+            NotificationSearchFilterPayload, NotificationWatchlistPayload,
         },
         notification_id::NotificationId,
     },
@@ -11,6 +11,7 @@ use crate::{
         notification_type_record::NotificationTypeRecord,
     },
 };
+use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::{
     currency::domain::Currency,
@@ -125,6 +126,10 @@ pub struct NotificationRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub user_search_filter_name: Option<String>,
 
+    // partner-application
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub partner_application_id: Option<PartnerShopApplicationId>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -151,6 +156,12 @@ pub fn mk_lsi1_sk(
         NotificationReasonRecord::WatchlistPriceChanged => format_watchlist(notification_id),
         NotificationReasonRecord::SearchFilterMatch => {
             format!("user#notification#search_filter#{notification_id}")
+        }
+        NotificationReasonRecord::PartnerApplicationApproved => {
+            format!("user#notification#partner_application#{notification_id}")
+        }
+        NotificationReasonRecord::PartnerApplicationRejected => {
+            format!("user#notification#partner_application#{notification_id}")
         }
     }
 }
@@ -312,6 +323,7 @@ impl From<Notification> for NotificationRecord {
                     title_it: title.get(&Language::It).map(|t| String::from(t.clone())),
                     user_search_filter_id: None,
                     user_search_filter_name: None,
+                    partner_application_id: None,
                     new_price_native,
                     new_price_eur,
                     new_price_usd,
@@ -375,6 +387,75 @@ impl From<Notification> for NotificationRecord {
                     user_search_filter_name: Some(String::from(
                         search_filter_payload.user_search_filter_name,
                     )),
+                    partner_application_id: None,
+                    new_price_native: None,
+                    new_price_eur: None,
+                    new_price_usd: None,
+                    new_price_gbp: None,
+                    new_price_aud: None,
+                    new_price_cad: None,
+                    new_price_nzd: None,
+                    old_price_native: None,
+                    old_price_eur: None,
+                    old_price_usd: None,
+                    old_price_gbp: None,
+                    old_price_aud: None,
+                    old_price_cad: None,
+                    old_price_nzd: None,
+                    new_state: None,
+                    old_state: None,
+                    created: notification.created,
+                    updated: notification.updated,
+                    ttl: compute_ttl(&notification.created),
+                }
+            }
+            NotificationPayload::PartnerApplication {
+                shop_name,
+                partner_application_payload,
+            } => {
+                let (notification_reason, partner_application_id) =
+                    match partner_application_payload {
+                        NotificationPartnerApplicationPayload::Approved {
+                            partner_application_id,
+                        } => (
+                            NotificationReasonRecord::PartnerApplicationApproved,
+                            partner_application_id,
+                        ),
+                        NotificationPartnerApplicationPayload::Rejected {
+                            partner_application_id,
+                        } => (
+                            NotificationReasonRecord::PartnerApplicationRejected,
+                            partner_application_id,
+                        ),
+                    };
+                let lsi1_sk = mk_lsi1_sk(&notification.notification_id, &notification_reason);
+                NotificationRecord {
+                    pk: mk_pk(&notification.user_id),
+                    sk: mk_sk(&notification.origin_event_id),
+                    lsi1_sk,
+                    lsi2_sk: None,
+                    user_id: notification.user_id,
+                    origin_event_id: notification.origin_event_id,
+                    notification_id: notification.notification_id,
+                    notification_type: notification.notification_type.map(Into::into),
+                    notification_reason,
+                    seen: notification.seen,
+                    external: notification.external,
+                    image: None,
+                    product_id: None,
+                    product_slug_id: None,
+                    shop_slug_id: None,
+                    shop_id: None,
+                    shops_product_id: None,
+                    shop_name: Some(String::from(shop_name)),
+                    title_de: None,
+                    title_en: None,
+                    title_fr: None,
+                    title_es: None,
+                    title_it: None,
+                    user_search_filter_id: None,
+                    user_search_filter_name: None,
+                    partner_application_id: Some(partner_application_id),
                     new_price_native: None,
                     new_price_eur: None,
                     new_price_usd: None,
@@ -439,120 +520,144 @@ impl TryFrom<NotificationRecord> for Notification {
     type Error = MissingPersistenceField;
 
     fn try_from(record: NotificationRecord) -> Result<Self, Self::Error> {
-        let mut title = HashMap::new();
-        if let Some(t) = record.title_de {
-            title.insert(Language::De, Title::from(t));
-        }
-        if let Some(t) = record.title_en {
-            title.insert(Language::En, Title::from(t));
-        }
-        if let Some(t) = record.title_fr {
-            title.insert(Language::Fr, Title::from(t));
-        }
-        if let Some(t) = record.title_es {
-            title.insert(Language::Es, Title::from(t));
-        }
-        if let Some(t) = record.title_it {
-            title.insert(Language::It, Title::from(t));
-        }
-
-        let product_id = record
-            .product_id
-            .ok_or_else(|| MissingPersistenceField::new(field!(product_id@NotificationRecord)))?;
-        let shop_id = record
-            .shop_id
-            .ok_or_else(|| MissingPersistenceField::new(field!(shop_id@NotificationRecord)))?;
-        let shops_product_id = record.shops_product_id.ok_or_else(|| {
-            MissingPersistenceField::new(field!(shops_product_id@NotificationRecord))
-        })?;
-        let shop_slug_id = record
-            .shop_slug_id
-            .ok_or_else(|| MissingPersistenceField::new(field!(shop_slug_id@NotificationRecord)))?;
-        let product_slug_id = record.product_slug_id.ok_or_else(|| {
-            MissingPersistenceField::new(field!(product_slug_id@NotificationRecord))
-        })?;
-        let shop_name = record
-            .shop_name
-            .map(ShopName::from)
-            .ok_or_else(|| MissingPersistenceField::new(field!(shop_name@NotificationRecord)))?;
-
-        let image = record.image.map(ProductImage::from);
-
-        let notification_payload = if record.notification_reason.is_search_filter() {
-            let user_search_filter_id = record.user_search_filter_id.ok_or_else(|| {
-                MissingPersistenceField::new(field!(user_search_filter_id@NotificationRecord))
+        let notification_payload = if record.notification_reason.is_partner_application() {
+            let shop_name = record.shop_name.map(ShopName::from).ok_or_else(|| {
+                MissingPersistenceField::new(field!(shop_name@NotificationRecord))
             })?;
-            let user_search_filter_name = record
-                .user_search_filter_name
-                .map(UserSearchFilterName::from)
-                .ok_or_else(|| {
-                    MissingPersistenceField::new(field!(user_search_filter_name@NotificationRecord))
-                })?;
-
-            NotificationPayload::SearchFilter {
-                product_id,
-                shop_id,
-                shops_product_id,
-                shop_slug_id,
-                product_slug_id,
-                shop_name,
-                title,
-                image,
-                search_filter_payload: NotificationSearchFilterPayload {
-                    user_search_filter_id,
-                    user_search_filter_name,
+            let partner_application_id = record.partner_application_id.ok_or_else(|| {
+                MissingPersistenceField::new(field!(partner_application_id@NotificationRecord))
+            })?;
+            let partner_application_payload = match record.notification_reason {
+                NotificationReasonRecord::PartnerApplicationApproved => {
+                    NotificationPartnerApplicationPayload::Approved {
+                        partner_application_id,
+                    }
+                }
+                _ => NotificationPartnerApplicationPayload::Rejected {
+                    partner_application_id,
                 },
+            };
+            NotificationPayload::PartnerApplication {
+                shop_name,
+                partner_application_payload,
             }
         } else {
-            let is_state_change = matches!(
-                record.notification_reason,
-                NotificationReasonRecord::WatchlistStateChanged
-            );
+            let mut title = HashMap::new();
+            if let Some(t) = record.title_de {
+                title.insert(Language::De, Title::from(t));
+            }
+            if let Some(t) = record.title_en {
+                title.insert(Language::En, Title::from(t));
+            }
+            if let Some(t) = record.title_fr {
+                title.insert(Language::Fr, Title::from(t));
+            }
+            if let Some(t) = record.title_es {
+                title.insert(Language::Es, Title::from(t));
+            }
+            if let Some(t) = record.title_it {
+                title.insert(Language::It, Title::from(t));
+            }
 
-            let watchlist_payload = if is_state_change {
-                let old_state = record.old_state.map(ProductState::from).ok_or_else(|| {
-                    MissingPersistenceField::new(field!(old_state@NotificationRecord))
+            let product_id = record.product_id.ok_or_else(|| {
+                MissingPersistenceField::new(field!(product_id@NotificationRecord))
+            })?;
+            let shop_id = record
+                .shop_id
+                .ok_or_else(|| MissingPersistenceField::new(field!(shop_id@NotificationRecord)))?;
+            let shops_product_id = record.shops_product_id.ok_or_else(|| {
+                MissingPersistenceField::new(field!(shops_product_id@NotificationRecord))
+            })?;
+            let shop_slug_id = record.shop_slug_id.ok_or_else(|| {
+                MissingPersistenceField::new(field!(shop_slug_id@NotificationRecord))
+            })?;
+            let product_slug_id = record.product_slug_id.ok_or_else(|| {
+                MissingPersistenceField::new(field!(product_slug_id@NotificationRecord))
+            })?;
+            let shop_name = record.shop_name.map(ShopName::from).ok_or_else(|| {
+                MissingPersistenceField::new(field!(shop_name@NotificationRecord))
+            })?;
+
+            let image = record.image.map(ProductImage::from);
+
+            if record.notification_reason.is_search_filter() {
+                let user_search_filter_id = record.user_search_filter_id.ok_or_else(|| {
+                    MissingPersistenceField::new(field!(user_search_filter_id@NotificationRecord))
                 })?;
-                let new_state = record.new_state.map(ProductState::from).ok_or_else(|| {
-                    MissingPersistenceField::new(field!(new_state@NotificationRecord))
-                })?;
-                NotificationWatchlistPayload::StateChange {
-                    old_state,
-                    new_state,
+                let user_search_filter_name = record
+                    .user_search_filter_name
+                    .map(UserSearchFilterName::from)
+                    .ok_or_else(|| {
+                        MissingPersistenceField::new(
+                            field!(user_search_filter_name@NotificationRecord),
+                        )
+                    })?;
+
+                NotificationPayload::SearchFilter {
+                    product_id,
+                    shop_id,
+                    shops_product_id,
+                    shop_slug_id,
+                    product_slug_id,
+                    shop_name,
+                    title,
+                    image,
+                    search_filter_payload: NotificationSearchFilterPayload {
+                        user_search_filter_id,
+                        user_search_filter_name,
+                    },
                 }
             } else {
-                NotificationWatchlistPayload::PriceChange {
-                    old_price: build_price_map(
-                        record.old_price_native,
-                        record.old_price_eur,
-                        record.old_price_usd,
-                        record.old_price_gbp,
-                        record.old_price_aud,
-                        record.old_price_cad,
-                        record.old_price_nzd,
-                    ),
-                    new_price: build_price_map(
-                        record.new_price_native,
-                        record.new_price_eur,
-                        record.new_price_usd,
-                        record.new_price_gbp,
-                        record.new_price_aud,
-                        record.new_price_cad,
-                        record.new_price_nzd,
-                    ),
-                }
-            };
+                let is_state_change = matches!(
+                    record.notification_reason,
+                    NotificationReasonRecord::WatchlistStateChanged
+                );
 
-            NotificationPayload::Watchlist {
-                product_id,
-                shop_id,
-                shops_product_id,
-                shop_slug_id,
-                product_slug_id,
-                shop_name,
-                title,
-                image,
-                watchlist_payload,
+                let watchlist_payload = if is_state_change {
+                    let old_state = record.old_state.map(ProductState::from).ok_or_else(|| {
+                        MissingPersistenceField::new(field!(old_state@NotificationRecord))
+                    })?;
+                    let new_state = record.new_state.map(ProductState::from).ok_or_else(|| {
+                        MissingPersistenceField::new(field!(new_state@NotificationRecord))
+                    })?;
+                    NotificationWatchlistPayload::StateChange {
+                        old_state,
+                        new_state,
+                    }
+                } else {
+                    NotificationWatchlistPayload::PriceChange {
+                        old_price: build_price_map(
+                            record.old_price_native,
+                            record.old_price_eur,
+                            record.old_price_usd,
+                            record.old_price_gbp,
+                            record.old_price_aud,
+                            record.old_price_cad,
+                            record.old_price_nzd,
+                        ),
+                        new_price: build_price_map(
+                            record.new_price_native,
+                            record.new_price_eur,
+                            record.new_price_usd,
+                            record.new_price_gbp,
+                            record.new_price_aud,
+                            record.new_price_cad,
+                            record.new_price_nzd,
+                        ),
+                    }
+                };
+
+                NotificationPayload::Watchlist {
+                    product_id,
+                    shop_id,
+                    shops_product_id,
+                    shop_slug_id,
+                    product_slug_id,
+                    shop_name,
+                    title,
+                    image,
+                    watchlist_payload,
+                }
             }
         };
 
@@ -626,6 +731,7 @@ mod faker {
                 old_state: Some(config.fake_with_rng(rng)),
                 user_search_filter_id: None,
                 user_search_filter_name: None,
+                partner_application_id: None,
                 created,
                 updated: created,
                 ttl: compute_ttl(&created),
@@ -694,6 +800,7 @@ mod image_round_trip_tests {
         match &notification.notification_payload {
             NotificationPayload::Watchlist { image, .. } => image.clone(),
             NotificationPayload::SearchFilter { image, .. } => image.clone(),
+            NotificationPayload::PartnerApplication { .. } => None,
         }
     }
 
