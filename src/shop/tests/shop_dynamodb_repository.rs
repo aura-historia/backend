@@ -71,6 +71,9 @@ async fn should_return_some_when_shop_record_exists_for_query_shop_id() {
 async fn should_return_none_when_shop_record_not_exists_for_update_shop_record() {
     let repository = get_repository().await;
     let update = ShopRecordUpdate {
+        partner_user_id: None,
+        gsi1_pk: None,
+        gsi1_sk: None,
         shop_type: Some(ShopTypeRecord::Marketplace),
         domains: Some(HashSet::from([Domain::try_from("test-shop.com").unwrap()])),
         image: None,
@@ -100,6 +103,9 @@ async fn should_return_updated_record_when_updating_all_fields_for_update_shop_r
     let updated_at = OffsetDateTime::now_utc();
 
     let update = ShopRecordUpdate {
+        partner_user_id: None,
+        gsi1_pk: None,
+        gsi1_sk: None,
         shop_type: Some(new_shop_type),
         domains: Some(new_domains.clone()),
         image: Some(new_image.clone()),
@@ -130,6 +136,9 @@ async fn should_preserve_unchanged_fields_when_updating_only_timestamp_for_updat
 
     let updated_at = OffsetDateTime::now_utc();
     let update = ShopRecordUpdate {
+        partner_user_id: None,
+        gsi1_pk: None,
+        gsi1_sk: None,
         shop_type: None,
         domains: None,
         image: None,
