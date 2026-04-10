@@ -203,6 +203,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             shop_type: update.shop_type.map(Into::into),
             shop_domains: update.shop_domains,
             shop_image: update.shop_image,
+            task_token: None,
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -300,6 +301,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             shop_type: update.shop_type.map(Into::into),
             shop_domains: update.shop_domains,
             shop_image: update.shop_image,
+            task_token: None,
             updated: OffsetDateTime::now_utc(),
         };
 

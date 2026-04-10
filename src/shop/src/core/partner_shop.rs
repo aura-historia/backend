@@ -1,5 +1,7 @@
 use crate::core::{partner_shop_api_key::HashedPartnerShopApiKey, shop_type::ShopType};
-use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
+use common::{
+    domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::UserId,
+};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
@@ -13,6 +15,7 @@ pub struct PartnerShop {
     pub shop_type: ShopType,
     pub domains: HashSet<Domain>,
     pub image: Option<Url>,
+    pub partner_user_id: Option<UserId>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -33,6 +36,7 @@ mod faker {
                 shop_type: config.fake_with_rng(rng),
                 domains: [Faker.fake()].into(),
                 image: config.fake_with_rng(rng),
+                partner_user_id: Some(config.fake_with_rng(rng)),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
