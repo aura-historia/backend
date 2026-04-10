@@ -1,4 +1,5 @@
 use crate::core::{notification_id::NotificationId, notification_type::NotificationType};
+use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::{
     currency::domain::Currency,
@@ -196,8 +197,12 @@ pub struct NotificationSearchFilterPayload {
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq)]
 pub enum NotificationPartnerApplicationPayload {
-    Approved,
-    Rejected,
+    Approved {
+        partner_application_id: PartnerShopApplicationId,
+    },
+    Rejected {
+        partner_application_id: PartnerShopApplicationId,
+    },
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]

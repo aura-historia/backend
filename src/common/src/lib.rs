@@ -30,6 +30,7 @@ pub mod product_state;
 #[cfg(feature = "opensearch")]
 pub mod opensearch;
 pub mod pagination;
+pub mod partner_shop_application_id;
 pub mod personalized;
 pub mod price;
 pub mod query;

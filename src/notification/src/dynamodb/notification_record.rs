@@ -11,6 +11,7 @@ use crate::{
         notification_type_record::NotificationTypeRecord,
     },
 };
+use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::{
     currency::domain::Currency,
@@ -124,6 +125,10 @@ pub struct NotificationRecord {
     pub user_search_filter_id: Option<UserSearchFilterId>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub user_search_filter_name: Option<String>,
+
+    // partner-application
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub partner_application_id: Option<PartnerShopApplicationId>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -318,6 +323,7 @@ impl From<Notification> for NotificationRecord {
                     title_it: title.get(&Language::It).map(|t| String::from(t.clone())),
                     user_search_filter_id: None,
                     user_search_filter_name: None,
+                    partner_application_id: None,
                     new_price_native,
                     new_price_eur,
                     new_price_usd,
@@ -381,6 +387,7 @@ impl From<Notification> for NotificationRecord {
                     user_search_filter_name: Some(String::from(
                         search_filter_payload.user_search_filter_name,
                     )),
+                    partner_application_id: None,
                     new_price_native: None,
                     new_price_eur: None,
                     new_price_usd: None,
@@ -406,14 +413,21 @@ impl From<Notification> for NotificationRecord {
                 shop_name,
                 partner_application_payload,
             } => {
-                let notification_reason = match partner_application_payload {
-                    NotificationPartnerApplicationPayload::Approved => {
-                        NotificationReasonRecord::PartnerApplicationApproved
-                    }
-                    NotificationPartnerApplicationPayload::Rejected => {
-                        NotificationReasonRecord::PartnerApplicationRejected
-                    }
-                };
+                let (notification_reason, partner_application_id) =
+                    match partner_application_payload {
+                        NotificationPartnerApplicationPayload::Approved {
+                            partner_application_id,
+                        } => (
+                            NotificationReasonRecord::PartnerApplicationApproved,
+                            partner_application_id,
+                        ),
+                        NotificationPartnerApplicationPayload::Rejected {
+                            partner_application_id,
+                        } => (
+                            NotificationReasonRecord::PartnerApplicationRejected,
+                            partner_application_id,
+                        ),
+                    };
                 let lsi1_sk = mk_lsi1_sk(&notification.notification_id, &notification_reason);
                 NotificationRecord {
                     pk: mk_pk(&notification.user_id),
@@ -441,6 +455,7 @@ impl From<Notification> for NotificationRecord {
                     title_it: None,
                     user_search_filter_id: None,
                     user_search_filter_name: None,
+                    partner_application_id: Some(partner_application_id),
                     new_price_native: None,
                     new_price_eur: None,
                     new_price_usd: None,
@@ -509,11 +524,18 @@ impl TryFrom<NotificationRecord> for Notification {
             let shop_name = record.shop_name.map(ShopName::from).ok_or_else(|| {
                 MissingPersistenceField::new(field!(shop_name@NotificationRecord))
             })?;
+            let partner_application_id = record.partner_application_id.ok_or_else(|| {
+                MissingPersistenceField::new(field!(partner_application_id@NotificationRecord))
+            })?;
             let partner_application_payload = match record.notification_reason {
                 NotificationReasonRecord::PartnerApplicationApproved => {
-                    NotificationPartnerApplicationPayload::Approved
+                    NotificationPartnerApplicationPayload::Approved {
+                        partner_application_id,
+                    }
                 }
-                _ => NotificationPartnerApplicationPayload::Rejected,
+                _ => NotificationPartnerApplicationPayload::Rejected {
+                    partner_application_id,
+                },
             };
             NotificationPayload::PartnerApplication {
                 shop_name,
@@ -709,6 +731,7 @@ mod faker {
                 old_state: Some(config.fake_with_rng(rng)),
                 user_search_filter_id: None,
                 user_search_filter_name: None,
+                partner_application_id: None,
                 created,
                 updated: created,
                 ttl: compute_ttl(&created),

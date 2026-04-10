@@ -3,6 +3,7 @@ use crate::core::notification::{
     NotificationPartnerApplicationPayload,
 };
 use crate::core::notification_id::NotificationId;
+use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::{
     event_id::EventId, language::data::LocalizedTextData, price::data::PriceData,
@@ -96,8 +97,14 @@ pub struct SearchFilterPayloadData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PartnerApplicationPayloadData {
-    Approved,
-    Rejected,
+    #[serde(rename_all = "camelCase")]
+    Approved {
+        partner_application_id: PartnerShopApplicationId,
+    },
+    #[serde(rename_all = "camelCase")]
+    Rejected {
+        partner_application_id: PartnerShopApplicationId,
+    },
 }
 
 impl From<LocalizedNotificationWatchlistPayload> for WatchlistPayloadData {
@@ -175,12 +182,16 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
             } => NotificationPayloadData::PartnerApplication {
                 shop_name,
                 partner_application_payload: match partner_application_payload {
-                    NotificationPartnerApplicationPayload::Approved => {
-                        PartnerApplicationPayloadData::Approved
-                    }
-                    NotificationPartnerApplicationPayload::Rejected => {
-                        PartnerApplicationPayloadData::Rejected
-                    }
+                    NotificationPartnerApplicationPayload::Approved {
+                        partner_application_id,
+                    } => PartnerApplicationPayloadData::Approved {
+                        partner_application_id,
+                    },
+                    NotificationPartnerApplicationPayload::Rejected {
+                        partner_application_id,
+                    } => PartnerApplicationPayloadData::Rejected {
+                        partner_application_id,
+                    },
                 },
             },
         }

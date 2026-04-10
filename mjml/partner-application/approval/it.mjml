@@ -37,7 +37,7 @@
                     Siamo lieti di informarti che la tua richiesta di partnership per <b>{{shop_name}}</b> è stata approvata. Benvenuto su Aura Historia!
                 </mj-text>
                 <mj-text>
-                    Puoi ora configurare il tuo negozio e iniziare a pubblicare le tue antiquità sulla nostra piattaforma.
+                    Puoi ora creare una chiave API e iniziare a pubblicare i tuoi prodotti su Aura Historia. Visita la tua <a href="https://aura-historia.com/partners">area partner</a> per scoprire come iniziare, oppure vai direttamente alla tua <a href="https://aura-historia.com/partners/dashboard">dashboard partner</a> per creare la tua chiave API.
                 </mj-text>
             </mj-column>
         </mj-section>
@@ -45,8 +45,8 @@
         <!-- CTA button -->
         <mj-section background-color="#ffffff" padding="8px 32px 32px" border-radius="12px">
             <mj-column>
-                <mj-button href="https://aura-historia.com/partner" align="center">
-                    Configura il tuo negozio
+                <mj-button href="https://aura-historia.com/partners/dashboard" align="center">
+                    Vai alla dashboard partner
                 </mj-button>
             </mj-column>
         </mj-section>

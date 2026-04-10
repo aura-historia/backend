@@ -327,10 +327,10 @@ fn derive_mail_template(payload: &NotificationPayload, language: &Language) -> M
             partner_application_payload,
             ..
         } => match partner_application_payload {
-            NotificationPartnerApplicationPayload::Approved => {
+            NotificationPartnerApplicationPayload::Approved { .. } => {
                 MailTemplateType::PartnerApplicationApproval
             }
-            NotificationPartnerApplicationPayload::Rejected => {
+            NotificationPartnerApplicationPayload::Rejected { .. } => {
                 MailTemplateType::PartnerApplicationRejection
             }
         },
@@ -402,26 +402,26 @@ fn build_email_subject(payload: &NotificationPayload, language: &Language) -> St
                 Language::It => {
                     format!("Nuovo risultato per \"{filter_name}\": {resolved_title}")
                 }
-                _ => format!("New match for \"{filter_name}\": {resolved_title}"),
+                Language::En => format!("New match for \"{filter_name}\": {resolved_title}"),
             }
         }
         NotificationPayload::PartnerApplication {
             shop_name,
             partner_application_payload,
         } => match partner_application_payload {
-            NotificationPartnerApplicationPayload::Approved => match language {
+            NotificationPartnerApplicationPayload::Approved { .. } => match language {
                 Language::De => format!("Partnerantrag genehmigt: {shop_name}"),
                 Language::Fr => format!("Demande de partenariat approuvée : {shop_name}"),
                 Language::Es => format!("Solicitud de asociación aprobada: {shop_name}"),
                 Language::It => format!("Richiesta di partnership approvata: {shop_name}"),
-                _ => format!("Partner application approved: {shop_name}"),
+                Language::En => format!("Partner application approved: {shop_name}"),
             },
-            NotificationPartnerApplicationPayload::Rejected => match language {
+            NotificationPartnerApplicationPayload::Rejected { .. } => match language {
                 Language::De => format!("Partnerantrag abgelehnt: {shop_name}"),
                 Language::Fr => format!("Demande de partenariat refusée : {shop_name}"),
                 Language::Es => format!("Solicitud de asociación rechazada: {shop_name}"),
                 Language::It => format!("Richiesta di partnership rifiutata: {shop_name}"),
-                _ => format!("Partner application rejected: {shop_name}"),
+                Language::En => format!("Partner application rejected: {shop_name}"),
             },
         },
     }
@@ -532,14 +532,19 @@ fn build_email_template_data(
             shop_name,
             partner_application_payload,
         } => {
-            let notification_type = match partner_application_payload {
-                NotificationPartnerApplicationPayload::Approved => "partner_application_approval",
-                NotificationPartnerApplicationPayload::Rejected => "partner_application_rejection",
+            let (notification_type, partner_application_id) = match partner_application_payload {
+                NotificationPartnerApplicationPayload::Approved {
+                    partner_application_id,
+                } => ("partner_application_approval", partner_application_id),
+                NotificationPartnerApplicationPayload::Rejected {
+                    partner_application_id,
+                } => ("partner_application_rejection", partner_application_id),
             };
             let mut data = serde_json::json!({
                 "shop_name": shop_name.to_string(),
                 "language": format!("{language:?}"),
                 "notification_type": notification_type,
+                "partner_application_id": partner_application_id.to_string(),
             });
 
             if let Some(first_name) = user_first_name {
@@ -3023,6 +3028,7 @@ mod tests {
     mod template_rendering_tests {
         use super::*;
         use crate::core::notification::NotificationSearchFilterPayload;
+        use common::partner_shop_application_id::PartnerShopApplicationId;
         use common::user_search_filter_id::UserSearchFilterId;
         use rstest::rstest;
 
@@ -3492,7 +3498,9 @@ mod tests {
                 notification_type: None,
                 notification_payload: NotificationPayload::PartnerApplication {
                     shop_name: "Heritage Antiques".into(),
-                    partner_application_payload: NotificationPartnerApplicationPayload::Approved,
+                    partner_application_payload: NotificationPartnerApplicationPayload::Approved {
+                        partner_application_id: PartnerShopApplicationId::new(),
+                    },
                 },
                 seen: false,
                 external: false,
@@ -3509,7 +3517,9 @@ mod tests {
                 notification_type: None,
                 notification_payload: NotificationPayload::PartnerApplication {
                     shop_name: "Heritage Antiques".into(),
-                    partner_application_payload: NotificationPartnerApplicationPayload::Rejected,
+                    partner_application_payload: NotificationPartnerApplicationPayload::Rejected {
+                        partner_application_id: PartnerShopApplicationId::new(),
+                    },
                 },
                 seen: false,
                 external: false,

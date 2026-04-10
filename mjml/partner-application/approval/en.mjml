@@ -37,7 +37,7 @@
                     We are delighted to inform you that your partner application for <b>{{shop_name}}</b> has been approved. Welcome to Aura Historia!
                 </mj-text>
                 <mj-text>
-                    You can now set up your shop and start listing your antiques on our platform.
+                    You can now create an API key and start publishing your products to Aura Historia. Visit your <a href="https://aura-historia.com/partners">partner overview</a> to learn how to get started, or go directly to your <a href="https://aura-historia.com/partners/dashboard">partner dashboard</a> to create your API key.
                 </mj-text>
             </mj-column>
         </mj-section>
@@ -45,8 +45,8 @@
         <!-- CTA button -->
         <mj-section background-color="#ffffff" padding="8px 32px 32px" border-radius="12px">
             <mj-column>
-                <mj-button href="https://aura-historia.com/partner" align="center">
-                    Set Up Your Shop
+                <mj-button href="https://aura-historia.com/partners/dashboard" align="center">
+                    Go to Partner Dashboard
                 </mj-button>
             </mj-column>
         </mj-section>
