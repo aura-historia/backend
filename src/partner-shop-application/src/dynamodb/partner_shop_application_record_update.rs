@@ -1,5 +1,5 @@
-use crate::dynamodb::execution_state_record::ExecutionStateRecord;
 use crate::dynamodb::partner_shop_application_state_record::PartnerShopApplicationStateRecord;
+use common::execution_state::record::ExecutionStateRecord;
 use common::{domain::Domain, dynamodb_update::DynamoDbUpdate, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;

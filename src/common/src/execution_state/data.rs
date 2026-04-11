@@ -1,4 +1,4 @@
-use common::execution_state::ExecutionState;
+use crate::execution_state::domain::ExecutionState;
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]

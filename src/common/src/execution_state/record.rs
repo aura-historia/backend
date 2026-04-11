@@ -1,4 +1,4 @@
-use common::execution_state::ExecutionState;
+use crate::execution_state::domain::ExecutionState;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
