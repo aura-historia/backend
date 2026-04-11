@@ -1,7 +1,4 @@
-use crate::core::{
-    partner_shop_application::{PartnerShopApplicationPayload, PartnerShopApplicationPayloadInfo},
-    partner_shop_application_state::PartnerShopApplicationState,
-};
+use crate::core::partner_shop_application::{PartnerShopApplicationPayload, PartnerShopApplicationPayloadInfo};
 use common::{domain::Domain, shop_name::ShopName, user_id::UserId};
 use shop::core::shop_type::ShopType;
 use std::collections::HashSet;
@@ -16,7 +13,6 @@ pub struct CreatePartnerShopApplicationCommand {
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdatePartnerShopApplicationCommand {
-    pub state: Option<PartnerShopApplicationState>,
     pub shop_name: Option<ShopName>,
     pub shop_type: Option<ShopType>,
     pub shop_domains: Option<HashSet<Domain>>,
@@ -25,8 +21,7 @@ pub struct UpdatePartnerShopApplicationCommand {
 
 impl UpdatePartnerShopApplicationCommand {
     pub fn is_empty(&self) -> bool {
-        self.state.is_none()
-            && self.shop_name.is_none()
+        self.shop_name.is_none()
             && self.shop_type.is_none()
             && self.shop_domains.is_none()
             && self.shop_image.is_none()
@@ -52,6 +47,12 @@ impl UpdatePartnerShopApplicationCommand {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Decision {
+    Approve,
+    Reject,
+}
+
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
@@ -62,6 +63,16 @@ mod faker {
             CreatePartnerShopApplicationCommand {
                 applicant_user_id: config.fake_with_rng(rng),
                 payload: config.fake_with_rng(rng),
+            }
+        }
+    }
+
+    impl Dummy<Faker> for Decision {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            if config.fake_with_rng::<bool, R>(rng) {
+                Decision::Approve
+            } else {
+                Decision::Reject
             }
         }
     }
@@ -89,15 +100,6 @@ mod faker {
         }
 
         #[test]
-        fn should_not_be_empty_when_state_is_set() {
-            let cmd = UpdatePartnerShopApplicationCommand {
-                state: Some(PartnerShopApplicationState::Approved),
-                ..Default::default()
-            };
-            assert!(!cmd.is_empty());
-        }
-
-        #[test]
         fn should_not_be_empty_when_new_shop_name_is_set() {
             let cmd = UpdatePartnerShopApplicationCommand {
                 shop_name: Some(ShopName::from("Test".to_string())),
@@ -105,6 +107,11 @@ mod faker {
             };
             assert!(!cmd.is_empty());
             assert!(cmd.has_payload_info_update());
+        }
+
+        #[test]
+        fn should_fake_decision() {
+            let _ = Faker.fake::<Decision>();
         }
     }
 }

@@ -9,6 +9,7 @@ use notification::core::notification::{
 use notification::service::command::CreateNotificationCommand;
 use notification::service::notification_service::NotificationService;
 use partner_shop_application::core::partner_shop_application_id::PartnerShopApplicationId;
+use partner_shop_application::dynamodb::execution_state_record::ExecutionStateRecord;
 use partner_shop_application::dynamodb::partner_shop_application_payload_type_record::PartnerShopApplicationPayloadTypeRecord;
 use partner_shop_application::dynamodb::partner_shop_application_record::PartnerShopApplicationRecord;
 use partner_shop_application::dynamodb::partner_shop_application_record_update::PartnerShopApplicationRecordUpdate;
@@ -127,7 +128,8 @@ async fn handle_wait_for_review(
         .ok_or(StepFunctionError::MissingTaskToken)?;
 
     let record_update = PartnerShopApplicationRecordUpdate {
-        state: Some(PartnerShopApplicationStateRecord::InReview),
+        business_state: Some(PartnerShopApplicationStateRecord::InReview),
+        execution_state: Some(ExecutionStateRecord::Waiting),
         task_token: Some(task_token.to_string()),
         shop_name: None,
         shop_type: None,
@@ -267,7 +269,8 @@ async fn persist_approved_state(
     input: &StepFunctionInput,
 ) -> Result<(), StepFunctionError> {
     let record_update = PartnerShopApplicationRecordUpdate {
-        state: Some(PartnerShopApplicationStateRecord::Approved),
+        business_state: Some(PartnerShopApplicationStateRecord::Approved),
+        execution_state: Some(ExecutionStateRecord::Completed),
         task_token: None,
         shop_name: None,
         shop_type: None,
@@ -329,7 +332,8 @@ async fn handle_reject(
     let shop_name = resolve_shop_name(&record);
 
     let record_update = PartnerShopApplicationRecordUpdate {
-        state: Some(PartnerShopApplicationStateRecord::Rejected),
+        business_state: Some(PartnerShopApplicationStateRecord::Rejected),
+        execution_state: Some(ExecutionStateRecord::Completed),
         task_token: None,
         shop_name: None,
         shop_type: None,
@@ -463,7 +467,7 @@ mod tests {
         mock_repo
             .expect_update_partner_shop_application_record()
             .withf(|_user_id, _id, update| {
-                update.state == Some(PartnerShopApplicationStateRecord::InReview)
+                update.business_state == Some(PartnerShopApplicationStateRecord::InReview)
                     && update.task_token == Some("test-token".to_string())
             })
             .returning(|_, _, _| Box::pin(async { Ok(None) }));
@@ -592,7 +596,7 @@ mod tests {
         mock_repo
             .expect_update_partner_shop_application_record()
             .withf(|_user_id, _id, update| {
-                update.state == Some(PartnerShopApplicationStateRecord::Approved)
+                update.business_state == Some(PartnerShopApplicationStateRecord::Approved)
             })
             .returning(|_, _, _| Box::pin(async { Ok(None) }));
 
@@ -674,7 +678,7 @@ mod tests {
         mock_repo
             .expect_update_partner_shop_application_record()
             .withf(|_user_id, _id, update| {
-                update.state == Some(PartnerShopApplicationStateRecord::Approved)
+                update.business_state == Some(PartnerShopApplicationStateRecord::Approved)
             })
             .returning(|_, _, _| Box::pin(async { Ok(None) }));
 
@@ -757,7 +761,7 @@ mod tests {
         mock_repo
             .expect_update_partner_shop_application_record()
             .withf(|_user_id, _id, update| {
-                update.state == Some(PartnerShopApplicationStateRecord::Rejected)
+                update.business_state == Some(PartnerShopApplicationStateRecord::Rejected)
             })
             .returning(|_, _, _| Box::pin(async { Ok(None) }));
 
@@ -950,7 +954,7 @@ mod tests {
         mock_repo
             .expect_update_partner_shop_application_record()
             .withf(|_user_id, _id, update| {
-                update.state == Some(PartnerShopApplicationStateRecord::InReview)
+                update.business_state == Some(PartnerShopApplicationStateRecord::InReview)
                     && update.task_token == Some("my-task-token".to_string())
             })
             .returning(|_, _, _| Box::pin(async { Ok(None) }));
