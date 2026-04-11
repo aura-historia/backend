@@ -1,3 +1,4 @@
+use crate::dynamodb::execution_state_record::ExecutionStateRecord;
 use crate::dynamodb::partner_shop_application_state_record::PartnerShopApplicationStateRecord;
 use common::{domain::Domain, dynamodb_update::DynamoDbUpdate, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
@@ -10,7 +11,10 @@ use url::Url;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct PartnerShopApplicationRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state: Option<PartnerShopApplicationStateRecord>,
+    pub business_state: Option<PartnerShopApplicationStateRecord>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_state: Option<ExecutionStateRecord>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_name: Option<ShopName>,
@@ -41,7 +45,8 @@ mod tests {
     #[test]
     fn should_create_update_expr_with_state_and_updated() {
         let update = PartnerShopApplicationRecordUpdate {
-            state: Some(PartnerShopApplicationStateRecord::Approved),
+            business_state: Some(PartnerShopApplicationStateRecord::Approved),
+            execution_state: None,
             shop_name: None,
             shop_type: None,
             shop_domains: None,
@@ -52,14 +57,15 @@ mod tests {
 
         let expr = update.into_update_expr().unwrap();
         assert!(expr.update_expr.contains("SET"));
-        assert!(expr.expr_attr_names.contains_key("#state"));
+        assert!(expr.expr_attr_names.contains_key("#business_state"));
         assert!(expr.expr_attr_names.contains_key("#updated"));
     }
 
     #[test]
     fn should_create_update_expr_with_only_updated() {
         let update = PartnerShopApplicationRecordUpdate {
-            state: None,
+            business_state: None,
+            execution_state: None,
             shop_name: None,
             shop_type: None,
             shop_domains: None,
@@ -71,13 +77,14 @@ mod tests {
         let expr = update.into_update_expr().unwrap();
         assert!(expr.update_expr.contains("SET"));
         assert!(expr.expr_attr_names.contains_key("#updated"));
-        assert!(!expr.expr_attr_names.contains_key("#state"));
+        assert!(!expr.expr_attr_names.contains_key("#business_state"));
     }
 
     #[test]
     fn should_create_update_expr_with_new_shop_name() {
         let update = PartnerShopApplicationRecordUpdate {
-            state: None,
+            business_state: None,
+            execution_state: None,
             shop_name: Some(ShopName::from("Updated Shop".to_string())),
             shop_type: None,
             shop_domains: None,
@@ -95,7 +102,8 @@ mod tests {
     #[test]
     fn should_create_update_expr_with_all_shop_fields() {
         let update = PartnerShopApplicationRecordUpdate {
-            state: Some(PartnerShopApplicationStateRecord::InReview),
+            business_state: Some(PartnerShopApplicationStateRecord::InReview),
+            execution_state: Some(ExecutionStateRecord::Waiting),
             shop_name: Some(ShopName::from("Updated".to_string())),
             shop_type: Some(ShopTypeRecord::Marketplace),
             shop_domains: Some(HashSet::new()),
@@ -106,7 +114,8 @@ mod tests {
 
         let expr = update.into_update_expr().unwrap();
         assert!(expr.update_expr.contains("SET"));
-        assert!(expr.expr_attr_names.contains_key("#state"));
+        assert!(expr.expr_attr_names.contains_key("#business_state"));
+        assert!(expr.expr_attr_names.contains_key("#execution_state"));
         assert!(expr.expr_attr_names.contains_key("#shop_name"));
         assert!(expr.expr_attr_names.contains_key("#shop_type"));
         assert!(expr.expr_attr_names.contains_key("#shop_domains"));

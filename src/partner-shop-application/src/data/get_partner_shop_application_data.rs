@@ -3,7 +3,10 @@ use crate::{
         partner_shop_application::{PartnerShopApplication, PartnerShopApplicationPayload},
         partner_shop_application_id::PartnerShopApplicationId,
     },
-    data::partner_shop_application_state_data::PartnerShopApplicationStateData,
+    data::{
+        execution_state_data::ExecutionStateData,
+        partner_shop_application_state_data::PartnerShopApplicationStateData,
+    },
 };
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
@@ -16,7 +19,8 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub struct GetPartnerShopApplicationData {
     pub id: PartnerShopApplicationId,
-    pub state: PartnerShopApplicationStateData,
+    pub business_state: PartnerShopApplicationStateData,
+    pub execution_state: ExecutionStateData,
     pub payload: GetPartnerShopApplicationPayloadData,
 
     #[serde(with = "time::serde::rfc3339")]
@@ -56,7 +60,8 @@ impl From<PartnerShopApplication> for GetPartnerShopApplicationData {
 
         GetPartnerShopApplicationData {
             id: application.id,
-            state: application.state.into(),
+            business_state: application.business_state.into(),
+            execution_state: application.execution_state.into(),
             payload,
             created: application.created,
             updated: application.updated,

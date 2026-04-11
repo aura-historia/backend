@@ -2,7 +2,7 @@ use crate::core::{
     partner_shop_application_id::PartnerShopApplicationId,
     partner_shop_application_state::PartnerShopApplicationState,
 };
-use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, user_id::UserId};
+use common::{domain::Domain, execution_state::ExecutionState, shop_id::ShopId, shop_name::ShopName, user_id::UserId};
 use shop::core::shop_type::ShopType;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -13,7 +13,8 @@ pub use shop::service::command::CreateShopCommand;
 #[derive(Debug, Clone, PartialEq)]
 pub struct PartnerShopApplication {
     pub id: PartnerShopApplicationId,
-    pub state: PartnerShopApplicationState,
+    pub business_state: PartnerShopApplicationState,
+    pub execution_state: ExecutionState,
     pub applicant_user_id: UserId,
     pub payload: PartnerShopApplicationPayload,
     pub created: OffsetDateTime,
@@ -44,7 +45,8 @@ mod faker {
             let created = OffsetDateTime::now_utc();
             PartnerShopApplication {
                 id: PartnerShopApplicationId::new(),
-                state: config.fake_with_rng(rng),
+                business_state: config.fake_with_rng(rng),
+                execution_state: config.fake_with_rng(rng),
                 applicant_user_id: config.fake_with_rng(rng),
                 payload: config.fake_with_rng(rng),
                 created,

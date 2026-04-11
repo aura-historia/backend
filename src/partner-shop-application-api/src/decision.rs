@@ -4,19 +4,19 @@ use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
-use partner_shop_application::core::command::UpdatePartnerShopApplicationCommand;
+use partner_shop_application::data::decision_data::PostDecisionData;
 use partner_shop_application::data::get_partner_shop_application_data::GetPartnerShopApplicationData;
-use partner_shop_application::data::patch_partner_shop_application_data::PatchPartnerShopApplicationData;
 use partner_shop_application::service::partner_shop_application_service::PartnerShopApplicationService;
 
 use crate::path::extract_partner_application_id_path;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl PartnerShopApplicationService,
+    service: &(impl PartnerShopApplicationService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
+
     let application_id = extract_partner_application_id_path(&event.payload.path_parameters)?;
 
     let body = event
@@ -27,21 +27,13 @@ pub async fn handle(
             let err_msg = "Body cannot be empty";
             ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_detail(err_msg)
         })?;
-    let patch_data: PatchPartnerShopApplicationData =
-        serde_json::from_str(&body).map_err(|err| {
-            let err_msg = err.to_string();
-            ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
-        })?;
-
-    let update_cmd = UpdatePartnerShopApplicationCommand {
-        shop_name: patch_data.shop_name,
-        shop_type: patch_data.shop_type.map(Into::into),
-        shop_domains: patch_data.shop_domains,
-        shop_image: patch_data.shop_image,
-    };
+    let post_data: PostDecisionData = serde_json::from_str(&body).map_err(|err| {
+        let err_msg = err.to_string();
+        ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
+    })?;
 
     let data: GetPartnerShopApplicationData = service
-        .update_partner_shop_application(&user_id, &application_id, update_cmd)
+        .submit_decision(&user_id, &application_id, post_data.decision.into())
         .await?
         .into();
 
@@ -62,7 +54,7 @@ mod tests {
             partner_shop_application::PartnerShopApplication,
             partner_shop_application_id::PartnerShopApplicationId,
         },
-        data::patch_partner_shop_application_data::PatchPartnerShopApplicationData,
+        data::decision_data::{DecisionData, PostDecisionData},
         service::partner_shop_application_service::{
             MockPartnerShopApplicationService, PartnerShopApplicationError,
         },
@@ -71,22 +63,57 @@ mod tests {
     use user::service::user_service::MockUserService;
 
     #[tokio::test]
-    async fn should_200_when_updating_application() {
+    async fn should_200_when_submitting_approve_decision() {
+        let user_id = UserId::new();
+        let user_service = MockUserService::default();
         let mut service = MockPartnerShopApplicationService::default();
         service
-            .expect_update_partner_shop_application()
+            .expect_submit_decision()
             .return_once(move |_, _, _| {
                 let app: PartnerShopApplication = Faker.fake();
                 Box::pin(async move { Ok(app) })
             });
-        let user_service = MockUserService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::PATCH)
-                .route_key("PATCH /api/v1/me/partner-applications/{partnerApplicationId}")
-                .jwt_claim("sub", UserId::new())
+                .http_method(http::Method::POST)
+                .route_key(
+                    "POST /api/v1/me/partner-applications/{partnerApplicationId}/decision",
+                )
+                .jwt_claim("sub", user_id)
                 .path_parameter("partnerApplicationId", PartnerShopApplicationId::new())
-                .body_serde(&Faker.fake::<PatchPartnerShopApplicationData>())
+                .body_serde(&PostDecisionData {
+                    decision: DecisionData::Approve,
+                })
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(lambda_event, &service, &user_service).await.unwrap();
+        assert_eq!(200, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_200_when_submitting_reject_decision() {
+        let user_id = UserId::new();
+        let user_service = MockUserService::default();
+        let mut service = MockPartnerShopApplicationService::default();
+        service
+            .expect_submit_decision()
+            .return_once(move |_, _, _| {
+                let app: PartnerShopApplication = Faker.fake();
+                Box::pin(async move { Ok(app) })
+            });
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::POST)
+                .route_key(
+                    "POST /api/v1/me/partner-applications/{partnerApplicationId}/decision",
+                )
+                .jwt_claim("sub", user_id)
+                .path_parameter("partnerApplicationId", PartnerShopApplicationId::new())
+                .body_serde(&PostDecisionData {
+                    decision: DecisionData::Reject,
+                })
                 .build(),
             context: Default::default(),
         };
@@ -101,10 +128,14 @@ mod tests {
         let user_service = MockUserService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::PATCH)
-                .route_key("PATCH /api/v1/me/partner-applications/{partnerApplicationId}")
+                .http_method(http::Method::POST)
+                .route_key(
+                    "POST /api/v1/me/partner-applications/{partnerApplicationId}/decision",
+                )
                 .path_parameter("partnerApplicationId", PartnerShopApplicationId::new())
-                .body_serde(&Faker.fake::<PatchPartnerShopApplicationData>())
+                .body_serde(&PostDecisionData {
+                    decision: DecisionData::Approve,
+                })
                 .build(),
             context: Default::default(),
         };
@@ -116,34 +147,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_400_when_path_param_partner_application_id_missing() {
-        let service = MockPartnerShopApplicationService::default();
-        let user_service = MockUserService::default();
-        let lambda_event = LambdaEvent {
-            payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::PATCH)
-                .route_key("PATCH /api/v1/me/partner-applications/{partnerApplicationId}")
-                .jwt_claim("sub", UserId::new())
-                .body_serde(&Faker.fake::<PatchPartnerShopApplicationData>())
-                .build(),
-            context: Default::default(),
-        };
-
-        let response = handle(lambda_event, &service, &user_service)
-            .await
-            .unwrap_err();
-        assert_eq!(400, response.status);
-    }
-
-    #[tokio::test]
     async fn should_400_when_body_is_empty() {
-        let service = MockPartnerShopApplicationService::default();
+        let user_id = UserId::new();
         let user_service = MockUserService::default();
+        let service = MockPartnerShopApplicationService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::PATCH)
-                .route_key("PATCH /api/v1/me/partner-applications/{partnerApplicationId}")
-                .jwt_claim("sub", UserId::new())
+                .http_method(http::Method::POST)
+                .route_key(
+                    "POST /api/v1/me/partner-applications/{partnerApplicationId}/decision",
+                )
+                .jwt_claim("sub", user_id)
                 .path_parameter("partnerApplicationId", PartnerShopApplicationId::new())
                 .build(),
             context: Default::default(),
@@ -156,23 +170,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_404_when_application_not_exists() {
+    async fn should_409_when_application_not_in_review() {
+        let user_id = UserId::new();
+        let user_service = MockUserService::default();
         let mut service = MockPartnerShopApplicationService::default();
         service
-            .expect_update_partner_shop_application()
-            .return_once(move |user_id, id, _| {
-                let user_id = *user_id;
+            .expect_submit_decision()
+            .return_once(move |_, id, _| {
                 let id = *id;
-                Box::pin(async move { Err(PartnerShopApplicationError::NotFound(user_id, id)) })
+                Box::pin(async move {
+                    Err(PartnerShopApplicationError::NotInReviewState(id))
+                })
             });
-        let user_service = MockUserService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::PATCH)
-                .route_key("PATCH /api/v1/me/partner-applications/{partnerApplicationId}")
-                .jwt_claim("sub", UserId::new())
+                .http_method(http::Method::POST)
+                .route_key(
+                    "POST /api/v1/me/partner-applications/{partnerApplicationId}/decision",
+                )
+                .jwt_claim("sub", user_id)
                 .path_parameter("partnerApplicationId", PartnerShopApplicationId::new())
-                .body_serde(&Faker.fake::<PatchPartnerShopApplicationData>())
+                .body_serde(&PostDecisionData {
+                    decision: DecisionData::Approve,
+                })
                 .build(),
             context: Default::default(),
         };
@@ -180,6 +200,6 @@ mod tests {
         let response = handle(lambda_event, &service, &user_service)
             .await
             .unwrap_err();
-        assert_eq!(404, response.status);
+        assert_eq!(409, response.status);
     }
 }

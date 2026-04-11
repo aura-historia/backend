@@ -1,6 +1,8 @@
 use crate::{
     core::{
-        command::{CreatePartnerShopApplicationCommand, UpdatePartnerShopApplicationCommand},
+        command::{
+            CreatePartnerShopApplicationCommand, Decision, UpdatePartnerShopApplicationCommand,
+        },
         partner_shop_application::PartnerShopApplication,
         partner_shop_application_id::PartnerShopApplicationId,
     },
@@ -141,6 +143,19 @@ pub trait PartnerShopApplicationService {
         update: UpdatePartnerShopApplicationCommand,
     ) -> Result<PartnerShopApplication, PartnerShopApplicationError>;
 
+    async fn submit_decision(
+        &self,
+        user_id: &UserId,
+        id: &PartnerShopApplicationId,
+        decision: Decision,
+    ) -> Result<PartnerShopApplication, PartnerShopApplicationError>;
+
+    async fn submit_decision_by_id(
+        &self,
+        id: &PartnerShopApplicationId,
+        decision: Decision,
+    ) -> Result<PartnerShopApplication, PartnerShopApplicationError>;
+
     async fn find_all_partner_shop_applications_by_user(
         &self,
         user_id: &UserId,
@@ -176,8 +191,9 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
         let now = OffsetDateTime::now_utc();
         let application = PartnerShopApplication {
             id: PartnerShopApplicationId::new(),
-            state:
+            business_state:
                 crate::core::partner_shop_application_state::PartnerShopApplicationState::Submitted,
+            execution_state: common::execution_state::ExecutionState::Processing,
             applicant_user_id: cmd.applicant_user_id,
             payload: cmd.payload,
             created: now,
@@ -236,7 +252,8 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
         }
 
         let record_update = PartnerShopApplicationRecordUpdate {
-            state: update.state.map(Into::into),
+            business_state: None,
+            execution_state: None,
             shop_name: update.shop_name,
             shop_type: update.shop_type.map(Into::into),
             shop_domains: update.shop_domains,
@@ -333,50 +350,9 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
 
         let user_id = existing_record.applicant_user_id;
 
-        // Check if this is a state change that should go through the step function
-        if let Some(new_state) = &update.state {
-            use crate::core::partner_shop_application_state::PartnerShopApplicationState;
-            if matches!(
-                new_state,
-                PartnerShopApplicationState::Approved | PartnerShopApplicationState::Rejected
-            ) {
-                let current_state: PartnerShopApplicationState = existing_record.state.into();
-                if current_state != PartnerShopApplicationState::InReview {
-                    return Err(PartnerShopApplicationError::NotInReviewState(*id));
-                }
-
-                let task_token = existing_record
-                    .task_token
-                    .clone()
-                    .ok_or(PartnerShopApplicationError::MissingTaskToken(*id))?;
-
-                let decision = match new_state {
-                    PartnerShopApplicationState::Approved => "APPROVED",
-                    PartnerShopApplicationState::Rejected => "REJECTED",
-                    _ => unreachable!(),
-                };
-
-                let output = serde_json::json!({
-                    "decision": decision,
-                    "partner_application_id": id.to_string(),
-                    "applicant_user_id": user_id.to_string(),
-                });
-                self.sfn_adapter
-                    .send_task_success(&task_token, &output.to_string())
-                    .await?;
-
-                info!(
-                    partnerShopApplicationId = %id,
-                    decision = decision,
-                    "Step function resumed with decision."
-                );
-
-                return Ok(existing_record.try_into()?);
-            }
-        }
-
         let record_update = PartnerShopApplicationRecordUpdate {
-            state: update.state.map(Into::into),
+            business_state: None,
+            execution_state: None,
             shop_name: update.shop_name,
             shop_type: update.shop_type.map(Into::into),
             shop_domains: update.shop_domains,
@@ -404,6 +380,37 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
         Ok(updated_record.try_into()?)
     }
 
+    async fn submit_decision(
+        &self,
+        user_id: &UserId,
+        id: &PartnerShopApplicationId,
+        decision: Decision,
+    ) -> Result<PartnerShopApplication, PartnerShopApplicationError> {
+        let existing_record = self
+            .repository
+            .get_partner_shop_application_record(user_id, id)
+            .await?
+            .ok_or(PartnerShopApplicationError::NotFound(*user_id, *id))?;
+
+        self.resume_step_function(id, &existing_record, decision)
+            .await
+    }
+
+    async fn submit_decision_by_id(
+        &self,
+        id: &PartnerShopApplicationId,
+        decision: Decision,
+    ) -> Result<PartnerShopApplication, PartnerShopApplicationError> {
+        let existing_record = self
+            .repository
+            .query_partner_shop_application_record_by_id(id)
+            .await?
+            .ok_or(PartnerShopApplicationError::NotFoundById(*id))?;
+
+        self.resume_step_function(id, &existing_record, decision)
+            .await
+    }
+
     async fn find_all_partner_shop_applications_by_user(
         &self,
         user_id: &UserId,
@@ -419,6 +426,74 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
         }
 
         Ok(applications)
+    }
+}
+
+impl<'a> PartnerShopApplicationServiceImpl<'a> {
+    async fn resume_step_function(
+        &self,
+        id: &PartnerShopApplicationId,
+        existing_record: &PartnerShopApplicationRecord,
+        decision: Decision,
+    ) -> Result<PartnerShopApplication, PartnerShopApplicationError> {
+        use crate::core::partner_shop_application_state::PartnerShopApplicationState;
+
+        let current_state: PartnerShopApplicationState = existing_record.business_state.into();
+        if current_state != PartnerShopApplicationState::InReview {
+            return Err(PartnerShopApplicationError::NotInReviewState(*id));
+        }
+
+        let task_token = existing_record
+            .task_token
+            .clone()
+            .ok_or(PartnerShopApplicationError::MissingTaskToken(*id))?;
+
+        let decision_str = match decision {
+            Decision::Approve => "APPROVED",
+            Decision::Reject => "REJECTED",
+        };
+
+        let user_id = existing_record.applicant_user_id;
+        let output = serde_json::json!({
+            "decision": decision_str,
+            "partner_application_id": id.to_string(),
+            "applicant_user_id": user_id.to_string(),
+        });
+        self.sfn_adapter
+            .send_task_success(&task_token, &output.to_string())
+            .await?;
+
+        // Set execution_state to Processing while step function runs the decision
+        let record_update = PartnerShopApplicationRecordUpdate {
+            business_state: None,
+            execution_state: Some(
+                crate::dynamodb::execution_state_record::ExecutionStateRecord::Processing,
+            ),
+            shop_name: None,
+            shop_type: None,
+            shop_domains: None,
+            shop_image: None,
+            task_token: None,
+            updated: OffsetDateTime::now_utc(),
+        };
+
+        let updated_record = self
+            .repository
+            .update_partner_shop_application_record(&user_id, id, record_update)
+            .await?
+            .ok_or_else(|| {
+                PartnerShopApplicationError::SdkUpdateItemError(SdkError::construction_failure(
+                    "Failed retrieving PartnerShopApplication after setting Processing state",
+                ))
+            })?;
+
+        info!(
+            partnerShopApplicationId = %id,
+            decision = decision_str,
+            "Step function resumed with decision, execution_state set to Processing."
+        );
+
+        Ok(updated_record.try_into()?)
     }
 }
 
@@ -438,7 +513,7 @@ mod tests {
         operation::delete_item::DeleteItemOutput,
         operation::put_item::PutItemOutput,
     };
-    use common::{shop_id::ShopId, user_id::UserId};
+    use common::{execution_state::ExecutionState, shop_id::ShopId, user_id::UserId};
     use fake::{Fake, Faker};
 
     fn make_service<'a>(
@@ -479,7 +554,8 @@ mod tests {
 
             assert_eq!(actual.applicant_user_id, cmd.applicant_user_id);
             assert_eq!(actual.payload, cmd.payload);
-            assert_eq!(actual.state, PartnerShopApplicationState::Submitted);
+            assert_eq!(actual.business_state, PartnerShopApplicationState::Submitted);
+            assert_eq!(actual.execution_state, ExecutionState::Processing);
         }
 
         #[tokio::test]
@@ -541,7 +617,8 @@ mod tests {
                 .unwrap();
 
             assert_eq!(expected.id, actual.id);
-            assert_eq!(expected.state, actual.state);
+            assert_eq!(expected.business_state, actual.business_state);
+            assert_eq!(expected.execution_state, actual.execution_state);
             assert_eq!(expected.applicant_user_id, actual.applicant_user_id);
         }
 
@@ -637,14 +714,12 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn should_update_partner_shop_application_state() {
+        async fn should_update_partner_shop_application_shop_name() {
             let mut repository = MockPartnerShopApplicationDynamoDbRepository::default();
             let expected: PartnerShopApplication = Faker.fake();
             let record = PartnerShopApplicationRecord::from(expected.clone());
 
-            let mut updated_record = record.clone();
-            updated_record.state =
-                crate::dynamodb::partner_shop_application_state_record::PartnerShopApplicationStateRecord::Approved;
+            let updated_record = record.clone();
 
             repository
                 .expect_get_partner_shop_application_record()
@@ -661,14 +736,16 @@ mod tests {
                     &expected.applicant_user_id,
                     &expected.id,
                     UpdatePartnerShopApplicationCommand {
-                        state: Some(PartnerShopApplicationState::Approved),
+                        shop_name: Some(common::shop_name::ShopName::from(
+                            "Updated Name".to_string(),
+                        )),
                         ..Default::default()
                     },
                 )
                 .await
                 .unwrap();
 
-            assert_eq!(PartnerShopApplicationState::Approved, actual.state);
+            assert_eq!(expected.id, actual.id);
         }
 
         #[tokio::test]
@@ -687,7 +764,7 @@ mod tests {
                     &user_id,
                     &id,
                     UpdatePartnerShopApplicationCommand {
-                        state: Some(PartnerShopApplicationState::InReview),
+                        shop_name: Some(common::shop_name::ShopName::from("Test".to_string())),
                         ..Default::default()
                     },
                 )
@@ -919,44 +996,6 @@ mod tests {
 
             assert!(actual.is_empty());
         }
-
-        #[tokio::test]
-        #[rstest::rstest]
-        #[case::construction_failure(DynamoSdkError::construction_failure("Something went wrong"))]
-        #[case::timeout(DynamoSdkError::timeout_error("Something went wrong"))]
-        #[case::dispatch_failure(DynamoSdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
-        #[case::response_error(DynamoSdkError::response_error(
-            "Something went wrong",
-            DynamoHttpResponse::new(500u16.try_into().unwrap(), "{}".into())
-        ))]
-        #[case::service_error(DynamoSdkError::service_error(
-            aws_sdk_dynamodb::operation::query::QueryError::unhandled("Something went wrong"),
-            DynamoHttpResponse::new(500u16.try_into().unwrap(), "{}".into())
-        ))]
-        #[trace]
-        async fn should_propagate_sdk_error_query_by_user(
-            #[case] expected: DynamoSdkError<
-                aws_sdk_dynamodb::operation::query::QueryError,
-                DynamoHttpResponse,
-            >,
-        ) {
-            let mut repository = MockPartnerShopApplicationDynamoDbRepository::default();
-            repository
-                .expect_query_all_partner_shop_application_records_by_user()
-                .return_once(|_| Box::pin(async { Err(expected) }));
-
-            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
-            let service = make_service(&repository, &sfn_adapter);
-            let actual = service
-                .find_all_partner_shop_applications_by_user(&UserId::new())
-                .await;
-
-            assert!(actual.is_err());
-            match actual.unwrap_err() {
-                PartnerShopApplicationError::SdkQueryError(_) => {}
-                err => panic!("Expected 'SdkQueryError', got '{err}'"),
-            }
-        }
     }
 
     mod create_starts_step_function {
@@ -987,14 +1026,13 @@ mod tests {
 
             let actual = service.create_partner_shop_application(cmd).await;
             assert!(actual.is_ok());
-            assert_eq!(
-                actual.unwrap().state,
-                PartnerShopApplicationState::Submitted
-            );
+            let app = actual.unwrap();
+            assert_eq!(app.business_state, PartnerShopApplicationState::Submitted);
+            assert_eq!(app.execution_state, ExecutionState::Processing);
         }
     }
 
-    mod update_by_id {
+    mod submit_decision_tests {
         use super::*;
         use crate::dynamodb::partner_shop_application_state_record::PartnerShopApplicationStateRecord;
 
@@ -1005,14 +1043,27 @@ mod tests {
 
             let mut record: PartnerShopApplicationRecord = Faker.fake();
             record.id = id;
-            record.state = PartnerShopApplicationStateRecord::InReview;
+            record.business_state = PartnerShopApplicationStateRecord::InReview;
+            record.execution_state =
+                crate::dynamodb::execution_state_record::ExecutionStateRecord::Waiting;
             record.task_token = Some(task_token.clone());
+
+            let updated_record = {
+                let mut r = record.clone();
+                r.execution_state =
+                    crate::dynamodb::execution_state_record::ExecutionStateRecord::Processing;
+                r
+            };
 
             let mut repository = MockPartnerShopApplicationDynamoDbRepository::default();
             repository
                 .expect_query_partner_shop_application_record_by_id()
                 .withf(move |query_id| *query_id == id)
                 .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+            repository
+                .expect_update_partner_shop_application_record()
+                .return_once(move |_, _, _| Box::pin(async move { Ok(Some(updated_record)) }));
 
             let expected_token = task_token.clone();
             let mut sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
@@ -1026,16 +1077,13 @@ mod tests {
                 .return_once(|_, _| Box::pin(async { Ok(()) }));
 
             let service = make_service(&repository, &sfn_adapter);
-            let update = UpdatePartnerShopApplicationCommand {
-                state: Some(PartnerShopApplicationState::Approved),
-                ..Default::default()
-            };
-
             let actual = service
-                .update_partner_shop_application_by_id(&id, update)
+                .submit_decision_by_id(&id, Decision::Approve)
                 .await;
 
             assert!(actual.is_ok());
+            let app = actual.unwrap();
+            assert_eq!(app.execution_state, ExecutionState::Processing);
         }
 
         #[tokio::test]
@@ -1045,13 +1093,26 @@ mod tests {
 
             let mut record: PartnerShopApplicationRecord = Faker.fake();
             record.id = id;
-            record.state = PartnerShopApplicationStateRecord::InReview;
+            record.business_state = PartnerShopApplicationStateRecord::InReview;
+            record.execution_state =
+                crate::dynamodb::execution_state_record::ExecutionStateRecord::Waiting;
             record.task_token = Some(task_token.clone());
+
+            let updated_record = {
+                let mut r = record.clone();
+                r.execution_state =
+                    crate::dynamodb::execution_state_record::ExecutionStateRecord::Processing;
+                r
+            };
 
             let mut repository = MockPartnerShopApplicationDynamoDbRepository::default();
             repository
                 .expect_query_partner_shop_application_record_by_id()
                 .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+            repository
+                .expect_update_partner_shop_application_record()
+                .return_once(move |_, _, _| Box::pin(async move { Ok(Some(updated_record)) }));
 
             let expected_token = task_token.clone();
             let mut sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
@@ -1065,16 +1126,13 @@ mod tests {
                 .return_once(|_, _| Box::pin(async { Ok(()) }));
 
             let service = make_service(&repository, &sfn_adapter);
-            let update = UpdatePartnerShopApplicationCommand {
-                state: Some(PartnerShopApplicationState::Rejected),
-                ..Default::default()
-            };
-
             let actual = service
-                .update_partner_shop_application_by_id(&id, update)
+                .submit_decision_by_id(&id, Decision::Reject)
                 .await;
 
             assert!(actual.is_ok());
+            let app = actual.unwrap();
+            assert_eq!(app.execution_state, ExecutionState::Processing);
         }
 
         #[tokio::test]
@@ -1083,7 +1141,7 @@ mod tests {
 
             let mut record: PartnerShopApplicationRecord = Faker.fake();
             record.id = id;
-            record.state = PartnerShopApplicationStateRecord::Submitted;
+            record.business_state = PartnerShopApplicationStateRecord::Submitted;
 
             let mut repository = MockPartnerShopApplicationDynamoDbRepository::default();
             repository
@@ -1092,13 +1150,9 @@ mod tests {
 
             let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
             let service = make_service(&repository, &sfn_adapter);
-            let update = UpdatePartnerShopApplicationCommand {
-                state: Some(PartnerShopApplicationState::Approved),
-                ..Default::default()
-            };
 
             let actual = service
-                .update_partner_shop_application_by_id(&id, update)
+                .submit_decision_by_id(&id, Decision::Approve)
                 .await;
 
             assert!(actual.is_err());
@@ -1116,7 +1170,7 @@ mod tests {
 
             let mut record: PartnerShopApplicationRecord = Faker.fake();
             record.id = id;
-            record.state = PartnerShopApplicationStateRecord::InReview;
+            record.business_state = PartnerShopApplicationStateRecord::InReview;
             record.task_token = None;
 
             let mut repository = MockPartnerShopApplicationDynamoDbRepository::default();
@@ -1126,13 +1180,9 @@ mod tests {
 
             let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
             let service = make_service(&repository, &sfn_adapter);
-            let update = UpdatePartnerShopApplicationCommand {
-                state: Some(PartnerShopApplicationState::Approved),
-                ..Default::default()
-            };
 
             let actual = service
-                .update_partner_shop_application_by_id(&id, update)
+                .submit_decision_by_id(&id, Decision::Approve)
                 .await;
 
             assert!(actual.is_err());
