@@ -127,7 +127,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_status_code = NULL,
                  next_retry_at = NULL,
                  updated = NOW()
-             WHERE shop_id = $1 AND url = $2",
+             WHERE shop_id = $1 AND url = $2 AND url_class = 'product'",
         )
         .bind(shop_id_uuid)
         .bind(url_str)
@@ -153,7 +153,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
              SET state = $3,
                  next_retry_at = NULL,
                  updated = NOW()
-             WHERE shop_id = $1 AND url = $2",
+             WHERE shop_id = $1 AND url = $2 AND url_class = 'product'",
         )
         .bind(shop_id_uuid)
         .bind(url_str)
@@ -182,7 +182,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_status_code = $4,
                  next_retry_at = $5,
                  updated = NOW()
-             WHERE shop_id = $1 AND url = $2",
+             WHERE shop_id = $1 AND url = $2 AND url_class = 'product'",
         )
         .bind(shop_id_uuid)
         .bind(url_str)
