@@ -134,6 +134,9 @@ CREATE TABLE IF NOT EXISTS shop_domains (
     shop_id     UUID        NOT NULL REFERENCES shops(shop_id) ON DELETE CASCADE,
     shop_domain TEXT        NOT NULL,
     last_crawled TIMESTAMPTZ,
+    crawl_failure_count INT NOT NULL DEFAULT 0,
+    last_crawl_error_kind TEXT,
+    next_crawl_at TIMESTAMPTZ,
     UNIQUE (shop_domain)
 );
 
@@ -150,6 +153,10 @@ CREATE TABLE IF NOT EXISTS shop_urls (
     price_value       INT,
     last_scraped_hash TEXT,
     last_scraped      TIMESTAMPTZ,
+    failure_count     INT         NOT NULL DEFAULT 0,
+    last_error_kind   TEXT,
+    last_status_code  INT,
+    next_retry_at     TIMESTAMPTZ,
     created           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CHECK (char_length(url) > 0),
@@ -161,3 +168,5 @@ CREATE TABLE IF NOT EXISTS shop_urls (
 
 CREATE INDEX IF NOT EXISTS idx_shop_urls_class_last_scraped ON shop_urls (url_class, last_scraped);
 CREATE INDEX IF NOT EXISTS idx_shop_urls_domain_id ON shop_urls (domain_id);
+CREATE INDEX IF NOT EXISTS idx_shop_urls_next_retry_at ON shop_urls (next_retry_at);
+CREATE INDEX IF NOT EXISTS idx_shop_domains_next_crawl_at ON shop_domains (next_crawl_at);
