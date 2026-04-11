@@ -5409,6 +5409,7 @@ async fn prepare_partner_shop() -> (ShopRecord, PartnerShopApiKey) {
     let mut record: ShopRecord = Faker.fake();
     record.partner_api_key_short = Some(hashed.short_token().to_string());
     record.partner_api_key_long_hash = Some(hashed.long_token_hash().to_string());
+    record.partner_user_id = Some(Faker.fake());
     let dynamodb_repository =
         ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     dynamodb_repository
