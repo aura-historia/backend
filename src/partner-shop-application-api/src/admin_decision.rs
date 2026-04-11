@@ -4,7 +4,7 @@ use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
-use partner_shop_application::data::decision_data::PostDecisionData;
+use partner_shop_application::data::decision_data::PostPartnerShopApplicationDecisionData;
 use partner_shop_application::data::get_partner_shop_application_data::GetPartnerShopApplicationData;
 use partner_shop_application::service::partner_shop_application_service::PartnerShopApplicationService;
 use user::service::user_service::UserService;
@@ -31,10 +31,11 @@ pub async fn handle(
             let err_msg = "Body cannot be empty";
             ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_detail(err_msg)
         })?;
-    let post_data: PostDecisionData = serde_json::from_str(&body).map_err(|err| {
-        let err_msg = err.to_string();
-        ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
-    })?;
+    let post_data: PostPartnerShopApplicationDecisionData =
+        serde_json::from_str(&body).map_err(|err| {
+            let err_msg = err.to_string();
+            ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
+        })?;
 
     let data: GetPartnerShopApplicationData = service
         .submit_decision_by_id(&application_id, post_data.decision.into())
@@ -58,7 +59,9 @@ mod tests {
             partner_shop_application::PartnerShopApplication,
             partner_shop_application_id::PartnerShopApplicationId,
         },
-        data::decision_data::{DecisionData, PostDecisionData},
+        data::decision_data::{
+            PartnerShopApplicationDecisionData, PostPartnerShopApplicationDecisionData,
+        },
         service::partner_shop_application_service::{
             MockPartnerShopApplicationService, PartnerShopApplicationError,
         },
@@ -99,8 +102,8 @@ mod tests {
                 .route_key("POST /api/v1/partner-applications/{partnerApplicationId}/decision")
                 .jwt_claim("sub", user_id)
                 .path_parameter("partnerApplicationId", PartnerShopApplicationId::new())
-                .body_serde(&PostDecisionData {
-                    decision: DecisionData::Approve,
+                .body_serde(&PostPartnerShopApplicationDecisionData {
+                    decision: PartnerShopApplicationDecisionData::Approve,
                 })
                 .build(),
             context: Default::default(),
@@ -127,8 +130,8 @@ mod tests {
                 .route_key("POST /api/v1/partner-applications/{partnerApplicationId}/decision")
                 .jwt_claim("sub", user_id)
                 .path_parameter("partnerApplicationId", PartnerShopApplicationId::new())
-                .body_serde(&PostDecisionData {
-                    decision: DecisionData::Reject,
+                .body_serde(&PostPartnerShopApplicationDecisionData {
+                    decision: PartnerShopApplicationDecisionData::Reject,
                 })
                 .build(),
             context: Default::default(),
@@ -149,8 +152,8 @@ mod tests {
                 .route_key("POST /api/v1/partner-applications/{partnerApplicationId}/decision")
                 .jwt_claim("sub", user_id)
                 .path_parameter("partnerApplicationId", PartnerShopApplicationId::new())
-                .body_serde(&PostDecisionData {
-                    decision: DecisionData::Approve,
+                .body_serde(&PostPartnerShopApplicationDecisionData {
+                    decision: PartnerShopApplicationDecisionData::Approve,
                 })
                 .build(),
             context: Default::default(),
@@ -200,8 +203,8 @@ mod tests {
                 .route_key("POST /api/v1/partner-applications/{partnerApplicationId}/decision")
                 .jwt_claim("sub", user_id)
                 .path_parameter("partnerApplicationId", PartnerShopApplicationId::new())
-                .body_serde(&PostDecisionData {
-                    decision: DecisionData::Approve,
+                .body_serde(&PostPartnerShopApplicationDecisionData {
+                    decision: PartnerShopApplicationDecisionData::Approve,
                 })
                 .build(),
             context: Default::default(),

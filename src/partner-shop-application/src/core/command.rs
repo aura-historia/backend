@@ -50,7 +50,7 @@ impl UpdatePartnerShopApplicationCommand {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Decision {
+pub enum PartnerShopApplicationDecision {
     Approve,
     Reject,
 }
@@ -69,12 +69,12 @@ mod faker {
         }
     }
 
-    impl Dummy<Faker> for Decision {
+    impl Dummy<Faker> for PartnerShopApplicationDecision {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             if config.fake_with_rng::<bool, R>(rng) {
-                Decision::Approve
+                PartnerShopApplicationDecision::Approve
             } else {
-                Decision::Reject
+                PartnerShopApplicationDecision::Reject
             }
         }
     }
@@ -113,7 +113,7 @@ mod faker {
 
         #[test]
         fn should_fake_decision() {
-            let _ = Faker.fake::<Decision>();
+            let _ = Faker.fake::<PartnerShopApplicationDecision>();
         }
     }
 }
