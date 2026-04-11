@@ -129,6 +129,9 @@ impl TryFrom<ShopRecord> for PartnerShop {
         let partner_api_key_long_hash = value.partner_api_key_long_hash.ok_or_else(|| {
             MissingPersistenceField::new(field::field!(partner_api_key_long_hash@ShopRecord))
         })?;
+        let partner_user_id = value.partner_user_id.ok_or_else(|| {
+            MissingPersistenceField::new(field::field!(partner_user_id@ShopRecord))
+        })?;
 
         Ok(PartnerShop {
             shop_id: value.shop_id,
@@ -137,7 +140,7 @@ impl TryFrom<ShopRecord> for PartnerShop {
             shop_type: value.shop_type.into(),
             domains: value.domains,
             image: value.image,
-            partner_user_id: value.partner_user_id,
+            partner_user_id,
             hashed_api_key: HashedPartnerShopApiKey::new(
                 partner_api_key_short,
                 partner_api_key_long_hash,
