@@ -801,14 +801,16 @@ mod tests {
 
     fn sample_html() -> String {
         r#"<!DOCTYPE html>
-<html>
-<body>
-  <span id="product-id">SKU-42</span>
-  <h1>Biedermeier Chair</h1>
-  <span id="state">In Stock</span>
-  <img src="/images/chair.jpg">
-</body>
-</html>"#
+        <html>
+        <body>
+          <main>
+            <span id="product-id">SKU-42</span>
+            <h1>Biedermeier Chair</h1>
+            <span id="state">In Stock</span>
+            <img src="/images/chair.jpg">
+          </main>
+        </body>
+        </html>"#
             .to_string()
     }
 
