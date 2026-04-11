@@ -49,7 +49,7 @@ async fn should_200_when_admin_updates_application_shop_name() {
     let mut sfn_adapter = partner_shop_application::service::sfn_adapter::MockSfnAdapter::default();
     sfn_adapter
         .expect_start_execution()
-        .returning(|_, _| Box::pin(async { Ok("execution-arn".to_string()) }));
+        .return_once(|_, _| Box::pin(async { Ok("foo".into()) }));
     let service = PartnerShopApplicationServiceImpl::new(
         &repository,
         &sfn_adapter,
@@ -100,7 +100,7 @@ async fn should_200_when_admin_submits_approve_decision() {
     let mut sfn_adapter = partner_shop_application::service::sfn_adapter::MockSfnAdapter::default();
     sfn_adapter
         .expect_start_execution()
-        .returning(|_, _| Box::pin(async { Ok("execution-arn".to_string()) }));
+        .return_once(|_, _| Box::pin(async { Ok("foo".into()) }));
     sfn_adapter
         .expect_send_task_success()
         .returning(|_, _| Box::pin(async { Ok(()) }));
@@ -178,7 +178,7 @@ async fn should_200_when_admin_submits_reject_decision() {
     let mut sfn_adapter = partner_shop_application::service::sfn_adapter::MockSfnAdapter::default();
     sfn_adapter
         .expect_start_execution()
-        .returning(|_, _| Box::pin(async { Ok("execution-arn".to_string()) }));
+        .return_once(|_, _| Box::pin(async { Ok("foo".into()) }));
     sfn_adapter
         .expect_send_task_success()
         .returning(|_, _| Box::pin(async { Ok(()) }));
