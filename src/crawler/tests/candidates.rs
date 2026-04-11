@@ -595,7 +595,7 @@ async fn scraper_should_return_candidate_for_all_included_states() {
         ),
     ];
 
-    for (i, (state, url_str)) in states.iter().enumerate() {
+    for (state, url_str) in &states {
         let url = url::Url::parse(url_str).unwrap();
         repo.upsert_link(&shop_id, &domain_id, &url, &UrlClass::Product)
             .await
