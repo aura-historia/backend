@@ -1,1 +1,1 @@
-common::uuid_v7_newtype!(PartnerShopApplicationId);
+pub use common::partner_shop_application_id::PartnerShopApplicationId;

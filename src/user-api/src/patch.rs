@@ -38,6 +38,7 @@ pub async fn handle(
         currency: patch_user_account_data.currency.map(Currency::from),
         prohibited_content_consent: patch_user_account_data.prohibited_content_consent,
         tier: None,
+        role: None,
     };
     let updated_user_account_data: GetUserAccountData = service
         .update_user(&user_id, update_user_command)

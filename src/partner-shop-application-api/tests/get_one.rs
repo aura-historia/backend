@@ -9,12 +9,16 @@ use partner_shop_application::{
 };
 use partner_shop_application_api::handler;
 use test_api::*;
+use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
+use user::service::user_service::UserServiceImpl;
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_respond_application_when_exists() {
     let repository =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = PartnerShopApplicationServiceImpl::new(&repository);
+    let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository);
 
     let application = service
         .create_partner_shop_application(Faker.fake())
@@ -30,7 +34,9 @@ async fn should_200_respond_application_when_exists() {
             .build(),
         context: Default::default(),
     };
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handler(lambda_event, &service, &user_service)
+        .await
+        .unwrap();
     let actual: GetPartnerShopApplicationData =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
 

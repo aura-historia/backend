@@ -37,6 +37,7 @@ mod tests {
         service::partner_shop_application_service::MockPartnerShopApplicationService,
     };
     use test_api::ApiGatewayV2httpRequestProxy;
+    use user::service::user_service::MockUserService;
 
     #[tokio::test]
     async fn should_200_with_empty_list_when_no_applications_exist() {
@@ -44,6 +45,7 @@ mod tests {
         service
             .expect_find_all_partner_shop_applications_by_user()
             .return_once(move |_| Box::pin(async move { Ok(vec![]) }));
+        let user_service = MockUserService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -53,7 +55,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &service).await.unwrap();
+        let response = handle(lambda_event, &service, &user_service).await.unwrap();
         assert_eq!(200, response.status_code);
     }
 
@@ -66,6 +68,7 @@ mod tests {
                 let app: PartnerShopApplication = Faker.fake();
                 Box::pin(async move { Ok(vec![app]) })
             });
+        let user_service = MockUserService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -75,13 +78,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &service).await.unwrap();
+        let response = handle(lambda_event, &service, &user_service).await.unwrap();
         assert_eq!(200, response.status_code);
     }
 
     #[tokio::test]
     async fn should_401_when_jwt_claim_sub_is_missing() {
         let service = MockPartnerShopApplicationService::default();
+        let user_service = MockUserService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -90,7 +94,9 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &service).await.unwrap_err();
+        let response = handle(lambda_event, &service, &user_service)
+            .await
+            .unwrap_err();
         assert_eq!(401, response.status);
     }
 }

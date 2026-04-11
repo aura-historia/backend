@@ -1,6 +1,6 @@
 use crate::{
     core::{first_name::FirstName, last_name::LastName, user::User},
-    data::tier_data::UserTierData,
+    data::{role_data::UserRoleData, tier_data::UserTierData},
 };
 use common::{currency::data::CurrencyData, language::data::LanguageData, user_id::UserId};
 use serde::{Deserialize, Serialize};
@@ -29,6 +29,8 @@ pub struct GetUserAccountData {
 
     pub tier: UserTierData,
 
+    pub role: UserRoleData,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -46,6 +48,7 @@ impl From<User> for GetUserAccountData {
             currency: user.currency.map(CurrencyData::from),
             prohibited_content_consent: user.prohibited_content_consent,
             tier: UserTierData::from(user.tier),
+            role: UserRoleData::from(user.role),
             created: user.created,
             updated: user.updated,
         }
