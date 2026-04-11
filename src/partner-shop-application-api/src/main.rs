@@ -28,7 +28,8 @@ async fn main() -> Result<(), Error> {
     let repository =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let sfn_adapter = SfnAdapterImpl::new(&sfn_client);
-    let service = PartnerShopApplicationServiceImpl::new(&repository, &sfn_adapter, &state_machine_arn);
+    let service =
+        PartnerShopApplicationServiceImpl::new(&repository, &sfn_adapter, &state_machine_arn);
 
     let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let user_service = UserServiceImpl::new(&user_repository);

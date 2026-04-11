@@ -981,11 +981,7 @@ mod tests {
             partner_application_id.to_string()
         );
         assert_eq!(
-            output
-                .get("applicant_user_id")
-                .unwrap()
-                .as_str()
-                .unwrap(),
+            output.get("applicant_user_id").unwrap().as_str().unwrap(),
             applicant_user_id.to_string()
         );
     }

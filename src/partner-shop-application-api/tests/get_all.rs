@@ -16,7 +16,12 @@ use user::service::user_service::UserServiceImpl;
 async fn should_200_respond_empty_list_when_no_applications_exist() {
     let repository =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = PartnerShopApplicationServiceImpl::new(&repository);
+    let sfn_adapter = partner_shop_application::service::sfn_adapter::MockSfnAdapter::default();
+    let service = PartnerShopApplicationServiceImpl::new(
+        &repository,
+        &sfn_adapter,
+        "arn:aws:states:us-east-1:123456789:stateMachine:test",
+    );
     let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
 
@@ -41,7 +46,12 @@ async fn should_200_respond_empty_list_when_no_applications_exist() {
 async fn should_200_respond_applications_when_they_exist() {
     let repository =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = PartnerShopApplicationServiceImpl::new(&repository);
+    let sfn_adapter = partner_shop_application::service::sfn_adapter::MockSfnAdapter::default();
+    let service = PartnerShopApplicationServiceImpl::new(
+        &repository,
+        &sfn_adapter,
+        "arn:aws:states:us-east-1:123456789:stateMachine:test",
+    );
     let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
 

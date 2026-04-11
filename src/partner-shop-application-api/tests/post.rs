@@ -17,7 +17,15 @@ use user::service::user_service::UserServiceImpl;
 async fn should_201_when_creating_application() {
     let repository =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = PartnerShopApplicationServiceImpl::new(&repository);
+    let mut sfn_adapter = partner_shop_application::service::sfn_adapter::MockSfnAdapter::default();
+    sfn_adapter
+        .expect_start_execution()
+        .returning(|_, _| Box::pin(async { Ok("execution-arn".to_string()) }));
+    let service = PartnerShopApplicationServiceImpl::new(
+        &repository,
+        &sfn_adapter,
+        "arn:aws:states:us-east-1:123456789:stateMachine:test",
+    );
     let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
 

@@ -64,7 +64,9 @@ pub enum PartnerShopApplicationError {
 pub mod api {
     use super::PartnerShopApplicationError;
     use common::api::error::ApiError;
-    use common::api::error_code::{CONFLICT, INTERNAL_SERVER_ERROR, PARTNER_SHOP_APPLICATION_NOT_FOUND};
+    use common::api::error_code::{
+        CONFLICT, INTERNAL_SERVER_ERROR, PARTNER_SHOP_APPLICATION_NOT_FOUND,
+    };
 
     impl From<PartnerShopApplicationError> for ApiError {
         fn from(err: PartnerShopApplicationError) -> Self {
@@ -336,11 +338,9 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             use crate::core::partner_shop_application_state::PartnerShopApplicationState;
             if matches!(
                 new_state,
-                PartnerShopApplicationState::Approved
-                    | PartnerShopApplicationState::Rejected
+                PartnerShopApplicationState::Approved | PartnerShopApplicationState::Rejected
             ) {
-                let current_state: PartnerShopApplicationState =
-                    existing_record.state.clone().into();
+                let current_state: PartnerShopApplicationState = existing_record.state.into();
                 if current_state != PartnerShopApplicationState::InReview {
                     return Err(PartnerShopApplicationError::NotInReviewState(*id));
                 }
@@ -445,7 +445,11 @@ mod tests {
         repository: &'a MockPartnerShopApplicationDynamoDbRepository,
         sfn_adapter: &'a crate::service::sfn_adapter::MockSfnAdapter,
     ) -> PartnerShopApplicationServiceImpl<'a> {
-        PartnerShopApplicationServiceImpl::new(repository, sfn_adapter, "arn:aws:states:us-east-1:123456789:stateMachine:test")
+        PartnerShopApplicationServiceImpl::new(
+            repository,
+            sfn_adapter,
+            "arn:aws:states:us-east-1:123456789:stateMachine:test",
+        )
     }
 
     mod create {
