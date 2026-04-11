@@ -5119,7 +5119,38 @@ async fn should_respond_200_for_admin_partner_application_patch() {
         .await
         .unwrap();
 
-    // Admin PATCH
+    // Wait for the step function to set the application to InReview
+    let get_url = format!(
+        "{}/api/v1/me/partner-applications/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        created.id,
+    );
+    let mut in_review = false;
+    for _ in 0..30 {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let check_response = reqwest::Client::new()
+            .get(&get_url)
+            .bearer_auth(&user.access_token)
+            .send()
+            .await
+            .unwrap();
+        if check_response.status() == 200 {
+            let check_data = check_response
+                .json::<GetPartnerShopApplicationData>()
+                .await
+                .unwrap();
+            if check_data.state == PartnerShopApplicationStateData::InReview {
+                in_review = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        in_review,
+        "Application did not transition to InReview within timeout"
+    );
+
+    // Admin PATCH to approve (sends task success to step function)
     let admin_url = format!(
         "{}/api/v1/partner-applications/{}",
         get_cfn_output().api_gateway_endpoint_url,
@@ -5141,12 +5172,39 @@ async fn should_respond_200_for_admin_partner_application_patch() {
         .unwrap();
     assert_eq!(200, response.status());
 
+    // The response returns the current (InReview) record since the step function
+    // processes the approval asynchronously
     let patched = response
         .json::<GetPartnerShopApplicationData>()
         .await
         .unwrap();
     assert_eq!(created.id, patched.id);
-    assert_eq!(PartnerShopApplicationStateData::Approved, patched.state);
+
+    // Wait for the step function to complete and set the application to Approved
+    let mut approved = false;
+    for _ in 0..30 {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let check_response = reqwest::Client::new()
+            .get(&get_url)
+            .bearer_auth(&user.access_token)
+            .send()
+            .await
+            .unwrap();
+        if check_response.status() == 200 {
+            let check_data = check_response
+                .json::<GetPartnerShopApplicationData>()
+                .await
+                .unwrap();
+            if check_data.state == PartnerShopApplicationStateData::Approved {
+                approved = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        approved,
+        "Application did not transition to Approved within timeout"
+    );
 }
 
 // ---------------------------------------------------------------------------

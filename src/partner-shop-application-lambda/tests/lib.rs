@@ -37,16 +37,7 @@ fn fake_notification(user_id: UserId) -> Notification {
     }
 }
 
-fn mock_notification_service_approve() -> MockNotificationService {
-    let mut mock = MockNotificationService::new();
-    mock.expect_create_notification().returning(|_, cmd| {
-        let notification = fake_notification(cmd.user_id);
-        Box::pin(async move { Ok(notification) })
-    });
-    mock
-}
-
-fn mock_notification_service_reject() -> MockNotificationService {
+fn mock_notification_service() -> MockNotificationService {
     let mut mock = MockNotificationService::new();
     mock.expect_create_notification().returning(|_, cmd| {
         let notification = fake_notification(cmd.user_id);
@@ -131,7 +122,7 @@ async fn should_create_shop_and_approve_for_new_application() {
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_service = CommandShopServiceImpl::new(&shop_repo);
-    let mock_notification = mock_notification_service_approve();
+    let mock_notification = mock_notification_service();
 
     let mut record: PartnerShopApplicationRecord = Faker.fake();
     record.state = PartnerShopApplicationStateRecord::InReview;
@@ -179,7 +170,7 @@ async fn should_link_existing_shop_and_approve_for_existing_application() {
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_service = CommandShopServiceImpl::new(&shop_repo);
-    let mock_notification = mock_notification_service_approve();
+    let mock_notification = mock_notification_service();
 
     let existing_shop: ShopRecord = Faker.fake();
     let existing_shop_id = existing_shop.shop_id;
@@ -245,7 +236,7 @@ async fn should_set_state_to_rejected_for_reject() {
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_service = CommandShopServiceImpl::new(&shop_repo);
-    let mock_notification = mock_notification_service_reject();
+    let mock_notification = mock_notification_service();
 
     let mut record: PartnerShopApplicationRecord = Faker.fake();
     record.state = PartnerShopApplicationStateRecord::InReview;
