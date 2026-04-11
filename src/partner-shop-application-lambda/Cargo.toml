@@ -31,6 +31,11 @@ partner-shop-application = { workspace = true, features = ["full"] }
 notification = { workspace = true, features = ["full"] }
 shop = { workspace = true, features = ["full"] }
 user = { workspace = true, features = ["full"] }
+common = { workspace = true, features = ["test-data"] }
+test-api = { workspace = true, features = ["dynamodb"] }
+serial_test = { workspace = true }
 fake = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
+time = { workspace = true }
+serde_json = { workspace = true }
