@@ -55,10 +55,12 @@ Every URL the spider has ever seen. Shared between the spider (writes) and the s
 | `domain_id` | UUID FK → `shop_domains` | Cascade on delete — links the URL to the specific domain it was discovered from |
 | `url_class` | TEXT | One of `product`, `category`, `imprint`, `info`, `other` |
 | `state` | TEXT | `UNKNOWN` \| `LISTED` \| `AVAILABLE` \| `RESERVED` \| `SOLD` \| `REMOVED` |
-| `price_currency` | TEXT (nullable) | ISO 4217 code, populated by scraper |
-| `price_value` | INT (nullable) | Amount in minor units (cents), populated by scraper |
 | `last_scraped_hash` | TEXT (nullable) | Scraper-computed hash at the time of the last successful scrape |
 | `last_scraped` | TIMESTAMPTZ (nullable) | Timestamp of the last successful scrape |
+| `failure_count` | INT NOT NULL DEFAULT 0 | Consecutive fetch failures since last successful scrape |
+| `last_error_kind` | TEXT (nullable) | Classified failure category (timeout/connect/http status/etc.) |
+| `last_status_code` | INT (nullable) | HTTP status code of the last failed fetch |
+| `next_retry_at` | TIMESTAMPTZ (nullable) | Earliest timestamp when the URL is eligible for retry |
 | `created` / `updated` | TIMESTAMPTZ | |
 
 **Domain linkage**: `domain_id` is a direct FK to `shop_domains`. When a domain is removed from a shop during the shop registration sync, all URLs discovered from that domain are automatically cascade-deleted — preventing the scraper from continuing to process stale URLs from a domain that no longer belongs to the shop.

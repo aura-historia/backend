@@ -11,8 +11,6 @@ pub struct SpiderUrlRecord {
     pub url: url::Url,
     pub url_class: UrlClass,
     pub state: UrlState,
-    pub price_currency: Option<String>,
-    pub price_value: Option<u32>,
     pub last_scraped_hash: Option<String>,
     pub last_scraped: Option<OffsetDateTime>,
     pub created: OffsetDateTime,
@@ -31,7 +29,6 @@ impl FromRow<'_, sqlx::postgres::PgRow> for SpiderUrlRecord {
         let state_str: String = row.try_get("state")?;
         let state = std::str::FromStr::from_str(&state_str)
             .map_err(|e: String| sqlx::Error::Decode(e.into()))?;
-        let price_value: Option<i32> = row.try_get("price_value")?;
 
         Ok(Self {
             shop_id: shop_id.into(),
@@ -39,8 +36,6 @@ impl FromRow<'_, sqlx::postgres::PgRow> for SpiderUrlRecord {
             url,
             url_class,
             state,
-            price_currency: row.try_get("price_currency")?,
-            price_value: price_value.map(|v| v as u32),
             last_scraped_hash: row.try_get("last_scraped_hash")?,
             last_scraped: row.try_get("last_scraped")?,
             created: row.try_get("created")?,
@@ -114,7 +109,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
                  url_class = EXCLUDED.url_class,
                  domain_id = EXCLUDED.domain_id,
                  updated = NOW()
-             RETURNING shop_id, domain_id, url, url_class, state, price_currency, price_value, last_scraped_hash, last_scraped, created, updated",
+             RETURNING shop_id, domain_id, url, url_class, state, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(shop_id_uuid)
         .bind(domain_id)
@@ -148,7 +143,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
                  url_class = EXCLUDED.url_class,
                  domain_id = EXCLUDED.domain_id,
                  updated = NOW()
-             RETURNING shop_id, domain_id, url, url_class, state, price_currency, price_value, last_scraped_hash, last_scraped, created, updated",
+             RETURNING shop_id, domain_id, url, url_class, state, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(shop_id_uuid)
         .bind(domain_id)
@@ -170,7 +165,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
             "UPDATE shop_urls
              SET last_scraped = NOW(), last_scraped_hash = $3, updated = NOW()
              WHERE shop_id = $1 AND url = $2
-             RETURNING shop_id, domain_id, url, url_class, state, price_currency, price_value, last_scraped_hash, last_scraped, created, updated",
+             RETURNING shop_id, domain_id, url, url_class, state, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(shop_id_uuid)
         .bind(url_str)
@@ -192,7 +187,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
             "UPDATE shop_urls
              SET state = $3, updated = NOW()
              WHERE shop_id = $1 AND url = $2
-             RETURNING shop_id, domain_id, url, url_class, state, price_currency, price_value, last_scraped_hash, last_scraped, created, updated",
+             RETURNING shop_id, domain_id, url, url_class, state, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(shop_id_uuid)
         .bind(url_str)

@@ -148,8 +148,6 @@ CREATE TABLE IF NOT EXISTS shop_urls (
     url               TEXT        NOT NULL,
     url_class         TEXT        NOT NULL,
     state             TEXT        NOT NULL DEFAULT 'UNKNOWN',
-    price_currency    TEXT,
-    price_value       INT,
     last_scraped_hash TEXT,
     last_scraped      TIMESTAMPTZ,
     failure_count     INT         NOT NULL DEFAULT 0,
