@@ -954,4 +954,190 @@ mod tests {
             }
         }
     }
+
+    mod create_starts_step_function {
+        use super::*;
+
+        #[tokio::test]
+        async fn should_start_step_function_on_create() {
+            let mut repository = MockPartnerShopApplicationDynamoDbRepository::default();
+            repository
+                .expect_put_partner_shop_application_record()
+                .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
+
+            let state_machine_arn =
+                "arn:aws:states:us-east-1:123456789:stateMachine:test".to_string();
+            let expected_arn = state_machine_arn.clone();
+
+            let mut sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            sfn_adapter
+                .expect_start_execution()
+                .withf(move |arn, _input| arn == expected_arn)
+                .return_once(|_, _| Box::pin(async { Ok("execution-arn".to_string()) }));
+
+            let service = make_service(&repository, &sfn_adapter);
+            let cmd = CreatePartnerShopApplicationCommand {
+                applicant_user_id: UserId::new(),
+                payload: PartnerShopApplicationPayload::Existing(ShopId::new()),
+            };
+
+            let actual = service.create_partner_shop_application(cmd).await;
+            assert!(actual.is_ok());
+            assert_eq!(
+                actual.unwrap().state,
+                PartnerShopApplicationState::Submitted
+            );
+        }
+    }
+
+    mod update_by_id {
+        use super::*;
+        use crate::dynamodb::partner_shop_application_state_record::PartnerShopApplicationStateRecord;
+
+        #[tokio::test]
+        async fn should_resume_step_function_when_approving_in_review_application() {
+            let id = PartnerShopApplicationId::new();
+            let task_token = "my-task-token-abc".to_string();
+
+            let mut record: PartnerShopApplicationRecord = Faker.fake();
+            record.id = id;
+            record.state = PartnerShopApplicationStateRecord::InReview;
+            record.task_token = Some(task_token.clone());
+
+            let mut repository = MockPartnerShopApplicationDynamoDbRepository::default();
+            repository
+                .expect_query_partner_shop_application_record_by_id()
+                .withf(move |query_id| *query_id == id)
+                .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+            let expected_token = task_token.clone();
+            let mut sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            sfn_adapter
+                .expect_send_task_success()
+                .withf(move |token, output| {
+                    token == expected_token
+                        && output.contains("APPROVED")
+                        && output.contains("partner_application_id")
+                })
+                .return_once(|_, _| Box::pin(async { Ok(()) }));
+
+            let service = make_service(&repository, &sfn_adapter);
+            let update = UpdatePartnerShopApplicationCommand {
+                state: Some(PartnerShopApplicationState::Approved),
+                ..Default::default()
+            };
+
+            let actual = service
+                .update_partner_shop_application_by_id(&id, update)
+                .await;
+
+            assert!(actual.is_ok());
+        }
+
+        #[tokio::test]
+        async fn should_resume_step_function_when_rejecting_in_review_application() {
+            let id = PartnerShopApplicationId::new();
+            let task_token = "my-task-token-xyz".to_string();
+
+            let mut record: PartnerShopApplicationRecord = Faker.fake();
+            record.id = id;
+            record.state = PartnerShopApplicationStateRecord::InReview;
+            record.task_token = Some(task_token.clone());
+
+            let mut repository = MockPartnerShopApplicationDynamoDbRepository::default();
+            repository
+                .expect_query_partner_shop_application_record_by_id()
+                .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+            let expected_token = task_token.clone();
+            let mut sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            sfn_adapter
+                .expect_send_task_success()
+                .withf(move |token, output| {
+                    token == expected_token
+                        && output.contains("REJECTED")
+                        && output.contains("partner_application_id")
+                })
+                .return_once(|_, _| Box::pin(async { Ok(()) }));
+
+            let service = make_service(&repository, &sfn_adapter);
+            let update = UpdatePartnerShopApplicationCommand {
+                state: Some(PartnerShopApplicationState::Rejected),
+                ..Default::default()
+            };
+
+            let actual = service
+                .update_partner_shop_application_by_id(&id, update)
+                .await;
+
+            assert!(actual.is_ok());
+        }
+
+        #[tokio::test]
+        async fn should_fail_when_approving_non_in_review_application() {
+            let id = PartnerShopApplicationId::new();
+
+            let mut record: PartnerShopApplicationRecord = Faker.fake();
+            record.id = id;
+            record.state = PartnerShopApplicationStateRecord::Submitted;
+
+            let mut repository = MockPartnerShopApplicationDynamoDbRepository::default();
+            repository
+                .expect_query_partner_shop_application_record_by_id()
+                .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = make_service(&repository, &sfn_adapter);
+            let update = UpdatePartnerShopApplicationCommand {
+                state: Some(PartnerShopApplicationState::Approved),
+                ..Default::default()
+            };
+
+            let actual = service
+                .update_partner_shop_application_by_id(&id, update)
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                PartnerShopApplicationError::NotInReviewState(err_id) => {
+                    assert_eq!(id, err_id);
+                }
+                err => panic!("Expected 'NotInReviewState', got '{err}'"),
+            }
+        }
+
+        #[tokio::test]
+        async fn should_fail_when_task_token_missing_for_approve() {
+            let id = PartnerShopApplicationId::new();
+
+            let mut record: PartnerShopApplicationRecord = Faker.fake();
+            record.id = id;
+            record.state = PartnerShopApplicationStateRecord::InReview;
+            record.task_token = None;
+
+            let mut repository = MockPartnerShopApplicationDynamoDbRepository::default();
+            repository
+                .expect_query_partner_shop_application_record_by_id()
+                .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = make_service(&repository, &sfn_adapter);
+            let update = UpdatePartnerShopApplicationCommand {
+                state: Some(PartnerShopApplicationState::Approved),
+                ..Default::default()
+            };
+
+            let actual = service
+                .update_partner_shop_application_by_id(&id, update)
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                PartnerShopApplicationError::MissingTaskToken(err_id) => {
+                    assert_eq!(id, err_id);
+                }
+                err => panic!("Expected 'MissingTaskToken', got '{err}'"),
+            }
+        }
+    }
 }

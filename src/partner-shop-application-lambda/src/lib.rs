@@ -383,11 +383,31 @@ fn resolve_shop_name(record: &PartnerShopApplicationRecord) -> ShopName {
 mod tests {
     use super::*;
     use fake::{Fake, Faker};
+    use notification::core::notification::Notification;
+    use notification::core::notification_id::NotificationId;
     use notification::service::notification_service::MockNotificationService;
+    use partner_shop_application::dynamodb::partner_shop_application_payload_type_record::PartnerShopApplicationPayloadTypeRecord;
     use partner_shop_application::dynamodb::repository::MockPartnerShopApplicationDynamoDbRepository;
     use rstest::rstest;
+    use shop::core::shop::Shop;
     use shop::dynamodb::repository::MockShopDynamoDbRepository;
+    use shop::dynamodb::shop_record::ShopRecord;
+    use shop::dynamodb::shop_type_record::ShopTypeRecord;
     use shop::service::command_service::MockCommandShopService;
+
+    fn fake_notification(user_id: UserId) -> Notification {
+        Notification {
+            user_id,
+            origin_event_id: EventId::new(),
+            notification_id: NotificationId::new(),
+            notification_type: None,
+            notification_payload: Faker.fake(),
+            seen: false,
+            external: true,
+            created: time::OffsetDateTime::now_utc(),
+            updated: time::OffsetDateTime::now_utc(),
+        }
+    }
 
     #[rstest]
     #[case("WAIT_FOR_REVIEW", StepFunctionStep::WaitForReview)]
@@ -546,5 +566,427 @@ mod tests {
 
         let result = resolve_shop_name(&record);
         assert_eq!(result, expected_name);
+    }
+
+    #[tokio::test]
+    async fn should_approve_new_shop_application_when_valid_for_full_approve_path() {
+        let partner_application_id = PartnerShopApplicationId::new();
+        let applicant_user_id = UserId::new();
+        let shop_name = ShopName::from("My New Shop");
+
+        let mut record: PartnerShopApplicationRecord = Faker.fake();
+        record.id = partner_application_id;
+        record.applicant_user_id = applicant_user_id;
+        record.payload_type = PartnerShopApplicationPayloadTypeRecord::New;
+        record.shop_name = Some(shop_name.clone());
+        record.shop_type = Some(ShopTypeRecord::CommercialDealer);
+        record.shop_domains = Some(Default::default());
+        record.shop_image = None;
+
+        let mut mock_repo = MockPartnerShopApplicationDynamoDbRepository::new();
+        mock_repo
+            .expect_query_partner_shop_application_record_by_id()
+            .withf(move |id| *id == partner_application_id)
+            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+        mock_repo
+            .expect_update_partner_shop_application_record()
+            .withf(|_user_id, _id, update| {
+                update.state == Some(PartnerShopApplicationStateRecord::Approved)
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(None) }));
+
+        let created_shop: Shop = Faker.fake();
+        let created_shop_id = created_shop.shop_id;
+        let mut mock_shop_service = MockCommandShopService::new();
+        mock_shop_service
+            .expect_create()
+            .withf(move |cmd| cmd.name == ShopName::from("My New Shop"))
+            .return_once(move |_| Box::pin(async move { Ok(created_shop) }));
+
+        let mut mock_shop_repo = MockShopDynamoDbRepository::new();
+        mock_shop_repo
+            .expect_update_shop_record()
+            .withf(move |shop_id, update| {
+                *shop_id == created_shop_id
+                    && update.partner_user_id.is_some()
+                    && update.gsi1_pk.is_some()
+                    && update.gsi1_sk.is_some()
+            })
+            .returning(|_, _| Box::pin(async { Ok(None) }));
+
+        let mut mock_notification = MockNotificationService::new();
+        mock_notification
+            .expect_create_notification()
+            .withf(move |_event_id, cmd| {
+                cmd.user_id == applicant_user_id
+                    && cmd.external
+                    && matches!(
+                        &cmd.notification_payload,
+                        NotificationPayload::PartnerApplication {
+                            partner_application_payload:
+                                NotificationPartnerApplicationPayload::Approved { .. },
+                            ..
+                        }
+                    )
+            })
+            .return_once(|_, cmd| {
+                let notification = fake_notification(cmd.user_id);
+                Box::pin(async move { Ok(notification) })
+            });
+
+        let input = StepFunctionInput {
+            step: StepFunctionStep::Approve,
+            task_token: None,
+            partner_application_id,
+            applicant_user_id,
+        };
+
+        let result = handle_approve(
+            &mock_repo,
+            &mock_shop_service,
+            &mock_shop_repo,
+            &mock_notification,
+            &input,
+        )
+        .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn should_approve_existing_shop_application_when_valid_for_full_approve_path() {
+        let partner_application_id = PartnerShopApplicationId::new();
+        let applicant_user_id = UserId::new();
+        let existing_shop_id: ShopId = Faker.fake();
+
+        let mut record: PartnerShopApplicationRecord = Faker.fake();
+        record.id = partner_application_id;
+        record.applicant_user_id = applicant_user_id;
+        record.payload_type = PartnerShopApplicationPayloadTypeRecord::Existing;
+        record.existing_shop_id = Some(existing_shop_id);
+
+        let mut mock_repo = MockPartnerShopApplicationDynamoDbRepository::new();
+        mock_repo
+            .expect_query_partner_shop_application_record_by_id()
+            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+        mock_repo
+            .expect_update_partner_shop_application_record()
+            .withf(|_user_id, _id, update| {
+                update.state == Some(PartnerShopApplicationStateRecord::Approved)
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(None) }));
+
+        let mock_shop_service = MockCommandShopService::new();
+
+        let mut shop_record: ShopRecord = Faker.fake();
+        shop_record.shop_id = existing_shop_id;
+        shop_record.partner_user_id = None;
+
+        let mut mock_shop_repo = MockShopDynamoDbRepository::new();
+        mock_shop_repo
+            .expect_get_shop_record()
+            .withf(move |id| *id == existing_shop_id)
+            .return_once(move |_| Box::pin(async move { Ok(Some(shop_record)) }));
+
+        mock_shop_repo
+            .expect_update_shop_record()
+            .withf(move |shop_id, update| {
+                *shop_id == existing_shop_id
+                    && update.partner_user_id == Some(applicant_user_id)
+                    && update.gsi1_pk.is_some()
+                    && update.gsi1_sk.is_some()
+            })
+            .returning(|_, _| Box::pin(async { Ok(None) }));
+
+        let mut mock_notification = MockNotificationService::new();
+        mock_notification
+            .expect_create_notification()
+            .withf(move |_event_id, cmd| {
+                cmd.user_id == applicant_user_id
+                    && matches!(
+                        &cmd.notification_payload,
+                        NotificationPayload::PartnerApplication {
+                            partner_application_payload:
+                                NotificationPartnerApplicationPayload::Approved { .. },
+                            ..
+                        }
+                    )
+            })
+            .return_once(|_, cmd| {
+                let notification = fake_notification(cmd.user_id);
+                Box::pin(async move { Ok(notification) })
+            });
+
+        let input = StepFunctionInput {
+            step: StepFunctionStep::Approve,
+            task_token: None,
+            partner_application_id,
+            applicant_user_id,
+        };
+
+        let result = handle_approve(
+            &mock_repo,
+            &mock_shop_service,
+            &mock_shop_repo,
+            &mock_notification,
+            &input,
+        )
+        .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn should_reject_application_when_valid_for_full_reject_path() {
+        let partner_application_id = PartnerShopApplicationId::new();
+        let applicant_user_id = UserId::new();
+        let shop_name = ShopName::from("Test Shop");
+
+        let mut record: PartnerShopApplicationRecord = Faker.fake();
+        record.id = partner_application_id;
+        record.applicant_user_id = applicant_user_id;
+        record.shop_name = Some(shop_name.clone());
+
+        let mut mock_repo = MockPartnerShopApplicationDynamoDbRepository::new();
+        mock_repo
+            .expect_query_partner_shop_application_record_by_id()
+            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+        mock_repo
+            .expect_update_partner_shop_application_record()
+            .withf(|_user_id, _id, update| {
+                update.state == Some(PartnerShopApplicationStateRecord::Rejected)
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(None) }));
+
+        let mut mock_notification = MockNotificationService::new();
+        mock_notification
+            .expect_create_notification()
+            .withf(move |_event_id, cmd| {
+                cmd.user_id == applicant_user_id
+                    && cmd.external
+                    && matches!(
+                        &cmd.notification_payload,
+                        NotificationPayload::PartnerApplication {
+                            partner_application_payload:
+                                NotificationPartnerApplicationPayload::Rejected { .. },
+                            ..
+                        }
+                    )
+            })
+            .return_once(|_, cmd| {
+                let notification = fake_notification(cmd.user_id);
+                Box::pin(async move { Ok(notification) })
+            });
+
+        let input = StepFunctionInput {
+            step: StepFunctionStep::Reject,
+            task_token: None,
+            partner_application_id,
+            applicant_user_id,
+        };
+
+        let result = handle_reject(&mock_repo, &mock_notification, &input).await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn should_fail_approve_when_shop_creation_fails_for_new_application() {
+        let partner_application_id = PartnerShopApplicationId::new();
+        let applicant_user_id = UserId::new();
+
+        let mut record: PartnerShopApplicationRecord = Faker.fake();
+        record.id = partner_application_id;
+        record.applicant_user_id = applicant_user_id;
+        record.payload_type = PartnerShopApplicationPayloadTypeRecord::New;
+        record.shop_name = Some(ShopName::from("Failing Shop"));
+        record.shop_type = Some(ShopTypeRecord::Marketplace);
+
+        let mut mock_repo = MockPartnerShopApplicationDynamoDbRepository::new();
+        mock_repo
+            .expect_query_partner_shop_application_record_by_id()
+            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+        let mut mock_shop_service = MockCommandShopService::new();
+        mock_shop_service.expect_create().return_once(|_| {
+            use shop::service::command_service::CommandShopError;
+            Box::pin(async {
+                Err(CommandShopError::ShopSlugExistsAlready(
+                    ShopName::from("Failing Shop"),
+                    common::slug_id::SlugId::from("failing-shop"),
+                ))
+            })
+        });
+
+        let mock_shop_repo = MockShopDynamoDbRepository::new();
+        let mock_notification = MockNotificationService::new();
+
+        let input = StepFunctionInput {
+            step: StepFunctionStep::Approve,
+            task_token: None,
+            partner_application_id,
+            applicant_user_id,
+        };
+
+        let result = handle_approve(
+            &mock_repo,
+            &mock_shop_service,
+            &mock_shop_repo,
+            &mock_notification,
+            &input,
+        )
+        .await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StepFunctionError::ShopCreationError(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_fail_approve_when_shop_name_missing_for_new_application() {
+        let partner_application_id = PartnerShopApplicationId::new();
+        let applicant_user_id = UserId::new();
+
+        let mut record: PartnerShopApplicationRecord = Faker.fake();
+        record.id = partner_application_id;
+        record.applicant_user_id = applicant_user_id;
+        record.payload_type = PartnerShopApplicationPayloadTypeRecord::New;
+        record.shop_name = None;
+        record.shop_type = Some(ShopTypeRecord::CommercialDealer);
+
+        let mut mock_repo = MockPartnerShopApplicationDynamoDbRepository::new();
+        mock_repo
+            .expect_query_partner_shop_application_record_by_id()
+            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+        let mock_shop_service = MockCommandShopService::new();
+        let mock_shop_repo = MockShopDynamoDbRepository::new();
+        let mock_notification = MockNotificationService::new();
+
+        let input = StepFunctionInput {
+            step: StepFunctionStep::Approve,
+            task_token: None,
+            partner_application_id,
+            applicant_user_id,
+        };
+
+        let result = handle_approve(
+            &mock_repo,
+            &mock_shop_service,
+            &mock_shop_repo,
+            &mock_notification,
+            &input,
+        )
+        .await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StepFunctionError::MissingField(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_fail_approve_when_existing_shop_id_missing_for_existing_application() {
+        let partner_application_id = PartnerShopApplicationId::new();
+        let applicant_user_id = UserId::new();
+
+        let mut record: PartnerShopApplicationRecord = Faker.fake();
+        record.id = partner_application_id;
+        record.applicant_user_id = applicant_user_id;
+        record.payload_type = PartnerShopApplicationPayloadTypeRecord::Existing;
+        record.existing_shop_id = None;
+
+        let mut mock_repo = MockPartnerShopApplicationDynamoDbRepository::new();
+        mock_repo
+            .expect_query_partner_shop_application_record_by_id()
+            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+        let mock_shop_service = MockCommandShopService::new();
+        let mock_shop_repo = MockShopDynamoDbRepository::new();
+        let mock_notification = MockNotificationService::new();
+
+        let input = StepFunctionInput {
+            step: StepFunctionStep::Approve,
+            task_token: None,
+            partner_application_id,
+            applicant_user_id,
+        };
+
+        let result = handle_approve(
+            &mock_repo,
+            &mock_shop_service,
+            &mock_shop_repo,
+            &mock_notification,
+            &input,
+        )
+        .await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StepFunctionError::MissingField(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_handle_wait_for_review_step_when_valid_for_full_handler() {
+        let partner_application_id = PartnerShopApplicationId::new();
+        let applicant_user_id = UserId::new();
+
+        let payload = serde_json::json!({
+            "step": "WAIT_FOR_REVIEW",
+            "task_token": "my-task-token",
+            "partner_application_id": partner_application_id.to_string(),
+            "applicant_user_id": applicant_user_id.to_string(),
+        });
+
+        let mut mock_repo = MockPartnerShopApplicationDynamoDbRepository::new();
+        mock_repo
+            .expect_update_partner_shop_application_record()
+            .withf(|_user_id, _id, update| {
+                update.state == Some(PartnerShopApplicationStateRecord::InReview)
+                    && update.task_token == Some("my-task-token".to_string())
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(None) }));
+
+        let mock_shop_service = MockCommandShopService::new();
+        let mock_shop_repo = MockShopDynamoDbRepository::new();
+        let mock_notification = MockNotificationService::new();
+
+        let event = lambda_runtime::LambdaEvent::new(payload, lambda_runtime::Context::default());
+
+        let result = handler(
+            &mock_repo,
+            &mock_shop_service,
+            &mock_shop_repo,
+            &mock_notification,
+            event,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert_eq!(
+            output
+                .get("partner_application_id")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            partner_application_id.to_string()
+        );
+        assert_eq!(
+            output
+                .get("applicant_user_id")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            applicant_user_id.to_string()
+        );
     }
 }
