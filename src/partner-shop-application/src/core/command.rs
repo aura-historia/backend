@@ -1,4 +1,6 @@
-use crate::core::partner_shop_application::{PartnerShopApplicationPayload, PartnerShopApplicationPayloadInfo};
+use crate::core::partner_shop_application::{
+    PartnerShopApplicationPayload, PartnerShopApplicationPayloadInfo,
+};
 use common::{domain::Domain, shop_name::ShopName, user_id::UserId};
 use shop::core::shop_type::ShopType;
 use std::collections::HashSet;

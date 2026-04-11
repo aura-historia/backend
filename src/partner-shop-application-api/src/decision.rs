@@ -76,9 +76,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
-                .route_key(
-                    "POST /api/v1/me/partner-applications/{partnerApplicationId}/decision",
-                )
+                .route_key("POST /api/v1/me/partner-applications/{partnerApplicationId}/decision")
                 .jwt_claim("sub", user_id)
                 .path_parameter("partnerApplicationId", PartnerShopApplicationId::new())
                 .body_serde(&PostDecisionData {
@@ -106,9 +104,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
-                .route_key(
-                    "POST /api/v1/me/partner-applications/{partnerApplicationId}/decision",
-                )
+                .route_key("POST /api/v1/me/partner-applications/{partnerApplicationId}/decision")
                 .jwt_claim("sub", user_id)
                 .path_parameter("partnerApplicationId", PartnerShopApplicationId::new())
                 .body_serde(&PostDecisionData {
@@ -129,9 +125,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
-                .route_key(
-                    "POST /api/v1/me/partner-applications/{partnerApplicationId}/decision",
-                )
+                .route_key("POST /api/v1/me/partner-applications/{partnerApplicationId}/decision")
                 .path_parameter("partnerApplicationId", PartnerShopApplicationId::new())
                 .body_serde(&PostDecisionData {
                     decision: DecisionData::Approve,
@@ -154,9 +148,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
-                .route_key(
-                    "POST /api/v1/me/partner-applications/{partnerApplicationId}/decision",
-                )
+                .route_key("POST /api/v1/me/partner-applications/{partnerApplicationId}/decision")
                 .jwt_claim("sub", user_id)
                 .path_parameter("partnerApplicationId", PartnerShopApplicationId::new())
                 .build(),
@@ -178,16 +170,12 @@ mod tests {
             .expect_submit_decision()
             .return_once(move |_, id, _| {
                 let id = *id;
-                Box::pin(async move {
-                    Err(PartnerShopApplicationError::NotInReviewState(id))
-                })
+                Box::pin(async move { Err(PartnerShopApplicationError::NotInReviewState(id)) })
             });
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
-                .route_key(
-                    "POST /api/v1/me/partner-applications/{partnerApplicationId}/decision",
-                )
+                .route_key("POST /api/v1/me/partner-applications/{partnerApplicationId}/decision")
                 .jwt_claim("sub", user_id)
                 .path_parameter("partnerApplicationId", PartnerShopApplicationId::new())
                 .body_serde(&PostDecisionData {

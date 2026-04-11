@@ -27,6 +27,8 @@ use notification_api::notification_get::EventIdCursoredData;
 use opensearch::GetParts;
 use partner_shop_application::data::{
     admin_patch_partner_shop_application_data::AdminPatchPartnerShopApplicationData,
+    decision_data::{DecisionData, PostDecisionData},
+    execution_state_data::ExecutionStateData,
     get_partner_shop_application_data::GetPartnerShopApplicationData,
     partner_shop_application_state_data::PartnerShopApplicationStateData,
     patch_partner_shop_application_data::PatchPartnerShopApplicationData,
@@ -4842,7 +4844,10 @@ async fn should_respond_201_for_partner_application_post() {
         .json::<GetPartnerShopApplicationData>()
         .await
         .unwrap();
-    assert_eq!(PartnerShopApplicationStateData::Submitted, created.state);
+    assert_eq!(
+        PartnerShopApplicationStateData::Submitted,
+        created.business_state
+    );
 }
 
 #[localstack_test(services = [Cloudformation()])]
@@ -5119,7 +5124,68 @@ async fn should_respond_200_for_admin_partner_application_patch() {
         .await
         .unwrap();
 
-    // Wait for the step function to set the application to InReview
+    // Admin PATCH to update shop_name (no state change)
+    let admin_url = format!(
+        "{}/api/v1/partner-applications/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        created.id,
+    );
+    let patch_data = AdminPatchPartnerShopApplicationData {
+        shop_name: Some(common::shop_name::ShopName::from(
+            "Admin Updated".to_string(),
+        )),
+        shop_type: None,
+        shop_domains: None,
+        shop_image: None,
+    };
+    let response = reqwest::Client::new()
+        .patch(&admin_url)
+        .bearer_auth(&admin.access_token)
+        .json(&patch_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let patched = response
+        .json::<GetPartnerShopApplicationData>()
+        .await
+        .unwrap();
+    assert_eq!(created.id, patched.id);
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_admin_decision_approve() {
+    let admin = create_admin_test_user().await;
+    let user = create_random_test_user().await;
+
+    // Create an application as a normal user
+    let user_url = format!(
+        "{}/api/v1/me/partner-applications",
+        get_cfn_output().api_gateway_endpoint_url,
+    );
+    let post_data = PostPartnerShopApplicationPayloadData::Existing {
+        shop_id: Faker.fake(),
+    };
+    let create_response = reqwest::Client::new()
+        .post(&user_url)
+        .bearer_auth(&user.access_token)
+        .json(&post_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(201, create_response.status());
+    let created = create_response
+        .json::<GetPartnerShopApplicationData>()
+        .await
+        .unwrap();
+    assert_eq!(
+        PartnerShopApplicationStateData::Submitted,
+        created.business_state
+    );
+    assert_eq!(ExecutionStateData::Processing, created.execution_state);
+
+    // Wait for the step function to set the application to InReview (Waiting)
     let get_url = format!(
         "{}/api/v1/me/partner-applications/{}",
         get_cfn_output().api_gateway_endpoint_url,
@@ -5139,7 +5205,9 @@ async fn should_respond_200_for_admin_partner_application_patch() {
                 .json::<GetPartnerShopApplicationData>()
                 .await
                 .unwrap();
-            if check_data.state == PartnerShopApplicationStateData::InReview {
+            if check_data.business_state == PartnerShopApplicationStateData::InReview
+                && check_data.execution_state == ExecutionStateData::Waiting
+            {
                 in_review = true;
                 break;
             }
@@ -5147,40 +5215,38 @@ async fn should_respond_200_for_admin_partner_application_patch() {
     }
     assert!(
         in_review,
-        "Application did not transition to InReview within timeout"
+        "Application did not transition to InReview/Waiting within timeout"
     );
 
-    // Admin PATCH to approve (sends task success to step function)
-    let admin_url = format!(
-        "{}/api/v1/partner-applications/{}",
+    // Admin POST decision to approve
+    let decision_url = format!(
+        "{}/api/v1/partner-applications/{}/decision",
         get_cfn_output().api_gateway_endpoint_url,
         created.id,
     );
-    let patch_data = AdminPatchPartnerShopApplicationData {
-        state: Some(PartnerShopApplicationStateData::Approved),
-        shop_name: None,
-        shop_type: None,
-        shop_domains: None,
-        shop_image: None,
+    let decision_data = PostDecisionData {
+        decision: DecisionData::Approve,
     };
     let response = reqwest::Client::new()
-        .patch(&admin_url)
+        .post(&decision_url)
         .bearer_auth(&admin.access_token)
-        .json(&patch_data)
+        .json(&decision_data)
         .send()
         .await
         .unwrap();
     assert_eq!(200, response.status());
 
-    // The response returns the current (InReview) record since the step function
-    // processes the approval asynchronously
-    let patched = response
+    let decision_result = response
         .json::<GetPartnerShopApplicationData>()
         .await
         .unwrap();
-    assert_eq!(created.id, patched.id);
+    assert_eq!(created.id, decision_result.id);
+    assert_eq!(
+        ExecutionStateData::Processing,
+        decision_result.execution_state
+    );
 
-    // Wait for the step function to complete and set the application to Approved
+    // Wait for the step function to complete and set the application to Approved (Completed)
     let mut approved = false;
     for _ in 0..30 {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -5195,7 +5261,9 @@ async fn should_respond_200_for_admin_partner_application_patch() {
                 .json::<GetPartnerShopApplicationData>()
                 .await
                 .unwrap();
-            if check_data.state == PartnerShopApplicationStateData::Approved {
+            if check_data.business_state == PartnerShopApplicationStateData::Approved
+                && check_data.execution_state == ExecutionStateData::Completed
+            {
                 approved = true;
                 break;
             }
@@ -5203,7 +5271,128 @@ async fn should_respond_200_for_admin_partner_application_patch() {
     }
     assert!(
         approved,
-        "Application did not transition to Approved within timeout"
+        "Application did not transition to Approved/Completed within timeout"
+    );
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_admin_decision_reject() {
+    let admin = create_admin_test_user().await;
+    let user = create_random_test_user().await;
+
+    // Create an application as a normal user
+    let user_url = format!(
+        "{}/api/v1/me/partner-applications",
+        get_cfn_output().api_gateway_endpoint_url,
+    );
+    let post_data = PostPartnerShopApplicationPayloadData::Existing {
+        shop_id: Faker.fake(),
+    };
+    let create_response = reqwest::Client::new()
+        .post(&user_url)
+        .bearer_auth(&user.access_token)
+        .json(&post_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(201, create_response.status());
+    let created = create_response
+        .json::<GetPartnerShopApplicationData>()
+        .await
+        .unwrap();
+    assert_eq!(
+        PartnerShopApplicationStateData::Submitted,
+        created.business_state
+    );
+    assert_eq!(ExecutionStateData::Processing, created.execution_state);
+
+    // Wait for the step function to set the application to InReview (Waiting)
+    let get_url = format!(
+        "{}/api/v1/me/partner-applications/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        created.id,
+    );
+    let mut in_review = false;
+    for _ in 0..30 {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let check_response = reqwest::Client::new()
+            .get(&get_url)
+            .bearer_auth(&user.access_token)
+            .send()
+            .await
+            .unwrap();
+        if check_response.status() == 200 {
+            let check_data = check_response
+                .json::<GetPartnerShopApplicationData>()
+                .await
+                .unwrap();
+            if check_data.business_state == PartnerShopApplicationStateData::InReview
+                && check_data.execution_state == ExecutionStateData::Waiting
+            {
+                in_review = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        in_review,
+        "Application did not transition to InReview/Waiting within timeout"
+    );
+
+    // Admin POST decision to reject
+    let decision_url = format!(
+        "{}/api/v1/partner-applications/{}/decision",
+        get_cfn_output().api_gateway_endpoint_url,
+        created.id,
+    );
+    let decision_data = PostDecisionData {
+        decision: DecisionData::Reject,
+    };
+    let response = reqwest::Client::new()
+        .post(&decision_url)
+        .bearer_auth(&admin.access_token)
+        .json(&decision_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let decision_result = response
+        .json::<GetPartnerShopApplicationData>()
+        .await
+        .unwrap();
+    assert_eq!(created.id, decision_result.id);
+    assert_eq!(
+        ExecutionStateData::Processing,
+        decision_result.execution_state
+    );
+
+    // Wait for the step function to complete and set the application to Rejected (Completed)
+    let mut rejected = false;
+    for _ in 0..30 {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let check_response = reqwest::Client::new()
+            .get(&get_url)
+            .bearer_auth(&user.access_token)
+            .send()
+            .await
+            .unwrap();
+        if check_response.status() == 200 {
+            let check_data = check_response
+                .json::<GetPartnerShopApplicationData>()
+                .await
+                .unwrap();
+            if check_data.business_state == PartnerShopApplicationStateData::Rejected
+                && check_data.execution_state == ExecutionStateData::Completed
+            {
+                rejected = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        rejected,
+        "Application did not transition to Rejected/Completed within timeout"
     );
 }
 
