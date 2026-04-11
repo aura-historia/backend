@@ -216,8 +216,8 @@ On each successful scrape (`mark_as_scraped`) these fields are reset. On retryab
 ```
 scrape(shop_id, url, last_scraped_hash)
  ├── HtmlFetcher::fetch(url)                  — download raw HTML
- ├── current_hash = SHA-256(<main> fragment, fallback=url)
- ├── if current_hash == last_scraped_hash
+ ├── current_hash = SHA-256(<main> fragment) if present, else SHA-256(full HTML)
+ ├── if <main> present AND current_hash == last_scraped_hash
  │    └── mark_as_scraped(current_hash) and return None   — page unchanged, skip extraction
  ├── ProductSchemaService::get_product_schema(shop_id, html)
  │    ├── DB hit  → return cached CSS selector schema
@@ -298,7 +298,7 @@ Scraper writes back:
 
 The spider decides *which* URLs are products (by running the LLM-found regex). The scraper only processes URLs the spider has already labelled as `url_class = 'product'`. There is no direct function call or shared in-memory state between them — just the database row.
 
-Change detection is scraper-local: after fetching HTML, the scraper computes the same hash algorithm as the spider used historically (SHA-256 of the `<main>` fragment, fallback URL string) and compares it to `last_scraped_hash`. This keeps hash continuity while decoupling scrape eligibility from crawl timing.
+Change detection is scraper-local: after fetching HTML, the scraper computes a hash in-memory — SHA-256 of the `<main>` fragment when present, or SHA-256 of the full HTML when there is no `<main>` tag. This hash is compared to `last_scraped_hash`. If they match (and a `<main>` tag was found), extraction is skipped. Pages without a `<main>` tag are always re-extracted. The stored hash is always written after a successful scrape regardless of whether a `<main>` tag was present.
 
 The crawler now also tracks crawl-level cooldown metadata on `shop_domains`:
 

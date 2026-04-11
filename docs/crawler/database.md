@@ -63,7 +63,7 @@ Every URL the spider has ever seen. Shared between the spider (writes) and the s
 
 **Domain linkage**: `domain_id` is a direct FK to `shop_domains`. When a domain is removed from a shop during the shop registration sync, all URLs discovered from that domain are automatically cascade-deleted — preventing the scraper from continuing to process stale URLs from a domain that no longer belongs to the shop.
 
-**Change detection**: the scraper computes the current hash in-memory (SHA-256 of `<main>` fragment, fallback URL string) and compares it with `last_scraped_hash`. If they match, extraction is skipped.
+**Change detection**: the scraper computes the current hash in-memory — SHA-256 of the `<main>` fragment when present, SHA-256 of the full HTML otherwise — and compares it with `last_scraped_hash`. If they match and a `<main>` tag was found, extraction is skipped. Pages without a `<main>` tag are always re-extracted.
 
 **Indexes**:
 - `idx_shop_urls_class_last_scraped ON shop_urls (url_class, last_scraped)` — supports the scraper candidate query.

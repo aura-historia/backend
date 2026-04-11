@@ -91,8 +91,8 @@ Four-tier lookup (see [LLM Integration — State Lookup Hierarchy](./llm-integra
 
 The scraper stores `last_scraped_hash` after a successful scrape.
 
-On the next scrape run, it fetches HTML and computes an in-memory hash using the spider-compatible algorithm:
-- hash the `<main>...</main>` fragment when present,
-- otherwise hash the normalized URL string as fallback.
+On the next scrape run, it fetches HTML and computes an in-memory hash:
+- SHA-256 of the `<main>...</main>` fragment when present,
+- SHA-256 of the full HTML document when no `<main>` tag exists.
 
-If the computed hash equals `last_scraped_hash`, the scraper skips extraction/normalization and only refreshes scrape bookkeeping. This preserves hash continuity while fully decoupling scrape eligibility from crawl timing.
+If the computed hash equals `last_scraped_hash` **and** a `<main>` tag was found, the scraper skips extraction/normalization and only refreshes scrape bookkeeping. Pages without a `<main>` tag are always re-extracted. The hash is always stored after a successful scrape.
