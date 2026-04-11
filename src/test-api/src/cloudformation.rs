@@ -121,7 +121,7 @@ impl IntegrationTestService for Cloudformation {
             "dynamodb",
             "opensearch",
             "apigatewayv2",
-            //"s3",
+            "s3",
             "sesv2",
             "stepfunctions",
         ]
