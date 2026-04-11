@@ -66,8 +66,21 @@ One record per product, updated on every relevant event. Queried by `ShopId + Sh
 |-----------|---------|
 | `pk` | `shop#shop_id#{shop_id}` |
 | `sk` | `shop#details` |
+| `gsi1_pk` | `partner_user#{partner_user_id}` _(sparse – only for partner shops)_ |
+| `gsi1_sk` | `partner_shop_id#{shop_id}` _(sparse – only for partner shops)_ |
 | `gsi2_pk` | `shop_slug_id#{shop_slug_id}` _(sparse)_ |
 | `gsi2_sk` | `shop#lookup#shop_id` _(sparse)_ |
+
+---
+
+### Partner Shop Application
+
+| Attribute | Pattern |
+|-----------|---------|
+| `pk` | `user_id#{user_id}` |
+| `sk` | `partner_shop_application_id#{partner_shop_application_id}` |
+| `gsi1_pk` | `global#partner_shop_application` |
+| `gsi1_sk` | `partner_shop_application_id#{partner_shop_application_id}` |
 
 ---
 
@@ -186,5 +199,5 @@ Single global record, overwritten on every sync.
 
 | Index | PK | SK | Projection | Used by |
 |-------|----|----|------------|---------|
-| `gsi1` | `gsi1_pk` | `gsi1_sk` | All attributes | Watchlist — query all watchers of a `product_id` |
+| `gsi1` | `gsi1_pk` | `gsi1_sk` | All attributes | Watchlist — query all watchers of a `product_id`; Shop — query partner shops by `partner_user_id`; Partner Shop Application — query all applications |
 | `gsi2` | `gsi2_pk` | `gsi2_sk` | Keys only | Product — slug → `(shop_id, shops_product_id)` lookup; Shop — slug → `shop_id` lookup |

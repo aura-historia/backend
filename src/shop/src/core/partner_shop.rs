@@ -15,7 +15,7 @@ pub struct PartnerShop {
     pub shop_type: ShopType,
     pub domains: HashSet<Domain>,
     pub image: Option<Url>,
-    pub partner_user_id: Option<UserId>,
+    pub partner_user_id: UserId,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -36,7 +36,7 @@ mod faker {
                 shop_type: config.fake_with_rng(rng),
                 domains: [Faker.fake()].into(),
                 image: config.fake_with_rng(rng),
-                partner_user_id: Some(config.fake_with_rng(rng)),
+                partner_user_id: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
