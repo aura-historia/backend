@@ -334,4 +334,3 @@ fn init_logging() {
         .with_env_filter(filter)
         .init();
 }
-
