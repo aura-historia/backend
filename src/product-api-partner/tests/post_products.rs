@@ -17,6 +17,7 @@ fn make_partner_shop_record(api_key: &PartnerShopApiKey) -> ShopRecord {
     let mut record: ShopRecord = Faker.fake();
     record.partner_api_key_short = Some(hashed.short_token().to_string());
     record.partner_api_key_long_hash = Some(hashed.long_token_hash().to_string());
+    record.partner_user_id = Some(Faker.fake());
     record
 }
 
