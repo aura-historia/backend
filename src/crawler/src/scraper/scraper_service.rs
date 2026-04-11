@@ -16,6 +16,7 @@ use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::normalization::product_normalization_service::ProductNormalizationService;
 use common::shop_id::ShopId;
 use scraper::Html;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -226,7 +227,6 @@ pub trait ScraperService: Send + Sync {
         &self,
         shop_id: &ShopId,
         url: &Url,
-        current_hash: &str,
         last_scraped_hash: Option<&str>,
     ) -> Result<Option<NormalizedProduct>, ScraperError>;
 }
@@ -450,22 +450,8 @@ impl ScraperService for ScraperServiceImpl {
         &self,
         shop_id: &ShopId,
         url: &Url,
-        current_hash: &str,
         last_scraped_hash: Option<&str>,
     ) -> Result<Option<NormalizedProduct>, ScraperError> {
-        // 0. Skip if content hasn't changed since last scrape.
-        if last_scraped_hash == Some(current_hash) {
-            debug!(url = %url, "Hash matches last scraped hash, skipping fetch.");
-            if let Err(e) = self
-                .candidate_service
-                .mark_as_scraped(shop_id, url, current_hash)
-                .await
-            {
-                warn!(error = %e, "Failed to mark url as scraped after skip");
-            }
-            return Ok(None);
-        }
-
         let domain = url
             .host_str()
             .ok_or_else(|| ScraperError::NoHost { url: url.clone() })?;
@@ -492,6 +478,21 @@ impl ScraperService for ScraperServiceImpl {
                 });
             }
         };
+
+        let has_main = extract_main_fragment(&html).is_some();
+        let current_hash = hash_main_fragment(&html).unwrap_or_else(|| hash_html(&html));
+
+        if has_main && last_scraped_hash == Some(current_hash.as_str()) {
+            debug!(url = %url, "Hash matches last scraped hash, skipping extraction.");
+            if let Err(e) = self
+                .candidate_service
+                .mark_as_scraped(shop_id, url, &current_hash)
+                .await
+            {
+                warn!(error = %e, "Failed to mark url as scraped after hash-match skip");
+            }
+            return Ok(None);
+        }
 
         // 2. Obtain schema (from DB or freshly created by LLM) -----------
         let shops_product_schema = self.obtain_schema(shop_id, domain, url, &html).await?;
@@ -553,7 +554,7 @@ impl ScraperService for ScraperServiceImpl {
         // 5. Bookkeeping ------------------------------------------------
         if let Err(e) = self
             .candidate_service
-            .mark_as_scraped(shop_id, url, current_hash)
+            .mark_as_scraped(shop_id, url, &current_hash)
             .await
         {
             warn!(error = %e, "Failed to mark product as scraped after success");
@@ -727,6 +728,40 @@ fn normalization_error_to_schema_hint(err: &NormalizationError) -> Option<ApplyS
     }
 }
 
+fn hash_main_fragment(html: &str) -> Option<String> {
+    let content = extract_main_fragment(html)?;
+    let mut hasher = Sha256::new();
+    hasher.update(content.as_bytes());
+    let digest = hasher.finalize();
+    Some(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn hash_html(html: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(html.as_bytes());
+    let digest = hasher.finalize();
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn find_case_insensitive(text: &str, search: &str) -> Option<usize> {
+    let search_bytes = search.as_bytes();
+    if search_bytes.is_empty() {
+        return Some(0);
+    }
+    text.as_bytes()
+        .windows(search_bytes.len())
+        .position(|window| window.eq_ignore_ascii_case(search_bytes))
+}
+
+fn extract_main_fragment(html: &str) -> Option<&str> {
+    let main_start = find_case_insensitive(html, "<main")?;
+    let tag_end_rel = html[main_start..].find('>')?;
+    let content_start = main_start + tag_end_rel + 1;
+    let main_end_rel = find_case_insensitive(&html[content_start..], "</main>")?;
+    let content_end = content_start + main_end_rel;
+    Some(&html[content_start..content_end])
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -880,11 +915,7 @@ mod tests {
             3,
         );
 
-        let result = service
-            .scrape(&id, &url, "current_hash", None)
-            .await
-            .unwrap()
-            .unwrap();
+        let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
 
         assert_eq!(result.shops_product_id, ShopsProductId::from("SKU-42"));
         assert_eq!(result.state, ProductState::Available);
@@ -936,11 +967,7 @@ mod tests {
             3,
         );
 
-        let result = service
-            .scrape(&id, &url, "current_hash", None)
-            .await
-            .unwrap()
-            .unwrap();
+        let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
 
         assert_eq!(result, norm);
     }
@@ -949,9 +976,14 @@ mod tests {
     async fn should_skip_fetching_and_return_none_when_hashes_match() {
         let id = shop_id();
         let url = product_url();
+        let html = sample_html();
+        let matching_hash = hash_main_fragment(&html).unwrap_or_else(|| hash_html(&html));
 
         let mut fetcher = MockHtmlFetcher::new();
-        fetcher.expect_fetch().times(0); // MUST NOT BE CHECKED
+        fetcher.expect_fetch().once().returning(move |_| {
+            let html = html.clone();
+            Box::pin(async move { Ok(html) })
+        });
 
         let schema_svc = MockProductSchemaService::new();
         let norm_svc = MockProductNormalizationService::new();
@@ -970,11 +1002,49 @@ mod tests {
         );
 
         let result = service
-            .scrape(&id, &url, "same_hash", Some("same_hash"))
+            .scrape(&id, &url, Some(&matching_hash))
             .await
             .unwrap();
 
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn should_hash_main_fragment_when_main_tag_exists() {
+        let html = "<html><body><main><h1>Hello</h1></main></body></html>";
+        let hash = hash_main_fragment(html).expect("should find <main> tag");
+
+        let mut hasher = Sha256::new();
+        hasher.update("<h1>Hello</h1>".as_bytes());
+        let expected: String = hasher
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+
+        assert_eq!(hash, expected);
+    }
+
+    #[test]
+    fn should_return_none_from_hash_main_fragment_when_main_tag_missing() {
+        let html = "<html><body><section>No main</section></body></html>";
+        assert!(hash_main_fragment(html).is_none());
+    }
+
+    #[test]
+    fn should_hash_full_html_when_main_tag_missing() {
+        let html = "<html><body><section>No main</section></body></html>";
+        let hash = hash_html(html);
+
+        let mut hasher = Sha256::new();
+        hasher.update(html.as_bytes());
+        let expected: String = hasher
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+
+        assert_eq!(hash, expected);
     }
 
     // -----------------------------------------------------------------------
@@ -1046,11 +1116,7 @@ mod tests {
             3,
         );
 
-        let result = service
-            .scrape(&id, &url, "current_hash", None)
-            .await
-            .unwrap()
-            .unwrap();
+        let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
 
         assert_eq!(result.shops_product_id, ShopsProductId::from("SKU-42"));
     }
@@ -1120,10 +1186,7 @@ mod tests {
             3,
         );
 
-        let err = service
-            .scrape(&id, &url, "current_hash", None)
-            .await
-            .unwrap_err();
+        let err = service.scrape(&id, &url, None).await.unwrap_err();
 
         assert!(
             matches!(err, ScraperError::SchemaFixFailed { .. }),
@@ -1215,10 +1278,7 @@ mod tests {
             3,
         );
 
-        service
-            .scrape(&id, &url, "current_hash", None)
-            .await
-            .unwrap();
+        service.scrape(&id, &url, None).await.unwrap();
     }
 
     // -----------------------------------------------------------------------
@@ -1252,10 +1312,7 @@ mod tests {
             3,
         );
 
-        let err = service
-            .scrape(&id, &url, "current_hash", None)
-            .await
-            .unwrap_err();
+        let err = service.scrape(&id, &url, None).await.unwrap_err();
 
         assert!(
             matches!(err, ScraperError::HttpError { .. }),
@@ -1291,10 +1348,7 @@ mod tests {
             3,
         );
 
-        let err = service
-            .scrape(&id, &url, "current_hash", None)
-            .await
-            .unwrap_err();
+        let err = service.scrape(&id, &url, None).await.unwrap_err();
 
         if let ScraperError::HttpError { url: err_url, .. } = err {
             assert_eq!(err_url, url_clone);
@@ -1338,10 +1392,7 @@ mod tests {
             3,
         );
 
-        let err = service
-            .scrape(&id, &url, "current_hash", None)
-            .await
-            .unwrap_err();
+        let err = service.scrape(&id, &url, None).await.unwrap_err();
 
         assert!(
             matches!(err, ScraperError::ProductRemoved { .. }),
@@ -1388,10 +1439,7 @@ mod tests {
             3,
         );
 
-        let err = service
-            .scrape(&id, &url, "current_hash", None)
-            .await
-            .unwrap_err();
+        let err = service.scrape(&id, &url, None).await.unwrap_err();
 
         assert!(
             matches!(err, ScraperError::SchemaServiceError(_)),
@@ -1447,10 +1495,7 @@ mod tests {
             3,
         );
 
-        let err = service
-            .scrape(&id, &url, "current_hash", None)
-            .await
-            .unwrap_err();
+        let err = service.scrape(&id, &url, None).await.unwrap_err();
 
         assert!(
             matches!(err, ScraperError::NormalizationError(_)),
@@ -1510,10 +1555,7 @@ mod tests {
             3,
         );
 
-        service
-            .scrape(&id, &url, "current_hash", None)
-            .await
-            .unwrap();
+        service.scrape(&id, &url, None).await.unwrap();
     }
 
     #[tokio::test]
@@ -1561,11 +1603,7 @@ mod tests {
             3,
         );
 
-        let result = service
-            .scrape(&id, &url, "current_hash", None)
-            .await
-            .unwrap()
-            .unwrap();
+        let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
 
         assert_eq!(result.url, canonical_url);
     }
@@ -1728,7 +1766,7 @@ mod tests {
             0, // max = 0 → immediately exhausted, no LLM calls
         );
 
-        let err = service.scrape(&id, &url, "hash1", None).await.unwrap_err();
+        let err = service.scrape(&id, &url, None).await.unwrap_err();
 
         assert!(
             matches!(err, ScraperError::SchemaFixAttemptsExhausted { .. }),
@@ -1805,11 +1843,7 @@ mod tests {
         );
 
         // This scrape should succeed (fix applied + normalization ok) and reset the counter
-        let result = service
-            .scrape(&id, &url, "hash1", None)
-            .await
-            .unwrap()
-            .unwrap();
+        let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
 
         assert_eq!(result.shops_product_id, ShopsProductId::from("SKU-42"));
 

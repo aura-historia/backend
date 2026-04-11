@@ -115,7 +115,6 @@ impl UrlState {
 pub struct CrawledUrlMetadata {
     pub url: String,
     pub class: UrlClass,
-    pub hash: String,
     pub state: UrlState,
 
     #[serde(

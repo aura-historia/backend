@@ -99,7 +99,6 @@ impl SpiderServiceImpl {
 
         let mut urls = Vec::with_capacity(pages.len());
         let mut classes = Vec::with_capacity(pages.len());
-        let mut hashes = Vec::with_capacity(pages.len());
 
         for page in pages {
             urls.push(page.url.as_url().clone());
@@ -107,14 +106,12 @@ impl SpiderServiceImpl {
             let class_str = classify_url(page.url.as_url().as_str(), pattern).as_str();
             let class = std::str::FromStr::from_str(class_str).unwrap_or(UrlClass::Other);
             classes.push(class);
-
-            hashes.push(page.main_hash.clone());
         }
 
         if !urls.is_empty() {
             let records = self
                 .url_metadata_repository
-                .upsert_links_batch(shop_id, domain_id, &urls, &classes, &hashes)
+                .upsert_links_batch(shop_id, domain_id, &urls, &classes)
                 .await?;
             Ok(records.len())
         } else {
@@ -429,7 +426,6 @@ mod tests {
 #[cfg(test)]
 mod service_tests {
     use super::*;
-    use crate::spider::classification::url_metadata_repository::MainHash;
     use crate::spider::classification::url_metadata_repository::MockUrlMetadataRepository;
     use crate::spider::classification::url_pattern_service::MockUrlPatternService;
     use crate::spider::discovery::website_spider::MockSpider;
@@ -443,8 +439,8 @@ mod service_tests {
     ) {
         mock.expect_upsert_links_batch()
             .times(call_count)
-            .withf(move |_, domain_id, _, _, _| *domain_id == expected_domain_id)
-            .returning(|_, _, _, _, _| Box::pin(async move { Ok(Vec::new()) }));
+            .withf(move |_, domain_id, _, _| *domain_id == expected_domain_id)
+            .returning(|_, _, _, _| Box::pin(async move { Ok(Vec::new()) }));
     }
 
     fn setup_mock_mark_as_crawled(mock: &mut MockUrlPatternService, shop_url: &'static str) {
@@ -480,14 +476,12 @@ mod service_tests {
                             url: CrawledUrl::new(
                                 Url::parse("https://example.com/product/1").unwrap(),
                             ),
-                            main_hash: MainHash("hash1".to_string()),
                         })
                         .await
                         .unwrap();
                     tx_clone
                         .send(CrawledPage {
                             url: CrawledUrl::new(Url::parse("https://example.com/about").unwrap()),
-                            main_hash: MainHash("hash2".to_string()),
                         })
                         .await
                         .unwrap();
@@ -543,7 +537,6 @@ mod service_tests {
                             url: CrawledUrl::new(
                                 Url::parse("https://example.com/product/1").unwrap(),
                             ),
-                            main_hash: MainHash("hash1".to_string()),
                         })
                         .await
                         .unwrap();
@@ -598,7 +591,6 @@ mod service_tests {
                     tx_clone
                         .send(CrawledPage {
                             url: CrawledUrl::new(Url::parse("https://example.com/item/1").unwrap()),
-                            main_hash: MainHash("hash1".to_string()),
                         })
                         .await
                         .unwrap();

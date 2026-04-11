@@ -2,7 +2,7 @@ use crawler::scraper::candidate_service::{ScraperCandidateService, ScraperCandid
 use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
 use crawler::spider::classification::url_metadata::{UrlClass, UrlState};
 use crawler::spider::classification::url_metadata_repository::{
-    MainHash, UrlMetadataRepository, UrlMetadataRepositoryImpl,
+    UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
 use test_api::*;
 
@@ -330,20 +330,13 @@ async fn insert_product_url(
     shop_id_uuid: uuid::Uuid,
     domain_id: uuid::Uuid,
     url: &str,
-    main_hash: &str,
 ) {
     let shop_id = common::shop_id::ShopId::from(shop_id_uuid);
     let parsed = url::Url::parse(url).unwrap();
     let repo = UrlMetadataRepositoryImpl::new(pool.clone());
-    repo.upsert_link(
-        &shop_id,
-        &domain_id,
-        &parsed,
-        &UrlClass::Product,
-        &MainHash(main_hash.to_string()),
-    )
-    .await
-    .unwrap();
+    repo.upsert_link(&shop_id, &domain_id, &parsed, &UrlClass::Product)
+        .await
+        .unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -381,7 +374,6 @@ async fn scraper_should_return_candidate_when_product_url_never_scraped() {
         shop_id_uuid,
         domain_id,
         "https://scraper-never.example.com/p/1",
-        &"a".repeat(64),
     )
     .await;
 
@@ -410,9 +402,9 @@ async fn scraper_should_not_return_candidate_when_recently_scraped() {
         insert_shop_with_domain(&pool, shop_id_uuid, "scraper-recent.example.com").await;
     let url = "https://scraper-recent.example.com/p/1";
     let hash = "b".repeat(64);
-    insert_product_url(&pool, shop_id_uuid, domain_id, url, &hash).await;
+    insert_product_url(&pool, shop_id_uuid, domain_id, url).await;
 
-    // Mark as scraped just now with the same hash
+    // Mark as scraped just now
     sqlx::query("UPDATE shop_urls SET last_scraped = NOW(), last_scraped_hash = $1 WHERE url = $2")
         .bind(&hash)
         .bind(url)
@@ -424,7 +416,7 @@ async fn scraper_should_not_return_candidate_when_recently_scraped() {
 
     assert!(
         !candidates.iter().any(|c| c.url.as_str() == url),
-        "URL scraped just now with same hash should not be returned"
+        "URL scraped just now should not be returned"
     );
 }
 
@@ -441,11 +433,9 @@ async fn scraper_should_return_candidate_when_scraped_more_than_1_day_ago() {
     let shop_id_uuid = uuid::Uuid::new_v4();
     let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "scraper-stale.example.com").await;
     let url = "https://scraper-stale.example.com/p/1";
-    let hash = "c".repeat(64);
-    insert_product_url(&pool, shop_id_uuid, domain_id, url, &hash).await;
+    insert_product_url(&pool, shop_id_uuid, domain_id, url).await;
 
-    // Mark as scraped 2 days ago with a *different* last_scraped_hash so the
-    // hash-changed filter also passes — this isolates the time-based filter.
+    // Mark as scraped 2 days ago to isolate the time-based filter.
     let old_hash = "old_hash_differs";
     sqlx::query(
         "UPDATE shop_urls SET last_scraped = NOW() - INTERVAL '2 days', last_scraped_hash = $1 WHERE url = $2",
@@ -481,15 +471,9 @@ async fn scraper_should_not_return_candidate_when_url_class_is_not_product() {
     let shop_id = common::shop_id::ShopId::from(shop_id_uuid);
     let url = url::Url::parse("https://scraper-class.example.com/category/1").unwrap();
     let repo = UrlMetadataRepositoryImpl::new(pool.clone());
-    repo.upsert_link(
-        &shop_id,
-        &domain_id,
-        &url,
-        &UrlClass::Category,
-        &MainHash("d".repeat(64)),
-    )
-    .await
-    .unwrap();
+    repo.upsert_link(&shop_id, &domain_id, &url, &UrlClass::Category)
+        .await
+        .unwrap();
 
     let candidates = service.get_candidates(10).await.unwrap();
 
@@ -513,7 +497,7 @@ async fn scraper_should_not_return_candidate_when_shop_is_inactive() {
     let domain_id =
         insert_shop_with_domain(&pool, shop_id_uuid, "scraper-inactive.example.com").await;
     let url = "https://scraper-inactive.example.com/p/1";
-    insert_product_url(&pool, shop_id_uuid, domain_id, url, &"e".repeat(64)).await;
+    insert_product_url(&pool, shop_id_uuid, domain_id, url).await;
 
     sqlx::query("UPDATE shops SET active = FALSE WHERE shop_id = $1")
         .bind(shop_id_uuid)
@@ -548,24 +532,12 @@ async fn scraper_should_not_return_candidate_when_state_is_excluded() {
     let url_sold = url::Url::parse("https://scraper-state.example.com/p/sold").unwrap();
     let url_removed = url::Url::parse("https://scraper-state.example.com/p/removed").unwrap();
 
-    repo.upsert_link(
-        &shop_id,
-        &domain_id,
-        &url_sold,
-        &UrlClass::Product,
-        &MainHash("f".repeat(64)),
-    )
-    .await
-    .unwrap();
-    repo.upsert_link(
-        &shop_id,
-        &domain_id,
-        &url_removed,
-        &UrlClass::Product,
-        &MainHash("g".repeat(64)),
-    )
-    .await
-    .unwrap();
+    repo.upsert_link(&shop_id, &domain_id, &url_sold, &UrlClass::Product)
+        .await
+        .unwrap();
+    repo.upsert_link(&shop_id, &domain_id, &url_removed, &UrlClass::Product)
+        .await
+        .unwrap();
 
     repo.set_state(&shop_id, &url_sold, &UrlState::Sold)
         .await
@@ -625,8 +597,7 @@ async fn scraper_should_return_candidate_for_all_included_states() {
 
     for (i, (state, url_str)) in states.iter().enumerate() {
         let url = url::Url::parse(url_str).unwrap();
-        let hash = MainHash(format!("{:0>64}", i));
-        repo.upsert_link(&shop_id, &domain_id, &url, &UrlClass::Product, &hash)
+        repo.upsert_link(&shop_id, &domain_id, &url, &UrlClass::Product)
             .await
             .unwrap();
         repo.set_state(&shop_id, &url, state).await.unwrap();
@@ -640,43 +611,6 @@ async fn scraper_should_return_candidate_for_all_included_states() {
             "URL with state that should be included was not returned: {url_str}"
         );
     }
-}
-
-// ---------------------------------------------------------------------------
-// get_candidates — URL with unchanged hash (main_hash == last_scraped_hash)
-//                  is NOT returned even after >1 day
-// ---------------------------------------------------------------------------
-
-#[serial]
-#[localstack_test(services = [RDS])]
-async fn scraper_should_not_return_candidate_when_hash_is_unchanged() {
-    let pool = get_postgres_client().await;
-    let service = ScraperCandidateServiceImpl::new(pool.clone());
-
-    let shop_id_uuid = uuid::Uuid::new_v4();
-    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "scraper-hash.example.com").await;
-    let url = "https://scraper-hash.example.com/p/1";
-    let hash = "h".repeat(64);
-    insert_product_url(&pool, shop_id_uuid, domain_id, url, &hash).await;
-
-    // Scraped > 1 day ago but hash is identical — should be skipped
-    sqlx::query(
-        "UPDATE shop_urls \
-         SET last_scraped = NOW() - INTERVAL '2 days', last_scraped_hash = $1 \
-         WHERE url = $2",
-    )
-    .bind(&hash)
-    .bind(url)
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    let candidates = service.get_candidates(10).await.unwrap();
-
-    assert!(
-        !candidates.iter().any(|c| c.url.as_str() == url),
-        "URL with unchanged hash should not be returned"
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -698,7 +632,6 @@ async fn scraper_should_respect_limit_when_multiple_candidates_exist() {
             shop_id_uuid,
             domain_id,
             &format!("https://scraper-limit.example.com/p/{}", i),
-            &format!("{:i>64}", i),
         )
         .await;
     }
@@ -727,11 +660,8 @@ async fn scraper_should_order_never_scraped_before_stale() {
 
     let url_never = "https://scraper-order.example.com/p/never";
     let url_stale = "https://scraper-order.example.com/p/stale";
-    let hash_never = "j".repeat(64);
-    let hash_stale = "k".repeat(64);
-
-    insert_product_url(&pool, shop_id_uuid, domain_id, url_stale, &hash_stale).await;
-    insert_product_url(&pool, shop_id_uuid, domain_id, url_never, &hash_never).await;
+    insert_product_url(&pool, shop_id_uuid, domain_id, url_stale).await;
+    insert_product_url(&pool, shop_id_uuid, domain_id, url_never).await;
 
     // Make the stale one old — scraped 5 days ago with a different hash so it qualifies
     sqlx::query(
@@ -774,8 +704,7 @@ async fn scraper_mark_as_scraped_should_set_last_scraped_and_hash() {
     let shop_id_uuid = uuid::Uuid::new_v4();
     let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "scraper-mark.example.com").await;
     let url_str = "https://scraper-mark.example.com/p/1";
-    let main_hash = "l".repeat(64);
-    insert_product_url(&pool, shop_id_uuid, domain_id, url_str, &main_hash).await;
+    insert_product_url(&pool, shop_id_uuid, domain_id, url_str).await;
 
     let shop_id = common::shop_id::ShopId::from(shop_id_uuid);
     let url = url::Url::parse(url_str).unwrap();
@@ -804,7 +733,7 @@ async fn scraper_mark_as_scraped_should_set_last_scraped_and_hash() {
 
 // ---------------------------------------------------------------------------
 // mark_as_scraped — after marking, the URL is excluded from get_candidates
-//                   (same hash, recently scraped)
+//                   (recently scraped)
 // ---------------------------------------------------------------------------
 
 #[serial]
@@ -818,7 +747,7 @@ async fn scraper_mark_as_scraped_should_exclude_url_from_subsequent_get_candidat
         insert_shop_with_domain(&pool, shop_id_uuid, "scraper-roundtrip.example.com").await;
     let url_str = "https://scraper-roundtrip.example.com/p/1";
     let hash = "n".repeat(64);
-    insert_product_url(&pool, shop_id_uuid, domain_id, url_str, &hash).await;
+    insert_product_url(&pool, shop_id_uuid, domain_id, url_str).await;
 
     // Confirm it is returned before marking
     let before = service.get_candidates(10).await.unwrap();
@@ -834,10 +763,10 @@ async fn scraper_mark_as_scraped_should_exclude_url_from_subsequent_get_candidat
         .await
         .unwrap();
 
-    // After marking with the same hash and NOW() timestamp it should no longer appear
+    // After marking with NOW() timestamp it should no longer appear
     let after = service.get_candidates(10).await.unwrap();
     assert!(
         !after.iter().any(|c| c.url.as_str() == url_str),
-        "URL should not appear after mark_as_scraped with same hash"
+        "URL should not appear after mark_as_scraped"
     );
 }

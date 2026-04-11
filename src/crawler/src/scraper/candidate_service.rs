@@ -1,9 +1,9 @@
 //! Service for fetching scraper candidates — product URLs that are due for re-scraping.
 //!
-//! A scraper candidate is a URL stored in `shop_urls` that has either never been scraped or
-//! whose content hash has changed since the last successful scrape. Each candidate carries the
-//! shop metadata (`shop_id`, `shop_name`, `shop_type`) needed to build an [`UpsertProductCommand`]
-//! without an additional lookup.
+//! A scraper candidate is a URL stored in `shop_urls` that is due for scraping by recency and
+//! retry/state rules. Hash comparison is performed in-memory by the scraper after fetching HTML.
+//! Each candidate carries the shop metadata (`shop_id`, `shop_name`, `shop_type`) needed to build
+//! an [`UpsertProductCommand`] without an additional lookup.
 
 use async_trait::async_trait;
 use common::shop_id::ShopId;
@@ -20,7 +20,6 @@ pub struct ScraperCandidate {
     pub shop_name: String,
     pub shop_type: ShopType,
     pub url: Url,
-    pub main_hash: String,
     pub last_scraped_hash: Option<String>,
 }
 
@@ -66,7 +65,6 @@ struct ScraperCandidateRow {
     shop_name: String,
     shop_type: Option<String>,
     url: String,
-    main_hash: String,
     last_scraped_hash: Option<String>,
 }
 
@@ -75,7 +73,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
     async fn get_candidates(&self, limit: i64) -> Result<Vec<ScraperCandidate>, sqlx::Error> {
         let rows = sqlx::query_as::<_, ScraperCandidateRow>(
             r#"
-            SELECT su.shop_id, s.shop_name, s.shop_type, su.url, su.main_hash, su.last_scraped_hash
+            SELECT su.shop_id, s.shop_name, s.shop_type, su.url, su.last_scraped_hash
             FROM shop_urls su
             JOIN shops s ON s.shop_id = su.shop_id
             WHERE s.active = TRUE
@@ -83,7 +81,6 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
               AND su.state IN ('AVAILABLE', 'UNKNOWN', 'LISTED', 'RESERVED')
               AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
               AND (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
-              AND (su.last_scraped_hash IS NULL OR su.main_hash != su.last_scraped_hash)
             ORDER BY su.last_scraped NULLS FIRST
             LIMIT $1
             "#,
@@ -105,7 +102,6 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 shop_name: row.shop_name,
                 shop_type,
                 url,
-                main_hash: row.main_hash,
                 last_scraped_hash: row.last_scraped_hash,
             });
         }

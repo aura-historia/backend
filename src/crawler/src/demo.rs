@@ -58,9 +58,9 @@ use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServic
 use llm::builder::{LLMBackend, LLMBuilder};
 use shop::core::shop_type::ShopType;
 use sqlx::PgPool;
+use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
 use testcontainers::runners::AsyncRunner;
-use testcontainers::ImageExt;
 use testcontainers_modules::postgres::Postgres as PgImage;
 use tracing::{error, info};
 

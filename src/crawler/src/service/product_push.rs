@@ -310,7 +310,6 @@ mod tests {
             shop_name: "Test Shop".to_string(),
             shop_type,
             url: Url::parse("https://example.com/product/1").unwrap(),
-            main_hash: "abc".to_string(),
             last_scraped_hash: None,
         }
     }

@@ -89,8 +89,10 @@ Four-tier lookup (see [LLM Integration — State Lookup Hierarchy](./llm-integra
 
 ## Change Detection
 
-The spider sets `main_hash` (SHA-256 of the full page HTML) on each `shop_urls` row during crawl.
+The scraper stores `last_scraped_hash` after a successful scrape.
 
-The scraper sets `last_scraped_hash` after a successful scrape.
+On the next scrape run, it fetches HTML and computes an in-memory hash using the spider-compatible algorithm:
+- hash the `<main>...</main>` fragment when present,
+- otherwise hash the normalized URL string as fallback.
 
-Before fetching HTML, the scraper compares `current_hash == last_scraped_hash`. If equal, the page hasn't changed since the last scrape — the scraper marks the URL as visited and skips the fetch entirely. This is the primary mechanism for avoiding redundant work on re-crawled shops.
+If the computed hash equals `last_scraped_hash`, the scraper skips extraction/normalization and only refreshes scrape bookkeeping. This preserves hash continuity while fully decoupling scrape eligibility from crawl timing.

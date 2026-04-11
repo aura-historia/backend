@@ -54,17 +54,16 @@ Every URL the spider has ever seen. Shared between the spider (writes) and the s
 | `shop_id` | UUID FK → `shops` | Cascade on delete |
 | `domain_id` | UUID FK → `shop_domains` | Cascade on delete — links the URL to the specific domain it was discovered from |
 | `url_class` | TEXT | One of `product`, `category`, `imprint`, `info`, `other` |
-| `main_hash` | TEXT (64 chars) | SHA-256 of the page HTML, updated by the spider on each crawl |
 | `state` | TEXT | `UNKNOWN` \| `LISTED` \| `AVAILABLE` \| `RESERVED` \| `SOLD` \| `REMOVED` |
 | `price_currency` | TEXT (nullable) | ISO 4217 code, populated by scraper |
 | `price_value` | INT (nullable) | Amount in minor units (cents), populated by scraper |
-| `last_scraped_hash` | TEXT (nullable) | `main_hash` value at the time of the last successful scrape |
+| `last_scraped_hash` | TEXT (nullable) | Scraper-computed hash at the time of the last successful scrape |
 | `last_scraped` | TIMESTAMPTZ (nullable) | Timestamp of the last successful scrape |
 | `created` / `updated` | TIMESTAMPTZ | |
 
 **Domain linkage**: `domain_id` is a direct FK to `shop_domains`. When a domain is removed from a shop during the shop registration sync, all URLs discovered from that domain are automatically cascade-deleted — preventing the scraper from continuing to process stale URLs from a domain that no longer belongs to the shop.
 
-**Change detection**: the scraper compares `main_hash` (current) with `last_scraped_hash` (last seen). If they match the page has not changed and the fetch is skipped.
+**Change detection**: the scraper computes the current hash in-memory (SHA-256 of `<main>` fragment, fallback URL string) and compares it with `last_scraped_hash`. If they match, extraction is skipped.
 
 **Indexes**:
 - `idx_shop_urls_class_last_scraped ON shop_urls (url_class, last_scraped)` — supports the scraper candidate query.
@@ -118,13 +117,13 @@ The cron job uses an in-memory `LocalLockManager` (`Arc<DashMap<String, Instant>
 The spider writes up to 100 rows at a time using PostgreSQL `UNNEST` to avoid N individual statements:
 
 ```sql
-INSERT INTO shop_urls (url, shop_id, url_class, main_hash, state, created, updated)
-SELECT * FROM UNNEST($2::text[], $3::text[], $4::text[], $5::text[])
-       AS t(url, url_class, main_hash)
+INSERT INTO shop_urls (url, shop_id, domain_id, url_class, state, created, updated)
+SELECT $1, $2, t.url, t.url_class, 'UNKNOWN', NOW(), NOW()
+FROM UNNEST($3::text[], $4::text[]) AS t(url, url_class)
 ...
 ON CONFLICT (url) DO UPDATE SET
     url_class  = EXCLUDED.url_class,
-    main_hash  = EXCLUDED.main_hash,
+    domain_id  = EXCLUDED.domain_id,
     updated    = NOW()
 ```
 
@@ -154,13 +153,15 @@ LIMIT  $1
 ### Scraper candidate selection
 
 ```sql
-SELECT su.shop_id, su.url, su.main_hash, su.last_scraped_hash
+SELECT su.shop_id, su.url, su.last_scraped_hash
 FROM   shop_urls su
 JOIN   shops s ON s.shop_id = su.shop_id
 WHERE  su.url_class = 'product'
   AND  su.state IN ('UNKNOWN', 'LISTED', 'AVAILABLE', 'RESERVED')
+  AND  (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
   AND  (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
   AND  s.active = TRUE
+ORDER BY su.last_scraped NULLS FIRST
 LIMIT  $1
 ```
 

@@ -184,13 +184,15 @@ run(shop_domain, domain_id)
 `src/scraper/candidate_service.rs` queries:
 
 ```sql
-SELECT su.shop_id, su.url, su.main_hash, su.last_scraped_hash
+SELECT su.shop_id, su.url, su.last_scraped_hash
 FROM   shop_urls su
 JOIN   shops s ON s.shop_id = su.shop_id
 WHERE  su.url_class  = 'product'
   AND  su.state      IN ('UNKNOWN', 'LISTED', 'AVAILABLE', 'RESERVED')
+  AND  (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
   AND  (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
   AND  s.active = TRUE
+ORDER BY su.last_scraped NULLS FIRST
 LIMIT  $1
 ```
 
@@ -212,10 +214,11 @@ On each successful scrape (`mark_as_scraped`) these fields are reset. On retryab
 `src/scraper/scraper_service.rs`:
 
 ```
-scrape(shop_id, url, current_hash, last_scraped_hash)
- ├── if current_hash == last_scraped_hash
- │    └── mark_as_scraped() and return None   — page hasn't changed, skip fetch
+scrape(shop_id, url, last_scraped_hash)
  ├── HtmlFetcher::fetch(url)                  — download raw HTML
+ ├── current_hash = SHA-256(<main> fragment, fallback=url)
+ ├── if current_hash == last_scraped_hash
+ │    └── mark_as_scraped(current_hash) and return None   — page unchanged, skip extraction
  ├── ProductSchemaService::get_product_schema(shop_id, html)
  │    ├── DB hit  → return cached CSS selector schema
  │    └── DB miss → LLM generates schema → persist → return
@@ -283,8 +286,8 @@ The two subsystems communicate exclusively through `shop_urls`:
 
 ```
 Spider writes:
-  INSERT INTO shop_urls (url, shop_id, domain_id, url_class, main_hash, state, ...)
-  ON CONFLICT (url) DO UPDATE SET main_hash = ..., url_class = ..., updated = NOW()
+  INSERT INTO shop_urls (url, shop_id, domain_id, url_class, state, ...)
+  ON CONFLICT (url) DO UPDATE SET url_class = ..., domain_id = ..., updated = NOW()
 
 Scraper reads:
   SELECT ... FROM shop_urls WHERE url_class = 'product' AND ...
@@ -295,7 +298,7 @@ Scraper writes back:
 
 The spider decides *which* URLs are products (by running the LLM-found regex). The scraper only processes URLs the spider has already labelled as `url_class = 'product'`. There is no direct function call or shared in-memory state between them — just the database row.
 
-The `main_hash` column (SHA-256 of the page HTML, computed by the spider crate) is the change-detection signal: if `main_hash` equals `last_scraped_hash`, the scraper skips the fetch entirely.
+Change detection is scraper-local: after fetching HTML, the scraper computes the same hash algorithm as the spider used historically (SHA-256 of the `<main>` fragment, fallback URL string) and compares it to `last_scraped_hash`. This keeps hash continuity while decoupling scrape eligibility from crawl timing.
 
 The crawler now also tracks crawl-level cooldown metadata on `shop_domains`:
 

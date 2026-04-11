@@ -189,7 +189,7 @@ async fn main() {
             }
         };
 
-        match service.scrape(&shop_id, &url, "dummy_hash", None).await {
+        match service.scrape(&shop_id, &url, None).await {
             Ok(Some(product)) => {
                 info!(
                     title = %product.title.payload,
