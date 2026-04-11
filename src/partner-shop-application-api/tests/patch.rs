@@ -21,7 +21,10 @@ use user::service::user_service::UserServiceImpl;
 async fn should_200_when_updating_application() {
     let repository =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let sfn_adapter = partner_shop_application::service::sfn_adapter::MockSfnAdapter::default();
+    let mut sfn_adapter = partner_shop_application::service::sfn_adapter::MockSfnAdapter::default();
+    sfn_adapter
+        .expect_start_execution()
+        .returning(|_, _| Box::pin(async { Ok("foo".into()) }));
     let service = PartnerShopApplicationServiceImpl::new(
         &repository,
         &sfn_adapter,

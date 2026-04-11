@@ -20,7 +20,7 @@ async fn should_201_when_creating_application() {
     let mut sfn_adapter = partner_shop_application::service::sfn_adapter::MockSfnAdapter::default();
     sfn_adapter
         .expect_start_execution()
-        .returning(|_, _| Box::pin(async { Ok("execution-arn".to_string()) }));
+        .returning(|_, _| Box::pin(async { Ok("foo".into()) }));
     let service = PartnerShopApplicationServiceImpl::new(
         &repository,
         &sfn_adapter,
