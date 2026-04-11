@@ -1,6 +1,51 @@
 # Database
 
-All state is stored in PostgreSQL. The schema lives in `src/crawler/sql/schema.sql`.
+All state is stored in PostgreSQL. The authoritative schema is defined by the versioned migrations
+in `src/crawler/migrations/`. The file `src/crawler/sql/schema.sql` is kept for reference only.
+
+---
+
+## Local Development
+
+A `docker-compose.yml` lives inside the `src/crawler/` directory. Manage it with the
+PowerShell helpers in `src/crawler/scripts/` (run them from any directory — they self-locate):
+
+| Script | What it does |
+|--------|-------------|
+| `.\scripts\db-down.ps1` | Stop the container (data volume is preserved) |
+| `.\scripts\db-reset.ps1` | Destroy the volume and start fresh — replaces the old manual workflow |
+| `.\scripts\db-status.ps1` | Show applied / pending migrations (`cargo sqlx migrate info`) |
+
+`db-status.ps1` requires `sqlx-cli`:
+
+```powershell
+cargo install sqlx-cli --no-default-features --features rustls,postgres
+```
+
+Running the demo (no manual DB setup required — the binary handles everything):
+
+```powershell
+$env:GEMINI_API_KEY = "..."
+cargo run -p crawler --bin demo
+```
+
+---
+
+## Adding a New Migration
+
+1. Create a new file in `src/crawler/migrations/` with the naming pattern
+   `YYYYMMDDHHMMSS_description.sql` (e.g. `20260201120000_add_shop_currency.sql`).
+2. Write the migration SQL. Use `IF NOT EXISTS` / `IF EXISTS` guards for safety.
+3. Run `.\db-migrate.ps1` locally to apply it.
+4. Deploy the new server binary to production — `sqlx::migrate!()` applies it automatically on startup.
+
+---
+
+## Production
+
+The production `server` binary calls `sqlx::migrate!("migrations/")` immediately after connecting
+to Postgres (before any other work). Deploying a new binary is the only step required to update
+the production schema — no manual SQL execution needed.
 
 ---
 

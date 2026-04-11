@@ -1,40 +1,43 @@
 //! Demo binary — showcases end-to-end usage of [`ScraperService`].
 //!
+//! Requires a running Postgres reachable via `DATABASE_URL`. Start one with:
+//!
+//! ```powershell
+//! # from src/crawler/
+//! .\db-up.ps1
+//! .\db-migrate.ps1
+//! ```
+//!
 //! # What it does
 //!
 //! 1. Initialises structured info logging.
-//! 2. Spins up a throw-away Postgres container via testcontainers.
-//! 3. Executes `sql/schema.sql` against it (tables + seed state-mappings).
-//! 4. Wires up all real service implementations:
+//! 2. Connects to Postgres via `DATABASE_URL` and applies pending migrations.
+//! 3. Wires up all real service implementations:
 //!    - [`ProductStateMappingServiceImpl`]
 //!    - [`ProductNormalizationServiceImpl`]
 //!    - [`ProductSchemaServiceImpl`]
 //!    - [`ScraperServiceImpl`] (backed by a real [`reqwest::Client`])
-//! 5. Iterates over the placeholder targets below and prints the result.
+//! 4. Iterates over the placeholder targets below and writes results to JSON.
 //!
 //! # Configuration
 //!
-//! | Env var          | Purpose                              | Default            |
+//! | Env var          | Purpose                              | Default                         |
 //! |------------------|--------------------------------------|--------------------|
+//! | `DATABASE_URL`   | Postgres connection string           | *(required)*       |
 //! | `GEMINI_API_KEY` | API key forwarded to the LLM builder | *(required)*       |
 //! | `GEMINI_MODEL`   | Model name to use                    | `gemini-3.1-flash-lite-preview` |
 //! | `LOG_LEVEL`      | Log level for `init_logging`         | `info`             |
 //!
-//! # Connection pool sizing
-//!
-//! This demo scrapes each target sequentially,
-//! so a pool of **5 connections** is more than sufficient for all repository queries.
-//!
 //! # Running
 //!
-//! ```bash
-//! GEMINI_API_KEY=sk-... cargo run --bin demo-scraper -p crawler
+//! ```powershell
+//! $env:GEMINI_API_KEY="sk-..."
+//! cargo run --bin demo-scraper -p crawler
 //! ```
 
 use std::fs::File;
 use std::io::BufWriter;
-use std::process::Command;
-use std::time::Duration;
+use std::sync::Arc;
 
 use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
@@ -53,24 +56,14 @@ use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
-use std::sync::Arc;
-use testcontainers::ImageExt;
-use testcontainers::core::IntoContainerPort;
-use testcontainers::runners::AsyncRunner;
-use testcontainers_modules::postgres::Postgres as PgImage;
 use time::OffsetDateTime;
 use tracing::{error, info};
 use url::Url;
 
 // ---------------------------------------------------------------------------
-// Postgres container config
+// Pool sizing
 // ---------------------------------------------------------------------------
 
-const POSTGRES_USER: &str = "postgres";
-const POSTGRES_PASSWORD: &str = "postgres";
-const POSTGRES_DB: &str = "postgres";
-const POSTGRES_PORT: u16 = 5432;
-const DEMO_CONTAINER_NAME: &str = "aura-historia-scraper-demo";
 /// Scraper demo pool size: 5 connections cover all repository queries with room to spare.
 const DEMO_POOL_MAX_CONNECTIONS: u32 = 5;
 
@@ -164,16 +157,13 @@ async fn main() {
     unsafe { std::env::set_var("LOG_LEVEL", "info") };
     common::logging::init_logging();
 
-    // 2. Spin up Postgres.
-    let pool: &'static PgPool = start_postgres().await;
+    // 2. Connect to Postgres via DATABASE_URL and apply pending migrations.
+    let pool: &'static PgPool = connect_and_migrate().await;
 
-    // 3. Apply schema (tables + seed data).
-    apply_schema(pool).await;
-
-    // 4. Wire services.
+    // 3. Wire services.
     let service = build_scraper_service(pool);
 
-    // 5. Run the scraper for each target.
+    // 4. Run the scraper for each target.
     let mut products: Vec<DemoProduct> = vec![];
     for target in targets {
         let shop_id = target.shop_id;
@@ -219,94 +209,36 @@ async fn main() {
 // Postgres helpers
 // ---------------------------------------------------------------------------
 
-/// Removes any leftover demo container, starts a fresh one, waits until
-/// Postgres is ready, and returns a `'static` reference to a [`PgPool`].
+/// Connects to Postgres via `DATABASE_URL`, applies pending migrations, and
+/// returns a `'static` reference to a [`PgPool`].
 ///
 /// The pool is intentionally leaked: the repositories hold `&'static PgPool`
 /// references and must outlive the service, which lives until end of `main`.
-async fn start_postgres() -> &'static PgPool {
-    // Clean up any container left over from a previous aborted run.
-    let _ = Command::new("docker")
-        .args(["rm", "-f", DEMO_CONTAINER_NAME])
-        .output();
+async fn connect_and_migrate() -> &'static PgPool {
+    let db_url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set — start Postgres with .\\db-up.ps1 (from src/crawler/)");
 
-    info!("Starting Postgres container '{DEMO_CONTAINER_NAME}'…");
-
-    let container: testcontainers::ContainerAsync<PgImage> = PgImage::default()
-        .with_user(POSTGRES_USER)
-        .with_password(POSTGRES_PASSWORD)
-        .with_db_name(POSTGRES_DB)
-        .with_container_name(DEMO_CONTAINER_NAME)
-        .with_mapped_port(POSTGRES_PORT, POSTGRES_PORT.tcp())
-        .start()
+    let pool = PgPoolOptions::new()
+        .max_connections(DEMO_POOL_MAX_CONNECTIONS)
+        .connect(&db_url)
         .await
-        .expect("failed to start Postgres container — is Docker running?");
+        .expect("Failed to connect to Postgres");
 
-    info!("Postgres container started.");
-
-    // Keep the container alive for the duration of the process.
-    std::mem::forget(container);
-
-    // Register a best-effort cleanup on exit so the container is removed even
-    // if the process exits without reaching the end of main.
-    install_cleanup();
-
-    let connection_string = format!(
-        "postgres://{POSTGRES_USER}:{POSTGRES_PASSWORD}@localhost:{POSTGRES_PORT}/{POSTGRES_DB}"
+    info!(
+        max_connections = DEMO_POOL_MAX_CONNECTIONS,
+        "Connected to Postgres"
     );
 
-    // Retry briefly — the container socket may not be ready the instant
-    // `start()` resolves.
-    let pool = {
-        let mut attempt = 0u32;
-        let mut delay = Duration::from_millis(100);
-        loop {
-            attempt += 1;
-            let pool_result = PgPoolOptions::new()
-                .max_connections(DEMO_POOL_MAX_CONNECTIONS)
-                .acquire_timeout(Duration::from_secs(30))
-                .connect(&connection_string)
-                .await;
-            match pool_result {
-                Ok(p) => {
-                    info!(
-                        attempt,
-                        max_connections = DEMO_POOL_MAX_CONNECTIONS,
-                        "Connected to Postgres."
-                    );
-                    break p;
-                }
-                Err(e) if attempt < 20 => {
-                    info!(attempt, error = %e, "Postgres not ready yet, retrying…");
-                    tokio::time::sleep(delay).await;
-                    delay = (delay * 2).min(Duration::from_secs(2));
-                }
-                Err(e) => panic!("Could not connect to Postgres after {attempt} attempts: {e}"),
-            }
-        }
-    };
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("Failed to apply database migrations");
+
+    info!("Database migrations applied successfully");
 
     // Leak the pool so it obtains a `'static` lifetime that can be shared
     // across all repository impls without fighting the borrow checker.
     Box::leak(Box::new(pool))
-}
-
-/// Executes `sql/schema.sql` (relative to the workspace root) against `pool`.
-async fn apply_schema(pool: &PgPool) {
-    let workspace_root = env!("CARGO_WORKSPACE_DIR");
-    let sql_path = std::path::Path::new(workspace_root).join("src/crawler/sql/schema.sql");
-
-    let sql = std::fs::read_to_string(&sql_path)
-        .unwrap_or_else(|e| panic!("failed to read '{}': {e}", sql_path.display()));
-
-    info!(path = %sql_path.display(), "Applying schema…");
-
-    sqlx::raw_sql(&sql)
-        .execute(pool)
-        .await
-        .expect("failed to apply schema.sql");
-
-    info!("Schema applied (tables + seed state-mappings).");
 }
 
 // ---------------------------------------------------------------------------
@@ -359,21 +291,4 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
         candidate_service,
         3,
     )
-}
-
-// ---------------------------------------------------------------------------
-// Container cleanup
-// ---------------------------------------------------------------------------
-
-extern "C" fn cleanup_container() {
-    let _ = Command::new("docker")
-        .args(["rm", "-f", DEMO_CONTAINER_NAME])
-        .output();
-}
-
-fn install_cleanup() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| unsafe {
-        libc::atexit(cleanup_container);
-    });
 }

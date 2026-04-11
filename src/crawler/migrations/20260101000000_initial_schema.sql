@@ -1,9 +1,3 @@
--- ---------------------------------------------------------------------------
--- REFERENCE ONLY — do not run this file directly.
--- The authoritative schema is defined by the versioned migrations in
--- src/crawler/migrations/. This file is kept as a human-readable snapshot.
--- ---------------------------------------------------------------------------
-
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 CREATE TABLE IF NOT EXISTS shops_product_schema (

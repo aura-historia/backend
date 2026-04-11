@@ -168,7 +168,15 @@ async fn main() {
         "Connected to Postgres"
     );
 
-    // 3. Wire scraper + spider dependencies
+    // 3. Apply pending migrations — runs at startup so deploying a new binary
+    //    is the only step required to update the production schema.
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("Failed to run database migrations");
+    info!("Database migrations applied successfully");
+
+    // 4. Wire scraper + spider dependencies
     let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set");
     let model = std::env::var("GEMINI_MODEL")
         .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
@@ -238,13 +246,13 @@ async fn main() {
 
     let spider_candidates = Box::new(SpiderCandidateServiceImpl::new(pool.clone()));
 
-    // 4. Wire shop registration (sync from OpenSearch)
+    // 5. Wire shop registration (sync from OpenSearch)
     let opensearch_client = build_opensearch_client();
     let shop_source = Box::new(OpenSearchShopSource { opensearch_client });
     let shop_repo = Box::new(ShopRegistrationRepositoryImpl::new(pool.clone()));
     let shop_registration = ShopRegistrationService::new(shop_source, shop_repo);
 
-    // 5. Wire product push — backed by DynamoDB in production
+    // 6. Wire product push — backed by DynamoDB in production
     let table_name = std::env::var("DYNAMODB_TABLE_NAME").expect("DYNAMODB_TABLE_NAME must be set");
     let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
         .load()
@@ -291,7 +299,7 @@ async fn main() {
     ));
     let product_push = Box::new(ProductPushServiceImpl::new(command_product_service));
 
-    // 6. Build cron job
+    // 7. Build cron job
     let cron_job = CrawlerCronJob::new(
         config,
         Arc::new(LocalLockManager::new()),
@@ -303,7 +311,7 @@ async fn main() {
         product_push,
     );
 
-    // 7. Run forever
+    // 8. Run forever
     info!("Crawler Server is fully initialized. Starting background tasks...");
     cron_job.run_loop().await;
 }
