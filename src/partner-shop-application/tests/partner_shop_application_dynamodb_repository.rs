@@ -65,7 +65,8 @@ fn should_update_partner_shop_application_record_state() {
             &initial.applicant_user_id,
             &initial.id,
             PartnerShopApplicationRecordUpdate {
-                state: Some(PartnerShopApplicationStateRecord::Approved),
+                business_state: Some(PartnerShopApplicationStateRecord::Approved),
+                execution_state: None,
                 shop_name: None,
                 shop_type: None,
                 shop_domains: None,
@@ -83,7 +84,10 @@ fn should_update_partner_shop_application_record_state() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(PartnerShopApplicationStateRecord::Approved, actual.state);
+    assert_eq!(
+        PartnerShopApplicationStateRecord::Approved,
+        actual.business_state
+    );
 }
 
 #[localstack_test(services = [DynamoDB()])]

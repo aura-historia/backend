@@ -73,7 +73,7 @@ async fn should_set_state_to_in_review_and_store_task_token_for_wait_for_review(
     let mock_notification = MockNotificationService::new();
 
     let mut record: PartnerShopApplicationRecord = Faker.fake();
-    record.state = PartnerShopApplicationStateRecord::Submitted;
+    record.business_state = PartnerShopApplicationStateRecord::Submitted;
     record.task_token = None;
     let app_id = record.id;
     let user_id = record.applicant_user_id;
@@ -105,7 +105,10 @@ async fn should_set_state_to_in_review_and_store_task_token_for_wait_for_review(
         .unwrap()
         .unwrap();
 
-    assert_eq!(updated.state, PartnerShopApplicationStateRecord::InReview);
+    assert_eq!(
+        updated.business_state,
+        PartnerShopApplicationStateRecord::InReview
+    );
     assert_eq!(
         updated.task_token.as_deref(),
         Some("integration-test-token-123")
@@ -125,7 +128,7 @@ async fn should_create_shop_and_approve_for_new_application() {
     let mock_notification = mock_notification_service();
 
     let mut record: PartnerShopApplicationRecord = Faker.fake();
-    record.state = PartnerShopApplicationStateRecord::InReview;
+    record.business_state = PartnerShopApplicationStateRecord::InReview;
     record.payload_type = PartnerShopApplicationPayloadTypeRecord::New;
     record.shop_name = Some(ShopName::from("Integration Test Shop"));
     record.shop_type = Some(ShopTypeRecord::CommercialDealer);
@@ -161,7 +164,10 @@ async fn should_create_shop_and_approve_for_new_application() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(updated.state, PartnerShopApplicationStateRecord::Approved);
+    assert_eq!(
+        updated.business_state,
+        PartnerShopApplicationStateRecord::Approved
+    );
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -177,7 +183,7 @@ async fn should_link_existing_shop_and_approve_for_existing_application() {
     seed_shop_record(&shop_repo, &existing_shop).await;
 
     let mut record: PartnerShopApplicationRecord = Faker.fake();
-    record.state = PartnerShopApplicationStateRecord::InReview;
+    record.business_state = PartnerShopApplicationStateRecord::InReview;
     record.payload_type = PartnerShopApplicationPayloadTypeRecord::Existing;
     record.existing_shop_id = Some(existing_shop_id);
     record.shop_name = None;
@@ -213,7 +219,10 @@ async fn should_link_existing_shop_and_approve_for_existing_application() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(updated.state, PartnerShopApplicationStateRecord::Approved);
+    assert_eq!(
+        updated.business_state,
+        PartnerShopApplicationStateRecord::Approved
+    );
 
     let updated_shop = shop_repo
         .get_shop_record(&existing_shop_id)
@@ -239,7 +248,7 @@ async fn should_set_state_to_rejected_for_reject() {
     let mock_notification = mock_notification_service();
 
     let mut record: PartnerShopApplicationRecord = Faker.fake();
-    record.state = PartnerShopApplicationStateRecord::InReview;
+    record.business_state = PartnerShopApplicationStateRecord::InReview;
     record.shop_name = Some(ShopName::from("Rejected Shop"));
     let app_id = record.id;
     let user_id = record.applicant_user_id;
@@ -270,7 +279,10 @@ async fn should_set_state_to_rejected_for_reject() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(updated.state, PartnerShopApplicationStateRecord::Rejected);
+    assert_eq!(
+        updated.business_state,
+        PartnerShopApplicationStateRecord::Rejected
+    );
 }
 
 // ---------------------------------------------------------------------------

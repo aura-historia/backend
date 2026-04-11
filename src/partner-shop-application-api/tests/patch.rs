@@ -59,5 +59,8 @@ async fn should_200_when_updating_application() {
 
     let actual: GetPartnerShopApplicationData =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
-    assert_eq!(PartnerShopApplicationStateData::Submitted, actual.state);
+    assert_eq!(
+        PartnerShopApplicationStateData::Submitted,
+        actual.business_state
+    );
 }

@@ -48,6 +48,6 @@ async fn should_201_when_creating_application() {
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(
         partner_shop_application::data::partner_shop_application_state_data::PartnerShopApplicationStateData::Submitted,
-        actual.state
+        actual.business_state
     );
 }

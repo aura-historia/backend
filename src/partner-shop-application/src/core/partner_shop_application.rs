@@ -2,7 +2,10 @@ use crate::core::{
     partner_shop_application_id::PartnerShopApplicationId,
     partner_shop_application_state::PartnerShopApplicationState,
 };
-use common::{domain::Domain, execution_state::ExecutionState, shop_id::ShopId, shop_name::ShopName, user_id::UserId};
+use common::{
+    domain::Domain, execution_state::ExecutionState, shop_id::ShopId, shop_name::ShopName,
+    user_id::UserId,
+};
 use shop::core::shop_type::ShopType;
 use std::collections::HashSet;
 use time::OffsetDateTime;

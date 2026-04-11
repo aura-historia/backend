@@ -554,7 +554,10 @@ mod tests {
 
             assert_eq!(actual.applicant_user_id, cmd.applicant_user_id);
             assert_eq!(actual.payload, cmd.payload);
-            assert_eq!(actual.business_state, PartnerShopApplicationState::Submitted);
+            assert_eq!(
+                actual.business_state,
+                PartnerShopApplicationState::Submitted
+            );
             assert_eq!(actual.execution_state, ExecutionState::Processing);
         }
 
@@ -1077,9 +1080,7 @@ mod tests {
                 .return_once(|_, _| Box::pin(async { Ok(()) }));
 
             let service = make_service(&repository, &sfn_adapter);
-            let actual = service
-                .submit_decision_by_id(&id, Decision::Approve)
-                .await;
+            let actual = service.submit_decision_by_id(&id, Decision::Approve).await;
 
             assert!(actual.is_ok());
             let app = actual.unwrap();
@@ -1126,9 +1127,7 @@ mod tests {
                 .return_once(|_, _| Box::pin(async { Ok(()) }));
 
             let service = make_service(&repository, &sfn_adapter);
-            let actual = service
-                .submit_decision_by_id(&id, Decision::Reject)
-                .await;
+            let actual = service.submit_decision_by_id(&id, Decision::Reject).await;
 
             assert!(actual.is_ok());
             let app = actual.unwrap();
@@ -1151,9 +1150,7 @@ mod tests {
             let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
             let service = make_service(&repository, &sfn_adapter);
 
-            let actual = service
-                .submit_decision_by_id(&id, Decision::Approve)
-                .await;
+            let actual = service.submit_decision_by_id(&id, Decision::Approve).await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -1181,9 +1178,7 @@ mod tests {
             let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
             let service = make_service(&repository, &sfn_adapter);
 
-            let actual = service
-                .submit_decision_by_id(&id, Decision::Approve)
-                .await;
+            let actual = service.submit_decision_by_id(&id, Decision::Approve).await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
