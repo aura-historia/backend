@@ -5,10 +5,10 @@ use crate::core::{
     partner_shop_application_id::PartnerShopApplicationId,
 };
 use crate::dynamodb::{
-    execution_state_record::ExecutionStateRecord,
     partner_shop_application_payload_type_record::PartnerShopApplicationPayloadTypeRecord,
     partner_shop_application_state_record::PartnerShopApplicationStateRecord,
 };
+use common::execution_state::record::ExecutionStateRecord;
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, user_id::UserId};
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;

@@ -3,11 +3,9 @@ use crate::{
         partner_shop_application::{PartnerShopApplication, PartnerShopApplicationPayload},
         partner_shop_application_id::PartnerShopApplicationId,
     },
-    data::{
-        execution_state_data::ExecutionStateData,
-        partner_shop_application_state_data::PartnerShopApplicationStateData,
-    },
+    data::partner_shop_application_state_data::PartnerShopApplicationStateData,
 };
+use common::execution_state::data::ExecutionStateData;
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
 use shop::data::shop_type_data::ShopTypeData;

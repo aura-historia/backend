@@ -1,4 +1,5 @@
 use aws_tests_common::get_cfn_output;
+use common::execution_state::data::ExecutionStateData;
 use common::personalized::api::PersonalizedData;
 use common::{
     batch::Batch,
@@ -28,7 +29,6 @@ use opensearch::GetParts;
 use partner_shop_application::data::{
     admin_patch_partner_shop_application_data::AdminPatchPartnerShopApplicationData,
     decision_data::{DecisionData, PostDecisionData},
-    execution_state_data::ExecutionStateData,
     get_partner_shop_application_data::GetPartnerShopApplicationData,
     partner_shop_application_state_data::PartnerShopApplicationStateData,
     patch_partner_shop_application_data::PatchPartnerShopApplicationData,

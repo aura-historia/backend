@@ -124,7 +124,7 @@ async fn should_200_when_admin_submits_approve_decision() {
                 partner_shop_application::dynamodb::partner_shop_application_state_record::PartnerShopApplicationStateRecord::InReview,
             ),
             execution_state: Some(
-                partner_shop_application::dynamodb::execution_state_record::ExecutionStateRecord::Waiting,
+                common::execution_state::record::ExecutionStateRecord::Waiting,
             ),
             task_token: Some("test-task-token".to_string()),
             shop_name: None,
@@ -164,7 +164,7 @@ async fn should_200_when_admin_submits_approve_decision() {
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(application.id, actual.id);
     assert_eq!(
-        partner_shop_application::data::execution_state_data::ExecutionStateData::Processing,
+        common::execution_state::data::ExecutionStateData::Processing,
         actual.execution_state,
     );
 }
@@ -202,7 +202,7 @@ async fn should_200_when_admin_submits_reject_decision() {
                 partner_shop_application::dynamodb::partner_shop_application_state_record::PartnerShopApplicationStateRecord::InReview,
             ),
             execution_state: Some(
-                partner_shop_application::dynamodb::execution_state_record::ExecutionStateRecord::Waiting,
+                common::execution_state::record::ExecutionStateRecord::Waiting,
             ),
             task_token: Some("test-task-token".to_string()),
             shop_name: None,
@@ -242,7 +242,7 @@ async fn should_200_when_admin_submits_reject_decision() {
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(application.id, actual.id);
     assert_eq!(
-        partner_shop_application::data::execution_state_data::ExecutionStateData::Processing,
+        common::execution_state::data::ExecutionStateData::Processing,
         actual.execution_state,
     );
 }

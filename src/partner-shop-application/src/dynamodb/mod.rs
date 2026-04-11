@@ -1,4 +1,3 @@
-pub mod execution_state_record;
 pub mod partner_shop_application_payload_type_record;
 pub mod partner_shop_application_record;
 pub mod partner_shop_application_record_update;

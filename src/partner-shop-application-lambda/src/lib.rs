@@ -1,4 +1,5 @@
 use common::event_id::EventId;
+use common::execution_state::record::ExecutionStateRecord;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::user_id::UserId;
@@ -9,7 +10,6 @@ use notification::core::notification::{
 use notification::service::command::CreateNotificationCommand;
 use notification::service::notification_service::NotificationService;
 use partner_shop_application::core::partner_shop_application_id::PartnerShopApplicationId;
-use partner_shop_application::dynamodb::execution_state_record::ExecutionStateRecord;
 use partner_shop_application::dynamodb::partner_shop_application_payload_type_record::PartnerShopApplicationPayloadTypeRecord;
 use partner_shop_application::dynamodb::partner_shop_application_record::PartnerShopApplicationRecord;
 use partner_shop_application::dynamodb::partner_shop_application_record_update::PartnerShopApplicationRecordUpdate;

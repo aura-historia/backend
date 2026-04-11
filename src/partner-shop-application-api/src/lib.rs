@@ -11,7 +11,6 @@ mod admin_decision;
 mod admin_get_all;
 mod admin_get_one;
 mod admin_patch;
-mod decision;
 mod delete;
 mod get_all;
 mod get_one;
@@ -75,9 +74,6 @@ pub async fn handle(
         }
         Some("POST /api/v1/partner-applications/{partnerApplicationId}/decision") => {
             admin_decision::handle(event, service, user_service).await
-        }
-        Some("POST /api/v1/me/partner-applications/{partnerApplicationId}/decision") => {
-            decision::handle(event, service).await
         }
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,

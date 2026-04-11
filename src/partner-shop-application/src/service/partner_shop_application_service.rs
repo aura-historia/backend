@@ -467,7 +467,7 @@ impl<'a> PartnerShopApplicationServiceImpl<'a> {
         let record_update = PartnerShopApplicationRecordUpdate {
             business_state: None,
             execution_state: Some(
-                crate::dynamodb::execution_state_record::ExecutionStateRecord::Processing,
+                common::execution_state::record::ExecutionStateRecord::Processing,
             ),
             shop_name: None,
             shop_type: None,
@@ -1047,14 +1047,13 @@ mod tests {
             let mut record: PartnerShopApplicationRecord = Faker.fake();
             record.id = id;
             record.business_state = PartnerShopApplicationStateRecord::InReview;
-            record.execution_state =
-                crate::dynamodb::execution_state_record::ExecutionStateRecord::Waiting;
+            record.execution_state = common::execution_state::record::ExecutionStateRecord::Waiting;
             record.task_token = Some(task_token.clone());
 
             let updated_record = {
                 let mut r = record.clone();
                 r.execution_state =
-                    crate::dynamodb::execution_state_record::ExecutionStateRecord::Processing;
+                    common::execution_state::record::ExecutionStateRecord::Processing;
                 r
             };
 
@@ -1095,14 +1094,13 @@ mod tests {
             let mut record: PartnerShopApplicationRecord = Faker.fake();
             record.id = id;
             record.business_state = PartnerShopApplicationStateRecord::InReview;
-            record.execution_state =
-                crate::dynamodb::execution_state_record::ExecutionStateRecord::Waiting;
+            record.execution_state = common::execution_state::record::ExecutionStateRecord::Waiting;
             record.task_token = Some(task_token.clone());
 
             let updated_record = {
                 let mut r = record.clone();
                 r.execution_state =
-                    crate::dynamodb::execution_state_record::ExecutionStateRecord::Processing;
+                    common::execution_state::record::ExecutionStateRecord::Processing;
                 r
             };
 

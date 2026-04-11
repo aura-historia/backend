@@ -1163,14 +1163,6 @@ Resources:
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${PartnerShopApplicationApiLambdaIntegration}"
-  PartnerShopApplicationApiDecisionRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "POST /api/v1/me/partner-applications/{partnerApplicationId}/decision"
-      AuthorizationType: JWT
-      AuthorizerId: !Ref ApiCognitoAuthorizer
-      Target: !Sub "integrations/${PartnerShopApplicationApiLambdaIntegration}"
   PartnerShopApplicationApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
