@@ -23,6 +23,8 @@ use tokio::time::sleep;
 use tracing::{debug, info, warn};
 use url::Url;
 
+const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
+
 // ---------------------------------------------------------------------------
 // HtmlFetcher trait — abstracted so it can be mocked in unit tests
 // ---------------------------------------------------------------------------
@@ -73,9 +75,31 @@ impl ReqwestHtmlFetcher {
     }
 
     pub fn with_retry_policy(retry_policy: RetryPolicy) -> Self {
+        let mut default_headers = reqwest::header::HeaderMap::new();
+        default_headers.insert(
+            reqwest::header::ACCEPT,
+            reqwest::header::HeaderValue::from_static(
+                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            ),
+        );
+        default_headers.insert(
+            reqwest::header::ACCEPT_LANGUAGE,
+            reqwest::header::HeaderValue::from_static("de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7"),
+        );
+        default_headers.insert(
+            reqwest::header::CACHE_CONTROL,
+            reqwest::header::HeaderValue::from_static("no-cache"),
+        );
+        default_headers.insert(
+            reqwest::header::PRAGMA,
+            reqwest::header::HeaderValue::from_static("no-cache"),
+        );
+
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::limited(10))
             .timeout(std::time::Duration::from_secs(15))
+            .user_agent(DEFAULT_USER_AGENT)
+            .default_headers(default_headers)
             .build()
             .expect("reqwest client should build");
 

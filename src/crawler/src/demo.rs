@@ -58,9 +58,9 @@ use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServic
 use llm::builder::{LLMBackend, LLMBuilder};
 use shop::core::shop_type::ShopType;
 use sqlx::PgPool;
-use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
 use testcontainers::runners::AsyncRunner;
+use testcontainers::ImageExt;
 use testcontainers_modules::postgres::Postgres as PgImage;
 use tracing::{error, info};
 
@@ -151,7 +151,7 @@ async fn main() {
         scraper_interval: Duration::from_secs(30), // Demo: run scraper loop every 30 seconds
         spider_batch_size: 5,
         scraper_batch_size: 100,
-        spider_concurrency: 3,
+        spider_concurrency: 4,
         scraper_concurrency: 5,
         spider_classify_threshold: 400,
         ..Default::default()
