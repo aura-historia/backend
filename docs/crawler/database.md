@@ -108,6 +108,8 @@ Every URL the spider has ever seen. Shared between the spider (writes) and the s
 | `next_retry_at` | TIMESTAMPTZ (nullable) | Earliest timestamp when the URL is eligible for retry |
 | `created` / `updated` | TIMESTAMPTZ | |
 
+`shop_urls.state` is crawler-owned URL metadata in Postgres. The scraper updates it after successful normalization and uses it for crawler-side candidate selection. The downstream product backend receives the same normalized availability separately through product upsert commands; that persistence path is related but distinct.
+
 **Domain linkage**: `domain_id` is a direct FK to `shop_domains`. When a domain is removed from a shop during the shop registration sync, all URLs discovered from that domain are automatically cascade-deleted — preventing the scraper from continuing to process stale URLs from a domain that no longer belongs to the shop.
 
 **Change detection**: the scraper computes the current hash in-memory — SHA-256 of the `<main>` fragment when present, SHA-256 of the full HTML otherwise — and compares it with `last_scraped_hash`. If they match and a `<main>` tag was found, extraction is skipped. Pages without a `<main>` tag are always re-extracted.
@@ -211,6 +213,8 @@ WHERE  su.url_class = 'product'
 ORDER BY su.last_scraped NULLS FIRST
 LIMIT  $1
 ```
+
+`SOLD` and `REMOVED` are intentionally excluded from future scrape candidates. `UNKNOWN` remains eligible so newly discovered URLs can be re-scraped until the crawler resolves them to a concrete state.
 
 ### Shop registration upsert
 

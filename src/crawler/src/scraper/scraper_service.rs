@@ -337,6 +337,22 @@ impl ScraperServiceImpl {
             warn!(error = %err, url = %url, "Failed to mark product as REMOVED");
         }
     }
+
+    async fn persist_scraped_state_best_effort(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        state: UrlState,
+    ) {
+        if let Err(err) = self.candidate_service.set_state(shop_id, url, state).await {
+            warn!(
+                error = %err,
+                url = %url,
+                state = %state,
+                "Failed to persist scraped URL state"
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -552,6 +568,9 @@ impl ScraperService for ScraperServiceImpl {
             .await?;
 
         // 5. Bookkeeping ------------------------------------------------
+        self.persist_scraped_state_best_effort(shop_id, url, UrlState::from(final_product.state))
+            .await;
+
         if let Err(e) = self
             .candidate_service
             .mark_as_scraped(shop_id, url, &current_hash)
@@ -783,6 +802,7 @@ mod tests {
     use common::product_state::domain::ProductState;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
+    use mockall::Sequence;
     use product::core::title::Title;
     use time::OffsetDateTime;
     use url::Url;
@@ -868,6 +888,29 @@ mod tests {
         }
     }
 
+    fn expect_successful_bookkeeping(
+        cand_svc: &mut MockScraperCandidateService,
+        shop_id: ShopId,
+        url: Url,
+        state: UrlState,
+    ) {
+        let url_for_set_state = url.clone();
+        cand_svc
+            .expect_set_state()
+            .once()
+            .withf(move |received_shop_id, received_url, received_state| {
+                *received_shop_id == shop_id
+                    && received_url == &url_for_set_state
+                    && *received_state == state
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+
+        cand_svc
+            .expect_mark_as_scraped()
+            .once()
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+    }
+
     // -----------------------------------------------------------------------
     // Happy path
     // -----------------------------------------------------------------------
@@ -905,9 +948,7 @@ mod tests {
         });
 
         let mut cand_svc = MockScraperCandidateService::new();
-        cand_svc
-            .expect_mark_as_scraped()
-            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
         let service = ScraperServiceImpl::new(
             Box::new(fetcher),
@@ -957,9 +998,7 @@ mod tests {
         });
 
         let mut cand_svc = MockScraperCandidateService::new();
-        cand_svc
-            .expect_mark_as_scraped()
-            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
         let service = ScraperServiceImpl::new(
             Box::new(fetcher),
@@ -1106,9 +1145,7 @@ mod tests {
         });
 
         let mut cand_svc = MockScraperCandidateService::new();
-        cand_svc
-            .expect_mark_as_scraped()
-            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
         let service = ScraperServiceImpl::new(
             Box::new(fetcher),
@@ -1268,9 +1305,7 @@ mod tests {
         });
 
         let mut cand_svc = MockScraperCandidateService::new();
-        cand_svc
-            .expect_mark_as_scraped()
-            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
         let service = ScraperServiceImpl::new(
             Box::new(fetcher),
@@ -1400,6 +1435,40 @@ mod tests {
             matches!(err, ScraperError::ProductRemoved { .. }),
             "expected ProductRemoved, got: {err}"
         );
+    }
+
+    #[tokio::test]
+    async fn should_not_overwrite_url_state_when_fetch_fails_with_non_terminal_error() {
+        let id = shop_id();
+        let url = product_url();
+
+        let mut fetcher = MockHtmlFetcher::new();
+        fetcher.expect_fetch().once().returning(|_| {
+            Box::pin(async {
+                Err(FetchError::Network {
+                    kind: NetworkErrorKind::Timeout,
+                    details: "request timed out".to_string(),
+                })
+            })
+        });
+
+        let schema_svc = MockProductSchemaService::new();
+        let norm_svc = MockProductNormalizationService::new();
+        let mut cand_svc = MockScraperCandidateService::new();
+        cand_svc.expect_set_state().times(0);
+        cand_svc.expect_mark_as_scraped().times(0);
+
+        let service = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+            3,
+        );
+
+        let err = service.scrape(&id, &url, None).await.unwrap_err();
+
+        assert!(matches!(err, ScraperError::HttpError { .. }));
     }
 
     // -----------------------------------------------------------------------
@@ -1545,9 +1614,7 @@ mod tests {
             });
 
         let mut cand_svc = MockScraperCandidateService::new();
-        cand_svc
-            .expect_mark_as_scraped()
-            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
         let service = ScraperServiceImpl::new(
             Box::new(fetcher),
@@ -1593,9 +1660,7 @@ mod tests {
         });
 
         let mut cand_svc = MockScraperCandidateService::new();
-        cand_svc
-            .expect_mark_as_scraped()
-            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
         let service = ScraperServiceImpl::new(
             Box::new(fetcher),
@@ -1831,9 +1896,7 @@ mod tests {
         });
 
         let mut cand_svc = MockScraperCandidateService::new();
-        cand_svc
-            .expect_mark_as_scraped()
-            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
         // max = 1 so only 1 failed attempt is allowed before exhaustion
         let service = ScraperServiceImpl::new(
@@ -1890,5 +1953,70 @@ mod tests {
             hint.is_none(),
             "StateMappingError should not produce a schema hint"
         );
+    }
+
+    #[tokio::test]
+    async fn should_persist_scraped_state_before_marking_url_as_scraped() {
+        let id = shop_id();
+        let url = product_url();
+
+        let mut fetcher = MockHtmlFetcher::new();
+        fetcher
+            .expect_fetch()
+            .once()
+            .returning(|_| Box::pin(async { Ok(sample_html()) }));
+
+        let schema = shops_product_schema(id);
+        let mut schema_svc = MockProductSchemaService::new();
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
+        schema_svc
+            .expect_get_product_schema()
+            .once()
+            .returning(move |_, _, _| {
+                let s = schema.clone();
+                Box::pin(async move { Ok(s) })
+            });
+
+        let mut expected = normalized_product(url.clone());
+        expected.state = ProductState::Sold;
+        let mut norm_svc = MockProductNormalizationService::new();
+        norm_svc.expect_normalize().once().returning(move |_, _| {
+            let n = expected.clone();
+            Box::pin(async move { Ok(n) })
+        });
+
+        let mut cand_svc = MockScraperCandidateService::new();
+        let mut seq = Sequence::new();
+        let url_for_set_state = url.clone();
+        cand_svc
+            .expect_set_state()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |received_shop_id, received_url, received_state| {
+                *received_shop_id == id
+                    && received_url == &url_for_set_state
+                    && *received_state == UrlState::Sold
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+        cand_svc
+            .expect_mark_as_scraped()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+
+        let service = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+            3,
+        );
+
+        let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+
+        assert_eq!(result.state, ProductState::Sold);
     }
 }

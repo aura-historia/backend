@@ -236,7 +236,8 @@ scrape(shop_id, url, last_scraped_hash)
  │    ├── images: resolve relative URLs against page URL
  │    └── dates: parse ISO 8601 / RFC 3339
  │    └── other normalization error (price/title bad) → [schema-fix flow B]
- ├── mark_as_scraped(shop_id, url, current_hash) → updates shop_urls
+ ├── set_state(shop_id, url, normalized_state) → updates shop_urls.state
+ ├── mark_as_scraped(shop_id, url, current_hash) → updates hash/timestamp bookkeeping
  └── if schema was fixed this run → reset_fix_attempts(domain)
 ```
 
@@ -293,7 +294,9 @@ Scraper reads:
   SELECT ... FROM shop_urls WHERE url_class = 'product' AND ...
 
 Scraper writes back:
+  UPDATE shop_urls SET state = $state, updated = NOW()
   UPDATE shop_urls SET last_scraped_hash = $hash, last_scraped = NOW()
+  UPDATE shop_urls SET state = 'REMOVED', updated = NOW()
 ```
 
 The spider decides *which* URLs are products (by running the LLM-found regex). The scraper only processes URLs the spider has already labelled as `url_class = 'product'`. There is no direct function call or shared in-memory state between them — just the database row.
