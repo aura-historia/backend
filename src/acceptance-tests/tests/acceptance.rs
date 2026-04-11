@@ -28,7 +28,7 @@ use notification_api::notification_get::EventIdCursoredData;
 use opensearch::GetParts;
 use partner_shop_application::data::{
     admin_patch_partner_shop_application_data::AdminPatchPartnerShopApplicationData,
-    decision_data::{DecisionData, PostDecisionData},
+    decision_data::{PartnerShopApplicationDecisionData, PostPartnerShopApplicationDecisionData},
     get_partner_shop_application_data::GetPartnerShopApplicationData,
     partner_shop_application_state_data::PartnerShopApplicationStateData,
     patch_partner_shop_application_data::PatchPartnerShopApplicationData,
@@ -5224,8 +5224,8 @@ async fn should_respond_200_for_admin_decision_approve() {
         get_cfn_output().api_gateway_endpoint_url,
         created.id,
     );
-    let decision_data = PostDecisionData {
-        decision: DecisionData::Approve,
+    let decision_data = PostPartnerShopApplicationDecisionData {
+        decision: PartnerShopApplicationDecisionData::Approve,
     };
     let response = reqwest::Client::new()
         .post(&decision_url)
@@ -5345,8 +5345,8 @@ async fn should_respond_200_for_admin_decision_reject() {
         get_cfn_output().api_gateway_endpoint_url,
         created.id,
     );
-    let decision_data = PostDecisionData {
-        decision: DecisionData::Reject,
+    let decision_data = PostPartnerShopApplicationDecisionData {
+        decision: PartnerShopApplicationDecisionData::Reject,
     };
     let response = reqwest::Client::new()
         .post(&decision_url)

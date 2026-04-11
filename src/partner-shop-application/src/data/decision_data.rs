@@ -1,36 +1,36 @@
-use crate::core::command::Decision;
+use crate::core::command::PartnerShopApplicationDecision;
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum DecisionData {
+pub enum PartnerShopApplicationDecisionData {
     Approve,
     Reject,
 }
 
-impl From<DecisionData> for Decision {
-    fn from(data: DecisionData) -> Self {
+impl From<PartnerShopApplicationDecisionData> for PartnerShopApplicationDecision {
+    fn from(data: PartnerShopApplicationDecisionData) -> Self {
         match data {
-            DecisionData::Approve => Decision::Approve,
-            DecisionData::Reject => Decision::Reject,
+            PartnerShopApplicationDecisionData::Approve => PartnerShopApplicationDecision::Approve,
+            PartnerShopApplicationDecisionData::Reject => PartnerShopApplicationDecision::Reject,
         }
     }
 }
 
-impl From<Decision> for DecisionData {
-    fn from(decision: Decision) -> Self {
+impl From<PartnerShopApplicationDecision> for PartnerShopApplicationDecisionData {
+    fn from(decision: PartnerShopApplicationDecision) -> Self {
         match decision {
-            Decision::Approve => DecisionData::Approve,
-            Decision::Reject => DecisionData::Reject,
+            PartnerShopApplicationDecision::Approve => PartnerShopApplicationDecisionData::Approve,
+            PartnerShopApplicationDecision::Reject => PartnerShopApplicationDecisionData::Reject,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PostDecisionData {
-    pub decision: DecisionData,
+pub struct PostPartnerShopApplicationDecisionData {
+    pub decision: PartnerShopApplicationDecisionData,
 }
 
 #[cfg(feature = "test-data")]
@@ -38,9 +38,9 @@ mod faker {
     use super::*;
     use fake::{Dummy, Fake, Faker, RngExt};
 
-    impl Dummy<Faker> for PostDecisionData {
+    impl Dummy<Faker> for PostPartnerShopApplicationDecisionData {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            PostDecisionData {
+            PostPartnerShopApplicationDecisionData {
                 decision: config.fake_with_rng(rng),
             }
         }
@@ -53,10 +53,13 @@ mod tests {
 
     #[test]
     fn should_convert_decision_data_to_domain_and_back() {
-        let decisions = [DecisionData::Approve, DecisionData::Reject];
+        let decisions = [
+            PartnerShopApplicationDecisionData::Approve,
+            PartnerShopApplicationDecisionData::Reject,
+        ];
         for data in decisions {
-            let domain: Decision = data.into();
-            let converted: DecisionData = domain.into();
+            let domain: PartnerShopApplicationDecision = data.into();
+            let converted: PartnerShopApplicationDecisionData = domain.into();
             assert_eq!(data, converted);
         }
     }
@@ -64,14 +67,14 @@ mod tests {
     #[test]
     fn should_deserialize_approve() {
         let json = r#"{"decision":"APPROVE"}"#;
-        let data: PostDecisionData = serde_json::from_str(json).unwrap();
-        assert_eq!(DecisionData::Approve, data.decision);
+        let data: PostPartnerShopApplicationDecisionData = serde_json::from_str(json).unwrap();
+        assert_eq!(PartnerShopApplicationDecisionData::Approve, data.decision);
     }
 
     #[test]
     fn should_deserialize_reject() {
         let json = r#"{"decision":"REJECT"}"#;
-        let data: PostDecisionData = serde_json::from_str(json).unwrap();
-        assert_eq!(DecisionData::Reject, data.decision);
+        let data: PostPartnerShopApplicationDecisionData = serde_json::from_str(json).unwrap();
+        assert_eq!(PartnerShopApplicationDecisionData::Reject, data.decision);
     }
 }

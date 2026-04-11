@@ -1,7 +1,8 @@
 use crate::{
     core::{
         command::{
-            CreatePartnerShopApplicationCommand, Decision, UpdatePartnerShopApplicationCommand,
+            CreatePartnerShopApplicationCommand, PartnerShopApplicationDecision,
+            UpdatePartnerShopApplicationCommand,
         },
         partner_shop_application::PartnerShopApplication,
         partner_shop_application_id::PartnerShopApplicationId,
@@ -147,13 +148,13 @@ pub trait PartnerShopApplicationService {
         &self,
         user_id: &UserId,
         id: &PartnerShopApplicationId,
-        decision: Decision,
+        decision: PartnerShopApplicationDecision,
     ) -> Result<PartnerShopApplication, PartnerShopApplicationError>;
 
     async fn submit_decision_by_id(
         &self,
         id: &PartnerShopApplicationId,
-        decision: Decision,
+        decision: PartnerShopApplicationDecision,
     ) -> Result<PartnerShopApplication, PartnerShopApplicationError>;
 
     async fn find_all_partner_shop_applications_by_user(
@@ -384,7 +385,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
         &self,
         user_id: &UserId,
         id: &PartnerShopApplicationId,
-        decision: Decision,
+        decision: PartnerShopApplicationDecision,
     ) -> Result<PartnerShopApplication, PartnerShopApplicationError> {
         let existing_record = self
             .repository
@@ -399,7 +400,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
     async fn submit_decision_by_id(
         &self,
         id: &PartnerShopApplicationId,
-        decision: Decision,
+        decision: PartnerShopApplicationDecision,
     ) -> Result<PartnerShopApplication, PartnerShopApplicationError> {
         let existing_record = self
             .repository
@@ -434,7 +435,7 @@ impl<'a> PartnerShopApplicationServiceImpl<'a> {
         &self,
         id: &PartnerShopApplicationId,
         existing_record: &PartnerShopApplicationRecord,
-        decision: Decision,
+        decision: PartnerShopApplicationDecision,
     ) -> Result<PartnerShopApplication, PartnerShopApplicationError> {
         use crate::core::partner_shop_application_state::PartnerShopApplicationState;
 
@@ -449,8 +450,8 @@ impl<'a> PartnerShopApplicationServiceImpl<'a> {
             .ok_or(PartnerShopApplicationError::MissingTaskToken(*id))?;
 
         let decision_str = match decision {
-            Decision::Approve => "APPROVED",
-            Decision::Reject => "REJECTED",
+            PartnerShopApplicationDecision::Approve => "APPROVED",
+            PartnerShopApplicationDecision::Reject => "REJECTED",
         };
 
         let user_id = existing_record.applicant_user_id;
@@ -1079,7 +1080,9 @@ mod tests {
                 .return_once(|_, _| Box::pin(async { Ok(()) }));
 
             let service = make_service(&repository, &sfn_adapter);
-            let actual = service.submit_decision_by_id(&id, Decision::Approve).await;
+            let actual = service
+                .submit_decision_by_id(&id, PartnerShopApplicationDecision::Approve)
+                .await;
 
             assert!(actual.is_ok());
             let app = actual.unwrap();
@@ -1125,7 +1128,9 @@ mod tests {
                 .return_once(|_, _| Box::pin(async { Ok(()) }));
 
             let service = make_service(&repository, &sfn_adapter);
-            let actual = service.submit_decision_by_id(&id, Decision::Reject).await;
+            let actual = service
+                .submit_decision_by_id(&id, PartnerShopApplicationDecision::Reject)
+                .await;
 
             assert!(actual.is_ok());
             let app = actual.unwrap();
@@ -1148,7 +1153,9 @@ mod tests {
             let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
             let service = make_service(&repository, &sfn_adapter);
 
-            let actual = service.submit_decision_by_id(&id, Decision::Approve).await;
+            let actual = service
+                .submit_decision_by_id(&id, PartnerShopApplicationDecision::Approve)
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -1176,7 +1183,9 @@ mod tests {
             let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
             let service = make_service(&repository, &sfn_adapter);
 
-            let actual = service.submit_decision_by_id(&id, Decision::Approve).await;
+            let actual = service
+                .submit_decision_by_id(&id, PartnerShopApplicationDecision::Approve)
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {

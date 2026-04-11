@@ -4,7 +4,9 @@ use lambda_runtime::LambdaEvent;
 use partner_shop_application::{
     data::{
         admin_patch_partner_shop_application_data::AdminPatchPartnerShopApplicationData,
-        decision_data::{DecisionData, PostDecisionData},
+        decision_data::{
+            PartnerShopApplicationDecisionData, PostPartnerShopApplicationDecisionData,
+        },
         get_partner_shop_application_data::GetPartnerShopApplicationData,
     },
     dynamodb::repository::{
@@ -142,8 +144,8 @@ async fn should_200_when_admin_submits_approve_decision() {
         .await
         .unwrap();
 
-    let decision_data = PostDecisionData {
-        decision: DecisionData::Approve,
+    let decision_data = PostPartnerShopApplicationDecisionData {
+        decision: PartnerShopApplicationDecisionData::Approve,
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -220,8 +222,8 @@ async fn should_200_when_admin_submits_reject_decision() {
         .await
         .unwrap();
 
-    let decision_data = PostDecisionData {
-        decision: DecisionData::Reject,
+    let decision_data = PostPartnerShopApplicationDecisionData {
+        decision: PartnerShopApplicationDecisionData::Reject,
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
