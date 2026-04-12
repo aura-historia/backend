@@ -9,9 +9,11 @@ use async_trait::async_trait;
 use common::shop_id::ShopId;
 use shop::core::shop_type::ShopType;
 use sqlx::PgPool;
+use time::OffsetDateTime;
 use url::Url;
 
 use crate::service::shop_registration::shop_type_from_db;
+use crate::spider::classification::url_metadata::UrlState;
 
 pub struct ScraperCandidate {
     pub shop_id: ShopId,
@@ -31,6 +33,20 @@ pub trait ScraperCandidateService: Send + Sync {
         shop_id: &ShopId,
         url: &Url,
         hash: &str,
+    ) -> Result<(), sqlx::Error>;
+    async fn set_state(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        state: UrlState,
+    ) -> Result<(), sqlx::Error>;
+    async fn mark_fetch_failure(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        error_kind: &str,
+        status_code: Option<i32>,
+        next_retry_at: OffsetDateTime,
     ) -> Result<(), sqlx::Error>;
 }
 
@@ -65,6 +81,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             WHERE s.active = TRUE
               AND su.url_class = 'product'
               AND su.state IN ('AVAILABLE', 'UNKNOWN', 'LISTED', 'RESERVED')
+              AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
               AND (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
               AND (su.last_scraped_hash IS NULL OR su.main_hash != su.last_scraped_hash)
             ORDER BY su.last_scraped NULLS FIRST
@@ -107,12 +124,75 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
 
         sqlx::query(
             "UPDATE shop_urls
-             SET last_scraped = NOW(), last_scraped_hash = $3, updated = NOW()
+             SET last_scraped = NOW(),
+                 last_scraped_hash = $3,
+                 failure_count = 0,
+                 last_error_kind = NULL,
+                 last_status_code = NULL,
+                 next_retry_at = NULL,
+                 updated = NOW()
              WHERE shop_id = $1 AND url = $2",
         )
         .bind(shop_id_uuid)
         .bind(url_str)
         .bind(hash)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn set_state(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        state: UrlState,
+    ) -> Result<(), sqlx::Error> {
+        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+        let url_str = url.to_string();
+        let state_str = state.to_string();
+
+        sqlx::query(
+            "UPDATE shop_urls
+             SET state = $3,
+                 next_retry_at = NULL,
+                 updated = NOW()
+             WHERE shop_id = $1 AND url = $2",
+        )
+        .bind(shop_id_uuid)
+        .bind(url_str)
+        .bind(state_str)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn mark_fetch_failure(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        error_kind: &str,
+        status_code: Option<i32>,
+        next_retry_at: OffsetDateTime,
+    ) -> Result<(), sqlx::Error> {
+        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+        let url_str = url.to_string();
+
+        sqlx::query(
+            "UPDATE shop_urls
+             SET failure_count = failure_count + 1,
+                 last_error_kind = $3,
+                 last_status_code = $4,
+                 next_retry_at = $5,
+                 updated = NOW()
+             WHERE shop_id = $1 AND url = $2",
+        )
+        .bind(shop_id_uuid)
+        .bind(url_str)
+        .bind(error_kind)
+        .bind(status_code)
+        .bind(next_retry_at)
         .execute(&self.pool)
         .await?;
 

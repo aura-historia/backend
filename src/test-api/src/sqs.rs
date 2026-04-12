@@ -119,24 +119,39 @@ impl IntegrationTestService for Sqs {
     }
 
     async fn tear_down(&self) {
-        drain_queue(&self.queue_url()).await;
-        drain_queue(&self.dead_letter_queue_url()).await;
-        debug!("Drained SQS queues '{}' for test isolation", self.name);
+        let client = get_sqs_client().await;
+        // Use purge_queue to remove ALL messages, including those with active visibility
+        // timeouts (invisible messages that drain_queue cannot reach). In LocalStack used
+        // for integration tests, the AWS-imposed 60-second cooldown between purge_queue
+        // calls is not enforced, making this safe for per-test teardown.
+        for queue_url in [self.queue_url(), self.dead_letter_queue_url()] {
+            client
+                .purge_queue()
+                .queue_url(&queue_url)
+                .send()
+                .await
+                .unwrap_or_else(|e| panic!("Failed purging SQS queue '{}': {e}", queue_url));
+        }
+        debug!("Purged SQS queues '{}' for test isolation", self.name);
     }
 }
 
-/// Drains all messages from each of the given SQS queue URLs using a
+/// Drains all **visible** messages from each of the given SQS queue URLs using a
 /// receive-and-delete loop.
 ///
 /// Unlike `purge_queue`, this approach avoids the AWS-imposed 60-second
-/// cooldown between purge calls, making it suitable for per-test teardown.
+/// cooldown between purge calls, but it only removes currently visible messages.
+/// Messages with an active visibility timeout (invisible messages) are not removed.
+///
+/// Prefer [`Sqs::tear_down`] for test teardown when full isolation including
+/// invisible messages is required.
 pub(crate) async fn drain_queues(queue_urls: Vec<String>) {
     for queue_url in queue_urls {
         drain_queue(&queue_url).await;
     }
 }
 
-/// Receives and deletes all currently visible messages from a single SQS queue.
+/// Receives and deletes all currently **visible** messages from a single SQS queue.
 async fn drain_queue(queue_url: &str) {
     let client = get_sqs_client().await;
     loop {

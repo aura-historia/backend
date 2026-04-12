@@ -1,3 +1,6 @@
+use crate::network::policy::{
+    NetworkAction, NetworkErrorKind, RetryPolicy, action_for, backoff_delay, classify_reqwest_error,
+};
 use crate::scraper::candidate_service::ScraperCandidateService;
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct, ShopsProductSchema,
@@ -5,6 +8,7 @@ use crate::scraper::css_selector::product_schema::{
 use crate::scraper::css_selector::product_schema_service::{
     ProductSchemaService, ProductSchemaServiceError,
 };
+use crate::spider::classification::url_metadata::UrlState;
 
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::normalization::error::NormalizationError;
@@ -15,6 +19,7 @@ use scraper::Html;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio::time::sleep;
 use tracing::{debug, info, warn};
 use url::Url;
 
@@ -27,49 +32,107 @@ use url::Url;
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait HtmlFetcher: Send + Sync {
-    async fn fetch(&self, url: &Url) -> Result<String, String>;
+    async fn fetch(&self, url: &Url) -> Result<String, FetchError>;
 }
 
 // ---------------------------------------------------------------------------
-// Real HtmlFetcher backed by spider
+// Error and reqwest-backed HtmlFetcher
 // ---------------------------------------------------------------------------
 
-use spider::website::Website;
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum FetchError {
+    #[error("network failure: kind={kind:?}, details={details}")]
+    Network {
+        kind: NetworkErrorKind,
+        details: String,
+    },
+}
 
-#[derive(Default)]
-pub struct SpiderHtmlFetcher {}
+impl FetchError {
+    fn kind(&self) -> NetworkErrorKind {
+        match self {
+            FetchError::Network { kind, .. } => *kind,
+        }
+    }
+}
 
-impl SpiderHtmlFetcher {
+pub struct ReqwestHtmlFetcher {
+    client: reqwest::Client,
+    retry_policy: RetryPolicy,
+}
+
+impl Default for ReqwestHtmlFetcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ReqwestHtmlFetcher {
     pub fn new() -> Self {
-        Self {}
+        Self::with_retry_policy(RetryPolicy::default())
+    }
+
+    pub fn with_retry_policy(retry_policy: RetryPolicy) -> Self {
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .expect("reqwest client should build");
+
+        Self {
+            client,
+            retry_policy,
+        }
+    }
+
+    async fn fetch_once(&self, url: &Url) -> Result<String, FetchError> {
+        let response =
+            self.client
+                .get(url.clone())
+                .send()
+                .await
+                .map_err(|err| FetchError::Network {
+                    kind: classify_reqwest_error(&err),
+                    details: err.to_string(),
+                })?;
+
+        let response = response
+            .error_for_status()
+            .map_err(|err| FetchError::Network {
+                kind: classify_reqwest_error(&err),
+                details: err.to_string(),
+            })?;
+
+        response.text().await.map_err(|err| FetchError::Network {
+            kind: classify_reqwest_error(&err),
+            details: err.to_string(),
+        })
     }
 }
 
 #[async_trait::async_trait]
-impl HtmlFetcher for SpiderHtmlFetcher {
-    async fn fetch(&self, url: &Url) -> Result<String, String> {
-        let mut website = Website::new(url.as_str());
-
-        let mut hashbrown_budget = spider::hashbrown::HashMap::new();
-        hashbrown_budget.insert("*", 1);
-        website.with_budget(Some(hashbrown_budget));
-
-        let mut rx = website
-            .subscribe(16)
-            .ok_or("Failed to subscribe to spider channel")?;
-
-        website.scrape().await;
-        drop(website);
-
-        // Read the page from the channel (now that scraping is done and website dropped)
-        if let Ok(page) = rx.try_recv() {
-            let html = page.get_html();
-            if !html.is_empty() {
-                return Ok(html);
+impl HtmlFetcher for ReqwestHtmlFetcher {
+    async fn fetch(&self, url: &Url) -> Result<String, FetchError> {
+        for attempt in 1..=self.retry_policy.max_attempts {
+            match self.fetch_once(url).await {
+                Ok(html) => return Ok(html),
+                Err(err) => {
+                    let action = action_for(err.kind());
+                    if action != NetworkAction::Retry || attempt >= self.retry_policy.max_attempts {
+                        return Err(err);
+                    }
+                    let delay = backoff_delay(self.retry_policy, attempt);
+                    if !delay.is_zero() {
+                        sleep(delay).await;
+                    }
+                }
             }
         }
 
-        Err(format!("Spider could not fetch HTML for URL: {}", url))
+        Err(FetchError::Network {
+            kind: NetworkErrorKind::Unknown,
+            details: "retry loop terminated unexpectedly".to_string(),
+        })
     }
 }
 
@@ -80,7 +143,14 @@ impl HtmlFetcher for SpiderHtmlFetcher {
 #[derive(Debug, thiserror::Error)]
 pub enum ScraperError {
     #[error("HTTP error while fetching '{url}': {details}")]
-    HttpError { url: Url, details: String },
+    HttpError {
+        url: Url,
+        kind: NetworkErrorKind,
+        details: String,
+    },
+
+    #[error("Product URL removed while fetching '{url}': {details}")]
+    ProductRemoved { url: Url, details: String },
 
     #[error("URL has no host: {url}")]
     NoHost { url: Url },
@@ -233,6 +303,16 @@ impl ScraperServiceImpl {
         let mut map = self.schema_fix_attempts.lock().await;
         map.remove(domain);
     }
+
+    async fn mark_product_removed_best_effort(&self, shop_id: &ShopId, url: &Url) {
+        if let Err(err) = self
+            .candidate_service
+            .set_state(shop_id, url, UrlState::Removed)
+            .await
+        {
+            warn!(error = %err, url = %url, "Failed to mark product as REMOVED");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -368,14 +448,26 @@ impl ScraperService for ScraperServiceImpl {
 
         // 1. Fetch HTML --------------------------------------------------
         debug!(domain, url = %url, "Fetching product page HTML");
-        let html =
-            self.html_fetcher
-                .fetch(url)
-                .await
-                .map_err(|details| ScraperError::HttpError {
+        let html = match self.html_fetcher.fetch(url).await {
+            Ok(html) => html,
+            Err(FetchError::Network {
+                kind: NetworkErrorKind::HttpStatus(404 | 410),
+                details,
+            }) => {
+                self.mark_product_removed_best_effort(shop_id, url).await;
+                return Err(ScraperError::ProductRemoved {
                     url: url.clone(),
                     details,
-                })?;
+                });
+            }
+            Err(FetchError::Network { kind, details }) => {
+                return Err(ScraperError::HttpError {
+                    url: url.clone(),
+                    kind,
+                    details,
+                });
+            }
+        };
 
         // 2. Obtain schema (from DB or freshly created by LLM) -----------
         let shops_product_schema = self.obtain_schema(shop_id, domain, url, &html).await?;
@@ -1117,12 +1209,10 @@ mod tests {
         let mut fetcher = MockHtmlFetcher::new();
         fetcher.expect_fetch().returning(|_| {
             Box::pin(async {
-                reqwest::Client::new()
-                    .get("http://0.0.0.0:1")
-                    .send()
-                    .await
-                    .map(|_| String::new())
-                    .map_err(|e| e.to_string())
+                Err(FetchError::Network {
+                    kind: NetworkErrorKind::Timeout,
+                    details: "request timed out".to_string(),
+                })
             })
         });
 
@@ -1158,12 +1248,10 @@ mod tests {
         let mut fetcher = MockHtmlFetcher::new();
         fetcher.expect_fetch().returning(move |_| {
             Box::pin(async {
-                reqwest::Client::new()
-                    .get("http://0.0.0.0:1")
-                    .send()
-                    .await
-                    .map(|_| String::new())
-                    .map_err(|e| e.to_string())
+                Err(FetchError::Network {
+                    kind: NetworkErrorKind::Connect,
+                    details: "connection refused".to_string(),
+                })
             })
         });
 
@@ -1189,6 +1277,52 @@ mod tests {
         } else {
             panic!("expected HttpError");
         }
+    }
+
+    #[tokio::test]
+    async fn should_mark_product_as_removed_when_fetch_returns_404() {
+        let id = shop_id();
+        let url = product_url();
+
+        let mut fetcher = MockHtmlFetcher::new();
+        fetcher.expect_fetch().returning(|_| {
+            Box::pin(async {
+                Err(FetchError::Network {
+                    kind: NetworkErrorKind::HttpStatus(404),
+                    details: "Not Found".to_string(),
+                })
+            })
+        });
+
+        let schema_svc = MockProductSchemaService::new();
+        let norm_svc = MockProductNormalizationService::new();
+        let mut cand_svc = MockScraperCandidateService::new();
+        let url_for_set_state = url.clone();
+        cand_svc
+            .expect_set_state()
+            .once()
+            .withf(move |shop_id, received_url, state| {
+                *shop_id == id && received_url == &url_for_set_state && *state == UrlState::Removed
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+
+        let service = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+            3,
+        );
+
+        let err = service
+            .scrape(&id, &url, "current_hash", None)
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(err, ScraperError::ProductRemoved { .. }),
+            "expected ProductRemoved, got: {err}"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1413,17 +1547,17 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // SpiderHtmlFetcher
+    // ReqwestHtmlFetcher
     // -----------------------------------------------------------------------
 
     #[test]
-    fn should_construct_spider_html_fetcher() {
-        let _ = SpiderHtmlFetcher::new();
+    fn should_construct_reqwest_html_fetcher() {
+        let _ = ReqwestHtmlFetcher::new();
     }
 
     #[tokio::test]
     async fn should_fail_gracefully_when_fetching_invalid_url() {
-        let fetcher = SpiderHtmlFetcher::new();
+        let fetcher = ReqwestHtmlFetcher::new();
         // Use a port that is highly unlikely to have a web server running
         let url = Url::parse("http://127.0.0.1:1/nonexistent").unwrap();
 
@@ -1433,11 +1567,10 @@ mod tests {
             result.is_err(),
             "Fetching from an invalid server should return an error"
         );
-        let err_msg = result.unwrap_err();
+        let err = result.unwrap_err();
         assert!(
-            err_msg.contains("Spider could not fetch HTML"),
-            "Error message should match the fetcher's custom error: {}",
-            err_msg
+            matches!(err, FetchError::Network { .. }),
+            "Error should be classified as network error: {err}"
         );
     }
 

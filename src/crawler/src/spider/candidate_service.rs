@@ -12,6 +12,13 @@ pub struct SpiderCandidate {
 #[mockall::automock]
 pub trait SpiderCandidateService: Send + Sync {
     async fn get_candidates(&self, limit: i64) -> Result<Vec<SpiderCandidate>, sqlx::Error>;
+    async fn mark_crawl_failure(
+        &self,
+        domain_id: &uuid::Uuid,
+        error_kind: &str,
+        next_crawl_at: time::OffsetDateTime,
+    ) -> Result<(), sqlx::Error>;
+    async fn reset_crawl_failure(&self, domain_id: &uuid::Uuid) -> Result<(), sqlx::Error>;
 }
 
 pub struct SpiderCandidateServiceImpl {
@@ -41,6 +48,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
             JOIN shop_domains sd ON sd.shop_id = s.shop_id
             WHERE s.active = TRUE
               AND (sd.last_crawled IS NULL OR sd.last_crawled < NOW() - INTERVAL '7 days')
+              AND (sd.next_crawl_at IS NULL OR sd.next_crawl_at <= NOW())
             ORDER BY sd.last_crawled NULLS FIRST
             LIMIT $1
             "#,
@@ -57,5 +65,42 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
                 shop_domain: row.shop_domain,
             })
             .collect())
+    }
+
+    async fn mark_crawl_failure(
+        &self,
+        domain_id: &uuid::Uuid,
+        error_kind: &str,
+        next_crawl_at: time::OffsetDateTime,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE shop_domains
+             SET crawl_failure_count = crawl_failure_count + 1,
+                 last_crawl_error_kind = $2,
+                 next_crawl_at = $3
+             WHERE domain_id = $1",
+        )
+        .bind(domain_id)
+        .bind(error_kind)
+        .bind(next_crawl_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn reset_crawl_failure(&self, domain_id: &uuid::Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE shop_domains
+             SET crawl_failure_count = 0,
+                 last_crawl_error_kind = NULL,
+                 next_crawl_at = NULL
+             WHERE domain_id = $1",
+        )
+        .bind(domain_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
     }
 }
