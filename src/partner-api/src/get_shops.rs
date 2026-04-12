@@ -66,7 +66,7 @@ mod tests {
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
     use shop::core::shop::Shop;
-    use shop::service::get_service::{GetShopError, MockGetShopService};
+    use shop::service::get_service::MockGetShopService;
     use test_api::ApiGatewayV2httpRequestProxy;
     use user::service::user_service::{MockUserService, UserServiceError};
 
@@ -167,9 +167,9 @@ mod tests {
         let partner_user_id = UserId::new();
 
         let mut user_service = MockUserService::default();
-        user_service.expect_check_admin().return_once(move |_| {
-            Box::pin(async { Err(UserServiceError::AdminRoleRequired) })
-        });
+        user_service
+            .expect_check_admin()
+            .return_once(move |_| Box::pin(async { Err(UserServiceError::AdminRoleRequired) }));
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -181,13 +181,9 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(
-            lambda_event,
-            &MockGetShopService::default(),
-            &user_service,
-        )
-        .await
-        .unwrap_err();
+        let response = handle(lambda_event, &MockGetShopService::default(), &user_service)
+            .await
+            .unwrap_err();
         assert_eq!(403, response.status);
     }
 

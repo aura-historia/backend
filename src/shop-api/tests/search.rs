@@ -47,9 +47,15 @@ async fn should_follow_up_search_after_query(
             .build(),
         context: Default::default(),
     };
-    let response1 = handle(lambda_event, &MockGetShopService::default(), &service, &MockCommandShopService::default(), &MockUserService::default())
-        .await
-        .unwrap();
+    let response1 = handle(
+        lambda_event,
+        &MockGetShopService::default(),
+        &service,
+        &MockCommandShopService::default(),
+        &MockUserService::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(200, response1.status_code);
     let payload1 = serde_json::from_value::<JsonCursoredData<GetShopData>>(
         extract_apigw_response_json_body!(response1),
@@ -74,9 +80,15 @@ async fn should_follow_up_search_after_query(
             .build(),
         context: Default::default(),
     };
-    let response2 = handle(lambda_event, &MockGetShopService::default(), &service, &MockCommandShopService::default(), &MockUserService::default())
-        .await
-        .unwrap();
+    let response2 = handle(
+        lambda_event,
+        &MockGetShopService::default(),
+        &service,
+        &MockCommandShopService::default(),
+        &MockUserService::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(200, response2.status_code);
     let payload2 = serde_json::from_value::<JsonCursoredData<GetShopData>>(
         extract_apigw_response_json_body!(response2),
@@ -129,9 +141,15 @@ async fn should_200_when_shop_type_query(
             .build(),
         context: Default::default(),
     };
-    let response = handle(lambda_event, &MockGetShopService::default(), &service, &MockCommandShopService::default(), &MockUserService::default())
-        .await
-        .unwrap();
+    let response = handle(
+        lambda_event,
+        &MockGetShopService::default(),
+        &service,
+        &MockCommandShopService::default(),
+        &MockUserService::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(200, response.status_code);
 
     let payload = serde_json::from_value::<JsonCursoredData<GetShopData>>(

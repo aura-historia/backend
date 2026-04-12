@@ -46,7 +46,7 @@ pub async fn handle(
 
 #[cfg(test)]
 mod tests {
-    use crate::handle;
+    use super::handle;
     use common::shop_id::ShopId;
     use common::user_id::UserId;
     use fake::{Fake, Faker};
@@ -54,10 +54,8 @@ mod tests {
     use shop::core::partner_shop::PartnerShop;
     use shop::core::partner_shop_api_key::PartnerShopApiKey;
     use shop::service::command_service::{CommandShopError, MockCommandShopService};
-    use shop::service::get_service::{MockGetShopService, VerifyPartnerShopError};
-    use shop::service::query_service::MockQueryShopService;
+    use shop::service::get_service::MockGetShopService;
     use test_api::ApiGatewayV2httpRequestProxy;
-    use user::core::user::User;
     use user::service::user_service::{MockUserService, UserServiceError};
 
     #[tokio::test]
@@ -93,7 +91,6 @@ mod tests {
             lambda_event,
             &command_service,
             &get_shop_service,
-            &MockQueryShopService::default(),
             &user_service,
         )
         .await
@@ -151,7 +148,6 @@ mod tests {
             lambda_event,
             &command_service,
             &get_shop_service,
-            &MockQueryShopService::default(),
             &user_service,
         )
         .await
@@ -174,7 +170,6 @@ mod tests {
             lambda_event,
             &MockCommandShopService::default(),
             &MockGetShopService::default(),
-            &MockQueryShopService::default(),
             &MockUserService::default(),
         )
         .await
@@ -191,9 +186,7 @@ mod tests {
         command_service
             .expect_create_api_key()
             .return_once(move |_, _| {
-                Box::pin(async move {
-                    Err(CommandShopError::NotThePartnerUser(user_id, shop_id))
-                })
+                Box::pin(async move { Err(CommandShopError::NotThePartnerUser(user_id, shop_id)) })
             });
 
         let mut user_service = MockUserService::default();
@@ -215,7 +208,6 @@ mod tests {
             lambda_event,
             &command_service,
             &MockGetShopService::default(),
-            &MockQueryShopService::default(),
             &user_service,
         )
         .await
@@ -254,7 +246,6 @@ mod tests {
             lambda_event,
             &command_service,
             &MockGetShopService::default(),
-            &MockQueryShopService::default(),
             &user_service,
         )
         .await

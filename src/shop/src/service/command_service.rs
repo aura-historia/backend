@@ -218,9 +218,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             updated: OffsetDateTime::now_utc(),
         };
 
-        self.repository
-            .update_shop_record(shop_id, update)
-            .await?;
+        self.repository.update_shop_record(shop_id, update).await?;
 
         info!(shopId = %shop_id, userId = %user_id, "Created API key for partner shop.");
 
@@ -603,6 +601,96 @@ mod tests {
                 CommandShopError::SdkUpdateItemError(_) => {}
                 _ => panic!("expected CommandShopError::SdkUpdateItemError"),
             }
+        }
+    }
+
+    mod create_api_key {
+        use crate::{
+            dynamodb::{repository::MockShopDynamoDbRepository, shop_record::ShopRecord},
+            service::command_service::{
+                CommandShopError, CommandShopService, CommandShopServiceImpl,
+            },
+        };
+        use common::{shop_id::ShopId, user_id::UserId};
+        use fake::{Fake, Faker};
+
+        #[tokio::test]
+        async fn should_return_api_key_when_user_is_partner() {
+            let user_id = UserId::new();
+            let mut record: ShopRecord = Faker.fake();
+            record.partner_user_id = Some(user_id);
+            let shop_id = record.shop_id;
+
+            let mut shop_repository = MockShopDynamoDbRepository::default();
+            shop_repository
+                .expect_get_shop_record()
+                .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+            shop_repository
+                .expect_update_shop_record()
+                .return_once(|_, _| Box::pin(async { Ok(None) }));
+
+            let service = CommandShopServiceImpl::new(&shop_repository);
+            let api_key = service.create_api_key(&user_id, &shop_id).await;
+            assert!(api_key.is_ok());
+        }
+
+        #[tokio::test]
+        async fn should_return_not_found_when_shop_does_not_exist() {
+            let user_id = UserId::new();
+            let shop_id = ShopId::new();
+
+            let mut shop_repository = MockShopDynamoDbRepository::default();
+            shop_repository
+                .expect_get_shop_record()
+                .return_once(move |_| Box::pin(async { Ok(None) }));
+
+            let service = CommandShopServiceImpl::new(&shop_repository);
+            let result = service.create_api_key(&user_id, &shop_id).await;
+            assert!(matches!(
+                result.unwrap_err(),
+                CommandShopError::ShopNotFound(_)
+            ));
+        }
+
+        #[tokio::test]
+        async fn should_return_not_partner_when_shop_has_no_partner_user_id() {
+            let user_id = UserId::new();
+            let mut record: ShopRecord = Faker.fake();
+            record.partner_user_id = None;
+            let shop_id = record.shop_id;
+
+            let mut shop_repository = MockShopDynamoDbRepository::default();
+            shop_repository
+                .expect_get_shop_record()
+                .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+            let service = CommandShopServiceImpl::new(&shop_repository);
+            let result = service.create_api_key(&user_id, &shop_id).await;
+            assert!(matches!(
+                result.unwrap_err(),
+                CommandShopError::NotAPartnerShop(_)
+            ));
+        }
+
+        #[tokio::test]
+        async fn should_return_not_the_partner_user_when_user_does_not_match() {
+            let user_id = UserId::new();
+            let other_user_id = UserId::new();
+            let mut record: ShopRecord = Faker.fake();
+            record.partner_user_id = Some(other_user_id);
+            let shop_id = record.shop_id;
+
+            let mut shop_repository = MockShopDynamoDbRepository::default();
+            shop_repository
+                .expect_get_shop_record()
+                .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+            let service = CommandShopServiceImpl::new(&shop_repository);
+            let result = service.create_api_key(&user_id, &shop_id).await;
+            assert!(matches!(
+                result.unwrap_err(),
+                CommandShopError::NotThePartnerUser(_, _)
+            ));
         }
     }
 }

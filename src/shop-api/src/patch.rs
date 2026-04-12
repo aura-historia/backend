@@ -7,7 +7,7 @@ use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
 use shop::data::get_shop_data::GetShopData;
 use shop::data::patch_shop_data::PatchShopData;
-use shop::service::command::{UpdateShopCommand};
+use shop::service::command::UpdateShopCommand;
 use shop::service::command_service::CommandShopService;
 use shop::service::get_service::GetShopService;
 use user::service::user_service::UserService;
@@ -70,7 +70,7 @@ pub async fn handle(
 
 #[cfg(test)]
 mod tests {
-    use crate::handle;
+    use super::handle;
     use common::shop_id::ShopId;
     use common::user_id::UserId;
     use fake::{Fake, Faker};
@@ -78,9 +78,8 @@ mod tests {
     use shop::core::partner_shop::PartnerShop;
     use shop::core::shop::Shop;
     use shop::data::patch_shop_data::PatchShopData;
-    use shop::service::command_service::{CommandShopError, MockCommandShopService};
-    use shop::service::get_service::{MockGetShopService, VerifyPartnerShopError};
-    use shop::service::query_service::MockQueryShopService;
+    use shop::service::command_service::MockCommandShopService;
+    use shop::service::get_service::MockGetShopService;
     use test_api::ApiGatewayV2httpRequestProxy;
     use user::service::user_service::{MockUserService, UserServiceError};
 
@@ -124,7 +123,6 @@ mod tests {
             lambda_event,
             &command_service,
             &get_shop_service,
-            &MockQueryShopService::default(),
             &user_service,
         )
         .await
@@ -165,7 +163,6 @@ mod tests {
             lambda_event,
             &command_service,
             &get_shop_service,
-            &MockQueryShopService::default(),
             &user_service,
         )
         .await
@@ -189,7 +186,6 @@ mod tests {
             lambda_event,
             &MockCommandShopService::default(),
             &MockGetShopService::default(),
-            &MockQueryShopService::default(),
             &MockUserService::default(),
         )
         .await
@@ -231,7 +227,6 @@ mod tests {
             lambda_event,
             &MockCommandShopService::default(),
             &get_shop_service,
-            &MockQueryShopService::default(),
             &user_service,
         )
         .await
@@ -263,7 +258,6 @@ mod tests {
             lambda_event,
             &MockCommandShopService::default(),
             &MockGetShopService::default(),
-            &MockQueryShopService::default(),
             &user_service,
         )
         .await

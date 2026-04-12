@@ -139,9 +139,15 @@ mod tests {
                 };
                 Box::pin(async move { Ok(search_result) })
             });
-        let response = handle(lambda_event, &MockGetShopService::default(), &service, &MockCommandShopService::default(), &MockUserService::default())
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &MockGetShopService::default(),
+            &service,
+            &MockCommandShopService::default(),
+            &MockUserService::default(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
     }
@@ -173,9 +179,15 @@ mod tests {
                 })
             })
         });
-        let response = handle(lambda_event, &MockGetShopService::default(), &service, &MockCommandShopService::default(), &MockUserService::default())
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &MockGetShopService::default(),
+            &service,
+            &MockCommandShopService::default(),
+            &MockUserService::default(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
         assert_eq!(
@@ -213,9 +225,15 @@ mod tests {
             };
             Box::pin(async move { Ok(search_result) })
         });
-        let response = handle(lambda_event, &MockGetShopService::default(), &service, &MockCommandShopService::default(), &MockUserService::default())
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &MockGetShopService::default(),
+            &service,
+            &MockCommandShopService::default(),
+            &MockUserService::default(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
     }

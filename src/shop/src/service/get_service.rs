@@ -227,10 +227,7 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
         static PARTNER_SHOP_CACHE: OnceLock<PartnerShop> = OnceLock::new();
 
         if let Some(cached) = PARTNER_SHOP_CACHE.get().filter(|c| {
-            c.shop_id == *shop_id
-                && c.hashed_api_key
-                    .as_ref()
-                    .is_some_and(|h| api_key.check(h))
+            c.shop_id == *shop_id && c.hashed_api_key.as_ref().is_some_and(|h| api_key.check(h))
         }) {
             return Ok(cached.clone());
         }
@@ -458,6 +455,99 @@ mod tests {
         assert!(matches!(
             result.unwrap_err(),
             VerifyPartnerShopError::ApiKeyMismatch(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_return_shops_when_partner_has_shops_for_find_shops_by_partner() {
+        let user_id = UserId::new();
+        let mut record: ShopRecord = Faker.fake();
+        record.partner_user_id = Some(user_id);
+
+        let mut repository = MockShopDynamoDbRepository::default();
+        repository
+            .expect_query_shops_by_partner()
+            .return_once(move |_| Box::pin(async move { Ok(vec![record]) }));
+
+        let service = GetShopServiceImpl {
+            repository: &repository,
+        };
+        let result = service.find_shops_by_partner(&user_id).await.unwrap();
+        assert_eq!(1, result.len());
+    }
+
+    #[tokio::test]
+    async fn should_return_empty_when_partner_has_no_shops_for_find_shops_by_partner() {
+        let user_id = UserId::new();
+
+        let mut repository = MockShopDynamoDbRepository::default();
+        repository
+            .expect_query_shops_by_partner()
+            .return_once(move |_| Box::pin(async move { Ok(vec![]) }));
+
+        let service = GetShopServiceImpl {
+            repository: &repository,
+        };
+        let result = service.find_shops_by_partner(&user_id).await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_return_partner_shop_for_find_partner_shop() {
+        let user_id = UserId::new();
+        let mut record: ShopRecord = Faker.fake();
+        record.partner_user_id = Some(user_id);
+        let shop_id = record.shop_id;
+
+        let mut repository = MockShopDynamoDbRepository::default();
+        repository
+            .expect_get_shop_record()
+            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+        let service = GetShopServiceImpl {
+            repository: &repository,
+        };
+        let result = service.find_partner_shop(&shop_id).await.unwrap();
+        assert_eq!(result.partner_user_id, user_id);
+    }
+
+    #[tokio::test]
+    async fn should_return_not_partner_for_find_partner_shop_when_no_partner_user_id() {
+        let mut record: ShopRecord = Faker.fake();
+        record.partner_user_id = None;
+        let shop_id = record.shop_id;
+
+        let mut repository = MockShopDynamoDbRepository::default();
+        repository
+            .expect_get_shop_record()
+            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+        let service = GetShopServiceImpl {
+            repository: &repository,
+        };
+        let result = service.find_partner_shop(&shop_id).await;
+        assert!(matches!(
+            result.unwrap_err(),
+            VerifyPartnerShopError::NotAPartnerShop(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_return_not_found_for_find_partner_shop_when_shop_does_not_exist() {
+        let shop_id = ShopId::new();
+
+        let mut repository = MockShopDynamoDbRepository::default();
+        repository
+            .expect_get_shop_record()
+            .return_once(move |_| Box::pin(async { Ok(None) }));
+
+        let service = GetShopServiceImpl {
+            repository: &repository,
+        };
+        let result = service.find_partner_shop(&shop_id).await;
+        assert!(matches!(
+            result.unwrap_err(),
+            VerifyPartnerShopError::ShopNotFound(_)
         ));
     }
 }
