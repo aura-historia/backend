@@ -5164,8 +5164,13 @@ async fn should_respond_200_for_admin_decision_approve() {
         "{}/api/v1/me/partner-applications",
         get_cfn_output().api_gateway_endpoint_url,
     );
-    let post_data = PostPartnerShopApplicationPayloadData::Existing {
-        shop_id: Faker.fake(),
+    // Use a New shop payload so the APPROVE step can create the shop rather than
+    // looking up a non-existent shop by a random ID.
+    let post_data = PostPartnerShopApplicationPayloadData::New {
+        shop_name: common::shop_name::ShopName::from("Accept Test Shop".to_string()),
+        shop_type: shop::data::shop_type_data::ShopTypeData::CommercialDealer,
+        shop_domains: std::collections::HashSet::new(),
+        shop_image: None,
     };
     let create_response = reqwest::Client::new()
         .post(&user_url)
