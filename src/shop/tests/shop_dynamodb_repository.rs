@@ -263,3 +263,64 @@ async fn should_return_none_when_different_raw_shop_name_not_exists_for_get_raw_
 
     assert!(actual.is_none());
 }
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_return_shops_for_partner_when_exists_for_query_shops_by_partner() {
+    let repository = get_repository().await;
+    let partner_user_id = common::user_id::UserId::new();
+
+    let mut shop_record: ShopRecord = Faker.fake();
+    shop_record.partner_user_id = Some(partner_user_id);
+    shop_record.gsi1_pk = Some(shop::dynamodb::shop_record::mk_gsi1_pk(&partner_user_id));
+    shop_record.gsi1_sk = Some(shop::dynamodb::shop_record::mk_gsi1_sk(
+        &shop_record.shop_id,
+    ));
+    repository
+        .put_shop_record(shop_record.clone())
+        .await
+        .unwrap();
+
+    let actual = repository
+        .query_shops_by_partner(&partner_user_id)
+        .await
+        .unwrap();
+
+    assert_eq!(1, actual.len());
+    assert_eq!(shop_record.shop_id, actual[0].shop_id);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_return_empty_when_no_shops_for_partner_for_query_shops_by_partner() {
+    let repository = get_repository().await;
+    let partner_user_id = common::user_id::UserId::new();
+
+    let actual = repository
+        .query_shops_by_partner(&partner_user_id)
+        .await
+        .unwrap();
+
+    assert!(actual.is_empty());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_return_multiple_shops_for_partner_for_query_shops_by_partner() {
+    let repository = get_repository().await;
+    let partner_user_id = common::user_id::UserId::new();
+
+    for _ in 0..3 {
+        let mut shop_record: ShopRecord = Faker.fake();
+        shop_record.partner_user_id = Some(partner_user_id);
+        shop_record.gsi1_pk = Some(shop::dynamodb::shop_record::mk_gsi1_pk(&partner_user_id));
+        shop_record.gsi1_sk = Some(shop::dynamodb::shop_record::mk_gsi1_sk(
+            &shop_record.shop_id,
+        ));
+        repository.put_shop_record(shop_record).await.unwrap();
+    }
+
+    let actual = repository
+        .query_shops_by_partner(&partner_user_id)
+        .await
+        .unwrap();
+
+    assert_eq!(3, actual.len());
+}
