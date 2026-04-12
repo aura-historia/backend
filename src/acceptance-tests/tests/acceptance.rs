@@ -93,6 +93,7 @@ use search_filter_api::{
 use serde::de::DeserializeOwned;
 use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
 use shop::data::get_shop_data::GetShopData;
+use shop::data::patch_shop_data::PatchShopData;
 use shop::dynamodb::repository::ShopDynamoDbRepository;
 use shop::dynamodb::shop_record::ShopRecord;
 use shop::{core::shop::Shop, dynamodb::repository::ShopDynamoDbRepositoryImpl};
@@ -4535,6 +4536,119 @@ async fn should_respond_200_for_shop_get_by_slug() {
     assert_eq!(shop.shop_slug_id, body.shop_slug_id);
     assert_eq!(shop.name, body.name);
     assert_eq!(shop.domains, body.domains);
+}
+
+// ---------------------------------------------------------------------------
+// API: Shop – Partner endpoints
+// Verifies API Gateway routing, JWT auth, and Lambda IAM access for
+// PATCH shop, PUT api-key, and GET partner shops endpoints.
+// ---------------------------------------------------------------------------
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_shop_patch_by_partner() {
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let mut shop_record: ShopRecord = Faker.fake();
+    shop_record.partner_user_id = Some(user_id);
+    shop_record.gsi1_pk = Some(shop::dynamodb::shop_record::mk_gsi1_pk(&user_id));
+    shop_record.gsi1_sk = Some(shop::dynamodb::shop_record::mk_gsi1_sk(
+        &shop_record.shop_id,
+    ));
+    let stack = get_cfn_output();
+    let dynamodb_repository =
+        ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    dynamodb_repository
+        .put_shop_record(shop_record.clone())
+        .await
+        .unwrap();
+
+    let patch_data = PatchShopData {
+        shop_type: None,
+        domains: None,
+        image: Some(url::Url::parse("https://new-image.example.com/logo.png").unwrap()),
+    };
+
+    let url = format!(
+        "{}/api/v1/shops/{}",
+        stack.api_gateway_endpoint_url, shop_record.shop_id,
+    );
+    let response = reqwest::Client::new()
+        .patch(&url)
+        .bearer_auth(&user.access_token)
+        .json(&patch_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_shop_put_api_key_by_partner() {
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let mut shop_record: ShopRecord = Faker.fake();
+    shop_record.partner_user_id = Some(user_id);
+    shop_record.gsi1_pk = Some(shop::dynamodb::shop_record::mk_gsi1_pk(&user_id));
+    shop_record.gsi1_sk = Some(shop::dynamodb::shop_record::mk_gsi1_sk(
+        &shop_record.shop_id,
+    ));
+    let stack = get_cfn_output();
+    let dynamodb_repository =
+        ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    dynamodb_repository
+        .put_shop_record(shop_record.clone())
+        .await
+        .unwrap();
+
+    let url = format!(
+        "{}/api/v1/shops/{}/api-key",
+        stack.api_gateway_endpoint_url, shop_record.shop_id,
+    );
+    let response = reqwest::Client::new()
+        .put(&url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_partner_get_shops() {
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let mut shop_record: ShopRecord = Faker.fake();
+    shop_record.partner_user_id = Some(user_id);
+    shop_record.gsi1_pk = Some(shop::dynamodb::shop_record::mk_gsi1_pk(&user_id));
+    shop_record.gsi1_sk = Some(shop::dynamodb::shop_record::mk_gsi1_sk(
+        &shop_record.shop_id,
+    ));
+    let stack = get_cfn_output();
+    let dynamodb_repository =
+        ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    dynamodb_repository
+        .put_shop_record(shop_record.clone())
+        .await
+        .unwrap();
+
+    let url = format!(
+        "{}/api/v1/partner/{}/shops",
+        stack.api_gateway_endpoint_url, user_id,
+    );
+    let response = reqwest::Client::new()
+        .get(&url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let body: Vec<GetShopData> = response.json().await.unwrap();
+    assert_eq!(1, body.len());
+    assert_eq!(shop_record.shop_id, body[0].shop_id);
 }
 
 // ---------------------------------------------------------------------------

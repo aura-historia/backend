@@ -204,6 +204,7 @@ dependencies = [
  "notification",
  "notification-api",
  "notification-send",
+ "partner-api",
  "partner-shop-application",
  "partner-shop-application-api",
  "partner-shop-application-lambda",
@@ -4505,6 +4506,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "partner-api"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.4.0",
+ "lambda_runtime",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "shop",
+ "test-api",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "user",
+]
+
+[[package]]
 name = "partner-shop-application"
 version = "0.1.0"
 dependencies = [
@@ -7003,6 +7026,7 @@ dependencies = [
  "lambda_runtime",
  "opensearch",
  "rstest",
+ "serde",
  "serde_json",
  "serde_qs",
  "serial_test",
@@ -7013,6 +7037,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "user",
 ]
 
 [[package]]

@@ -80,9 +80,7 @@ impl From<ShopRecord> for ShopDocument {
             shop_type: record.shop_type.into(),
             domains: record.domains,
             image: record.image,
-            partner_status: if record.partner_api_key_short.is_some()
-                && record.partner_api_key_long_hash.is_some()
-            {
+            partner_status: if record.partner_user_id.is_some() {
                 ShopPartnerStatusDocument::Partnered
             } else {
                 ShopPartnerStatusDocument::Scraped

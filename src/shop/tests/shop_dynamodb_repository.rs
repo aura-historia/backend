@@ -77,6 +77,8 @@ async fn should_return_none_when_shop_record_not_exists_for_update_shop_record()
         shop_type: Some(ShopTypeRecord::Marketplace),
         domains: Some(HashSet::from([Domain::try_from("test-shop.com").unwrap()])),
         image: None,
+        partner_api_key_short: None,
+        partner_api_key_long_hash: None,
         updated: OffsetDateTime::now_utc(),
     };
 
@@ -109,6 +111,8 @@ async fn should_return_updated_record_when_updating_all_fields_for_update_shop_r
         shop_type: Some(new_shop_type),
         domains: Some(new_domains.clone()),
         image: Some(new_image.clone()),
+        partner_api_key_short: None,
+        partner_api_key_long_hash: None,
         updated: updated_at,
     };
 
@@ -142,6 +146,8 @@ async fn should_preserve_unchanged_fields_when_updating_only_timestamp_for_updat
         shop_type: None,
         domains: None,
         image: None,
+        partner_api_key_short: None,
+        partner_api_key_long_hash: None,
         updated: updated_at,
     };
 
@@ -256,4 +262,65 @@ async fn should_return_none_when_different_raw_shop_name_not_exists_for_get_raw_
         .unwrap();
 
     assert!(actual.is_none());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_return_shops_for_partner_when_exists_for_query_shops_by_partner() {
+    let repository = get_repository().await;
+    let partner_user_id = common::user_id::UserId::new();
+
+    let mut shop_record: ShopRecord = Faker.fake();
+    shop_record.partner_user_id = Some(partner_user_id);
+    shop_record.gsi1_pk = Some(shop::dynamodb::shop_record::mk_gsi1_pk(&partner_user_id));
+    shop_record.gsi1_sk = Some(shop::dynamodb::shop_record::mk_gsi1_sk(
+        &shop_record.shop_id,
+    ));
+    repository
+        .put_shop_record(shop_record.clone())
+        .await
+        .unwrap();
+
+    let actual = repository
+        .query_shops_by_partner(&partner_user_id)
+        .await
+        .unwrap();
+
+    assert_eq!(1, actual.len());
+    assert_eq!(shop_record.shop_id, actual[0].shop_id);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_return_empty_when_no_shops_for_partner_for_query_shops_by_partner() {
+    let repository = get_repository().await;
+    let partner_user_id = common::user_id::UserId::new();
+
+    let actual = repository
+        .query_shops_by_partner(&partner_user_id)
+        .await
+        .unwrap();
+
+    assert!(actual.is_empty());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_return_multiple_shops_for_partner_for_query_shops_by_partner() {
+    let repository = get_repository().await;
+    let partner_user_id = common::user_id::UserId::new();
+
+    for _ in 0..3 {
+        let mut shop_record: ShopRecord = Faker.fake();
+        shop_record.partner_user_id = Some(partner_user_id);
+        shop_record.gsi1_pk = Some(shop::dynamodb::shop_record::mk_gsi1_pk(&partner_user_id));
+        shop_record.gsi1_sk = Some(shop::dynamodb::shop_record::mk_gsi1_sk(
+            &shop_record.shop_id,
+        ));
+        repository.put_shop_record(shop_record).await.unwrap();
+    }
+
+    let actual = repository
+        .query_shops_by_partner(&partner_user_id)
+        .await
+        .unwrap();
+
+    assert_eq!(3, actual.len());
 }
