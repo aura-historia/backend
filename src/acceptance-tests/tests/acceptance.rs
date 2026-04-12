@@ -5469,7 +5469,7 @@ async fn should_respond_200_for_partner_put_products_when_updating_existing() {
 // do not have additional match records counted beyond their limit.
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [DynamoDB()])]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_count_search_filter_matches_for_current_month_for_quota_enforcement() {
     use search_filter::core::quota::SearchFilterQuota;
     use search_filter::dynamodb::repository::{
@@ -5484,9 +5484,11 @@ async fn should_count_search_filter_matches_for_current_month_for_quota_enforcem
     use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
     use user::service::user_service::{UserService, UserServiceImpl};
 
+    let cfn = get_cfn_output();
     let ddb_client = get_dynamodb_client().await;
-    let search_filter_repo = UserSearchFilterDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let user_repo = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let search_filter_repo =
+        UserSearchFilterDynamoDbRepositoryImpl::new(ddb_client, &cfn.dynamodb_table_1_name);
+    let user_repo = UserDynamoDbRepositoryImpl::new(ddb_client, &cfn.dynamodb_table_1_name);
     let user_service = UserServiceImpl::new(&user_repo);
 
     // Create a Free tier user
