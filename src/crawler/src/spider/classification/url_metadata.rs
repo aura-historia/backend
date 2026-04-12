@@ -1,3 +1,4 @@
+use common::product_state::domain::ProductState;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -111,11 +112,23 @@ impl UrlState {
     }
 }
 
+impl From<ProductState> for UrlState {
+    fn from(value: ProductState) -> Self {
+        match value {
+            ProductState::Listed => UrlState::Listed,
+            ProductState::Available => UrlState::Available,
+            ProductState::Reserved => UrlState::Reserved,
+            ProductState::Sold => UrlState::Sold,
+            ProductState::Removed => UrlState::Removed,
+            ProductState::Unknown => UrlState::Unknown,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrawledUrlMetadata {
     pub url: String,
     pub class: UrlClass,
-    pub hash: String,
     pub state: UrlState,
 
     #[serde(
@@ -130,4 +143,26 @@ pub struct CrawledUrlMetadata {
 
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UrlState;
+    use common::product_state::domain::ProductState;
+
+    #[test]
+    fn should_map_product_states_to_url_states() {
+        let cases = [
+            (ProductState::Listed, UrlState::Listed),
+            (ProductState::Available, UrlState::Available),
+            (ProductState::Reserved, UrlState::Reserved),
+            (ProductState::Sold, UrlState::Sold),
+            (ProductState::Removed, UrlState::Removed),
+            (ProductState::Unknown, UrlState::Unknown),
+        ];
+
+        for (product_state, expected_url_state) in cases {
+            assert_eq!(UrlState::from(product_state), expected_url_state);
+        }
+    }
 }

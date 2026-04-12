@@ -1,12 +1,12 @@
 use common::shop_id::ShopId;
 use crawler::spider::classification::url_metadata::{UrlClass, UrlState};
 use crawler::spider::classification::url_metadata_repository::{
-    MainHash, UrlMetadataRepository, UrlMetadataRepositoryImpl,
+    UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
 use test_api::*;
 
 const RDS: Rds = Rds {
-    sql_setup_file: "src/crawler/sql/schema.sql",
+    migrations_dir: "src/crawler/migrations",
 };
 use url::Url;
 
@@ -59,16 +59,13 @@ async fn should_insert_new_url_when_url_does_not_exist() {
 
     let url = Url::parse("https://example.com/product/123").unwrap();
     let url_class = UrlClass::Product;
-    let main_hash = MainHash("a".repeat(64));
-
     let result = repository
-        .upsert_link(&shop_id, &domain_id, &url, &url_class, &main_hash)
+        .upsert_link(&shop_id, &domain_id, &url, &url_class)
         .await
         .unwrap();
 
     assert_eq!(result.url, url);
     assert_eq!(result.url_class, url_class);
-    assert_eq!(result.main_hash, main_hash);
     assert_eq!(result.state, UrlState::Unknown);
     assert_eq!(result.domain_id, domain_id);
 }
@@ -89,24 +86,21 @@ async fn should_update_existing_url_when_url_already_exists() {
 
     let url = Url::parse("https://example.com/product/123").unwrap();
     let old_class = UrlClass::Other;
-    let old_hash = MainHash("o".repeat(64));
 
     repository
-        .upsert_link(&shop_id, &domain_id, &url, &old_class, &old_hash)
+        .upsert_link(&shop_id, &domain_id, &url, &old_class)
         .await
         .unwrap();
 
     let new_class = UrlClass::Product;
-    let new_hash = MainHash("n".repeat(64));
 
     let result2 = repository
-        .upsert_link(&shop_id, &domain_id, &url, &new_class, &new_hash)
+        .upsert_link(&shop_id, &domain_id, &url, &new_class)
         .await
         .unwrap();
 
     assert_eq!(result2.url, url);
     assert_eq!(result2.url_class, new_class);
-    assert_eq!(result2.main_hash, new_hash);
     assert_eq!(result2.state, UrlState::Unknown);
     assert_eq!(result2.domain_id, domain_id);
 }
@@ -137,20 +131,18 @@ async fn should_update_domain_id_when_url_is_upserted_with_different_domain() {
         insert_shop_with_domain(&pool, shop_b_uuid, "alias.shared-host.example.com").await;
 
     let url = Url::parse("https://shared-host.example.com/product/1").unwrap();
-    let hash_a = MainHash("a".repeat(64));
-    let hash_b = MainHash("b".repeat(64));
     let class = UrlClass::Product;
 
     // First upsert — domain_id_a
     let r1 = repository
-        .upsert_link(&shop_id_a, &domain_id_a, &url, &class, &hash_a)
+        .upsert_link(&shop_id_a, &domain_id_a, &url, &class)
         .await
         .unwrap();
     assert_eq!(r1.domain_id, domain_id_a);
 
     // Second upsert with the same URL but domain_id_b — ON CONFLICT should update domain_id
     let r2 = repository
-        .upsert_link(&shop_id_b, &domain_id_b, &url, &class, &hash_b)
+        .upsert_link(&shop_id_b, &domain_id_b, &url, &class)
         .await
         .unwrap();
     assert_eq!(
@@ -182,13 +174,7 @@ async fn should_return_error_when_domain_id_does_not_exist_for_upsert_link() {
 
     let url = Url::parse("https://example.com/product/fk-test").unwrap();
     let result = repository
-        .upsert_link(
-            &shop_id,
-            &bogus_domain_id,
-            &url,
-            &UrlClass::Product,
-            &MainHash("c".repeat(64)),
-        )
+        .upsert_link(&shop_id, &bogus_domain_id, &url, &UrlClass::Product)
         .await;
 
     assert!(result.is_err(), "expected FK violation error but got Ok");
@@ -210,10 +196,8 @@ async fn should_update_last_scraped_timestamp_when_marking_as_scraped() {
 
     let url = Url::parse("https://example.com/product/123").unwrap();
     let url_class = UrlClass::Product;
-    let main_hash = MainHash("a".repeat(64));
-
     repository
-        .upsert_link(&shop_id, &domain_id, &url, &url_class, &main_hash)
+        .upsert_link(&shop_id, &domain_id, &url, &url_class)
         .await
         .unwrap();
 
@@ -245,10 +229,8 @@ async fn should_update_state_when_setting_new_state() {
 
     let url = Url::parse("https://example.com/product/123").unwrap();
     let url_class = UrlClass::Product;
-    let main_hash = MainHash("a".repeat(64));
-
     let result = repository
-        .upsert_link(&shop_id, &domain_id, &url, &url_class, &main_hash)
+        .upsert_link(&shop_id, &domain_id, &url, &url_class)
         .await
         .unwrap();
 
@@ -285,10 +267,9 @@ async fn should_upsert_multiple_links_when_inserting_batch() {
         Url::parse("https://example.com/product/2").unwrap(),
     ];
     let classes = vec![UrlClass::Product, UrlClass::Product];
-    let hashes = vec![MainHash("a".repeat(64)), MainHash("b".repeat(64))];
 
     let inserted = repository
-        .upsert_links_batch(&shop_id, &domain_id, &urls, &classes, &hashes)
+        .upsert_links_batch(&shop_id, &domain_id, &urls, &classes)
         .await
         .unwrap();
 
@@ -301,24 +282,14 @@ async fn should_upsert_multiple_links_when_inserting_batch() {
         "all batch-inserted records should have domain_id = {domain_id}"
     );
 
-    let updated_hashes = vec![MainHash("c".repeat(64)), MainHash("d".repeat(64))];
-
     let updated = repository
-        .upsert_links_batch(&shop_id, &domain_id, &urls, &classes, &updated_hashes)
+        .upsert_links_batch(&shop_id, &domain_id, &urls, &classes)
         .await
         .unwrap();
 
     assert_eq!(updated.len(), 2);
-    assert!(
-        updated
-            .iter()
-            .any(|r| r.url == urls[0] && r.main_hash == updated_hashes[0])
-    );
-    assert!(
-        updated
-            .iter()
-            .any(|r| r.url == urls[1] && r.main_hash == updated_hashes[1])
-    );
+    assert!(updated.iter().any(|r| r.url == urls[0]));
+    assert!(updated.iter().any(|r| r.url == urls[1]));
     // domain_id must survive the ON CONFLICT update path too
     assert!(
         updated.iter().all(|r| r.domain_id == domain_id),
@@ -349,19 +320,16 @@ async fn should_update_domain_id_in_batch_when_url_is_upserted_under_different_d
         Url::parse("https://batch-domain-a.example.com/p/2").unwrap(),
     ];
     let classes = vec![UrlClass::Product, UrlClass::Product];
-    let hashes_a = vec![MainHash("a".repeat(64)), MainHash("b".repeat(64))];
-    let hashes_b = vec![MainHash("c".repeat(64)), MainHash("d".repeat(64))];
-
     // First batch — domain_id_a
     let first = repository
-        .upsert_links_batch(&shop_id_a, &domain_id_a, &urls, &classes, &hashes_a)
+        .upsert_links_batch(&shop_id_a, &domain_id_a, &urls, &classes)
         .await
         .unwrap();
     assert!(first.iter().all(|r| r.domain_id == domain_id_a));
 
     // Second batch — same URLs, domain_id_b (ON CONFLICT DO UPDATE SET domain_id = EXCLUDED.domain_id)
     let second = repository
-        .upsert_links_batch(&shop_id_b, &domain_id_b, &urls, &classes, &hashes_b)
+        .upsert_links_batch(&shop_id_b, &domain_id_b, &urls, &classes)
         .await
         .unwrap();
     assert!(
@@ -392,10 +360,8 @@ async fn should_return_error_when_domain_id_does_not_exist_for_upsert_links_batc
 
     let urls = vec![Url::parse("https://example.com/product/fk-batch").unwrap()];
     let classes = vec![UrlClass::Product];
-    let hashes = vec![MainHash("e".repeat(64))];
-
     let result = repository
-        .upsert_links_batch(&shop_id, &bogus_domain_id, &urls, &classes, &hashes)
+        .upsert_links_batch(&shop_id, &bogus_domain_id, &urls, &classes)
         .await;
 
     assert!(
@@ -425,13 +391,7 @@ async fn should_delete_urls_when_domain_is_deleted() {
     ];
     for url in &urls {
         repository
-            .upsert_link(
-                &shop_id,
-                &domain_id,
-                url,
-                &UrlClass::Product,
-                &MainHash("f".repeat(64)),
-            )
+            .upsert_link(&shop_id, &domain_id, url, &UrlClass::Product)
             .await
             .unwrap();
     }
@@ -486,14 +446,8 @@ async fn should_delete_batch_urls_when_domain_is_deleted() {
         Url::parse("https://batch-cascade.example.com/p/3").unwrap(),
     ];
     let classes = vec![UrlClass::Product; 3];
-    let hashes = vec![
-        MainHash("g".repeat(64)),
-        MainHash("h".repeat(64)),
-        MainHash("i".repeat(64)),
-    ];
-
     repository
-        .upsert_links_batch(&shop_id, &domain_id, &urls, &classes, &hashes)
+        .upsert_links_batch(&shop_id, &domain_id, &urls, &classes)
         .await
         .unwrap();
 
@@ -546,23 +500,11 @@ async fn should_only_delete_urls_for_deleted_domain_not_sibling_domain() {
     let url_b = Url::parse("https://keep-me.example.com/product/1").unwrap();
 
     repository
-        .upsert_link(
-            &shop_id,
-            &domain_id_to_delete,
-            &url_a,
-            &UrlClass::Product,
-            &MainHash("j".repeat(64)),
-        )
+        .upsert_link(&shop_id, &domain_id_to_delete, &url_a, &UrlClass::Product)
         .await
         .unwrap();
     repository
-        .upsert_link(
-            &shop_id,
-            &domain_id_survivor,
-            &url_b,
-            &UrlClass::Product,
-            &MainHash("k".repeat(64)),
-        )
+        .upsert_link(&shop_id, &domain_id_survivor, &url_b, &UrlClass::Product)
         .await
         .unwrap();
 
@@ -611,7 +553,7 @@ async fn should_return_empty_vec_when_batch_is_empty() {
     let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "empty-batch.example.com").await;
 
     let result = repository
-        .upsert_links_batch(&shop_id, &domain_id, &[], &[], &[])
+        .upsert_links_batch(&shop_id, &domain_id, &[], &[])
         .await
         .unwrap();
 

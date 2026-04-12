@@ -6,6 +6,7 @@ The `crawler` crate is an async, LLM-assisted web crawler for antiques e-commerc
 
 | File | What it covers |
 |------|---------------|
+| [dev-setup.md](dev-setup.md) | Local dev setup — Docker, demo binary, migrations, day-to-day workflows |
 | [architecture.md](architecture.md) | CronJob, Shop Registration, Spider, Scraper — how they work and how they connect |
 | [database.md](database.md) | PostgreSQL schema, table roles, key query patterns |
 | [llm-integration.md](llm-integration.md) | The three LLM usages: URL pattern, CSS schema, state mapping |

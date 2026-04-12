@@ -360,7 +360,6 @@ async fn scrape_candidate(
         .scrape(
             &candidate.shop_id,
             &candidate.url,
-            &candidate.main_hash,
             candidate.last_scraped_hash.as_deref(),
         )
         .await
@@ -789,7 +788,6 @@ mod tests {
                     shop_name: "Test Shop".to_string(),
                     shop_type: ShopType::CommercialDealer,
                     url: url::Url::parse("https://example.com/product/1").unwrap(),
-                    main_hash: "hash1".to_string(),
                     last_scraped_hash: None,
                 }])
             })
@@ -798,7 +796,7 @@ mod tests {
         let mut scraper_service = MockScraperService::new();
         scraper_service
             .expect_scrape()
-            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_, _, _| Box::pin(async { Ok(None) }));
 
         let mut push_service = MockProductPushService::new();
         push_service.expect_push().times(0);
@@ -833,7 +831,6 @@ mod tests {
                     shop_name: "Test Shop".to_string(),
                     shop_type: ShopType::CommercialDealer,
                     url: url::Url::parse("https://example.com/product/1").unwrap(),
-                    main_hash: "hash1".to_string(),
                     last_scraped_hash: None,
                 }])
             })
@@ -844,7 +841,7 @@ mod tests {
             .returning(|_, _, _, _, _| Box::pin(async { Ok(()) }));
 
         let mut scraper_service = MockScraperService::new();
-        scraper_service.expect_scrape().returning(|_, url, _, _| {
+        scraper_service.expect_scrape().returning(|_, url, _| {
             let url = url.clone();
             Box::pin(async move {
                 Err(ScraperError::HttpError {
@@ -889,7 +886,6 @@ mod tests {
                         shop_name: "Shop A".to_string(),
                         shop_type: ShopType::CommercialDealer,
                         url: url::Url::parse("https://domain-a.com/product/1").unwrap(),
-                        main_hash: "h1".to_string(),
                         last_scraped_hash: None,
                     },
                     ScraperCandidate {
@@ -897,7 +893,6 @@ mod tests {
                         shop_name: "Shop B".to_string(),
                         shop_type: ShopType::CommercialDealer,
                         url: url::Url::parse("https://domain-b.com/product/2").unwrap(),
-                        main_hash: "h2".to_string(),
                         last_scraped_hash: None,
                     },
                 ])
@@ -908,7 +903,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(2)
-            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_, _, _| Box::pin(async { Ok(None) }));
 
         let mut push_service = MockProductPushService::new();
         push_service.expect_push().times(0);
@@ -951,7 +946,6 @@ mod tests {
                             shop_name: "Shop A".to_string(),
                             shop_type: ShopType::CommercialDealer,
                             url: locked_url,
-                            main_hash: "h1".to_string(),
                             last_scraped_hash: None,
                         },
                         ScraperCandidate {
@@ -959,7 +953,6 @@ mod tests {
                             shop_name: "Shop A".to_string(),
                             shop_type: ShopType::CommercialDealer,
                             url: open_url,
-                            main_hash: "h2".to_string(),
                             last_scraped_hash: None,
                         },
                     ])
@@ -970,7 +963,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(1)
-            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_, _, _| Box::pin(async { Ok(None) }));
 
         let mut push_service = MockProductPushService::new();
         push_service.expect_push().times(0);
@@ -1010,7 +1003,6 @@ mod tests {
                         shop_name: "Shop".to_string(),
                         shop_type: ShopType::CommercialDealer,
                         url: url::Url::parse("https://same-domain.com/product/1").unwrap(),
-                        main_hash: "h1".to_string(),
                         last_scraped_hash: None,
                     },
                     ScraperCandidate {
@@ -1018,7 +1010,6 @@ mod tests {
                         shop_name: "Shop".to_string(),
                         shop_type: ShopType::CommercialDealer,
                         url: url::Url::parse("https://same-domain.com/product/2").unwrap(),
-                        main_hash: "h2".to_string(),
                         last_scraped_hash: None,
                     },
                     ScraperCandidate {
@@ -1026,7 +1017,6 @@ mod tests {
                         shop_name: "Shop".to_string(),
                         shop_type: ShopType::CommercialDealer,
                         url: url::Url::parse("https://same-domain.com/product/3").unwrap(),
-                        main_hash: "h3".to_string(),
                         last_scraped_hash: None,
                     },
                 ])
@@ -1037,7 +1027,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(3)
-            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_, _, _| Box::pin(async { Ok(None) }));
 
         let mut push_service = MockProductPushService::new();
         push_service.expect_push().times(0);

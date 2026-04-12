@@ -133,9 +133,10 @@ pub async fn get_postgres_client() -> PgPool {
 /// # Lifecycle
 ///
 /// - **Before each test** (`set_up`): Starts the Postgres container (once per process), then
-///   opens a fresh connection and executes the SQL file at `sql_setup_file` (path relative to
-///   the workspace root). This typically creates all required tables and extensions. Using
-///   `CREATE TABLE IF NOT EXISTS` makes the setup idempotent across tests in the same suite.
+///   opens a fresh connection and runs every `*.sql` file found in `migrations_dir` in
+///   lexicographic (filename) order — mirroring exactly what `sqlx::migrate!` does at runtime.
+///   All migration files use `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS` guards,
+///   making the setup idempotent across tests in the same suite.
 /// - **After each test** (`tear_down`): Opens a fresh connection and truncates every user
 ///   table in the `public` schema so that each test starts with a clean slate. Table
 ///   definitions (DDL) are preserved.
@@ -153,7 +154,7 @@ pub async fn get_postgres_client() -> PgPool {
 /// ```rust
 /// use test_api::*;
 ///
-/// const RDS: Rds = Rds { sql_setup_file: "src/my-crate/tests/fixtures/schema.sql" };
+/// const RDS: Rds = Rds { migrations_dir: "src/my-crate/migrations" };
 ///
 /// #[localstack_test(services = [RDS])]
 /// async fn should_insert_and_read_row() {
@@ -169,13 +170,14 @@ pub async fn get_postgres_client() -> PgPool {
 ///   test require it.
 /// - The container is shared across all tests within the same test-suite binary. Only the
 ///   data is reset between tests.
+/// - Adding a new migration file to `migrations_dir` is automatically picked up by all tests
+///   — no changes to test code required.
 #[derive(Debug)]
 pub struct Rds {
-    /// Path to a SQL file executed before each test, relative to the workspace root.
-    ///
-    /// Using `CREATE TABLE IF NOT EXISTS` makes the file idempotent so subsequent tests in
-    /// the same suite skip re-creating already-existing tables.
-    pub sql_setup_file: &'static str,
+    /// Path to the directory containing versioned `*.sql` migration files, relative to the
+    /// workspace root. Files are executed in lexicographic (filename) order, matching the
+    /// ordering used by `sqlx::migrate!` at runtime.
+    pub migrations_dir: &'static str,
 }
 
 #[async_trait]
@@ -185,32 +187,53 @@ impl IntegrationTestService for Rds {
         &[]
     }
 
-    /// Starts the Postgres container (once), then runs the configured SQL setup file.
+    /// Starts the Postgres container (once), then runs all migrations in `migrations_dir`
+    /// in lexicographic order.
     async fn set_up(&self) {
         ensure_container_started().await;
 
         let workspace_root = env!("CARGO_WORKSPACE_DIR");
-        let sql_path = Path::new(workspace_root).join(self.sql_setup_file);
+        let dir_path = Path::new(workspace_root).join(self.migrations_dir);
 
-        let sql = std::fs::read_to_string(&sql_path).unwrap_or_else(|e| {
-            panic!(
-                "Failed to read SQL setup file '{}': {e}",
-                sql_path.display()
-            )
-        });
+        // Collect all *.sql files and sort by filename so they run in migration order.
+        let mut entries: Vec<_> = std::fs::read_dir(&dir_path)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to read migrations directory '{}': {e}",
+                    dir_path.display()
+                )
+            })
+            .filter_map(|entry| {
+                let entry = entry.expect("Failed to read directory entry");
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("sql") {
+                    Some(path)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        entries.sort();
 
         let mut conn = open_connection().await;
 
-        conn.execute(sqlx::raw_sql(&sql)).await.unwrap_or_else(|e| {
-            panic!(
-                "Failed to execute SQL setup file '{}': {e}",
-                sql_path.display()
-            )
-        });
+        for path in &entries {
+            let sql = std::fs::read_to_string(path).unwrap_or_else(|e| {
+                panic!("Failed to read migration file '{}': {e}", path.display())
+            });
+
+            conn.execute(sqlx::raw_sql(&sql)).await.unwrap_or_else(|e| {
+                panic!("Failed to execute migration file '{}': {e}", path.display())
+            });
+
+            debug!(path = %path.display(), "Applied migration file.");
+        }
 
         debug!(
-            sql_setup_file = self.sql_setup_file,
-            "Successfully executed SQL setup file."
+            migrations_dir = self.migrations_dir,
+            count = entries.len(),
+            "All migration files applied."
         );
     }
 

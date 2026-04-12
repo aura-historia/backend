@@ -1,14 +1,14 @@
 use test_api::*;
 
 const RDS: Rds = Rds {
-    sql_setup_file: "src/test-api/tests/fixtures/rds_test_schema.sql",
+    migrations_dir: "src/test-api/tests/fixtures/rds_migrations",
 };
 
 #[localstack_test(services = [RDS])]
 async fn should_run_without_errors() {}
 
 #[localstack_test(services = [RDS])]
-async fn should_create_tables_from_setup_file() {
+async fn should_create_tables_from_migrations_dir() {
     let pool = get_postgres_client().await;
 
     let tables: Vec<String> = sqlx::query_scalar(

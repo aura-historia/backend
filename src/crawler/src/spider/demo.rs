@@ -1,31 +1,33 @@
 //! Demo binary - showcases end-to-end usage of [`SpiderService`].
 //!
+//! Requires a running Postgres reachable via `DATABASE_URL`. Start one with:
+//!
+//! ```powershell
+//! # from src/crawler/
+//! .\db-up.ps1
+//! .\db-migrate.ps1
+//! ```
+//!
 //! # Configuration
 //!
 //! | Env var          | Purpose                 | Default                         |
 //! |------------------|-----------------------  |---------------------------------|
+//! | `DATABASE_URL`   | Postgres connection string | *(required)*                 |
 //! | `GEMINI_API_KEY` | API key for Gemini      | *(required)*                    |
 //! | `GEMINI_MODEL`   | Model name to use       | `gemini-3.1-flash-lite-preview` |
 //! | `LOG_LEVEL`      | Log level for this demo | `info`                          |
 //!
-//! # Connection pool sizing
-//!
-//! This demo creates a single-use pool sized to **5 connections**: one for the advisory-lock
-//! connection, plus headroom for the repository queries issued during spidering.
-//! No pool exhaustion is expected here because only one shop is spidered at a time.
-//!
 //! # Running
 //!
-//! ```bash
-//! GEMINI_API_KEY=... cargo run --bin demo-spider -p crawler -- https://www.christies.com/en
+//! ```powershell
+//! $env:GEMINI_API_KEY="..."
+//! cargo run --bin demo-spider -p crawler -- https://www.christies.com/en
 //! ```
 
 use std::env;
 use std::fs::File;
 use std::io::BufWriter;
-use std::process::Command;
 use std::sync::Arc;
-use std::time::Duration;
 
 use common::shop_id::ShopId;
 use crawler::spider::SpiderRunResult;
@@ -39,10 +41,6 @@ use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::{SpiderService, SpiderServiceConfig, SpiderServiceImpl};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
-use testcontainers::ImageExt;
-use testcontainers::core::IntoContainerPort;
-use testcontainers::runners::AsyncRunner;
-use testcontainers_modules::postgres::Postgres as PgImage;
 use thiserror::Error;
 use tracing::{Level, error, info};
 
@@ -72,11 +70,8 @@ enum DemoError {
 
 const DEFAULT_SHOP_URL: &str = "https://www.christies.com/en";
 const DEFAULT_CLASSIFY_THRESHOLD: usize = 200;
-const POSTGRES_USER: &str = "postgres";
-const POSTGRES_PASSWORD: &str = "postgres";
-const POSTGRES_DB: &str = "postgres";
-const POSTGRES_PORT: u16 = 5432;
-const DEMO_CONTAINER_NAME: &str = "aura-historia-spider-demo";
+/// Spider demo pool size: 1 advisory-lock connection + 4 query connections.
+const DEMO_POOL_MAX_CONNECTIONS: u32 = 5;
 
 #[tokio::main]
 async fn main() {
@@ -92,18 +87,14 @@ async fn main() {
         }
     };
 
-    let (_postgres_container, pool) = match start_postgres().await {
-        Ok(state) => state,
+    // Connect to Postgres via DATABASE_URL and apply pending migrations.
+    let pool = match connect_and_migrate().await {
+        Ok(p) => p,
         Err(error) => {
-            error!(error = %error, "Failed to start Postgres for demo");
+            error!(error = %error, "Failed to connect to Postgres");
             return;
         }
     };
-
-    if let Err(error) = apply_schema(&pool).await {
-        error!(error = %error, "Failed to apply spider demo schema");
-        return;
-    }
 
     let pattern_repository = build_pattern_repository(pool.clone());
     let url_repository = build_url_repository(pool.clone());
@@ -194,15 +185,33 @@ fn build_url_repository(pool: PgPool) -> Arc<UrlMetadataRepositoryImpl> {
     Arc::new(UrlMetadataRepositoryImpl::new(pool))
 }
 
-async fn apply_schema(pool: &PgPool) -> Result<(), DemoError> {
-    let workspace_root = env!("CARGO_WORKSPACE_DIR");
-    let sql_path = std::path::Path::new(workspace_root).join("src/crawler/sql/schema.sql");
+/// Connects to Postgres via `DATABASE_URL` and applies pending migrations.
+async fn connect_and_migrate() -> Result<PgPool, DemoError> {
+    let db_url = env::var("DATABASE_URL").map_err(|_| {
+        DemoError::Demo(
+            "DATABASE_URL must be set — start Postgres with .\\db-up.ps1 (from src/crawler/)"
+                .to_string(),
+        )
+    })?;
 
-    let sql = std::fs::read_to_string(&sql_path)?;
-    sqlx::raw_sql(&sql).execute(pool).await?;
+    let pool = PgPoolOptions::new()
+        .max_connections(DEMO_POOL_MAX_CONNECTIONS)
+        .connect(&db_url)
+        .await?;
 
-    info!(path = %sql_path.display(), "Applied spider demo schema");
-    Ok(())
+    info!(
+        max_connections = DEMO_POOL_MAX_CONNECTIONS,
+        "Connected to Postgres"
+    );
+
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .map_err(|e| DemoError::Database(sqlx::Error::from(e)))?;
+
+    info!("Database migrations applied successfully");
+
+    Ok(pool)
 }
 
 /// Inserts a demo `shops` row and a `shop_domains` row, returning the generated `domain_id`.
@@ -240,63 +249,6 @@ async fn insert_demo_shop(
     .await?;
 
     Ok(domain_id)
-}
-
-/// Spider demo pool size: 1 advisory-lock connection + 4 query connections.
-const DEMO_POOL_MAX_CONNECTIONS: u32 = 5;
-
-async fn start_postgres() -> Result<(testcontainers::ContainerAsync<PgImage>, PgPool), DemoError> {
-    let _ = Command::new("docker")
-        .args(["rm", "-f", DEMO_CONTAINER_NAME])
-        .output();
-
-    info!("Starting Postgres container '{DEMO_CONTAINER_NAME}'");
-
-    let container: testcontainers::ContainerAsync<PgImage> = PgImage::default()
-        .with_user(POSTGRES_USER)
-        .with_password(POSTGRES_PASSWORD)
-        .with_db_name(POSTGRES_DB)
-        .with_container_name(DEMO_CONTAINER_NAME)
-        .with_mapped_port(POSTGRES_PORT, POSTGRES_PORT.tcp())
-        .start()
-        .await
-        .map_err(|error| DemoError::Demo(format!("Failed to start Postgres container: {error}")))?;
-
-    let connection_string = format!(
-        "postgres://{POSTGRES_USER}:{POSTGRES_PASSWORD}@localhost:{POSTGRES_PORT}/{POSTGRES_DB}"
-    );
-
-    let mut attempt = 0u32;
-    let mut delay = Duration::from_millis(100);
-
-    loop {
-        attempt += 1;
-        let pool_result = PgPoolOptions::new()
-            .max_connections(DEMO_POOL_MAX_CONNECTIONS)
-            .acquire_timeout(Duration::from_secs(30))
-            .connect(&connection_string)
-            .await;
-        match pool_result {
-            Ok(pool) => {
-                info!(
-                    attempt,
-                    max_connections = DEMO_POOL_MAX_CONNECTIONS,
-                    "Connected to Postgres for spider demo"
-                );
-                return Ok((container, pool));
-            }
-            Err(error) if attempt < 20 => {
-                info!(attempt, error = %error, "Postgres not ready yet, retrying");
-                tokio::time::sleep(delay).await;
-                delay = (delay * 2).min(Duration::from_secs(2));
-            }
-            Err(error) => {
-                return Err(DemoError::Demo(format!(
-                    "Could not connect to Postgres after {attempt} attempts: {error}"
-                )));
-            }
-        }
-    }
 }
 
 fn ensure_scheme(url: &str) -> String {

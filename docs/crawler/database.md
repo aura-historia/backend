@@ -1,6 +1,51 @@
 # Database
 
-All state is stored in PostgreSQL. The schema lives in `src/crawler/sql/schema.sql`.
+All state is stored in PostgreSQL. The authoritative schema is defined by the versioned migrations
+in `src/crawler/migrations/`.
+
+---
+
+## Local Development
+
+A `docker-compose.yml` lives inside the `src/crawler/` directory. Manage it with the
+PowerShell helpers in `src/crawler/scripts/` (run them from any directory — they self-locate):
+
+| Script | What it does |
+|--------|-------------|
+| `.\scripts\db-down.ps1` | Stop the container (data volume is preserved) |
+| `.\scripts\db-reset.ps1` | Destroy the volume and start fresh — replaces the old manual workflow |
+| `.\scripts\db-status.ps1` | Show applied / pending migrations (`cargo sqlx migrate info`) |
+
+`db-status.ps1` requires `sqlx-cli`:
+
+```powershell
+cargo install sqlx-cli --no-default-features --features rustls,postgres
+```
+
+Running the demo (no manual DB setup required — the binary handles everything):
+
+```powershell
+$env:GEMINI_API_KEY = "..."
+cargo run -p crawler --bin demo
+```
+
+---
+
+## Adding a New Migration
+
+1. Create a new file in `src/crawler/migrations/` with the naming pattern
+   `YYYYMMDDHHMMSS_description.sql` (e.g. `20260201120000_add_shop_currency.sql`).
+2. Write the migration SQL. Use `IF NOT EXISTS` / `IF EXISTS` guards for safety.
+3. Run `.\db-migrate.ps1` locally to apply it.
+4. Deploy the new server binary to production — `sqlx::migrate!()` applies it automatically on startup.
+
+---
+
+## Production
+
+The production `server` binary calls `sqlx::migrate!("migrations/")` immediately after connecting
+to Postgres (before any other work). Deploying a new binary is the only step required to update
+the production schema — no manual SQL execution needed.
 
 ---
 
@@ -54,17 +99,20 @@ Every URL the spider has ever seen. Shared between the spider (writes) and the s
 | `shop_id` | UUID FK → `shops` | Cascade on delete |
 | `domain_id` | UUID FK → `shop_domains` | Cascade on delete — links the URL to the specific domain it was discovered from |
 | `url_class` | TEXT | One of `product`, `category`, `imprint`, `info`, `other` |
-| `main_hash` | TEXT (64 chars) | SHA-256 of the page HTML, updated by the spider on each crawl |
 | `state` | TEXT | `UNKNOWN` \| `LISTED` \| `AVAILABLE` \| `RESERVED` \| `SOLD` \| `REMOVED` |
-| `price_currency` | TEXT (nullable) | ISO 4217 code, populated by scraper |
-| `price_value` | INT (nullable) | Amount in minor units (cents), populated by scraper |
-| `last_scraped_hash` | TEXT (nullable) | `main_hash` value at the time of the last successful scrape |
+| `last_scraped_hash` | TEXT (nullable) | Scraper-computed hash at the time of the last successful scrape |
 | `last_scraped` | TIMESTAMPTZ (nullable) | Timestamp of the last successful scrape |
+| `failure_count` | INT NOT NULL DEFAULT 0 | Consecutive fetch failures since last successful scrape |
+| `last_error_kind` | TEXT (nullable) | Classified failure category (timeout/connect/http status/etc.) |
+| `last_status_code` | INT (nullable) | HTTP status code of the last failed fetch |
+| `next_retry_at` | TIMESTAMPTZ (nullable) | Earliest timestamp when the URL is eligible for retry |
 | `created` / `updated` | TIMESTAMPTZ | |
+
+`shop_urls.state` is crawler-owned URL metadata in Postgres. The scraper updates it after successful normalization and uses it for crawler-side candidate selection. The downstream product backend receives the same normalized availability separately through product upsert commands; that persistence path is related but distinct.
 
 **Domain linkage**: `domain_id` is a direct FK to `shop_domains`. When a domain is removed from a shop during the shop registration sync, all URLs discovered from that domain are automatically cascade-deleted — preventing the scraper from continuing to process stale URLs from a domain that no longer belongs to the shop.
 
-**Change detection**: the scraper compares `main_hash` (current) with `last_scraped_hash` (last seen). If they match the page has not changed and the fetch is skipped.
+**Change detection**: the scraper computes the current hash in-memory — SHA-256 of the `<main>` fragment when present, SHA-256 of the full HTML otherwise — and compares it with `last_scraped_hash`. If they match and a `<main>` tag was found, extraction is skipped. Pages without a `<main>` tag are always re-extracted.
 
 **Indexes**:
 - `idx_shop_urls_class_last_scraped ON shop_urls (url_class, last_scraped)` — supports the scraper candidate query.
@@ -118,13 +166,13 @@ The cron job uses an in-memory `LocalLockManager` (`Arc<DashMap<String, Instant>
 The spider writes up to 100 rows at a time using PostgreSQL `UNNEST` to avoid N individual statements:
 
 ```sql
-INSERT INTO shop_urls (url, shop_id, url_class, main_hash, state, created, updated)
-SELECT * FROM UNNEST($2::text[], $3::text[], $4::text[], $5::text[])
-       AS t(url, url_class, main_hash)
+INSERT INTO shop_urls (url, shop_id, domain_id, url_class, state, created, updated)
+SELECT $1, $2, t.url, t.url_class, 'UNKNOWN', NOW(), NOW()
+FROM UNNEST($3::text[], $4::text[]) AS t(url, url_class)
 ...
 ON CONFLICT (url) DO UPDATE SET
     url_class  = EXCLUDED.url_class,
-    main_hash  = EXCLUDED.main_hash,
+    domain_id  = EXCLUDED.domain_id,
     updated    = NOW()
 ```
 
@@ -154,15 +202,19 @@ LIMIT  $1
 ### Scraper candidate selection
 
 ```sql
-SELECT su.shop_id, su.url, su.main_hash, su.last_scraped_hash
+SELECT su.shop_id, su.url, su.last_scraped_hash
 FROM   shop_urls su
 JOIN   shops s ON s.shop_id = su.shop_id
 WHERE  su.url_class = 'product'
   AND  su.state IN ('UNKNOWN', 'LISTED', 'AVAILABLE', 'RESERVED')
+  AND  (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
   AND  (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
   AND  s.active = TRUE
+ORDER BY su.last_scraped NULLS FIRST
 LIMIT  $1
 ```
+
+`SOLD` and `REMOVED` are intentionally excluded from future scrape candidates. `UNKNOWN` remains eligible so newly discovered URLs can be re-scraped until the crawler resolves them to a concrete state.
 
 ### Shop registration upsert
 

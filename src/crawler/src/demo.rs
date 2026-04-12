@@ -1,32 +1,29 @@
 //! Demo binary — runs the full crawler pipeline (spider + scraper) against a set of hardcoded
 //! antique shops without needing a running shop-service or DynamoDB.
 //!
+//! On startup the demo automatically runs `docker compose up -d` (using the
+//! `docker-compose.yml` inside the `crawler` crate) and waits for Postgres to
+//! become ready before applying migrations. No manual setup required — just:
+//!
+//! ```powershell
+//! $env:GEMINI_API_KEY="..."
+//! cargo run -p crawler --bin demo
+//! ```
+//!
 //! # Configuration
 //!
-//! | Env var / CLI flag  | Purpose                                             | Default                         |
-//! |---------------------|-----------------------------------------------------|---------------------------------|
-//! | `GEMINI_API_KEY`    | API key for the Gemini backend                      | *(required)*                    |
-//! | `GEMINI_MODEL`      | Model to use for LLM calls                         | `gemini-3.1-flash-lite-preview` |
-//! | `LOG_LEVEL`         | Log level                                           | `info`                          |
-//! | `DATABASE_URL`      | Postgres connection string (required with flag)     | —                               |
-//! | `--use-server-db`   | Skip testcontainer; connect to `DATABASE_URL` instead | off                            |
+//! | Env var          | Purpose                              | Default                                          |
+//! |------------------|--------------------------------------|--------------------------------------------------|
+//! | `GEMINI_API_KEY` | API key for the Gemini backend       | *(required)*                                     |
+//! | `GEMINI_MODEL`   | Model to use for LLM calls           | `gemini-3.1-flash-lite-preview`                  |
+//! | `DATABASE_URL`   | Override the Postgres connection URL | `postgres://postgres:postgres@localhost:5432/postgres` |
+//! | `LOG_LEVEL`      | Log level                            | `info`                                           |
 //!
 //! Scraped products are written to `scraped_products.json` instead of being forwarded to DynamoDB.
-//!
-//! # Running (with testcontainer)
-//!
-//! ```bash
-//! GEMINI_API_KEY=... cargo run --bin demo -p crawler
-//! ```
-//!
-//! # Running (with an existing Postgres)
-//!
-//! ```bash
-//! DATABASE_URL=postgres://... GEMINI_API_KEY=... cargo run --bin demo -p crawler -- --use-server-db
-//! ```
 
 use std::collections::HashSet;
 use std::env;
+use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
@@ -57,18 +54,7 @@ use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
 use llm::builder::{LLMBackend, LLMBuilder};
 use shop::core::shop_type::ShopType;
-use sqlx::PgPool;
-use testcontainers::ImageExt;
-use testcontainers::core::IntoContainerPort;
-use testcontainers::runners::AsyncRunner;
-use testcontainers_modules::postgres::Postgres as PgImage;
 use tracing::{error, info};
-
-const POSTGRES_USER: &str = "postgres";
-const POSTGRES_PASSWORD: &str = "postgres";
-const POSTGRES_DB: &str = "postgres";
-const POSTGRES_PORT: u16 = 5432;
-const DEMO_CONTAINER_NAME: &str = "aura-historia-crawler-demo";
 
 // ---------------------------------------------------------------------------
 // Demo shop source — returns hardcoded shops (no OpenSearch needed)
@@ -124,11 +110,6 @@ fn demo_shops() -> Vec<RegisteredShop> {
 // CLI flag parsing
 // ---------------------------------------------------------------------------
 
-/// Returns `true` if `--use-server-db` was passed as a command-line argument.
-fn use_server_db() -> bool {
-    env::args().any(|arg| arg == "--use-server-db")
-}
-
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
@@ -151,54 +132,36 @@ async fn main() {
         scraper_interval: Duration::from_secs(30), // Demo: run scraper loop every 30 seconds
         spider_batch_size: 5,
         scraper_batch_size: 100,
-        spider_concurrency: 3,
+        spider_concurrency: 4,
         scraper_concurrency: 5,
         spider_classify_threshold: 400,
         ..Default::default()
     };
 
     // ------------------------------------------------------------------
-    // Database — either spin up a testcontainer or use an existing Postgres.
+    // Database — start docker compose and wait for Postgres to be ready,
+    // then apply any pending migrations.
     // ------------------------------------------------------------------
 
-    // We keep the container alive for the process lifetime by holding it here.
-    let (_container, pool) = if use_server_db() {
-        let db_url = match env::var("DATABASE_URL") {
-            Ok(url) => url,
-            Err(_) => {
-                error!(
-                    "--use-server-db was passed but DATABASE_URL is not set. \
-                    Please export DATABASE_URL=postgres://... before running."
-                );
-                return;
-            }
-        };
-        info!(
-            max_connections = config.effective_db_max_connections(),
-            "Connecting to existing Postgres via DATABASE_URL"
-        );
-        let pool = match config.connect_pool(&db_url).await {
-            Ok(p) => p,
-            Err(e) => {
-                error!(error = %e, "Failed to connect to Postgres");
-                return;
-            }
-        };
-        (None, pool)
-    } else {
-        match start_postgres(&config).await {
-            Ok((container, pool)) => (Some(container), pool),
-            Err(error) => {
-                error!(error = %error, "Failed to start Postgres for demo");
-                return;
-            }
+    let db_url = env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/postgres".to_string());
+
+    start_db();
+
+    info!("Waiting for Postgres to be ready…");
+    let pool = match connect_with_retry(&config, &db_url).await {
+        Ok(p) => p,
+        Err(e) => {
+            error!(error = %e, "Failed to connect to Postgres after retries");
+            return;
         }
     };
 
-    if let Err(error) = apply_schema(&pool).await {
-        error!(error = %error, "Failed to apply crawler demo schema");
+    if let Err(error) = sqlx::migrate!("./migrations").run(&pool).await {
+        error!(error = %error, "Failed to apply database migrations");
         return;
     }
+    info!("Database migrations applied successfully");
 
     info!("Wiring crawler dependencies...");
 
@@ -292,6 +255,74 @@ async fn main() {
     cron_job.run_loop().await;
 }
 
+// ---------------------------------------------------------------------------
+// Database helpers
+// ---------------------------------------------------------------------------
+
+/// Runs `docker compose up -d` from the crawler crate directory.
+///
+/// `docker compose up -d` is idempotent:
+/// - Container already running → no-op, returns immediately.
+/// - Container exists but is stopped → restarts it.
+/// - Container does not exist → creates and starts it.
+///
+/// The compose file path is baked in via `CARGO_MANIFEST_DIR` so this works
+/// regardless of the working directory when `cargo run` is invoked.
+fn start_db() {
+    let crate_dir = env!("CARGO_MANIFEST_DIR");
+    let compose_file = Path::new(crate_dir).join("docker-compose.yml");
+
+    info!(
+        compose = %compose_file.display(),
+        "Starting Postgres via docker compose…"
+    );
+
+    let status = Command::new("docker")
+        .args(["compose", "-f", compose_file.to_str().unwrap(), "up", "-d"])
+        .status();
+
+    match status {
+        Ok(s) if s.success() => info!("docker compose up -d succeeded"),
+        Ok(s) => error!(exit_code = ?s.code(), "docker compose up -d exited with non-zero status"),
+        Err(e) => error!(error = %e, "Failed to run docker compose — is Docker Desktop running?"),
+    }
+}
+
+/// Attempts to connect to Postgres, retrying with exponential back-off.
+/// This handles the window between `docker compose up -d` returning and
+/// Postgres actually accepting connections.
+async fn connect_with_retry(
+    config: &CrawlerCronConfig,
+    db_url: &str,
+) -> Result<sqlx::PgPool, String> {
+    let mut attempt = 0u32;
+    let mut delay = Duration::from_millis(200);
+
+    loop {
+        attempt += 1;
+        match config.connect_pool(db_url).await {
+            Ok(pool) => {
+                info!(
+                    attempt,
+                    max_connections = config.effective_db_max_connections(),
+                    "Connected to Postgres"
+                );
+                return Ok(pool);
+            }
+            Err(e) if attempt < 30 => {
+                info!(attempt, error = %e, "Postgres not ready yet, retrying…");
+                tokio::time::sleep(delay).await;
+                delay = (delay * 2).min(Duration::from_secs(3));
+            }
+            Err(e) => {
+                return Err(format!(
+                    "Could not connect to Postgres after {attempt} attempts: {e}"
+                ));
+            }
+        }
+    }
+}
+
 fn init_logging() {
     let raw_level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     let filter = tracing_subscriber::EnvFilter::new(format!(
@@ -302,64 +333,4 @@ fn init_logging() {
         .json()
         .with_env_filter(filter)
         .init();
-}
-
-async fn start_postgres(
-    config: &CrawlerCronConfig,
-) -> Result<(testcontainers::ContainerAsync<PgImage>, PgPool), String> {
-    let _ = Command::new("docker")
-        .args(["rm", "-f", DEMO_CONTAINER_NAME])
-        .output();
-
-    info!("Starting Postgres container '{DEMO_CONTAINER_NAME}'");
-
-    let container: testcontainers::ContainerAsync<PgImage> = PgImage::default()
-        .with_user(POSTGRES_USER)
-        .with_password(POSTGRES_PASSWORD)
-        .with_db_name(POSTGRES_DB)
-        .with_container_name(DEMO_CONTAINER_NAME)
-        .with_mapped_port(POSTGRES_PORT, POSTGRES_PORT.tcp())
-        .start()
-        .await
-        .map_err(|error| format!("Failed to start Postgres container: {error}"))?;
-
-    let connection_string = format!(
-        "postgres://{POSTGRES_USER}:{POSTGRES_PASSWORD}@localhost:{POSTGRES_PORT}/{POSTGRES_DB}"
-    );
-
-    let mut attempt = 0u32;
-    let mut delay = Duration::from_millis(100);
-
-    loop {
-        attempt += 1;
-        match config.connect_pool(&connection_string).await {
-            Ok(pool) => {
-                info!(
-                    attempt,
-                    max_connections = config.effective_db_max_connections(),
-                    "Connected to Postgres for crawler demo"
-                );
-                return Ok((container, pool));
-            }
-            Err(error) if attempt < 20 => {
-                info!(attempt, error = %error, "Postgres not ready yet, retrying");
-                tokio::time::sleep(delay).await;
-                delay = (delay * 2).min(Duration::from_secs(2));
-            }
-            Err(error) => {
-                return Err(format!(
-                    "Could not connect to Postgres after {attempt} attempts: {error}"
-                ));
-            }
-        }
-    }
-}
-
-async fn apply_schema(pool: &PgPool) -> Result<(), sqlx::Error> {
-    let workspace_root = env!("CARGO_WORKSPACE_DIR");
-    let sql_path = std::path::Path::new(workspace_root).join("src/crawler/sql/schema.sql");
-    let sql = std::fs::read_to_string(&sql_path).map_err(sqlx::Error::Io)?;
-    sqlx::raw_sql(&sql).execute(pool).await?;
-    info!(path = %sql_path.display(), "Applied crawler demo schema");
-    Ok(())
 }
