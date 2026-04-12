@@ -4,7 +4,7 @@ use lambda_runtime::LambdaEvent;
 use shop::{
     data::patch_shop_data::PatchShopData,
     dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
-    dynamodb::shop_record::ShopRecord,
+    dynamodb::shop_record_update::ShopRecordUpdate,
     service::{
         command_service::{CommandShopService, CommandShopServiceImpl},
         get_service::GetShopServiceImpl,
@@ -13,6 +13,7 @@ use shop::{
 };
 use shop_api::handle;
 use test_api::*;
+use time::OffsetDateTime;
 use user::service::user_service::MockUserService;
 
 #[localstack_test(services = [DynamoDB()])]
@@ -71,15 +72,24 @@ async fn should_200_respond_updated_shop_when_partner_patches_shop() {
     let create_cmd = Faker.fake();
     let shop = command_service.create(create_cmd).await.unwrap();
 
-    // Make the shop a partner shop by updating the record directly
-    let mut record: ShopRecord = Faker.fake();
-    record.shop_id = shop.shop_id;
-    record.shop_slug_id = shop.shop_slug_id.clone();
-    record.name = shop.name.clone();
-    record.partner_user_id = Some(user_id);
-    record.gsi1_pk = Some(shop::dynamodb::shop_record::mk_gsi1_pk(&user_id));
-    record.gsi1_sk = Some(shop::dynamodb::shop_record::mk_gsi1_sk(&shop.shop_id));
-    repository.put_shop_record(record).await.unwrap();
+    // Make the shop a partner shop by updating the existing record in-place
+    repository
+        .update_shop_record(
+            &shop.shop_id,
+            ShopRecordUpdate {
+                partner_user_id: Some(user_id),
+                gsi1_pk: Some(shop::dynamodb::shop_record::mk_gsi1_pk(&user_id)),
+                gsi1_sk: Some(shop::dynamodb::shop_record::mk_gsi1_sk(&shop.shop_id)),
+                shop_type: None,
+                domains: None,
+                image: None,
+                partner_api_key_short: None,
+                partner_api_key_long_hash: None,
+                updated: OffsetDateTime::now_utc(),
+            },
+        )
+        .await
+        .unwrap();
 
     let mut user_service = MockUserService::default();
     user_service.expect_check_admin().return_once(move |_| {
