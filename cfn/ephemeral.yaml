@@ -1809,8 +1809,11 @@ Resources:
               - Effect: Allow
                 Action:
                   - states:StartExecution
-                  - states:SendTaskSuccess
                 Resource: !Ref PartnerShopApplicationStateMachine
+              - Effect: Allow
+                Action:
+                  - states:SendTaskSuccess
+                Resource: "*"
   PartnerShopApplicationApiLambda:
     Type: AWS::Lambda::Function
     Properties:
