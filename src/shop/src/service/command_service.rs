@@ -220,7 +220,13 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
 
         self.repository.update_shop_record(shop_id, update).await?;
 
-        info!(shopId = %shop_id, userId = %user_id, "Created API key for partner shop.");
+        info!(
+            shopId = %shop_id,
+            userId = %user_id,
+            apiKeyShort = %hashed.short_token(),
+            apiKeyLongHash = %hashed.long_token_hash(),
+            "Created API key for partner shop."
+        );
 
         Ok(api_key)
     }
