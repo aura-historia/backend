@@ -11,6 +11,7 @@ use shop::{
 };
 use shop_api::handle;
 use test_api::*;
+use user::service::user_service::MockUserService;
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_respond_shop() {
@@ -29,9 +30,15 @@ async fn should_200_respond_shop() {
         context: Default::default(),
     };
 
-    let response = handle(lambda_event, &get_service, &MockQueryShopService::default())
-        .await
-        .unwrap();
+    let response = handle(
+        lambda_event,
+        &get_service,
+        &MockQueryShopService::default(),
+        &command_service,
+        &MockUserService::default(),
+    )
+    .await
+    .unwrap();
     let actual = serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(200, response.status_code);
     assert_eq!(GetShopData::from(expected), actual)
@@ -54,9 +61,15 @@ async fn should_200_respond_shop_for_slug() {
         context: Default::default(),
     };
 
-    let response = handle(lambda_event, &get_service, &MockQueryShopService::default())
-        .await
-        .unwrap();
+    let response = handle(
+        lambda_event,
+        &get_service,
+        &MockQueryShopService::default(),
+        &command_service,
+        &MockUserService::default(),
+    )
+    .await
+    .unwrap();
     let actual = serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(200, response.status_code);
     assert_eq!(GetShopData::from(expected), actual)

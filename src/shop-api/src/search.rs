@@ -99,9 +99,11 @@ mod tests {
     use lambda_runtime::LambdaEvent;
     use shop::core::shop::Shop;
     use shop::data::shop_search_data::ShopSearchData;
+    use shop::service::command_service::MockCommandShopService;
     use shop::service::get_service::MockGetShopService;
     use shop::service::query_service::MockQueryShopService;
     use test_api::ApiGatewayV2httpRequestProxy;
+    use user::service::user_service::MockUserService;
 
     #[tokio::test]
     #[rstest::rstest]
@@ -137,7 +139,7 @@ mod tests {
                 };
                 Box::pin(async move { Ok(search_result) })
             });
-        let response = handle(lambda_event, &MockGetShopService::default(), &service)
+        let response = handle(lambda_event, &MockGetShopService::default(), &service, &MockCommandShopService::default(), &MockUserService::default())
             .await
             .unwrap();
 
@@ -171,7 +173,7 @@ mod tests {
                 })
             })
         });
-        let response = handle(lambda_event, &MockGetShopService::default(), &service)
+        let response = handle(lambda_event, &MockGetShopService::default(), &service, &MockCommandShopService::default(), &MockUserService::default())
             .await
             .unwrap();
 
@@ -211,7 +213,7 @@ mod tests {
             };
             Box::pin(async move { Ok(search_result) })
         });
-        let response = handle(lambda_event, &MockGetShopService::default(), &service)
+        let response = handle(lambda_event, &MockGetShopService::default(), &service, &MockCommandShopService::default(), &MockUserService::default())
             .await
             .unwrap();
 

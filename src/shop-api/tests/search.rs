@@ -3,10 +3,12 @@ use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use shop::data::{get_shop_data::GetShopData, shop_search_data::ShopSearchData};
 use shop::opensearch::repository::{ShopOpenSearchRepository, ShopOpenSearchRepositoryImpl};
+use shop::service::command_service::MockCommandShopService;
 use shop::service::get_service::MockGetShopService;
 use shop::service::query_service::QueryShopServiceImpl;
 use shop_api::handle;
 use test_api::*;
+use user::service::user_service::MockUserService;
 
 #[rstest::rstest]
 #[trace]
@@ -45,7 +47,7 @@ async fn should_follow_up_search_after_query(
             .build(),
         context: Default::default(),
     };
-    let response1 = handle(lambda_event, &MockGetShopService::default(), &service)
+    let response1 = handle(lambda_event, &MockGetShopService::default(), &service, &MockCommandShopService::default(), &MockUserService::default())
         .await
         .unwrap();
     assert_eq!(200, response1.status_code);
@@ -72,7 +74,7 @@ async fn should_follow_up_search_after_query(
             .build(),
         context: Default::default(),
     };
-    let response2 = handle(lambda_event, &MockGetShopService::default(), &service)
+    let response2 = handle(lambda_event, &MockGetShopService::default(), &service, &MockCommandShopService::default(), &MockUserService::default())
         .await
         .unwrap();
     assert_eq!(200, response2.status_code);
@@ -127,7 +129,7 @@ async fn should_200_when_shop_type_query(
             .build(),
         context: Default::default(),
     };
-    let response = handle(lambda_event, &MockGetShopService::default(), &service)
+    let response = handle(lambda_event, &MockGetShopService::default(), &service, &MockCommandShopService::default(), &MockUserService::default())
         .await
         .unwrap();
     assert_eq!(200, response.status_code);

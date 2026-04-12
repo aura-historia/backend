@@ -119,6 +119,11 @@ pub trait GetShopService {
         partner_user_id: &common::user_id::UserId,
     ) -> Result<Vec<Shop>, GetShopError>;
 
+    async fn find_partner_shop(
+        &self,
+        shop_id: &ShopId,
+    ) -> Result<PartnerShop, VerifyPartnerShopError>;
+
     async fn verify_partner_shop(
         &self,
         api_key: &PartnerShopApiKey,
@@ -193,6 +198,24 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
             .query_shops_by_partner(partner_user_id)
             .await?;
         Ok(records.into_iter().map(Shop::from).collect())
+    }
+
+    async fn find_partner_shop(
+        &self,
+        shop_id: &ShopId,
+    ) -> Result<PartnerShop, VerifyPartnerShopError> {
+        let shop_record = self
+            .repository
+            .get_shop_record(shop_id)
+            .await
+            .map_err(VerifyPartnerShopError::SdkGetItemError)?
+            .ok_or(VerifyPartnerShopError::ShopNotFound(*shop_id))?;
+
+        if shop_record.partner_user_id.is_none() {
+            return Err(VerifyPartnerShopError::NotAPartnerShop(*shop_id));
+        }
+
+        Ok(PartnerShop::try_from(shop_record)?)
     }
 
     async fn verify_partner_shop(

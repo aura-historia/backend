@@ -7003,6 +7003,7 @@ dependencies = [
  "lambda_runtime",
  "opensearch",
  "rstest",
+ "serde",
  "serde_json",
  "serde_qs",
  "serial_test",
@@ -7013,6 +7014,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "user",
 ]
 
 [[package]]
