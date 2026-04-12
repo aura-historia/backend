@@ -1,10 +1,14 @@
 use crate::{
-    core::{partner_status::ShopPartnerStatus, shop::Shop},
+    core::{
+        partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey},
+        partner_status::ShopPartnerStatus,
+        shop::Shop,
+    },
     dynamodb::{repository::ShopDynamoDbRepository, shop_record_update::ShopRecordUpdate},
     service::command::{CreateShopCommand, UpdateShopCommand},
 };
 use aws_sdk_dynamodb::error::SdkError;
-use common::{shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
+use common::{shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::UserId};
 use time::OffsetDateTime;
 use tracing::info;
 
@@ -16,6 +20,12 @@ pub enum CommandShopError {
 
     #[error("Shop with name '{0}' exists already - the shop-slug '{1}' is already registered.")]
     ShopSlugExistsAlready(ShopName, SlugId<0>),
+
+    #[error("Shop '{0}' is not a partner shop")]
+    NotAPartnerShop(ShopId),
+
+    #[error("User '{0}' is not the partner of shop '{1}'")]
+    NotThePartnerUser(UserId, ShopId),
 
     #[error(
         "Did not succeed checking existence of shop due to DynamoDB Batch-Response containing unprocessed items"
@@ -44,7 +54,9 @@ pub enum CommandShopError {
 pub mod api {
     use crate::service::command_service::CommandShopError;
     use common::api::error::ApiError;
-    use common::api::error_code::{SHOP_EXISTS_ALREADY, SHOP_NOT_FOUND, UNPROCESSED_ITEMS};
+    use common::api::error_code::{
+        PARTNER_SHOP_NOT_PARTNERED, SHOP_EXISTS_ALREADY, SHOP_NOT_FOUND, UNPROCESSED_ITEMS,
+    };
 
     impl From<CommandShopError> for ApiError {
         fn from(err: CommandShopError) -> Self {
@@ -54,6 +66,12 @@ pub mod api {
                 }
                 CommandShopError::ShopSlugExistsAlready(_, _) => {
                     ApiError::conflict(SHOP_EXISTS_ALREADY, Box::new(err))
+                }
+                CommandShopError::NotAPartnerShop(_) => {
+                    ApiError::forbidden(PARTNER_SHOP_NOT_PARTNERED).with_detail(err.to_string())
+                }
+                CommandShopError::NotThePartnerUser(_, _) => {
+                    ApiError::forbidden(PARTNER_SHOP_NOT_PARTNERED).with_detail(err.to_string())
                 }
                 CommandShopError::SdkBatchGetItemUnprocessed => {
                     ApiError::service_unavailable(UNPROCESSED_ITEMS, Box::new(err))
@@ -77,6 +95,11 @@ pub trait CommandShopService {
         shop_id: &ShopId,
         command: UpdateShopCommand,
     ) -> Result<Shop, CommandShopError>;
+    async fn create_api_key(
+        &self,
+        user_id: &UserId,
+        shop_id: &ShopId,
+    ) -> Result<PartnerShopApiKey, CommandShopError>;
 }
 
 pub struct CommandShopServiceImpl<'a> {
@@ -142,6 +165,8 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             shop_type: command.shop_type.map(Into::into),
             domains: command.domains.clone(),
             image: command.image.clone(),
+            partner_api_key_short: None,
+            partner_api_key_long_hash: None,
             updated: OffsetDateTime::now_utc(),
         };
         let shop_record = self
@@ -157,6 +182,49 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
         info!(shopId = %shop_record.shop_id, name = %shop_record.name, slug = %shop_record.shop_slug_id, payload = ?command, "Updated Shop.");
 
         Ok(shop_record.into())
+    }
+
+    async fn create_api_key(
+        &self,
+        user_id: &UserId,
+        shop_id: &ShopId,
+    ) -> Result<PartnerShopApiKey, CommandShopError> {
+        let shop_record = self
+            .repository
+            .get_shop_record(shop_id)
+            .await?
+            .ok_or_else(|| CommandShopError::ShopNotFound(*shop_id))?;
+
+        let partner_user_id = shop_record
+            .partner_user_id
+            .ok_or_else(|| CommandShopError::NotAPartnerShop(*shop_id))?;
+
+        if partner_user_id != *user_id {
+            return Err(CommandShopError::NotThePartnerUser(*user_id, *shop_id));
+        }
+
+        let api_key = PartnerShopApiKey::new();
+        let hashed: HashedPartnerShopApiKey = api_key.clone().into();
+
+        let update = ShopRecordUpdate {
+            partner_user_id: None,
+            gsi1_pk: None,
+            gsi1_sk: None,
+            shop_type: None,
+            domains: None,
+            image: None,
+            partner_api_key_short: Some(hashed.short_token().to_string()),
+            partner_api_key_long_hash: Some(hashed.long_token_hash().to_string()),
+            updated: OffsetDateTime::now_utc(),
+        };
+
+        self.repository
+            .update_shop_record(shop_id, update)
+            .await?;
+
+        info!(shopId = %shop_id, userId = %user_id, "Created API key for partner shop.");
+
+        Ok(api_key)
     }
 }
 

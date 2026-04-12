@@ -77,6 +77,8 @@ async fn should_return_none_when_shop_record_not_exists_for_update_shop_record()
         shop_type: Some(ShopTypeRecord::Marketplace),
         domains: Some(HashSet::from([Domain::try_from("test-shop.com").unwrap()])),
         image: None,
+        partner_api_key_short: None,
+        partner_api_key_long_hash: None,
         updated: OffsetDateTime::now_utc(),
     };
 
@@ -109,6 +111,8 @@ async fn should_return_updated_record_when_updating_all_fields_for_update_shop_r
         shop_type: Some(new_shop_type),
         domains: Some(new_domains.clone()),
         image: Some(new_image.clone()),
+        partner_api_key_short: None,
+        partner_api_key_long_hash: None,
         updated: updated_at,
     };
 
@@ -142,6 +146,8 @@ async fn should_preserve_unchanged_fields_when_updating_only_timestamp_for_updat
         shop_type: None,
         domains: None,
         image: None,
+        partner_api_key_short: None,
+        partner_api_key_long_hash: None,
         updated: updated_at,
     };
 

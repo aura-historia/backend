@@ -114,6 +114,11 @@ pub trait GetShopService {
 
     async fn find_shops(&self, shop_ids: Vec<ShopId>) -> Result<Vec<Shop>, GetShopError>;
 
+    async fn find_shops_by_partner(
+        &self,
+        partner_user_id: &common::user_id::UserId,
+    ) -> Result<Vec<Shop>, GetShopError>;
+
     async fn verify_partner_shop(
         &self,
         api_key: &PartnerShopApiKey,
@@ -177,6 +182,17 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
         }
 
         Ok(views)
+    }
+
+    async fn find_shops_by_partner(
+        &self,
+        partner_user_id: &common::user_id::UserId,
+    ) -> Result<Vec<Shop>, GetShopError> {
+        let records = self
+            .repository
+            .query_shops_by_partner(partner_user_id)
+            .await?;
+        Ok(records.into_iter().map(Shop::from).collect())
     }
 
     async fn verify_partner_shop(
