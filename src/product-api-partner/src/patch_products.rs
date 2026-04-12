@@ -148,7 +148,7 @@ mod tests {
         let shop_id = partner_shop.shop_id;
         let hashed: HashedPartnerShopApiKey = api_key.clone().into();
         let mut partner_shop_with_key = partner_shop;
-        partner_shop_with_key.hashed_api_key = hashed;
+        partner_shop_with_key.hashed_api_key = Some(hashed);
 
         let body = serde_json::to_string(&vec![serde_json::json!({
             "shopsProductId": "test-product-1",
@@ -190,7 +190,7 @@ mod tests {
         let shop_id = partner_shop.shop_id;
         let hashed: HashedPartnerShopApiKey = api_key.clone().into();
         let mut partner_shop_with_key = partner_shop;
-        partner_shop_with_key.hashed_api_key = hashed;
+        partner_shop_with_key.hashed_api_key = Some(hashed);
 
         let shops_product_id = ShopsProductId::from("failing-product".to_string());
 

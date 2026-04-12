@@ -8,7 +8,7 @@ use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PartnerShop {
-    pub hashed_api_key: HashedPartnerShopApiKey,
+    pub hashed_api_key: Option<HashedPartnerShopApiKey>,
     pub shop_id: ShopId,
     pub shop_slug_id: SlugId<0>,
     pub name: ShopName,
@@ -29,7 +29,7 @@ mod faker {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let name: ShopName = config.fake_with_rng(rng);
             PartnerShop {
-                hashed_api_key: config.fake_with_rng(rng),
+                hashed_api_key: Some(config.fake_with_rng(rng)),
                 shop_id: config.fake_with_rng(rng),
                 shop_slug_id: SlugId::from(name.as_ref()),
                 name,

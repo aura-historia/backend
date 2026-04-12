@@ -187,10 +187,12 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
         use std::sync::OnceLock;
         static PARTNER_SHOP_CACHE: OnceLock<PartnerShop> = OnceLock::new();
 
-        if let Some(cached) = PARTNER_SHOP_CACHE
-            .get()
-            .filter(|c| c.shop_id == *shop_id && api_key.check(&c.hashed_api_key))
-        {
+        if let Some(cached) = PARTNER_SHOP_CACHE.get().filter(|c| {
+            c.shop_id == *shop_id
+                && c.hashed_api_key
+                    .as_ref()
+                    .is_some_and(|h| api_key.check(h))
+        }) {
             return Ok(cached.clone());
         }
 
@@ -201,16 +203,15 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
             .map_err(VerifyPartnerShopError::SdkGetItemError)?
             .ok_or(VerifyPartnerShopError::ShopNotFound(*shop_id))?;
 
-        if shop_record.partner_api_key_short.is_none()
-            || shop_record.partner_api_key_long_hash.is_none()
-        {
+        if shop_record.partner_user_id.is_none() {
             return Err(VerifyPartnerShopError::NotAPartnerShop(*shop_id));
         }
 
         let partner_shop = PartnerShop::try_from(shop_record)?;
 
-        if !api_key.check(&partner_shop.hashed_api_key) {
-            return Err(VerifyPartnerShopError::ApiKeyMismatch(*shop_id));
+        match &partner_shop.hashed_api_key {
+            Some(hashed) if api_key.check(hashed) => {}
+            _ => return Err(VerifyPartnerShopError::ApiKeyMismatch(*shop_id)),
         }
 
         let _ = PARTNER_SHOP_CACHE.set(partner_shop.clone());
@@ -378,11 +379,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_not_partner_when_shop_has_no_api_key() {
+    async fn should_return_not_partner_when_shop_has_no_partner_user_id() {
         let api_key = PartnerShopApiKey::new();
         let mut record: ShopRecord = Faker.fake();
-        record.partner_api_key_short = None;
-        record.partner_api_key_long_hash = None;
+        record.partner_user_id = None;
         let shop_id = record.shop_id;
 
         let mut repository = MockShopDynamoDbRepository::default();
