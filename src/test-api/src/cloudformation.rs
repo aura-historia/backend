@@ -55,6 +55,7 @@ const LAMBDA_BINARIES: &[&str] = &[
     "user-api",
     "partner-shop-application-api",
     "partner-shop-application-lambda",
+    "partner-api",
     "shop-api",
     "product-classification-api",
     "search-filter-api",

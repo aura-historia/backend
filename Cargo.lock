@@ -204,6 +204,7 @@ dependencies = [
  "notification",
  "notification-api",
  "notification-send",
+ "partner-api",
  "partner-shop-application",
  "partner-shop-application-api",
  "partner-shop-application-lambda",
@@ -4502,6 +4503,28 @@ dependencies = [
  "regex-syntax",
  "structmeta",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "partner-api"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.4.0",
+ "lambda_runtime",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "shop",
+ "test-api",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "user",
 ]
 
 [[package]]
