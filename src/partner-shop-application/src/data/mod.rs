@@ -1,4 +1,5 @@
 pub mod admin_patch_partner_shop_application_data;
+pub mod decision_data;
 pub mod get_partner_shop_application_data;
 pub mod partner_shop_application_state_data;
 pub mod patch_partner_shop_application_data;

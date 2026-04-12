@@ -54,6 +54,7 @@ const LAMBDA_BINARIES: &[&str] = &[
     "notification-api",
     "user-api",
     "partner-shop-application-api",
+    "partner-shop-application-lambda",
     "shop-api",
     "product-classification-api",
     "search-filter-api",
@@ -122,6 +123,7 @@ impl IntegrationTestService for Cloudformation {
             "apigatewayv2",
             "s3",
             "sesv2",
+            "stepfunctions",
         ]
     }
 

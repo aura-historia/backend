@@ -17,6 +17,7 @@ pub mod dynamodb_stream;
 pub mod error;
 pub mod event;
 pub mod event_id;
+pub mod execution_state;
 
 #[cfg(feature = "test-data")]
 pub mod fake;

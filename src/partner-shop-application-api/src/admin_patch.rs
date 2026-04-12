@@ -39,7 +39,6 @@ pub async fn handle(
         })?;
 
     let update_cmd = UpdatePartnerShopApplicationCommand {
-        state: patch_data.state.map(Into::into),
         shop_name: patch_data.shop_name,
         shop_type: patch_data.shop_type.map(Into::into),
         shop_domains: patch_data.shop_domains,

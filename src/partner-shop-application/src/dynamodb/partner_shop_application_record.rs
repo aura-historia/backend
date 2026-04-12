@@ -8,6 +8,7 @@ use crate::dynamodb::{
     partner_shop_application_payload_type_record::PartnerShopApplicationPayloadTypeRecord,
     partner_shop_application_state_record::PartnerShopApplicationStateRecord,
 };
+use common::execution_state::record::ExecutionStateRecord;
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, user_id::UserId};
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -23,7 +24,8 @@ pub struct PartnerShopApplicationRecord {
     pub gsi1_pk: String,
     pub gsi1_sk: String,
     pub id: PartnerShopApplicationId,
-    pub state: PartnerShopApplicationStateRecord,
+    pub business_state: PartnerShopApplicationStateRecord,
+    pub execution_state: ExecutionStateRecord,
     pub applicant_user_id: UserId,
     pub payload_type: PartnerShopApplicationPayloadTypeRecord,
 
@@ -41,6 +43,9 @@ pub struct PartnerShopApplicationRecord {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shop_image: Option<Url>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub task_token: Option<String>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -92,7 +97,8 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
             gsi1_pk: mk_gsi1_pk().to_owned(),
             gsi1_sk: mk_gsi1_sk(&application.id),
             id: application.id,
-            state: application.state.into(),
+            business_state: application.business_state.into(),
+            execution_state: application.execution_state.into(),
             applicant_user_id: application.applicant_user_id,
             payload_type,
             existing_shop_id,
@@ -100,6 +106,7 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
             shop_type,
             shop_domains,
             shop_image,
+            task_token: None,
             created: application.created,
             updated: application.updated,
         }
@@ -138,7 +145,8 @@ impl TryFrom<PartnerShopApplicationRecord> for PartnerShopApplication {
 
         Ok(PartnerShopApplication {
             id: record.id,
-            state: record.state.into(),
+            business_state: record.business_state.into(),
+            execution_state: record.execution_state.into(),
             applicant_user_id: record.applicant_user_id,
             payload,
             created: record.created,
@@ -174,7 +182,8 @@ mod faker {
         fn should_convert_domain_to_record_and_back_for_existing_payload() {
             let application = PartnerShopApplication {
                 id: PartnerShopApplicationId::new(),
-                state: crate::core::partner_shop_application_state::PartnerShopApplicationState::Submitted,
+                business_state: crate::core::partner_shop_application_state::PartnerShopApplicationState::Submitted,
+                execution_state: common::execution_state::ExecutionState::Processing,
                 applicant_user_id: UserId::new(),
                 payload: PartnerShopApplicationPayload::Existing(ShopId::new()),
                 created: OffsetDateTime::now_utc(),
@@ -185,7 +194,8 @@ mod faker {
             let converted: PartnerShopApplication = record.try_into().unwrap();
 
             assert_eq!(application.id, converted.id);
-            assert_eq!(application.state, converted.state);
+            assert_eq!(application.business_state, converted.business_state);
+            assert_eq!(application.execution_state, converted.execution_state);
             assert_eq!(application.applicant_user_id, converted.applicant_user_id);
             assert_eq!(application.payload, converted.payload);
         }
@@ -204,7 +214,8 @@ mod faker {
 
             let application = PartnerShopApplication {
                 id: PartnerShopApplicationId::new(),
-                state: crate::core::partner_shop_application_state::PartnerShopApplicationState::InReview,
+                business_state: crate::core::partner_shop_application_state::PartnerShopApplicationState::InReview,
+                execution_state: common::execution_state::ExecutionState::Waiting,
                 applicant_user_id: UserId::new(),
                 payload: PartnerShopApplicationPayload::New(cmd),
                 created: OffsetDateTime::now_utc(),
@@ -215,7 +226,8 @@ mod faker {
             let converted: PartnerShopApplication = record.try_into().unwrap();
 
             assert_eq!(application.id, converted.id);
-            assert_eq!(application.state, converted.state);
+            assert_eq!(application.business_state, converted.business_state);
+            assert_eq!(application.execution_state, converted.execution_state);
             assert_eq!(application.applicant_user_id, converted.applicant_user_id);
             assert_eq!(application.payload, converted.payload);
         }

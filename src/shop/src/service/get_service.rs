@@ -254,6 +254,7 @@ mod tests {
         error::{ConnectorError, SdkError},
     };
     use common::shop_id::ShopId;
+    use common::user_id::UserId;
     use fake::{Fake, Faker};
 
     #[tokio::test]
@@ -332,6 +333,7 @@ mod tests {
         let mut record: ShopRecord = Faker.fake();
         record.partner_api_key_short = Some(hashed.short_token().to_string());
         record.partner_api_key_long_hash = Some(hashed.long_token_hash().to_string());
+        record.partner_user_id = Some(UserId::new());
         record
     }
 

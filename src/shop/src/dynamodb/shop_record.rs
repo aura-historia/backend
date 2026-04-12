@@ -2,7 +2,9 @@ use crate::core::partner_shop_api_key::HashedPartnerShopApiKey;
 use crate::core::{partner_shop::PartnerShop, shop::Shop};
 use crate::dynamodb::shop_type_record::ShopTypeRecord;
 use common::error::missing_field::MissingPersistenceField;
-use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
+use common::{
+    domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::UserId,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -32,6 +34,14 @@ pub struct ShopRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub partner_api_key_long_hash: Option<String>,
 
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub partner_user_id: Option<UserId>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub gsi1_pk: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub gsi1_sk: Option<String>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
 
@@ -55,6 +65,14 @@ pub fn mk_gsi2_sk() -> &'static str {
     "shop#lookup#shop_id"
 }
 
+pub fn mk_gsi1_pk(partner_user_id: &UserId) -> String {
+    format!("partner_user#{partner_user_id}")
+}
+
+pub fn mk_gsi1_sk(shop_id: &ShopId) -> String {
+    format!("partner_shop_id#{shop_id}")
+}
+
 impl From<Shop> for ShopRecord {
     fn from(shop: Shop) -> Self {
         ShopRecord {
@@ -70,6 +88,9 @@ impl From<Shop> for ShopRecord {
             image: shop.image,
             partner_api_key_short: None,
             partner_api_key_long_hash: None,
+            partner_user_id: None,
+            gsi1_pk: None,
+            gsi1_sk: None,
             created: shop.created,
             updated: shop.updated,
         }
@@ -108,6 +129,9 @@ impl TryFrom<ShopRecord> for PartnerShop {
         let partner_api_key_long_hash = value.partner_api_key_long_hash.ok_or_else(|| {
             MissingPersistenceField::new(field::field!(partner_api_key_long_hash@ShopRecord))
         })?;
+        let partner_user_id = value.partner_user_id.ok_or_else(|| {
+            MissingPersistenceField::new(field::field!(partner_user_id@ShopRecord))
+        })?;
 
         Ok(PartnerShop {
             shop_id: value.shop_id,
@@ -116,6 +140,7 @@ impl TryFrom<ShopRecord> for PartnerShop {
             shop_type: value.shop_type.into(),
             domains: value.domains,
             image: value.image,
+            partner_user_id,
             hashed_api_key: HashedPartnerShopApiKey::new(
                 partner_api_key_short,
                 partner_api_key_long_hash,
@@ -149,5 +174,22 @@ mod faker {
                 let _ = Faker.fake::<ShopRecord>();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod key_tests {
+    use super::*;
+
+    #[test]
+    fn should_format_gsi1_pk_correctly() {
+        let user_id = UserId::new();
+        assert_eq!(mk_gsi1_pk(&user_id), format!("partner_user#{user_id}"));
+    }
+
+    #[test]
+    fn should_format_gsi1_sk_correctly() {
+        let shop_id = ShopId::new();
+        assert_eq!(mk_gsi1_sk(&shop_id), format!("partner_shop_id#{shop_id}"));
     }
 }

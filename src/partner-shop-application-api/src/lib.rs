@@ -7,6 +7,7 @@ use lambda_runtime::LambdaEvent;
 use partner_shop_application::service::partner_shop_application_service::PartnerShopApplicationService;
 use user::service::user_service::UserService;
 
+mod admin_decision;
 mod admin_get_all;
 mod admin_get_one;
 mod admin_patch;
@@ -70,6 +71,9 @@ pub async fn handle(
         }
         Some("PATCH /api/v1/partner-applications/{partnerApplicationId}") => {
             admin_patch::handle(event, service, user_service).await
+        }
+        Some("POST /api/v1/partner-applications/{partnerApplicationId}/decision") => {
+            admin_decision::handle(event, service, user_service).await
         }
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,

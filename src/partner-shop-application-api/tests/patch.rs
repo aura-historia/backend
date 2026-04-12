@@ -21,7 +21,15 @@ use user::service::user_service::UserServiceImpl;
 async fn should_200_when_updating_application() {
     let repository =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = PartnerShopApplicationServiceImpl::new(&repository);
+    let mut sfn_adapter = partner_shop_application::service::sfn_adapter::MockSfnAdapter::default();
+    sfn_adapter
+        .expect_start_execution()
+        .returning(|_, _| Box::pin(async { Ok("foo".into()) }));
+    let service = PartnerShopApplicationServiceImpl::new(
+        &repository,
+        &sfn_adapter,
+        "arn:aws:states:us-east-1:123456789:stateMachine:test",
+    );
     let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
 
@@ -54,5 +62,8 @@ async fn should_200_when_updating_application() {
 
     let actual: GetPartnerShopApplicationData =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
-    assert_eq!(PartnerShopApplicationStateData::Submitted, actual.state);
+    assert_eq!(
+        PartnerShopApplicationStateData::Submitted,
+        actual.business_state
+    );
 }
