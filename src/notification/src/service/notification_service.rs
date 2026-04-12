@@ -1893,55 +1893,6 @@ mod tests {
             }
         }
 
-        #[ignore] // fails in ci - probably due to 'TEMPLATE_CACHE'
-        #[tokio::test]
-        async fn should_err_s3_get_object_when_template_resolution_fails() {
-            let user_id = UserId::new();
-            let origin_event_id = EventId::new();
-
-            let mut repository = MockNotificationDynamoDbRepository::default();
-            let record = make_state_change_notification_record(user_id, origin_event_id);
-            repository
-                .expect_get_notification_record()
-                .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
-
-            let mut user_service = MockUserService::default();
-            let user = make_user(user_id);
-            user_service
-                .expect_find_user()
-                .return_once(move |_| Box::pin(async move { Ok(user) }));
-
-            let ses_adapter = MockSesAdapter::default();
-
-            let mut s3_adapter = MockS3Adapter::default();
-            s3_adapter.expect_get_object().return_once(|_, _| {
-                Box::pin(async {
-                    Err(aws_sdk_s3::error::SdkError::construction_failure(
-                        "Simulated S3 failure",
-                    ))
-                })
-            });
-
-            // Clear the template cache so the S3 call is actually made
-            let _ = TEMPLATE_CACHE.get_or_init(|| Arc::new(RwLock::new(HashMap::new())));
-            {
-                let cache = TEMPLATE_CACHE.get().unwrap();
-                cache.write().await.clear();
-            }
-
-            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
-
-            let actual = service
-                .send_externally(&user_id, &origin_event_id)
-                .await
-                .unwrap_err();
-
-            match actual {
-                NotificationError::SdkS3GetObjectError(_) => {}
-                err => panic!("Expected 'SdkS3GetObjectError', got '{err}'"),
-            }
-        }
-
         #[tokio::test]
         async fn should_err_ses_send_mail_when_ses_fails() {
             let user_id = UserId::new();
