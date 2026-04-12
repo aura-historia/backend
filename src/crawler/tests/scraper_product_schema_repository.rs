@@ -11,7 +11,7 @@ use test_api::*;
 use time::OffsetDateTime;
 
 const RDS: Rds = Rds {
-    sql_setup_file: "src/crawler/sql/schema.sql",
+    migrations_dir: "src/crawler/migrations",
 };
 
 fn minimal_css_schema() -> ProductCssSelectorSchema {

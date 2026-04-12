@@ -1,7 +1,7 @@
 # Database
 
 All state is stored in PostgreSQL. The authoritative schema is defined by the versioned migrations
-in `src/crawler/migrations/`. The file `src/crawler/sql/schema.sql` is kept for reference only.
+in `src/crawler/migrations/`.
 
 ---
 

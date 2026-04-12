@@ -7,7 +7,7 @@ use crawler::spider::classification::url_metadata_repository::{
 use test_api::*;
 
 const RDS: Rds = Rds {
-    sql_setup_file: "src/crawler/sql/schema.sql",
+    migrations_dir: "src/crawler/migrations",
 };
 
 // ---------------------------------------------------------------------------
