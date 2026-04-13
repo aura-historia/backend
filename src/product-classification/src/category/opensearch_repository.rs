@@ -118,6 +118,7 @@ impl<'a> CategoryOpenSearchRepository for CategoryOpenSearchRepositoryImpl<'a> {
                 Language::Fr => CategoryDocumentSerdeField::DisplayNameFr.as_str(),
                 Language::Es => CategoryDocumentSerdeField::DisplayNameEs.as_str(),
                 Language::It => CategoryDocumentSerdeField::DisplayNameIt.as_str(),
+                _ => CategoryDocumentSerdeField::DisplayNameEn.as_str(),
             };
             must.push(json!({
                 "multi_match": {
@@ -139,6 +140,7 @@ impl<'a> CategoryOpenSearchRepository for CategoryOpenSearchRepositoryImpl<'a> {
                 Language::Fr => "displayNameFr.keyword",
                 Language::Es => "displayNameEs.keyword",
                 Language::It => "displayNameIt.keyword",
+                _ => "displayNameEn.keyword",
             },
             SortCategoryField::Created => CategoryDocumentSerdeField::Created.as_str(),
             SortCategoryField::Updated => CategoryDocumentSerdeField::Updated.as_str(),

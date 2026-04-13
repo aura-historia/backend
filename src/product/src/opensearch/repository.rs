@@ -293,6 +293,11 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
             ProductDocumentSerdeField::TitleIt,
             ProductDocumentSerdeField::DescriptionIt,
         ),
+        // Ingestion-only languages fall back to English for search
+        _ => (
+            ProductDocumentSerdeField::TitleEn,
+            ProductDocumentSerdeField::DescriptionEn,
+        ),
     };
 
     if let Some(product_query) = search.product_query.as_ref() {
