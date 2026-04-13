@@ -612,13 +612,35 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
         }
     }
 
-    Ok(json!({
-        "bool": {
-            "must": must,
-            "must_not": must_not,
-            "filter": filter
-        }
-    }))
+    // When there are no scoring clauses (no text query), a plain `bool` filter-only query
+    // produces a relevance score of 0.0 in OpenSearch. This falls below the percolation
+    // min_score threshold used in the search-filter percolator, which means filter-only
+    // search alerts (e.g. "state = Listed") would never trigger any matches.
+    //
+    // Wrapping in `constant_score` gives every matching document a fixed boost above the
+    // percolation min_score threshold (currently 3.1) so filter-only queries are returned
+    // correctly while text queries continue to use real BM25 relevance scoring.
+    if must.is_empty() {
+        Ok(json!({
+            "constant_score": {
+                "filter": {
+                    "bool": {
+                        "must_not": must_not,
+                        "filter": filter
+                    }
+                },
+                "boost": 4.0
+            }
+        }))
+    } else {
+        Ok(json!({
+            "bool": {
+                "must": must,
+                "must_not": must_not,
+                "filter": filter
+            }
+        }))
+    }
 }
 
 fn apply_any_of_filter<T: Hash + Eq + EnumCount>(
