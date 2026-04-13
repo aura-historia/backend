@@ -66,6 +66,14 @@ Four-tier lookup (see [LLM Integration — State Lookup Hierarchy](./llm-integra
 
 `StateTextTooLong` (and other normalization errors that indicate a wrong selector — bad price, empty title, etc.) feed back into the schema-fix flow in `ScraperServiceImpl` rather than being terminal failures. This means normalization errors can trigger an LLM schema correction, just like an `apply()` failure does.
 
+`NormalizationError::ShopsProductIdEmpty` and `PriceUnknownCurrency` are **not** routed into the schema-fix loop — see the Price and Shops Product ID subsections above.
+
+### Shops Product ID
+
+- Extracted from the page by the CSS selector schema field `shops_product_id`.
+- If the extracted value is blank after trimming, the full product page URL is used as a stable fallback identifier (infallible — normalization never fails on this field).
+- The fallback means `NormalizationError::ShopsProductIdEmpty` is never produced by the main pipeline and never triggers the schema-fix loop.
+
 ### Title
 - Language detected using `lingua` (language detection library).
 - Stored as `Localized<Title>` — a title tagged with its ISO 639-1 language code.
