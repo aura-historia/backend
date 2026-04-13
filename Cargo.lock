@@ -1497,6 +1497,7 @@ dependencies = [
  "lambda_runtime",
  "opensearch",
  "rstest",
+ "schemars 1.2.1",
  "serde",
  "serde_dynamo",
  "serde_json",

@@ -1,4 +1,5 @@
 use crate::scraper::css_selector::rule::{ExtractionError, ExtractionRule};
+use common::currency::domain::Currency;
 use common::shop_id::ShopId;
 use llm::chat::StructuredOutputFormat;
 use schemars::JsonSchema;
@@ -85,6 +86,18 @@ pub struct ProductCssSelectorSchema {
     #[schemars(description = "End-Date/Time of the auction for the product")]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub auction_end: Option<ExtractionRule>,
+
+    #[schemars(
+        description = "The default currency for this shop's prices, as an ISO 4217 code (e.g. \
+        \"EUR\", \"GBP\", \"USD\", \"AUD\", \"CAD\", \"NZD\"). \
+        Set this when the price elements on the page do not include a currency symbol or code \
+        themselves — for example when the currency appears in a sibling element \
+        (e.g. <span class=\"currency\">EUR</span>), a page-level label \
+        (\"Auction currency: EUR\"), a <meta> tag, or structured data (JSON-LD / microdata). \
+        Leave null only if the currency is always embedded in every price string."
+    )]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub default_currency: Option<Currency>,
 }
 
 /// Errors that can occur when applying a [`ProductCssSelectorSchema`] to an HTML document.
@@ -320,6 +333,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         };
         (parsed, schema)
     }
@@ -355,6 +369,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: Some(attr_rule("time#auction-start", "datetime")),
             auction_end: Some(attr_rule("time#auction-end", "datetime")),
+            default_currency: None,
         }
     }
 
@@ -448,6 +463,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(result.price_estimate_min, Some("800".to_string()));
@@ -474,6 +490,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(result.price_estimate_max, Some("1200".to_string()));
@@ -577,6 +594,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(result.price, Some("€ 100".to_string()));
@@ -608,6 +626,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(
@@ -645,6 +664,7 @@ mod tests {
             images: images_rule,
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(result.images, vec!["main.jpg", "thumb1.jpg", "thumb2.jpg"]);
@@ -689,6 +709,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -715,6 +736,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -741,6 +763,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -772,6 +795,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -799,6 +823,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -826,6 +851,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -853,6 +879,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -880,6 +907,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: Some(attr_rule("time#auction-start", "datetime")),
             auction_end: None,
+            default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -907,6 +935,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: Some(attr_rule("time#auction-end", "datetime")),
+            default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -946,6 +975,7 @@ mod tests {
                 images: good_img,
                 auction_start: None,
                 auction_end: None,
+                default_currency: None,
             },
             "title" => ProductCssSelectorSchema {
                 shops_product_id: good_id,
@@ -958,6 +988,7 @@ mod tests {
                 images: good_img,
                 auction_start: None,
                 auction_end: None,
+                default_currency: None,
             },
             "state" => ProductCssSelectorSchema {
                 shops_product_id: good_id,
@@ -970,6 +1001,7 @@ mod tests {
                 images: good_img,
                 auction_start: None,
                 auction_end: None,
+                default_currency: None,
             },
             "images" => ProductCssSelectorSchema {
                 shops_product_id: good_id,
@@ -982,6 +1014,7 @@ mod tests {
                 images: bad,
                 auction_start: None,
                 auction_end: None,
+                default_currency: None,
             },
             _ => unreachable!(),
         };
@@ -1012,6 +1045,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         };
         // We only care that the error exists and mentions the field name.
         let err = schema.apply(&html).unwrap_err();
@@ -1037,6 +1071,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(err.to_string().contains("price"), "{err}");
@@ -1067,6 +1102,7 @@ mod tests {
             images: attr_rule_all("div.gallery img", "src"),
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(result.images, vec!["a.jpg", "b.jpg", "c.jpg"]);
@@ -1091,6 +1127,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -1150,6 +1187,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         };
         let result = schema.apply(&html).unwrap();
 

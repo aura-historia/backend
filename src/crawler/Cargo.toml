@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { workspace = true }
+common = { workspace = true, features = ["schemars"] }
 product = { workspace = true, features = ["dynamodb", "service", "data"] }
 product-classification = { workspace = true }
 shop = { workspace = true, features = ["opensearch", "service"] }
@@ -72,6 +72,7 @@ path = "src/demo.rs"
 [features]
 default = []
 test-data = ["common/test-data", "fake"]
+
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 libc = { workspace = true }
