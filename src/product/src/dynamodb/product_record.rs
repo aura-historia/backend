@@ -115,6 +115,30 @@ pub struct ProductRecord {
     pub price_cad: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_nzd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_cny: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_brl: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_pln: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_try: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_jpy: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_czk: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_rub: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_aed: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_sar: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_hkd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_sgd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_chf: Option<u64>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_estimate_min_native: Option<PriceRecord>,
@@ -130,6 +154,30 @@ pub struct ProductRecord {
     pub price_estimate_min_cad: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_estimate_min_nzd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_cny: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_brl: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_pln: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_try: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_jpy: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_czk: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_rub: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_aed: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_sar: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_hkd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_sgd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_chf: Option<u64>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_estimate_max_native: Option<PriceRecord>,
@@ -145,6 +193,30 @@ pub struct ProductRecord {
     pub price_estimate_max_cad: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_estimate_max_nzd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_cny: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_brl: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_pln: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_try: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_jpy: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_czk: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_rub: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_aed: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_sar: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_hkd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_sgd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_chf: Option<u64>,
 
     pub state: ProductStateRecord,
     pub url: Url,
@@ -303,6 +375,42 @@ impl From<ProductRecord> for Product {
         if let Some(price_eur) = record.price_nzd {
             other_price.insert(Currency::Nzd, price_eur.into());
         }
+        if let Some(val) = record.price_cny {
+            other_price.insert(Currency::Cny, val.into());
+        }
+        if let Some(val) = record.price_brl {
+            other_price.insert(Currency::Brl, val.into());
+        }
+        if let Some(val) = record.price_pln {
+            other_price.insert(Currency::Pln, val.into());
+        }
+        if let Some(val) = record.price_try {
+            other_price.insert(Currency::Try, val.into());
+        }
+        if let Some(val) = record.price_jpy {
+            other_price.insert(Currency::Jpy, val.into());
+        }
+        if let Some(val) = record.price_czk {
+            other_price.insert(Currency::Czk, val.into());
+        }
+        if let Some(val) = record.price_rub {
+            other_price.insert(Currency::Rub, val.into());
+        }
+        if let Some(val) = record.price_aed {
+            other_price.insert(Currency::Aed, val.into());
+        }
+        if let Some(val) = record.price_sar {
+            other_price.insert(Currency::Sar, val.into());
+        }
+        if let Some(val) = record.price_hkd {
+            other_price.insert(Currency::Hkd, val.into());
+        }
+        if let Some(val) = record.price_sgd {
+            other_price.insert(Currency::Sgd, val.into());
+        }
+        if let Some(val) = record.price_chf {
+            other_price.insert(Currency::Chf, val.into());
+        }
 
         let mut other_price_estimate_min = HashMap::with_capacity(Currency::COUNT);
         if let Some(price_eur) = record.price_estimate_min_eur {
@@ -323,6 +431,42 @@ impl From<ProductRecord> for Product {
         if let Some(price_eur) = record.price_estimate_min_nzd {
             other_price_estimate_min.insert(Currency::Nzd, price_eur.into());
         }
+        if let Some(val) = record.price_estimate_min_cny {
+            other_price_estimate_min.insert(Currency::Cny, val.into());
+        }
+        if let Some(val) = record.price_estimate_min_brl {
+            other_price_estimate_min.insert(Currency::Brl, val.into());
+        }
+        if let Some(val) = record.price_estimate_min_pln {
+            other_price_estimate_min.insert(Currency::Pln, val.into());
+        }
+        if let Some(val) = record.price_estimate_min_try {
+            other_price_estimate_min.insert(Currency::Try, val.into());
+        }
+        if let Some(val) = record.price_estimate_min_jpy {
+            other_price_estimate_min.insert(Currency::Jpy, val.into());
+        }
+        if let Some(val) = record.price_estimate_min_czk {
+            other_price_estimate_min.insert(Currency::Czk, val.into());
+        }
+        if let Some(val) = record.price_estimate_min_rub {
+            other_price_estimate_min.insert(Currency::Rub, val.into());
+        }
+        if let Some(val) = record.price_estimate_min_aed {
+            other_price_estimate_min.insert(Currency::Aed, val.into());
+        }
+        if let Some(val) = record.price_estimate_min_sar {
+            other_price_estimate_min.insert(Currency::Sar, val.into());
+        }
+        if let Some(val) = record.price_estimate_min_hkd {
+            other_price_estimate_min.insert(Currency::Hkd, val.into());
+        }
+        if let Some(val) = record.price_estimate_min_sgd {
+            other_price_estimate_min.insert(Currency::Sgd, val.into());
+        }
+        if let Some(val) = record.price_estimate_min_chf {
+            other_price_estimate_min.insert(Currency::Chf, val.into());
+        }
 
         let mut other_price_estimate_max = HashMap::with_capacity(Currency::COUNT);
         if let Some(price_eur) = record.price_estimate_max_eur {
@@ -342,6 +486,42 @@ impl From<ProductRecord> for Product {
         }
         if let Some(price_eur) = record.price_estimate_max_nzd {
             other_price_estimate_max.insert(Currency::Nzd, price_eur.into());
+        }
+        if let Some(val) = record.price_estimate_max_cny {
+            other_price_estimate_max.insert(Currency::Cny, val.into());
+        }
+        if let Some(val) = record.price_estimate_max_brl {
+            other_price_estimate_max.insert(Currency::Brl, val.into());
+        }
+        if let Some(val) = record.price_estimate_max_pln {
+            other_price_estimate_max.insert(Currency::Pln, val.into());
+        }
+        if let Some(val) = record.price_estimate_max_try {
+            other_price_estimate_max.insert(Currency::Try, val.into());
+        }
+        if let Some(val) = record.price_estimate_max_jpy {
+            other_price_estimate_max.insert(Currency::Jpy, val.into());
+        }
+        if let Some(val) = record.price_estimate_max_czk {
+            other_price_estimate_max.insert(Currency::Czk, val.into());
+        }
+        if let Some(val) = record.price_estimate_max_rub {
+            other_price_estimate_max.insert(Currency::Rub, val.into());
+        }
+        if let Some(val) = record.price_estimate_max_aed {
+            other_price_estimate_max.insert(Currency::Aed, val.into());
+        }
+        if let Some(val) = record.price_estimate_max_sar {
+            other_price_estimate_max.insert(Currency::Sar, val.into());
+        }
+        if let Some(val) = record.price_estimate_max_hkd {
+            other_price_estimate_max.insert(Currency::Hkd, val.into());
+        }
+        if let Some(val) = record.price_estimate_max_sgd {
+            other_price_estimate_max.insert(Currency::Sgd, val.into());
+        }
+        if let Some(val) = record.price_estimate_max_chf {
+            other_price_estimate_max.insert(Currency::Chf, val.into());
         }
 
         Product {
@@ -466,6 +646,18 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
             price_aud: event_record.new_price_aud,
             price_cad: event_record.new_price_cad,
             price_nzd: event_record.new_price_nzd,
+            price_cny: event_record.new_price_cny,
+            price_brl: event_record.new_price_brl,
+            price_pln: event_record.new_price_pln,
+            price_try: event_record.new_price_try,
+            price_jpy: event_record.new_price_jpy,
+            price_czk: event_record.new_price_czk,
+            price_rub: event_record.new_price_rub,
+            price_aed: event_record.new_price_aed,
+            price_sar: event_record.new_price_sar,
+            price_hkd: event_record.new_price_hkd,
+            price_sgd: event_record.new_price_sgd,
+            price_chf: event_record.new_price_chf,
             price_estimate_min_native: event_record.new_price_estimate_min_native,
             price_estimate_min_eur: event_record.new_price_estimate_min_eur,
             price_estimate_min_usd: event_record.new_price_estimate_min_usd,
@@ -473,6 +665,18 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
             price_estimate_min_aud: event_record.new_price_estimate_min_aud,
             price_estimate_min_cad: event_record.new_price_estimate_min_cad,
             price_estimate_min_nzd: event_record.new_price_estimate_min_nzd,
+            price_estimate_min_cny: event_record.new_price_estimate_min_cny,
+            price_estimate_min_brl: event_record.new_price_estimate_min_brl,
+            price_estimate_min_pln: event_record.new_price_estimate_min_pln,
+            price_estimate_min_try: event_record.new_price_estimate_min_try,
+            price_estimate_min_jpy: event_record.new_price_estimate_min_jpy,
+            price_estimate_min_czk: event_record.new_price_estimate_min_czk,
+            price_estimate_min_rub: event_record.new_price_estimate_min_rub,
+            price_estimate_min_aed: event_record.new_price_estimate_min_aed,
+            price_estimate_min_sar: event_record.new_price_estimate_min_sar,
+            price_estimate_min_hkd: event_record.new_price_estimate_min_hkd,
+            price_estimate_min_sgd: event_record.new_price_estimate_min_sgd,
+            price_estimate_min_chf: event_record.new_price_estimate_min_chf,
             price_estimate_max_native: event_record.new_price_estimate_max_native,
             price_estimate_max_eur: event_record.new_price_estimate_max_eur,
             price_estimate_max_usd: event_record.new_price_estimate_max_usd,
@@ -480,6 +684,18 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
             price_estimate_max_aud: event_record.new_price_estimate_max_aud,
             price_estimate_max_cad: event_record.new_price_estimate_max_cad,
             price_estimate_max_nzd: event_record.new_price_estimate_max_nzd,
+            price_estimate_max_cny: event_record.new_price_estimate_max_cny,
+            price_estimate_max_brl: event_record.new_price_estimate_max_brl,
+            price_estimate_max_pln: event_record.new_price_estimate_max_pln,
+            price_estimate_max_try: event_record.new_price_estimate_max_try,
+            price_estimate_max_jpy: event_record.new_price_estimate_max_jpy,
+            price_estimate_max_czk: event_record.new_price_estimate_max_czk,
+            price_estimate_max_rub: event_record.new_price_estimate_max_rub,
+            price_estimate_max_aed: event_record.new_price_estimate_max_aed,
+            price_estimate_max_sar: event_record.new_price_estimate_max_sar,
+            price_estimate_max_hkd: event_record.new_price_estimate_max_hkd,
+            price_estimate_max_sgd: event_record.new_price_estimate_max_sgd,
+            price_estimate_max_chf: event_record.new_price_estimate_max_chf,
             state: event_record.new_state.ok_or_else(|| {
                 MissingPersistenceField::new(field!(new_state@ProductDomainEventRecord))
             })?,
@@ -588,6 +804,18 @@ mod faker {
                 price_aud: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_cad: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_nzd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_cny: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_brl: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_pln: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_try: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_jpy: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_czk: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_rub: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_aed: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_sar: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_hkd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_sgd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_chf: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_estimate_min_native: Some(config.fake_with_rng::<Price, _>(rng).into()),
                 price_estimate_min_eur: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_estimate_min_usd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
@@ -595,6 +823,18 @@ mod faker {
                 price_estimate_min_aud: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_estimate_min_cad: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_estimate_min_nzd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_cny: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_brl: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_pln: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_try: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_jpy: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_czk: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_rub: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_aed: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_sar: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_hkd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_sgd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_chf: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_estimate_max_native: Some(config.fake_with_rng::<Price, _>(rng).into()),
                 price_estimate_max_eur: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_estimate_max_usd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
@@ -602,6 +842,18 @@ mod faker {
                 price_estimate_max_aud: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_estimate_max_cad: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_estimate_max_nzd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_cny: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_brl: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_pln: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_try: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_jpy: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_czk: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_rub: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_aed: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_sar: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_hkd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_sgd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_chf: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 state,
                 url: Url::parse(&format!(
                     "https://foo.bar/item/{}",

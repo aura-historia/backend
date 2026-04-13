@@ -675,83 +675,17 @@ impl From<Notification> for NotificationRecord {
 
 fn build_price_map(
     native: Option<PriceRecord>,
-    eur: Option<u64>,
-    usd: Option<u64>,
-    gbp: Option<u64>,
-    aud: Option<u64>,
-    cad: Option<u64>,
-    nzd: Option<u64>,
-    cny: Option<u64>,
-    brl: Option<u64>,
-    pln: Option<u64>,
-    try_: Option<u64>,
-    jpy: Option<u64>,
-    czk: Option<u64>,
-    rub: Option<u64>,
-    aed: Option<u64>,
-    sar: Option<u64>,
-    hkd: Option<u64>,
-    sgd: Option<u64>,
-    chf: Option<u64>,
+    currency_amounts: &[(Currency, Option<u64>)],
 ) -> HashMap<Currency, MonetaryAmount> {
     let mut map = HashMap::new();
     if let Some(native) = native {
         let price: Price = native.into();
         map.insert(price.currency, price.monetary_amount);
     }
-    if let Some(v) = eur {
-        map.insert(Currency::Eur, MonetaryAmount::from(v));
-    }
-    if let Some(v) = usd {
-        map.insert(Currency::Usd, MonetaryAmount::from(v));
-    }
-    if let Some(v) = gbp {
-        map.insert(Currency::Gbp, MonetaryAmount::from(v));
-    }
-    if let Some(v) = aud {
-        map.insert(Currency::Aud, MonetaryAmount::from(v));
-    }
-    if let Some(v) = cad {
-        map.insert(Currency::Cad, MonetaryAmount::from(v));
-    }
-    if let Some(v) = nzd {
-        map.insert(Currency::Nzd, MonetaryAmount::from(v));
-    }
-    if let Some(v) = cny {
-        map.insert(Currency::Cny, MonetaryAmount::from(v));
-    }
-    if let Some(v) = brl {
-        map.insert(Currency::Brl, MonetaryAmount::from(v));
-    }
-    if let Some(v) = pln {
-        map.insert(Currency::Pln, MonetaryAmount::from(v));
-    }
-    if let Some(v) = try_ {
-        map.insert(Currency::Try, MonetaryAmount::from(v));
-    }
-    if let Some(v) = jpy {
-        map.insert(Currency::Jpy, MonetaryAmount::from(v));
-    }
-    if let Some(v) = czk {
-        map.insert(Currency::Czk, MonetaryAmount::from(v));
-    }
-    if let Some(v) = rub {
-        map.insert(Currency::Rub, MonetaryAmount::from(v));
-    }
-    if let Some(v) = aed {
-        map.insert(Currency::Aed, MonetaryAmount::from(v));
-    }
-    if let Some(v) = sar {
-        map.insert(Currency::Sar, MonetaryAmount::from(v));
-    }
-    if let Some(v) = hkd {
-        map.insert(Currency::Hkd, MonetaryAmount::from(v));
-    }
-    if let Some(v) = sgd {
-        map.insert(Currency::Sgd, MonetaryAmount::from(v));
-    }
-    if let Some(v) = chf {
-        map.insert(Currency::Chf, MonetaryAmount::from(v));
+    for &(currency, amount) in currency_amounts {
+        if let Some(v) = amount {
+            map.insert(currency, MonetaryAmount::from(v));
+        }
     }
     map
 }
@@ -868,45 +802,49 @@ impl TryFrom<NotificationRecord> for Notification {
                     NotificationWatchlistPayload::PriceChange {
                         old_price: build_price_map(
                             record.old_price_native,
-                            record.old_price_eur,
-                            record.old_price_usd,
-                            record.old_price_gbp,
-                            record.old_price_aud,
-                            record.old_price_cad,
-                            record.old_price_nzd,
-                            record.old_price_cny,
-                            record.old_price_brl,
-                            record.old_price_pln,
-                            record.old_price_try,
-                            record.old_price_jpy,
-                            record.old_price_czk,
-                            record.old_price_rub,
-                            record.old_price_aed,
-                            record.old_price_sar,
-                            record.old_price_hkd,
-                            record.old_price_sgd,
-                            record.old_price_chf,
+                            &[
+                                (Currency::Eur, record.old_price_eur),
+                                (Currency::Usd, record.old_price_usd),
+                                (Currency::Gbp, record.old_price_gbp),
+                                (Currency::Aud, record.old_price_aud),
+                                (Currency::Cad, record.old_price_cad),
+                                (Currency::Nzd, record.old_price_nzd),
+                                (Currency::Cny, record.old_price_cny),
+                                (Currency::Brl, record.old_price_brl),
+                                (Currency::Pln, record.old_price_pln),
+                                (Currency::Try, record.old_price_try),
+                                (Currency::Jpy, record.old_price_jpy),
+                                (Currency::Czk, record.old_price_czk),
+                                (Currency::Rub, record.old_price_rub),
+                                (Currency::Aed, record.old_price_aed),
+                                (Currency::Sar, record.old_price_sar),
+                                (Currency::Hkd, record.old_price_hkd),
+                                (Currency::Sgd, record.old_price_sgd),
+                                (Currency::Chf, record.old_price_chf),
+                            ],
                         ),
                         new_price: build_price_map(
                             record.new_price_native,
-                            record.new_price_eur,
-                            record.new_price_usd,
-                            record.new_price_gbp,
-                            record.new_price_aud,
-                            record.new_price_cad,
-                            record.new_price_nzd,
-                            record.new_price_cny,
-                            record.new_price_brl,
-                            record.new_price_pln,
-                            record.new_price_try,
-                            record.new_price_jpy,
-                            record.new_price_czk,
-                            record.new_price_rub,
-                            record.new_price_aed,
-                            record.new_price_sar,
-                            record.new_price_hkd,
-                            record.new_price_sgd,
-                            record.new_price_chf,
+                            &[
+                                (Currency::Eur, record.new_price_eur),
+                                (Currency::Usd, record.new_price_usd),
+                                (Currency::Gbp, record.new_price_gbp),
+                                (Currency::Aud, record.new_price_aud),
+                                (Currency::Cad, record.new_price_cad),
+                                (Currency::Nzd, record.new_price_nzd),
+                                (Currency::Cny, record.new_price_cny),
+                                (Currency::Brl, record.new_price_brl),
+                                (Currency::Pln, record.new_price_pln),
+                                (Currency::Try, record.new_price_try),
+                                (Currency::Jpy, record.new_price_jpy),
+                                (Currency::Czk, record.new_price_czk),
+                                (Currency::Rub, record.new_price_rub),
+                                (Currency::Aed, record.new_price_aed),
+                                (Currency::Sar, record.new_price_sar),
+                                (Currency::Hkd, record.new_price_hkd),
+                                (Currency::Sgd, record.new_price_sgd),
+                                (Currency::Chf, record.new_price_chf),
+                            ],
                         ),
                     }
                 };
