@@ -130,19 +130,46 @@ impl Currency {
 
     pub fn decimal_separator(&self) -> &'static str {
         match self {
-            Currency::Eur | Currency::Brl | Currency::Pln | Currency::Try | Currency::Czk | Currency::Rub => ",",
-            Currency::Gbp | Currency::Usd | Currency::Aud | Currency::Cad | Currency::Nzd
-            | Currency::Cny | Currency::Jpy | Currency::Aed | Currency::Sar | Currency::Hkd
-            | Currency::Sgd | Currency::Chf => ".",
+            Currency::Eur
+            | Currency::Brl
+            | Currency::Pln
+            | Currency::Try
+            | Currency::Czk
+            | Currency::Rub => ",",
+            Currency::Gbp
+            | Currency::Usd
+            | Currency::Aud
+            | Currency::Cad
+            | Currency::Nzd
+            | Currency::Cny
+            | Currency::Jpy
+            | Currency::Aed
+            | Currency::Sar
+            | Currency::Hkd
+            | Currency::Sgd
+            | Currency::Chf => ".",
         }
     }
 
     pub fn is_leading_sign(&self) -> bool {
         match self {
-            Currency::Eur | Currency::Pln | Currency::Try | Currency::Czk | Currency::Rub
-            | Currency::Aed | Currency::Sar => false,
-            Currency::Gbp | Currency::Usd | Currency::Aud | Currency::Cad | Currency::Nzd
-            | Currency::Cny | Currency::Brl | Currency::Jpy | Currency::Hkd | Currency::Sgd
+            Currency::Eur
+            | Currency::Pln
+            | Currency::Try
+            | Currency::Czk
+            | Currency::Rub
+            | Currency::Aed
+            | Currency::Sar => false,
+            Currency::Gbp
+            | Currency::Usd
+            | Currency::Aud
+            | Currency::Cad
+            | Currency::Nzd
+            | Currency::Cny
+            | Currency::Brl
+            | Currency::Jpy
+            | Currency::Hkd
+            | Currency::Sgd
             | Currency::Chf => true,
         }
     }
@@ -179,10 +206,23 @@ impl HasMinorUnitExponent for Currency {
     fn minor_unit_exponent(&self) -> MinorUnitExponent {
         match self {
             Currency::Jpy => MinorUnitExponent(0),
-            Currency::Eur | Currency::Gbp | Currency::Usd | Currency::Aud | Currency::Cad
-            | Currency::Nzd | Currency::Cny | Currency::Brl | Currency::Pln | Currency::Try
-            | Currency::Czk | Currency::Rub | Currency::Aed | Currency::Sar | Currency::Hkd
-            | Currency::Sgd | Currency::Chf => MinorUnitExponent(2),
+            Currency::Eur
+            | Currency::Gbp
+            | Currency::Usd
+            | Currency::Aud
+            | Currency::Cad
+            | Currency::Nzd
+            | Currency::Cny
+            | Currency::Brl
+            | Currency::Pln
+            | Currency::Try
+            | Currency::Czk
+            | Currency::Rub
+            | Currency::Aed
+            | Currency::Sar
+            | Currency::Hkd
+            | Currency::Sgd
+            | Currency::Chf => MinorUnitExponent(2),
         }
     }
 }

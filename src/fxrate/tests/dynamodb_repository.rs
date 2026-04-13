@@ -1,7 +1,10 @@
+use common::currency::domain::Currency;
 use fxrate::dynamodb::{
-    record::{FxRatesRecord, mk_pk, mk_sk},
+    record::{FxRatesRecord, mk_pk, mk_sk, rate_key},
     repository::{FxRateDynamoDbRepository, FxRateDynamoDbRepositoryImpl},
 };
+use std::collections::HashMap;
+use strum::IntoEnumIterator;
 use test_api::*;
 use time::OffsetDateTime;
 
@@ -16,39 +19,18 @@ async fn should_get_none_when_not_exists() {
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_put_then_get_some_when_exists() {
+    let mut rates = HashMap::new();
+    for src in Currency::iter() {
+        for tgt in Currency::iter() {
+            if src != tgt {
+                rates.insert(rate_key(&src, &tgt), 1_234_567u64);
+            }
+        }
+    }
     let fx_rates_record = FxRatesRecord {
         pk: mk_pk().to_owned(),
         sk: mk_sk().to_owned(),
-        eur_gbp: 1_234_567,
-        eur_usd: 1_234_567,
-        eur_aud: 1_234_567,
-        eur_cad: 1_234_567,
-        eur_nzd: 1_234_567,
-        gbp_eur: 1_234_567,
-        gbp_usd: 1_234_567,
-        gbp_aud: 1_234_567,
-        gbp_cad: 1_234_567,
-        gbp_nzd: 1_234_567,
-        usd_eur: 1_234_567,
-        usd_gbp: 1_234_567,
-        usd_aud: 1_234_567,
-        usd_cad: 1_234_567,
-        usd_nzd: 1_234_567,
-        aud_eur: 1_234_567,
-        aud_gbp: 1_234_567,
-        aud_usd: 1_234_567,
-        aud_cad: 1_234_567,
-        aud_nzd: 1_234_567,
-        cad_eur: 1_234_567,
-        cad_gbp: 1_234_567,
-        cad_usd: 1_234_567,
-        cad_aud: 1_234_567,
-        cad_nzd: 1_234_567,
-        nzd_eur: 1_234_567,
-        nzd_gbp: 1_234_669,
-        nzd_usd: 1_234_567,
-        nzd_aud: 10_234_567,
-        nzd_cad: 85_234_678,
+        rates,
         timestamp: OffsetDateTime::now_utc(),
     };
     let repository = FxRateDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
