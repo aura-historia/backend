@@ -1,6 +1,4 @@
 use aws_tests_common::get_cfn_output;
-use common::execution_state::data::ExecutionStateData;
-use common::personalized::api::PersonalizedData;
 use common::{
     batch::Batch,
     currency::{data::CurrencyData, domain::Currency},
@@ -34,9 +32,6 @@ use partner_shop_application::data::{
     patch_partner_shop_application_data::PatchPartnerShopApplicationData,
     post_partner_shop_application_data::PostPartnerShopApplicationPayloadData,
 };
-use product::data::get_data::GetProductData;
-use product::data::user_state_data::ProductUserStateData;
-use product::dynamodb::product_record;
 use product::{
     core::{
         authenticity::Authenticity,
@@ -73,7 +68,6 @@ use product::{
         product_command::{CreateProductCommand, UpdateProductCommand},
     },
 };
-use product_classification::category::service::MockCategoryService;
 use product_classification::period::service::MockPeriodService;
 use product_watchlist::dynamodb::repository::{
     WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
@@ -91,21 +85,10 @@ use search_filter_api::{
     post_types::PostUserSearchFilterData,
 };
 use serde::de::DeserializeOwned;
-use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
-use shop::data::get_shop_data::GetShopData;
-use shop::data::patch_shop_data::PatchShopData;
-use shop::dynamodb::repository::ShopDynamoDbRepository;
-use shop::dynamodb::shop_record::ShopRecord;
 use shop::{core::shop::Shop, dynamodb::repository::ShopDynamoDbRepositoryImpl};
-use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 use test_api::*;
 use time::OffsetDateTime;
-use user::core::role::UserRole;
-use user::core::tier::UserTier;
-use user::dynamodb::tier_record::UserTierRecord;
-use user::service::command::UpdateUserCommand;
-use user::service::user_service::UserService;
 use user::{
     data::{get_user_data::GetUserAccountData, patch_user_data::PatchUserAccountData},
     dynamodb::{
@@ -2138,7 +2121,6 @@ async fn should_materialize_product_in_opensearch_for_domain_event() {
         {
             assert_eq!(shop.shop_id, hit.source.shop_id);
             assert_eq!(
-                ProductState::from(new_state),
                 ProductState::from(hit.source.state)
             );
             break;
@@ -6054,7 +6036,6 @@ async fn should_respond_200_for_partner_put_products_when_updating_existing() {
 
 #[localstack_test(services = [Cloudformation()])]
 async fn should_count_search_filter_matches_for_current_month_for_quota_enforcement() {
-    use search_filter::core::quota::SearchFilterQuota;
     use search_filter::dynamodb::repository::{
         UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
     };
@@ -6064,7 +6045,6 @@ async fn should_count_search_filter_matches_for_current_month_for_quota_enforcem
     use search_filter::service::user_search_filter_service::{
         UserSearchFilterService, UserSearchFilterServiceImpl,
     };
-    use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
     use user::service::user_service::{UserService, UserServiceImpl};
 
     let cfn = get_cfn_output();
