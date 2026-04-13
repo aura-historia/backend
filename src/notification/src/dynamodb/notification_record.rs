@@ -101,6 +101,30 @@ pub struct NotificationRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub new_price_nzd: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_cny: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_brl: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_pln: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_try: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_jpy: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_czk: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_rub: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_aed: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_sar: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_hkd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_sgd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_chf: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub old_price_native: Option<PriceRecord>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub old_price_eur: Option<u64>,
@@ -114,6 +138,30 @@ pub struct NotificationRecord {
     pub old_price_cad: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub old_price_nzd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub old_price_cny: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub old_price_brl: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub old_price_pln: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub old_price_try: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub old_price_jpy: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub old_price_czk: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub old_price_rub: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub old_price_aed: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub old_price_sar: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub old_price_hkd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub old_price_sgd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub old_price_chf: Option<u64>,
     // state-change
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub new_state: Option<ProductStateRecord>,
@@ -227,6 +275,18 @@ impl From<Notification> for NotificationRecord {
                     new_price_aud,
                     new_price_cad,
                     new_price_nzd,
+                    new_price_cny,
+                    new_price_brl,
+                    new_price_pln,
+                    new_price_try,
+                    new_price_jpy,
+                    new_price_czk,
+                    new_price_rub,
+                    new_price_aed,
+                    new_price_sar,
+                    new_price_hkd,
+                    new_price_sgd,
+                    new_price_chf,
                     old_price_native,
                     old_price_eur,
                     old_price_usd,
@@ -234,6 +294,18 @@ impl From<Notification> for NotificationRecord {
                     old_price_aud,
                     old_price_cad,
                     old_price_nzd,
+                    old_price_cny,
+                    old_price_brl,
+                    old_price_pln,
+                    old_price_try,
+                    old_price_jpy,
+                    old_price_czk,
+                    old_price_rub,
+                    old_price_aed,
+                    old_price_sar,
+                    old_price_hkd,
+                    old_price_sgd,
+                    old_price_chf,
                     new_state,
                     old_state,
                 ) = match &watchlist_payload {
@@ -261,6 +333,18 @@ impl From<Notification> for NotificationRecord {
                             extract_currency_amount(new_price, &Currency::Aud),
                             extract_currency_amount(new_price, &Currency::Cad),
                             extract_currency_amount(new_price, &Currency::Nzd),
+                            extract_currency_amount(new_price, &Currency::Cny),
+                            extract_currency_amount(new_price, &Currency::Brl),
+                            extract_currency_amount(new_price, &Currency::Pln),
+                            extract_currency_amount(new_price, &Currency::Try),
+                            extract_currency_amount(new_price, &Currency::Jpy),
+                            extract_currency_amount(new_price, &Currency::Czk),
+                            extract_currency_amount(new_price, &Currency::Rub),
+                            extract_currency_amount(new_price, &Currency::Aed),
+                            extract_currency_amount(new_price, &Currency::Sar),
+                            extract_currency_amount(new_price, &Currency::Hkd),
+                            extract_currency_amount(new_price, &Currency::Sgd),
+                            extract_currency_amount(new_price, &Currency::Chf),
                             old_native,
                             extract_currency_amount(old_price, &Currency::Eur),
                             extract_currency_amount(old_price, &Currency::Usd),
@@ -268,6 +352,18 @@ impl From<Notification> for NotificationRecord {
                             extract_currency_amount(old_price, &Currency::Aud),
                             extract_currency_amount(old_price, &Currency::Cad),
                             extract_currency_amount(old_price, &Currency::Nzd),
+                            extract_currency_amount(old_price, &Currency::Cny),
+                            extract_currency_amount(old_price, &Currency::Brl),
+                            extract_currency_amount(old_price, &Currency::Pln),
+                            extract_currency_amount(old_price, &Currency::Try),
+                            extract_currency_amount(old_price, &Currency::Jpy),
+                            extract_currency_amount(old_price, &Currency::Czk),
+                            extract_currency_amount(old_price, &Currency::Rub),
+                            extract_currency_amount(old_price, &Currency::Aed),
+                            extract_currency_amount(old_price, &Currency::Sar),
+                            extract_currency_amount(old_price, &Currency::Hkd),
+                            extract_currency_amount(old_price, &Currency::Sgd),
+                            extract_currency_amount(old_price, &Currency::Chf),
                             None,
                             None,
                         )
@@ -276,6 +372,30 @@ impl From<Notification> for NotificationRecord {
                         old_state,
                         new_state,
                     } => (
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
                         None,
                         None,
                         None,
@@ -331,6 +451,18 @@ impl From<Notification> for NotificationRecord {
                     new_price_aud,
                     new_price_cad,
                     new_price_nzd,
+                    new_price_cny,
+                    new_price_brl,
+                    new_price_pln,
+                    new_price_try,
+                    new_price_jpy,
+                    new_price_czk,
+                    new_price_rub,
+                    new_price_aed,
+                    new_price_sar,
+                    new_price_hkd,
+                    new_price_sgd,
+                    new_price_chf,
                     old_price_native,
                     old_price_eur,
                     old_price_usd,
@@ -338,6 +470,18 @@ impl From<Notification> for NotificationRecord {
                     old_price_aud,
                     old_price_cad,
                     old_price_nzd,
+                    old_price_cny,
+                    old_price_brl,
+                    old_price_pln,
+                    old_price_try,
+                    old_price_jpy,
+                    old_price_czk,
+                    old_price_rub,
+                    old_price_aed,
+                    old_price_sar,
+                    old_price_hkd,
+                    old_price_sgd,
+                    old_price_chf,
                     new_state,
                     old_state,
                     created: notification.created,
@@ -395,6 +539,18 @@ impl From<Notification> for NotificationRecord {
                     new_price_aud: None,
                     new_price_cad: None,
                     new_price_nzd: None,
+                    new_price_cny: None,
+                    new_price_brl: None,
+                    new_price_pln: None,
+                    new_price_try: None,
+                    new_price_jpy: None,
+                    new_price_czk: None,
+                    new_price_rub: None,
+                    new_price_aed: None,
+                    new_price_sar: None,
+                    new_price_hkd: None,
+                    new_price_sgd: None,
+                    new_price_chf: None,
                     old_price_native: None,
                     old_price_eur: None,
                     old_price_usd: None,
@@ -402,6 +558,18 @@ impl From<Notification> for NotificationRecord {
                     old_price_aud: None,
                     old_price_cad: None,
                     old_price_nzd: None,
+                    old_price_cny: None,
+                    old_price_brl: None,
+                    old_price_pln: None,
+                    old_price_try: None,
+                    old_price_jpy: None,
+                    old_price_czk: None,
+                    old_price_rub: None,
+                    old_price_aed: None,
+                    old_price_sar: None,
+                    old_price_hkd: None,
+                    old_price_sgd: None,
+                    old_price_chf: None,
                     new_state: None,
                     old_state: None,
                     created: notification.created,
@@ -463,6 +631,18 @@ impl From<Notification> for NotificationRecord {
                     new_price_aud: None,
                     new_price_cad: None,
                     new_price_nzd: None,
+                    new_price_cny: None,
+                    new_price_brl: None,
+                    new_price_pln: None,
+                    new_price_try: None,
+                    new_price_jpy: None,
+                    new_price_czk: None,
+                    new_price_rub: None,
+                    new_price_aed: None,
+                    new_price_sar: None,
+                    new_price_hkd: None,
+                    new_price_sgd: None,
+                    new_price_chf: None,
                     old_price_native: None,
                     old_price_eur: None,
                     old_price_usd: None,
@@ -470,6 +650,18 @@ impl From<Notification> for NotificationRecord {
                     old_price_aud: None,
                     old_price_cad: None,
                     old_price_nzd: None,
+                    old_price_cny: None,
+                    old_price_brl: None,
+                    old_price_pln: None,
+                    old_price_try: None,
+                    old_price_jpy: None,
+                    old_price_czk: None,
+                    old_price_rub: None,
+                    old_price_aed: None,
+                    old_price_sar: None,
+                    old_price_hkd: None,
+                    old_price_sgd: None,
+                    old_price_chf: None,
                     new_state: None,
                     old_state: None,
                     created: notification.created,
@@ -489,6 +681,18 @@ fn build_price_map(
     aud: Option<u64>,
     cad: Option<u64>,
     nzd: Option<u64>,
+    cny: Option<u64>,
+    brl: Option<u64>,
+    pln: Option<u64>,
+    try_: Option<u64>,
+    jpy: Option<u64>,
+    czk: Option<u64>,
+    rub: Option<u64>,
+    aed: Option<u64>,
+    sar: Option<u64>,
+    hkd: Option<u64>,
+    sgd: Option<u64>,
+    chf: Option<u64>,
 ) -> HashMap<Currency, MonetaryAmount> {
     let mut map = HashMap::new();
     if let Some(native) = native {
@@ -512,6 +716,42 @@ fn build_price_map(
     }
     if let Some(v) = nzd {
         map.insert(Currency::Nzd, MonetaryAmount::from(v));
+    }
+    if let Some(v) = cny {
+        map.insert(Currency::Cny, MonetaryAmount::from(v));
+    }
+    if let Some(v) = brl {
+        map.insert(Currency::Brl, MonetaryAmount::from(v));
+    }
+    if let Some(v) = pln {
+        map.insert(Currency::Pln, MonetaryAmount::from(v));
+    }
+    if let Some(v) = try_ {
+        map.insert(Currency::Try, MonetaryAmount::from(v));
+    }
+    if let Some(v) = jpy {
+        map.insert(Currency::Jpy, MonetaryAmount::from(v));
+    }
+    if let Some(v) = czk {
+        map.insert(Currency::Czk, MonetaryAmount::from(v));
+    }
+    if let Some(v) = rub {
+        map.insert(Currency::Rub, MonetaryAmount::from(v));
+    }
+    if let Some(v) = aed {
+        map.insert(Currency::Aed, MonetaryAmount::from(v));
+    }
+    if let Some(v) = sar {
+        map.insert(Currency::Sar, MonetaryAmount::from(v));
+    }
+    if let Some(v) = hkd {
+        map.insert(Currency::Hkd, MonetaryAmount::from(v));
+    }
+    if let Some(v) = sgd {
+        map.insert(Currency::Sgd, MonetaryAmount::from(v));
+    }
+    if let Some(v) = chf {
+        map.insert(Currency::Chf, MonetaryAmount::from(v));
     }
     map
 }
@@ -634,6 +874,18 @@ impl TryFrom<NotificationRecord> for Notification {
                             record.old_price_aud,
                             record.old_price_cad,
                             record.old_price_nzd,
+                            record.old_price_cny,
+                            record.old_price_brl,
+                            record.old_price_pln,
+                            record.old_price_try,
+                            record.old_price_jpy,
+                            record.old_price_czk,
+                            record.old_price_rub,
+                            record.old_price_aed,
+                            record.old_price_sar,
+                            record.old_price_hkd,
+                            record.old_price_sgd,
+                            record.old_price_chf,
                         ),
                         new_price: build_price_map(
                             record.new_price_native,
@@ -643,6 +895,18 @@ impl TryFrom<NotificationRecord> for Notification {
                             record.new_price_aud,
                             record.new_price_cad,
                             record.new_price_nzd,
+                            record.new_price_cny,
+                            record.new_price_brl,
+                            record.new_price_pln,
+                            record.new_price_try,
+                            record.new_price_jpy,
+                            record.new_price_czk,
+                            record.new_price_rub,
+                            record.new_price_aed,
+                            record.new_price_sar,
+                            record.new_price_hkd,
+                            record.new_price_sgd,
+                            record.new_price_chf,
                         ),
                     }
                 };
@@ -720,6 +984,18 @@ mod faker {
                 new_price_aud: None,
                 new_price_cad: None,
                 new_price_nzd: None,
+                new_price_cny: None,
+                new_price_brl: None,
+                new_price_pln: None,
+                new_price_try: None,
+                new_price_jpy: None,
+                new_price_czk: None,
+                new_price_rub: None,
+                new_price_aed: None,
+                new_price_sar: None,
+                new_price_hkd: None,
+                new_price_sgd: None,
+                new_price_chf: None,
                 old_price_native: None,
                 old_price_eur: Some(config.fake_with_rng(rng)),
                 old_price_usd: None,
@@ -727,6 +1003,18 @@ mod faker {
                 old_price_aud: None,
                 old_price_cad: None,
                 old_price_nzd: None,
+                old_price_cny: None,
+                old_price_brl: None,
+                old_price_pln: None,
+                old_price_try: None,
+                old_price_jpy: None,
+                old_price_czk: None,
+                old_price_rub: None,
+                old_price_aed: None,
+                old_price_sar: None,
+                old_price_hkd: None,
+                old_price_sgd: None,
+                old_price_chf: None,
                 new_state: Some(config.fake_with_rng(rng)),
                 old_state: Some(config.fake_with_rng(rng)),
                 user_search_filter_id: None,
