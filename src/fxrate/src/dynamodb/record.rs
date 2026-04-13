@@ -5,6 +5,8 @@ use common::{
     },
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use strum::IntoEnumIterator;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -12,44 +14,19 @@ pub struct FxRatesRecord {
     pub pk: String,
     pub sk: String,
 
-    pub eur_gbp: Rate,
-    pub eur_usd: Rate,
-    pub eur_aud: Rate,
-    pub eur_cad: Rate,
-    pub eur_nzd: Rate,
-
-    pub gbp_eur: Rate,
-    pub gbp_usd: Rate,
-    pub gbp_aud: Rate,
-    pub gbp_cad: Rate,
-    pub gbp_nzd: Rate,
-
-    pub usd_eur: Rate,
-    pub usd_gbp: Rate,
-    pub usd_aud: Rate,
-    pub usd_cad: Rate,
-    pub usd_nzd: Rate,
-
-    pub aud_eur: Rate,
-    pub aud_gbp: Rate,
-    pub aud_usd: Rate,
-    pub aud_cad: Rate,
-    pub aud_nzd: Rate,
-
-    pub cad_eur: Rate,
-    pub cad_gbp: Rate,
-    pub cad_usd: Rate,
-    pub cad_aud: Rate,
-    pub cad_nzd: Rate,
-
-    pub nzd_eur: Rate,
-    pub nzd_gbp: Rate,
-    pub nzd_usd: Rate,
-    pub nzd_aud: Rate,
-    pub nzd_cad: Rate,
+    #[serde(flatten)]
+    pub rates: HashMap<String, Rate>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub timestamp: OffsetDateTime,
+}
+
+pub fn rate_key(from: &Currency, to: &Currency) -> String {
+    format!(
+        "{}_{}",
+        from.as_str().to_lowercase(),
+        to.as_str().to_lowercase()
+    )
 }
 
 pub fn mk_pk() -> &'static str {
@@ -62,49 +39,13 @@ pub fn mk_sk() -> &'static str {
 
 impl FxRatesRecord {
     fn get_rate(&self, from: Currency, to: Currency) -> Rate {
-        match (from, to) {
-            (Currency::Eur, Currency::Eur) => FX_RATE_SCALE,
-            (Currency::Eur, Currency::Usd) => self.eur_usd,
-            (Currency::Eur, Currency::Gbp) => self.eur_gbp,
-            (Currency::Eur, Currency::Aud) => self.eur_aud,
-            (Currency::Eur, Currency::Cad) => self.eur_cad,
-            (Currency::Eur, Currency::Nzd) => self.eur_nzd,
-
-            (Currency::Usd, Currency::Eur) => self.usd_eur,
-            (Currency::Usd, Currency::Gbp) => self.usd_gbp,
-            (Currency::Usd, Currency::Aud) => self.usd_aud,
-            (Currency::Usd, Currency::Cad) => self.usd_cad,
-            (Currency::Usd, Currency::Nzd) => self.usd_nzd,
-            (Currency::Usd, Currency::Usd) => FX_RATE_SCALE,
-
-            (Currency::Gbp, Currency::Eur) => self.gbp_eur,
-            (Currency::Gbp, Currency::Usd) => self.gbp_usd,
-            (Currency::Gbp, Currency::Aud) => self.gbp_aud,
-            (Currency::Gbp, Currency::Cad) => self.gbp_cad,
-            (Currency::Gbp, Currency::Nzd) => self.gbp_nzd,
-            (Currency::Gbp, Currency::Gbp) => FX_RATE_SCALE,
-
-            (Currency::Aud, Currency::Eur) => self.aud_eur,
-            (Currency::Aud, Currency::Usd) => self.aud_usd,
-            (Currency::Aud, Currency::Gbp) => self.aud_gbp,
-            (Currency::Aud, Currency::Cad) => self.aud_cad,
-            (Currency::Aud, Currency::Nzd) => self.aud_nzd,
-            (Currency::Aud, Currency::Aud) => FX_RATE_SCALE,
-
-            (Currency::Cad, Currency::Eur) => self.cad_eur,
-            (Currency::Cad, Currency::Usd) => self.cad_usd,
-            (Currency::Cad, Currency::Gbp) => self.cad_gbp,
-            (Currency::Cad, Currency::Aud) => self.cad_aud,
-            (Currency::Cad, Currency::Nzd) => self.cad_nzd,
-            (Currency::Cad, Currency::Cad) => FX_RATE_SCALE,
-
-            (Currency::Nzd, Currency::Eur) => self.nzd_eur,
-            (Currency::Nzd, Currency::Usd) => self.nzd_usd,
-            (Currency::Nzd, Currency::Gbp) => self.nzd_gbp,
-            (Currency::Nzd, Currency::Aud) => self.nzd_aud,
-            (Currency::Nzd, Currency::Cad) => self.nzd_cad,
-            (Currency::Nzd, Currency::Nzd) => FX_RATE_SCALE,
+        if from == to {
+            return FX_RATE_SCALE;
         }
+        self.rates
+            .get(&rate_key(&from, &to))
+            .copied()
+            .unwrap_or(FX_RATE_SCALE)
     }
 }
 
@@ -130,46 +71,18 @@ impl FxRate for FxRatesRecord {
 
 impl From<FixedFxRate> for FxRatesRecord {
     fn from(value: FixedFxRate) -> Self {
+        let mut rates = HashMap::new();
+        for src in Currency::iter() {
+            for tgt in Currency::iter() {
+                if src != tgt {
+                    rates.insert(rate_key(&src, &tgt), value.get_rate(src, tgt));
+                }
+            }
+        }
         FxRatesRecord {
             pk: mk_pk().to_owned(),
             sk: mk_sk().to_owned(),
-
-            eur_gbp: value.get_rate(Currency::Eur, Currency::Gbp),
-            eur_usd: value.get_rate(Currency::Eur, Currency::Usd),
-            eur_aud: value.get_rate(Currency::Eur, Currency::Aud),
-            eur_cad: value.get_rate(Currency::Eur, Currency::Cad),
-            eur_nzd: value.get_rate(Currency::Eur, Currency::Nzd),
-
-            gbp_eur: value.get_rate(Currency::Gbp, Currency::Eur),
-            gbp_usd: value.get_rate(Currency::Gbp, Currency::Usd),
-            gbp_aud: value.get_rate(Currency::Gbp, Currency::Aud),
-            gbp_cad: value.get_rate(Currency::Gbp, Currency::Cad),
-            gbp_nzd: value.get_rate(Currency::Gbp, Currency::Nzd),
-
-            usd_eur: value.get_rate(Currency::Usd, Currency::Eur),
-            usd_gbp: value.get_rate(Currency::Usd, Currency::Gbp),
-            usd_aud: value.get_rate(Currency::Usd, Currency::Aud),
-            usd_cad: value.get_rate(Currency::Usd, Currency::Cad),
-            usd_nzd: value.get_rate(Currency::Usd, Currency::Nzd),
-
-            aud_eur: value.get_rate(Currency::Aud, Currency::Eur),
-            aud_gbp: value.get_rate(Currency::Aud, Currency::Gbp),
-            aud_usd: value.get_rate(Currency::Aud, Currency::Usd),
-            aud_cad: value.get_rate(Currency::Aud, Currency::Cad),
-            aud_nzd: value.get_rate(Currency::Aud, Currency::Nzd),
-
-            cad_eur: value.get_rate(Currency::Cad, Currency::Eur),
-            cad_gbp: value.get_rate(Currency::Cad, Currency::Gbp),
-            cad_usd: value.get_rate(Currency::Cad, Currency::Usd),
-            cad_aud: value.get_rate(Currency::Cad, Currency::Aud),
-            cad_nzd: value.get_rate(Currency::Cad, Currency::Nzd),
-
-            nzd_eur: value.get_rate(Currency::Nzd, Currency::Eur),
-            nzd_gbp: value.get_rate(Currency::Nzd, Currency::Gbp),
-            nzd_usd: value.get_rate(Currency::Nzd, Currency::Usd),
-            nzd_aud: value.get_rate(Currency::Nzd, Currency::Aud),
-            nzd_cad: value.get_rate(Currency::Nzd, Currency::Cad),
-
+            rates,
             timestamp: OffsetDateTime::now_utc(),
         }
     }

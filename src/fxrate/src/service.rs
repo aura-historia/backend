@@ -1,6 +1,6 @@
 use crate::{
     dynamodb::{
-        record::{FxRatesRecord, mk_pk, mk_sk},
+        record::{FxRatesRecord, mk_pk, mk_sk, rate_key},
         repository::FxRateDynamoDbRepository,
     },
     fxratesapi::FxRatesApiClient,
@@ -78,104 +78,23 @@ impl<'a> FxRateService for FxRateServiceImpl<'a> {
             }
         }
 
+        let mut rate_map = HashMap::new();
+        for src in Currency::iter() {
+            for tgt in Currency::iter() {
+                if src != tgt {
+                    let key = rate_key(&src, &tgt);
+                    let rate = rates
+                        .get(&(src, tgt))
+                        .ok_or(FxRateServiceError::MissingFxRate(src, tgt))?;
+                    rate_map.insert(key, *rate);
+                }
+            }
+        }
+
         let fx_rates_record = FxRatesRecord {
             pk: mk_pk().to_owned(),
             sk: mk_sk().to_owned(),
-            eur_gbp: *rates.get(&(Currency::Eur, Currency::Gbp)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Eur, Currency::Gbp),
-            )?,
-            eur_usd: *rates.get(&(Currency::Eur, Currency::Usd)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Eur, Currency::Usd),
-            )?,
-            eur_aud: *rates.get(&(Currency::Eur, Currency::Aud)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Eur, Currency::Aud),
-            )?,
-            eur_cad: *rates.get(&(Currency::Eur, Currency::Cad)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Eur, Currency::Cad),
-            )?,
-            eur_nzd: *rates.get(&(Currency::Eur, Currency::Nzd)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Eur, Currency::Nzd),
-            )?,
-
-            gbp_eur: *rates.get(&(Currency::Gbp, Currency::Eur)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Gbp, Currency::Eur),
-            )?,
-            gbp_usd: *rates.get(&(Currency::Gbp, Currency::Usd)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Gbp, Currency::Usd),
-            )?,
-            gbp_aud: *rates.get(&(Currency::Gbp, Currency::Aud)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Gbp, Currency::Aud),
-            )?,
-            gbp_cad: *rates.get(&(Currency::Gbp, Currency::Cad)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Gbp, Currency::Cad),
-            )?,
-            gbp_nzd: *rates.get(&(Currency::Gbp, Currency::Nzd)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Gbp, Currency::Nzd),
-            )?,
-
-            usd_eur: *rates.get(&(Currency::Usd, Currency::Eur)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Usd, Currency::Eur),
-            )?,
-            usd_gbp: *rates.get(&(Currency::Usd, Currency::Gbp)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Usd, Currency::Gbp),
-            )?,
-            usd_aud: *rates.get(&(Currency::Usd, Currency::Aud)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Usd, Currency::Aud),
-            )?,
-            usd_cad: *rates.get(&(Currency::Usd, Currency::Cad)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Usd, Currency::Cad),
-            )?,
-            usd_nzd: *rates.get(&(Currency::Usd, Currency::Nzd)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Usd, Currency::Nzd),
-            )?,
-
-            aud_eur: *rates.get(&(Currency::Aud, Currency::Eur)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Aud, Currency::Eur),
-            )?,
-            aud_gbp: *rates.get(&(Currency::Aud, Currency::Gbp)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Aud, Currency::Gbp),
-            )?,
-            aud_usd: *rates.get(&(Currency::Aud, Currency::Usd)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Aud, Currency::Usd),
-            )?,
-            aud_cad: *rates.get(&(Currency::Aud, Currency::Cad)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Aud, Currency::Cad),
-            )?,
-            aud_nzd: *rates.get(&(Currency::Aud, Currency::Nzd)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Aud, Currency::Nzd),
-            )?,
-
-            cad_eur: *rates.get(&(Currency::Cad, Currency::Eur)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Cad, Currency::Eur),
-            )?,
-            cad_gbp: *rates.get(&(Currency::Cad, Currency::Gbp)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Cad, Currency::Gbp),
-            )?,
-            cad_usd: *rates.get(&(Currency::Cad, Currency::Usd)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Cad, Currency::Usd),
-            )?,
-            cad_aud: *rates.get(&(Currency::Cad, Currency::Aud)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Cad, Currency::Aud),
-            )?,
-            cad_nzd: *rates.get(&(Currency::Cad, Currency::Nzd)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Cad, Currency::Nzd),
-            )?,
-
-            nzd_eur: *rates.get(&(Currency::Nzd, Currency::Eur)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Nzd, Currency::Eur),
-            )?,
-            nzd_gbp: *rates.get(&(Currency::Nzd, Currency::Gbp)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Nzd, Currency::Gbp),
-            )?,
-            nzd_usd: *rates.get(&(Currency::Nzd, Currency::Usd)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Nzd, Currency::Usd),
-            )?,
-            nzd_aud: *rates.get(&(Currency::Nzd, Currency::Aud)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Nzd, Currency::Aud),
-            )?,
-            nzd_cad: *rates.get(&(Currency::Nzd, Currency::Cad)).ok_or(
-                FxRateServiceError::MissingFxRate(Currency::Nzd, Currency::Cad),
-            )?,
+            rates: rate_map,
             timestamp: OffsetDateTime::now_utc(),
         };
 
@@ -198,7 +117,7 @@ impl<'a> FxRateService for FxRateServiceImpl<'a> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        dynamodb::repository::MockFxRateDynamoDbRepository,
+        dynamodb::{record::rate_key, repository::MockFxRateDynamoDbRepository},
         fxratesapi::{FxRatesApiResponse, MockFxRatesApiClient},
         service::{FxRateService, FxRateServiceError, FxRateServiceImpl},
     };
@@ -209,41 +128,12 @@ mod tests {
 
     fn create_complete_rates_for_base(base: Currency) -> HashMap<CurrencyData, f32> {
         let mut rates = HashMap::new();
-        for currency in Currency::iter() {
+        for (i, currency) in Currency::iter().enumerate() {
             if currency != base {
-                let rate = match (base, currency) {
-                    (Currency::Eur, Currency::Usd) => 1.1,
-                    (Currency::Eur, Currency::Gbp) => 0.85,
-                    (Currency::Eur, Currency::Aud) => 1.6,
-                    (Currency::Eur, Currency::Cad) => 1.5,
-                    (Currency::Eur, Currency::Nzd) => 1.7,
-                    (Currency::Usd, Currency::Eur) => 0.91,
-                    (Currency::Usd, Currency::Gbp) => 0.77,
-                    (Currency::Usd, Currency::Aud) => 1.45,
-                    (Currency::Usd, Currency::Cad) => 1.36,
-                    (Currency::Usd, Currency::Nzd) => 1.55,
-                    (Currency::Gbp, Currency::Eur) => 1.18,
-                    (Currency::Gbp, Currency::Usd) => 1.3,
-                    (Currency::Gbp, Currency::Aud) => 1.88,
-                    (Currency::Gbp, Currency::Cad) => 1.76,
-                    (Currency::Gbp, Currency::Nzd) => 2.0,
-                    (Currency::Aud, Currency::Eur) => 0.63,
-                    (Currency::Aud, Currency::Gbp) => 0.53,
-                    (Currency::Aud, Currency::Usd) => 0.69,
-                    (Currency::Aud, Currency::Cad) => 0.94,
-                    (Currency::Aud, Currency::Nzd) => 1.06,
-                    (Currency::Cad, Currency::Eur) => 0.67,
-                    (Currency::Cad, Currency::Gbp) => 0.57,
-                    (Currency::Cad, Currency::Usd) => 0.74,
-                    (Currency::Cad, Currency::Aud) => 1.06,
-                    (Currency::Cad, Currency::Nzd) => 1.13,
-                    (Currency::Nzd, Currency::Eur) => 0.59,
-                    (Currency::Nzd, Currency::Gbp) => 0.5,
-                    (Currency::Nzd, Currency::Usd) => 0.65,
-                    (Currency::Nzd, Currency::Aud) => 0.94,
-                    (Currency::Nzd, Currency::Cad) => 0.88,
-                    _ => 1.0,
-                };
+                let base_idx = Currency::iter()
+                    .position(|c| c == base)
+                    .expect("base currency must be a valid Currency variant");
+                let rate = 1.0 + (base_idx as f32 * 0.1) + (i as f32 * 0.05);
                 rates.insert(currency.into(), rate);
             }
         }
@@ -280,8 +170,18 @@ mod tests {
         let record = result.unwrap();
         assert_eq!(record.pk, "global#fx_rate");
         assert_eq!(record.sk, "fx_rate#details");
-        assert!(record.eur_usd > 0);
-        assert!(record.gbp_eur > 0);
+
+        let expected_count = Currency::COUNT * (Currency::COUNT - 1);
+        assert_eq!(record.rates.len(), expected_count);
+        for src in Currency::iter() {
+            for tgt in Currency::iter() {
+                if src != tgt {
+                    let key = rate_key(&src, &tgt);
+                    assert!(record.rates.contains_key(&key), "missing rate key: {key}");
+                    assert!(*record.rates.get(&key).unwrap() > 0);
+                }
+            }
+        }
     }
 
     #[tokio::test]
