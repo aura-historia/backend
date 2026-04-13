@@ -12,6 +12,15 @@ pub enum LanguageDocument {
     Fr,
     Es,
     It,
+    Zh,
+    Pt,
+    Pl,
+    Tr,
+    Nl,
+    Cs,
+    Ja,
+    Ru,
+    Ar,
 }
 
 impl From<Language> for LanguageDocument {
@@ -22,6 +31,15 @@ impl From<Language> for LanguageDocument {
             Language::Fr => LanguageDocument::Fr,
             Language::Es => LanguageDocument::Es,
             Language::It => LanguageDocument::It,
+            Language::Zh => LanguageDocument::Zh,
+            Language::Pt => LanguageDocument::Pt,
+            Language::Pl => LanguageDocument::Pl,
+            Language::Tr => LanguageDocument::Tr,
+            Language::Nl => LanguageDocument::Nl,
+            Language::Cs => LanguageDocument::Cs,
+            Language::Ja => LanguageDocument::Ja,
+            Language::Ru => LanguageDocument::Ru,
+            Language::Ar => LanguageDocument::Ar,
         }
     }
 }
@@ -34,6 +52,15 @@ impl From<LanguageRecord> for LanguageDocument {
             LanguageRecord::Fr => LanguageDocument::Fr,
             LanguageRecord::Es => LanguageDocument::Es,
             LanguageRecord::It => LanguageDocument::It,
+            LanguageRecord::Zh => LanguageDocument::Zh,
+            LanguageRecord::Pt => LanguageDocument::Pt,
+            LanguageRecord::Pl => LanguageDocument::Pl,
+            LanguageRecord::Tr => LanguageDocument::Tr,
+            LanguageRecord::Nl => LanguageDocument::Nl,
+            LanguageRecord::Cs => LanguageDocument::Cs,
+            LanguageRecord::Ja => LanguageDocument::Ja,
+            LanguageRecord::Ru => LanguageDocument::Ru,
+            LanguageRecord::Ar => LanguageDocument::Ar,
         }
     }
 }
@@ -82,6 +109,15 @@ mod tests {
     #[case(LanguageDocument::Fr, "\"FR\"")]
     #[case(LanguageDocument::Es, "\"ES\"")]
     #[case(LanguageDocument::It, "\"IT\"")]
+    #[case(LanguageDocument::Zh, "\"ZH\"")]
+    #[case(LanguageDocument::Pt, "\"PT\"")]
+    #[case(LanguageDocument::Pl, "\"PL\"")]
+    #[case(LanguageDocument::Tr, "\"TR\"")]
+    #[case(LanguageDocument::Nl, "\"NL\"")]
+    #[case(LanguageDocument::Cs, "\"CS\"")]
+    #[case(LanguageDocument::Ja, "\"JA\"")]
+    #[case(LanguageDocument::Ru, "\"RU\"")]
+    #[case(LanguageDocument::Ar, "\"AR\"")]
     #[trace]
     fn should_serialize_language_in_screaming_snake_case(
         #[case] language: LanguageDocument,
@@ -97,6 +133,15 @@ mod tests {
     #[case("\"FR\"", LanguageDocument::Fr)]
     #[case("\"ES\"", LanguageDocument::Es)]
     #[case("\"IT\"", LanguageDocument::It)]
+    #[case("\"ZH\"", LanguageDocument::Zh)]
+    #[case("\"PT\"", LanguageDocument::Pt)]
+    #[case("\"PL\"", LanguageDocument::Pl)]
+    #[case("\"TR\"", LanguageDocument::Tr)]
+    #[case("\"NL\"", LanguageDocument::Nl)]
+    #[case("\"CS\"", LanguageDocument::Cs)]
+    #[case("\"JA\"", LanguageDocument::Ja)]
+    #[case("\"RU\"", LanguageDocument::Ru)]
+    #[case("\"AR\"", LanguageDocument::Ar)]
     #[trace]
     fn should_deserialize_language_in_screaming_snake_case(
         #[case] language: &str,

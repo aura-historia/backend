@@ -15,6 +15,24 @@ pub enum Language {
     Fr,
     Es,
     It,
+    /// Chinese (Simplified) — ingestion-only, no translation target
+    Zh,
+    /// Portuguese — ingestion-only, no translation target
+    Pt,
+    /// Polish — ingestion-only, no translation target
+    Pl,
+    /// Turkish — ingestion-only, no translation target
+    Tr,
+    /// Dutch — ingestion-only, no translation target
+    Nl,
+    /// Czech — ingestion-only, no translation target
+    Cs,
+    /// Japanese — ingestion-only, no translation target
+    Ja,
+    /// Russian — ingestion-only, no translation target
+    Ru,
+    /// Arabic — ingestion-only, no translation target
+    Ar,
 }
 
 impl Language {
@@ -51,6 +69,15 @@ impl Language {
             Language::Fr => "fr",
             Language::Es => "es",
             Language::It => "it",
+            Language::Zh => "zh",
+            Language::Pt => "pt",
+            Language::Pl => "pl",
+            Language::Tr => "tr",
+            Language::Nl => "nl",
+            Language::Cs => "cs",
+            Language::Ja => "ja",
+            Language::Ru => "ru",
+            Language::Ar => "ar",
         }
     }
 
@@ -61,7 +88,26 @@ impl Language {
             Language::Fr => "French",
             Language::Es => "Spanish",
             Language::It => "Italian",
+            Language::Zh => "Chinese (Simplified)",
+            Language::Pt => "Portuguese",
+            Language::Pl => "Polish",
+            Language::Tr => "Turkish",
+            Language::Nl => "Dutch",
+            Language::Cs => "Czech",
+            Language::Ja => "Japanese",
+            Language::Ru => "Russian",
+            Language::Ar => "Arabic",
         }
+    }
+
+    /// Returns `true` for the five fully-supported languages that are also used
+    /// as translation targets.  The remaining languages are ingestion-only: we
+    /// translate *from* them but never *into* them.
+    pub fn is_translation_target(&self) -> bool {
+        matches!(
+            self,
+            Language::De | Language::En | Language::Fr | Language::Es | Language::It
+        )
     }
 }
 
@@ -73,6 +119,15 @@ impl From<LanguageRecord> for Language {
             LanguageRecord::Fr => Language::Fr,
             LanguageRecord::Es => Language::Es,
             LanguageRecord::It => Language::It,
+            LanguageRecord::Zh => Language::Zh,
+            LanguageRecord::Pt => Language::Pt,
+            LanguageRecord::Pl => Language::Pl,
+            LanguageRecord::Tr => Language::Tr,
+            LanguageRecord::Nl => Language::Nl,
+            LanguageRecord::Cs => Language::Cs,
+            LanguageRecord::Ja => Language::Ja,
+            LanguageRecord::Ru => Language::Ru,
+            LanguageRecord::Ar => Language::Ar,
         }
     }
 }
@@ -85,6 +140,15 @@ impl From<LanguageDocument> for Language {
             LanguageDocument::Fr => Language::Fr,
             LanguageDocument::Es => Language::Es,
             LanguageDocument::It => Language::It,
+            LanguageDocument::Zh => Language::Zh,
+            LanguageDocument::Pt => Language::Pt,
+            LanguageDocument::Pl => Language::Pl,
+            LanguageDocument::Tr => Language::Tr,
+            LanguageDocument::Nl => Language::Nl,
+            LanguageDocument::Cs => Language::Cs,
+            LanguageDocument::Ja => Language::Ja,
+            LanguageDocument::Ru => Language::Ru,
+            LanguageDocument::Ar => Language::Ar,
         }
     }
 }
@@ -97,6 +161,15 @@ impl From<LanguageData> for Language {
             LanguageData::Fr => Language::Fr,
             LanguageData::Es => Language::Es,
             LanguageData::It => Language::It,
+            LanguageData::Zh => Language::Zh,
+            LanguageData::Pt => Language::Pt,
+            LanguageData::Pl => Language::Pl,
+            LanguageData::Tr => Language::Tr,
+            LanguageData::Nl => Language::Nl,
+            LanguageData::Cs => Language::Cs,
+            LanguageData::Ja => Language::Ja,
+            LanguageData::Ru => Language::Ru,
+            LanguageData::Ar => Language::Ar,
         }
     }
 }
@@ -163,5 +236,28 @@ mod tests {
         let actual = Language::resolve(languages, domain).map(|localized| localized.payload);
 
         assert_eq!(expected, actual);
+    }
+
+    #[rstest::rstest]
+    #[case(Language::De, true)]
+    #[case(Language::En, true)]
+    #[case(Language::Fr, true)]
+    #[case(Language::Es, true)]
+    #[case(Language::It, true)]
+    #[case(Language::Zh, false)]
+    #[case(Language::Pt, false)]
+    #[case(Language::Pl, false)]
+    #[case(Language::Tr, false)]
+    #[case(Language::Nl, false)]
+    #[case(Language::Cs, false)]
+    #[case(Language::Ja, false)]
+    #[case(Language::Ru, false)]
+    #[case(Language::Ar, false)]
+    #[trace]
+    fn should_return_correct_translation_target_status_for_is_translation_target(
+        #[case] language: Language,
+        #[case] expected: bool,
+    ) {
+        assert_eq!(language.is_translation_target(), expected);
     }
 }

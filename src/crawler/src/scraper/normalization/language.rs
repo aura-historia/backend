@@ -9,6 +9,15 @@ static DETECTOR: Lazy<LanguageDetector> = Lazy::new(|| {
         LinguaLanguage::French,
         LinguaLanguage::Spanish,
         LinguaLanguage::Italian,
+        LinguaLanguage::Chinese,
+        LinguaLanguage::Portuguese,
+        LinguaLanguage::Polish,
+        LinguaLanguage::Turkish,
+        LinguaLanguage::Dutch,
+        LinguaLanguage::Czech,
+        LinguaLanguage::Japanese,
+        LinguaLanguage::Russian,
+        LinguaLanguage::Arabic,
     ])
     .build()
 });
@@ -16,7 +25,7 @@ static DETECTOR: Lazy<LanguageDetector> = Lazy::new(|| {
 /// Detects the language of a text snippet.
 ///
 /// Returns `None` if the language cannot be identified as one of the supported
-/// languages (DE, EN, FR, ES, IT).
+/// languages (DE, EN, FR, ES, IT, ZH, PT, PL, TR, NL, CS, JA, RU, AR).
 pub(super) fn detect_language(text: &str) -> Option<Language> {
     DETECTOR.detect_language_of(text).map(|lang| match lang {
         LinguaLanguage::English => Language::En,
@@ -24,6 +33,15 @@ pub(super) fn detect_language(text: &str) -> Option<Language> {
         LinguaLanguage::French => Language::Fr,
         LinguaLanguage::Spanish => Language::Es,
         LinguaLanguage::Italian => Language::It,
+        LinguaLanguage::Chinese => Language::Zh,
+        LinguaLanguage::Portuguese => Language::Pt,
+        LinguaLanguage::Polish => Language::Pl,
+        LinguaLanguage::Turkish => Language::Tr,
+        LinguaLanguage::Dutch => Language::Nl,
+        LinguaLanguage::Czech => Language::Cs,
+        LinguaLanguage::Japanese => Language::Ja,
+        LinguaLanguage::Russian => Language::Ru,
+        LinguaLanguage::Arabic => Language::Ar,
     })
 }
 
@@ -80,16 +98,52 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Unsupported language
+    // New ingestion-only languages
     // -----------------------------------------------------------------------
 
-    #[test]
-    fn should_return_none_when_language_is_not_supported() {
-        // Japanese — not in our supported set
-        assert_eq!(
-            detect_language("日本語のテキストはサポートされていない言語の例です。"),
-            None
-        );
+    // Languages with distinctive scripts or sufficiently unique vocabulary are
+    // reliably detected.  Portuguese, Polish and Dutch share so much vocabulary
+    // with Spanish, English and German respectively that lingua may mis-classify
+    // short samples when all 14 languages are active in the detector; those
+    // languages are fully supported in the type system but auto-detection from
+    // crawler text may be unreliable for them.
+
+    #[rstest]
+    #[case(
+        "这件古董来自一个私人中国收藏，可追溯到二十世纪初。这件珍贵文物展示了独特的工艺和历史价值。",
+        Some(Language::Zh)
+    )]
+    #[case(
+        "Bu antika parça özel bir Türk koleksiyonundan gelmekte olup yirminci yüzyılın başına \
+         tarihlenmektedir. İstanbul'daki bir müzayede evinden alınan bu eser, Osmanlı dönemine ait \
+         olduğu düşünülmektedir. Değeri ve özgünlüğü uzmanlar tarafından onaylanmıştır.",
+        Some(Language::Tr)
+    )]
+    #[case(
+        "Tento starožitný předmět pochází ze soukromé české sbírky a je datován do začátku \
+         dvacátého století. Původ byl zdokumentován v Praze. Předmět je ve výborném stavu a má \
+         certifikát pravosti vydaný českým odborníkem na starožitnosti.",
+        Some(Language::Cs)
+    )]
+    #[case(
+        "この骨董品はプライベートな日本のコレクションから来ており、二十世紀初頭のものです。東京のオークションハウスで取得されたこの作品は、江戸時代のものと考えられています。",
+        Some(Language::Ja)
+    )]
+    #[case(
+        "Этот антикварный предмет из частной российской коллекции относится к началу двадцатого \
+         века. Происхождение задокументировано в Москве. Предмет находится в отличном состоянии и \
+         имеет сертификат подлинности от российского эксперта по антиквариату.",
+        Some(Language::Ru)
+    )]
+    #[case(
+        "هذه القطعة الأثرية من مجموعة خاصة وتعود إلى مطلع القرن العشرين. تم توثيق مصدرها في القاهرة. القطعة في حالة ممتازة وتحمل شهادة أصالة من خبير متخصص في التحف.",
+        Some(Language::Ar)
+    )]
+    fn should_detect_ingestion_only_languages_when_sufficient_text_provided(
+        #[case] text: &str,
+        #[case] expected: Option<Language>,
+    ) {
+        assert_eq!(detect_language(text), expected);
     }
 
     // -----------------------------------------------------------------------

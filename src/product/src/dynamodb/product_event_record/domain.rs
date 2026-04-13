@@ -266,6 +266,8 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                             None,
                             Some(payload.native_title.payload.to_string()),
                         ),
+                        // Ingestion-only languages have no dedicated title field
+                        _ => (None, None, None, None, None),
                     };
 
                 let (
@@ -311,6 +313,8 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                             None,
                             Some(native_description.payload.to_string()),
                         ),
+                        // Ingestion-only languages have no dedicated description field
+                        _ => (None, None, None, None, None),
                     },
                     None => (None, None, None, None, None),
                 };

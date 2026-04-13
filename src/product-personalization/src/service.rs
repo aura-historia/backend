@@ -233,6 +233,7 @@ fn hidden_title(language: Language) -> Title {
         Language::Fr => Title::from("Titre du produit masqué"),
         Language::Es => Title::from("Título de producto oculto"),
         Language::It => Title::from("Titolo del prodotto nascosto"),
+        _ => Title::from("Hidden Product Title"),
     }
 }
 

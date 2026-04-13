@@ -402,7 +402,7 @@ fn build_email_subject(payload: &NotificationPayload, language: &Language) -> St
                 Language::It => {
                     format!("Nuovo risultato per \"{filter_name}\": {resolved_title}")
                 }
-                Language::En => format!("New match for \"{filter_name}\": {resolved_title}"),
+                _ => format!("New match for \"{filter_name}\": {resolved_title}"),
             }
         }
         NotificationPayload::PartnerApplication {
@@ -414,14 +414,14 @@ fn build_email_subject(payload: &NotificationPayload, language: &Language) -> St
                 Language::Fr => format!("Demande de partenariat approuvée : {shop_name}"),
                 Language::Es => format!("Solicitud de asociación aprobada: {shop_name}"),
                 Language::It => format!("Richiesta di partnership approvata: {shop_name}"),
-                Language::En => format!("Partner application approved: {shop_name}"),
+                _ => format!("Partner application approved: {shop_name}"),
             },
             NotificationPartnerApplicationPayload::Rejected { .. } => match language {
                 Language::De => format!("Partnerantrag abgelehnt: {shop_name}"),
                 Language::Fr => format!("Demande de partenariat refusée : {shop_name}"),
                 Language::Es => format!("Solicitud de asociación rechazada: {shop_name}"),
                 Language::It => format!("Richiesta di partnership rifiutata: {shop_name}"),
-                Language::En => format!("Partner application rejected: {shop_name}"),
+                _ => format!("Partner application rejected: {shop_name}"),
             },
         },
     }
