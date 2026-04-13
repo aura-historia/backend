@@ -8,7 +8,9 @@ use lambda_runtime::{Context, LambdaEvent};
 use notification::service::notification_service::{
     CreateNotificationsResult, MockNotificationService,
 };
-use product::dynamodb::product_record::ProductRecord;
+use product::dynamodb::product_record::{
+    ProductRecord, mk_pk as product_mk_pk, mk_sk as product_mk_sk,
+};
 use product::dynamodb::product_state_record::ProductStateRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::service::get_service::GetProductServiceImpl;
@@ -92,8 +94,8 @@ fn mk_product_record(shop_id: ShopId, shops_product_id: &ShopsProductId) -> Prod
     record.shop_id = shop_id;
     record.seller_id = shop_id;
     record.shops_product_id = shops_product_id.clone();
-    record.pk = format!("product#shop_id#{shop_id}#shops_product_id#{shops_product_id}");
-    record.sk = "product".to_string();
+    record.pk = product_mk_pk(&shop_id, shops_product_id);
+    record.sk = product_mk_sk().to_string();
     record.state = ProductStateRecord::Listed;
     record
 }
