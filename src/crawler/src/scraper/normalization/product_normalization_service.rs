@@ -3,7 +3,10 @@ use super::{
     datetime::normalize_datetime_field,
     image::normalize_images,
     price::{infer_currency_from_url, normalize_price_field},
-    text::{normalize_description, normalize_shops_product_id, normalize_title_localized},
+    text::{
+        normalize_description, normalize_shops_product_id_with_url_fallback,
+        normalize_title_localized,
+    },
 };
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use crate::scraper::normalization::{
@@ -28,6 +31,11 @@ pub trait ProductNormalizationService {
     /// The state is resolved automatically from `raw.state` via the injected
     /// [`ProductStateMappingService`]. Callers do not need to pre-resolve the
     /// state; this method handles all async DB/LLM work internally.
+    ///
+    /// When `raw.shops_product_id` is blank after trimming, the full `url`
+    /// string is used as a stable fallback identifier rather than returning an
+    /// error.  This keeps the scrape pipeline alive on pages where the CSS
+    /// selector does not extract a product ID.
     async fn normalize(
         &self,
         raw: RawExtractedProduct,
@@ -86,7 +94,8 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
             .normalized;
         let state = ProductState::from(state_record);
 
-        let shops_product_id = normalize_shops_product_id(&raw.shops_product_id)?;
+        let shops_product_id =
+            normalize_shops_product_id_with_url_fallback(&raw.shops_product_id, &url);
         let title = normalize_title_localized(&raw.title)?;
         let description = normalize_description(raw.description)?;
 
@@ -398,12 +407,16 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[tokio::test]
-    async fn should_return_error_when_shops_product_id_is_empty_for_normalize() {
+    async fn should_use_url_as_shops_product_id_when_extracted_id_is_blank() {
         let svc = make_available_service();
         let mut raw = minimal_raw();
         raw.shops_product_id = "  ".into();
-        let err = svc.normalize(raw, base_url()).await.unwrap_err();
-        assert!(matches!(err, NormalizationError::ShopsProductIdEmpty));
+        let url = Url::parse("https://shop.example.com/item/fallback-item").unwrap();
+        let result = svc.normalize(raw, url).await.unwrap();
+        assert_eq!(
+            result.shops_product_id.to_string(),
+            "https://shop.example.com/item/fallback-item"
+        );
     }
 
     #[tokio::test]

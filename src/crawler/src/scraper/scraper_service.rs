@@ -605,6 +605,13 @@ impl ScraperServiceImpl {
     /// Normalizes `raw` and, if normalization fails with a schema-fixable error,
     /// asks the LLM to fix the schema and retries — up to two fix attempts.
     ///
+    /// Schema-fixable errors are those where a bad CSS selector is the likely
+    /// cause (e.g. empty title, unparseable price).  Non-fixable errors (e.g.
+    /// state DB failures, [`NormalizationError::ShopsProductIdEmpty`] — which
+    /// is unreachable because the normalization layer applies a URL fallback
+    /// before this variant can be produced) are propagated directly as
+    /// [`ScraperError::NormalizationError`] without triggering an LLM call.
+    ///
     /// Returns `(normalized_product, schema_was_fixed)`.
     async fn normalize_with_retry(
         &self,
@@ -703,14 +710,20 @@ impl ScraperServiceImpl {
 /// selector.  We use `NoElementMatched` as the inner error because it carries
 /// only a selector name string — we set it to the field name so the LLM
 /// understands the context.
+///
+/// # Not schema-fixable
+///
+/// - [`NormalizationError::ShopsProductIdEmpty`] — the normalization layer
+///   now applies a full-URL fallback before this error can occur, so it will
+///   never surface from the pipeline.  Even if it did, changing the CSS
+///   selector cannot guarantee a non-empty product ID; the fallback is the
+///   correct recovery, not an LLM loop.
+/// - [`NormalizationError::PriceUnknownCurrency`] variants — the selector is
+///   correct but the extracted text has no currency marker.  The
+///   `infer_currency_from_url` fallback handles known TLDs; for unknown TLDs
+///   the price is genuinely unparseable and no selector change will help.
 fn normalization_error_to_schema_hint(err: &NormalizationError) -> Option<ApplySchemaError> {
     match err {
-        // PriceUnknownCurrency is NOT schema-fixable: the selector is correct
-        // but the extracted text has no currency marker.  Changing the CSS
-        // selector cannot fix this — the LLM would loop forever.  The fallback
-        // currency path (infer_currency_from_url) resolves this for known TLDs;
-        // for unknown TLDs the price is genuinely unparseable and no selector
-        // change will help.
         NormalizationError::PriceParseError { .. } => {
             Some(ApplySchemaError::Price(ExtractionError::NoElementMatched {
                 selector: "price".to_string(),
@@ -731,18 +744,13 @@ fn normalization_error_to_schema_hint(err: &NormalizationError) -> Option<ApplyS
                 selector: "title".to_string(),
             }))
         }
-        NormalizationError::ShopsProductIdEmpty => Some(ApplySchemaError::ShopsProductId(
-            ExtractionError::NoElementMatched {
-                selector: "shops_product_id".to_string(),
-            },
-        )),
         NormalizationError::StateTextTooLong { .. } => {
             Some(ApplySchemaError::State(ExtractionError::NoElementMatched {
                 selector: "state".to_string(),
             }))
         }
-        // PriceUnknownCurrency variants and state/image/auction errors are not
-        // fixable by changing a CSS selector.
+        // ShopsProductIdEmpty, PriceUnknownCurrency variants, and
+        // state/image/auction errors are not fixable by changing a CSS selector.
         _ => None,
     }
 }
@@ -1574,6 +1582,63 @@ mod tests {
         );
     }
 
+    /// `ShopsProductIdEmpty` is unreachable from the main pipeline (the
+    /// normalization layer applies a URL fallback), but if it were somehow
+    /// returned by the normalization service it must **not** trigger a
+    /// schema-fix LLM call — `normalization_error_to_schema_hint` returns
+    /// `None` for this variant, so `normalize_with_retry` propagates it
+    /// directly as `ScraperError::NormalizationError`.
+    ///
+    /// This test uses `MockProductNormalizationService` to inject the error and
+    /// asserts that `fix_product_schema` is never called.
+    #[tokio::test]
+    async fn should_propagate_shops_product_id_empty_as_normalization_error_without_schema_fix() {
+        let id = shop_id();
+        let url = product_url();
+
+        let mut fetcher = MockHtmlFetcher::new();
+        fetcher
+            .expect_fetch()
+            .returning(|_| Box::pin(async { Ok(sample_html()) }));
+
+        let schema = shops_product_schema(id);
+        let mut schema_svc = MockProductSchemaService::new();
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
+        schema_svc
+            .expect_get_product_schema()
+            .once()
+            .returning(move |_, _, _| {
+                let s = schema.clone();
+                Box::pin(async move { Ok(s) })
+            });
+        // fix_product_schema must NOT be registered — if called the mock panics.
+
+        let mut norm_svc = MockProductNormalizationService::new();
+        norm_svc
+            .expect_normalize()
+            .returning(|_, _| Box::pin(async { Err(NormalizationError::ShopsProductIdEmpty) }));
+
+        let cand_svc = MockScraperCandidateService::new();
+
+        let service = ScraperServiceImpl::new(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+            3,
+        );
+
+        let err = service.scrape(&id, &url, None).await.unwrap_err();
+
+        assert!(
+            matches!(err, ScraperError::NormalizationError(_)),
+            "expected NormalizationError for ShopsProductIdEmpty, got: {err}"
+        );
+    }
+
     // -----------------------------------------------------------------------
     // URL forwarding
     // -----------------------------------------------------------------------
@@ -1757,6 +1822,20 @@ mod tests {
         assert!(
             display.to_lowercase().contains("normalization"),
             "display should mention normalization: {display}"
+        );
+    }
+
+    #[test]
+    fn should_return_none_schema_hint_for_shops_product_id_empty() {
+        // ShopsProductIdEmpty is no longer schema-fixable — the normalization
+        // layer now applies a URL fallback, so this error should never surface
+        // from the pipeline.  The hint mapping must return None to avoid
+        // spurious LLM-fix loops should the error somehow appear.
+        let err = NormalizationError::ShopsProductIdEmpty;
+        let hint = normalization_error_to_schema_hint(&err);
+        assert!(
+            hint.is_none(),
+            "ShopsProductIdEmpty must not produce a schema hint, got {hint:?}"
         );
     }
 

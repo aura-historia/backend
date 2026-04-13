@@ -1,7 +1,11 @@
 use super::{error::NormalizationError, language::detect_language};
 use common::{language::domain::Language, localized::Localized, shops_product_id::ShopsProductId};
 use product::core::{description::Description, title::Title};
+use url::Url;
 
+/// Strict variant used only in tests — returns an error when `raw` is blank
+/// rather than falling back to the URL.
+#[cfg(test)]
 pub(super) fn normalize_shops_product_id(raw: &str) -> Result<ShopsProductId, NormalizationError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -10,6 +14,19 @@ pub(super) fn normalize_shops_product_id(raw: &str) -> Result<ShopsProductId, No
     Ok(ShopsProductId::from(trimmed))
 }
 
+/// Returns the normalized extracted ID when present; otherwise falls back to
+/// the full URL string as a stable, collision-free identifier.
+pub(super) fn normalize_shops_product_id_with_url_fallback(raw: &str, url: &Url) -> ShopsProductId {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        ShopsProductId::from(url.as_str())
+    } else {
+        ShopsProductId::from(trimmed)
+    }
+}
+
+/// Returns the trimmed title string, or [`NormalizationError::TitleEmpty`] if
+/// the result is blank.
 pub(super) fn normalize_title(raw: &str) -> Result<Title, NormalizationError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -18,6 +35,11 @@ pub(super) fn normalize_title(raw: &str) -> Result<Title, NormalizationError> {
     Ok(Title::from(trimmed))
 }
 
+/// Returns a localized title with language detection applied.
+///
+/// Errors with [`NormalizationError::TitleEmpty`] if the trimmed value is
+/// blank, or [`NormalizationError::TitleUnknownLanguage`] if the language
+/// cannot be detected.
 pub(super) fn normalize_title_localized(
     raw: &str,
 ) -> Result<Localized<Language, Title>, NormalizationError> {
@@ -30,8 +52,12 @@ pub(super) fn normalize_title_localized(
     Ok(Localized::new(language, title))
 }
 
-/// Joins non-blank fragments with `\n\n` and detects the language of the
-/// resulting text. Returns `None` when all fragments are blank.
+/// Joins non-blank fragments with `\n\n`, detects the language of the
+/// resulting text, and returns a localized description.
+///
+/// Returns `Ok(None)` when all fragments are blank.  Returns
+/// [`NormalizationError::DescriptionUnknownLanguage`] when language detection
+/// fails on the joined text.
 pub(super) fn normalize_description(
     fragments: Vec<String>,
 ) -> Result<Option<Localized<Language, Description>>, NormalizationError> {
@@ -60,9 +86,11 @@ pub(super) fn normalize_description(
 mod tests {
     use rstest::rstest;
 
+    use url::Url;
+
     use super::{
-        normalize_description, normalize_shops_product_id, normalize_title,
-        normalize_title_localized,
+        normalize_description, normalize_shops_product_id,
+        normalize_shops_product_id_with_url_fallback, normalize_title, normalize_title_localized,
     };
     use crate::scraper::normalization::error::NormalizationError;
 
@@ -92,6 +120,38 @@ mod tests {
     fn should_return_error_when_shops_product_id_is_only_whitespace() {
         let err = normalize_shops_product_id("   ").unwrap_err();
         assert!(matches!(err, NormalizationError::ShopsProductIdEmpty));
+    }
+
+    // -----------------------------------------------------------------------
+    // shops_product_id — URL fallback
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn should_use_extracted_id_when_shops_product_id_with_fallback_is_non_empty() {
+        let url = Url::parse("https://example.com/products/123").unwrap();
+        let result = normalize_shops_product_id_with_url_fallback("PROD-001", &url);
+        assert_eq!(result.to_string(), "PROD-001");
+    }
+
+    #[test]
+    fn should_trim_and_use_extracted_id_when_shops_product_id_with_fallback_has_whitespace() {
+        let url = Url::parse("https://example.com/products/123").unwrap();
+        let result = normalize_shops_product_id_with_url_fallback("  PROD-001  ", &url);
+        assert_eq!(result.to_string(), "PROD-001");
+    }
+
+    #[test]
+    fn should_fall_back_to_full_url_when_shops_product_id_with_fallback_is_empty() {
+        let url = Url::parse("https://example.com/products/123").unwrap();
+        let result = normalize_shops_product_id_with_url_fallback("", &url);
+        assert_eq!(result.to_string(), "https://example.com/products/123");
+    }
+
+    #[test]
+    fn should_fall_back_to_full_url_when_shops_product_id_with_fallback_is_only_whitespace() {
+        let url = Url::parse("https://example.com/products/123").unwrap();
+        let result = normalize_shops_product_id_with_url_fallback("   ", &url);
+        assert_eq!(result.to_string(), "https://example.com/products/123");
     }
 
     // -----------------------------------------------------------------------

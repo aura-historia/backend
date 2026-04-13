@@ -231,11 +231,12 @@ scrape(shop_id, url, last_scraped_hash)
  │    │    ├── exact DB lookup   (e.g. "sold" → SOLD)
  │    │    ├── regex DB scan     (e.g. "3 left" matches \b[1-9]...\bleft\b → AVAILABLE)
  │    │    └── LLM fallback → persist result for future lookups
- │    ├── title: detect language (lingua), wrap in Localized<Title>
- │    ├── price: parse currency + amount (multi-locale)
- │    ├── images: resolve relative URLs against page URL
- │    └── dates: parse ISO 8601 / RFC 3339
- │    └── other normalization error (price/title bad) → [schema-fix flow B]
+    │    ├── shops_product_id: if extracted value is blank, falls back to the full URL (infallible)
+    │    ├── title: detect language (lingua), wrap in Localized<Title>
+    │    ├── price: parse currency + amount (multi-locale)
+    │    ├── images: resolve relative URLs against page URL
+    │    └── dates: parse ISO 8601 / RFC 3339
+    │    └── other normalization error (price/title bad) → [schema-fix flow B]
  ├── set_state(shop_id, url, normalized_state) → updates shop_urls.state
  ├── mark_as_scraped(shop_id, url, current_hash) → updates hash/timestamp bookkeeping
  └── if schema was fixed this run → reset_fix_attempts(domain)
@@ -256,7 +257,7 @@ scrape(shop_id, url, last_scraped_hash)
 
 The dispatcher (`cron.rs`) guarantees at most one in-flight scrape per domain at a time, so no per-domain mutex is needed inside the fix path.
 
-**Schema-fix flow B** — triggered when normalization returns a schema-fixable error (bad state selector text, price parse failure, empty title, etc.):
+**Schema-fix flow B** — triggered when normalization returns a schema-fixable error (bad state selector text, price parse failure, empty title, etc.).  `ShopsProductIdEmpty` and `PriceUnknownCurrency` variants are **not** schema-fixable and are propagated directly as `ScraperError::NormalizationError` without calling the LLM:
 
 ```
 [schema-fix flow B — normalize_with_retry]
