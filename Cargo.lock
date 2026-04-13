@@ -204,6 +204,7 @@ dependencies = [
  "notification",
  "notification-api",
  "notification-send",
+ "partner-api",
  "partner-shop-application",
  "partner-shop-application-api",
  "partner-shop-application-lambda",
@@ -2240,9 +2241,9 @@ dependencies = [
 
 [[package]]
 name = "enum-as-inner"
-version = "0.6.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1e6a265c649f3f5979b601d26f1d05ada116434c87741c9493cb56218f76cbc"
+checksum = "0359ee92f81184d7985519e474bda2a5738476334edd3746c9b1265c067afe70"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -3699,11 +3700,20 @@ dependencies = [
  "fraction",
  "include_dir",
  "itertools 0.14.0",
+ "lingua-arabic-language-model",
+ "lingua-chinese-language-model",
+ "lingua-czech-language-model",
+ "lingua-dutch-language-model",
  "lingua-english-language-model",
  "lingua-french-language-model",
  "lingua-german-language-model",
  "lingua-italian-language-model",
+ "lingua-japanese-language-model",
+ "lingua-polish-language-model",
+ "lingua-portuguese-language-model",
+ "lingua-russian-language-model",
  "lingua-spanish-language-model",
+ "lingua-turkish-language-model",
  "maplit",
  "rayon",
  "regex",
@@ -3713,6 +3723,42 @@ dependencies = [
  "strum 0.27.2",
  "strum_macros 0.27.2",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "lingua-arabic-language-model"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5bcc254ff44209c2a50dea58a644f9c257a0aa5cd7e1739fd9c373fe4c7456cf"
+dependencies = [
+ "include_dir",
+]
+
+[[package]]
+name = "lingua-chinese-language-model"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21ca7fa9f7671d684c82c168725f380fc873f14d6f4e8c82f0da681bcc0048d1"
+dependencies = [
+ "include_dir",
+]
+
+[[package]]
+name = "lingua-czech-language-model"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "348f06e4f90e1c2bc597ea3caf52abb9d3dd09ba227fa7cf4f2dc723a9810e98"
+dependencies = [
+ "include_dir",
+]
+
+[[package]]
+name = "lingua-dutch-language-model"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe0da523f4726c05ed557b5a309315c1c161a5ec9ca6036c6c1c799ce492b698"
+dependencies = [
+ "include_dir",
 ]
 
 [[package]]
@@ -3752,10 +3798,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "lingua-japanese-language-model"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df0938f75de3ae5dcdc925d823ed409854ca14f6a653782b9a1ad5d899462fbe"
+dependencies = [
+ "include_dir",
+]
+
+[[package]]
+name = "lingua-polish-language-model"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72eb03e7940b3178c152138a16976e374ed0a3ddc80dc6f0b56984ab1189cb67"
+dependencies = [
+ "include_dir",
+]
+
+[[package]]
+name = "lingua-portuguese-language-model"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "432eda7984456055033ffa168037be9afe0f5c9ecd891bf5f27435247d496b47"
+dependencies = [
+ "include_dir",
+]
+
+[[package]]
+name = "lingua-russian-language-model"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fc0850578299531b50192be2c1de1af651f1289784253645e737fe456a6a138"
+dependencies = [
+ "include_dir",
+]
+
+[[package]]
 name = "lingua-spanish-language-model"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05df7766652773b2292e7ad12221c0090954baed18ca2ff631a5f134ce08d91d"
+dependencies = [
+ "include_dir",
+]
+
+[[package]]
+name = "lingua-turkish-language-model"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a2ab6b46c596ebd7f58e0db7a3d732c42a2fa48b77094a0737e920a5c47dca0"
 dependencies = [
  "include_dir",
 ]
@@ -4026,9 +4117,9 @@ dependencies = [
 
 [[package]]
 name = "mrml"
-version = "5.1.0"
+version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f2d4de127b05e0abf5bfe406ca8c766bb16e9150b040ff1525bccc20ee7c132"
+checksum = "7a117348b480944b0de34666b23cb64c5a63f5de691826bdb8a0657bb43a57ff"
 dependencies = [
  "enum-as-inner",
  "htmlparser",
@@ -4366,9 +4457,9 @@ dependencies = [
 
 [[package]]
 name = "openssl"
-version = "0.10.76"
+version = "0.10.77"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "951c002c75e16ea2c65b8c7e4d3d51d5530d8dfa7d060b4776828c88cfb18ecf"
+checksum = "bfe4646e360ec77dff7dde40ed3d6c5fee52d156ef4a62f53973d38294dad87f"
 dependencies = [
  "bitflags 2.11.0",
  "cfg-if",
@@ -4407,9 +4498,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.112"
+version = "0.9.113"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57d55af3b3e226502be1526dfdba67ab0e9c96fc293004e79576b2b9edb0dbdb"
+checksum = "ad2f2c0eba47118757e4c6d2bff2838f3e0523380021356e7875e858372ce644"
 dependencies = [
  "cc",
  "libc",
@@ -4502,6 +4593,28 @@ dependencies = [
  "regex-syntax",
  "structmeta",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "partner-api"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.4.0",
+ "lambda_runtime",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "shop",
+ "test-api",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "user",
 ]
 
 [[package]]
@@ -7003,6 +7116,7 @@ dependencies = [
  "lambda_runtime",
  "opensearch",
  "rstest",
+ "serde",
  "serde_json",
  "serde_qs",
  "serial_test",
@@ -7013,6 +7127,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "user",
 ]
 
 [[package]]

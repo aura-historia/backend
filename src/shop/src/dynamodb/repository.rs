@@ -64,6 +64,11 @@ pub trait ShopDynamoDbRepository {
         &self,
         record: RawShopNameRecord,
     ) -> Result<PutItemOutput, SdkError<PutItemError, HttpResponse>>;
+
+    async fn query_shops_by_partner(
+        &self,
+        partner_user_id: &common::user_id::UserId,
+    ) -> Result<Vec<ShopRecord>, SdkError<QueryError, HttpResponse>>;
 }
 
 #[derive(Debug, Clone)]
@@ -326,6 +331,47 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
             .set_item(Some(payload))
             .send()
             .await
+    }
+
+    async fn query_shops_by_partner(
+        &self,
+        partner_user_id: &common::user_id::UserId,
+    ) -> Result<Vec<ShopRecord>, SdkError<QueryError, HttpResponse>> {
+        let items = self
+            .client
+            .query()
+            .table_name(&self.table)
+            .index_name("gsi1")
+            .key_condition_expression(
+                "#gsi1_pk = :gsi1_pk_val AND begins_with(#gsi1_sk, :gsi1_sk_prefix)",
+            )
+            .expression_attribute_names("#gsi1_pk", "gsi1_pk")
+            .expression_attribute_names("#gsi1_sk", "gsi1_sk")
+            .expression_attribute_values(
+                ":gsi1_pk_val",
+                AttributeValue::S(shop_record::mk_gsi1_pk(partner_user_id)),
+            )
+            .expression_attribute_values(
+                ":gsi1_sk_prefix",
+                AttributeValue::S("partner_shop_id#".to_string()),
+            )
+            .send()
+            .await?
+            .items
+            .unwrap_or_default();
+
+        let records = items
+            .into_iter()
+            .filter_map(|item| {
+                serde_dynamo::from_item::<_, ShopRecord>(item)
+                    .map_err(|err| {
+                        error!(error = %err, type = %std::any::type_name::<ShopRecord>(), "Failed deserializing.");
+                    })
+                    .ok()
+            })
+            .collect();
+
+        Ok(records)
     }
 }
 

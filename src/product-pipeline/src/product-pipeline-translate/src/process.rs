@@ -9,7 +9,7 @@ use std::{
     sync::Arc,
     vec::IntoIter,
 };
-use strum::{EnumCount, IntoEnumIterator};
+use strum::IntoEnumIterator;
 use tracing::{error, info};
 
 pub struct TranslationPipeProcesserImpl {
@@ -36,7 +36,7 @@ impl PipeProcessor for TranslationPipeProcesserImpl {
             .into_iter()
             .map(|product| (product.product_id, product))
             .collect::<HashMap<_, _>>();
-        let mut successes = Vec::with_capacity((Language::COUNT - 1) * count);
+        let mut successes = Vec::with_capacity(4 * count);
         let mut failures = HashSet::new();
 
         let mut all_titles: HashMap<Language, Vec<(ProductId, String)>> =
@@ -151,7 +151,8 @@ impl TranslationPipeProcesserImpl {
             "shouldn't fail creating Batch of size 64 because 'itertools::chunks(64)' and 'Batch'
                 share the same semantics being invoked with same size",
         );
-        let tgt_langs = Language::iter().filter(|tgt| tgt != src_lang);
+        let tgt_langs =
+            Language::iter().filter(|tgt| tgt != src_lang && tgt.is_translation_target());
         for tgt_lang in tgt_langs {
             match self
                 .translation_delegate
@@ -358,6 +359,57 @@ mod tests {
                 })
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn should_not_translate_into_ingestion_only_langs() {
+        let mut translation_delegate = MockTranslationAdapter::default();
+        translation_delegate
+            .expect_translate_batch()
+            .returning(|_, _, _| Ok(vec!["翻訳".to_string()].try_into().unwrap()));
+
+        let translation_pipe_processor =
+            TranslationPipeProcesserImpl::new(Arc::new(translation_delegate));
+
+        // Use an ingestion-only language as the source
+        let mut product: Product = Faker.fake();
+        product.native_title = Localized {
+            payload: "这是一个中文标题".into(),
+            localization: Language::Zh,
+        };
+        product.native_description = None;
+        let actuals = translation_pipe_processor.process(vec![product]).await;
+
+        assert!(actuals.failures.is_empty());
+
+        let target_languages: HashSet<_> = actuals
+            .successes
+            .iter()
+            .filter_map(|event| match event.payload.clone() {
+                ProductEventPayload::ProductEnrichmentEvent(
+                    ProductEnrichmentEventPayload::TranslatedTitle(payload),
+                ) => Some(payload.target_language),
+                _ => None,
+            })
+            .collect();
+
+        // Must only translate into fully-supported languages
+        assert!(target_languages.contains(&Language::De));
+        assert!(target_languages.contains(&Language::En));
+        assert!(target_languages.contains(&Language::Fr));
+        assert!(target_languages.contains(&Language::Es));
+        assert!(target_languages.contains(&Language::It));
+
+        // Must NOT translate into ingestion-only languages
+        assert!(!target_languages.contains(&Language::Zh));
+        assert!(!target_languages.contains(&Language::Pt));
+        assert!(!target_languages.contains(&Language::Pl));
+        assert!(!target_languages.contains(&Language::Tr));
+        assert!(!target_languages.contains(&Language::Nl));
+        assert!(!target_languages.contains(&Language::Cs));
+        assert!(!target_languages.contains(&Language::Ja));
+        assert!(!target_languages.contains(&Language::Ru));
+        assert!(!target_languages.contains(&Language::Ar));
     }
 
     #[rstest::rstest]

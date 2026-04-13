@@ -1243,6 +1243,7 @@ async fn should_respond_200_and_respect_language_query_param(
                     Language::Fr => "fr",
                     Language::Es => "es",
                     Language::It => "it",
+                    _ => unreachable!("test only uses fully-supported languages"),
                 },
             )
             .path_parameter("shopId", product_record.shop_id)

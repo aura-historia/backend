@@ -12,18 +12,23 @@ pub enum CurrencyData {
     Aud,
     Cad,
     Nzd,
+    Cny,
+    Brl,
+    Pln,
+    Try,
+    Jpy,
+    Czk,
+    Rub,
+    Aed,
+    Sar,
+    Hkd,
+    Sgd,
+    Chf,
 }
 
 impl HasMinorUnitExponent for CurrencyData {
     fn minor_unit_exponent(&self) -> MinorUnitExponent {
-        match self {
-            CurrencyData::Eur => MinorUnitExponent(2),
-            CurrencyData::Gbp => MinorUnitExponent(2),
-            CurrencyData::Usd => MinorUnitExponent(2),
-            CurrencyData::Aud => MinorUnitExponent(2),
-            CurrencyData::Cad => MinorUnitExponent(2),
-            CurrencyData::Nzd => MinorUnitExponent(2),
-        }
+        Currency::from(*self).minor_unit_exponent()
     }
 }
 
@@ -36,6 +41,18 @@ impl From<Currency> for CurrencyData {
             Currency::Aud => CurrencyData::Aud,
             Currency::Cad => CurrencyData::Cad,
             Currency::Nzd => CurrencyData::Nzd,
+            Currency::Cny => CurrencyData::Cny,
+            Currency::Brl => CurrencyData::Brl,
+            Currency::Pln => CurrencyData::Pln,
+            Currency::Try => CurrencyData::Try,
+            Currency::Jpy => CurrencyData::Jpy,
+            Currency::Czk => CurrencyData::Czk,
+            Currency::Rub => CurrencyData::Rub,
+            Currency::Aed => CurrencyData::Aed,
+            Currency::Sar => CurrencyData::Sar,
+            Currency::Hkd => CurrencyData::Hkd,
+            Currency::Sgd => CurrencyData::Sgd,
+            Currency::Chf => CurrencyData::Chf,
         }
     }
 }
@@ -87,6 +104,18 @@ pub mod api {
         #[case::aud("AUD", CurrencyData::Aud)]
         #[case::cad("CAD", CurrencyData::Cad)]
         #[case::nzd("NZD", CurrencyData::Nzd)]
+        #[case::cny("CNY", CurrencyData::Cny)]
+        #[case::brl("BRL", CurrencyData::Brl)]
+        #[case::pln("PLN", CurrencyData::Pln)]
+        #[case::try_("TRY", CurrencyData::Try)]
+        #[case::jpy("JPY", CurrencyData::Jpy)]
+        #[case::czk("CZK", CurrencyData::Czk)]
+        #[case::rub("RUB", CurrencyData::Rub)]
+        #[case::aed("AED", CurrencyData::Aed)]
+        #[case::sar("SAR", CurrencyData::Sar)]
+        #[case::hkd("HKD", CurrencyData::Hkd)]
+        #[case::sgd("SGD", CurrencyData::Sgd)]
+        #[case::chf("CHF", CurrencyData::Chf)]
         #[trace]
         fn should_extract_currency(#[case] query_value: String, #[case] expected: CurrencyData) {
             let query = QueryMap::from(HashMap::from_iter([("currency".to_string(), query_value)]));
@@ -135,6 +164,18 @@ mod tests {
     #[case(CurrencyData::Aud, "\"AUD\"")]
     #[case(CurrencyData::Cad, "\"CAD\"")]
     #[case(CurrencyData::Nzd, "\"NZD\"")]
+    #[case(CurrencyData::Cny, "\"CNY\"")]
+    #[case(CurrencyData::Brl, "\"BRL\"")]
+    #[case(CurrencyData::Pln, "\"PLN\"")]
+    #[case(CurrencyData::Try, "\"TRY\"")]
+    #[case(CurrencyData::Jpy, "\"JPY\"")]
+    #[case(CurrencyData::Czk, "\"CZK\"")]
+    #[case(CurrencyData::Rub, "\"RUB\"")]
+    #[case(CurrencyData::Aed, "\"AED\"")]
+    #[case(CurrencyData::Sar, "\"SAR\"")]
+    #[case(CurrencyData::Hkd, "\"HKD\"")]
+    #[case(CurrencyData::Sgd, "\"SGD\"")]
+    #[case(CurrencyData::Chf, "\"CHF\"")]
     #[trace]
     fn should_serialize_currency_according_to_iso_4217(
         #[case] currency: CurrencyData,
@@ -151,6 +192,18 @@ mod tests {
     #[case("\"AUD\"", CurrencyData::Aud)]
     #[case("\"CAD\"", CurrencyData::Cad)]
     #[case("\"NZD\"", CurrencyData::Nzd)]
+    #[case("\"CNY\"", CurrencyData::Cny)]
+    #[case("\"BRL\"", CurrencyData::Brl)]
+    #[case("\"PLN\"", CurrencyData::Pln)]
+    #[case("\"TRY\"", CurrencyData::Try)]
+    #[case("\"JPY\"", CurrencyData::Jpy)]
+    #[case("\"CZK\"", CurrencyData::Czk)]
+    #[case("\"RUB\"", CurrencyData::Rub)]
+    #[case("\"AED\"", CurrencyData::Aed)]
+    #[case("\"SAR\"", CurrencyData::Sar)]
+    #[case("\"HKD\"", CurrencyData::Hkd)]
+    #[case("\"SGD\"", CurrencyData::Sgd)]
+    #[case("\"CHF\"", CurrencyData::Chf)]
     #[trace]
     fn should_deserialize_currency_according_to_iso_4217(
         #[case] currency: &str,

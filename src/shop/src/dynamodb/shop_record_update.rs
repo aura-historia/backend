@@ -25,6 +25,12 @@ pub struct ShopRecordUpdate {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
 
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub partner_api_key_short: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub partner_api_key_long_hash: Option<String>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }

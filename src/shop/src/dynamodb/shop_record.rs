@@ -106,9 +106,7 @@ impl From<ShopRecord> for Shop {
             shop_type: record.shop_type.into(),
             domains: record.domains,
             image: record.image,
-            partner_status: if record.partner_api_key_short.is_some()
-                && record.partner_api_key_long_hash.is_some()
-            {
+            partner_status: if record.partner_user_id.is_some() {
                 crate::core::partner_status::ShopPartnerStatus::Partnered
             } else {
                 crate::core::partner_status::ShopPartnerStatus::Scraped
@@ -123,15 +121,14 @@ impl TryFrom<ShopRecord> for PartnerShop {
     type Error = MissingPersistenceField;
 
     fn try_from(value: ShopRecord) -> Result<Self, Self::Error> {
-        let partner_api_key_short = value.partner_api_key_short.ok_or_else(|| {
-            MissingPersistenceField::new(field::field!(partner_api_key_short@ShopRecord))
-        })?;
-        let partner_api_key_long_hash = value.partner_api_key_long_hash.ok_or_else(|| {
-            MissingPersistenceField::new(field::field!(partner_api_key_long_hash@ShopRecord))
-        })?;
         let partner_user_id = value.partner_user_id.ok_or_else(|| {
             MissingPersistenceField::new(field::field!(partner_user_id@ShopRecord))
         })?;
+
+        let hashed_api_key = match (value.partner_api_key_short, value.partner_api_key_long_hash) {
+            (Some(short), Some(hash)) => Some(HashedPartnerShopApiKey::new(short, hash)),
+            _ => None,
+        };
 
         Ok(PartnerShop {
             shop_id: value.shop_id,
@@ -141,10 +138,7 @@ impl TryFrom<ShopRecord> for PartnerShop {
             domains: value.domains,
             image: value.image,
             partner_user_id,
-            hashed_api_key: HashedPartnerShopApiKey::new(
-                partner_api_key_short,
-                partner_api_key_long_hash,
-            ),
+            hashed_api_key,
             created: value.created,
             updated: value.updated,
         })

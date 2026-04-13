@@ -118,6 +118,7 @@ impl<'a> PeriodOpenSearchRepository for PeriodOpenSearchRepositoryImpl<'a> {
                 Language::Fr => PeriodDocumentSerdeField::DisplayNameFr.as_str(),
                 Language::Es => PeriodDocumentSerdeField::DisplayNameEs.as_str(),
                 Language::It => PeriodDocumentSerdeField::DisplayNameIt.as_str(),
+                _ => PeriodDocumentSerdeField::DisplayNameEn.as_str(),
             };
             must.push(json!({
                 "multi_match": {
@@ -139,6 +140,7 @@ impl<'a> PeriodOpenSearchRepository for PeriodOpenSearchRepositoryImpl<'a> {
                 Language::Fr => "displayNameFr.keyword",
                 Language::Es => "displayNameEs.keyword",
                 Language::It => "displayNameIt.keyword",
+                _ => "displayNameEn.keyword",
             },
             SortPeriodField::Created => PeriodDocumentSerdeField::Created.as_str(),
             SortPeriodField::Updated => PeriodDocumentSerdeField::Updated.as_str(),

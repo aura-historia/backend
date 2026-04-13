@@ -23,6 +23,7 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/notification-api",
     "src/partner-shop-application",
     "src/partner-shop-application-api",
+    "src/partner-api",
     "src/shop",
     "src/shop-api",
     "src/shop-lambda/src/shop-lambda-opensearch-index",

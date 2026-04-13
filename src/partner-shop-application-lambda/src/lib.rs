@@ -251,6 +251,8 @@ async fn link_shop_to_partner(
         shop_type: None,
         domains: None,
         image: None,
+        partner_api_key_short: None,
+        partner_api_key_long_hash: None,
         updated: OffsetDateTime::now_utc(),
     };
 

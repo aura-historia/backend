@@ -37,50 +37,36 @@ pub trait FxRate {
 pub struct FixedFxRate();
 
 impl FixedFxRate {
-    pub fn get_rate(&self, from: Currency, to: Currency) -> Rate {
-        match (from, to) {
-            (Currency::Eur, Currency::Eur) => 1_000_000,
-            (Currency::Eur, Currency::Usd) => 1_167_000,
-            (Currency::Eur, Currency::Gbp) => 867_800,
-            (Currency::Eur, Currency::Aud) => 1_778_000,
-            (Currency::Eur, Currency::Cad) => 1_597_000,
-            (Currency::Eur, Currency::Nzd) => 1_947_000,
-
-            (Currency::Usd, Currency::Eur) => 856_900,
-            (Currency::Usd, Currency::Gbp) => 743_700,
-            (Currency::Usd, Currency::Aud) => 1_523_000,
-            (Currency::Usd, Currency::Cad) => 1_368_000,
-            (Currency::Usd, Currency::Nzd) => 1_668_000,
-            (Currency::Usd, Currency::Usd) => 1_000_000,
-
-            (Currency::Gbp, Currency::Eur) => 1_152_000,
-            (Currency::Gbp, Currency::Usd) => 1_344_000,
-            (Currency::Gbp, Currency::Aud) => 2_049_000,
-            (Currency::Gbp, Currency::Cad) => 1_840_000,
-            (Currency::Gbp, Currency::Nzd) => 2_243_000,
-            (Currency::Gbp, Currency::Gbp) => 1_000_000,
-
-            (Currency::Aud, Currency::Eur) => 562_300,
-            (Currency::Aud, Currency::Usd) => 656_100,
-            (Currency::Aud, Currency::Gbp) => 488_000,
-            (Currency::Aud, Currency::Cad) => 898_200,
-            (Currency::Aud, Currency::Nzd) => 1_095_000,
-            (Currency::Aud, Currency::Aud) => 1_000_000,
-
-            (Currency::Cad, Currency::Eur) => 626_000,
-            (Currency::Cad, Currency::Usd) => 730_500,
-            (Currency::Cad, Currency::Gbp) => 543_300,
-            (Currency::Cad, Currency::Aud) => 1_113_000,
-            (Currency::Cad, Currency::Nzd) => 1_219_000,
-            (Currency::Cad, Currency::Cad) => 1_000_000,
-
-            (Currency::Nzd, Currency::Eur) => 513_500,
-            (Currency::Nzd, Currency::Usd) => 599_300,
-            (Currency::Nzd, Currency::Gbp) => 445_700,
-            (Currency::Nzd, Currency::Aud) => 913_200,
-            (Currency::Nzd, Currency::Cad) => 820_300,
-            (Currency::Nzd, Currency::Nzd) => 1_000_000,
+    fn eur_base_rate(currency: Currency) -> f64 {
+        match currency {
+            Currency::Eur => 1.0,
+            Currency::Usd => 1.117,
+            Currency::Gbp => 0.843,
+            Currency::Aud => 1.748,
+            Currency::Cad => 1.557,
+            Currency::Nzd => 1.900,
+            Currency::Cny => 8.150,
+            Currency::Brl => 6.100,
+            Currency::Pln => 4.270,
+            Currency::Try => 40.500,
+            Currency::Jpy => 163.000,
+            Currency::Czk => 25.100,
+            Currency::Rub => 100.000,
+            Currency::Aed => 4.103,
+            Currency::Sar => 4.190,
+            Currency::Hkd => 8.711,
+            Currency::Sgd => 1.488,
+            Currency::Chf => 0.944,
         }
+    }
+
+    pub fn get_rate(&self, from: Currency, to: Currency) -> Rate {
+        if from == to {
+            return FX_RATE_SCALE;
+        }
+        let eur_from = Self::eur_base_rate(from);
+        let eur_to = Self::eur_base_rate(to);
+        ((eur_to / eur_from) * FX_RATE_SCALE as f64).round() as u64
     }
 }
 
@@ -212,17 +198,28 @@ impl Price {
     }
 
     pub fn format_human_readable(&self) -> String {
-        let divisor = 10u64.pow(self.currency.minor_unit_exponent().0 as u32);
-        let majors = self.monetary_amount.0 / divisor;
-        let minors = self.monetary_amount.0 % divisor;
-        let width = self.currency.minor_unit_exponent().0 as usize;
-        let decimal_separator = self.currency.decimal_separator();
+        let exponent = self.currency.minor_unit_exponent().0 as u32;
         let currency_symbol = self.currency.currency_symbol();
 
-        if self.currency.is_leading_sign() {
-            format!("{currency_symbol}{majors}{decimal_separator}{minors:0>width$}",)
+        if exponent == 0 {
+            let majors = self.monetary_amount.0;
+            if self.currency.is_leading_sign() {
+                format!("{currency_symbol}{majors}")
+            } else {
+                format!("{majors} {currency_symbol}")
+            }
         } else {
-            format!("{majors}{decimal_separator}{minors:0>width$} {currency_symbol}",)
+            let divisor = 10u64.pow(exponent);
+            let majors = self.monetary_amount.0 / divisor;
+            let minors = self.monetary_amount.0 % divisor;
+            let width = exponent as usize;
+            let decimal_separator = self.currency.decimal_separator();
+
+            if self.currency.is_leading_sign() {
+                format!("{currency_symbol}{majors}{decimal_separator}{minors:0>width$}",)
+            } else {
+                format!("{majors}{decimal_separator}{minors:0>width$} {currency_symbol}",)
+            }
         }
     }
 }
@@ -329,6 +326,29 @@ mod tests {
     #[case(Price::new(MonetaryAmount(500), Currency::Nzd), "NZ$5.00")]
     #[case(Price::new(MonetaryAmount(542), Currency::Nzd), "NZ$5.42")]
     #[case(Price::new(MonetaryAmount(123456), Currency::Nzd), "NZ$1234.56")]
+    #[case(Price::new(MonetaryAmount(500), Currency::Cny), "CN¥5.00")]
+    #[case(Price::new(MonetaryAmount(123456), Currency::Cny), "CN¥1234.56")]
+    #[case(Price::new(MonetaryAmount(500), Currency::Brl), "R$5,00")]
+    #[case(Price::new(MonetaryAmount(123456), Currency::Brl), "R$1234,56")]
+    #[case(Price::new(MonetaryAmount(500), Currency::Pln), "5,00 zł")]
+    #[case(Price::new(MonetaryAmount(123456), Currency::Pln), "1234,56 zł")]
+    #[case(Price::new(MonetaryAmount(500), Currency::Try), "5,00 ₺")]
+    #[case(Price::new(MonetaryAmount(123456), Currency::Try), "1234,56 ₺")]
+    #[case(Price::new(MonetaryAmount(1234), Currency::Jpy), "¥1234")]
+    #[case(Price::new(MonetaryAmount(500), Currency::Jpy), "¥500")]
+    #[case(Price::new(MonetaryAmount(0), Currency::Jpy), "¥0")]
+    #[case(Price::new(MonetaryAmount(500), Currency::Czk), "5,00 Kč")]
+    #[case(Price::new(MonetaryAmount(123456), Currency::Czk), "1234,56 Kč")]
+    #[case(Price::new(MonetaryAmount(500), Currency::Rub), "5,00 ₽")]
+    #[case(Price::new(MonetaryAmount(123456), Currency::Rub), "1234,56 ₽")]
+    #[case(Price::new(MonetaryAmount(500), Currency::Aed), "5.00 د.إ")]
+    #[case(Price::new(MonetaryAmount(500), Currency::Sar), "5.00 ﷼")]
+    #[case(Price::new(MonetaryAmount(500), Currency::Hkd), "HK$5.00")]
+    #[case(Price::new(MonetaryAmount(123456), Currency::Hkd), "HK$1234.56")]
+    #[case(Price::new(MonetaryAmount(500), Currency::Sgd), "S$5.00")]
+    #[case(Price::new(MonetaryAmount(123456), Currency::Sgd), "S$1234.56")]
+    #[case(Price::new(MonetaryAmount(500), Currency::Chf), "CHF5.00")]
+    #[case(Price::new(MonetaryAmount(123456), Currency::Chf), "CHF1234.56")]
     #[trace]
     fn should_format_price_human_readable(#[case] price: Price, #[case] expected: &str) {
         let actual = price.format_human_readable();

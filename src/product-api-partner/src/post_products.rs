@@ -206,7 +206,7 @@ mod tests {
         let mut partner_shop: PartnerShop = Faker.fake();
         partner_shop.shop_type = shop_type;
         let hashed: HashedPartnerShopApiKey = api_key.clone().into();
-        partner_shop.hashed_api_key = hashed;
+        partner_shop.hashed_api_key = Some(hashed);
         (api_key, partner_shop)
     }
 

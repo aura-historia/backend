@@ -36,6 +36,7 @@ fxrate-lambda = { workspace = true }
 partner-shop-application = { workspace = true }
 partner-shop-application-api = { workspace = true }
 partner-shop-application-lambda = { workspace = true }
+partner-api = { workspace = true }
 
 [workspace]
 members = [
@@ -73,6 +74,7 @@ members = [
     "src/partner-shop-application",
     "src/partner-shop-application-api",
     "src/partner-shop-application-lambda",
+    "src/partner-api",
 ]
 
 [workspace.dependencies]
@@ -137,7 +139,7 @@ lambda_runtime = "1.1.2"
 libc = "0.2.184"
 ctrlc = { version = "3.5.2", features = ["termination"] }
 mockall = "0.14.0"
-mrml = { version = "5.1.0", default-features = false, features = ["parse", "render"] }
+mrml = { version = "6.0.0", default-features = false, features = ["parse", "render"] }
 opensearch = { version = "2.4.0", default-features = false, features = [
     "aws-auth",
     "rustls-tls",
@@ -188,7 +190,7 @@ cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 serde-email = "3.2.0"
 handlebars = "6.4.0"
 once_cell = "1.21.4"
-openssl = { version = "0.10.76", default-features = false }
+openssl = { version = "0.10.77", default-features = false }
 jsonwebtokens = "1.2.0"
 jsonwebtokens-cognito = "0.1.1"
 aws-sdk-cognitoidentityprovider = "1.113.0"
@@ -205,10 +207,11 @@ scraper = "0.26.0"
 schemars = "1.2.1"
 llm = { version = "1.3.7", default-features = false, features = ["rustls-tls"] }
 kuchiki = "0.8.1"
-lingua = { version = "1.7.2", default-features = false, features = ["english", "german", "french", "spanish", "italian"] }
+lingua = { version = "1.7.2", default-features = false, features = ["english", "german", "french", "spanish", "italian", "chinese", "portuguese", "polish", "turkish", "dutch", "czech", "japanese", "russian", "arabic"] }
 dotenvy = "0.15"
 url-normalize = "0.1.1"
 prefixed-api-key = { version = "0.3.0" }
 partner-shop-application = { path = "src/partner-shop-application" }
 partner-shop-application-api = { path = "src/partner-shop-application-api" }
 partner-shop-application-lambda = { path = "src/partner-shop-application-lambda" }
+partner-api = { path = "src/partner-api" }

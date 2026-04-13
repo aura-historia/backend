@@ -48,6 +48,33 @@ pub enum LanguageData {
 
     #[serde(alias = "it-IT", alias = "it-CH")]
     It,
+
+    #[serde(alias = "zh-CN", alias = "zh-Hans")]
+    Zh,
+
+    #[serde(alias = "pt-PT", alias = "pt-BR")]
+    Pt,
+
+    #[serde(alias = "pl-PL")]
+    Pl,
+
+    #[serde(alias = "tr-TR")]
+    Tr,
+
+    #[serde(alias = "nl-NL", alias = "nl-BE")]
+    Nl,
+
+    #[serde(alias = "cs-CZ")]
+    Cs,
+
+    #[serde(alias = "ja-JP")]
+    Ja,
+
+    #[serde(alias = "ru-RU")]
+    Ru,
+
+    #[serde(alias = "ar-SA", alias = "ar-EG", alias = "ar-AE")]
+    Ar,
 }
 
 impl LanguageData {
@@ -58,6 +85,15 @@ impl LanguageData {
             LanguageData::Fr => "fr",
             LanguageData::Es => "es",
             LanguageData::It => "it",
+            LanguageData::Zh => "zh",
+            LanguageData::Pt => "pt",
+            LanguageData::Pl => "pl",
+            LanguageData::Tr => "tr",
+            LanguageData::Nl => "nl",
+            LanguageData::Cs => "cs",
+            LanguageData::Ja => "ja",
+            LanguageData::Ru => "ru",
+            LanguageData::Ar => "ar",
         }
     }
 }
@@ -70,6 +106,15 @@ impl From<Language> for LanguageData {
             Language::Fr => LanguageData::Fr,
             Language::Es => LanguageData::Es,
             Language::It => LanguageData::It,
+            Language::Zh => LanguageData::Zh,
+            Language::Pt => LanguageData::Pt,
+            Language::Pl => LanguageData::Pl,
+            Language::Tr => LanguageData::Tr,
+            Language::Nl => LanguageData::Nl,
+            Language::Cs => LanguageData::Cs,
+            Language::Ja => LanguageData::Ja,
+            Language::Ru => LanguageData::Ru,
+            Language::Ar => LanguageData::Ar,
         }
     }
 }
@@ -144,6 +189,17 @@ pub mod api {
         #[case("fr", LanguageData::Fr)]
         #[case("es", LanguageData::Es)]
         #[case("it", LanguageData::It)]
+        #[case("zh", LanguageData::Zh)]
+        #[case("zh-CN", LanguageData::Zh)]
+        #[case("pt", LanguageData::Pt)]
+        #[case("pt-BR", LanguageData::Pt)]
+        #[case("pl", LanguageData::Pl)]
+        #[case("tr", LanguageData::Tr)]
+        #[case("nl", LanguageData::Nl)]
+        #[case("cs", LanguageData::Cs)]
+        #[case("ja", LanguageData::Ja)]
+        #[case("ru", LanguageData::Ru)]
+        #[case("ar", LanguageData::Ar)]
         #[trace]
         fn should_extract_language_query(
             #[case] query_value: String,
@@ -195,6 +251,15 @@ mod tests {
     #[case(LanguageData::Fr, "\"fr\"")]
     #[case(LanguageData::Es, "\"es\"")]
     #[case(LanguageData::It, "\"it\"")]
+    #[case(LanguageData::Zh, "\"zh\"")]
+    #[case(LanguageData::Pt, "\"pt\"")]
+    #[case(LanguageData::Pl, "\"pl\"")]
+    #[case(LanguageData::Tr, "\"tr\"")]
+    #[case(LanguageData::Nl, "\"nl\"")]
+    #[case(LanguageData::Cs, "\"cs\"")]
+    #[case(LanguageData::Ja, "\"ja\"")]
+    #[case(LanguageData::Ru, "\"ru\"")]
+    #[case(LanguageData::Ar, "\"ar\"")]
     #[trace]
     fn should_serialize_language_according_to_iso_639_1(
         #[case] language: LanguageData,
@@ -210,6 +275,15 @@ mod tests {
     #[case("\"fr\"", LanguageData::Fr)]
     #[case("\"es\"", LanguageData::Es)]
     #[case("\"it\"", LanguageData::It)]
+    #[case("\"zh\"", LanguageData::Zh)]
+    #[case("\"pt\"", LanguageData::Pt)]
+    #[case("\"pl\"", LanguageData::Pl)]
+    #[case("\"tr\"", LanguageData::Tr)]
+    #[case("\"nl\"", LanguageData::Nl)]
+    #[case("\"cs\"", LanguageData::Cs)]
+    #[case("\"ja\"", LanguageData::Ja)]
+    #[case("\"ru\"", LanguageData::Ru)]
+    #[case("\"ar\"", LanguageData::Ar)]
     #[trace]
     fn should_deserialize_language_according_to_iso_639_1(
         #[case] language: &str,

@@ -99,9 +99,11 @@ mod tests {
     use lambda_runtime::LambdaEvent;
     use shop::core::shop::Shop;
     use shop::data::shop_search_data::ShopSearchData;
+    use shop::service::command_service::MockCommandShopService;
     use shop::service::get_service::MockGetShopService;
     use shop::service::query_service::MockQueryShopService;
     use test_api::ApiGatewayV2httpRequestProxy;
+    use user::service::user_service::MockUserService;
 
     #[tokio::test]
     #[rstest::rstest]
@@ -137,9 +139,15 @@ mod tests {
                 };
                 Box::pin(async move { Ok(search_result) })
             });
-        let response = handle(lambda_event, &MockGetShopService::default(), &service)
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &MockGetShopService::default(),
+            &service,
+            &MockCommandShopService::default(),
+            &MockUserService::default(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
     }
@@ -171,9 +179,15 @@ mod tests {
                 })
             })
         });
-        let response = handle(lambda_event, &MockGetShopService::default(), &service)
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &MockGetShopService::default(),
+            &service,
+            &MockCommandShopService::default(),
+            &MockUserService::default(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
         assert_eq!(
@@ -211,9 +225,15 @@ mod tests {
             };
             Box::pin(async move { Ok(search_result) })
         });
-        let response = handle(lambda_event, &MockGetShopService::default(), &service)
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &MockGetShopService::default(),
+            &service,
+            &MockCommandShopService::default(),
+            &MockUserService::default(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
     }

@@ -11,6 +11,15 @@ pub enum LanguageRecord {
     Fr,
     Es,
     It,
+    Zh,
+    Pt,
+    Pl,
+    Tr,
+    Nl,
+    Cs,
+    Ja,
+    Ru,
+    Ar,
 }
 
 impl LanguageRecord {
@@ -21,6 +30,15 @@ impl LanguageRecord {
             LanguageRecord::Fr => "fr",
             LanguageRecord::Es => "es",
             LanguageRecord::It => "it",
+            LanguageRecord::Zh => "zh",
+            LanguageRecord::Pt => "pt",
+            LanguageRecord::Pl => "pl",
+            LanguageRecord::Tr => "tr",
+            LanguageRecord::Nl => "nl",
+            LanguageRecord::Cs => "cs",
+            LanguageRecord::Ja => "ja",
+            LanguageRecord::Ru => "ru",
+            LanguageRecord::Ar => "ar",
         }
     }
 }
@@ -33,6 +51,15 @@ impl From<Language> for LanguageRecord {
             Language::Fr => LanguageRecord::Fr,
             Language::Es => LanguageRecord::Es,
             Language::It => LanguageRecord::It,
+            Language::Zh => LanguageRecord::Zh,
+            Language::Pt => LanguageRecord::Pt,
+            Language::Pl => LanguageRecord::Pl,
+            Language::Tr => LanguageRecord::Tr,
+            Language::Nl => LanguageRecord::Nl,
+            Language::Cs => LanguageRecord::Cs,
+            Language::Ja => LanguageRecord::Ja,
+            Language::Ru => LanguageRecord::Ru,
+            Language::Ar => LanguageRecord::Ar,
         }
     }
 }
@@ -73,6 +100,15 @@ mod tests {
     #[case(LanguageRecord::Fr, "\"FR\"")]
     #[case(LanguageRecord::Es, "\"ES\"")]
     #[case(LanguageRecord::It, "\"IT\"")]
+    #[case(LanguageRecord::Zh, "\"ZH\"")]
+    #[case(LanguageRecord::Pt, "\"PT\"")]
+    #[case(LanguageRecord::Pl, "\"PL\"")]
+    #[case(LanguageRecord::Tr, "\"TR\"")]
+    #[case(LanguageRecord::Nl, "\"NL\"")]
+    #[case(LanguageRecord::Cs, "\"CS\"")]
+    #[case(LanguageRecord::Ja, "\"JA\"")]
+    #[case(LanguageRecord::Ru, "\"RU\"")]
+    #[case(LanguageRecord::Ar, "\"AR\"")]
     #[trace]
     fn should_serialize_language_in_screaming_snake_case(
         #[case] language: LanguageRecord,
@@ -88,6 +124,15 @@ mod tests {
     #[case("\"FR\"", LanguageRecord::Fr)]
     #[case("\"ES\"", LanguageRecord::Es)]
     #[case("\"IT\"", LanguageRecord::It)]
+    #[case("\"ZH\"", LanguageRecord::Zh)]
+    #[case("\"PT\"", LanguageRecord::Pt)]
+    #[case("\"PL\"", LanguageRecord::Pl)]
+    #[case("\"TR\"", LanguageRecord::Tr)]
+    #[case("\"NL\"", LanguageRecord::Nl)]
+    #[case("\"CS\"", LanguageRecord::Cs)]
+    #[case("\"JA\"", LanguageRecord::Ja)]
+    #[case("\"RU\"", LanguageRecord::Ru)]
+    #[case("\"AR\"", LanguageRecord::Ar)]
     #[trace]
     fn should_deserialize_language_in_screaming_snake_case(
         #[case] language: &str,

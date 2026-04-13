@@ -238,6 +238,18 @@ pub fn build_search_request(
         Currency::Aud => ProductDocumentSerdeField::PriceAud.as_str(),
         Currency::Cad => ProductDocumentSerdeField::PriceCad.as_str(),
         Currency::Nzd => ProductDocumentSerdeField::PriceNzd.as_str(),
+        Currency::Cny => ProductDocumentSerdeField::PriceCny.as_str(),
+        Currency::Brl => ProductDocumentSerdeField::PriceBrl.as_str(),
+        Currency::Pln => ProductDocumentSerdeField::PricePln.as_str(),
+        Currency::Try => ProductDocumentSerdeField::PriceTry.as_str(),
+        Currency::Jpy => ProductDocumentSerdeField::PriceJpy.as_str(),
+        Currency::Czk => ProductDocumentSerdeField::PriceCzk.as_str(),
+        Currency::Rub => ProductDocumentSerdeField::PriceRub.as_str(),
+        Currency::Aed => ProductDocumentSerdeField::PriceAed.as_str(),
+        Currency::Sar => ProductDocumentSerdeField::PriceSar.as_str(),
+        Currency::Hkd => ProductDocumentSerdeField::PriceHkd.as_str(),
+        Currency::Sgd => ProductDocumentSerdeField::PriceSgd.as_str(),
+        Currency::Chf => ProductDocumentSerdeField::PriceChf.as_str(),
     };
     let sort_field = match sort.sort {
         SortProductField::Score => "_score",
@@ -292,6 +304,11 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
         Language::It => (
             ProductDocumentSerdeField::TitleIt,
             ProductDocumentSerdeField::DescriptionIt,
+        ),
+        // Ingestion-only languages fall back to English for search
+        _ => (
+            ProductDocumentSerdeField::TitleEn,
+            ProductDocumentSerdeField::DescriptionEn,
         ),
     };
 
@@ -399,6 +416,18 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
         Currency::Aud => ProductDocumentSerdeField::PriceAud.as_str(),
         Currency::Cad => ProductDocumentSerdeField::PriceCad.as_str(),
         Currency::Nzd => ProductDocumentSerdeField::PriceNzd.as_str(),
+        Currency::Cny => ProductDocumentSerdeField::PriceCny.as_str(),
+        Currency::Brl => ProductDocumentSerdeField::PriceBrl.as_str(),
+        Currency::Pln => ProductDocumentSerdeField::PricePln.as_str(),
+        Currency::Try => ProductDocumentSerdeField::PriceTry.as_str(),
+        Currency::Jpy => ProductDocumentSerdeField::PriceJpy.as_str(),
+        Currency::Czk => ProductDocumentSerdeField::PriceCzk.as_str(),
+        Currency::Rub => ProductDocumentSerdeField::PriceRub.as_str(),
+        Currency::Aed => ProductDocumentSerdeField::PriceAed.as_str(),
+        Currency::Sar => ProductDocumentSerdeField::PriceSar.as_str(),
+        Currency::Hkd => ProductDocumentSerdeField::PriceHkd.as_str(),
+        Currency::Sgd => ProductDocumentSerdeField::PriceSgd.as_str(),
+        Currency::Chf => ProductDocumentSerdeField::PriceChf.as_str(),
     };
 
     if let Some(min) = search.price_query.and_then(|q| q.min) {
