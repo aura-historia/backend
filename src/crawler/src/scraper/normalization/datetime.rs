@@ -148,18 +148,19 @@ fn try_rfc3339(s: &str) -> Option<OffsetDateTime> {
 ///  5. Space separator + UTC literal           (`2024-06-01 10:00:00 UTC`)
 ///  6. Hyphenated time parts                   (`2026-03-03T07-30-00Z`, `…+02-00`)
 ///  7. ISO 8601 basic (compact)                (`20240601T100000Z`, `20240601T100000+0200`)
+///  8. Day-MonthName-Year + time + TZ abbrev   (`18 Apr. 2026 15:00 CEST`)
 ///
 /// **Without timezone info (assumed UTC – no timezone context is available):**
-///  8. ISO 8601 date-only                      (`2024-06-01`)              → midnight UTC
-///  9. SQL datetime with seconds               (`2024-06-01 10:30:00`)     → UTC
-/// 10. SQL datetime without seconds            (`2024-06-01 10:30`)        → UTC
-/// 11. German datetime with seconds            (`01.06.2024 10:30:00`)     → UTC
-/// 12. German datetime without seconds         (`01.06.2024 10:30`)        → UTC
-/// 13. German date-only                        (`01.06.2024`)              → midnight UTC
-/// 14. US datetime with seconds                (`06/01/2024 10:30:00`)     → UTC
-/// 15. US datetime without seconds             (`06/01/2024 10:30`)        → UTC
-/// 16. US date-only                            (`06/01/2024`)              → midnight UTC
-/// 17. Unix epoch                              (`1717228800`)
+///  9. ISO 8601 date-only                      (`2024-06-01`)              → midnight UTC
+/// 10. SQL datetime with seconds               (`2024-06-01 10:30:00`)     → UTC
+/// 11. SQL datetime without seconds            (`2024-06-01 10:30`)        → UTC
+/// 12. German datetime with seconds            (`01.06.2024 10:30:00`)     → UTC
+/// 13. German datetime without seconds         (`01.06.2024 10:30`)        → UTC
+/// 14. German date-only                        (`01.06.2024`)              → midnight UTC
+/// 15. US datetime with seconds                (`06/01/2024 10:30:00`)     → UTC
+/// 16. US datetime without seconds             (`06/01/2024 10:30`)        → UTC
+/// 17. US date-only                            (`06/01/2024`)              → midnight UTC
+/// 18. Unix epoch                              (`1717228800`)
 pub(super) fn parse_datetime(raw: &str) -> Option<OffsetDateTime> {
     let s = raw.trim();
 
@@ -233,11 +234,19 @@ pub(super) fn parse_datetime(raw: &str) -> Option<OffsetDateTime> {
     }
 
     // ------------------------------------------------------------------
+    // 8. "DD Mon[.] YYYY HH:MM[:SS] [TZ]"
+    //    e.g. "18 Apr. 2026 15:00 CEST", "18 Apr 2026 15:00 CET"
+    // ------------------------------------------------------------------
+    if let Some(dt) = parse_day_mon_year_time_tz(s) {
+        return Some(dt);
+    }
+
+    // ------------------------------------------------------------------
     // Timezone-naive formats below.
     // The caller provides no timezone context, so UTC is assumed.
     // ------------------------------------------------------------------
 
-    // 8. ISO 8601 date-only "YYYY-MM-DD"
+    // 9. ISO 8601 date-only "YYYY-MM-DD"
     {
         let fmt = format_description!("[year]-[month]-[day]");
         if let Ok(date) = time::Date::parse(s, &fmt) {
@@ -245,7 +254,7 @@ pub(super) fn parse_datetime(raw: &str) -> Option<OffsetDateTime> {
         }
     }
 
-    // 9. "YYYY-MM-DD HH:MM:SS"
+    // 10. "YYYY-MM-DD HH:MM:SS"
     {
         let fmt = format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
         if let Ok(pdt) = time::PrimitiveDateTime::parse(s, &fmt) {
@@ -253,7 +262,7 @@ pub(super) fn parse_datetime(raw: &str) -> Option<OffsetDateTime> {
         }
     }
 
-    // 10. "YYYY-MM-DD HH:MM"
+    // 11. "YYYY-MM-DD HH:MM"
     {
         let fmt = format_description!("[year]-[month]-[day] [hour]:[minute]");
         if let Ok(pdt) = time::PrimitiveDateTime::parse(s, &fmt) {
@@ -261,7 +270,7 @@ pub(super) fn parse_datetime(raw: &str) -> Option<OffsetDateTime> {
         }
     }
 
-    // 11. "DD.MM.YYYY HH:MM:SS"
+    // 12. "DD.MM.YYYY HH:MM:SS"
     {
         let fmt = format_description!("[day].[month].[year] [hour]:[minute]:[second]");
         if let Ok(pdt) = time::PrimitiveDateTime::parse(s, &fmt) {
@@ -269,7 +278,7 @@ pub(super) fn parse_datetime(raw: &str) -> Option<OffsetDateTime> {
         }
     }
 
-    // 12. "DD.MM.YYYY HH:MM"
+    // 13. "DD.MM.YYYY HH:MM"
     {
         let fmt = format_description!("[day].[month].[year] [hour]:[minute]");
         if let Ok(pdt) = time::PrimitiveDateTime::parse(s, &fmt) {
@@ -277,7 +286,7 @@ pub(super) fn parse_datetime(raw: &str) -> Option<OffsetDateTime> {
         }
     }
 
-    // 13. "DD.MM.YYYY"
+    // 14. "DD.MM.YYYY"
     {
         let fmt = format_description!("[day].[month].[year]");
         if let Ok(date) = time::Date::parse(s, &fmt) {
@@ -285,7 +294,7 @@ pub(super) fn parse_datetime(raw: &str) -> Option<OffsetDateTime> {
         }
     }
 
-    // 14. "MM/DD/YYYY HH:MM:SS"
+    // 15. "MM/DD/YYYY HH:MM:SS"
     {
         let fmt = format_description!("[month]/[day]/[year] [hour]:[minute]:[second]");
         if let Ok(pdt) = time::PrimitiveDateTime::parse(s, &fmt) {
@@ -293,7 +302,7 @@ pub(super) fn parse_datetime(raw: &str) -> Option<OffsetDateTime> {
         }
     }
 
-    // 15. "MM/DD/YYYY HH:MM"
+    // 16. "MM/DD/YYYY HH:MM"
     {
         let fmt = format_description!("[month]/[day]/[year] [hour]:[minute]");
         if let Ok(pdt) = time::PrimitiveDateTime::parse(s, &fmt) {
@@ -301,7 +310,7 @@ pub(super) fn parse_datetime(raw: &str) -> Option<OffsetDateTime> {
         }
     }
 
-    // 16. "MM/DD/YYYY"
+    // 17. "MM/DD/YYYY"
     {
         let fmt = format_description!("[month]/[day]/[year]");
         if let Ok(date) = time::Date::parse(s, &fmt) {
@@ -309,12 +318,121 @@ pub(super) fn parse_datetime(raw: &str) -> Option<OffsetDateTime> {
         }
     }
 
-    // 17. Unix epoch (integer seconds)
+    // 18. Unix epoch (integer seconds)
     if let Ok(epoch) = s.parse::<i64>() {
         return OffsetDateTime::from_unix_timestamp(epoch).ok();
     }
 
     None
+}
+
+/// Returns the 1-based month number for a 3-letter (or full) English month
+/// name.  A trailing period is stripped before matching, so `"Apr."` and
+/// `"Apr"` are treated identically.  Matching is case-insensitive.
+fn parse_month_abbrev(s: &str) -> Option<u8> {
+    match s.trim_end_matches('.').to_ascii_lowercase().as_str() {
+        "jan" | "january" => Some(1),
+        "feb" | "february" => Some(2),
+        "mar" | "march" => Some(3),
+        "apr" | "april" => Some(4),
+        "may" => Some(5),
+        "jun" | "june" => Some(6),
+        "jul" | "july" => Some(7),
+        "aug" | "august" => Some(8),
+        "sep" | "sept" | "september" => Some(9),
+        "oct" | "october" => Some(10),
+        "nov" | "november" => Some(11),
+        "dec" | "december" => Some(12),
+        _ => None,
+    }
+}
+
+/// Maps well-known timezone abbreviations to their UTC offset in whole seconds.
+///
+/// The list covers the most common abbreviations encountered on European and
+/// North-American auction sites.  It intentionally omits ambiguous
+/// abbreviations (e.g. `IST` which can mean Indian, Irish, or Israeli time).
+fn tz_abbrev_to_offset_secs(tz: &str) -> Option<i32> {
+    match tz.to_ascii_uppercase().as_str() {
+        // UTC / GMT
+        "UTC" | "GMT" | "Z" => Some(0),
+        // Western Europe
+        "WET" => Some(0),
+        "WEST" | "BST" => Some(3_600),
+        // Central Europe
+        "CET" => Some(3_600),
+        "CEST" => Some(7_200),
+        // Eastern Europe
+        "EET" => Some(7_200),
+        "EEST" => Some(10_800),
+        // Russia / Moscow
+        "MSK" => Some(10_800),
+        // North America – East
+        "EST" => Some(-18_000),
+        "EDT" => Some(-14_400),
+        // North America – Central
+        "CST" => Some(-21_600),
+        "CDT" => Some(-18_000),
+        // North America – Mountain
+        "MST" => Some(-25_200),
+        "MDT" => Some(-21_600),
+        // North America – Pacific
+        "PST" => Some(-28_800),
+        "PDT" => Some(-25_200),
+        // North America – Alaska
+        "AKST" => Some(-32_400),
+        "AKDT" => Some(-28_800),
+        // North America – Hawaii
+        "HST" => Some(-36_000),
+        // Australia – East
+        "AEST" => Some(36_000),
+        "AEDT" => Some(39_600),
+        // New Zealand
+        "NZST" => Some(43_200),
+        "NZDT" => Some(46_800),
+        _ => None,
+    }
+}
+
+/// Tries to parse strings in the format `DD Mon[.] YYYY HH:MM[:SS] [TZ]`
+/// where `Mon` is a 3-letter (or full) English month name and `TZ` is an
+/// optional well-known timezone abbreviation (see [`tz_abbrev_to_offset_secs`]).
+///
+/// Examples handled:
+/// - `"18 Apr. 2026 15:00 CEST"` → 2026-04-18 15:00:00 +02:00
+/// - `"18 Apr 2026 15:00 CET"`   → 2026-04-18 15:00:00 +01:00
+/// - `"1 January 2024 08:00 UTC"` → 2024-01-01 08:00:00 UTC
+/// - `"18 Apr. 2026 15:00:00 CEST"` → 2026-04-18 15:00:00 +02:00
+/// - `"18 Apr. 2026 15:00"` → 2026-04-18 15:00:00 UTC (no tz → assumed UTC)
+fn parse_day_mon_year_time_tz(s: &str) -> Option<OffsetDateTime> {
+    let parts: Vec<&str> = s.split_whitespace().collect();
+    // Accepted: day month year time [tz]
+    if parts.len() < 4 || parts.len() > 5 {
+        return None;
+    }
+
+    let day: u8 = parts[0].parse().ok()?;
+    let month_num = parse_month_abbrev(parts[1])?;
+    let year: i32 = parts[2].parse().ok()?;
+
+    // Time: "HH:MM" or "HH:MM:SS"
+    let mut time_parts = parts[3].splitn(3, ':');
+    let hour: u8 = time_parts.next()?.parse().ok()?;
+    let minute: u8 = time_parts.next()?.parse().ok()?;
+    let second: u8 = time_parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+
+    let month = time::Month::try_from(month_num).ok()?;
+    let date = time::Date::from_calendar_date(year, month, day).ok()?;
+    let time = time::Time::from_hms(hour, minute, second).ok()?;
+    let pdt = time::PrimitiveDateTime::new(date, time);
+
+    if let Some(tz_str) = parts.get(4) {
+        let offset_secs = tz_abbrev_to_offset_secs(tz_str)?;
+        let offset = time::UtcOffset::from_whole_seconds(offset_secs).ok()?;
+        Some(pdt.assume_offset(offset))
+    } else {
+        Some(pdt.assume_utc())
+    }
 }
 
 /// Parses ISO 8601 basic (compact) datetime strings by expanding them into
@@ -431,7 +549,7 @@ mod tests {
 
     use super::{
         fix_compact_offset, fix_hyphen_time_separators, normalize_datetime_field, parse_datetime,
-        strip_fractional_seconds,
+        parse_month_abbrev, strip_fractional_seconds, tz_abbrev_to_offset_secs,
     };
     use crate::scraper::normalization::error::NormalizationError;
 
@@ -600,6 +718,90 @@ mod tests {
         #[case] expected: OffsetDateTime,
     ) {
         assert_eq!(parse_datetime(raw), Some(expected));
+    }
+
+    // -----------------------------------------------------------------------
+    // "DD Mon[.] YYYY HH:MM[:SS] [TZ]" – English month names + tz abbrev
+    // -----------------------------------------------------------------------
+
+    #[rstest]
+    #[case("Jan", Some(1))]
+    #[case("Jan.", Some(1))]
+    #[case("january", Some(1))]
+    #[case("apr", Some(4))]
+    #[case("Apr.", Some(4))]
+    #[case("April", Some(4))]
+    #[case("sep", Some(9))]
+    #[case("Sept.", Some(9))]
+    #[case("September", Some(9))]
+    #[case("dec", Some(12))]
+    #[case("December", Some(12))]
+    #[case("xyz", None)]
+    fn should_return_month_number_when_month_abbrev_provided(
+        #[case] input: &str,
+        #[case] expected: Option<u8>,
+    ) {
+        assert_eq!(parse_month_abbrev(input), expected);
+    }
+
+    #[rstest]
+    #[case("UTC", Some(0))]
+    #[case("GMT", Some(0))]
+    #[case("utc", Some(0))]
+    #[case("CET", Some(3_600))]
+    #[case("CEST", Some(7_200))]
+    #[case("BST", Some(3_600))]
+    #[case("EET", Some(7_200))]
+    #[case("EEST", Some(10_800))]
+    #[case("EST",  Some(-18_000))]
+    #[case("EDT",  Some(-14_400))]
+    #[case("PST",  Some(-28_800))]
+    #[case("PDT",  Some(-25_200))]
+    #[case("AEST", Some(36_000))]
+    #[case("NZST", Some(43_200))]
+    #[case("UNKNOWN", None)]
+    fn should_return_offset_secs_when_tz_abbrev_provided(
+        #[case] tz: &str,
+        #[case] expected: Option<i32>,
+    ) {
+        assert_eq!(tz_abbrev_to_offset_secs(tz), expected);
+    }
+
+    // The primary failing case from the issue report.
+    #[test]
+    fn should_parse_datetime_when_day_month_abbrev_year_time_cest_provided() {
+        assert_eq!(
+            parse_datetime("18 Apr. 2026 15:00 CEST"),
+            Some(datetime!(2026-04-18 15:00:00 +2))
+        );
+    }
+
+    #[rstest]
+    // With period after month abbreviation
+    #[case("18 Apr. 2026 15:00 CEST",  datetime!(2026-04-18 15:00:00 +2))]
+    // Without period
+    #[case("18 Apr 2026 15:00 CET",    datetime!(2026-04-18 15:00:00 +1))]
+    // Full month name
+    #[case("1 January 2024 08:00 UTC", datetime!(2024-01-01 08:00:00 UTC))]
+    // GMT
+    #[case("31 Dec 2024 23:59 GMT",    datetime!(2024-12-31 23:59:00 UTC))]
+    // BST (British Summer Time = +01:00)
+    #[case("15 Jun. 2025 10:00 BST",   datetime!(2025-06-15 10:00:00 +1))]
+    // EEST (Eastern European Summer Time = +03:00)
+    #[case("20 Jul. 2024 12:00 EEST",  datetime!(2024-07-20 12:00:00 +3))]
+    // EST (Eastern Standard Time = -05:00)
+    #[case("5 Nov 2024 09:00 EST",     datetime!(2024-11-05 09:00:00 -5))]
+    // PST (Pacific Standard Time = -08:00)
+    #[case("1 Feb. 2025 08:30 PST",    datetime!(2025-02-01 08:30:00 -8))]
+    // With seconds
+    #[case("18 Apr. 2026 15:00:30 CEST", datetime!(2026-04-18 15:00:30 +2))]
+    // No timezone → assumed UTC
+    #[case("18 Apr. 2026 15:00",       datetime!(2026-04-18 15:00:00 UTC))]
+    fn should_parse_datetime_when_day_mon_year_time_tz_provided(
+        #[case] raw: &str,
+        #[case] expected: OffsetDateTime,
+    ) {
+        assert_eq!(parse_datetime(raw), Some(expected), "failed for '{raw}'");
     }
 
     // -----------------------------------------------------------------------
