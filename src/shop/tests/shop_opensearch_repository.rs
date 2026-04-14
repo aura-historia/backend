@@ -315,3 +315,54 @@ async fn should_search_shop_documents_when_shop_types_are_given(
         shop_types.contains(&shop::core::shop_type::ShopType::from(hit.source.shop_type))
     }));
 }
+
+#[rstest::rstest]
+#[trace]
+#[test_attr(apply(test))]
+#[case(&[shop::core::partner_status::ShopPartnerStatus::Partnered])]
+#[case(&[shop::core::partner_status::ShopPartnerStatus::Scraped])]
+#[case(&[shop::core::partner_status::ShopPartnerStatus::Partnered, shop::core::partner_status::ShopPartnerStatus::Scraped])]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_shop_documents_when_partner_status_is_given(
+    #[case] partner_statuses: &[shop::core::partner_status::ShopPartnerStatus],
+) {
+    use common::query::any_of_query::AnyOfQuery;
+    use std::collections::HashSet;
+
+    let repository = get_repository().await;
+    let shops = fake::vec![ShopDocument; 100];
+
+    for doc in shops {
+        repository.index_shop_document(doc).await.unwrap();
+    }
+    refresh_index("shops").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let search = ShopSearch {
+        shop_name_query: None,
+        shop_type_query: Default::default(),
+        partner_status_query: AnyOfQuery::from(HashSet::from_iter(
+            partner_statuses.iter().copied(),
+        )),
+        created: None,
+        updated: None,
+    };
+    let response = repository
+        .search_shop_documents(
+            &search,
+            &Sort {
+                sort: SortShopField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    assert!(response.hits.total.value > 0);
+    assert!(response.hits.hits.iter().all(|hit| {
+        partner_statuses.contains(&shop::core::partner_status::ShopPartnerStatus::from(
+            hit.source.partner_status,
+        ))
+    }));
+}

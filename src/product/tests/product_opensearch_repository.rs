@@ -11,6 +11,7 @@ use common::product_state::domain::ProductState;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::shops_product_id::ShopsProductId;
+use common::slug_id::SlugId;
 use common::sort::{Sort, SortOrder};
 use common::year::Year;
 use fake::{Fake, Faker, rand};
@@ -4061,6 +4062,397 @@ async fn should_search_product_documents_when_excluded_seller_names_are_given(
             .iter()
             .all(|hit| !exclude_seller_names.contains(&hit.source.seller_name.as_str()))
     );
+}
+
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case(&["imperial-antiques"])]
+#[case(&["imperial-antiques", "vintage-collectibles", "heritage-gallery"])]
+#[trace]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_shop_slug_ids_are_given(
+    #[case] shop_slug_ids: &[&str],
+) {
+    let products_with_target_shops = fake::vec![ProductDocument; 1500]
+        .into_iter()
+        .enumerate()
+        .map(|(idx, mut item)| {
+            item.title_de = Some("Test product for shop slug id filter".into());
+            item.shop_slug_id = SlugId::from(
+                shop_slug_ids[idx % shop_slug_ids.len()]
+                    .to_string()
+                    .as_str(),
+            );
+            item
+        })
+        .collect::<Vec<_>>();
+
+    let products_with_other_shops = fake::vec![ProductDocument; 1500]
+        .into_iter()
+        .map(|mut item| {
+            item.title_de = Some("Test product for shop slug id filter".into());
+            item.shop_slug_id = SlugId::from("other-antique-shop");
+            item
+        })
+        .collect::<Vec<_>>();
+
+    let all_products = [products_with_target_shops, products_with_other_shops].concat();
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(all_products)
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: Some("Test product for shop slug id filter".try_into().unwrap()),
+        category_id: Default::default(),
+        period_id: Default::default(),
+        shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
+        shop_slug_id_query: AnyOfQuery::from(HashSet::from_iter(
+            shop_slug_ids.iter().map(|slug| SlugId::from(*slug)),
+        )),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    assert!(response.hits.total.value > 0);
+    assert_eq!(1500, response.hits.total.value);
+    assert!(
+        response
+            .hits
+            .hits
+            .iter()
+            .all(|hit| shop_slug_ids.contains(&hit.source.shop_slug_id.to_string().as_str()))
+    );
+}
+
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case(&["imperial-antiques"])]
+#[case(&["imperial-antiques", "vintage-collectibles", "heritage-gallery"])]
+#[trace]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_excluded_shop_slug_ids_are_given(
+    #[case] exclude_shop_slug_ids: &[&str],
+) {
+    let products_with_target_shops = fake::vec![ProductDocument; 1500]
+        .into_iter()
+        .enumerate()
+        .map(|(idx, mut item)| {
+            item.title_de = Some("Test product for exclude shop slug id filter".into());
+            item.shop_slug_id = SlugId::from(
+                exclude_shop_slug_ids[idx % exclude_shop_slug_ids.len()]
+                    .to_string()
+                    .as_str(),
+            );
+            item
+        })
+        .collect::<Vec<_>>();
+
+    let products_with_other_shops = fake::vec![ProductDocument; 1500]
+        .into_iter()
+        .map(|mut item| {
+            item.title_de = Some("Test product for exclude shop slug id filter".into());
+            item.shop_slug_id = SlugId::from("other-antique-shop");
+            item
+        })
+        .collect::<Vec<_>>();
+
+    let all_products = [products_with_target_shops, products_with_other_shops].concat();
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(all_products)
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: Some(
+            "Test product for exclude shop slug id filter"
+                .try_into()
+                .unwrap(),
+        ),
+        category_id: Default::default(),
+        period_id: Default::default(),
+        shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: AnyOfQuery::from(HashSet::from_iter(
+            exclude_shop_slug_ids.iter().map(|slug| SlugId::from(*slug)),
+        )),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    assert!(response.hits.total.value > 0);
+    assert_eq!(1500, response.hits.total.value);
+    assert!(
+        response
+            .hits
+            .hits
+            .iter()
+            .all(|hit| !exclude_shop_slug_ids
+                .contains(&hit.source.shop_slug_id.to_string().as_str()))
+    );
+}
+
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case(&["imperial-antiques"])]
+#[case(&["imperial-antiques", "vintage-seller", "heritage-auctions"])]
+#[trace]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_seller_slug_ids_are_given(
+    #[case] seller_slug_ids: &[&str],
+) {
+    let products_with_target_sellers = fake::vec![ProductDocument; 1500]
+        .into_iter()
+        .enumerate()
+        .map(|(idx, mut item)| {
+            item.title_de = Some("Test product for seller slug id filter".into());
+            item.seller_slug_id = SlugId::from(
+                seller_slug_ids[idx % seller_slug_ids.len()]
+                    .to_string()
+                    .as_str(),
+            );
+            item
+        })
+        .collect::<Vec<_>>();
+
+    let products_with_other_sellers = fake::vec![ProductDocument; 1500]
+        .into_iter()
+        .map(|mut item| {
+            item.title_de = Some("Test product for seller slug id filter".into());
+            item.seller_slug_id = SlugId::from("other-seller-shop");
+            item
+        })
+        .collect::<Vec<_>>();
+
+    let all_products = [products_with_target_sellers, products_with_other_sellers].concat();
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(all_products)
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: Some("Test product for seller slug id filter".try_into().unwrap()),
+        category_id: Default::default(),
+        period_id: Default::default(),
+        shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: AnyOfQuery::from(HashSet::from_iter(
+            seller_slug_ids.iter().map(|slug| SlugId::from(*slug)),
+        )),
+        exclude_seller_slug_id_query: Default::default(),
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    assert!(response.hits.total.value > 0);
+    assert_eq!(1500, response.hits.total.value);
+    assert!(
+        response
+            .hits
+            .hits
+            .iter()
+            .all(|hit| seller_slug_ids.contains(&hit.source.seller_slug_id.to_string().as_str()))
+    );
+}
+
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case(&["imperial-antiques"])]
+#[case(&["imperial-antiques", "vintage-seller", "heritage-auctions"])]
+#[trace]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_excluded_seller_slug_ids_are_given(
+    #[case] exclude_seller_slug_ids: &[&str],
+) {
+    let products_with_target_sellers = fake::vec![ProductDocument; 1500]
+        .into_iter()
+        .enumerate()
+        .map(|(idx, mut item)| {
+            item.title_de = Some("Test product for exclude seller slug id filter".into());
+            item.seller_slug_id = SlugId::from(
+                exclude_seller_slug_ids[idx % exclude_seller_slug_ids.len()]
+                    .to_string()
+                    .as_str(),
+            );
+            item
+        })
+        .collect::<Vec<_>>();
+
+    let products_with_other_sellers = fake::vec![ProductDocument; 1500]
+        .into_iter()
+        .map(|mut item| {
+            item.title_de = Some("Test product for exclude seller slug id filter".into());
+            item.seller_slug_id = SlugId::from("other-seller-shop");
+            item
+        })
+        .collect::<Vec<_>>();
+
+    let all_products = [products_with_target_sellers, products_with_other_sellers].concat();
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(all_products)
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: Some(
+            "Test product for exclude seller slug id filter"
+                .try_into()
+                .unwrap(),
+        ),
+        category_id: Default::default(),
+        period_id: Default::default(),
+        shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: AnyOfQuery::from(HashSet::from_iter(
+            exclude_seller_slug_ids
+                .iter()
+                .map(|slug| SlugId::from(*slug)),
+        )),
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    assert!(response.hits.total.value > 0);
+    assert_eq!(1500, response.hits.total.value);
+    assert!(response.hits.hits.iter().all(|hit| {
+        !exclude_seller_slug_ids.contains(&hit.source.seller_slug_id.to_string().as_str())
+    }));
 }
 
 #[rstest::rstest]
