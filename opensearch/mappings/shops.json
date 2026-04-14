@@ -35,6 +35,9 @@
             "image": {
                 "type": "keyword"
             },
+            "partnerStatus": {
+                "type": "keyword"
+            },
             "created": {
                 "type": "date",
                 "format": "strict_date_time"

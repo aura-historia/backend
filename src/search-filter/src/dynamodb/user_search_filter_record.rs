@@ -5,6 +5,7 @@ use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::shop_name::ShopName;
+use common::slug_id::SlugId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::year::Year;
 use common::{
@@ -54,6 +55,14 @@ pub struct UserSearchFilterRecord {
     pub seller_name_query: HashSet<ShopName>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub exclude_seller_name_query: HashSet<ShopName>,
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    pub shop_slug_id_query: HashSet<SlugId<0>>,
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    pub exclude_shop_slug_id_query: HashSet<SlugId<0>>,
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    pub seller_slug_id_query: HashSet<SlugId<0>>,
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    pub exclude_seller_slug_id_query: HashSet<SlugId<0>>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub shop_type_query: HashSet<ShopTypeRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -136,6 +145,10 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                 exclude_shop_name_query: record.exclude_shop_name_query.into(),
                 seller_name_query: record.seller_name_query.into(),
                 exclude_seller_name_query: record.exclude_seller_name_query.into(),
+                shop_slug_id_query: record.shop_slug_id_query.into(),
+                exclude_shop_slug_id_query: record.exclude_shop_slug_id_query.into(),
+                seller_slug_id_query: record.seller_slug_id_query.into(),
+                exclude_seller_slug_id_query: record.exclude_seller_slug_id_query.into(),
                 shop_type_query: record
                     .shop_type_query
                     .into_iter()
@@ -200,6 +213,13 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
             exclude_shop_name_query: user_search_filter.search.exclude_shop_name_query.into(),
             seller_name_query: user_search_filter.search.seller_name_query.into(),
             exclude_seller_name_query: user_search_filter.search.exclude_seller_name_query.into(),
+            shop_slug_id_query: user_search_filter.search.shop_slug_id_query.into(),
+            exclude_shop_slug_id_query: user_search_filter.search.exclude_shop_slug_id_query.into(),
+            seller_slug_id_query: user_search_filter.search.seller_slug_id_query.into(),
+            exclude_seller_slug_id_query: user_search_filter
+                .search
+                .exclude_seller_slug_id_query
+                .into(),
             shop_type_query: user_search_filter
                 .search
                 .shop_type_query
@@ -279,6 +299,10 @@ mod fake {
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 seller_name_query: config.fake_with_rng(rng),
                 exclude_seller_name_query: config.fake_with_rng(rng),
+                shop_slug_id_query: config.fake_with_rng(rng),
+                exclude_shop_slug_id_query: config.fake_with_rng(rng),
+                seller_slug_id_query: config.fake_with_rng(rng),
+                exclude_seller_slug_id_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),

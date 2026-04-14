@@ -2004,6 +2004,10 @@ async fn should_materialize_product_in_opensearch_for_create_product_command() {
                     auction_end_query: None,
                     created_query: None,
                     updated_query: None,
+                    shop_slug_id_query: Default::default(),
+                    exclude_shop_slug_id_query: Default::default(),
+                    seller_slug_id_query: Default::default(),
+                    exclude_seller_slug_id_query: Default::default(),
                 },
                 &Sort {
                     sort: SortProductField::Score,
@@ -2119,6 +2123,10 @@ async fn should_materialize_product_in_opensearch_for_domain_event() {
                     auction_end_query: None,
                     created_query: None,
                     updated_query: None,
+                    shop_slug_id_query: Default::default(),
+                    exclude_shop_slug_id_query: Default::default(),
+                    seller_slug_id_query: Default::default(),
+                    exclude_seller_slug_id_query: Default::default(),
                 },
                 &Sort {
                     sort: SortProductField::Score,
@@ -2237,6 +2245,10 @@ async fn should_materialize_product_in_opensearch_for_enrichment_event() {
                     auction_end_query: None,
                     created_query: None,
                     updated_query: None,
+                    shop_slug_id_query: Default::default(),
+                    exclude_shop_slug_id_query: Default::default(),
+                    seller_slug_id_query: Default::default(),
+                    exclude_seller_slug_id_query: Default::default(),
                 },
                 &Sort {
                     sort: SortProductField::Score,
@@ -2357,6 +2369,10 @@ async fn should_materialize_product_in_opensearch_for_policy_event() {
                     auction_end_query: None,
                     created_query: None,
                     updated_query: None,
+                    shop_slug_id_query: Default::default(),
+                    exclude_shop_slug_id_query: Default::default(),
+                    seller_slug_id_query: Default::default(),
+                    exclude_seller_slug_id_query: Default::default(),
                 },
                 &Sort {
                     sort: SortProductField::Score,
@@ -3608,6 +3624,10 @@ async fn should_respond_200_when_product_search_hits_authenticated() {
             max: Some(datetime!(2999-01-02 0:00 UTC)),
         }),
         updated_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
 
     let url = format!(
@@ -3757,6 +3777,10 @@ async fn should_respond_200_when_product_search_hits_anon() {
             max: Some(datetime!(2999-01-02 0:00 UTC)),
         }),
         updated_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
 
     let url = format!(
@@ -4349,6 +4373,10 @@ async fn should_post_get_patch_delete_search_filter() {
             auction_end_query: None,
             created_query: None,
             updated_query: None,
+            shop_slug_id_query: None,
+            exclude_shop_slug_id_query: None,
+            seller_slug_id_query: None,
+            exclude_seller_slug_id_query: None,
         }),
     };
     let patch_url = format!(

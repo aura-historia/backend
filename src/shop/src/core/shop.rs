@@ -50,7 +50,7 @@ mod faker {
                 shop_type: config.fake_with_rng(rng),
                 domains: [Faker.fake()].into(),
                 image: config.fake_with_rng(rng),
-                partner_status: Default::default(),
+                partner_status: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

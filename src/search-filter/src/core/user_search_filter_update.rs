@@ -9,6 +9,7 @@ use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::shop_name::ShopName;
+use common::slug_id::SlugId;
 use common::year::Year;
 use common::{
     currency::{domain::Currency, record::CurrencyRecord},
@@ -41,6 +42,10 @@ pub struct UserSearchFilterUpdate {
     pub exclude_shop_name_query: Option<HashSet<ShopName>>,
     pub seller_name_query: Option<HashSet<ShopName>>,
     pub exclude_seller_name_query: Option<HashSet<ShopName>>,
+    pub shop_slug_id_query: Option<HashSet<SlugId<0>>>,
+    pub exclude_shop_slug_id_query: Option<HashSet<SlugId<0>>>,
+    pub seller_slug_id_query: Option<HashSet<SlugId<0>>>,
+    pub exclude_seller_slug_id_query: Option<HashSet<SlugId<0>>>,
     pub shop_type_query: Option<AnyOfQuery<ShopType>>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
     pub state_query: Option<AnyOfQuery<ProductState>>,
@@ -71,6 +76,10 @@ impl UserSearchFilterUpdate {
             exclude_shop_name_query,
             seller_name_query,
             exclude_seller_name_query,
+            shop_slug_id_query,
+            exclude_shop_slug_id_query,
+            seller_slug_id_query,
+            exclude_seller_slug_id_query,
             shop_type_query,
             price_query,
             state_query,
@@ -98,6 +107,10 @@ impl UserSearchFilterUpdate {
             && exclude_shop_name_query.is_none()
             && seller_name_query.is_none()
             && exclude_seller_name_query.is_none()
+            && shop_slug_id_query.is_none()
+            && exclude_shop_slug_id_query.is_none()
+            && seller_slug_id_query.is_none()
+            && exclude_seller_slug_id_query.is_none()
             && shop_type_query.is_none()
             && price_query.is_none()
             && state_query.is_none()
@@ -127,6 +140,10 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
             exclude_shop_name_query: update.exclude_shop_name_query,
             seller_name_query: update.seller_name_query,
             exclude_seller_name_query: update.exclude_seller_name_query,
+            shop_slug_id_query: update.shop_slug_id_query,
+            exclude_shop_slug_id_query: update.exclude_shop_slug_id_query,
+            seller_slug_id_query: update.seller_slug_id_query,
+            exclude_seller_slug_id_query: update.exclude_seller_slug_id_query,
             shop_type_query: update
                 .shop_type_query
                 .map(|types| types.into_iter().map(ShopTypeRecord::from).collect()),
@@ -180,6 +197,10 @@ mod fake {
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 seller_name_query: config.fake_with_rng(rng),
                 exclude_seller_name_query: config.fake_with_rng(rng),
+                shop_slug_id_query: config.fake_with_rng(rng),
+                exclude_shop_slug_id_query: config.fake_with_rng(rng),
+                seller_slug_id_query: config.fake_with_rng(rng),
+                exclude_seller_slug_id_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),

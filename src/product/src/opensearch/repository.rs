@@ -407,6 +407,20 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
             }
         }));
     }
+    if !search.exclude_shop_slug_id_query.is_empty() {
+        must_not.push(json!({
+            "terms": {
+                ProductDocumentSerdeField::ShopSlugId.as_str(): search.exclude_shop_slug_id_query.iter().map(|v| v.to_string()).collect::<Vec<_>>()
+            }
+        }));
+    }
+    if !search.exclude_seller_slug_id_query.is_empty() {
+        must_not.push(json!({
+            "terms": {
+                ProductDocumentSerdeField::SellerSlugId.as_str(): search.exclude_seller_slug_id_query.iter().map(|v| v.to_string()).collect::<Vec<_>>()
+            }
+        }));
+    }
 
     // ---------- Price ----------
     let price_field = match search.currency {
@@ -518,6 +532,22 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
         ProductDocumentSerdeField::SellerName,
         |v| v.as_ref(),
     );
+
+    if !search.shop_slug_id_query.is_empty() {
+        filter.push(json!({
+            "terms": {
+                ProductDocumentSerdeField::ShopSlugId.as_str(): search.shop_slug_id_query.iter().map(|v| v.to_string()).collect::<Vec<_>>()
+            }
+        }));
+    }
+
+    if !search.seller_slug_id_query.is_empty() {
+        filter.push(json!({
+            "terms": {
+                ProductDocumentSerdeField::SellerSlugId.as_str(): search.seller_slug_id_query.iter().map(|v| v.to_string()).collect::<Vec<_>>()
+            }
+        }));
+    }
 
     apply_any_of_filter(
         &mut filter,

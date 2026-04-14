@@ -127,6 +127,10 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
 
     let mut products = fake::vec![ProductDocument; 1370];
@@ -287,6 +291,10 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
 
     let mut products = fake::vec![ProductDocument; 1370];
@@ -452,6 +460,10 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
 
     let mut products = fake::vec![ProductDocument; 1370];
@@ -579,6 +591,10 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
 
     let mut products = fake::vec![ProductDocument; 1370];
@@ -710,6 +726,10 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
 
     let mut products = fake::vec![ProductDocument; 1370];
@@ -842,6 +862,10 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
 
     let mut products = fake::vec![ProductDocument; 1370];
@@ -984,6 +1008,10 @@ async fn should_200_when_created_query(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -1097,6 +1125,10 @@ async fn should_200_when_updated_query(
         updated_query: Some(updated),
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -1210,6 +1242,10 @@ async fn should_200_when_year_query(#[case] min: Option<Year>, #[case] max: Opti
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -1305,6 +1341,10 @@ async fn should_200_when_authenticity_query(#[case] query: HashSet<AuthenticityD
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -1403,6 +1443,10 @@ async fn should_200_when_condition_query(#[case] query: HashSet<ConditionData>) 
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -1499,6 +1543,10 @@ async fn should_200_when_provenance_query(#[case] query: HashSet<ProvenanceData>
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -1595,6 +1643,10 @@ async fn should_200_when_restoration_query(#[case] query: HashSet<RestorationDat
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -1694,6 +1746,10 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -1821,6 +1877,10 @@ async fn should_respond_200_and_respect_language_query_param(
                 updated_query: None,
                 auction_start_query: None,
                 auction_end_query: None,
+                shop_slug_id_query: Default::default(),
+                exclude_shop_slug_id_query: Default::default(),
+                seller_slug_id_query: Default::default(),
+                exclude_seller_slug_id_query: Default::default(),
             })
             .build(),
         context: Default::default(),
@@ -1897,6 +1957,10 @@ async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -1997,6 +2061,10 @@ async fn should_200_when_shop_name_query_for_keyword_filter(#[case] query: HashS
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -2104,6 +2172,10 @@ async fn should_200_when_exclude_shop_name_query(#[case] query: HashSet<&str>) {
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -2205,6 +2277,10 @@ async fn should_200_when_category_id_filter_is_given() {
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -2299,6 +2375,10 @@ async fn should_200_when_period_id_filter_is_given() {
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -2394,6 +2474,10 @@ async fn should_200_when_auction_start_range_is_given() {
             max: Some(datetime!(2026-03-31 23:59 UTC)),
         }),
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
 
     let mut early_products = fake::vec![ProductDocument; 30];
@@ -2490,6 +2574,10 @@ async fn should_200_when_auction_end_range_is_given() {
             min: None,
             max: Some(datetime!(2026-02-28 23:59 UTC)),
         }),
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
 
     let mut early_products = fake::vec![ProductDocument; 25];
@@ -2589,6 +2677,10 @@ async fn should_200_when_seller_name_query_for_keyword_filter(#[case] query: Has
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
 
     let seller_names_vec: Vec<&str> = query.iter().copied().collect();
@@ -2695,6 +2787,10 @@ async fn should_200_when_exclude_seller_name_query(#[case] query: HashSet<&str>)
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
 
     let seller_names_vec: Vec<&str> = query.iter().copied().collect();

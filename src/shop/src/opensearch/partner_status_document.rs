@@ -7,6 +7,16 @@ pub enum ShopPartnerStatusDocument {
     Scraped,
     Partnered,
 }
+
+impl ShopPartnerStatusDocument {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ShopPartnerStatusDocument::Scraped => "SCRAPED",
+            ShopPartnerStatusDocument::Partnered => "PARTNERED",
+        }
+    }
+}
+
 impl From<ShopPartnerStatus> for ShopPartnerStatusDocument {
     fn from(status: ShopPartnerStatus) -> Self {
         match status {

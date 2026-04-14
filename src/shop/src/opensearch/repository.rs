@@ -1,5 +1,6 @@
 use crate::core::shop_search::ShopSearch;
 use crate::core::sort_shop_field::SortShopField;
+use crate::opensearch::partner_status_document::ShopPartnerStatusDocument;
 use crate::opensearch::shop_document::ShopDocument;
 use crate::opensearch::shop_document::ShopDocumentSerdeField;
 use crate::opensearch::shop_document_update::ShopDocumentUpdate;
@@ -131,6 +132,20 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
             filter.push(json!({
                 "terms": {
                     ShopDocumentSerdeField::ShopType.as_str(): shop_types
+                }
+            }));
+        }
+
+        // Add partner_status filter
+        if !search.partner_status_query.is_empty() {
+            let partner_statuses: Vec<&str> = search
+                .partner_status_query
+                .iter()
+                .map(|v| ShopPartnerStatusDocument::from(*v).as_str())
+                .collect();
+            filter.push(json!({
+                "terms": {
+                    ShopDocumentSerdeField::PartnerStatus.as_str(): partner_statuses
                 }
             }));
         }
