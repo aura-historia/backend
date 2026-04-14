@@ -97,9 +97,12 @@ mod tests {
 
     #[test]
     fn should_build_document_from_record_when_has_category_filter() {
+        use common::category_key::CategoryId;
+        use std::collections::HashSet;
+
         let mut record = Faker.fake::<UserSearchFilterRecord>();
-        let original_categories = record.category_id.clone();
         record.product_query = None;
+        record.category_id = HashSet::from([CategoryId::from("furniture")]);
         record.period_id.clear();
         record.shop_name_query.clear();
         record.seller_name_query.clear();
@@ -118,23 +121,19 @@ mod tests {
         record.auction_start_query = None;
         record.auction_end_query = None;
 
-        if record.category_id.is_empty() {
-            return; // Skip if randomly empty
-        }
-
         let document: UserSearchFilterDocument = record.try_into().unwrap();
         let query = &document.query;
-        assert!(query.get("bool").is_some());
-        let filter = &query["bool"]["filter"];
+
+        // With no product_query, build_search_query wraps in constant_score instead of bool
+        assert!(query.get("constant_score").is_some());
+        let filter = &query["constant_score"]["filter"]["bool"]["filter"];
         assert!(filter.is_array());
         let filter_array = filter.as_array().unwrap();
         let has_category_terms = filter_array.iter().any(|f| {
             f.get("terms")
                 .is_some_and(|t| t.get("categoryId").is_some())
         });
-        if !original_categories.is_empty() {
-            assert!(has_category_terms);
-        }
+        assert!(has_category_terms);
     }
 
     #[test]
