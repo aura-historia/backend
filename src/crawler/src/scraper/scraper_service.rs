@@ -606,10 +606,11 @@ impl ScraperServiceImpl {
     /// asks the LLM to fix the schema and retries — up to two fix attempts.
     ///
     /// Schema-fixable errors are those where a bad CSS selector is the likely
-    /// cause (e.g. empty title, unparseable price).  Non-fixable errors (e.g.
-    /// state DB failures, [`NormalizationError::ShopsProductIdEmpty`] — which
-    /// is unreachable because the normalization layer applies a URL fallback
-    /// before this variant can be produced) are propagated directly as
+    /// cause (e.g. empty title, unparseable price, unknown currency).
+    /// Non-fixable errors (e.g. state DB failures,
+    /// [`NormalizationError::ShopsProductIdEmpty`] — which is unreachable
+    /// because the normalization layer applies a URL fallback before this
+    /// variant can be produced) are propagated directly as
     /// [`ScraperError::NormalizationError`] without triggering an LLM call.
     ///
     /// Returns `(normalized_product, schema_was_fixed)`.
@@ -627,7 +628,13 @@ impl ScraperServiceImpl {
         // Attempt 1: normalize the raw product as-is.
         let norm_err = match self
             .normalization_service
-            .normalize(raw.clone(), url.clone())
+            .normalize(
+                raw.clone(),
+                url.clone(),
+                schema
+                    .default_currency
+                    .map(common::currency::domain::Currency::from),
+            )
             .await
         {
             Ok(normalized) => return Ok((normalized, false)),
@@ -665,7 +672,13 @@ impl ScraperServiceImpl {
         // Attempt 2: normalize the re-applied extraction.
         if let Ok(normalized) = self
             .normalization_service
-            .normalize(fixed_raw.clone(), url.clone())
+            .normalize(
+                fixed_raw.clone(),
+                url.clone(),
+                schema
+                    .default_currency
+                    .map(common::currency::domain::Currency::from),
+            )
             .await
         {
             debug!(domain, url = %url, "Refreshed schema normalized successfully");
@@ -691,7 +704,13 @@ impl ScraperServiceImpl {
         // Attempt 3: final normalize — propagate any error.
         let normalized = self
             .normalization_service
-            .normalize(final_raw, url.clone())
+            .normalize(
+                final_raw,
+                url.clone(),
+                schema
+                    .default_currency
+                    .map(common::currency::domain::Currency::from),
+            )
             .await?;
         Ok((normalized, schema_was_fixed))
     }
@@ -718,20 +737,31 @@ impl ScraperServiceImpl {
 ///   never surface from the pipeline.  Even if it did, changing the CSS
 ///   selector cannot guarantee a non-empty product ID; the fallback is the
 ///   correct recovery, not an LLM loop.
-/// - [`NormalizationError::PriceUnknownCurrency`] variants — the selector is
-///   correct but the extracted text has no currency marker.  The
-///   `infer_currency_from_url` fallback handles known TLDs; for unknown TLDs
-///   the price is genuinely unparseable and no selector change will help.
 fn normalization_error_to_schema_hint(err: &NormalizationError) -> Option<ApplySchemaError> {
     match err {
+        NormalizationError::PriceUnknownCurrency { .. } => {
+            Some(ApplySchemaError::Price(ExtractionError::NoElementMatched {
+                selector: "price".to_string(),
+            }))
+        }
         NormalizationError::PriceParseError { .. } => {
             Some(ApplySchemaError::Price(ExtractionError::NoElementMatched {
                 selector: "price".to_string(),
             }))
         }
+        NormalizationError::PriceEstimateMinUnknownCurrency { .. } => Some(
+            ApplySchemaError::PriceEstimateMin(ExtractionError::NoElementMatched {
+                selector: "price_estimate_min".to_string(),
+            }),
+        ),
         NormalizationError::PriceEstimateMinParseError { .. } => Some(
             ApplySchemaError::PriceEstimateMin(ExtractionError::NoElementMatched {
                 selector: "price_estimate_min".to_string(),
+            }),
+        ),
+        NormalizationError::PriceEstimateMaxUnknownCurrency { .. } => Some(
+            ApplySchemaError::PriceEstimateMax(ExtractionError::NoElementMatched {
+                selector: "price_estimate_max".to_string(),
             }),
         ),
         NormalizationError::PriceEstimateMaxParseError { .. } => Some(
@@ -749,8 +779,8 @@ fn normalization_error_to_schema_hint(err: &NormalizationError) -> Option<ApplyS
                 selector: "state".to_string(),
             }))
         }
-        // ShopsProductIdEmpty, PriceUnknownCurrency variants, and
-        // state/image/auction errors are not fixable by changing a CSS selector.
+        // ShopsProductIdEmpty and state/image/auction errors are not fixable
+        // by changing a CSS selector.
         _ => None,
     }
 }
@@ -867,6 +897,7 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         }
     }
 
@@ -950,10 +981,13 @@ mod tests {
 
         let expected = normalized_product(url.clone());
         let mut norm_svc = MockProductNormalizationService::new();
-        norm_svc.expect_normalize().once().returning(move |_, _| {
-            let n = expected.clone();
-            Box::pin(async move { Ok(n) })
-        });
+        norm_svc
+            .expect_normalize()
+            .once()
+            .returning(move |_, _, _| {
+                let n = expected.clone();
+                Box::pin(async move { Ok(n) })
+            });
 
         let mut cand_svc = MockScraperCandidateService::new();
         expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
@@ -1000,7 +1034,7 @@ mod tests {
         let norm = normalized_product(url.clone());
         let norm_clone = norm.clone();
         let mut norm_svc = MockProductNormalizationService::new();
-        norm_svc.expect_normalize().returning(move |_, _| {
+        norm_svc.expect_normalize().returning(move |_, _, _| {
             let n = norm_clone.clone();
             Box::pin(async move { Ok(n) })
         });
@@ -1147,10 +1181,13 @@ mod tests {
 
         let norm = normalized_product(url.clone());
         let mut norm_svc = MockProductNormalizationService::new();
-        norm_svc.expect_normalize().once().returning(move |_, _| {
-            let n = norm.clone();
-            Box::pin(async move { Ok(n) })
-        });
+        norm_svc
+            .expect_normalize()
+            .once()
+            .returning(move |_, _, _| {
+                let n = norm.clone();
+                Box::pin(async move { Ok(n) })
+            });
 
         let mut cand_svc = MockScraperCandidateService::new();
         expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
@@ -1192,6 +1229,7 @@ mod tests {
                 images: bad_rule,
                 auction_start: None,
                 auction_end: None,
+                default_currency: None,
             },
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
@@ -1265,6 +1303,7 @@ mod tests {
                 images: bad_rule,
                 auction_start: None,
                 auction_end: None,
+                default_currency: None,
             },
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
@@ -1307,7 +1346,7 @@ mod tests {
 
         let norm = normalized_product(url.clone());
         let mut norm_svc = MockProductNormalizationService::new();
-        norm_svc.expect_normalize().returning(move |_, _| {
+        norm_svc.expect_normalize().returning(move |_, _, _| {
             let n = norm.clone();
             Box::pin(async move { Ok(n) })
         });
@@ -1555,7 +1594,7 @@ mod tests {
             });
 
         let mut norm_svc = MockProductNormalizationService::new();
-        norm_svc.expect_normalize().returning(|_, _| {
+        norm_svc.expect_normalize().returning(|_, _, _| {
             Box::pin(async {
                 Err(NormalizationError::InvalidImageUrl {
                     raw: "not-a-url".to_string(),
@@ -1619,7 +1658,7 @@ mod tests {
         let mut norm_svc = MockProductNormalizationService::new();
         norm_svc
             .expect_normalize()
-            .returning(|_, _| Box::pin(async { Err(NormalizationError::ShopsProductIdEmpty) }));
+            .returning(|_, _, _| Box::pin(async { Err(NormalizationError::ShopsProductIdEmpty) }));
 
         let cand_svc = MockScraperCandidateService::new();
 
@@ -1671,9 +1710,9 @@ mod tests {
         let mut norm_svc = MockProductNormalizationService::new();
         norm_svc
             .expect_normalize()
-            .withf(move |_, received_url| received_url == &expected_url)
+            .withf(move |_, received_url, _| received_url == &expected_url)
             .once()
-            .returning(move |_, u| {
+            .returning(move |_, u, _| {
                 let n = normalized_product(u);
                 Box::pin(async move { Ok(n) })
             });
@@ -1719,7 +1758,7 @@ mod tests {
             });
 
         let mut norm_svc = MockProductNormalizationService::new();
-        norm_svc.expect_normalize().returning(move |_, _| {
+        norm_svc.expect_normalize().returning(move |_, _, _| {
             let n = normalized_product(canonical_for_norm.clone());
             Box::pin(async move { Ok(n) })
         });
@@ -1863,6 +1902,7 @@ mod tests {
                 images: bad_rule,
                 auction_start: None,
                 auction_end: None,
+                default_currency: None,
             },
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
@@ -1969,10 +2009,13 @@ mod tests {
 
         let norm = normalized_product(url.clone());
         let mut norm_svc = MockProductNormalizationService::new();
-        norm_svc.expect_normalize().once().returning(move |_, _| {
-            let n = norm.clone();
-            Box::pin(async move { Ok(n) })
-        });
+        norm_svc
+            .expect_normalize()
+            .once()
+            .returning(move |_, _, _| {
+                let n = norm.clone();
+                Box::pin(async move { Ok(n) })
+            });
 
         let mut cand_svc = MockScraperCandidateService::new();
         expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
@@ -2062,10 +2105,13 @@ mod tests {
         let mut expected = normalized_product(url.clone());
         expected.state = ProductState::Sold;
         let mut norm_svc = MockProductNormalizationService::new();
-        norm_svc.expect_normalize().once().returning(move |_, _| {
-            let n = expected.clone();
-            Box::pin(async move { Ok(n) })
-        });
+        norm_svc
+            .expect_normalize()
+            .once()
+            .returning(move |_, _, _| {
+                let n = expected.clone();
+                Box::pin(async move { Ok(n) })
+            });
 
         let mut cand_svc = MockScraperCandidateService::new();
         let mut seq = Sequence::new();

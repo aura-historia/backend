@@ -73,5 +73,6 @@ path = "src/demo.rs"
 default = []
 test-data = ["common/test-data", "fake"]
 
+
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 libc = { workspace = true }

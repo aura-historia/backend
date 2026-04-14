@@ -2,7 +2,7 @@ pub use super::error::NormalizationError;
 use super::{
     datetime::normalize_datetime_field,
     image::normalize_images,
-    price::{infer_currency_from_url, normalize_price_field},
+    price::normalize_price_field,
     text::{
         normalize_description, normalize_shops_product_id_with_url_fallback,
         normalize_title_localized,
@@ -14,6 +14,7 @@ use crate::scraper::normalization::{
     state_mapping_service::{ProductStateMappingService, StateMappingServiceError},
 };
 
+use common::currency::domain::Currency;
 use common::product_state::domain::ProductState;
 
 use tracing::debug;
@@ -36,10 +37,16 @@ pub trait ProductNormalizationService {
     /// string is used as a stable fallback identifier rather than returning an
     /// error.  This keeps the scrape pipeline alive on pages where the CSS
     /// selector does not extract a product ID.
+    ///
+    /// `default_currency` is used as a fallback when the raw price string
+    /// contains no currency symbol or ISO code (e.g. bare "18,00" on a site
+    /// where EUR is implied).  It is set by the LLM during schema
+    /// creation/fixing and stored in the [`ProductCssSelectorSchema`].
     async fn normalize(
         &self,
         raw: RawExtractedProduct,
         url: Url,
+        default_currency: Option<Currency>,
     ) -> Result<NormalizedProduct, NormalizationError>;
 }
 
@@ -65,6 +72,7 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
         &self,
         raw: RawExtractedProduct,
         url: Url,
+        default_currency: Option<Currency>,
     ) -> Result<NormalizedProduct, NormalizationError> {
         debug!(
             url = %url,
@@ -99,31 +107,27 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
         let title = normalize_title_localized(&raw.title)?;
         let description = normalize_description(raw.description)?;
 
-        // Derive a fallback currency from the shop URL's TLD.  This is used
-        // when the raw price string contains no currency symbol or ISO code
-        // (e.g. bare "18,00" on a German site where EUR is implied).
-        let fallback_currency = infer_currency_from_url(&url);
         debug!(
             url = %url,
-            fallback_currency = ?fallback_currency,
-            "TLD-inferred fallback currency for price normalization"
+            default_currency = ?default_currency,
+            "Using schema default_currency as fallback for price normalization"
         );
 
         let price = normalize_price_field(
             raw.price,
-            fallback_currency,
+            default_currency,
             |r| NormalizationError::PriceUnknownCurrency { raw: r },
             |r| NormalizationError::PriceParseError { raw: r },
         )?;
         let price_estimate_min = normalize_price_field(
             raw.price_estimate_min,
-            fallback_currency,
+            default_currency,
             |r| NormalizationError::PriceEstimateMinUnknownCurrency { raw: r },
             |r| NormalizationError::PriceEstimateMinParseError { raw: r },
         )?;
         let price_estimate_max = normalize_price_field(
             raw.price_estimate_max,
-            fallback_currency,
+            default_currency,
             |r| NormalizationError::PriceEstimateMaxUnknownCurrency { raw: r },
             |r| NormalizationError::PriceEstimateMaxParseError { raw: r },
         )?;
@@ -240,7 +244,10 @@ mod tests {
     #[tokio::test]
     async fn should_normalize_product_when_minimal_raw_provided() {
         let svc = make_available_service();
-        let result = svc.normalize(minimal_raw(), base_url()).await.unwrap();
+        let result = svc
+            .normalize(minimal_raw(), base_url(), None)
+            .await
+            .unwrap();
 
         assert_eq!(result.shops_product_id.to_string(), "PROD-001");
         assert_eq!(
@@ -282,7 +289,7 @@ mod tests {
             auction_end: Some("2024-07-01T10:00:00Z".into()),
         };
 
-        let result = svc.normalize(raw, base_url()).await.unwrap();
+        let result = svc.normalize(raw, base_url(), None).await.unwrap();
 
         assert_eq!(result.shops_product_id.to_string(), "LOT-42");
         assert_eq!(
@@ -347,7 +354,7 @@ mod tests {
             let svc = make_service(raw_state, state_record);
             let mut raw = minimal_raw();
             raw.state = raw_state.into();
-            let result = svc.normalize(raw, base_url()).await.unwrap();
+            let result = svc.normalize(raw, base_url(), None).await.unwrap();
             assert_eq!(
                 result.state, expected,
                 "state_record {state_record:?} was not converted correctly"
@@ -375,7 +382,7 @@ mod tests {
         let svc = ProductNormalizationServiceImpl::new(Box::new(mock));
         let mut raw = minimal_raw();
         raw.state = raw_state.into();
-        let result = svc.normalize(raw, base_url()).await.unwrap();
+        let result = svc.normalize(raw, base_url(), None).await.unwrap();
         assert_eq!(result.state, ProductState::Available);
     }
 
@@ -395,7 +402,10 @@ mod tests {
         });
 
         let svc = ProductNormalizationServiceImpl::new(Box::new(mock));
-        let err = svc.normalize(minimal_raw(), base_url()).await.unwrap_err();
+        let err = svc
+            .normalize(minimal_raw(), base_url(), None)
+            .await
+            .unwrap_err();
         assert!(
             matches!(err, NormalizationError::StateMappingError(_)),
             "expected StateMappingError, got {err:?}"
@@ -412,7 +422,7 @@ mod tests {
         let mut raw = minimal_raw();
         raw.shops_product_id = "  ".into();
         let url = Url::parse("https://shop.example.com/item/fallback-item").unwrap();
-        let result = svc.normalize(raw, url).await.unwrap();
+        let result = svc.normalize(raw, url, None).await.unwrap();
         assert_eq!(
             result.shops_product_id.to_string(),
             "https://shop.example.com/item/fallback-item"
@@ -424,7 +434,7 @@ mod tests {
         let svc = make_available_service();
         let mut raw = minimal_raw();
         raw.title = "".into();
-        let err = svc.normalize(raw, base_url()).await.unwrap_err();
+        let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
         assert!(matches!(err, NormalizationError::TitleEmpty));
     }
 
@@ -433,7 +443,7 @@ mod tests {
         let svc = make_available_service();
         let mut raw = minimal_raw();
         raw.price = Some("1234.56".into());
-        let err = svc.normalize(raw, base_url()).await.unwrap_err();
+        let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
         assert!(matches!(
             err,
             NormalizationError::PriceUnknownCurrency { .. }
@@ -445,7 +455,7 @@ mod tests {
         let svc = make_available_service();
         let mut raw = minimal_raw();
         raw.price = Some("€".into());
-        let err = svc.normalize(raw, base_url()).await.unwrap_err();
+        let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
         assert!(matches!(err, NormalizationError::PriceParseError { .. }));
     }
 
@@ -454,7 +464,7 @@ mod tests {
         let svc = make_available_service();
         let mut raw = minimal_raw();
         raw.price_estimate_min = Some("800.00".into());
-        let err = svc.normalize(raw, base_url()).await.unwrap_err();
+        let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
         assert!(matches!(
             err,
             NormalizationError::PriceEstimateMinUnknownCurrency { .. }
@@ -466,7 +476,7 @@ mod tests {
         let svc = make_available_service();
         let mut raw = minimal_raw();
         raw.price_estimate_min = Some("£".into());
-        let err = svc.normalize(raw, base_url()).await.unwrap_err();
+        let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
         assert!(matches!(
             err,
             NormalizationError::PriceEstimateMinParseError { .. }
@@ -478,7 +488,7 @@ mod tests {
         let svc = make_available_service();
         let mut raw = minimal_raw();
         raw.price_estimate_max = Some("1200".into());
-        let err = svc.normalize(raw, base_url()).await.unwrap_err();
+        let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
         assert!(matches!(
             err,
             NormalizationError::PriceEstimateMaxUnknownCurrency { .. }
@@ -490,7 +500,7 @@ mod tests {
         let svc = make_available_service();
         let mut raw = minimal_raw();
         raw.price_estimate_max = Some("£".into());
-        let err = svc.normalize(raw, base_url()).await.unwrap_err();
+        let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
         assert!(matches!(
             err,
             NormalizationError::PriceEstimateMaxParseError { .. }
@@ -502,7 +512,7 @@ mod tests {
         let svc = make_available_service();
         let mut raw = minimal_raw();
         raw.auction_start = Some("yesterday at noon".into());
-        let err = svc.normalize(raw, base_url()).await.unwrap_err();
+        let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
         assert!(matches!(
             err,
             NormalizationError::AuctionStartParseError { .. }
@@ -514,7 +524,7 @@ mod tests {
         let svc = make_available_service();
         let mut raw = minimal_raw();
         raw.auction_end = Some("next tuesday".into());
-        let err = svc.normalize(raw, base_url()).await.unwrap_err();
+        let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
         assert!(matches!(
             err,
             NormalizationError::AuctionEndParseError { .. }
@@ -526,7 +536,7 @@ mod tests {
         let svc = make_available_service();
         let mut raw = minimal_raw();
         raw.images = vec!["//".into()];
-        let err = svc.normalize(raw, base_url()).await.unwrap_err();
+        let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
         assert!(matches!(err, NormalizationError::InvalidImageUrl { .. }));
     }
 
@@ -534,14 +544,20 @@ mod tests {
     async fn should_use_url_from_argument_as_product_url_when_normalizing() {
         let svc = make_available_service();
         let url = Url::parse("https://shop.example.com/item/99").unwrap();
-        let result = svc.normalize(minimal_raw(), url.clone()).await.unwrap();
+        let result = svc
+            .normalize(minimal_raw(), url.clone(), None)
+            .await
+            .unwrap();
         assert_eq!(result.url, url);
     }
 
     #[tokio::test]
     async fn should_skip_none_price_fields_when_raw_prices_are_absent() {
         let svc = make_available_service();
-        let result = svc.normalize(minimal_raw(), base_url()).await.unwrap();
+        let result = svc
+            .normalize(minimal_raw(), base_url(), None)
+            .await
+            .unwrap();
         assert!(result.price.is_none());
         assert!(result.price_estimate_min.is_none());
         assert!(result.price_estimate_max.is_none());
@@ -553,7 +569,7 @@ mod tests {
         let mut raw = minimal_raw();
         raw.price = Some("  ".into());
         // Blank string treated as absent — no currency error expected.
-        let result = svc.normalize(raw, base_url()).await.unwrap();
+        let result = svc.normalize(raw, base_url(), None).await.unwrap();
         assert!(result.price.is_none());
     }
 
@@ -563,7 +579,7 @@ mod tests {
         let mut raw = minimal_raw();
         raw.auction_start = Some("  ".into());
         raw.auction_end = Some("  ".into());
-        let result = svc.normalize(raw, base_url()).await.unwrap();
+        let result = svc.normalize(raw, base_url(), None).await.unwrap();
         assert!(result.auction_start.is_none());
         assert!(result.auction_end.is_none());
     }
@@ -585,7 +601,10 @@ mod tests {
         });
 
         let svc = ProductNormalizationServiceImpl::new(Box::new(mock));
-        let err = svc.normalize(minimal_raw(), base_url()).await.unwrap_err();
+        let err = svc
+            .normalize(minimal_raw(), base_url(), None)
+            .await
+            .unwrap_err();
         assert!(
             matches!(
                 err,
@@ -610,10 +629,45 @@ mod tests {
         });
 
         let svc = ProductNormalizationServiceImpl::new(Box::new(mock));
-        let err = svc.normalize(minimal_raw(), base_url()).await.unwrap_err();
+        let err = svc
+            .normalize(minimal_raw(), base_url(), None)
+            .await
+            .unwrap_err();
         assert!(
             matches!(err, NormalizationError::StateMappingError(_)),
             "expected StateMappingError, got {err:?}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // default_currency fallback
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn should_use_default_currency_as_fallback_when_price_has_no_currency_symbol() {
+        let svc = make_available_service();
+        let mut raw = minimal_raw();
+        raw.price = Some("1.200,00".into()); // bare price, no currency symbol
+        let result = svc
+            .normalize(raw, base_url(), Some(Currency::Eur))
+            .await
+            .unwrap();
+        assert_eq!(
+            result.price.unwrap(),
+            Price::new(MonetaryAmount::from(120000u64), Currency::Eur)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_return_unknown_currency_error_when_price_has_no_symbol_and_no_default_currency()
+    {
+        let svc = make_available_service();
+        let mut raw = minimal_raw();
+        raw.price = Some("1.200,00".into()); // bare price, no currency symbol
+        let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
+        assert!(
+            matches!(err, NormalizationError::PriceUnknownCurrency { .. }),
+            "expected PriceUnknownCurrency, got {err:?}"
         );
     }
 }

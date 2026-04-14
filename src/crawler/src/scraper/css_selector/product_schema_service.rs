@@ -124,6 +124,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
             has_price_estimate_max = schema.price_estimate_max.is_some(),
             has_auction_start = schema.auction_start.is_some(),
             has_auction_end = schema.auction_end.is_some(),
+            default_currency = ?schema.default_currency,
             "LLM created new product CSS selector schema"
         );
         Ok(schema)
@@ -206,6 +207,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
                         has_price = fixed_schema.price.is_some(),
                         has_price_estimate_min = fixed_schema.price_estimate_min.is_some(),
                         has_price_estimate_max = fixed_schema.price_estimate_max.is_some(),
+                        default_currency = ?fixed_schema.default_currency,
                         "LLM successfully produced a fixed product schema"
                     );
                     return Ok(fixed_schema);
@@ -415,6 +417,7 @@ mod tests {
             },
             auction_start: None,
             auction_end: None,
+            default_currency: None,
         }
     }
 
