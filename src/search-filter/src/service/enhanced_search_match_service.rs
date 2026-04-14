@@ -126,10 +126,7 @@ impl EnhancedSearchMatchService for EnhancedSearchMatchServiceImpl {
         let mut messages = vec![ChatMessage::user().content(&user_message).build()];
         let image_count_before = messages.len();
 
-        for image in product_images
-            .iter()
-            .filter(|img| img.prohibited_content.is_safe())
-        {
+        for image in product_images.iter() {
             if let Some((mime, bytes)) = self.fetch_image_bytes(image.url.as_str()).await {
                 messages.push(ChatMessage::user().image(mime, bytes).build());
             }
@@ -337,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn should_filter_out_prohibited_images_when_building_messages() {
+    fn should_include_all_images_regardless_of_prohibited_content_when_building_messages() {
         use fake::{Fake, Faker};
         use product::core::product_image::ProductImage;
         use product::core::prohibited_content::ProhibitedContent;
@@ -353,14 +350,9 @@ mod tests {
             ..unsafe_image
         };
 
-        let images = vec![safe_image.clone(), unsafe_image];
+        let images = vec![safe_image, unsafe_image];
 
-        let safe_images: Vec<&ProductImage> = images
-            .iter()
-            .filter(|img| img.prohibited_content.is_safe())
-            .collect();
-
-        assert_eq!(safe_images.len(), 1);
-        assert_eq!(safe_images[0].url, safe_image.url);
+        // All images are included — no filtering on prohibited content
+        assert_eq!(images.len(), 2);
     }
 }
