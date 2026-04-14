@@ -34,7 +34,7 @@ The crawler uses three distinct LLM instances, each with its own system prompt, 
 - On first scrape of a product URL for a given shop (cache miss in `shops_product_schema`).
 - On schema failure: if applying the schema throws an error (e.g. selector no longer valid), `fix_product_schema` is called with the broken schema + error message. The dispatcher (`cron.rs`) guarantees at most one in-flight scrape per domain at a time, so no per-domain mutex is required.
 - On normalization failure: if `ProductNormalizationService::normalize` returns a schema-fixable error (e.g. `StateTextTooLong`, `PriceParseError`, `TitleEmpty`), the same `fix_product_schema` path is triggered via `normalize_with_retry` using a synthetic `ApplySchemaError` hint derived from the normalization error.
-  - Note: `PriceUnknownCurrency` is **not** treated as schema-fixable. When a raw price string contains no currency marker the scraper first attempts to resolve the currency from the shop URL's TLD (e.g. `.de` → EUR). If that also fails the price cannot be parsed, but changing the CSS selector cannot fix this — the LLM fix loop would never terminate. The price is simply left unparseable for that product.
+  - Note: `PriceUnknownCurrency` **is** treated as schema-fixable. When a raw price string contains no currency marker `normalize()` first checks `schema.default_currency`. If absent, normalization returns `PriceUnknownCurrency`, which the scraper routes into `normalize_with_retry` with a synthetic hint asking the LLM to inspect the page for currency context and populate `default_currency` on the schema. Up to two fix attempts are made; if both fail the price is left unparseable for that product.
   - Note: `ShopsProductIdEmpty` is **not** treated as schema-fixable. The normalization layer applies a full-URL fallback when the extracted product ID is blank, so this error is never produced by the main pipeline. Even if it were, changing the CSS selector cannot guarantee a non-empty ID — the URL fallback is the correct recovery strategy.
 - Fix attempts are tracked per domain across batches via `schema_fix_attempts: HashMap<String, u32>`. The counter counts *consecutive* failed LLM-fix attempts (where the LLM returned a schema that still failed to apply). Once a domain reaches `max_schema_fix_attempts` consecutive failed attempts the domain is skipped with `SchemaFixAttemptsExhausted` — no further LLM calls are made. The counter resets after **every** successful scrape for that domain (with or without a fix), so it represents failures since the last clean scrape, not total lifetime failures. This prevents premature budget exhaustion on domains whose pages have heterogeneous layouts.
 
@@ -51,9 +51,12 @@ The crawler uses three distinct LLM instances, each with its own system prompt, 
   "state": "div.availability",
   "images": ["img.product-image"],
   "date_listed": "time.listed",
-  "date_sold": null
+  "date_sold": null,
+  "default_currency": "EUR"
 }
 ```
+
+`default_currency` is an optional ISO 4217 code the LLM sets when it can determine the shop's currency from full-page context (e.g. a currency shown in the page header or footer). It is `null` when no currency context is visible. The field is used as a fallback by `normalize()` when the extracted price string contains no currency marker.
 
 **LLM config:** `resilient=3`, `reasoning=true`, `timeout=180s`
 

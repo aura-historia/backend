@@ -257,7 +257,7 @@ scrape(shop_id, url, last_scraped_hash)
 
 The dispatcher (`cron.rs`) guarantees at most one in-flight scrape per domain at a time, so no per-domain mutex is needed inside the fix path.
 
-**Schema-fix flow B** — triggered when normalization returns a schema-fixable error (bad state selector text, price parse failure, empty title, etc.).  `ShopsProductIdEmpty` and `PriceUnknownCurrency` variants are **not** schema-fixable and are propagated directly as `ScraperError::NormalizationError` without calling the LLM:
+**Schema-fix flow B** — triggered when normalization returns a schema-fixable error (bad state selector text, price parse failure, empty title, etc.).  `ShopsProductIdEmpty` is **not** schema-fixable and is propagated directly as `ScraperError::NormalizationError` without calling the LLM. `PriceUnknownCurrency` **is** schema-fixable — the synthetic hint asks the LLM to add a `default_currency` to the schema:
 
 ```
 [schema-fix flow B — normalize_with_retry]

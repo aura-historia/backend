@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { workspace = true, features = ["schemars"] }
+common = { workspace = true }
 product = { workspace = true, features = ["dynamodb", "service", "data"] }
 product-classification = { workspace = true }
 shop = { workspace = true, features = ["opensearch", "service"] }

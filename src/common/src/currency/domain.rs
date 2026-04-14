@@ -19,7 +19,6 @@ impl From<MinorUnitExponent> for u8 {
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(
     Copy,
     Clone,
@@ -28,13 +27,10 @@ impl From<MinorUnitExponent> for u8 {
     Debug,
     Default,
     Hash,
-    serde::Serialize,
-    serde::Deserialize,
     strum_macros::EnumIter,
     strum_macros::Display,
     strum_macros::EnumCount,
 )]
-#[serde(rename_all = "UPPERCASE")]
 pub enum Currency {
     #[default]
     Eur,

@@ -1,5 +1,5 @@
+use crate::scraper::css_selector::currency_dto::CurrencyDto;
 use crate::scraper::css_selector::rule::{ExtractionError, ExtractionRule};
-use common::currency::domain::Currency;
 use common::shop_id::ShopId;
 use llm::chat::StructuredOutputFormat;
 use schemars::JsonSchema;
@@ -97,7 +97,7 @@ pub struct ProductCssSelectorSchema {
         Leave null only if the currency is always embedded in every price string."
     )]
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub default_currency: Option<Currency>,
+    pub default_currency: Option<CurrencyDto>,
 }
 
 /// Errors that can occur when applying a [`ProductCssSelectorSchema`] to an HTML document.

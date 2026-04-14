@@ -628,7 +628,13 @@ impl ScraperServiceImpl {
         // Attempt 1: normalize the raw product as-is.
         let norm_err = match self
             .normalization_service
-            .normalize(raw.clone(), url.clone(), schema.default_currency)
+            .normalize(
+                raw.clone(),
+                url.clone(),
+                schema
+                    .default_currency
+                    .map(common::currency::domain::Currency::from),
+            )
             .await
         {
             Ok(normalized) => return Ok((normalized, false)),
@@ -666,7 +672,13 @@ impl ScraperServiceImpl {
         // Attempt 2: normalize the re-applied extraction.
         if let Ok(normalized) = self
             .normalization_service
-            .normalize(fixed_raw.clone(), url.clone(), schema.default_currency)
+            .normalize(
+                fixed_raw.clone(),
+                url.clone(),
+                schema
+                    .default_currency
+                    .map(common::currency::domain::Currency::from),
+            )
             .await
         {
             debug!(domain, url = %url, "Refreshed schema normalized successfully");
@@ -692,7 +704,13 @@ impl ScraperServiceImpl {
         // Attempt 3: final normalize — propagate any error.
         let normalized = self
             .normalization_service
-            .normalize(final_raw, url.clone(), schema.default_currency)
+            .normalize(
+                final_raw,
+                url.clone(),
+                schema
+                    .default_currency
+                    .map(common::currency::domain::Currency::from),
+            )
             .await?;
         Ok((normalized, schema_was_fixed))
     }

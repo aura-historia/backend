@@ -35,7 +35,6 @@ serde_json = { workspace = true, optional = true }
 httpdate = { workspace = true, optional = true }
 fake = { workspace = true, optional = true }
 opensearch = { workspace = true, optional = true }
-schemars = { workspace = true, optional = true }
 
 
 [dev-dependencies]
@@ -56,4 +55,3 @@ api = [
     "lambda_runtime"
 ]
 test-data = ["fake"]
-schemars = ["dep:schemars"]
