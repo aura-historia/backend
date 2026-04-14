@@ -74,13 +74,43 @@ impl ShopRegistrationSource for DemoShopSource {
 fn demo_shops() -> Vec<RegisteredShop> {
     // UUIDs are stable across runs so the upsert-on-conflict keeps the same rows
     // rather than creating a new shop row every time the demo starts.
-    vec![RegisteredShop {
-        shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000004").unwrap(),
-        shop_name: "Antixx".to_string(),
-        shop_slug: "antixx".to_string(),
-        shop_type: ShopType::CommercialDealer,
-        domains: HashSet::from([Domain::try_from("leipzig.atgportals.net").unwrap()]),
-    }]
+    vec![
+        RegisteredShop {
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000004").unwrap(),
+            shop_name: "Antixx".to_string(),
+            shop_slug: "antixx".to_string(),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::from([Domain::try_from("antixx.de").unwrap()]),
+        },
+        RegisteredShop {
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000005").unwrap(),
+            shop_name: "Antik und Stil".to_string(),
+            shop_slug: "antik-und-stil".to_string(),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::from([Domain::try_from("antik-und-stil.com").unwrap()]),
+        },
+        RegisteredShop {
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000006").unwrap(),
+            shop_name: "20th Century Militaria".to_string(),
+            shop_slug: "militaria".to_string(),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::from([Domain::try_from("20thcenturymilitaria.com").unwrap()]),
+        },
+        RegisteredShop {
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000007").unwrap(),
+            shop_name: "Antichita Daziano".to_string(),
+            shop_slug: "antichita-daziano".to_string(),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::from([Domain::try_from("antichitadaziano.com").unwrap()]),
+        },
+        RegisteredShop {
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000004").unwrap(),
+            shop_name: "Kunstauktionshaus Leipzi".to_string(),
+            shop_slug: "kunstauktionshaus-leipzig".to_string(),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::from([Domain::try_from("leipzig.atgportals.net").unwrap()]),
+        },
+    ]
 }
 
 // ---------------------------------------------------------------------------
@@ -109,9 +139,9 @@ async fn main() {
         scraper_interval: Duration::from_secs(30), // Demo: run scraper loop every 30 seconds
         spider_batch_size: 5,
         scraper_batch_size: 100,
-        spider_concurrency: 4,
+        spider_concurrency: 5,
         scraper_concurrency: 5,
-        spider_classify_threshold: 200,
+        spider_classify_threshold: 400,
         ..Default::default()
     };
 
