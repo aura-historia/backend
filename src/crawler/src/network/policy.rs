@@ -138,10 +138,10 @@ mod tests {
     }
 
     #[test]
-    fn should_cooldown_403_for_one_hour() {
+    fn should_cooldown_403_for_two_minutes() {
         assert_eq!(
             retry_cooldown_for(NetworkErrorKind::HttpStatus(403)),
-            Duration::from_secs(60 * 60)
+            Duration::from_secs(2 * 60)
         );
     }
 
