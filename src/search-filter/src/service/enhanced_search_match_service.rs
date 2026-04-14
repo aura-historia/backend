@@ -332,27 +332,4 @@ mod tests {
     ) {
         assert_eq!(parse_image_mime_from_content_type(content_type), expected);
     }
-
-    #[test]
-    fn should_include_all_images_regardless_of_prohibited_content_when_building_messages() {
-        use fake::{Fake, Faker};
-        use product::core::product_image::ProductImage;
-        use product::core::prohibited_content::ProhibitedContent;
-
-        let safe_image: ProductImage = Faker.fake();
-        let safe_image = ProductImage {
-            prohibited_content: ProhibitedContent::None,
-            ..safe_image
-        };
-        let unsafe_image: ProductImage = Faker.fake();
-        let unsafe_image = ProductImage {
-            prohibited_content: ProhibitedContent::Unknown,
-            ..unsafe_image
-        };
-
-        let images = vec![safe_image, unsafe_image];
-
-        // All images are included — no filtering on prohibited content
-        assert_eq!(images.len(), 2);
-    }
 }
