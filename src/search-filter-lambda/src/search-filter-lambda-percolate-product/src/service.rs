@@ -235,6 +235,7 @@ impl<'a> ProductMatcherServiceImpl<'a> {
         // Run enhanced AI matching for filters with enhanced_search_description
         let title = product_title(&product);
         let description = product_description(&product);
+        let images: Vec<_> = product.images.iter().take(5).cloned().collect();
         let mut eligible_matches = Vec::with_capacity(unmatched_filters.len());
 
         for filter in unmatched_filters {
@@ -243,7 +244,7 @@ impl<'a> ProductMatcherServiceImpl<'a> {
                     let language = resolve_user_language(self.user_service, &filter.user_id).await;
                     let eval_result = self
                         .enhanced_search_match_service
-                        .evaluate(enhanced_desc, &title, &description, language)
+                        .evaluate(enhanced_desc, &title, &description, language, &images)
                         .await;
 
                     match eval_result {
@@ -1249,7 +1250,7 @@ mod tests {
         let mut enhanced_service = MockEnhancedSearchMatchService::default();
         enhanced_service
             .expect_evaluate()
-            .return_once(|_, _, _, _| {
+            .return_once(|_, _, _, _, _| {
                 Box::pin(async {
                     Ok(EnhancedSearchMatchResult {
                         matches: true,
@@ -1307,7 +1308,7 @@ mod tests {
         let mut enhanced_service = MockEnhancedSearchMatchService::default();
         enhanced_service
             .expect_evaluate()
-            .return_once(|_, _, _, _| {
+            .return_once(|_, _, _, _, _| {
                 Box::pin(async {
                     Ok(EnhancedSearchMatchResult {
                         matches: false,
@@ -1362,7 +1363,7 @@ mod tests {
         let mut enhanced_service = MockEnhancedSearchMatchService::default();
         enhanced_service
             .expect_evaluate()
-            .return_once(|_, _, _, _| {
+            .return_once(|_, _, _, _, _| {
                 Box::pin(async {
                     Err(EnhancedSearchMatchError::InvalidResponse(
                         "test error".to_string(),
@@ -1470,7 +1471,7 @@ mod tests {
         let mut enhanced_service = MockEnhancedSearchMatchService::default();
         enhanced_service
             .expect_evaluate()
-            .return_once(|_, _, _, _| {
+            .return_once(|_, _, _, _, _| {
                 Box::pin(async {
                     Ok(EnhancedSearchMatchResult {
                         matches: true,
@@ -1690,5 +1691,132 @@ mod tests {
         // Only pro user gets notification
         assert_eq!(r.notification_commands.len(), 1);
         assert_eq!(r.notification_commands[0].user_id, pro_user_id);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Image forwarding tests
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn should_forward_first_five_images_to_enhanced_match_service() {
+        let images: Vec<product::core::product_image::ProductImage> =
+            (0..7).map(|_| Faker.fake()).collect();
+        let base: Product = Faker.fake();
+        let product = Product {
+            images: images.clone(),
+            ..base
+        };
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+        let user_id = UserId::new();
+        let summary = mk_filter_summary_with_enhanced(user_id, "some description");
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| Box::pin(async move { Ok(vec![summary]) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(0) }));
+
+        let expected_images: Vec<product::core::product_image::ProductImage> =
+            images.iter().take(5).cloned().collect();
+
+        let mut enhanced_service = MockEnhancedSearchMatchService::default();
+        enhanced_service
+            .expect_evaluate()
+            .withf(move |_, _, _, _, imgs| imgs == expected_images.as_slice())
+            .return_once(|_, _, _, _, _| {
+                Box::pin(async {
+                    Ok(EnhancedSearchMatchResult {
+                        matches: true,
+                        reason: None,
+                    })
+                })
+            });
+
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_find_user()
+            .returning(|_| Box::pin(async { Ok(mk_user_with_language(Language::En)) }));
+
+        let service = ProductMatcherServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
+
+        let result = service.process_product_event(event).await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().matches.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn should_forward_empty_images_to_enhanced_match_service_when_product_has_no_images() {
+        let base: Product = Faker.fake();
+        let product = Product {
+            images: vec![],
+            ..base
+        };
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+        let user_id = UserId::new();
+        let summary = mk_filter_summary_with_enhanced(user_id, "some description");
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| Box::pin(async move { Ok(vec![summary]) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .returning(|_| Box::pin(async { Ok(0) }));
+
+        let mut enhanced_service = MockEnhancedSearchMatchService::default();
+        enhanced_service
+            .expect_evaluate()
+            .withf(|_, _, _, _, imgs| imgs.is_empty())
+            .return_once(|_, _, _, _, _| {
+                Box::pin(async {
+                    Ok(EnhancedSearchMatchResult {
+                        matches: true,
+                        reason: None,
+                    })
+                })
+            });
+
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_find_user()
+            .returning(|_| Box::pin(async { Ok(mk_user_with_language(Language::En)) }));
+
+        let service = ProductMatcherServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
+
+        let result = service.process_product_event(event).await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().matches.len(), 1);
     }
 }
