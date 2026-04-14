@@ -88,7 +88,7 @@ pub fn retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
         NetworkErrorKind::HttpStatus(503) | NetworkErrorKind::HttpStatus(504) => {
             Duration::from_secs(15 * 60)
         }
-        NetworkErrorKind::HttpStatus(403) => Duration::from_secs(60 * 60),
+        NetworkErrorKind::HttpStatus(403) => Duration::from_secs(2 * 60),
         NetworkErrorKind::HttpStatus(408)
         | NetworkErrorKind::HttpStatus(425)
         | NetworkErrorKind::HttpStatus(500)
