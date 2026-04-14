@@ -1,10 +1,11 @@
 use crate::core::user_search_filter::EnhancedSearchDescription;
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::language::domain::Language;
-use llm::chat::ChatMessage;
+use llm::chat::{ChatMessage, ImageMime};
 use product::core::description::Description;
+use product::core::product_image::ProductImage;
 use product::core::title::Title;
-use tracing::debug;
+use tracing::{debug, warn};
 
 #[derive(Debug, thiserror::Error)]
 pub enum EnhancedSearchMatchError {
@@ -33,11 +34,13 @@ pub trait EnhancedSearchMatchService {
         product_title: &Title,
         product_description: &Description,
         language: Language,
+        product_images: &[ProductImage],
     ) -> Result<EnhancedSearchMatchResult, EnhancedSearchMatchError>;
 }
 
 pub struct EnhancedSearchMatchServiceImpl {
     llm: Box<dyn llm::LLMProvider>,
+    http_client: reqwest::Client,
 }
 
 impl EnhancedSearchMatchServiceImpl {
@@ -55,7 +58,8 @@ impl EnhancedSearchMatchServiceImpl {
             .resilient_jitter(true)
             .system(
                 "You are a product matching assistant for an antiques marketplace. \
-                Given a user's search description and a product's title and description, \
+                Given a user's search description, a product's title and description, \
+                and optionally product images, \
                 determine whether the product matches what the user is looking for.\n\n\
                 If the product matches, respond with exactly two lines:\n\
                 match: yes\n\
@@ -67,7 +71,37 @@ impl EnhancedSearchMatchServiceImpl {
             )
             .build()
             .expect("Failed to initialize LLM provider with valid configuration");
-        Self { llm }
+        Self {
+            llm,
+            http_client: reqwest::Client::new(),
+        }
+    }
+
+    /// Fetches image bytes from the given URL.
+    /// Returns `(mime_type, bytes)` on success or `None` on failure.
+    async fn fetch_image_bytes(&self, url: &str) -> Option<(ImageMime, Vec<u8>)> {
+        match self.http_client.get(url).send().await {
+            Ok(response) => {
+                let mime = response
+                    .headers()
+                    .get(reqwest::header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(parse_image_mime_from_content_type)
+                    .unwrap_or(ImageMime::JPEG);
+
+                match response.bytes().await {
+                    Ok(bytes) => Some((mime, bytes.to_vec())),
+                    Err(err) => {
+                        warn!(error = %err, url = %url, "Failed reading image bytes for LLM evaluation.");
+                        None
+                    }
+                }
+            }
+            Err(err) => {
+                warn!(error = %err, url = %url, "Failed fetching product image for LLM evaluation.");
+                None
+            }
+        }
     }
 }
 
@@ -79,6 +113,7 @@ impl EnhancedSearchMatchService for EnhancedSearchMatchServiceImpl {
         product_title: &Title,
         product_description: &Description,
         language: Language,
+        product_images: &[ProductImage],
     ) -> Result<EnhancedSearchMatchResult, EnhancedSearchMatchError> {
         let user_message = format!(
             "User's search description: {enhanced_search_description}\n\
@@ -88,12 +123,23 @@ impl EnhancedSearchMatchService for EnhancedSearchMatchServiceImpl {
             language = language.format_human_readable(),
         );
 
-        debug!("Requesting enhanced search match evaluation.");
+        let mut messages = vec![ChatMessage::user().content(&user_message).build()];
 
-        let response = self
-            .llm
-            .chat(&[ChatMessage::user().content(&user_message).build()])
-            .await?;
+        for image in product_images
+            .iter()
+            .filter(|img| img.prohibited_content.is_safe())
+        {
+            if let Some((mime, bytes)) = self.fetch_image_bytes(image.url.as_str()).await {
+                messages.push(ChatMessage::user().image(mime, bytes).build());
+            }
+        }
+
+        debug!(
+            image_count = product_images.len(),
+            "Requesting enhanced search match evaluation."
+        );
+
+        let response = self.llm.chat(&messages).await?;
 
         let response_text = response.text().ok_or_else(|| {
             EnhancedSearchMatchError::InvalidResponse("Empty response from LLM".to_string())
@@ -138,6 +184,19 @@ fn parse_enhanced_match_response(
         None => Err(EnhancedSearchMatchError::InvalidResponse(format!(
             "Could not parse match decision from response: {response}"
         ))),
+    }
+}
+
+/// Parses an `ImageMime` from a raw Content-Type header value.
+/// Falls back to `None` for unsupported or missing MIME types.
+fn parse_image_mime_from_content_type(content_type: &str) -> Option<ImageMime> {
+    let mime = content_type.split(';').next().unwrap_or("").trim();
+    match mime {
+        "image/jpeg" => Some(ImageMime::JPEG),
+        "image/png" => Some(ImageMime::PNG),
+        "image/gif" => Some(ImageMime::GIF),
+        "image/webp" => Some(ImageMime::WEBP),
+        _ => None,
     }
 }
 
@@ -256,5 +315,51 @@ mod tests {
                 .to_string()
                 .contains("no reason provided")
         );
+    }
+
+    #[rstest]
+    #[case("image/jpeg", Some(ImageMime::JPEG))]
+    #[case("image/png", Some(ImageMime::PNG))]
+    #[case("image/gif", Some(ImageMime::GIF))]
+    #[case("image/webp", Some(ImageMime::WEBP))]
+    #[case("image/jpeg; charset=utf-8", Some(ImageMime::JPEG))]
+    #[case("image/png; boundary=something", Some(ImageMime::PNG))]
+    #[case("image/bmp", None)]
+    #[case("text/html", None)]
+    #[case("application/octet-stream", None)]
+    #[case("", None)]
+    fn should_parse_image_mime_from_content_type(
+        #[case] content_type: &str,
+        #[case] expected: Option<ImageMime>,
+    ) {
+        assert_eq!(parse_image_mime_from_content_type(content_type), expected);
+    }
+
+    #[test]
+    fn should_filter_out_prohibited_images_when_building_messages() {
+        use fake::{Fake, Faker};
+        use product::core::product_image::ProductImage;
+        use product::core::prohibited_content::ProhibitedContent;
+
+        let safe_image: ProductImage = Faker.fake();
+        let safe_image = ProductImage {
+            prohibited_content: ProhibitedContent::None,
+            ..safe_image
+        };
+        let unsafe_image: ProductImage = Faker.fake();
+        let unsafe_image = ProductImage {
+            prohibited_content: ProhibitedContent::Unknown,
+            ..unsafe_image
+        };
+
+        let images = vec![safe_image.clone(), unsafe_image];
+
+        let safe_images: Vec<&ProductImage> = images
+            .iter()
+            .filter(|img| img.prohibited_content.is_safe())
+            .collect();
+
+        assert_eq!(safe_images.len(), 1);
+        assert_eq!(safe_images[0].url, safe_image.url);
     }
 }
