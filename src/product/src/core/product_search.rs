@@ -12,6 +12,7 @@ use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::shop_name::ShopName;
+use common::slug_id::SlugId;
 use common::year::Year;
 use serde_fields::SerdeField;
 use shop::core::shop_type::ShopType;
@@ -28,6 +29,10 @@ pub struct ProductSearch {
     pub exclude_shop_name_query: AnyOfQuery<ShopName>,
     pub seller_name_query: AnyOfQuery<ShopName>,
     pub exclude_seller_name_query: AnyOfQuery<ShopName>,
+    pub shop_slug_id_query: AnyOfQuery<SlugId<0>>,
+    pub exclude_shop_slug_id_query: AnyOfQuery<SlugId<0>>,
+    pub seller_slug_id_query: AnyOfQuery<SlugId<0>>,
+    pub exclude_seller_slug_id_query: AnyOfQuery<SlugId<0>>,
     pub shop_type_query: AnyOfQuery<ShopType>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
     pub state_query: AnyOfQuery<ProductState>,
@@ -54,6 +59,10 @@ impl ProductSearch {
             exclude_shop_name_query: AnyOfQuery::default(),
             seller_name_query: AnyOfQuery::default(),
             exclude_seller_name_query: AnyOfQuery::default(),
+            shop_slug_id_query: AnyOfQuery::default(),
+            exclude_shop_slug_id_query: AnyOfQuery::default(),
+            seller_slug_id_query: AnyOfQuery::default(),
+            exclude_seller_slug_id_query: AnyOfQuery::default(),
             shop_type_query: AnyOfQuery::default(),
             price_query: None,
             state_query: AnyOfQuery::default(),
@@ -107,6 +116,35 @@ impl ProductSearch {
         exclude_seller_name_query: AnyOfQuery<ShopName>,
     ) -> Self {
         self.exclude_seller_name_query = exclude_seller_name_query;
+        self
+    }
+
+    pub fn with_shop_slug_id_query(mut self, shop_slug_id_query: AnyOfQuery<SlugId<0>>) -> Self {
+        self.shop_slug_id_query = shop_slug_id_query;
+        self
+    }
+
+    pub fn with_exclude_shop_slug_id_query(
+        mut self,
+        exclude_shop_slug_id_query: AnyOfQuery<SlugId<0>>,
+    ) -> Self {
+        self.exclude_shop_slug_id_query = exclude_shop_slug_id_query;
+        self
+    }
+
+    pub fn with_seller_slug_id_query(
+        mut self,
+        seller_slug_id_query: AnyOfQuery<SlugId<0>>,
+    ) -> Self {
+        self.seller_slug_id_query = seller_slug_id_query;
+        self
+    }
+
+    pub fn with_exclude_seller_slug_id_query(
+        mut self,
+        exclude_seller_slug_id_query: AnyOfQuery<SlugId<0>>,
+    ) -> Self {
+        self.exclude_seller_slug_id_query = exclude_seller_slug_id_query;
         self
     }
 
@@ -191,6 +229,10 @@ pub mod faker {
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 seller_name_query: config.fake_with_rng(rng),
                 exclude_seller_name_query: config.fake_with_rng(rng),
+                shop_slug_id_query: config.fake_with_rng(rng),
+                exclude_shop_slug_id_query: config.fake_with_rng(rng),
+                seller_slug_id_query: config.fake_with_rng(rng),
+                exclude_seller_slug_id_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),

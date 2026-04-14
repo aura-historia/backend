@@ -71,6 +71,11 @@ pub async fn handle(
             .into_iter()
             .map(Into::into)
             .collect(),
+        partner_status_query: search_data
+            .partner_status_query
+            .into_iter()
+            .map(Into::into)
+            .collect(),
         created: search_data.created,
         updated: search_data.updated,
     };

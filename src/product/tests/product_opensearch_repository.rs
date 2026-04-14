@@ -773,6 +773,10 @@ async fn should_search_product_documents() {
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -940,6 +944,10 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -1027,6 +1035,10 @@ async fn should_search_product_documents_when_all_arguments_are_given() {
         }),
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let sort = Sort {
         sort: SortProductField::Price,
@@ -1089,6 +1101,10 @@ async fn should_search_product_documents_when_states_are_given(#[case] states: &
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -1153,6 +1169,10 @@ async fn should_search_product_documents_when_no_states_are_given() {
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -1239,6 +1259,10 @@ async fn should_search_product_documents_when_price_range_is_given(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -1329,6 +1353,10 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -1423,6 +1451,10 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -2447,6 +2479,10 @@ async fn should_search_product_documents_when_exact_year_is_given_for_stored_exa
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -2547,6 +2583,10 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -2647,6 +2687,10 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -2747,6 +2791,10 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -2849,6 +2897,10 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -2949,6 +3001,10 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -3049,6 +3105,10 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -3128,6 +3188,10 @@ async fn should_search_product_documents_when_authenticity_filter_is_given(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -3199,6 +3263,10 @@ async fn should_search_product_documents_when_condition_filter_is_given(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -3270,6 +3338,10 @@ async fn should_search_product_documents_when_provenance_filter_is_given(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -3341,6 +3413,10 @@ async fn should_search_product_documents_when_restoration_filter_is_given(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -3412,6 +3488,10 @@ async fn should_search_product_documents_when_shop_types_are_given(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -3491,6 +3571,10 @@ async fn should_search_product_documents_when_category_id_is_given() {
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -3573,6 +3657,10 @@ async fn should_search_product_documents_when_period_id_is_given() {
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -3663,6 +3751,10 @@ async fn should_search_product_documents_when_shop_names_are_given_for_keyword_f
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -3753,6 +3845,10 @@ async fn should_search_product_documents_when_excluded_shop_names_are_given(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -3841,6 +3937,10 @@ async fn should_search_product_documents_when_seller_names_are_given_for_keyword
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -3935,6 +4035,10 @@ async fn should_search_product_documents_when_excluded_seller_names_are_given(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -4049,6 +4153,10 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
         updated_query: None,
         auction_start_query: Some(auction_start_query),
         auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -4186,6 +4294,10 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: Some(auction_end_query),
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(
@@ -4323,6 +4435,10 @@ async fn should_search_product_documents_when_query_is_empty(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: Some(auction_end_query),
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
     };
     let response = repository
         .search_product_documents(

@@ -62,6 +62,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
     let search = ShopSearch {
         shop_name_query: Some(expected.name.to_string().try_into().unwrap()),
         shop_type_query: Default::default(),
+        partner_status_query: Default::default(),
         created: None,
         updated: None,
     };
@@ -89,6 +90,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
             shop_type_query: Default::default(),
+            partner_status_query: Default::default(),
         },
     Sort {
         sort: SortShopField::Score,
@@ -101,6 +103,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: None,
             shop_type_query: Default::default(),
+            partner_status_query: Default::default(),
         },
     Sort {
         sort: SortShopField::Score,
@@ -113,6 +116,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             created: None,
             updated: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             shop_type_query: Default::default(),
+            partner_status_query: Default::default(),
         },
     Sort {
         sort: SortShopField::Score,
@@ -290,6 +294,7 @@ async fn should_search_shop_documents_when_shop_types_are_given(
     let search = ShopSearch {
         shop_name_query: None,
         shop_type_query: AnyOfQuery::from(HashSet::from_iter(shop_types.iter().copied())),
+        partner_status_query: Default::default(),
         created: None,
         updated: None,
     };
