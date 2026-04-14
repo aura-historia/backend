@@ -124,6 +124,7 @@ impl EnhancedSearchMatchService for EnhancedSearchMatchServiceImpl {
         );
 
         let mut messages = vec![ChatMessage::user().content(&user_message).build()];
+        let image_count_before = messages.len();
 
         for image in product_images
             .iter()
@@ -135,7 +136,7 @@ impl EnhancedSearchMatchService for EnhancedSearchMatchServiceImpl {
         }
 
         debug!(
-            image_count = product_images.len(),
+            images_included = messages.len() - image_count_before,
             "Requesting enhanced search match evaluation."
         );
 
@@ -190,7 +191,7 @@ fn parse_enhanced_match_response(
 /// Parses an `ImageMime` from a raw Content-Type header value.
 /// Falls back to `None` for unsupported or missing MIME types.
 fn parse_image_mime_from_content_type(content_type: &str) -> Option<ImageMime> {
-    let mime = content_type.split(';').next().unwrap_or("").trim();
+    let mime = content_type.split(';').next()?.trim();
     match mime {
         "image/jpeg" => Some(ImageMime::JPEG),
         "image/png" => Some(ImageMime::PNG),
