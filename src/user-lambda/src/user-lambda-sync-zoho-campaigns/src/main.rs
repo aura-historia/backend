@@ -13,10 +13,10 @@ async fn main() -> Result<(), Error> {
         .load()
         .await;
 
-    let zoho_list_key = std::env::var("ZOHO_LIST_KEY")
-        .expect("shouldn't fail loading env-var 'ZOHO_LIST_KEY'");
-    let zoho_client_id = std::env::var("ZOHO_CLIENT_ID")
-        .expect("shouldn't fail loading env-var 'ZOHO_CLIENT_ID'");
+    let zoho_list_key =
+        std::env::var("ZOHO_LIST_KEY").expect("shouldn't fail loading env-var 'ZOHO_LIST_KEY'");
+    let zoho_client_id =
+        std::env::var("ZOHO_CLIENT_ID").expect("shouldn't fail loading env-var 'ZOHO_CLIENT_ID'");
     let zoho_client_secret = std::env::var("ZOHO_CLIENT_SECRET")
         .expect("shouldn't fail loading env-var 'ZOHO_CLIENT_SECRET'");
     let zoho_refresh_token = std::env::var("ZOHO_REFRESH_TOKEN")

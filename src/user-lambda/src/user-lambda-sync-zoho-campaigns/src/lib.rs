@@ -3,8 +3,7 @@ use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
 use lambda_runtime::LambdaEvent;
 use tracing::{error, info};
 use user::{
-    core::user::User,
-    dynamodb::user_record::UserRecord,
+    core::user::User, dynamodb::user_record::UserRecord,
     service::zoho_campaigns_service::ZohoCampaignsService,
 };
 

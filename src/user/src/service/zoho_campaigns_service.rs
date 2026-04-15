@@ -25,8 +25,8 @@ pub mod zoho_impl {
     use crate::core::user::User;
     use serde::Deserialize;
     use std::sync::Arc;
-    use tokio::sync::RwLock;
     use time::OffsetDateTime;
+    use tokio::sync::RwLock;
     use tracing::{debug, error};
 
     #[derive(Debug, Deserialize)]
@@ -83,10 +83,10 @@ pub mod zoho_impl {
         async fn get_access_token(&self) -> Result<String, ZohoCampaignsError> {
             {
                 let cached = self.cached_token.read().await;
-                if let Some(ref token) = *cached {
-                    if token.expires_at > OffsetDateTime::now_utc() {
-                        return Ok(token.access_token.clone());
-                    }
+                if let Some(ref token) = *cached
+                    && token.expires_at > OffsetDateTime::now_utc()
+                {
+                    return Ok(token.access_token.clone());
                 }
             }
 
@@ -121,8 +121,8 @@ pub mod zoho_impl {
                 .await
                 .map_err(|e| ZohoCampaignsError::OAuthTokenError(e.to_string()))?;
 
-            let expires_at = OffsetDateTime::now_utc()
-                + time::Duration::seconds(token_response.expires_in - 60);
+            let expires_at =
+                OffsetDateTime::now_utc() + time::Duration::seconds(token_response.expires_in - 60);
 
             let access_token = token_response.access_token.clone();
 
@@ -233,7 +233,7 @@ pub mod zoho_impl {
                 .form(&[
                     ("resfmt", "JSON"),
                     ("listkey", &self.list_key),
-                    ("contactinfo", &user.email.to_string()),
+                    ("contactinfo", user.email.as_ref()),
                 ])
                 .send()
                 .await
@@ -268,10 +268,7 @@ pub mod zoho_impl {
             Faker.fake()
         }
 
-        fn mk_service(
-            mock_server_url: &str,
-            list_key: &str,
-        ) -> ZohoCampaignsServiceImpl {
+        fn mk_service(mock_server_url: &str, list_key: &str) -> ZohoCampaignsServiceImpl {
             ZohoCampaignsServiceImpl::new(
                 list_key.to_string(),
                 reqwest::Client::new(),
@@ -299,11 +296,8 @@ pub mod zoho_impl {
         fn mock_subscribe_success(list_key: &str) -> Mock {
             Mock::given(method("POST"))
                 .and(path("/api/v1.1/json/listsubscribe"))
-                .and(header(
-                    "Authorization",
-                    "Zoho-oauthtoken mock-access-token",
-                ))
-                .and(body_string_contains(&format!("listkey={list_key}")))
+                .and(header("Authorization", "Zoho-oauthtoken mock-access-token"))
+                .and(body_string_contains(format!("listkey={list_key}")))
                 .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                     "status": "success",
                     "message": "Contact added successfully."
@@ -313,11 +307,8 @@ pub mod zoho_impl {
         fn mock_unsubscribe_success(list_key: &str) -> Mock {
             Mock::given(method("POST"))
                 .and(path("/api/v1.1/json/listunsubscribe"))
-                .and(header(
-                    "Authorization",
-                    "Zoho-oauthtoken mock-access-token",
-                ))
-                .and(body_string_contains(&format!("listkey={list_key}")))
+                .and(header("Authorization", "Zoho-oauthtoken mock-access-token"))
+                .and(body_string_contains(format!("listkey={list_key}")))
                 .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                     "status": "success",
                     "message": "Contact unsubscribed successfully."
@@ -371,7 +362,10 @@ pub mod zoho_impl {
             let result = service.subscribe(&user).await;
 
             assert!(result.is_err());
-            assert!(matches!(result, Err(ZohoCampaignsError::OAuthTokenError(_))));
+            assert!(matches!(
+                result,
+                Err(ZohoCampaignsError::OAuthTokenError(_))
+            ));
         }
 
         #[tokio::test]
@@ -427,10 +421,7 @@ pub mod zoho_impl {
         #[tokio::test]
         async fn should_cache_oauth_token_across_calls() {
             let mock_server = MockServer::start().await;
-            mock_oauth_success()
-                .expect(1)
-                .mount(&mock_server)
-                .await;
+            mock_oauth_success().expect(1).mount(&mock_server).await;
             mock_subscribe_success("test-list-key")
                 .expect(2)
                 .mount(&mock_server)
@@ -510,7 +501,10 @@ pub mod zoho_impl {
             let result = service.subscribe(&user).await;
 
             assert!(result.is_err());
-            assert!(matches!(result, Err(ZohoCampaignsError::OAuthTokenError(_))));
+            assert!(matches!(
+                result,
+                Err(ZohoCampaignsError::OAuthTokenError(_))
+            ));
         }
 
         #[test]
