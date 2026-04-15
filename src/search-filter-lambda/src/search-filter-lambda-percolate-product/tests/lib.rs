@@ -678,9 +678,10 @@ async fn should_succeed_when_sqs_batch_is_empty() {
     assert!(response.batch_item_failures.is_empty());
 }
 
-/// Enrichment event (e.g. ENRICHMENT_EMBEDDED) in DynamoDB stream → skipped without failure.
+/// Enrichment event (e.g. ENRICHMENT_EMBEDDED) in DynamoDB stream → processed without failure.
+/// No search filters → no matches, no notifications.
 #[localstack_test(services = [DynamoDB(), OpenSearch()])]
-async fn should_skip_without_failure_when_enrichment_event_in_stream() {
+async fn should_process_enrichment_event_without_failure_when_in_stream() {
     let ddb = get_dynamodb_client().await;
     let os = get_opensearch_client().await;
 
@@ -695,7 +696,16 @@ async fn should_skip_without_failure_when_enrichment_event_in_stream() {
     let sf_service =
         UserSearchFilterServiceImpl::with_opensearch(&sf_ddb_repo, &user_service, &sf_os_repo);
 
-    // Notification should NOT be called
+    // Set up the product that the enrichment event references
+    let shop_id = ShopId::new();
+    let shops_product_id = ShopsProductId::new();
+    let product_record = mk_product_record(shop_id, &shops_product_id);
+    product_repo
+        .put_product_records([product_record.clone()].into())
+        .await
+        .unwrap();
+
+    // Notification should NOT be called (no matching filters)
     let notification_service = MockNotificationService::default();
 
     let matcher = ProductMatcherServiceImpl::new(
@@ -705,7 +715,11 @@ async fn should_skip_without_failure_when_enrichment_event_in_stream() {
         &user_service,
     );
 
-    let enrichment_record: product::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord = Faker.fake();
+    let mut enrichment_record: product::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord = Faker.fake();
+    enrichment_record.product_id = product_record.product_id;
+    enrichment_record.shop_id = shop_id;
+    enrichment_record.seller_id = shop_id;
+    enrichment_record.shops_product_id = shops_product_id;
     let body = mk_event_bridge_body_enrichment(&enrichment_record);
     let event = mk_sqs_event(vec![mk_sqs_message(&body)]);
 
@@ -715,6 +729,6 @@ async fn should_skip_without_failure_when_enrichment_event_in_stream() {
 
     assert!(
         response.batch_item_failures.is_empty(),
-        "Enrichment events must be skipped, not failed"
+        "Enrichment events must be processed without failure"
     );
 }
