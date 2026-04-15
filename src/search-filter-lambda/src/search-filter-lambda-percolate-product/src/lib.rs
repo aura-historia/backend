@@ -411,48 +411,18 @@ mod tests {
     }
 
     fn mk_event_bridge_body_domain(record: &ProductDomainEventRecord) -> String {
-        use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
-        use aws_lambda_events::eventbridge::EventBridgeEvent;
-
-        let new_image = serde_dynamo::to_item(record).unwrap();
-
-        let mut stream_record = StreamRecord::default();
-        stream_record.new_image = new_image;
-
-        let mut event_record = EventRecord::default();
-        event_record.event_name = "INSERT".to_string();
-        event_record.change = stream_record;
-
-        let mut event = EventBridgeEvent::<EventRecord>::default();
-        event.detail_type = "DynamoDBStreamRecord".to_string();
-        event.source = "test-source".to_string();
-        event.detail = event_record;
-
-        serde_json::to_string(&event).unwrap()
+        mk_event_bridge_body(record)
     }
 
     fn mk_event_bridge_body_enrichment(record: &ProductEnrichmentEventRecord) -> String {
-        use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
-        use aws_lambda_events::eventbridge::EventBridgeEvent;
-
-        let new_image = serde_dynamo::to_item(record).unwrap();
-
-        let mut stream_record = StreamRecord::default();
-        stream_record.new_image = new_image;
-
-        let mut event_record = EventRecord::default();
-        event_record.event_name = "INSERT".to_string();
-        event_record.change = stream_record;
-
-        let mut event = EventBridgeEvent::<EventRecord>::default();
-        event.detail_type = "DynamoDBStreamRecord".to_string();
-        event.source = "test-source".to_string();
-        event.detail = event_record;
-
-        serde_json::to_string(&event).unwrap()
+        mk_event_bridge_body(record)
     }
 
     fn mk_event_bridge_body_policy(record: &ProductPolicyEventRecord) -> String {
+        mk_event_bridge_body(record)
+    }
+
+    fn mk_event_bridge_body<T: serde::Serialize>(record: &T) -> String {
         use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
         use aws_lambda_events::eventbridge::EventBridgeEvent;
 
