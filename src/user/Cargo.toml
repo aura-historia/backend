@@ -21,6 +21,8 @@ aws-sdk-dynamodb = { workspace = true, optional = true }
 aws-sdk-cognitoidentityprovider = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["time"], optional = true }
 fake = { workspace = true, optional = true }
+reqwest = { workspace = true, features = ["json"], optional = true }
+serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 user = { workspace = true, features = ["full"] }
@@ -28,12 +30,14 @@ test-api = { workspace = true, features = ["dynamodb"] }
 serial_test = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
+wiremock = "0.6"
 
 [features]
 default = []
 data = ["common/api"]
 dynamodb = ["aws-sdk-dynamodb", "serde_dynamo", "serde_dynamo/aws-sdk-dynamodb+1", "tracing", "common/dynamodb"]
 cognito = ["aws-sdk-cognitoidentityprovider"]
+zoho = ["reqwest", "serde_json", "tracing", "tokio", "tokio/sync"]
 service = ["dynamodb", "tokio"]
 test-data = ["fake", "common/test-data"]
-full = ["data", "test-data", "dynamodb", "service", "cognito"]
+full = ["data", "test-data", "dynamodb", "service", "cognito", "zoho"]
