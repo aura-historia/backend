@@ -332,7 +332,8 @@ async fn should_search_shop_documents_when_partner_status_is_given(
     let repository = get_repository().await;
     let shops = fake::vec![ShopDocument; 100];
 
-    for doc in shops {
+    for mut doc in shops {
+        doc.partner_status = Faker.fake();
         repository.index_shop_document(doc).await.unwrap();
     }
     refresh_index("shops").await;
