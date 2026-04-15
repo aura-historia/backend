@@ -17,15 +17,15 @@ pub enum GetShopError {
     #[error("Shop with SlugId '{0}' not found")]
     ShopSlugIdNotFound(SlugId<0>),
 
-    #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
     ),
 
-    #[error("Encountered DynamoDB SdkError for Query: {0}")]
+    #[error("Encountered DynamoDB SdkError for Query: {0:?}")]
     SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>),
 
-    #[error("Encountered DynamoDB SdkError for BatchGetItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for BatchGetItem: {0:?}")]
     SdkBatchGetItemError(
         #[from]
         SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError, HttpResponse>,
@@ -47,7 +47,7 @@ pub enum VerifyPartnerShopError {
     #[error("API key mismatch for shop '{0}'")]
     ApiKeyMismatch(ShopId),
 
-    #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>),
 
     #[error("Missing persistence field: {0}")]

@@ -28,18 +28,18 @@ pub enum GetProductError {
     #[error("{0}")]
     MonetaryAmountOverflowError(#[from] MonetaryAmountOverflowError),
 
-    #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
     ),
 
-    #[error("Encountered DynamoDB SdkError for BatchGetItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for BatchGetItem: {0:?}")]
     SdkBatchGetItemError(
         #[from]
         SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError, HttpResponse>,
     ),
 
-    #[error("Encountered DynamoDB SdkError for QueryItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for QueryItem: {0:?}")]
     SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>),
 
     #[error("Unable to resolve unprocessed items after '{0}' retries. Failing entire operation.")]
