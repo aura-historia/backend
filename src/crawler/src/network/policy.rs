@@ -54,7 +54,8 @@ pub fn action_for(kind: NetworkErrorKind) -> NetworkAction {
         NetworkErrorKind::HttpStatus(404) | NetworkErrorKind::HttpStatus(410) => {
             NetworkAction::TerminalRemoved
         }
-        NetworkErrorKind::HttpStatus(408)
+        NetworkErrorKind::HttpStatus(403)
+        | NetworkErrorKind::HttpStatus(408)
         | NetworkErrorKind::HttpStatus(425)
         | NetworkErrorKind::HttpStatus(429)
         | NetworkErrorKind::HttpStatus(500)
@@ -87,6 +88,7 @@ pub fn retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
         NetworkErrorKind::HttpStatus(503) | NetworkErrorKind::HttpStatus(504) => {
             Duration::from_secs(15 * 60)
         }
+        NetworkErrorKind::HttpStatus(403) => Duration::from_secs(2 * 60),
         NetworkErrorKind::HttpStatus(408)
         | NetworkErrorKind::HttpStatus(425)
         | NetworkErrorKind::HttpStatus(500)
@@ -124,6 +126,22 @@ mod tests {
         assert_eq!(
             action_for(NetworkErrorKind::HttpStatus(503)),
             NetworkAction::Retry
+        );
+    }
+
+    #[test]
+    fn should_retry_403() {
+        assert_eq!(
+            action_for(NetworkErrorKind::HttpStatus(403)),
+            NetworkAction::Retry
+        );
+    }
+
+    #[test]
+    fn should_cooldown_403_for_two_minutes() {
+        assert_eq!(
+            retry_cooldown_for(NetworkErrorKind::HttpStatus(403)),
+            Duration::from_secs(2 * 60)
         );
     }
 

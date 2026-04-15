@@ -131,6 +131,10 @@ mod tests {
                     min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
                 }),
+                shop_slug_id_query: Default::default(),
+                exclude_shop_slug_id_query: Default::default(),
+                seller_slug_id_query: Default::default(),
+                exclude_seller_slug_id_query: Default::default(),
             },
         };
 

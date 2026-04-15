@@ -13,6 +13,7 @@ use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::shop_name::ShopName;
+use common::slug_id::SlugId;
 use common::year::Year;
 use common::{
     currency::data::CurrencyData, language::data::LanguageData, price::domain::MonetaryAmount,
@@ -72,6 +73,30 @@ pub struct ProductSearchData {
         default
     )]
     pub exclude_seller_name_query: HashSet<ShopName>,
+    #[serde(
+        rename = "shopSlugId",
+        skip_serializing_if = "HashSet::is_empty",
+        default
+    )]
+    pub shop_slug_id_query: HashSet<SlugId<0>>,
+    #[serde(
+        rename = "excludeShopSlugId",
+        skip_serializing_if = "HashSet::is_empty",
+        default
+    )]
+    pub exclude_shop_slug_id_query: HashSet<SlugId<0>>,
+    #[serde(
+        rename = "sellerSlugId",
+        skip_serializing_if = "HashSet::is_empty",
+        default
+    )]
+    pub seller_slug_id_query: HashSet<SlugId<0>>,
+    #[serde(
+        rename = "excludeSellerSlugId",
+        skip_serializing_if = "HashSet::is_empty",
+        default
+    )]
+    pub exclude_seller_slug_id_query: HashSet<SlugId<0>>,
     #[serde(
         rename = "shopType",
         skip_serializing_if = "HashSet::is_empty",
@@ -159,6 +184,10 @@ impl From<ProductSearch> for ProductSearchData {
             exclude_shop_name_query: search_filter.exclude_shop_name_query.into(),
             seller_name_query: search_filter.seller_name_query.into(),
             exclude_seller_name_query: search_filter.exclude_seller_name_query.into(),
+            shop_slug_id_query: search_filter.shop_slug_id_query.into(),
+            exclude_shop_slug_id_query: search_filter.exclude_shop_slug_id_query.into(),
+            seller_slug_id_query: search_filter.seller_slug_id_query.into(),
+            exclude_seller_slug_id_query: search_filter.exclude_seller_slug_id_query.into(),
             shop_type_query: search_filter
                 .shop_type_query
                 .into_iter()
@@ -213,6 +242,10 @@ impl From<ProductSearchData> for ProductSearch {
             exclude_shop_name_query: data.exclude_shop_name_query.into(),
             seller_name_query: data.seller_name_query.into(),
             exclude_seller_name_query: data.exclude_seller_name_query.into(),
+            shop_slug_id_query: data.shop_slug_id_query.into(),
+            exclude_shop_slug_id_query: data.exclude_shop_slug_id_query.into(),
+            seller_slug_id_query: data.seller_slug_id_query.into(),
+            exclude_seller_slug_id_query: data.exclude_seller_slug_id_query.into(),
             shop_type_query: data
                 .shop_type_query
                 .into_iter()
@@ -273,6 +306,10 @@ mod faker {
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 seller_name_query: config.fake_with_rng(rng),
                 exclude_seller_name_query: config.fake_with_rng(rng),
+                shop_slug_id_query: config.fake_with_rng(rng),
+                exclude_shop_slug_id_query: config.fake_with_rng(rng),
+                seller_slug_id_query: config.fake_with_rng(rng),
+                exclude_seller_slug_id_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
                 price_query: config
                     .fake_with_rng::<Option<RangeQuery<u32>>, R>(rng) // otherwise get Out-Of-Range-Err often from OpenSearch
@@ -345,6 +382,10 @@ mod tests {
             }),
             auction_start_query: None,
             auction_end_query: None,
+            shop_slug_id_query: Default::default(),
+            exclude_shop_slug_id_query: Default::default(),
+            seller_slug_id_query: Default::default(),
+            exclude_seller_slug_id_query: Default::default(),
         };
         let expected = json!({
             "language": "de",
@@ -450,6 +491,10 @@ mod tests {
             }),
             auction_start_query: None,
             auction_end_query: None,
+            shop_slug_id_query: Default::default(),
+            exclude_shop_slug_id_query: Default::default(),
+            seller_slug_id_query: Default::default(),
+            exclude_seller_slug_id_query: Default::default(),
         };
 
         let actual: ProductSearchData = serde_json::from_value(json).unwrap();
@@ -506,6 +551,10 @@ mod tests {
             updated_query: None,
             auction_start_query: None,
             auction_end_query: None,
+            shop_slug_id_query: Default::default(),
+            exclude_shop_slug_id_query: Default::default(),
+            seller_slug_id_query: Default::default(),
+            exclude_seller_slug_id_query: Default::default(),
         };
         let expected = json!({
             "language": "de",
@@ -547,6 +596,10 @@ mod tests {
             updated_query: None,
             auction_start_query: None,
             auction_end_query: None,
+            shop_slug_id_query: Default::default(),
+            exclude_shop_slug_id_query: Default::default(),
+            seller_slug_id_query: Default::default(),
+            exclude_seller_slug_id_query: Default::default(),
         };
 
         let actual: ProductSearchData = serde_json::from_value(json).unwrap();
@@ -581,6 +634,10 @@ mod tests {
             updated_query: None,
             auction_start_query: None,
             auction_end_query: None,
+            shop_slug_id_query: Default::default(),
+            exclude_shop_slug_id_query: Default::default(),
+            seller_slug_id_query: Default::default(),
+            exclude_seller_slug_id_query: Default::default(),
         };
 
         let actual: ProductSearchData = serde_json::from_value(json).unwrap();
