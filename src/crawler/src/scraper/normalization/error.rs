@@ -9,8 +9,9 @@ pub enum NormalizationError {
     /// when the extracted value is empty after trimming.
     ///
     /// **Unreachable from the main pipeline.**  The production normalization
-    /// path calls `normalize_shops_product_id_with_url_fallback` instead, which
-    /// substitutes the full product page URL when the extracted ID is blank.
+    /// path calls `normalize_shops_product_id_with_url_sha_fallback` instead,
+    /// which substitutes a SHA-256 hash of the product page URL when the
+    /// extracted ID is blank.
     /// This variant is retained so that unit tests can exercise the strict
     /// variant and so that the `normalization_error_to_schema_hint` mapping
     /// (and its own tests) remain valid.

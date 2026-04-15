@@ -1,6 +1,7 @@
 use super::{error::NormalizationError, language::detect_language};
 use common::{language::domain::Language, localized::Localized, shops_product_id::ShopsProductId};
 use product::core::{description::Description, title::Title};
+use sha2::{Digest, Sha256};
 use url::Url;
 
 /// Strict variant used only in tests — returns an error when `raw` is blank
@@ -14,12 +15,22 @@ pub(super) fn normalize_shops_product_id(raw: &str) -> Result<ShopsProductId, No
     Ok(ShopsProductId::from(trimmed))
 }
 
+fn sha256_hex(input: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    let digest = hasher.finalize();
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 /// Returns the normalized extracted ID when present; otherwise falls back to
-/// the full URL string as a stable, collision-free identifier.
-pub(super) fn normalize_shops_product_id_with_url_fallback(raw: &str, url: &Url) -> ShopsProductId {
+/// a SHA-256 hash of the full URL string.
+pub(super) fn normalize_shops_product_id_with_url_sha_fallback(
+    raw: &str,
+    url: &Url,
+) -> ShopsProductId {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        ShopsProductId::from(url.as_str())
+        ShopsProductId::from(sha256_hex(url.as_str()))
     } else {
         ShopsProductId::from(trimmed)
     }
@@ -90,7 +101,8 @@ mod tests {
 
     use super::{
         normalize_description, normalize_shops_product_id,
-        normalize_shops_product_id_with_url_fallback, normalize_title, normalize_title_localized,
+        normalize_shops_product_id_with_url_sha_fallback, normalize_title,
+        normalize_title_localized,
     };
     use crate::scraper::normalization::error::NormalizationError;
 
@@ -123,35 +135,42 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // shops_product_id — URL fallback
+    // shops_product_id — URL SHA fallback
     // -----------------------------------------------------------------------
 
     #[test]
-    fn should_use_extracted_id_when_shops_product_id_with_fallback_is_non_empty() {
+    fn should_use_extracted_id_when_shops_product_id_with_sha_fallback_is_non_empty() {
         let url = Url::parse("https://example.com/products/123").unwrap();
-        let result = normalize_shops_product_id_with_url_fallback("PROD-001", &url);
+        let result = normalize_shops_product_id_with_url_sha_fallback("PROD-001", &url);
         assert_eq!(result.to_string(), "PROD-001");
     }
 
     #[test]
-    fn should_trim_and_use_extracted_id_when_shops_product_id_with_fallback_has_whitespace() {
+    fn should_trim_and_use_extracted_id_when_shops_product_id_with_sha_fallback_has_whitespace() {
         let url = Url::parse("https://example.com/products/123").unwrap();
-        let result = normalize_shops_product_id_with_url_fallback("  PROD-001  ", &url);
+        let result = normalize_shops_product_id_with_url_sha_fallback("  PROD-001  ", &url);
         assert_eq!(result.to_string(), "PROD-001");
     }
 
     #[test]
-    fn should_fall_back_to_full_url_when_shops_product_id_with_fallback_is_empty() {
+    fn should_fall_back_to_sha256_of_url_when_shops_product_id_with_sha_fallback_is_empty() {
         let url = Url::parse("https://example.com/products/123").unwrap();
-        let result = normalize_shops_product_id_with_url_fallback("", &url);
-        assert_eq!(result.to_string(), "https://example.com/products/123");
+        let result = normalize_shops_product_id_with_url_sha_fallback("", &url);
+        assert_eq!(
+            result.to_string(),
+            "28c714c9f68ec26408de2fcdb45ef93e77920c3ef602cb85d57f9cd8fe5ea651"
+        );
     }
 
     #[test]
-    fn should_fall_back_to_full_url_when_shops_product_id_with_fallback_is_only_whitespace() {
+    fn should_fall_back_to_sha256_of_url_when_shops_product_id_with_sha_fallback_is_only_whitespace()
+     {
         let url = Url::parse("https://example.com/products/123").unwrap();
-        let result = normalize_shops_product_id_with_url_fallback("   ", &url);
-        assert_eq!(result.to_string(), "https://example.com/products/123");
+        let result = normalize_shops_product_id_with_url_sha_fallback("   ", &url);
+        assert_eq!(
+            result.to_string(),
+            "28c714c9f68ec26408de2fcdb45ef93e77920c3ef602cb85d57f9cd8fe5ea651"
+        );
     }
 
     // -----------------------------------------------------------------------

@@ -4,7 +4,7 @@ use super::{
     image::normalize_images,
     price::normalize_price_field,
     text::{
-        normalize_description, normalize_shops_product_id_with_url_fallback,
+        normalize_description, normalize_shops_product_id_with_url_sha_fallback,
         normalize_title_localized,
     },
 };
@@ -33,10 +33,10 @@ pub trait ProductNormalizationService {
     /// [`ProductStateMappingService`]. Callers do not need to pre-resolve the
     /// state; this method handles all async DB/LLM work internally.
     ///
-    /// When `raw.shops_product_id` is blank after trimming, the full `url`
-    /// string is used as a stable fallback identifier rather than returning an
-    /// error.  This keeps the scrape pipeline alive on pages where the CSS
-    /// selector does not extract a product ID.
+    /// When `raw.shops_product_id` is blank after trimming, a SHA-256 hash of
+    /// the full `url` string is used as a stable fallback identifier rather
+    /// than returning an error. This keeps the scrape pipeline alive on pages
+    /// where the CSS selector does not extract a product ID.
     ///
     /// `default_currency` is used as a fallback when the raw price string
     /// contains no currency symbol or ISO code (e.g. bare "18,00" on a site
@@ -103,7 +103,7 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
         let state = ProductState::from(state_record);
 
         let shops_product_id =
-            normalize_shops_product_id_with_url_fallback(&raw.shops_product_id, &url);
+            normalize_shops_product_id_with_url_sha_fallback(&raw.shops_product_id, &url);
         let title = normalize_title_localized(&raw.title)?;
         let description = normalize_description(raw.description)?;
 
@@ -417,7 +417,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[tokio::test]
-    async fn should_use_url_as_shops_product_id_when_extracted_id_is_blank() {
+    async fn should_use_url_sha_as_shops_product_id_when_extracted_id_is_blank() {
         let svc = make_available_service();
         let mut raw = minimal_raw();
         raw.shops_product_id = "  ".into();
@@ -425,7 +425,7 @@ mod tests {
         let result = svc.normalize(raw, url, None).await.unwrap();
         assert_eq!(
             result.shops_product_id.to_string(),
-            "https://shop.example.com/item/fallback-item"
+            "3603d78ef2b4963051a2ca8ea12a0b9d774e99baa08a26bdf73916a0261bf198"
         );
     }
 
