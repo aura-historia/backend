@@ -64,6 +64,10 @@ async fn should_update_search_filter() {
             exclude_shop_name_query: None,
             seller_name_query: None,
             exclude_seller_name_query: None,
+            shop_slug_id_query: None,
+            exclude_shop_slug_id_query: None,
+            seller_slug_id_query: None,
+            exclude_seller_slug_id_query: None,
             shop_type_query: None,
             price_query: Some(RangeQuery {
                 min: Some(37),

@@ -129,6 +129,7 @@ async fn should_200_when_shop_type_query(
     let search = ShopSearchData {
         shop_name_query: None,
         shop_type_query: query.clone(),
+        partner_status_query: Default::default(),
         created: None,
         updated: None,
     };

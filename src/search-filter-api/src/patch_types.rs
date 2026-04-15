@@ -3,6 +3,7 @@ use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::shop_name::ShopName;
+use common::slug_id::SlugId;
 use common::year::Year;
 use common::{
     currency::{data::CurrencyData, domain::Currency},
@@ -91,6 +92,34 @@ pub struct PatchProductSearchData {
         default
     )]
     pub exclude_seller_name_query: Option<HashSet<ShopName>>,
+
+    #[serde(
+        rename = "shopSlugId",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub shop_slug_id_query: Option<HashSet<SlugId<0>>>,
+
+    #[serde(
+        rename = "excludeShopSlugId",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub exclude_shop_slug_id_query: Option<HashSet<SlugId<0>>>,
+
+    #[serde(
+        rename = "sellerSlugId",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub seller_slug_id_query: Option<HashSet<SlugId<0>>>,
+
+    #[serde(
+        rename = "excludeSellerSlugId",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub exclude_seller_slug_id_query: Option<HashSet<SlugId<0>>>,
 
     #[serde(rename = "shopType", skip_serializing_if = "Option::is_none", default)]
     pub shop_type_query: Option<HashSet<ShopTypeData>>,
@@ -203,6 +232,22 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
                 .search
                 .as_ref()
                 .and_then(|sf| sf.exclude_seller_name_query.clone()),
+            shop_slug_id_query: patch
+                .search
+                .as_ref()
+                .and_then(|sf| sf.shop_slug_id_query.clone()),
+            exclude_shop_slug_id_query: patch
+                .search
+                .as_ref()
+                .and_then(|sf| sf.exclude_shop_slug_id_query.clone()),
+            seller_slug_id_query: patch
+                .search
+                .as_ref()
+                .and_then(|sf| sf.seller_slug_id_query.clone()),
+            exclude_seller_slug_id_query: patch
+                .search
+                .as_ref()
+                .and_then(|sf| sf.exclude_seller_slug_id_query.clone()),
             shop_type_query: patch.search.as_ref().and_then(|sf| {
                 sf.shop_type_query
                     .clone()
@@ -265,6 +310,10 @@ mod faker {
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 seller_name_query: config.fake_with_rng(rng),
                 exclude_seller_name_query: config.fake_with_rng(rng),
+                shop_slug_id_query: config.fake_with_rng(rng),
+                exclude_shop_slug_id_query: config.fake_with_rng(rng),
+                seller_slug_id_query: config.fake_with_rng(rng),
+                exclude_seller_slug_id_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
@@ -348,6 +397,10 @@ mod tests {
             exclude_shop_name_query: None,
             seller_name_query: None,
             exclude_seller_name_query: None,
+            shop_slug_id_query: None,
+            exclude_shop_slug_id_query: None,
+            seller_slug_id_query: None,
+            exclude_seller_slug_id_query: None,
             shop_type_query: None,
             price_query: Some(RangeQuery {
                 min: Some(37),
@@ -442,6 +495,10 @@ mod tests {
                 exclude_shop_name_query: None,
                 seller_name_query: None,
                 exclude_seller_name_query: None,
+                shop_slug_id_query: None,
+                exclude_shop_slug_id_query: None,
+                seller_slug_id_query: None,
+                exclude_seller_slug_id_query: None,
                 shop_type_query: None,
                 price_query: Some(RangeQuery {
                     min: Some(37),

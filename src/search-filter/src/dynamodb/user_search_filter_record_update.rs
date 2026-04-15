@@ -5,6 +5,7 @@ use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::shop_name::ShopName;
+use common::slug_id::SlugId;
 use common::year::Year;
 use common::{currency::record::CurrencyRecord, language::record::LanguageRecord};
 use product::dynamodb::authenticity_record::AuthenticityRecord;
@@ -38,6 +39,14 @@ pub struct UserSearchFilterRecordUpdate {
     pub seller_name_query: Option<HashSet<ShopName>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exclude_seller_name_query: Option<HashSet<ShopName>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_slug_id_query: Option<HashSet<SlugId<0>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exclude_shop_slug_id_query: Option<HashSet<SlugId<0>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seller_slug_id_query: Option<HashSet<SlugId<0>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exclude_seller_slug_id_query: Option<HashSet<SlugId<0>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_type_query: Option<HashSet<ShopTypeRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -109,6 +118,10 @@ mod fake {
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 seller_name_query: config.fake_with_rng(rng),
                 exclude_seller_name_query: config.fake_with_rng(rng),
+                shop_slug_id_query: config.fake_with_rng(rng),
+                exclude_shop_slug_id_query: config.fake_with_rng(rng),
+                seller_slug_id_query: config.fake_with_rng(rng),
+                exclude_seller_slug_id_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),

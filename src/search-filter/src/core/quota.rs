@@ -64,14 +64,26 @@ fn check_search_filter_features_free(
     if !search.shop_name_query.is_empty() {
         return Err(ProductSearchSerdeField::ShopNameQuery);
     }
-    if !search.exclude_seller_name_query.is_empty() {
-        return Err(ProductSearchSerdeField::ExcludeSellerNameQuery);
+    if !search.exclude_shop_name_query.is_empty() {
+        return Err(ProductSearchSerdeField::ExcludeShopNameQuery);
     }
     if !search.seller_name_query.is_empty() {
         return Err(ProductSearchSerdeField::SellerNameQuery);
     }
     if !search.exclude_seller_name_query.is_empty() {
         return Err(ProductSearchSerdeField::ExcludeSellerNameQuery);
+    }
+    if !search.shop_slug_id_query.is_empty() {
+        return Err(ProductSearchSerdeField::ShopSlugIdQuery);
+    }
+    if !search.exclude_shop_slug_id_query.is_empty() {
+        return Err(ProductSearchSerdeField::ExcludeShopSlugIdQuery);
+    }
+    if !search.seller_slug_id_query.is_empty() {
+        return Err(ProductSearchSerdeField::SellerSlugIdQuery);
+    }
+    if !search.exclude_seller_slug_id_query.is_empty() {
+        return Err(ProductSearchSerdeField::ExcludeSellerSlugIdQuery);
     }
     if !search.shop_type_query.is_empty() {
         return Err(ProductSearchSerdeField::ShopTypeQuery);
@@ -116,14 +128,26 @@ fn check_search_filter_update_features_free(
     if search.shop_name_query.is_some() {
         return Err(ProductSearchSerdeField::ShopNameQuery);
     }
-    if search.exclude_seller_name_query.is_some() {
-        return Err(ProductSearchSerdeField::ExcludeSellerNameQuery);
+    if search.exclude_shop_name_query.is_some() {
+        return Err(ProductSearchSerdeField::ExcludeShopNameQuery);
     }
     if search.seller_name_query.is_some() {
         return Err(ProductSearchSerdeField::SellerNameQuery);
     }
     if search.exclude_seller_name_query.is_some() {
         return Err(ProductSearchSerdeField::ExcludeSellerNameQuery);
+    }
+    if search.shop_slug_id_query.is_some() {
+        return Err(ProductSearchSerdeField::ShopSlugIdQuery);
+    }
+    if search.exclude_shop_slug_id_query.is_some() {
+        return Err(ProductSearchSerdeField::ExcludeShopSlugIdQuery);
+    }
+    if search.seller_slug_id_query.is_some() {
+        return Err(ProductSearchSerdeField::SellerSlugIdQuery);
+    }
+    if search.exclude_seller_slug_id_query.is_some() {
+        return Err(ProductSearchSerdeField::ExcludeSellerSlugIdQuery);
     }
     if search.shop_type_query.is_some() {
         return Err(ProductSearchSerdeField::ShopTypeQuery);

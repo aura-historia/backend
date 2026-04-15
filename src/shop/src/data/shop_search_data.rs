@@ -1,5 +1,7 @@
+use crate::core::partner_status::ShopPartnerStatus;
 use crate::core::shop_search::ShopSearch;
 use crate::core::shop_type::ShopType;
+use crate::data::partner_status_data::ShopPartnerStatusData;
 use crate::data::shop_type_data::ShopTypeData;
 use common::query::{range_query::RangeQuery, text_query::TextQuery};
 use serde::{Deserialize, Serialize};
@@ -18,6 +20,13 @@ pub struct ShopSearchData {
         default
     )]
     pub shop_type_query: HashSet<ShopTypeData>,
+
+    #[serde(
+        rename = "partnerStatus",
+        skip_serializing_if = "HashSet::is_empty",
+        default
+    )]
+    pub partner_status_query: HashSet<ShopPartnerStatusData>,
 
     #[serde(
         with = "common::query::range_query::range_rfc3339::option",
@@ -43,6 +52,11 @@ impl From<ShopSearch> for ShopSearchData {
                 .into_iter()
                 .map(ShopTypeData::from)
                 .collect(),
+            partner_status_query: search
+                .partner_status_query
+                .into_iter()
+                .map(ShopPartnerStatusData::from)
+                .collect(),
             created: search.created,
             updated: search.updated,
         }
@@ -57,6 +71,11 @@ impl From<ShopSearchData> for ShopSearch {
                 .shop_type_query
                 .into_iter()
                 .map(ShopType::from)
+                .collect(),
+            partner_status_query: data
+                .partner_status_query
+                .into_iter()
+                .map(ShopPartnerStatus::from)
                 .collect(),
             created: data.created,
             updated: data.updated,
@@ -74,6 +93,7 @@ mod faker {
             ShopSearchData {
                 shop_name_query: Faker.fake(),
                 shop_type_query: config.fake_with_rng(rng),
+                partner_status_query: config.fake_with_rng(rng),
                 created: fake_range_query_datetime(config, rng),
                 updated: fake_range_query_datetime(config, rng),
             }
@@ -139,6 +159,7 @@ mod tests {
         let expected = ShopSearchData {
             shop_name_query: Some("Baap".try_into().unwrap()),
             shop_type_query: HashSet::from_iter([ShopTypeData::AuctionHouse]),
+            partner_status_query: Default::default(),
             created: Some(RangeQuery {
                 min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                 max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
@@ -162,6 +183,7 @@ mod tests {
         let expected = ShopSearchData {
             shop_name_query: Some("Baap".try_into().unwrap()),
             shop_type_query: Default::default(),
+            partner_status_query: Default::default(),
             created: None,
             updated: None,
         };
@@ -177,6 +199,7 @@ mod tests {
         let expected = ShopSearchData {
             shop_name_query: None,
             shop_type_query: Default::default(),
+            partner_status_query: Default::default(),
             created: None,
             updated: None,
         };
