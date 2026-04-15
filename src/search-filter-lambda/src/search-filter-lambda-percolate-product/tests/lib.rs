@@ -140,6 +140,31 @@ fn mk_event_bridge_body(
     serde_json::to_string(&event).unwrap()
 }
 
+/// Wrap a `ProductEnrichmentEventRecord` into the SQS → EventBridge → DynamoDB
+/// Streams envelope that the handler expects.
+fn mk_event_bridge_body_enrichment(
+    record: &product::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord,
+) -> String {
+    use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
+    use aws_lambda_events::eventbridge::EventBridgeEvent;
+
+    let new_image = serde_dynamo::to_item(record).unwrap();
+
+    let mut stream_record = StreamRecord::default();
+    stream_record.new_image = new_image;
+
+    let mut event_record = EventRecord::default();
+    event_record.event_name = "INSERT".to_string();
+    event_record.change = stream_record;
+
+    let mut event = EventBridgeEvent::<EventRecord>::default();
+    event.detail_type = "DynamoDBStreamRecord".to_string();
+    event.source = "test-source".to_string();
+    event.detail = event_record;
+
+    serde_json::to_string(&event).unwrap()
+}
+
 fn mk_sqs_event(messages: Vec<SqsMessage>) -> LambdaEvent<SqsEvent> {
     let mut sqs_event = SqsEvent::default();
     sqs_event.records = messages;
@@ -651,4 +676,45 @@ async fn should_succeed_when_sqs_batch_is_empty() {
         .unwrap();
 
     assert!(response.batch_item_failures.is_empty());
+}
+
+/// Enrichment event (e.g. ENRICHMENT_EMBEDDED) in DynamoDB stream → skipped without failure.
+#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+async fn should_skip_without_failure_when_enrichment_event_in_stream() {
+    let ddb = get_dynamodb_client().await;
+    let os = get_opensearch_client().await;
+
+    let sf_ddb_repo = UserSearchFilterDynamoDbRepositoryImpl::new(ddb, "table_1");
+    let sf_os_repo = UserSearchFilterOpenSearchRepositoryImpl::new(os);
+    let product_repo = ProductDynamoDbRepositoryImpl::new(ddb, "table_1");
+    let user_repo = UserDynamoDbRepositoryImpl::new(ddb, "table_1");
+    let user_service = UserServiceImpl::new(&user_repo);
+    let get_product_service = GetProductServiceImpl::new(&product_repo);
+    let enhanced_service = MockEnhancedSearchMatchService::default();
+
+    let sf_service =
+        UserSearchFilterServiceImpl::with_opensearch(&sf_ddb_repo, &user_service, &sf_os_repo);
+
+    // Notification should NOT be called
+    let notification_service = MockNotificationService::default();
+
+    let matcher = ProductMatcherServiceImpl::new(
+        &sf_service,
+        &get_product_service,
+        &enhanced_service,
+        &user_service,
+    );
+
+    let enrichment_record: product::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord = Faker.fake();
+    let body = mk_event_bridge_body_enrichment(&enrichment_record);
+    let event = mk_sqs_event(vec![mk_sqs_message(&body)]);
+
+    let response = handler(&matcher, &notification_service, &sf_service, event)
+        .await
+        .unwrap();
+
+    assert!(
+        response.batch_item_failures.is_empty(),
+        "Enrichment events must be skipped, not failed"
+    );
 }
