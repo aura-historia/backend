@@ -32,21 +32,21 @@ pub enum CommandShopError {
     )]
     SdkBatchGetItemUnprocessed,
 
-    #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(#[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>),
 
-    #[error("Encountered DynamoDB SdkError for BatchGetItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for BatchGetItem: {0:?}")]
     SdkBatchGetItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError>,
     ),
 
-    #[error("Encountered DynamoDB SdkError for Query: {0}")]
+    #[error("Encountered DynamoDB SdkError for Query: {0:?}")]
     SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError>),
 
-    #[error("Encountered DynamoDB SdkError for PutItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for PutItem: {0:?}")]
     SdkPutItemError(#[from] SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError>),
 
-    #[error("Encountered DynamoDB SdkError for UpdateItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for UpdateItem: {0:?}")]
     SdkUpdateItemError(#[from] SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError>),
 }
 

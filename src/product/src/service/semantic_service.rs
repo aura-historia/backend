@@ -19,7 +19,7 @@ pub enum SemanticSearchProductsError {
     #[error("OpenSearchError: {0}")]
     OpenSearchError(#[from] opensearch::Error),
 
-    #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(#[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>),
 }
 

@@ -27,16 +27,16 @@ pub enum UserServiceError {
     #[error("This action requires the 'ADMIN' role.")]
     AdminRoleRequired,
 
-    #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(#[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>),
 
-    #[error("Encountered DynamoDB SdkError for PutItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for PutItem: {0:?}")]
     SdkPutItemError(#[from] SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError>),
 
-    #[error("Encountered DynamoDB SdkError for UpdateItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for UpdateItem: {0:?}")]
     SdkUpdateItemError(#[from] SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError>),
 
-    #[error("Encountered DynamoDB SdkError for DeleteItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for DeleteItem: {0:?}")]
     SdkDeleteItemError(#[from] SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError>),
 
     #[error("Failed to delete Cognito user: {0}")]

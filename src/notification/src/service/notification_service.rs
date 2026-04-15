@@ -49,25 +49,25 @@ pub enum NotificationError {
     #[error("There exists no Notification for user '{0}' with origin-event-id '{1}'.")]
     NotificationNotFound(UserId, EventId),
 
-    #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
     ),
 
-    #[error("Encountered DynamoDB SdkError for QueryItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for QueryItem: {0:?}")]
     SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>),
 
-    #[error("Encountered DynamoDB SdkError for PutItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for PutItem: {0:?}")]
     SdkPutItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>,
     ),
 
-    #[error("Encountered DynamoDB SdkError for UpdateItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for UpdateItem: {0:?}")]
     SdkUpdateItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>,
     ),
 
-    #[error("Encountered DynamoDB SdkError for DeleteItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for DeleteItem: {0:?}")]
     SdkDeleteItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>,
     ),
