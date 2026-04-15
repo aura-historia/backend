@@ -69,6 +69,10 @@ path = "src/bin/server.rs"
 name = "demo"
 path = "src/demo.rs"
 
+[[bin]]
+name = "fetch-fixture"
+path = "src/bin/fetch_fixture.rs"
+
 [features]
 default = []
 test-data = ["common/test-data", "fake"]

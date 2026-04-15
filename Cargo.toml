@@ -81,7 +81,7 @@ members = [
 async-stream = "0.3.6"
 base64 = "0.22.1"
 async-trait = "0.1.89"
-aws-config = "1.8.15"
+aws-config = { version = "1.8.15", features = ["credentials-login"] }
 aws-sdk-account = "1.100.0"
 aws-sdk-autoscaling = "1.113.0"
 aws-sdk-cloudformation = "1.110.0"
