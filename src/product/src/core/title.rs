@@ -1,35 +1,34 @@
-use std::fmt::{Debug, Display};
-use std::ops::Deref;
+use common::string_newtype;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Title(String);
+string_newtype!(Title, struct_only);
 
 impl From<&str> for Title {
     fn from(s: &str) -> Self {
         let s = s.trim();
-        let s = s.strip_suffix(".").unwrap_or(s);
-        let s = s
-            .chars()
-            .take(128)
-            .enumerate()
-            .map(|(i, c)| {
-                if i == 0 && c.is_lowercase() {
-                    c.to_uppercase()
-                        .next()
-                        .expect("shouldn't fail finding next char in uppercase-string of length 1")
-                } else {
-                    c
-                }
-            })
-            .collect::<String>();
+        let s = s.strip_suffix('.').unwrap_or(s);
 
-        Title(s)
-    }
-}
+        let mut chars = s.chars();
+        let capitalized: String = match chars.next() {
+            None => String::new(),
+            Some(first) => {
+                let first_upper: String = first.to_uppercase().collect();
+                first_upper + chars.as_str()
+            }
+        };
 
-impl Display for Title {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        const MAX_CHARS: usize = 128;
+        const ELLIPSIS: &str = "...";
+        const ELLIPSIS_CHAR_LEN: usize = 3;
+
+        if capitalized.chars().count() > MAX_CHARS {
+            let truncated: String = capitalized
+                .chars()
+                .take(MAX_CHARS - ELLIPSIS_CHAR_LEN)
+                .collect();
+            Title(truncated + ELLIPSIS)
+        } else {
+            Title(capitalized)
+        }
     }
 }
 
@@ -39,22 +38,9 @@ impl From<String> for Title {
     }
 }
 
-impl From<Title> for String {
-    fn from(t: Title) -> Self {
-        t.0
-    }
-}
-
-impl Deref for Title {
-    type Target = str;
-    fn deref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl AsRef<str> for Title {
-    fn as_ref(&self) -> &str {
-        &self.0
+impl From<&String> for Title {
+    fn from(s: &String) -> Self {
+        Self::from(s.as_str())
     }
 }
 
@@ -90,10 +76,28 @@ mod tests {
     }
 
     #[test]
-    fn should_truncate_long_title() {
+    fn should_truncate_long_title_to_max_length() {
         let long_title = "a".repeat(200);
         let title = Title::from(long_title.as_str());
         assert_eq!(title.as_ref().len(), 128);
+        assert!(title.as_ref().ends_with("..."));
+    }
+
+    #[test]
+    fn should_append_ellipsis_when_truncating_title() {
+        let long_title = "a".repeat(200);
+        let title = Title::from(long_title.as_str());
+        // first 'a' is capitalised to 'A', then 124 lowercase 'a's, then "..."
+        let expected = format!("A{}...", "a".repeat(124));
+        assert_eq!(title.as_ref(), expected);
+    }
+
+    #[test]
+    fn should_not_append_ellipsis_when_within_limit_for_title() {
+        let short_title = "a".repeat(128);
+        let title = Title::from(short_title.as_str());
+        assert!(!title.as_ref().ends_with("..."));
+        assert_eq!(title.as_ref().chars().count(), 128);
     }
 
     #[test]
@@ -106,5 +110,30 @@ mod tests {
     fn should_handle_title_with_period() {
         let title = Title::from("Hello World.");
         assert_eq!(title.as_ref(), "Hello World");
+    }
+
+    #[test]
+    fn should_capitalize_after_stripping_period() {
+        let title = Title::from("hello world.");
+        assert_eq!(title.as_ref(), "Hello world");
+    }
+
+    #[test]
+    fn should_convert_to_string() {
+        let title = Title::from("Antique vase");
+        let s: String = title.into();
+        assert_eq!(s, "Antique vase");
+    }
+
+    #[test]
+    fn should_create_from_owned_string() {
+        let title = Title::from("Antique vase".to_string());
+        assert_eq!(title.as_ref(), "Antique vase");
+    }
+
+    #[test]
+    fn should_display_title() {
+        let title = Title::from("Antique vase");
+        assert_eq!(format!("{title}"), "Antique vase");
     }
 }
