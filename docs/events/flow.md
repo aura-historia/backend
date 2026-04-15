@@ -80,8 +80,9 @@ flowchart TD
 ## Event-Chain State Diagram
 
 The diagram below shows which product event types cause new event types to be written back to
-`table_1` by the enrichment pipeline. Events that are written purely by the external API (and
-therefore have no preceding product event) start from `[*]`.
+`table_1` by the enrichment pipeline. `[*]` is the Mermaid notation for the initial state;
+events starting from `[*]` are written purely by the external API and have no preceding product
+event.
 
 ```mermaid
 stateDiagram-v2
