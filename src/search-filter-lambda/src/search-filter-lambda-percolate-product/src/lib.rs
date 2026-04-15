@@ -6,7 +6,7 @@ use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
 use lambda_runtime::LambdaEvent;
 use notification::service::notification_service::NotificationService;
 use product::core::product_event::{ProductDomainEvent, ProductEventPayload};
-use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+use product::dynamodb::product_event_record::ProductEventRecord;
 use search_filter::service::user_search_filter_service::UserSearchFilterService;
 use tracing::{error, info, warn};
 
@@ -30,11 +30,19 @@ pub async fn handler(
             .expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it.");
 
         if let Some(product_event_record) = extract_sqs_event_bridge_dynamodb_record::<
-            ProductDomainEventRecord,
+            ProductEventRecord,
         >(
             message, &mut failed_message_ids, &mut skipped_count
         ) {
-            match ProductDomainEvent::try_from(product_event_record) {
+            let domain_record = match product_event_record {
+                ProductEventRecord::Domain(record) => record,
+                ProductEventRecord::Enrichment(_) | ProductEventRecord::Policy(_) => {
+                    skipped_count += 1;
+                    continue;
+                }
+            };
+
+            match ProductDomainEvent::try_from(domain_record) {
                 Ok(domain_event) => {
                     let event_id = domain_event.event_id;
                     let product_event = domain_event.map_payload(ProductEventPayload::from);
@@ -101,7 +109,7 @@ pub async fn handler(
                 Err(err) => {
                     error!(
                         error = %err,
-                        fromType = %std::any::type_name::<ProductDomainEventRecord>(),
+                        fromType = %std::any::type_name::<product::dynamodb::product_event_record::domain::ProductDomainEventRecord>(),
                         toType = %std::any::type_name::<ProductDomainEvent>(),
                         "Failed mapping types. Skipping event."
                     );
@@ -145,6 +153,8 @@ mod tests {
         notification_service::{CreateNotificationsResult, MockNotificationService},
     };
     use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+    use product::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord;
+    use product::dynamodb::product_event_record::policy::ProductPolicyEventRecord;
     use search_filter::service::user_search_filter_service::MockUserSearchFilterService;
 
     fn mk_sqs_event(messages: Vec<SqsMessage>) -> LambdaEvent<SqsEvent> {
@@ -219,7 +229,7 @@ mod tests {
         let search_filter_service = MockUserSearchFilterService::default();
 
         let domain_event_record: ProductDomainEventRecord = Faker.fake();
-        let event_bridge_body = mk_event_bridge_body(&domain_event_record);
+        let event_bridge_body = mk_event_bridge_body_domain(&domain_event_record);
         let event = mk_sqs_event(vec![mk_sqs_message(&event_bridge_body)]);
 
         let result = handler(
@@ -251,7 +261,7 @@ mod tests {
         let search_filter_service = MockUserSearchFilterService::default();
 
         let domain_event_record: ProductDomainEventRecord = Faker.fake();
-        let event_bridge_body = mk_event_bridge_body(&domain_event_record);
+        let event_bridge_body = mk_event_bridge_body_domain(&domain_event_record);
         let event = mk_sqs_event(vec![mk_sqs_message(&event_bridge_body)]);
 
         let result = handler(
@@ -309,7 +319,7 @@ mod tests {
             });
 
         let domain_event_record: ProductDomainEventRecord = Faker.fake();
-        let event_bridge_body = mk_event_bridge_body(&domain_event_record);
+        let event_bridge_body = mk_event_bridge_body_domain(&domain_event_record);
         let event = mk_sqs_event(vec![mk_sqs_message(&event_bridge_body)]);
 
         let result = handler(
@@ -348,7 +358,101 @@ mod tests {
         assert!(response.batch_item_failures.is_empty());
     }
 
-    fn mk_event_bridge_body(record: &ProductDomainEventRecord) -> String {
+    #[tokio::test]
+    async fn should_skip_without_failure_when_enrichment_event_received() {
+        let service = MockProductMatcherService::default();
+        let notification_service = MockNotificationService::default();
+        let search_filter_service = MockUserSearchFilterService::default();
+
+        let enrichment_record: ProductEnrichmentEventRecord = Faker.fake();
+        let event_bridge_body = mk_event_bridge_body_enrichment(&enrichment_record);
+        let event = mk_sqs_event(vec![mk_sqs_message(&event_bridge_body)]);
+
+        let result = handler(
+            &service,
+            &notification_service,
+            &search_filter_service,
+            event,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert!(
+            response.batch_item_failures.is_empty(),
+            "Enrichment events must be skipped, not failed"
+        );
+    }
+
+    #[tokio::test]
+    async fn should_skip_without_failure_when_policy_event_received() {
+        let service = MockProductMatcherService::default();
+        let notification_service = MockNotificationService::default();
+        let search_filter_service = MockUserSearchFilterService::default();
+
+        let policy_record: ProductPolicyEventRecord = Faker.fake();
+        let event_bridge_body = mk_event_bridge_body_policy(&policy_record);
+        let event = mk_sqs_event(vec![mk_sqs_message(&event_bridge_body)]);
+
+        let result = handler(
+            &service,
+            &notification_service,
+            &search_filter_service,
+            event,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert!(
+            response.batch_item_failures.is_empty(),
+            "Policy events must be skipped, not failed"
+        );
+    }
+
+    fn mk_event_bridge_body_domain(record: &ProductDomainEventRecord) -> String {
+        use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
+        use aws_lambda_events::eventbridge::EventBridgeEvent;
+
+        let new_image = serde_dynamo::to_item(record).unwrap();
+
+        let mut stream_record = StreamRecord::default();
+        stream_record.new_image = new_image;
+
+        let mut event_record = EventRecord::default();
+        event_record.event_name = "INSERT".to_string();
+        event_record.change = stream_record;
+
+        let mut event = EventBridgeEvent::<EventRecord>::default();
+        event.detail_type = "DynamoDBStreamRecord".to_string();
+        event.source = "test-source".to_string();
+        event.detail = event_record;
+
+        serde_json::to_string(&event).unwrap()
+    }
+
+    fn mk_event_bridge_body_enrichment(record: &ProductEnrichmentEventRecord) -> String {
+        use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
+        use aws_lambda_events::eventbridge::EventBridgeEvent;
+
+        let new_image = serde_dynamo::to_item(record).unwrap();
+
+        let mut stream_record = StreamRecord::default();
+        stream_record.new_image = new_image;
+
+        let mut event_record = EventRecord::default();
+        event_record.event_name = "INSERT".to_string();
+        event_record.change = stream_record;
+
+        let mut event = EventBridgeEvent::<EventRecord>::default();
+        event.detail_type = "DynamoDBStreamRecord".to_string();
+        event.source = "test-source".to_string();
+        event.detail = event_record;
+
+        serde_json::to_string(&event).unwrap()
+    }
+
+    fn mk_event_bridge_body_policy(record: &ProductPolicyEventRecord) -> String {
         use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
         use aws_lambda_events::eventbridge::EventBridgeEvent;
 
