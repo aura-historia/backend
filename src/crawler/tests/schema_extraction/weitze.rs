@@ -19,8 +19,8 @@
 //! ```
 
 use super::common::{
-    assert_extraction, assert_normalized, attr_rule_all, attr_rule_first, text_rule,
-    text_rule_with_fallbacks, NormalizedExpectation, RawExpectation,
+    NormalizedExpectation, RawExpectation, assert_extraction, assert_normalized, attr_rule_all,
+    attr_rule_first, text_rule, text_rule_with_fallbacks,
 };
 use common::currency::domain::Currency;
 use common::price::domain::{MonetaryAmount, Price};
