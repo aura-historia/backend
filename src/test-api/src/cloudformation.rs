@@ -256,6 +256,8 @@ fn build_lambdas() {
             "staging-tests",
             "--exclude",
             "ci-determinator",
+            "--exclude",
+            "lemon-squeezy-webhook-api",
         ])
         .current_dir(workspace_dir)
         .status()

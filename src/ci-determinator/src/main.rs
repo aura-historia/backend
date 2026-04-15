@@ -33,6 +33,7 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/test-api",
     "src/user",
     "src/user-api",
+    "src/lemon-squeezy-webhook-api",
 ];
 
 /// Acceptance test crates that run on self-hosted runners with cargo-lambda.
