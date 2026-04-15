@@ -993,6 +993,7 @@ mod tests {
             language: None,
             currency: None,
             prohibited_content_consent,
+            marketing_consent: false,
             tier: user::core::tier::UserTier::Free,
             role: user::core::role::UserRole::User,
             created: OffsetDateTime::now_utc(),

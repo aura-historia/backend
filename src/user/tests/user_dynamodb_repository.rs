@@ -79,6 +79,9 @@ async fn should_update_user_record(#[case] user_record_update: UserRecordUpdate)
             updated.prohibited_content_consent
         );
     }
+    if let Some(marketing_consent) = user_record_update.marketing_consent {
+        assert_eq!(marketing_consent, updated.marketing_consent);
+    }
 
     assert_eq!(updated, actual);
 }

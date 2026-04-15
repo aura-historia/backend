@@ -15,6 +15,7 @@ pub struct UpdateUserCommand {
     pub language: Option<Language>,
     pub currency: Option<Currency>,
     pub prohibited_content_consent: Option<bool>,
+    pub marketing_consent: Option<bool>,
     pub tier: Option<UserTier>,
     pub role: Option<UserRole>,
 }
@@ -26,6 +27,7 @@ impl UpdateUserCommand {
             && self.language.is_none()
             && self.currency.is_none()
             && self.prohibited_content_consent.is_none()
+            && self.marketing_consent.is_none()
             && self.tier.is_none()
             && self.role.is_none()
     }
@@ -60,6 +62,7 @@ mod fake {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 prohibited_content_consent: config.fake_with_rng(rng),
+                marketing_consent: config.fake_with_rng(rng),
                 tier: config.fake_with_rng(rng),
                 role: config.fake_with_rng(rng),
             }
