@@ -77,6 +77,38 @@ flowchart TD
 
 ---
 
+## Event-Chain State Diagram
+
+The diagram below shows which product event types cause new event types to be written back to
+`table_1` by the enrichment pipeline. Events that are written purely by the external API (and
+therefore have no preceding product event) start from `[*]`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> DOMAIN_CREATED
+    [*] --> DOMAIN_STATE_CHANGED
+    [*] --> DOMAIN_PRICE_CHANGED
+    [*] --> DOMAIN_ESTIMATE_PRICE_CHANGED
+    [*] --> DOMAIN_URL_CHANGED
+    [*] --> DOMAIN_IMAGES_CHANGED
+    [*] --> DOMAIN_AUCTION_TIME_CHANGED
+    [*] --> DOMAIN_ORIGIN_YEAR_CHANGED
+    [*] --> DOMAIN_AUTHENTICITY_CHANGED
+    [*] --> DOMAIN_CONDITION_CHANGED
+    [*] --> DOMAIN_PROVENANCE_CHANGED
+    [*] --> DOMAIN_RESTORATION_CHANGED
+
+    DOMAIN_CREATED --> ENRICHMENT_TRANSLATED_TITLE
+    DOMAIN_CREATED --> ENRICHMENT_TRANSLATED_DESCRIPTION
+    DOMAIN_CREATED --> ENRICHMENT_EMBEDDED
+
+    ENRICHMENT_EMBEDDED --> ENRICHMENT_EXTRACTED_ATTRIBUTES
+    ENRICHMENT_EMBEDDED --> ENRICHMENT_CLASSIFY_CATEGORY
+    ENRICHMENT_EMBEDDED --> ENRICHMENT_CLASSIFY_PERIOD
+```
+
+---
+
 ## Stream Filter Details
 
 The EventBridge Pipe applies the following DynamoDB Filter Criteria before publishing to the bus:
