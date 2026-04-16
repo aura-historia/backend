@@ -27,7 +27,7 @@ pub mod zoho_impl {
     use std::sync::Arc;
     use time::OffsetDateTime;
     use tokio::sync::RwLock;
-    use tracing::{debug, error};
+    use tracing::{debug, error, info};
 
     #[derive(Debug, Deserialize)]
     struct OAuthTokenResponse {
@@ -158,27 +158,22 @@ pub mod zoho_impl {
                 );
             }
 
-            contact.insert(
-                "Marketing Consent".to_string(),
-                serde_json::Value::String(user.marketing_consent.to_string()),
-            );
-
             if let Some(ref language) = user.language {
                 contact.insert(
-                    "Language".to_string(),
+                    "language".to_string(),
                     serde_json::Value::String(format!("{language:?}")),
                 );
             }
 
             if let Some(ref currency) = user.currency {
                 contact.insert(
-                    "Currency".to_string(),
+                    "currency".to_string(),
                     serde_json::Value::String(format!("{currency:?}")),
                 );
             }
 
             contact.insert(
-                "Tier".to_string(),
+                "tier".to_string(),
                 serde_json::Value::String(format!("{:?}", user.tier)),
             );
 
@@ -218,7 +213,7 @@ pub mod zoho_impl {
                 });
             }
 
-            debug!(email = %user.email, "Subscribed user to Zoho Campaigns.");
+            info!(email = %user.email, zohoMessage = api_response.message, "Subscribed user to Zoho Campaigns.");
             Ok(())
         }
 
@@ -251,7 +246,7 @@ pub mod zoho_impl {
                 });
             }
 
-            debug!(email = %user.email, "Unsubscribed user from Zoho Campaigns.");
+            info!(email = %user.email, zohoMessage = api_response.message, "Unsubscribed user from Zoho Campaigns.");
             Ok(())
         }
     }
