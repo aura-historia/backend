@@ -19,9 +19,6 @@ pub struct PatchUserAccountData {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prohibited_content_consent: Option<bool>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub marketing_consent: Option<bool>,
 }
 
 #[cfg(feature = "test-data")]
@@ -40,7 +37,6 @@ mod fake {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 prohibited_content_consent: config.fake_with_rng(rng),
-                marketing_consent: config.fake_with_rng(rng),
             }
         }
     }

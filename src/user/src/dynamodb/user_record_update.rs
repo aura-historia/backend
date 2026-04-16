@@ -28,9 +28,6 @@ pub struct UserRecordUpdate {
     pub prohibited_content_consent: Option<bool>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub marketing_consent: Option<bool>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tier: Option<UserTierRecord>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -59,7 +56,6 @@ mod fake {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 prohibited_content_consent: config.fake_with_rng(rng),
-                marketing_consent: config.fake_with_rng(rng),
                 tier: config.fake_with_rng(rng),
                 role: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),

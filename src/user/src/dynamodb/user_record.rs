@@ -34,9 +34,6 @@ pub struct UserRecord {
     #[serde(default)]
     pub prohibited_content_consent: bool,
 
-    #[serde(default)]
-    pub marketing_consent: bool,
-
     pub tier: UserTierRecord,
 
     #[serde(default)]
@@ -68,7 +65,6 @@ impl From<User> for UserRecord {
             language: user.language.map(LanguageRecord::from),
             currency: user.currency.map(CurrencyRecord::from),
             prohibited_content_consent: user.prohibited_content_consent,
-            marketing_consent: user.marketing_consent,
             tier: UserTierRecord::from(user.tier),
             role: UserRoleRecord::from(user.role),
             created: user.created,
@@ -87,7 +83,6 @@ impl From<UserRecord> for User {
             language: record.language.map(Language::from),
             currency: record.currency.map(Currency::from),
             prohibited_content_consent: record.prohibited_content_consent,
-            marketing_consent: record.marketing_consent,
             tier: record.tier.into(),
             role: record.role.into(),
             created: record.created,

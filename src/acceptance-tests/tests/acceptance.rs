@@ -2489,7 +2489,6 @@ async fn should_get_and_patch_user_account() {
         language: Some(LanguageData::Fr),
         currency: Some(CurrencyData::Nzd),
         prohibited_content_consent: None,
-        marketing_consent: None,
     };
     let patch_response = reqwest::Client::new()
         .patch(url.clone())
@@ -2641,7 +2640,6 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
                 language: Some(common::language::record::LanguageRecord::De),
                 currency: Some(common::currency::record::CurrencyRecord::Eur),
                 prohibited_content_consent: None,
-                marketing_consent: None,
                 tier: Some(UserTierRecord::Free),
                 role: None,
                 updated: OffsetDateTime::now_utc(),
@@ -3084,7 +3082,6 @@ async fn should_send_email_to_user_when_product_matches_search_filter() {
                 language: Some(common::language::record::LanguageRecord::De),
                 currency: Some(common::currency::record::CurrencyRecord::Eur),
                 prohibited_content_consent: None,
-                marketing_consent: None,
                 updated: OffsetDateTime::now_utc(),
             },
         )

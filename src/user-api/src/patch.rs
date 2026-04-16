@@ -37,7 +37,6 @@ pub async fn handle(
         language: patch_user_account_data.language.map(Language::from),
         currency: patch_user_account_data.currency.map(Currency::from),
         prohibited_content_consent: patch_user_account_data.prohibited_content_consent,
-        marketing_consent: patch_user_account_data.marketing_consent,
         tier: None,
         role: None,
     };

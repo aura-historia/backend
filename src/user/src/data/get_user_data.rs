@@ -27,8 +27,6 @@ pub struct GetUserAccountData {
 
     pub prohibited_content_consent: bool,
 
-    pub marketing_consent: bool,
-
     pub tier: UserTierData,
 
     pub role: UserRoleData,
@@ -49,7 +47,6 @@ impl From<User> for GetUserAccountData {
             language: user.language.map(LanguageData::from),
             currency: user.currency.map(CurrencyData::from),
             prohibited_content_consent: user.prohibited_content_consent,
-            marketing_consent: user.marketing_consent,
             tier: UserTierData::from(user.tier),
             role: UserRoleData::from(user.role),
             created: user.created,

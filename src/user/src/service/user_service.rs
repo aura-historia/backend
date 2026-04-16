@@ -157,7 +157,6 @@ impl<'a> UserService for UserServiceImpl<'a> {
                     language: None,
                     currency: None,
                     prohibited_content_consent: false,
-                    marketing_consent: false,
                     tier: UserTier::Free,
                     role: UserRole::User,
                     created: now,
@@ -187,7 +186,6 @@ impl<'a> UserService for UserServiceImpl<'a> {
                 language: cmd.language.map(LanguageRecord::from),
                 currency: cmd.currency.map(CurrencyRecord::from),
                 prohibited_content_consent: cmd.prohibited_content_consent,
-                marketing_consent: cmd.marketing_consent,
                 tier: cmd.tier.map(UserTierRecord::from),
                 role: cmd.role.map(UserRoleRecord::from),
                 updated: OffsetDateTime::now_utc(),
@@ -537,7 +535,6 @@ mod tests {
                 language: None,
                 currency: None,
                 prohibited_content_consent: None,
-                marketing_consent: None,
                 tier: None,
                 role: None,
             };

@@ -25,7 +25,6 @@ consumed by a Lambda function.
 | `ShopOpenSearchIndexQ` | SQS + Lambda | Indexes shop records in OpenSearch |
 | `SearchFilterOpenSearchSyncQ` | SQS + Lambda | Syncs search filters to OpenSearch percolation queries |
 | `NotificationSendQ` | SQS + Lambda | Sends external notifications via SES |
-| `UserSyncZohoCampaignsQ` | SQS + Lambda | Syncs user contacts to Zoho Campaigns |
 | `ProductPipelineScaleControlLambda` | Lambda (scheduled) | Scales EC2 ASGs based on SQS queue depth (every 15 min) |
 | `FxRateSyncLambda` | Lambda (scheduled) | Updates foreign exchange rates (every 12 h) |
 
@@ -70,9 +69,6 @@ flowchart TD
 
     %% External notification send
     BUS -->|"user#notification#* + external=true (INSERT)"| SendNotif["NotificationSendQ\n→ Lambda\n(send email via SES)"]
-
-    %% User sync to Zoho Campaigns
-    BUS -->|"user#details (MODIFY)"| ZohoSync["UserSyncZohoCampaignsQ\n→ Lambda\n(sync to Zoho Campaigns)"]
 
     %% Scheduled
     SCHED1["Scheduler (every 15 min)"] --> ScaleCtrl["ProductPipelineScaleControlLambda\n(scale Translate & ExtractAttribute ASGs)"]

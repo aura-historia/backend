@@ -22,7 +22,6 @@ async fn should_200_respond_user_when_exists() {
         language: Some(LanguageData::Fr),
         currency: Some(CurrencyData::Nzd),
         prohibited_content_consent: None,
-        marketing_consent: None,
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -69,7 +68,6 @@ async fn should_update_prohibited_content_consent_when_provided() {
         language: None,
         currency: None,
         prohibited_content_consent: Some(true),
-        marketing_consent: None,
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()

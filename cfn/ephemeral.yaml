@@ -419,20 +419,6 @@ Resources:
         maxReceiveCount: 5
       VisibilityTimeout: 180
 
-  UserSyncZohoCampaignsDlq:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "user-sync-zoho-campaigns-dlq-${StageName}"
-      MessageRetentionPeriod: 1209600
-  UserSyncZohoCampaignsQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "user-sync-zoho-campaigns-queue-${StageName}"
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt UserSyncZohoCampaignsDlq.Arn
-        maxReceiveCount: 5
-      VisibilityTimeout: 180
-
   ProductMaterializeDynamoDbDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -731,7 +717,6 @@ Resources:
         - !Ref ProductPipelineExtractAttributeQ
         - !Ref ProductPipelineClassifyQ
         - !Ref NotificationSendQ
-        - !Ref UserSyncZohoCampaignsQ
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -751,7 +736,6 @@ Resources:
               - !GetAtt ProductPipelineExtractAttributeQ.Arn
               - !GetAtt ProductPipelineClassifyQ.Arn
               - !GetAtt NotificationSendQ.Arn
-              - !GetAtt UserSyncZohoCampaignsQ.Arn
 
   # ---------------------------------------------------------------------------
   # EventBridge Rules
@@ -920,27 +904,6 @@ Resources:
       Targets:
         - Id: NotificationSendQ
           Arn: !GetAtt NotificationSendQ.Arn
-  DynamoDbUserSyncZohoCampaignsEventRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: !Sub "ddb-user-sync-zoho-campaigns-${StageName}"
-      EventBusName: !Ref DynamoDbEventBus
-      EventPattern:
-        source:
-          - !Ref TableOne
-        detail-type:
-          - "DynamoDBStreamRecord"
-        detail:
-          eventName:
-            - "MODIFY"
-          dynamodb:
-            NewImage:
-              sk:
-                S:
-                  - "user#details"
-      Targets:
-        - Id: UserSyncZohoCampaignsQ
-          Arn: !GetAtt UserSyncZohoCampaignsQ.Arn
   ProductPipelineTranslateDynamoDbProductEventRecordCreatedEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -2401,65 +2364,6 @@ Resources:
       FunctionResponseTypes:
         - ReportBatchItemFailures
 
-  # --- User Sync Zoho Campaigns ---
-  UserSyncZohoCampaignsRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "user-sync-zoho-campaigns-role-${StageName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: SQSPollerAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:ReceiveMessage
-                  - sqs:DeleteMessage
-                  - sqs:GetQueueAttributes
-                  - sqs:GetQueueUrl
-                Resource: !GetAtt UserSyncZohoCampaignsQ.Arn
-  UserSyncZohoCampaignsLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub "user-sync-zoho-campaigns-${StageName}"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt UserSyncZohoCampaignsRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "user-lambda-sync-zoho-campaigns-${StageName}-${CommitSHA}.zip"
-      MemorySize: 256
-      Timeout: 60
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          ZOHO_LIST_KEY: "test-list-key"
-          ZOHO_CLIENT_ID: "test-client-id"
-          ZOHO_CLIENT_SECRET: "test-client-secret"
-          ZOHO_REFRESH_TOKEN: "test-refresh-token"
-          ZOHO_ACCOUNTS_URL: "https://accounts.zoho.eu"
-          ZOHO_CAMPAIGNS_URL: "https://campaigns.zoho.eu"
-  UserSyncZohoCampaignsMapping:
-    Type: AWS::Lambda::EventSourceMapping
-    Properties:
-      FunctionName: !Ref UserSyncZohoCampaignsLambda
-      EventSourceArn: !GetAtt UserSyncZohoCampaignsQ.Arn
-      Enabled: true
-      BatchSize: 1
-      MaximumBatchingWindowInSeconds: 1
-      FunctionResponseTypes:
-        - ReportBatchItemFailures
-
   # --- Product Materialize DynamoDB ---
   ProductMaterializeDynamoDbRole:
     Type: AWS::IAM::Role
@@ -2927,11 +2831,6 @@ Outputs:
     Value: !Ref NotificationSendQ
   NotificationSendDeadLetterQueueUrl:
     Value: !Ref NotificationSendDlq
-
-  UserSyncZohoCampaignsQueueUrl:
-    Value: !Ref UserSyncZohoCampaignsQ
-  UserSyncZohoCampaignsDeadLetterQueueUrl:
-    Value: !Ref UserSyncZohoCampaignsDlq
 
   ProductMaterializeDynamodbQueueUrl:
     Value: !Ref ProductMaterializeDynamoDbQ
