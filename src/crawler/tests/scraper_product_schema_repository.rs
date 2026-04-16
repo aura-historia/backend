@@ -46,6 +46,11 @@ fn minimal_css_schema() -> ProductCssSelectorSchema {
         },
         auction_start: None,
         auction_end: None,
+        origin_year: None,
+        authenticity: None,
+        condition: None,
+        provenance: None,
+        restoration: None,
         default_currency: None,
     }
 }
@@ -116,6 +121,11 @@ fn full_css_schema() -> ProductCssSelectorSchema {
             },
             cardinality: ExtractionCardinality::First,
         }),
+        origin_year: None,
+        authenticity: None,
+        condition: None,
+        provenance: None,
+        restoration: None,
         default_currency: None,
     }
 }

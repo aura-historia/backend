@@ -1,4 +1,6 @@
-use crawler::scraper::candidate_service::{ScraperCandidateService, ScraperCandidateServiceImpl};
+use crawler::scraper::candidate_service::{
+    ProductSnapshot, ScraperCandidateService, ScraperCandidateServiceImpl,
+};
 use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
 use crawler::spider::classification::url_metadata::{UrlClass, UrlState};
 use crawler::spider::classification::url_metadata_repository::{
@@ -9,6 +11,24 @@ use test_api::*;
 const RDS: Rds = Rds {
     migrations_dir: "src/crawler/migrations",
 };
+
+fn minimal_snapshot(url: &str) -> ProductSnapshot {
+    ProductSnapshot {
+        price: None,
+        price_estimate_min: None,
+        price_estimate_max: None,
+        url: url.to_string(),
+        images_hash: "0".repeat(64),
+        auction_start: None,
+        auction_end: None,
+        origin_year: None,
+        authenticity: "Unknown".to_string(),
+        condition: "Unknown".to_string(),
+        provenance: "Unknown".to_string(),
+        restoration: "Unknown".to_string(),
+        state: "AVAILABLE".to_string(),
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -711,7 +731,7 @@ async fn scraper_mark_as_scraped_should_set_last_scraped_and_hash() {
     let scraped_hash = "m".repeat(64);
 
     service
-        .mark_as_scraped(&shop_id, &url, &scraped_hash)
+        .mark_as_scraped(&shop_id, &url, &scraped_hash, &minimal_snapshot(url_str))
         .await
         .unwrap();
 
@@ -759,7 +779,7 @@ async fn scraper_mark_as_scraped_should_exclude_url_from_subsequent_get_candidat
     let shop_id = common::shop_id::ShopId::from(shop_id_uuid);
     let url = url::Url::parse(url_str).unwrap();
     service
-        .mark_as_scraped(&shop_id, &url, &hash)
+        .mark_as_scraped(&shop_id, &url, &hash, &minimal_snapshot(url_str))
         .await
         .unwrap();
 

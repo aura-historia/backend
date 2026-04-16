@@ -1,4 +1,5 @@
 pub mod datetime;
+pub mod enum_fields;
 pub mod error;
 pub mod image;
 pub mod language;

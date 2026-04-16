@@ -417,6 +417,11 @@ mod tests {
             },
             auction_start: None,
             auction_end: None,
+            origin_year: None,
+            authenticity: None,
+            condition: None,
+            provenance: None,
+            restoration: None,
             default_currency: None,
         }
     }

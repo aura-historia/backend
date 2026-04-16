@@ -2,7 +2,11 @@ use common::{
     language::domain::Language, localized::Localized, price::domain::Price,
     product_state::domain::ProductState, shops_product_id::ShopsProductId,
 };
-use product::core::{description::Description, product_image::ProductImage, title::Title};
+use product::core::{
+    authenticity::Authenticity, condition::Condition, description::Description,
+    origin_year::OriginYear, product_image::ProductImage, provenance::Provenance,
+    restoration::Restoration, title::Title,
+};
 use time::OffsetDateTime;
 use url::Url;
 
@@ -19,4 +23,9 @@ pub struct NormalizedProduct {
     pub images: Vec<ProductImage>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
+    pub origin_year: Option<OriginYear>,
+    pub authenticity: Authenticity,
+    pub condition: Condition,
+    pub provenance: Provenance,
+    pub restoration: Restoration,
 }

@@ -1,7 +1,21 @@
 -- Rename the existing `state` column to `last_scraped_state` for naming consistency,
 -- and add all remaining tracked-field snapshot columns used for change detection.
+--
+-- The DO block makes the rename idempotent: on a fresh database the initial schema
+-- already uses `last_scraped_state`, so the column `state` will not exist and the
+-- rename is skipped.
 
-ALTER TABLE shop_urls RENAME COLUMN state TO last_scraped_state;
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'shop_urls'
+          AND column_name = 'state'
+    ) THEN
+        ALTER TABLE shop_urls RENAME COLUMN state TO last_scraped_state;
+    END IF;
+END $$;
 
 ALTER TABLE shop_urls
     ADD COLUMN IF NOT EXISTS last_scraped_price              TEXT,
