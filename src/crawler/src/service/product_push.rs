@@ -18,13 +18,8 @@ use async_trait::async_trait;
 use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
 use common::shop_name::ShopName;
-use product::data::authenticity_data::AuthenticityData;
-use product::data::condition_data::ConditionData;
-use product::data::origin_year_data::OriginYearData;
 use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
-use product::data::provenance_data::ProvenanceData;
-use product::data::restoration_data::RestorationData;
 use product::service::command_service::CommandProductService;
 use product::service::product_command::UpsertProductCommand;
 use shop::core::shop_type::ShopType;
@@ -97,10 +92,9 @@ impl ProductPushService for ProductPushServiceImpl {
 ///
 /// Used by the demo binary where no DynamoDB/AWS is available.  Each entry in the
 /// JSON array is an [`UpsertCommandSnapshot`] containing the **full** product payload —
-/// title, description, price, images, state, auction dates, and all tracked enum
-/// fields (origin year, authenticity, condition, provenance, restoration) — in
-/// addition to the shop identity fields.  This makes the file output a faithful
-/// representation of what would be forwarded to DynamoDB in production.
+/// title, description, price, images, state, and auction dates — in addition to the
+/// shop identity fields.  This makes the file output a faithful representation of what
+/// would be forwarded to DynamoDB in production.
 pub struct FileProductPushService {
     output_path: std::path::PathBuf,
 }
@@ -117,9 +111,7 @@ impl FileProductPushService {
 ///
 /// Captures the full product payload so that the JSON written to disk is a faithful
 /// representation of what would be sent to DynamoDB in production.  This includes title,
-/// description, price, images, state, auction dates, and all tracked enum fields
-/// (origin year, authenticity, condition, provenance, restoration) — not just the
-/// identity fields.
+/// description, price, images, state, and auction dates — not just the identity fields.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct UpsertCommandSnapshot {
     shop_id: String,
@@ -150,12 +142,6 @@ struct UpsertCommandSnapshot {
         default
     )]
     auction_end: Option<OffsetDateTime>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    origin_year: Option<OriginYearData>,
-    authenticity: AuthenticityData,
-    condition: ConditionData,
-    provenance: ProvenanceData,
-    restoration: RestorationData,
 }
 
 // `time::serde::rfc3339` only works on `OffsetDateTime` directly, not `Option<OffsetDateTime>`.
@@ -207,11 +193,6 @@ impl From<&UpsertProductCommand> for UpsertCommandSnapshot {
                 .collect(),
             auction_start: cmd.auction_start,
             auction_end: cmd.auction_end,
-            origin_year: cmd.origin_year.map(OriginYearData::from),
-            authenticity: AuthenticityData::from(cmd.authenticity),
-            condition: ConditionData::from(cmd.condition),
-            provenance: ProvenanceData::from(cmd.provenance),
-            restoration: RestorationData::from(cmd.restoration),
         }
     }
 }
@@ -309,11 +290,11 @@ pub fn normalize_to_upsert(
         images: product.images,
         auction_start: product.auction_start,
         auction_end: product.auction_end,
-        origin_year: product.origin_year,
-        authenticity: product.authenticity,
-        condition: product.condition,
-        provenance: product.provenance,
-        restoration: product.restoration,
+        origin_year: Default::default(),
+        authenticity: Default::default(),
+        condition: Default::default(),
+        provenance: Default::default(),
+        restoration: Default::default(),
     })
 }
 
@@ -346,11 +327,6 @@ mod tests {
             last_scraped_images_hash: None,
             last_scraped_auction_start: None,
             last_scraped_auction_end: None,
-            last_scraped_origin_year: None,
-            last_scraped_authenticity: None,
-            last_scraped_condition: None,
-            last_scraped_provenance: None,
-            last_scraped_restoration: None,
             last_scraped_state: None,
         }
     }
@@ -368,11 +344,6 @@ mod tests {
             images: vec![],
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: Default::default(),
-            condition: Default::default(),
-            provenance: Default::default(),
-            restoration: Default::default(),
         }
     }
 

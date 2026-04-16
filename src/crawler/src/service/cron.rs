@@ -714,11 +714,6 @@ mod tests {
             last_scraped_images_hash: None,
             last_scraped_auction_start: None,
             last_scraped_auction_end: None,
-            last_scraped_origin_year: None,
-            last_scraped_authenticity: None,
-            last_scraped_condition: None,
-            last_scraped_provenance: None,
-            last_scraped_restoration: None,
             last_scraped_state: None,
         }
     }

@@ -1,10 +1,6 @@
 pub use super::error::NormalizationError;
 use super::{
     datetime::normalize_datetime_field,
-    enum_fields::{
-        normalize_authenticity, normalize_condition, normalize_origin_year, normalize_provenance,
-        normalize_restoration,
-    },
     image::normalize_images,
     price::normalize_price_field,
     text::{
@@ -145,12 +141,6 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
             NormalizationError::AuctionEndParseError { raw: r }
         })?;
 
-        let origin_year = normalize_origin_year(raw.origin_year);
-        let authenticity = normalize_authenticity(raw.authenticity);
-        let condition = normalize_condition(raw.condition);
-        let provenance = normalize_provenance(raw.provenance);
-        let restoration = normalize_restoration(raw.restoration);
-
         Ok(NormalizedProduct {
             shops_product_id,
             title,
@@ -163,11 +153,6 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
             images,
             auction_start,
             auction_end,
-            origin_year,
-            authenticity,
-            condition,
-            provenance,
-            restoration,
         })
     }
 }
@@ -217,11 +202,6 @@ mod tests {
             images: vec![],
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
         }
     }
 
@@ -307,11 +287,6 @@ mod tests {
             ],
             auction_start: Some("2024-06-01T10:00:00Z".into()),
             auction_end: Some("2024-07-01T10:00:00Z".into()),
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
         };
 
         let result = svc.normalize(raw, base_url(), None).await.unwrap();

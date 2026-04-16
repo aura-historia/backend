@@ -45,11 +45,6 @@ pub struct ScraperCandidate {
     pub last_scraped_auction_start: Option<String>,
     /// ISO 8601 auction end timestamp.
     pub last_scraped_auction_end: Option<String>,
-    pub last_scraped_origin_year: Option<String>,
-    pub last_scraped_authenticity: Option<String>,
-    pub last_scraped_condition: Option<String>,
-    pub last_scraped_provenance: Option<String>,
-    pub last_scraped_restoration: Option<String>,
     /// Normalized product state from the last scrape (e.g. `"AVAILABLE"`).
     pub last_scraped_state: Option<String>,
 }
@@ -69,11 +64,6 @@ pub struct ProductSnapshot {
     pub images_hash: String,
     pub auction_start: Option<String>,
     pub auction_end: Option<String>,
-    pub origin_year: Option<String>,
-    pub authenticity: String,
-    pub condition: String,
-    pub provenance: String,
-    pub restoration: String,
     pub state: String,
 }
 
@@ -117,11 +107,6 @@ impl ProductSnapshot {
                 dt.format(&time::format_description::well_known::Rfc3339)
                     .unwrap()
             }),
-            origin_year: product.origin_year.map(serialize_origin_year),
-            authenticity: format!("{:?}", product.authenticity),
-            condition: format!("{:?}", product.condition),
-            provenance: format!("{:?}", product.provenance),
-            restoration: format!("{:?}", product.restoration),
             state: format!("{:?}", product.state).to_uppercase(),
         }
     }
@@ -147,41 +132,7 @@ impl ProductSnapshot {
                 .unwrap_or_default(),
             auction_start: candidate.last_scraped_auction_start.clone(),
             auction_end: candidate.last_scraped_auction_end.clone(),
-            origin_year: candidate.last_scraped_origin_year.clone(),
-            authenticity: candidate
-                .last_scraped_authenticity
-                .clone()
-                .unwrap_or_default(),
-            condition: candidate.last_scraped_condition.clone().unwrap_or_default(),
-            provenance: candidate
-                .last_scraped_provenance
-                .clone()
-                .unwrap_or_default(),
-            restoration: candidate
-                .last_scraped_restoration
-                .clone()
-                .unwrap_or_default(),
             state: candidate.last_scraped_state.clone().unwrap_or_default(),
-        }
-    }
-}
-
-fn serialize_origin_year(oy: product::core::origin_year::OriginYear) -> String {
-    use product::core::origin_year::OriginYear;
-    match oy {
-        OriginYear::ExactYear(y) => {
-            // Year is transparent over i32; serialize via serde to get the raw number.
-            let n: i32 = serde_json::from_value(serde_json::to_value(y).unwrap()).unwrap();
-            format!("ExactYear({})", n)
-        }
-        OriginYear::EstimatedRange(r) => {
-            let min: Option<i32> = r
-                .min
-                .and_then(|y| serde_json::from_value(serde_json::to_value(y).unwrap()).ok());
-            let max: Option<i32> = r
-                .max
-                .and_then(|y| serde_json::from_value(serde_json::to_value(y).unwrap()).ok());
-            format!("EstimatedRange({:?},{:?})", min, max)
         }
     }
 }
@@ -203,11 +154,6 @@ pub fn has_product_changed(candidate: &ScraperCandidate, product: &NormalizedPro
         || Some(snap.images_hash.as_str()) != candidate.last_scraped_images_hash.as_deref()
         || snap.auction_start != candidate.last_scraped_auction_start
         || snap.auction_end != candidate.last_scraped_auction_end
-        || snap.origin_year != candidate.last_scraped_origin_year
-        || Some(snap.authenticity.as_str()) != candidate.last_scraped_authenticity.as_deref()
-        || Some(snap.condition.as_str()) != candidate.last_scraped_condition.as_deref()
-        || Some(snap.provenance.as_str()) != candidate.last_scraped_provenance.as_deref()
-        || Some(snap.restoration.as_str()) != candidate.last_scraped_restoration.as_deref()
         || Some(snap.state.as_str()) != candidate.last_scraped_state.as_deref()
 }
 
@@ -279,11 +225,6 @@ struct ScraperCandidateRow {
     last_scraped_images_hash: Option<String>,
     last_scraped_auction_start: Option<String>,
     last_scraped_auction_end: Option<String>,
-    last_scraped_origin_year: Option<String>,
-    last_scraped_authenticity: Option<String>,
-    last_scraped_condition: Option<String>,
-    last_scraped_provenance: Option<String>,
-    last_scraped_restoration: Option<String>,
     last_scraped_state: Option<String>,
 }
 
@@ -302,11 +243,6 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 su.last_scraped_images_hash,
                 su.last_scraped_auction_start,
                 su.last_scraped_auction_end,
-                su.last_scraped_origin_year,
-                su.last_scraped_authenticity,
-                su.last_scraped_condition,
-                su.last_scraped_provenance,
-                su.last_scraped_restoration,
                 su.last_scraped_state
             FROM shop_urls su
             JOIN shops s ON s.shop_id = su.shop_id
@@ -344,11 +280,6 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 last_scraped_images_hash: row.last_scraped_images_hash,
                 last_scraped_auction_start: row.last_scraped_auction_start,
                 last_scraped_auction_end: row.last_scraped_auction_end,
-                last_scraped_origin_year: row.last_scraped_origin_year,
-                last_scraped_authenticity: row.last_scraped_authenticity,
-                last_scraped_condition: row.last_scraped_condition,
-                last_scraped_provenance: row.last_scraped_provenance,
-                last_scraped_restoration: row.last_scraped_restoration,
                 last_scraped_state: row.last_scraped_state,
             });
         }
@@ -375,14 +306,9 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_price_estimate_max = $6,
                  last_scraped_url = $7,
                  last_scraped_images_hash = $8,
-                 last_scraped_auction_start = $9,
-                 last_scraped_auction_end = $10,
-                 last_scraped_origin_year = $11,
-                 last_scraped_authenticity = $12,
-                 last_scraped_condition = $13,
-                 last_scraped_provenance = $14,
-                 last_scraped_restoration = $15,
-                 last_scraped_state = $16,
+                  last_scraped_auction_start = $9,
+                  last_scraped_auction_end = $10,
+                  last_scraped_state = $11,
                  failure_count = 0,
                  last_error_kind = NULL,
                  last_status_code = NULL,
@@ -400,11 +326,6 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(&snapshot.images_hash)
         .bind(&snapshot.auction_start)
         .bind(&snapshot.auction_end)
-        .bind(&snapshot.origin_year)
-        .bind(&snapshot.authenticity)
-        .bind(&snapshot.condition)
-        .bind(&snapshot.provenance)
-        .bind(&snapshot.restoration)
         .bind(&snapshot.state)
         .execute(&self.pool)
         .await?;
@@ -530,11 +451,6 @@ mod tests {
             images: vec![],
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: Default::default(),
-            condition: Default::default(),
-            provenance: Default::default(),
-            restoration: Default::default(),
         }
     }
 
@@ -552,11 +468,6 @@ mod tests {
             last_scraped_images_hash: None,
             last_scraped_auction_start: None,
             last_scraped_auction_end: None,
-            last_scraped_origin_year: None,
-            last_scraped_authenticity: Some("Unknown".to_string()),
-            last_scraped_condition: Some("Unknown".to_string()),
-            last_scraped_provenance: Some("Unknown".to_string()),
-            last_scraped_restoration: Some("Unknown".to_string()),
             last_scraped_state: Some("Available".to_string()),
         }
     }
@@ -586,11 +497,6 @@ mod tests {
             last_scraped_images_hash: Some(snap.images_hash.clone()),
             last_scraped_auction_start: snap.auction_start.clone(),
             last_scraped_auction_end: snap.auction_end.clone(),
-            last_scraped_origin_year: snap.origin_year.clone(),
-            last_scraped_authenticity: Some(snap.authenticity.clone()),
-            last_scraped_condition: Some(snap.condition.clone()),
-            last_scraped_provenance: Some(snap.provenance.clone()),
-            last_scraped_restoration: Some(snap.restoration.clone()),
             last_scraped_state: Some(snap.state.clone()),
         };
         assert!(!has_product_changed(&candidate, &product));
@@ -610,11 +516,6 @@ mod tests {
             last_scraped_images_hash: Some(snap.images_hash.clone()),
             last_scraped_auction_start: snap.auction_start.clone(),
             last_scraped_auction_end: snap.auction_end.clone(),
-            last_scraped_origin_year: snap.origin_year.clone(),
-            last_scraped_authenticity: Some(snap.authenticity.clone()),
-            last_scraped_condition: Some(snap.condition.clone()),
-            last_scraped_provenance: Some(snap.provenance.clone()),
-            last_scraped_restoration: Some(snap.restoration.clone()),
             shop_id: ShopId::new(),
             shop_name: "Test".to_string(),
             shop_type: shop::core::shop_type::ShopType::CommercialDealer,

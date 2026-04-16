@@ -88,41 +88,6 @@ pub struct ProductCssSelectorSchema {
     pub auction_end: Option<ExtractionRule>,
 
     #[schemars(
-        description = "The approximate year or century the product originated / was created. \
-        Look for text like '18th century', 'circa 1920', '1850–1870', etc."
-    )]
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year: Option<ExtractionRule>,
-
-    #[schemars(
-        description = "Authenticity of the product. Look for text like 'original', 'reproduction', \
-        'later copy', 'questionable', etc."
-    )]
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub authenticity: Option<ExtractionRule>,
-
-    #[schemars(
-        description = "Physical condition of the product. Look for text like 'excellent', 'good', \
-        'fair', 'poor', condition grades, etc."
-    )]
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub condition: Option<ExtractionRule>,
-
-    #[schemars(
-        description = "Provenance documentation of the product. Look for text like 'complete \
-        provenance', 'partial provenance', 'claimed', 'no provenance', etc."
-    )]
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub provenance: Option<ExtractionRule>,
-
-    #[schemars(
-        description = "Restoration history of the product. Look for text like 'unrestored', \
-        'minor restoration', 'major restoration', etc."
-    )]
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub restoration: Option<ExtractionRule>,
-
-    #[schemars(
         description = "The default currency for this shop's prices, as an ISO 4217 code (e.g. \
         \"EUR\", \"GBP\", \"USD\", \"AUD\", \"CAD\", \"NZD\"). \
         Set this when the price elements on the page do not include a currency symbol or code \
@@ -167,21 +132,6 @@ pub enum ApplySchemaError {
 
     #[error("failed to extract `auction_end`: {0}")]
     AuctionEnd(#[source] ExtractionError),
-
-    #[error("failed to extract `origin_year`: {0}")]
-    OriginYear(#[source] ExtractionError),
-
-    #[error("failed to extract `authenticity`: {0}")]
-    Authenticity(#[source] ExtractionError),
-
-    #[error("failed to extract `condition`: {0}")]
-    Condition(#[source] ExtractionError),
-
-    #[error("failed to extract `provenance`: {0}")]
-    Provenance(#[source] ExtractionError),
-
-    #[error("failed to extract `restoration`: {0}")]
-    Restoration(#[source] ExtractionError),
 }
 
 impl ProductCssSelectorSchema {
@@ -270,46 +220,6 @@ impl ProductCssSelectorSchema {
             },
         };
 
-        let origin_year = match &self.origin_year {
-            None => None,
-            Some(rule) => match rule.apply(html) {
-                Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
-                Err(e) => return Err(ApplySchemaError::OriginYear(e)),
-            },
-        };
-
-        let authenticity = match &self.authenticity {
-            None => None,
-            Some(rule) => match rule.apply(html) {
-                Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
-                Err(e) => return Err(ApplySchemaError::Authenticity(e)),
-            },
-        };
-
-        let condition = match &self.condition {
-            None => None,
-            Some(rule) => match rule.apply(html) {
-                Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
-                Err(e) => return Err(ApplySchemaError::Condition(e)),
-            },
-        };
-
-        let provenance = match &self.provenance {
-            None => None,
-            Some(rule) => match rule.apply(html) {
-                Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
-                Err(e) => return Err(ApplySchemaError::Provenance(e)),
-            },
-        };
-
-        let restoration = match &self.restoration {
-            None => None,
-            Some(rule) => match rule.apply(html) {
-                Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
-                Err(e) => return Err(ApplySchemaError::Restoration(e)),
-            },
-        };
-
         Ok(RawExtractedProduct {
             shops_product_id,
             title,
@@ -321,11 +231,6 @@ impl ProductCssSelectorSchema {
             images,
             auction_start,
             auction_end,
-            origin_year,
-            authenticity,
-            condition,
-            provenance,
-            restoration,
         })
     }
 
@@ -356,11 +261,6 @@ pub struct RawExtractedProduct {
     pub images: Vec<String>,
     pub auction_start: Option<String>,
     pub auction_end: Option<String>,
-    pub origin_year: Option<String>,
-    pub authenticity: Option<String>,
-    pub condition: Option<String>,
-    pub provenance: Option<String>,
-    pub restoration: Option<String>,
 }
 
 #[cfg(test)]
@@ -433,11 +333,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         (parsed, schema)
@@ -474,11 +369,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: Some(attr_rule("time#auction-start", "datetime")),
             auction_end: Some(attr_rule("time#auction-end", "datetime")),
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         }
     }
@@ -573,11 +463,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         let result = schema.apply(&html).unwrap();
@@ -605,11 +490,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         let result = schema.apply(&html).unwrap();
@@ -714,11 +594,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         let result = schema.apply(&html).unwrap();
@@ -751,11 +626,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         let result = schema.apply(&html).unwrap();
@@ -794,11 +664,6 @@ mod tests {
             images: images_rule,
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         let result = schema.apply(&html).unwrap();
@@ -844,11 +709,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
@@ -876,11 +736,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
@@ -908,11 +763,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
@@ -945,11 +795,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
@@ -978,11 +823,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
@@ -1011,11 +851,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
@@ -1044,11 +879,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
@@ -1077,11 +907,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: Some(attr_rule("time#auction-start", "datetime")),
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
@@ -1110,11 +935,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: Some(attr_rule("time#auction-end", "datetime")),
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
@@ -1155,11 +975,6 @@ mod tests {
                 images: good_img,
                 auction_start: None,
                 auction_end: None,
-                origin_year: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
                 default_currency: None,
             },
             "title" => ProductCssSelectorSchema {
@@ -1173,11 +988,6 @@ mod tests {
                 images: good_img,
                 auction_start: None,
                 auction_end: None,
-                origin_year: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
                 default_currency: None,
             },
             "state" => ProductCssSelectorSchema {
@@ -1191,11 +1001,6 @@ mod tests {
                 images: good_img,
                 auction_start: None,
                 auction_end: None,
-                origin_year: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
                 default_currency: None,
             },
             "images" => ProductCssSelectorSchema {
@@ -1209,11 +1014,6 @@ mod tests {
                 images: bad,
                 auction_start: None,
                 auction_end: None,
-                origin_year: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
                 default_currency: None,
             },
             _ => unreachable!(),
@@ -1245,11 +1045,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         // We only care that the error exists and mentions the field name.
@@ -1276,11 +1071,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
@@ -1312,11 +1102,6 @@ mod tests {
             images: attr_rule_all("div.gallery img", "src"),
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         let result = schema.apply(&html).unwrap();
@@ -1342,11 +1127,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         let err = schema.apply(&html).unwrap_err();
@@ -1407,11 +1187,6 @@ mod tests {
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             default_currency: None,
         };
         let result = schema.apply(&html).unwrap();

@@ -21,11 +21,6 @@ fn minimal_snapshot(url: &str) -> ProductSnapshot {
         images_hash: "0".repeat(64),
         auction_start: None,
         auction_end: None,
-        origin_year: None,
-        authenticity: "Unknown".to_string(),
-        condition: "Unknown".to_string(),
-        provenance: "Unknown".to_string(),
-        restoration: "Unknown".to_string(),
         state: "AVAILABLE".to_string(),
     }
 }

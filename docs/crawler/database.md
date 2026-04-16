@@ -109,11 +109,6 @@ Every URL the spider has ever seen. Shared between the spider (writes) and the s
 | `last_scraped_images_hash` | TEXT (nullable) | SHA-256 of the sorted image URL list snapshot |
 | `last_scraped_auction_start` | TEXT (nullable) | ISO 8601 auction start timestamp snapshot |
 | `last_scraped_auction_end` | TEXT (nullable) | ISO 8601 auction end timestamp snapshot |
-| `last_scraped_origin_year` | TEXT (nullable) | Serialized origin year snapshot |
-| `last_scraped_authenticity` | TEXT (nullable) | Authenticity enum value snapshot |
-| `last_scraped_condition` | TEXT (nullable) | Condition enum value snapshot |
-| `last_scraped_provenance` | TEXT (nullable) | Provenance enum value snapshot |
-| `last_scraped_restoration` | TEXT (nullable) | Restoration enum value snapshot |
 | `failure_count` | INT NOT NULL DEFAULT 0 | Consecutive fetch failures since last successful scrape |
 | `last_error_kind` | TEXT (nullable) | Classified failure category (timeout/connect/http status/etc.) |
 | `last_status_code` | INT (nullable) | HTTP status code of the last failed fetch |
