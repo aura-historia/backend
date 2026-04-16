@@ -15,7 +15,7 @@
 //! | Env var          | Purpose                              | Default                                          |
 //! |------------------|--------------------------------------|--------------------------------------------------|
 //! | `GEMINI_API_KEY` | API key for the Gemini backend       | *(required)*                                     |
-//! | `GEMINI_MODEL`   | Model to use for LLM calls           | `gemini-3.1-flash-lite-preview`                  |
+//! | `GEMINI_MODEL`   | Model to use for LLM calls           | `gemini-3.1-pro-preview`                  |
 //! | `DATABASE_URL`   | Override the Postgres connection URL | `postgres://postgres:postgres@localhost:5432/postgres` |
 //! | `LOG_LEVEL`      | Log level                            | `info`                                           |
 //!

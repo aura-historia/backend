@@ -162,7 +162,7 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
                     let failed_product_keys = output
                         .unprocessed_items
                         .unwrap_or_default().into_values()
-                        .flat_map(|reqs| reqs)
+                        .flatten()
                         .map(|req| req.put_request.expect("shouldn't be any other request than 'PutRequest' because events are append-only").item)
                         .map(extract_product_key)
                         .filter_map(|result| match result {
