@@ -78,7 +78,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             JOIN shops s ON s.shop_id = su.shop_id
             WHERE s.active = TRUE
               AND su.url_class = 'product'
-              AND su.state IN ('AVAILABLE', 'UNKNOWN', 'LISTED', 'RESERVED')
+              AND su.last_scraped_state IN ('AVAILABLE', 'UNKNOWN', 'LISTED', 'RESERVED')
               AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
               AND (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
             ORDER BY su.last_scraped NULLS FIRST
@@ -150,7 +150,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
 
         sqlx::query(
             "UPDATE shop_urls
-             SET state = $3,
+             SET last_scraped_state = $3,
                  next_retry_at = NULL,
                  updated = NOW()
              WHERE shop_id = $1 AND url = $2 AND url_class = 'product'",

@@ -26,7 +26,7 @@ impl FromRow<'_, sqlx::postgres::PgRow> for SpiderUrlRecord {
         let url_class_str: String = row.try_get("url_class")?;
         let url_class = std::str::FromStr::from_str(&url_class_str)
             .map_err(|e: String| sqlx::Error::Decode(e.into()))?;
-        let state_str: String = row.try_get("state")?;
+        let state_str: String = row.try_get("last_scraped_state")?;
         let state = std::str::FromStr::from_str(&state_str)
             .map_err(|e: String| sqlx::Error::Decode(e.into()))?;
 
@@ -109,7 +109,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
                  url_class = EXCLUDED.url_class,
                  domain_id = EXCLUDED.domain_id,
                  updated = NOW()
-             RETURNING shop_id, domain_id, url, url_class, state, last_scraped_hash, last_scraped, created, updated",
+             RETURNING shop_id, domain_id, url, url_class, last_scraped_state, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(shop_id_uuid)
         .bind(domain_id)
@@ -143,7 +143,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
                  url_class = EXCLUDED.url_class,
                  domain_id = EXCLUDED.domain_id,
                  updated = NOW()
-             RETURNING shop_id, domain_id, url, url_class, state, last_scraped_hash, last_scraped, created, updated",
+             RETURNING shop_id, domain_id, url, url_class, last_scraped_state, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(shop_id_uuid)
         .bind(domain_id)
@@ -165,7 +165,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
             "UPDATE shop_urls
              SET last_scraped = NOW(), last_scraped_hash = $3, updated = NOW()
              WHERE shop_id = $1 AND url = $2
-             RETURNING shop_id, domain_id, url, url_class, state, last_scraped_hash, last_scraped, created, updated",
+             RETURNING shop_id, domain_id, url, url_class, last_scraped_state, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(shop_id_uuid)
         .bind(url_str)
@@ -185,9 +185,9 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         let state_str = state.to_string();
         sqlx::query_as::<_, SpiderUrlRecord>(
             "UPDATE shop_urls
-             SET state = $3, updated = NOW()
+             SET last_scraped_state = $3, updated = NOW()
              WHERE shop_id = $1 AND url = $2
-             RETURNING shop_id, domain_id, url, url_class, state, last_scraped_hash, last_scraped, created, updated",
+             RETURNING shop_id, domain_id, url, url_class, last_scraped_state, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(shop_id_uuid)
         .bind(url_str)

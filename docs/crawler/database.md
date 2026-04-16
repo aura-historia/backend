@@ -99,16 +99,28 @@ Every URL the spider has ever seen. Shared between the spider (writes) and the s
 | `shop_id` | UUID FK → `shops` | Cascade on delete |
 | `domain_id` | UUID FK → `shop_domains` | Cascade on delete — links the URL to the specific domain it was discovered from |
 | `url_class` | TEXT | One of `product`, `category`, `imprint`, `info`, `other` |
-| `state` | TEXT | `UNKNOWN` \| `LISTED` \| `AVAILABLE` \| `RESERVED` \| `SOLD` \| `REMOVED` |
+| `last_scraped_state` | TEXT | `UNKNOWN` \| `LISTED` \| `AVAILABLE` \| `RESERVED` \| `SOLD` \| `REMOVED` |
 | `last_scraped_hash` | TEXT (nullable) | Scraper-computed hash at the time of the last successful scrape |
 | `last_scraped` | TIMESTAMPTZ (nullable) | Timestamp of the last successful scrape |
+| `last_scraped_price` | TEXT (nullable) | Serialized price snapshot for change detection |
+| `last_scraped_price_estimate_min` | TEXT (nullable) | Serialized minimum price estimate snapshot |
+| `last_scraped_price_estimate_max` | TEXT (nullable) | Serialized maximum price estimate snapshot |
+| `last_scraped_url` | TEXT (nullable) | Canonical product URL snapshot |
+| `last_scraped_images_hash` | TEXT (nullable) | SHA-256 of the sorted image URL list snapshot |
+| `last_scraped_auction_start` | TEXT (nullable) | ISO 8601 auction start timestamp snapshot |
+| `last_scraped_auction_end` | TEXT (nullable) | ISO 8601 auction end timestamp snapshot |
+| `last_scraped_origin_year` | TEXT (nullable) | Serialized origin year snapshot |
+| `last_scraped_authenticity` | TEXT (nullable) | Authenticity enum value snapshot |
+| `last_scraped_condition` | TEXT (nullable) | Condition enum value snapshot |
+| `last_scraped_provenance` | TEXT (nullable) | Provenance enum value snapshot |
+| `last_scraped_restoration` | TEXT (nullable) | Restoration enum value snapshot |
 | `failure_count` | INT NOT NULL DEFAULT 0 | Consecutive fetch failures since last successful scrape |
 | `last_error_kind` | TEXT (nullable) | Classified failure category (timeout/connect/http status/etc.) |
 | `last_status_code` | INT (nullable) | HTTP status code of the last failed fetch |
 | `next_retry_at` | TIMESTAMPTZ (nullable) | Earliest timestamp when the URL is eligible for retry |
 | `created` / `updated` | TIMESTAMPTZ | |
 
-`shop_urls.state` is crawler-owned URL metadata in Postgres. The scraper updates it after successful normalization and uses it for crawler-side candidate selection. The downstream product backend receives the same normalized availability separately through product upsert commands; that persistence path is related but distinct.
+`shop_urls.last_scraped_state` is crawler-owned URL metadata in Postgres. The scraper updates it after successful normalization and uses it for crawler-side candidate selection. The downstream product backend receives the same normalized availability separately through product upsert commands; that persistence path is related but distinct.
 
 **Domain linkage**: `domain_id` is a direct FK to `shop_domains`. When a domain is removed from a shop during the shop registration sync, all URLs discovered from that domain are automatically cascade-deleted — preventing the scraper from continuing to process stale URLs from a domain that no longer belongs to the shop.
 
@@ -166,7 +178,7 @@ The cron job uses an in-memory `LocalLockManager` (`Arc<DashMap<String, Instant>
 The spider writes up to 100 rows at a time using PostgreSQL `UNNEST` to avoid N individual statements:
 
 ```sql
-INSERT INTO shop_urls (url, shop_id, domain_id, url_class, state, created, updated)
+INSERT INTO shop_urls (url, shop_id, domain_id, url_class, last_scraped_state, created, updated)
 SELECT $1, $2, t.url, t.url_class, 'UNKNOWN', NOW(), NOW()
 FROM UNNEST($3::text[], $4::text[]) AS t(url, url_class)
 ...
@@ -206,7 +218,7 @@ SELECT su.shop_id, su.url, su.last_scraped_hash
 FROM   shop_urls su
 JOIN   shops s ON s.shop_id = su.shop_id
 WHERE  su.url_class = 'product'
-  AND  su.state IN ('UNKNOWN', 'LISTED', 'AVAILABLE', 'RESERVED')
+  AND  su.last_scraped_state IN ('UNKNOWN', 'LISTED', 'AVAILABLE', 'RESERVED')
   AND  (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
   AND  (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
   AND  s.active = TRUE
