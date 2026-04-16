@@ -33,7 +33,6 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/test-api",
     "src/user",
     "src/user-api",
-    "src/user-lambda/src/user-lambda-sync-zoho-campaigns",
 ];
 
 /// Acceptance test crates that run on self-hosted runners with cargo-lambda.

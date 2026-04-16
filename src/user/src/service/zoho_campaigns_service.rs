@@ -440,13 +440,14 @@ pub mod zoho_impl {
         #[tokio::test]
         async fn should_include_contact_email_in_subscribe_request() {
             let mock_server = MockServer::start().await;
-            let user = mk_user();
-            let email_encoded = user.email.to_string().replace('@', "%40");
+            let mut user = mk_user();
+            user.email = "test.user@example.com".try_into().unwrap();
+            let email_encoded = "test.user%40example.com";
 
             mock_oauth_success().mount(&mock_server).await;
             Mock::given(method("POST"))
                 .and(path("/api/v1.1/json/listsubscribe"))
-                .and(body_string_contains(&email_encoded))
+                .and(body_string_contains(email_encoded))
                 .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                     "status": "success",
                     "message": "Contact added."
