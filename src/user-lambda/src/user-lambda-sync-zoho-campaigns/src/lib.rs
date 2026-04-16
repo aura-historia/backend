@@ -1,5 +1,5 @@
-use aws_lambda_events::sqs::SqsEvent;
-use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
+use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
+use common::dynamodb_stream::extract_from_dynamodb_stream;
 use lambda_runtime::LambdaEvent;
 use tracing::{error, info};
 use user::{
@@ -11,63 +11,49 @@ use user::{
 pub async fn handler(
     zoho_service: &(impl ZohoCampaignsService + Sync),
     event: LambdaEvent<SqsEvent>,
-) -> Result<(), lambda_runtime::Error> {
+) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let count = event.payload.records.len();
     info!(count = count, "Handler invoked.");
 
-    let mut skipped_count = 0;
-    let mut failed_message_ids = Vec::new();
+    let (user_records, mut failed_message_ids) =
+        extract_from_dynamodb_stream::<UserRecord>(event.payload.records);
 
-    for msg in event.payload.records {
-        let user_record = extract_sqs_event_bridge_dynamodb_record::<UserRecord>(
-            msg,
-            &mut failed_message_ids,
-            &mut skipped_count,
-        );
+    for (message_id, user_record) in user_records {
+        let user: User = user_record.into();
+        let user_id = user.user_id;
 
-        match user_record {
-            None => {
-                if skipped_count > 0 {
-                    info!("Skipped message (empty body or unrecognized format).");
-                }
+        match zoho_service.subscribe(&user).await {
+            Ok(()) => {
+                info!(userId = %user_id, "Synced user to Zoho Campaigns.");
             }
-            Some(record) => {
-                let user: User = record.into();
-                let user_id = user.user_id;
-
-                match zoho_service.subscribe(&user).await {
-                    Ok(()) => {
-                        info!(userId = %user_id, "Synced user to Zoho Campaigns.");
-                    }
-                    Err(err) => {
-                        error!(
-                            userId = %user_id,
-                            error = %err,
-                            "Failed syncing user to Zoho Campaigns."
-                        );
-                        return Err(format!(
-                            "Failed syncing user {user_id} to Zoho Campaigns: {err}"
-                        )
-                        .into());
-                    }
-                }
+            Err(err) => {
+                error!(
+                    userId = %user_id,
+                    error = %err,
+                    "Failed syncing user to Zoho Campaigns."
+                );
+                failed_message_ids.push(message_id);
             }
         }
     }
 
     let failures = failed_message_ids.len();
     info!(
-        successful = count - failures - skipped_count,
+        successful = count - failures,
         failures = failures,
-        skipped = skipped_count,
         "Handler finished.",
     );
 
-    if !failed_message_ids.is_empty() {
-        return Err(format!("Failed processing {} messages.", failures).into());
-    }
-
-    Ok(())
+    let mut sqs_batch_response = SqsBatchResponse::default();
+    sqs_batch_response.batch_item_failures = failed_message_ids
+        .into_iter()
+        .map(|item_identifier| {
+            let mut failure = BatchItemFailure::default();
+            failure.item_identifier = item_identifier;
+            failure
+        })
+        .collect();
+    Ok(sqs_batch_response)
 }
 
 #[cfg(test)]
@@ -106,6 +92,13 @@ mod tests {
         msg
     }
 
+    fn mk_sqs_message_with_id(body: &str, message_id: String) -> SqsMessage {
+        let mut msg = SqsMessage::default();
+        msg.message_id = Some(message_id);
+        msg.body = Some(body.to_string());
+        msg
+    }
+
     fn mk_sqs_event(messages: Vec<SqsMessage>) -> LambdaEvent<SqsEvent> {
         let mut sqs_event = SqsEvent::default();
         sqs_event.records = messages;
@@ -116,7 +109,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_sync_user_when_valid_modify_event() {
+    async fn should_return_no_failures_when_valid_modify_event() {
         let user_record: UserRecord = Faker.fake();
         let body = mk_event_bridge_body(&user_record);
         let event = mk_sqs_event(vec![mk_sqs_message(&body)]);
@@ -127,16 +120,17 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(()) }));
 
-        let result = handler(&zoho_service, event).await;
+        let result = handler(&zoho_service, event).await.unwrap();
 
-        assert!(result.is_ok());
+        assert!(result.batch_item_failures.is_empty());
     }
 
     #[tokio::test]
-    async fn should_return_error_when_zoho_subscribe_fails() {
+    async fn should_return_failure_when_zoho_subscribe_fails() {
         let user_record: UserRecord = Faker.fake();
         let body = mk_event_bridge_body(&user_record);
-        let event = mk_sqs_event(vec![mk_sqs_message(&body)]);
+        let message_id = "test-message-id".to_string();
+        let event = mk_sqs_event(vec![mk_sqs_message_with_id(&body, message_id.clone())]);
 
         let mut zoho_service = MockZohoCampaignsService::default();
         zoho_service.expect_subscribe().once().returning(|_| {
@@ -147,20 +141,21 @@ mod tests {
             })
         });
 
-        let result = handler(&zoho_service, event).await;
+        let result = handler(&zoho_service, event).await.unwrap();
 
-        assert!(result.is_err());
+        assert_eq!(1, result.batch_item_failures.len());
+        assert_eq!(message_id, result.batch_item_failures[0].item_identifier);
     }
 
     #[tokio::test]
-    async fn should_succeed_when_event_has_no_records() {
+    async fn should_return_no_failures_when_event_has_no_records() {
         let event = mk_sqs_event(vec![]);
 
         let zoho_service = MockZohoCampaignsService::default();
 
-        let result = handler(&zoho_service, event).await;
+        let result = handler(&zoho_service, event).await.unwrap();
 
-        assert!(result.is_ok());
+        assert!(result.batch_item_failures.is_empty());
     }
 
     #[tokio::test]
@@ -172,25 +167,27 @@ mod tests {
 
         let zoho_service = MockZohoCampaignsService::default();
 
-        let result = handler(&zoho_service, event).await;
+        let result = handler(&zoho_service, event).await.unwrap();
 
-        assert!(result.is_ok());
+        assert!(result.batch_item_failures.is_empty());
     }
 
     #[tokio::test]
-    async fn should_return_error_when_message_deserialization_fails() {
-        let message = mk_sqs_message("{\"invalid\": \"json\"}");
+    async fn should_return_failure_when_message_deserialization_fails() {
+        let message_id = "bad-message-id".to_string();
+        let message = mk_sqs_message_with_id("{\"invalid\": \"json\"}", message_id.clone());
         let event = mk_sqs_event(vec![message]);
 
         let zoho_service = MockZohoCampaignsService::default();
 
-        let result = handler(&zoho_service, event).await;
+        let result = handler(&zoho_service, event).await.unwrap();
 
-        assert!(result.is_err());
+        assert_eq!(1, result.batch_item_failures.len());
+        assert_eq!(message_id, result.batch_item_failures[0].item_identifier);
     }
 
     #[tokio::test]
-    async fn should_sync_multiple_users_when_batch_event() {
+    async fn should_return_no_failures_when_batch_succeeds() {
         let user_record_1: UserRecord = Faker.fake();
         let user_record_2: UserRecord = Faker.fake();
         let body_1 = mk_event_bridge_body(&user_record_1);
@@ -203,31 +200,50 @@ mod tests {
             .times(2)
             .returning(|_| Box::pin(async { Ok(()) }));
 
-        let result = handler(&zoho_service, event).await;
+        let result = handler(&zoho_service, event).await.unwrap();
 
-        assert!(result.is_ok());
+        assert!(result.batch_item_failures.is_empty());
     }
 
     #[tokio::test]
-    async fn should_stop_on_first_zoho_failure_in_batch() {
+    async fn should_return_partial_failure_when_one_zoho_call_fails_in_batch() {
         let user_record_1: UserRecord = Faker.fake();
         let user_record_2: UserRecord = Faker.fake();
         let body_1 = mk_event_bridge_body(&user_record_1);
         let body_2 = mk_event_bridge_body(&user_record_2);
-        let event = mk_sqs_event(vec![mk_sqs_message(&body_1), mk_sqs_message(&body_2)]);
+        let msg_id_1 = "msg-1".to_string();
+        let msg_id_2 = "msg-2".to_string();
+        let event = mk_sqs_event(vec![
+            mk_sqs_message_with_id(&body_1, msg_id_1.clone()),
+            mk_sqs_message_with_id(&body_2, msg_id_2.clone()),
+        ]);
 
         let mut zoho_service = MockZohoCampaignsService::default();
-        zoho_service.expect_subscribe().once().returning(|_| {
-            Box::pin(async {
-                Err(ZohoCampaignsError::ApiResponseError {
-                    status: "error".to_string(),
-                    message: "Invalid list key.".to_string(),
-                })
-            })
-        });
+        let mut call_count = 0u32;
+        zoho_service
+            .expect_subscribe()
+            .times(2)
+            .returning(move |_| {
+                call_count += 1;
+                if call_count == 1 {
+                    Box::pin(async { Ok(()) })
+                } else {
+                    Box::pin(async {
+                        Err(ZohoCampaignsError::ApiResponseError {
+                            status: "error".to_string(),
+                            message: "Invalid list key.".to_string(),
+                        })
+                    })
+                }
+            });
 
-        let result = handler(&zoho_service, event).await;
+        let result = handler(&zoho_service, event).await.unwrap();
 
-        assert!(result.is_err());
+        assert_eq!(1, result.batch_item_failures.len());
+        let failed_id = &result.batch_item_failures[0].item_identifier;
+        assert!(
+            *failed_id == msg_id_1 || *failed_id == msg_id_2,
+            "Expected one of the message IDs to be reported as failed, got: {failed_id}"
+        );
     }
 }

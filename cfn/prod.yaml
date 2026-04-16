@@ -2333,6 +2333,8 @@ Resources:
       Enabled: true
       BatchSize: 1
       MaximumBatchingWindowInSeconds: 5
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
   UserSyncZohoCampaignsLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:

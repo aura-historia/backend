@@ -2457,6 +2457,8 @@ Resources:
       Enabled: true
       BatchSize: 1
       MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
 
   # --- Product Materialize DynamoDB ---
   ProductMaterializeDynamoDbRole:

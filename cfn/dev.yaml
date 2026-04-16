@@ -1795,6 +1795,8 @@ Resources:
       Enabled: true
       BatchSize: 1
       MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
 
   ProductMaterializeDynamoDbDlq:
     Type: AWS::SQS::Queue

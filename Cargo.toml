@@ -65,7 +65,6 @@ members = [
     "src/user",
     "src/user-api",
     "src/user-lambda",
-    "src/user-lambda/src/user-lambda-sync-zoho-campaigns",
     "src/notification-send",
     "src/notification",
     "src/notification-api",
