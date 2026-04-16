@@ -609,7 +609,7 @@ impl ScraperServiceImpl {
     /// cause (e.g. empty title, unparseable price, unknown currency).
     /// Non-fixable errors (e.g. state DB failures,
     /// [`NormalizationError::ShopsProductIdEmpty`] — which is unreachable
-    /// because the normalization layer applies a URL fallback before this
+    /// because the normalization layer applies a URL-SHA fallback before this
     /// variant can be produced) are propagated directly as
     /// [`ScraperError::NormalizationError`] without triggering an LLM call.
     ///
@@ -733,9 +733,9 @@ impl ScraperServiceImpl {
 /// # Not schema-fixable
 ///
 /// - [`NormalizationError::ShopsProductIdEmpty`] — the normalization layer
-///   now applies a full-URL fallback before this error can occur, so it will
+///   now applies a URL-SHA fallback before this error can occur, so it will
 ///   never surface from the pipeline.  Even if it did, changing the CSS
-///   selector cannot guarantee a non-empty product ID; the fallback is the
+///   selector cannot guarantee a non-empty product ID; the URL-SHA fallback is the
 ///   correct recovery, not an LLM loop.
 fn normalization_error_to_schema_hint(err: &NormalizationError) -> Option<ApplySchemaError> {
     match err {
@@ -1622,7 +1622,7 @@ mod tests {
     }
 
     /// `ShopsProductIdEmpty` is unreachable from the main pipeline (the
-    /// normalization layer applies a URL fallback), but if it were somehow
+    /// normalization layer applies a URL-SHA fallback), but if it were somehow
     /// returned by the normalization service it must **not** trigger a
     /// schema-fix LLM call — `normalization_error_to_schema_hint` returns
     /// `None` for this variant, so `normalize_with_retry` propagates it
@@ -1867,7 +1867,7 @@ mod tests {
     #[test]
     fn should_return_none_schema_hint_for_shops_product_id_empty() {
         // ShopsProductIdEmpty is no longer schema-fixable — the normalization
-        // layer now applies a URL fallback, so this error should never surface
+        // layer now applies a URL-SHA fallback, so this error should never surface
         // from the pipeline.  The hint mapping must return None to avoid
         // spurious LLM-fix loops should the error somehow appear.
         let err = NormalizationError::ShopsProductIdEmpty;
