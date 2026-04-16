@@ -175,6 +175,8 @@ impl IntegrationTestService for Cloudformation {
         drain_queues(vec![
             cfn.notification_send_queue_url.clone(),
             cfn.notification_send_dead_letter_queue_url.clone(),
+            cfn.user_sync_zoho_campaigns_queue_url.clone(),
+            cfn.user_sync_zoho_campaigns_dead_letter_queue_url.clone(),
             cfn.product_materialize_dynamodb_queue_url.clone(),
             cfn.product_materialize_dynamodb_dead_letter_queue_url
                 .clone(),
