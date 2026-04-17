@@ -1,6 +1,6 @@
 use common::{currency::domain::Currency, language::domain::Language, user_id::UserId};
 use serde_email::Email;
-use user::core::{first_name::FirstName, last_name::LastName, tier::UserTier};
+use user::core::{first_name::FirstName, last_name::LastName};
 
 pub struct UpsertNewsletterSubscription {
     pub email: Email,
@@ -9,5 +9,4 @@ pub struct UpsertNewsletterSubscription {
     pub language: Option<Language>,
     pub currency: Option<Currency>,
     pub user_id: Option<UserId>,
-    pub tier: Option<UserTier>,
 }

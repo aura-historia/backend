@@ -39,11 +39,10 @@ pub async fn handle(
         ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
     })?;
 
-    let (tier, fallback_first_name, fallback_last_name, fallback_language, fallback_currency) =
+    let (fallback_first_name, fallback_last_name, fallback_language, fallback_currency) =
         if let Some(user_id) = user_id_opt {
             match user_service.find_user(&user_id).await {
                 Ok(user) => (
-                    Some(user.tier),
                     user.first_name,
                     user.last_name,
                     user.language,
@@ -51,11 +50,11 @@ pub async fn handle(
                 ),
                 Err(err) => {
                     tracing::debug!(userId = %user_id, error = ?err, "Failed to find user for newsletter fallback values.");
-                    (None, None, None, None, None)
+                    (None, None, None, None)
                 }
             }
         } else {
-            (None, None, None, None, None)
+            (None, None, None, None)
         };
 
     let subscription = UpsertNewsletterSubscription {
@@ -65,7 +64,6 @@ pub async fn handle(
         language: put_data.language.map(Language::from).or(fallback_language),
         currency: put_data.currency.map(Currency::from).or(fallback_currency),
         user_id: user_id_opt,
-        tier,
     };
 
     zoho_campaigns_service.subscribe(&subscription).await?;
@@ -128,18 +126,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_pass_user_id_and_tier_when_authenticated() {
-        use user::core::tier::UserTier;
-
+    async fn should_pass_user_id_when_authenticated() {
         let user_id = UserId::new();
         let expected_user_id = user_id;
 
         let mut zoho_service = MockZohoCampaignsService::default();
         zoho_service
             .expect_subscribe()
-            .withf(move |sub| {
-                sub.user_id == Some(expected_user_id) && sub.tier == Some(UserTier::Free)
-            })
+            .withf(move |sub| sub.user_id == Some(expected_user_id))
             .return_once(|_| Box::pin(async { Ok(()) }));
 
         let mut access_token_service = MockAccessTokenVerifierService::default();
@@ -152,7 +146,6 @@ mod tests {
             use fake::{Fake, Faker};
             let mut user: user::core::user::User = Faker.fake();
             user.user_id = expected_user_id;
-            user.tier = UserTier::Free;
             Box::pin(async move { Ok(user) })
         });
 

@@ -180,13 +180,6 @@ impl ZohoCampaignsServiceImpl {
             );
         }
 
-        if let Some(ref tier) = subscription.tier {
-            contact.insert(
-                "tier".to_string(),
-                serde_json::Value::String(format!("{tier:?}")),
-            );
-        }
-
         if let Some(ref user_id) = subscription.user_id {
             contact.insert(
                 "user_id".to_string(),
@@ -253,7 +246,6 @@ mod tests {
             language: Some(common::language::domain::Language::En),
             currency: Some(common::currency::domain::Currency::Eur),
             user_id: Some(common::user_id::UserId::new()),
-            tier: Some(user::core::tier::UserTier::Free),
         }
     }
 
@@ -432,7 +424,6 @@ mod tests {
         assert!(parsed.get("Last Name").is_some());
         assert!(parsed.get("language").is_some());
         assert!(parsed.get("currency").is_some());
-        assert!(parsed.get("tier").is_some());
         assert!(parsed.get("user_id").is_some());
     }
 
@@ -445,7 +436,6 @@ mod tests {
             language: None,
             currency: None,
             user_id: None,
-            tier: None,
         };
 
         let contact_info = ZohoCampaignsServiceImpl::build_contact_info(&subscription);
@@ -459,7 +449,6 @@ mod tests {
         assert!(parsed.get("Last Name").is_none());
         assert!(parsed.get("language").is_none());
         assert!(parsed.get("currency").is_none());
-        assert!(parsed.get("tier").is_none());
         assert!(parsed.get("user_id").is_none());
     }
 }
