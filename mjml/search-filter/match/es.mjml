@@ -12,8 +12,8 @@
             a { color: #42120f; }
             .filter-name { color: #42120f; font-weight: 600; }
         </mj-style>
-        <mj-title>Nuevo resultado para "{{search_filter_name}}"</mj-title>
-        <mj-preview>Una nueva antigüedad coincide con su filtro de búsqueda "{{search_filter_name}}": {{title}}</mj-preview>
+        <mj-title>Nuevo resultado para “{{search_filter_name}}”</mj-title>
+        <mj-preview>Una nueva antigüedad coincide con su filtro de búsqueda “{{search_filter_name}}”: {{title}}</mj-preview>
     </mj-head>
 
     <mj-body background-color="#F7F4E9" width="600px">
@@ -35,7 +35,7 @@
                     {{#if user_first_name}}Hola {{user_first_name}},{{else}}Hola,{{/if}}
                 </mj-text>
                 <mj-text>
-                    Hemos encontrado una antigüedad que coincide con su filtro de búsqueda <span class="filter-name">"{{search_filter_name}}"</span>:
+                    Hemos encontrado una antigüedad que coincide con su filtro de búsqueda <span class="filter-name">“{{search_filter_name}}”</span>:
                 </mj-text>
             </mj-column>
         </mj-section>
@@ -77,7 +77,7 @@
         <mj-section padding="24px 24px 0">
             <mj-column>
                 <mj-text color="#6d625d" font-size="13px" line-height="1.5" align="center">
-                    Recibe este correo electrónico porque este producto coincide con su filtro de búsqueda <a href="https://aura-historia.com/search-filters/{{search_filter_id}}" style="color:#42120f;">"{{search_filter_name}}"</a>.
+                    Recibe este correo electrónico porque este producto coincide con su filtro de búsqueda <a href="https://aura-historia.com/search-filters/{{search_filter_id}}" style="color:#42120f;">“{{search_filter_name}}”</a>.
                 </mj-text>
             </mj-column>
         </mj-section>
