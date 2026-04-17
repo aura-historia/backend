@@ -1305,7 +1305,7 @@ mod tests {
             let mut cmd = cmd_with("Kommode Spätbarock", None);
             let mut index = period_index();
             // Sort longest-first so "spätbarock" matches before "barock"
-            index.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+            index.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
             super::classify_period(&mut cmd, &index);
             assert_eq!(cmd.period_id, Some(PeriodId::raw("period-late-baroque")));
         }

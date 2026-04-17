@@ -648,8 +648,8 @@ fn extract_failed_sort_keys(
     output
         .unprocessed_items
         .unwrap_or_default()
-        .into_iter()
-        .flat_map(|(_, write_reqs)| write_reqs)
+        .into_values()
+        .flatten()
         .filter_map(|req| req.put_request)
         .filter_map(|put| {
             match serde_dynamo::from_item::<_, UserSearchFilterMatchRecord>(put.item) {

@@ -89,6 +89,7 @@ jobs:
           - src/cognito-post-confirmation
           - src/notification-send
           - src/notification-api
+          - src/newsletter-api
           - src/fxrate-lambda
     steps:
       - uses: actions/checkout@v6

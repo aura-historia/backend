@@ -1043,7 +1043,7 @@ mod tests {
         async fn should_keep_history_in_exact_order_as_dynamodb_read() {
             let mut repository = MockProductDynamoDbRepository::default();
             let mut events = fake::vec![ProductDomainEventRecord; 100];
-            events.sort_by(|l, r| l.product_id.cmp(&r.product_id));
+            events.sort_by_key(|l| l.product_id);
             let expected = events
                 .clone()
                 .into_iter()
