@@ -50,7 +50,7 @@ async fn should_return_actual_search_filters_sorted_oldest_for_order_asc() {
             .unwrap();
         expected.push(filter);
     }
-    expected.sort_by(|l, r| l.created.cmp(&r.created));
+    expected.sort_by_key(|l| l.created);
     let expected: Vec<UserSearchFilterId> = expected
         .into_iter()
         .map(|filter| filter.user_search_filter_id)

@@ -161,7 +161,7 @@ impl TranslationPipeProcesserImpl {
                 Ok(translated) => {
                     let translateds = product_ids_chunk
                         .iter()
-                        .zip(translated.into_iter())
+                        .zip(translated)
                         .collect::<HashMap<_, _>>();
                     for (product_id, translated) in translateds {
                         if let Some(product) = products.get_mut(product_id) {
@@ -173,7 +173,7 @@ impl TranslationPipeProcesserImpl {
                 }
                 Err(err) => {
                     error!(error = %err, srcLang = src_lang.as_str(), tgtLang = tgt_lang.as_str(), "Failed translation.");
-                    failures.extend(product_ids_chunk.into_iter());
+                    failures.extend(product_ids_chunk);
                     break;
                 }
             }

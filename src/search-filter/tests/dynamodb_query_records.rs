@@ -71,7 +71,7 @@ async fn should_sort_by_time_aka_uuidv7_asc_when_scan_index_forward_true() {
         records.push(record);
     }
 
-    records.sort_by(|l, r| l.created.cmp(&r.created));
+    records.sort_by_key(|l| l.created);
 
     let actual = repository
         .query_user_search_filter_records(&user_id, true)

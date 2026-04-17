@@ -79,7 +79,7 @@ impl PipeProcessor for AttributeExtractionPipeProcesserImpl {
                     failures.extend(&mut local_failed);
                 }
                 Ok(extractions) => {
-                    let zipped = in_batch.into_iter().zip(extractions.into_iter());
+                    let zipped = in_batch.into_iter().zip(extractions);
                     for (mut product, extraction_str) in zipped {
                         let cleaned_extraction_str = extraction_str
                             .chars()

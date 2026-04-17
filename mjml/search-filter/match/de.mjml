@@ -12,8 +12,8 @@
             a { color: #42120f; }
             .filter-name { color: #42120f; font-weight: 600; }
         </mj-style>
-        <mj-title>Neues Ergebnis für „{{search_filter_name}}"</mj-title>
-        <mj-preview>Eine neue Antiquität passt zu Ihrem Suchfilter „{{search_filter_name}}": {{title}}</mj-preview>
+        <mj-title>Neues Ergebnis für „{{search_filter_name}}“</mj-title>
+        <mj-preview>Eine neue Antiquität passt zu Ihrem Suchfilter „{{search_filter_name}}“: {{title}}</mj-preview>
     </mj-head>
 
     <mj-body background-color="#F7F4E9" width="600px">
