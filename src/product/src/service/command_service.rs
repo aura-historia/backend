@@ -78,7 +78,7 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
                             Vec::new()
                         }
                     };
-                period_keywords.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+                period_keywords.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
 
                 let mut category_keywords: Vec<(String, CategoryId)> = match self
                     .category_service
@@ -99,7 +99,7 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
                         Vec::new()
                     }
                 };
-                category_keywords.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+                category_keywords.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
 
                 ClassificationCache {
                     period_keywords,
@@ -162,8 +162,8 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
                     let failed_product_keys = output
                         .unprocessed_items
                         .unwrap_or_default()
-                        .into_iter()
-                        .flat_map(|(_table, reqs)| reqs)
+                        .into_values()
+                        .flatten()
                         .map(|req| req.put_request.expect("shouldn't be any other request than 'PutRequest' because events are append-only").item)
                         .map(extract_product_key)
                         .filter_map(|result| match result {
