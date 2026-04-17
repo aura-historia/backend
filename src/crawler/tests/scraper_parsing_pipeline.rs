@@ -6,15 +6,18 @@
 //!   1. Drop the HTML fixture in  `tests/fixtures/<shop>/`.
 //!   2. Add a JSON expectation file in `tests/fixtures/<shop>/` using either
 //!      a single object or an array of objects:
+//!
+//!      ```json
 //!      [
 //!        {
 //!          "html": "relative/path/to/html.html",
 //!          "raw_state": "...",
 //!          "state_record": "...",
-//!          "raw": { /* raw expected fields */ },
-//!          "normalized": { /* normalized expected fields */ }
+//!          "raw": { },
+//!          "normalized": { }
 //!        }
 //!      ]
+//!      ```
 //!   3. Add a `mod <shop>_case` file under `tests/scraper_parsing_pipeline/`.
 //!   4. Implement `ScraperParsingPipelineCase` in that module.
 //!

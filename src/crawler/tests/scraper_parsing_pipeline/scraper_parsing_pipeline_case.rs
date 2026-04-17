@@ -44,7 +44,7 @@ pub trait ScraperParsingPipelineCase {
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum FixtureFile {
-    Single(ScraperParsingPipelineFixtureJson),
+    Single(Box<ScraperParsingPipelineFixtureJson>),
     Many(Vec<ScraperParsingPipelineFixtureJson>),
 }
 
@@ -56,7 +56,7 @@ pub fn load_fixture_json_all(relative_path: &str) -> Vec<ScraperParsingPipelineF
         .unwrap_or_else(|e| panic!("failed parsing fixture json '{}': {e}", full.display()));
 
     let items = match parsed {
-        FixtureFile::Single(one) => vec![one],
+        FixtureFile::Single(one) => vec![*one],
         FixtureFile::Many(many) => many,
     };
 
