@@ -384,17 +384,16 @@ async fn flush_batch(
         .collect();
 
     for (i, meta) in metas.into_iter().enumerate() {
-        if succeeded_ids.contains(&ids_in_order[i]) {
-            if let Err(e) = scraper_candidates
+        if succeeded_ids.contains(&ids_in_order[i])
+            && let Err(e) = scraper_candidates
                 .mark_as_scraped(&meta.shop_id, &meta.url, &meta.hash, &meta.snapshot)
                 .await
-            {
-                warn!(
-                    error = %e,
-                    url = %meta.url,
-                    "Failed to mark product as scraped after push"
-                );
-            }
+        {
+            warn!(
+                error = %e,
+                url = %meta.url,
+                "Failed to mark product as scraped after push"
+            );
         }
     }
 }
