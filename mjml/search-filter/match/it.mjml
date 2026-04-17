@@ -12,8 +12,8 @@
             a { color: #42120f; }
             .filter-name { color: #42120f; font-weight: 600; }
         </mj-style>
-        <mj-title>Nuovo risultato per "{{search_filter_name}}"</mj-title>
-        <mj-preview>Un nuovo oggetto d'antiquariato corrisponde al tuo filtro di ricerca "{{search_filter_name}}": {{title}}</mj-preview>
+        <mj-title>Nuovo risultato per “{{search_filter_name}}”</mj-title>
+        <mj-preview>Un nuovo oggetto d'antiquariato corrisponde al tuo filtro di ricerca “{{search_filter_name}}”: {{title}}</mj-preview>
     </mj-head>
 
     <mj-body background-color="#F7F4E9" width="600px">
@@ -35,7 +35,7 @@
                     {{#if user_first_name}}Ciao {{user_first_name}},{{else}}Salve,{{/if}}
                 </mj-text>
                 <mj-text>
-                    Abbiamo trovato un oggetto d'antiquariato che corrisponde al tuo filtro di ricerca <span class="filter-name">"{{search_filter_name}}"</span>:
+                    Abbiamo trovato un oggetto d'antiquariato che corrisponde al tuo filtro di ricerca <span class="filter-name">“{{search_filter_name}}”</span>:
                 </mj-text>
             </mj-column>
         </mj-section>
@@ -77,7 +77,7 @@
         <mj-section padding="24px 24px 0">
             <mj-column>
                 <mj-text color="#6d625d" font-size="13px" line-height="1.5" align="center">
-                    Ricevi questa email perché questo prodotto corrisponde al tuo filtro di ricerca <a href="https://aura-historia.com/search-filters/{{search_filter_id}}" style="color:#42120f;">"{{search_filter_name}}"</a>.
+                    Ricevi questa email perché questo prodotto corrisponde al tuo filtro di ricerca <a href="https://aura-historia.com/search-filters/{{search_filter_id}}" style="color:#42120f;">“{{search_filter_name}}”</a>.
                 </mj-text>
             </mj-column>
         </mj-section>
