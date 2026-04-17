@@ -1,4 +1,5 @@
 use crate::domain::UpsertNewsletterSubscription;
+use common::api::error::ApiError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ZohoCampaignsError {
@@ -10,6 +11,15 @@ pub enum ZohoCampaignsError {
 
     #[error("Zoho Campaigns API returned error status '{status}': {message}")]
     ApiResponseError { status: String, message: String },
+}
+
+impl From<ZohoCampaignsError> for ApiError {
+    fn from(err: ZohoCampaignsError) -> Self {
+        ApiError::internal_server_error(
+            common::api::error_code::INTERNAL_SERVER_ERROR,
+            Box::new(err),
+        )
+    }
 }
 
 #[async_trait::async_trait]
@@ -174,6 +184,13 @@ impl ZohoCampaignsServiceImpl {
             contact.insert(
                 "tier".to_string(),
                 serde_json::Value::String(format!("{tier:?}")),
+            );
+        }
+
+        if let Some(ref user_id) = subscription.user_id {
+            contact.insert(
+                "user_id".to_string(),
+                serde_json::Value::String(user_id.to_string()),
             );
         }
 
@@ -416,6 +433,7 @@ mod tests {
         assert!(parsed.get("language").is_some());
         assert!(parsed.get("currency").is_some());
         assert!(parsed.get("tier").is_some());
+        assert!(parsed.get("user_id").is_some());
     }
 
     #[test]
@@ -442,5 +460,6 @@ mod tests {
         assert!(parsed.get("language").is_none());
         assert!(parsed.get("currency").is_none());
         assert!(parsed.get("tier").is_none());
+        assert!(parsed.get("user_id").is_none());
     }
 }

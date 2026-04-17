@@ -963,6 +963,15 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                Resource: !GetAtt TableOne.Arn
   NewsletterApiLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -980,6 +989,7 @@ Resources:
       Environment:
         Variables:
           STAGE: "dev"
+          DYNAMODB_TABLE_NAME: !Ref TableOne
           USER_POOL_ID: !Ref PrimaryUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
           USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin

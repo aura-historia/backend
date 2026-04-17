@@ -6,15 +6,17 @@ use common::api::error_code::BAD_BODY_VALUE;
 use common::currency::domain::Currency;
 use common::language::domain::Language;
 use lambda_runtime::LambdaEvent;
+use user::service::user_service::UserService;
 
 use crate::data::PutNewsletterSubscriptionData;
 use crate::domain::UpsertNewsletterSubscription;
-use crate::service::{ZohoCampaignsError, ZohoCampaignsService};
+use crate::service::ZohoCampaignsService;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     zoho_campaigns_service: &(impl ZohoCampaignsService + Sync),
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
+    user_service: &(impl UserService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id_opt = access_token_verifier_service
         .verify_extract_user_id(&event.payload.headers)
@@ -37,27 +39,33 @@ pub async fn handle(
         ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
     })?;
 
+    let (tier, fallback_first_name, fallback_last_name, fallback_language, fallback_currency) =
+        if let Some(user_id) = user_id_opt {
+            match user_service.find_user(&user_id).await {
+                Ok(user) => (
+                    Some(user.tier),
+                    user.first_name,
+                    user.last_name,
+                    user.language,
+                    user.currency,
+                ),
+                Err(_) => (None, None, None, None, None),
+            }
+        } else {
+            (None, None, None, None, None)
+        };
+
     let subscription = UpsertNewsletterSubscription {
         email: put_data.email,
-        first_name: put_data.first_name,
-        last_name: put_data.last_name,
-        language: put_data.language.map(Language::from),
-        currency: put_data.currency.map(Currency::from),
+        first_name: put_data.first_name.or(fallback_first_name),
+        last_name: put_data.last_name.or(fallback_last_name),
+        language: put_data.language.map(Language::from).or(fallback_language),
+        currency: put_data.currency.map(Currency::from).or(fallback_currency),
         user_id: user_id_opt,
-        tier: None,
+        tier,
     };
 
-    zoho_campaigns_service
-        .subscribe(&subscription)
-        .await
-        .map_err(|e| match e {
-            ZohoCampaignsError::OAuthTokenError(_)
-            | ZohoCampaignsError::ApiRequestError(_)
-            | ZohoCampaignsError::ApiResponseError { .. } => ApiError::internal_server_error(
-                common::api::error_code::INTERNAL_SERVER_ERROR,
-                Box::new(e),
-            ),
-        })?;
+    zoho_campaigns_service.subscribe(&subscription).await?;
 
     Ok(ApiGatewayV2HttpResponseBuilder::new(204).build())
 }
@@ -70,6 +78,7 @@ mod tests {
     use common::user_id::UserId;
     use lambda_runtime::LambdaEvent;
     use test_api::ApiGatewayV2httpRequestProxy;
+    use user::service::user_service::MockUserService;
 
     use crate::data::PutNewsletterSubscriptionData;
 
@@ -84,6 +93,8 @@ mod tests {
         access_token_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
+
+        let user_service = MockUserService::default();
 
         let data = PutNewsletterSubscriptionData {
             email: "test@example.com".try_into().unwrap(),
@@ -102,27 +113,45 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &zoho_service, &access_token_service)
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &zoho_service,
+            &access_token_service,
+            &user_service,
+        )
+        .await
+        .unwrap();
         assert_eq!(204, response.status_code);
     }
 
     #[tokio::test]
-    async fn should_pass_user_id_when_authenticated() {
+    async fn should_pass_user_id_and_tier_when_authenticated() {
+        use user::core::tier::UserTier;
+
         let user_id = UserId::new();
         let expected_user_id = user_id;
 
         let mut zoho_service = MockZohoCampaignsService::default();
         zoho_service
             .expect_subscribe()
-            .withf(move |sub| sub.user_id == Some(expected_user_id))
+            .withf(move |sub| {
+                sub.user_id == Some(expected_user_id) && sub.tier == Some(UserTier::Free)
+            })
             .return_once(|_| Box::pin(async { Ok(()) }));
 
         let mut access_token_service = MockAccessTokenVerifierService::default();
         access_token_service
             .expect_verify_extract_user_id()
             .return_once(move |_| Box::pin(async move { Ok(Some(user_id)) }));
+
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().return_once(move |_| {
+            use fake::{Fake, Faker};
+            let mut user: user::core::user::User = Faker.fake();
+            user.user_id = expected_user_id;
+            user.tier = UserTier::Free;
+            Box::pin(async move { Ok(user) })
+        });
 
         let data = PutNewsletterSubscriptionData {
             email: "auth@example.com".try_into().unwrap(),
@@ -142,9 +171,148 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &zoho_service, &access_token_service)
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &zoho_service,
+            &access_token_service,
+            &user_service,
+        )
+        .await
+        .unwrap();
+        assert_eq!(204, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_use_user_values_as_fallback_when_request_fields_are_none() {
+        use common::currency::domain::Currency;
+        use common::language::domain::Language;
+        use user::core::first_name::FirstName;
+        use user::core::last_name::LastName;
+
+        let user_id = UserId::new();
+        let expected_user_id = user_id;
+
+        let mut zoho_service = MockZohoCampaignsService::default();
+        zoho_service
+            .expect_subscribe()
+            .withf(move |sub| {
+                sub.first_name == Some(FirstName::from("FallbackFirst"))
+                    && sub.last_name == Some(LastName::from("FallbackLast"))
+                    && sub.language == Some(Language::De)
+                    && sub.currency == Some(Currency::Usd)
+            })
+            .return_once(|_| Box::pin(async { Ok(()) }));
+
+        let mut access_token_service = MockAccessTokenVerifierService::default();
+        access_token_service
+            .expect_verify_extract_user_id()
+            .return_once(move |_| Box::pin(async move { Ok(Some(user_id)) }));
+
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().return_once(move |_| {
+            use fake::{Fake, Faker};
+            let mut user: user::core::user::User = Faker.fake();
+            user.user_id = expected_user_id;
+            user.first_name = Some(FirstName::from("FallbackFirst"));
+            user.last_name = Some(LastName::from("FallbackLast"));
+            user.language = Some(Language::De);
+            user.currency = Some(Currency::Usd);
+            Box::pin(async move { Ok(user) })
+        });
+
+        let data = PutNewsletterSubscriptionData {
+            email: "fallback@example.com".try_into().unwrap(),
+            first_name: None,
+            last_name: None,
+            language: None,
+            currency: None,
+        };
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::PUT)
+                .route_key("PUT /api/v1/newsletter-subscriptions")
+                .body_serde(&data)
+                .jwt_claim("sub", user_id)
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(
+            lambda_event,
+            &zoho_service,
+            &access_token_service,
+            &user_service,
+        )
+        .await
+        .unwrap();
+        assert_eq!(204, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_prefer_request_values_over_user_fallback() {
+        use common::currency::domain::Currency;
+        use common::language::domain::Language;
+        use user::core::first_name::FirstName;
+        use user::core::last_name::LastName;
+
+        let user_id = UserId::new();
+        let expected_user_id = user_id;
+
+        let mut zoho_service = MockZohoCampaignsService::default();
+        zoho_service
+            .expect_subscribe()
+            .withf(move |sub| {
+                sub.first_name == Some(FirstName::from("RequestFirst"))
+                    && sub.last_name == Some(LastName::from("RequestLast"))
+                    && sub.language == Some(Language::En)
+                    && sub.currency == Some(Currency::Eur)
+            })
+            .return_once(|_| Box::pin(async { Ok(()) }));
+
+        let mut access_token_service = MockAccessTokenVerifierService::default();
+        access_token_service
+            .expect_verify_extract_user_id()
+            .return_once(move |_| Box::pin(async move { Ok(Some(user_id)) }));
+
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().return_once(move |_| {
+            use fake::{Fake, Faker};
+            let mut user: user::core::user::User = Faker.fake();
+            user.user_id = expected_user_id;
+            user.first_name = Some(FirstName::from("FallbackFirst"));
+            user.last_name = Some(LastName::from("FallbackLast"));
+            user.language = Some(Language::De);
+            user.currency = Some(Currency::Usd);
+            Box::pin(async move { Ok(user) })
+        });
+
+        let data = PutNewsletterSubscriptionData {
+            email: "prefer@example.com".try_into().unwrap(),
+            first_name: Some("RequestFirst".into()),
+            last_name: Some("RequestLast".into()),
+            language: Some(common::language::data::LanguageData::En),
+            currency: Some(common::currency::data::CurrencyData::Eur),
+        };
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::PUT)
+                .route_key("PUT /api/v1/newsletter-subscriptions")
+                .body_serde(&data)
+                .jwt_claim("sub", user_id)
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(
+            lambda_event,
+            &zoho_service,
+            &access_token_service,
+            &user_service,
+        )
+        .await
+        .unwrap();
         assert_eq!(204, response.status_code);
     }
 
@@ -160,6 +328,8 @@ mod tests {
         access_token_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
+
+        let user_service = MockUserService::default();
 
         let data = PutNewsletterSubscriptionData {
             email: "anon@example.com".try_into().unwrap(),
@@ -178,9 +348,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &zoho_service, &access_token_service)
-            .await
-            .unwrap();
+        let response = handle(
+            lambda_event,
+            &zoho_service,
+            &access_token_service,
+            &user_service,
+        )
+        .await
+        .unwrap();
         assert_eq!(204, response.status_code);
     }
 
@@ -192,6 +367,8 @@ mod tests {
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
 
+        let user_service = MockUserService::default();
+
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PUT)
@@ -200,7 +377,13 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &zoho_service, &access_token_service).await;
+        let response = handle(
+            lambda_event,
+            &zoho_service,
+            &access_token_service,
+            &user_service,
+        )
+        .await;
         assert!(response.is_err());
         assert_eq!(400, response.unwrap_err().status);
     }
@@ -213,6 +396,8 @@ mod tests {
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
 
+        let user_service = MockUserService::default();
+
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PUT)
@@ -222,7 +407,13 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &zoho_service, &access_token_service).await;
+        let response = handle(
+            lambda_event,
+            &zoho_service,
+            &access_token_service,
+            &user_service,
+        )
+        .await;
         assert!(response.is_err());
         assert_eq!(400, response.unwrap_err().status);
     }
@@ -246,6 +437,8 @@ mod tests {
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
 
+        let user_service = MockUserService::default();
+
         let data = PutNewsletterSubscriptionData {
             email: "fail@example.com".try_into().unwrap(),
             first_name: None,
@@ -263,7 +456,13 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &zoho_service, &access_token_service).await;
+        let response = handle(
+            lambda_event,
+            &zoho_service,
+            &access_token_service,
+            &user_service,
+        )
+        .await;
         assert!(response.is_err());
         assert_eq!(500, response.unwrap_err().status);
     }

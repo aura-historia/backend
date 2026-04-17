@@ -17,6 +17,7 @@ tokio = { workspace = true, features = ["macros", "sync"] }
 aws_lambda_events = { workspace = true, features = ["apigw"] }
 lambda_runtime = { workspace = true }
 aws-config = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
 http = { workspace = true }
 time = { workspace = true }
 thiserror = { workspace = true }
