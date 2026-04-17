@@ -49,7 +49,10 @@ pub async fn handle(
                     user.language,
                     user.currency,
                 ),
-                Err(_) => (None, None, None, None, None),
+                Err(err) => {
+                    tracing::debug!(userId = %user_id, error = ?err, "Failed to find user for newsletter fallback values.");
+                    (None, None, None, None, None)
+                }
             }
         } else {
             (None, None, None, None, None)
