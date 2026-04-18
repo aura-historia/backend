@@ -114,32 +114,6 @@ pub trait UserService {
     ) -> Result<User, UserServiceError>;
 
     async fn delete_user(&self, user_id: &UserId) -> Result<(), UserServiceError>;
-
-    /// Apply a Stripe `customer.subscription.created` to the user identified by
-    /// `user_id` (taken from Stripe metadata). Sets the user's tier and stores
-    /// the Stripe customer-id (also exposed via gsi1 for later subscription
-    /// lookups by customer-id).
-    async fn apply_stripe_subscription_created(
-        &self,
-        user_id: &UserId,
-        stripe_customer_id: StripeCustomerId,
-        tier: UserTier,
-    ) -> Result<User, UserServiceError>;
-
-    /// Apply a Stripe `customer.subscription.updated` to the user identified
-    /// by the Stripe customer-id. Updates the user's tier.
-    async fn apply_stripe_subscription_updated(
-        &self,
-        stripe_customer_id: &StripeCustomerId,
-        tier: UserTier,
-    ) -> Result<User, UserServiceError>;
-
-    /// Apply a Stripe `customer.subscription.deleted` to the user identified
-    /// by the Stripe customer-id. Downgrades the user to the Free tier.
-    async fn apply_stripe_subscription_deleted(
-        &self,
-        stripe_customer_id: &StripeCustomerId,
-    ) -> Result<User, UserServiceError>;
 }
 
 pub struct UserServiceImpl<'a> {
@@ -265,117 +239,6 @@ impl<'a> UserService for UserServiceImpl<'a> {
 
             Ok(user)
         }
-    }
-
-    async fn apply_stripe_subscription_created(
-        &self,
-        user_id: &UserId,
-        stripe_customer_id: StripeCustomerId,
-        tier: UserTier,
-    ) -> Result<User, UserServiceError> {
-        // exists-guard
-        let _ = self.find_user(user_id).await?;
-
-        let user_record_update = UserRecordUpdate {
-            first_name: None,
-            last_name: None,
-            language: None,
-            currency: None,
-            prohibited_content_consent: None,
-            tier: Some(UserTierRecord::from(tier)),
-            role: None,
-            gsi1_pk: Some(mk_gsi1_pk(&stripe_customer_id)),
-            gsi1_sk: Some(mk_gsi1_sk().to_owned()),
-            stripe_customer_id: Some(stripe_customer_id),
-            updated: OffsetDateTime::now_utc(),
-        };
-        let user = self
-            .repository
-            .update_user_record(user_id, user_record_update)
-            .await?
-            .ok_or(UserServiceError::SdkUpdateItemError(
-                SdkError::construction_failure(
-                    "Failed deserializing updated UserRecord in UpdateItem-Response from DynamoDB.",
-                ),
-            ))
-            .map(User::from)?;
-
-        info!(
-            userId = %user.user_id,
-            tier = ?user.tier,
-            "Applied Stripe subscription-created."
-        );
-        Ok(user)
-    }
-
-    async fn apply_stripe_subscription_updated(
-        &self,
-        stripe_customer_id: &StripeCustomerId,
-        tier: UserTier,
-    ) -> Result<User, UserServiceError> {
-        let existing = self
-            .find_user_by_stripe_customer_id(stripe_customer_id)
-            .await?;
-
-        let user_record_update = UserRecordUpdate {
-            first_name: None,
-            last_name: None,
-            language: None,
-            currency: None,
-            prohibited_content_consent: None,
-            tier: Some(UserTierRecord::from(tier)),
-            role: None,
-            stripe_customer_id: None,
-            gsi1_pk: None,
-            gsi1_sk: None,
-            updated: OffsetDateTime::now_utc(),
-        };
-        let user = self
-            .repository
-            .update_user_record(&existing.user_id, user_record_update)
-            .await?
-            .ok_or(UserServiceError::SdkUpdateItemError(
-                SdkError::construction_failure(
-                    "Failed deserializing updated UserRecord in UpdateItem-Response from DynamoDB.",
-                ),
-            ))
-            .map(User::from)?;
-
-        info!(
-            userId = %user.user_id,
-            tier = ?user.tier,
-            "Applied Stripe subscription-updated."
-        );
-        Ok(user)
-    }
-
-    async fn apply_stripe_subscription_deleted(
-        &self,
-        stripe_customer_id: &StripeCustomerId,
-    ) -> Result<User, UserServiceError> {
-        let existing = self
-            .find_user_by_stripe_customer_id(stripe_customer_id)
-            .await?;
-
-        let user = self
-            .repository
-            .clear_stripe_subscription_and_set_tier(
-                &existing.user_id,
-                UserTierRecord::from(UserTier::Free),
-            )
-            .await?
-            .ok_or(UserServiceError::SdkUpdateItemError(
-                SdkError::construction_failure(
-                    "Failed deserializing updated UserRecord in UpdateItem-Response from DynamoDB.",
-                ),
-            ))
-            .map(User::from)?;
-
-        info!(
-            userId = %user.user_id,
-            "Applied Stripe subscription-deleted, downgraded to Free."
-        );
-        Ok(user)
     }
 
     async fn delete_user(&self, user_id: &UserId) -> Result<(), UserServiceError> {
@@ -894,13 +757,14 @@ mod tests {
         use crate::core::tier::UserTier;
         use crate::dynamodb::repository::MockUserDynamoDbRepository;
         use crate::dynamodb::user_record::{UserRecord, mk_gsi1_pk, mk_gsi1_sk};
+        use crate::service::command::UpdateUserCommand;
         use crate::service::user_service::{UserService, UserServiceError, UserServiceImpl};
         use common::stripe_customer_id::StripeCustomerId;
         use common::user_id::UserId;
         use fake::{Fake, Faker};
 
         #[tokio::test]
-        async fn should_apply_subscription_created_setting_tier_and_gsi1_keys() {
+        async fn should_set_tier_and_gsi1_keys_when_update_includes_stripe_customer_id() {
             let user_id = UserId::new();
             let stripe_customer_id = StripeCustomerId::from("cus_xyz");
             let mut repository = MockUserDynamoDbRepository::default();
@@ -924,106 +788,74 @@ mod tests {
             let service = UserServiceImpl::new(&repository);
 
             let actual = service
-                .apply_stripe_subscription_created(&user_id, stripe_customer_id, UserTier::Pro)
+                .update_user(
+                    &user_id,
+                    UpdateUserCommand {
+                        tier: Some(UserTier::Pro),
+                        stripe_customer_id: Some(stripe_customer_id),
+                        ..Default::default()
+                    },
+                )
                 .await;
 
             assert!(actual.is_ok(), "expected Ok, got {actual:?}");
         }
 
         #[tokio::test]
-        async fn should_err_user_not_found_for_subscription_created_when_user_missing() {
+        async fn should_only_update_tier_without_touching_stripe_customer_id_when_not_supplied() {
             let user_id = UserId::new();
             let mut repository = MockUserDynamoDbRepository::default();
             repository
                 .expect_get_user_record()
-                .return_once(|_| Box::pin(async { Ok(None) }));
-            let service = UserServiceImpl::new(&repository);
-
-            let actual = service
-                .apply_stripe_subscription_created(
-                    &user_id,
-                    StripeCustomerId::from("cus_x"),
-                    UserTier::Pro,
-                )
-                .await;
-
-            assert!(matches!(
-                actual.unwrap_err(),
-                UserServiceError::UserNotFound(uid) if uid == user_id
-            ));
-        }
-
-        #[tokio::test]
-        async fn should_apply_subscription_updated_when_user_found_by_stripe_customer_id() {
-            let stripe_customer_id = StripeCustomerId::from("cus_abc");
-            let mut repository = MockUserDynamoDbRepository::default();
-            let mut user_record = Faker.fake::<UserRecord>();
-            user_record.stripe_customer_id = Some(stripe_customer_id.clone());
-            let user_record_for_query = user_record.clone();
-            repository
-                .expect_find_user_record_by_stripe_customer_id()
-                .return_once(move |_| Box::pin(async move { Ok(Some(user_record_for_query)) }));
+                .return_once(|_| Box::pin(async { Ok(Some(Faker.fake::<UserRecord>())) }));
             repository
                 .expect_update_user_record()
-                .withf(|_uid, update| update.tier.is_some())
-                .return_once(move |_, _| Box::pin(async move { Ok(Some(user_record)) }));
+                .withf(|_uid, update| {
+                    update.tier.is_some()
+                        && update.stripe_customer_id.is_none()
+                        && update.gsi1_pk.is_none()
+                        && update.gsi1_sk.is_none()
+                })
+                .return_once(move |_, _| {
+                    let mut user_record = Faker.fake::<UserRecord>();
+                    user_record.user_id = user_id;
+                    Box::pin(async move { Ok(Some(user_record)) })
+                });
             let service = UserServiceImpl::new(&repository);
 
             let actual = service
-                .apply_stripe_subscription_updated(&stripe_customer_id, UserTier::Ultimate)
+                .update_user(
+                    &user_id,
+                    UpdateUserCommand {
+                        tier: Some(UserTier::Free),
+                        ..Default::default()
+                    },
+                )
                 .await;
 
             assert!(actual.is_ok(), "expected Ok, got {actual:?}");
         }
 
         #[tokio::test]
-        async fn should_err_not_found_by_stripe_customer_id_for_subscription_updated() {
-            let mut repository = MockUserDynamoDbRepository::default();
-            repository
-                .expect_find_user_record_by_stripe_customer_id()
-                .return_once(|_| Box::pin(async { Ok(None) }));
-            let service = UserServiceImpl::new(&repository);
-
-            let actual = service
-                .apply_stripe_subscription_updated(
-                    &StripeCustomerId::from("cus_unknown"),
-                    UserTier::Pro,
-                )
-                .await;
-
-            assert!(matches!(
-                actual.unwrap_err(),
-                UserServiceError::UserNotFoundByStripeCustomerId
-            ));
-        }
-
-        #[tokio::test]
-        async fn should_apply_subscription_deleted_downgrading_to_free_and_clearing_gsi1() {
+        async fn should_find_user_by_stripe_customer_id_when_user_exists() {
             let stripe_customer_id = StripeCustomerId::from("cus_abc");
             let mut repository = MockUserDynamoDbRepository::default();
             let mut user_record = Faker.fake::<UserRecord>();
             user_record.stripe_customer_id = Some(stripe_customer_id.clone());
-            let user_record_for_query = user_record.clone();
             repository
                 .expect_find_user_record_by_stripe_customer_id()
-                .return_once(move |_| Box::pin(async move { Ok(Some(user_record_for_query)) }));
-            repository
-                .expect_clear_stripe_subscription_and_set_tier()
-                .withf(|_uid, tier| {
-                    matches!(tier, crate::dynamodb::tier_record::UserTierRecord::Free)
-                })
-                .return_once(move |_, _| Box::pin(async move { Ok(Some(user_record)) }));
+                .return_once(move |_| Box::pin(async move { Ok(Some(user_record)) }));
             let service = UserServiceImpl::new(&repository);
 
             let actual = service
-                .apply_stripe_subscription_deleted(&stripe_customer_id)
+                .find_user_by_stripe_customer_id(&stripe_customer_id)
                 .await;
 
             assert!(actual.is_ok(), "expected Ok, got {actual:?}");
         }
 
         #[tokio::test]
-        async fn should_err_not_found_by_stripe_customer_id_for_subscription_deleted() {
+        async fn should_err_not_found_by_stripe_customer_id_when_user_missing() {
             let mut repository = MockUserDynamoDbRepository::default();
             repository
                 .expect_find_user_record_by_stripe_customer_id()
@@ -1031,7 +863,7 @@ mod tests {
             let service = UserServiceImpl::new(&repository);
 
             let actual = service
-                .apply_stripe_subscription_deleted(&StripeCustomerId::from("cus_unknown"))
+                .find_user_by_stripe_customer_id(&StripeCustomerId::from("cus_unknown"))
                 .await;
 
             assert!(matches!(

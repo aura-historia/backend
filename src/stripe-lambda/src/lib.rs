@@ -3,13 +3,14 @@
 //! <https://docs.stripe.com/event-destinations/eventbridge>.
 //!
 //! Stripe delivers each event onto a Partner Event Bus.  An EventBridge rule
-//! forwards events with `detail-type` matching one of the supported Stripe
-//! event-types to this Lambda.  The detail of each EventBridge envelope
-//! contains the raw Stripe event-object.
+//! forwards events whose Stripe `type` (extracted from `detail.type`) matches
+//! one of the supported subscription lifecycle event-types to this Lambda.
+//! The detail of each EventBridge envelope contains the raw Stripe
+//! event-object.
 //!
 //! The handler is intentionally robust:
 //!
-//! * unknown / unhandled `detail-type` values are logged and skipped without
+//! * unknown / unhandled `detail.type` values are logged and skipped without
 //!   failing the invocation,
 //! * missing or malformed Stripe-fields (for example `customer`, `metadata`,
 //!   product-ids, ...) result in a structured error log; the invocation
@@ -26,13 +27,18 @@ use serde_json::Value;
 use tracing::{debug, error, info, warn};
 use user::{
     core::tier::UserTier,
-    service::user_service::{UserService, UserServiceError},
+    service::{
+        command::UpdateUserCommand,
+        user_service::{UserService, UserServiceError},
+    },
 };
 
-/// Stripe `detail-type` values handled explicitly by this Lambda.
-pub const DETAIL_TYPE_SUBSCRIPTION_CREATED: &str = "customer.subscription.created";
-pub const DETAIL_TYPE_SUBSCRIPTION_UPDATED: &str = "customer.subscription.updated";
-pub const DETAIL_TYPE_SUBSCRIPTION_DELETED: &str = "customer.subscription.deleted";
+/// Stripe event-type values handled explicitly by this Lambda. These are read
+/// from the Stripe event's `type` field (which arrives at `detail.type` inside
+/// the EventBridge envelope).
+pub const STRIPE_EVENT_TYPE_SUBSCRIPTION_CREATED: &str = "customer.subscription.created";
+pub const STRIPE_EVENT_TYPE_SUBSCRIPTION_UPDATED: &str = "customer.subscription.updated";
+pub const STRIPE_EVENT_TYPE_SUBSCRIPTION_DELETED: &str = "customer.subscription.deleted";
 
 /// Mapping from Stripe product-ids to internal [`UserTier`].
 ///
@@ -124,12 +130,16 @@ impl StripeSubscription {
     }
 }
 
+/// Extracts the Stripe event-type from the EventBridge `detail.type` field.
+fn stripe_event_type(detail: &Value) -> Option<&str> {
+    detail.get("type").and_then(|v| v.as_str())
+}
+
 #[tracing::instrument(
     skip(event, service, tier_map),
     fields(
         requestId = %event.context.request_id,
         eventId = ?event.payload.id,
-        detailType = %event.payload.detail_type,
         source = %event.payload.source,
     )
 )]
@@ -140,19 +150,24 @@ pub async fn handler(
 ) -> Result<(), lambda_runtime::Error> {
     let payload = event.payload;
 
-    match payload.detail_type.as_str() {
-        DETAIL_TYPE_SUBSCRIPTION_CREATED => {
+    let Some(stripe_type) = stripe_event_type(&payload.detail) else {
+        warn!("Stripe event is missing 'type' field, ignoring.");
+        return Ok(());
+    };
+
+    match stripe_type {
+        STRIPE_EVENT_TYPE_SUBSCRIPTION_CREATED => {
             handle_subscription_created(&payload.detail, service, tier_map).await
         }
-        DETAIL_TYPE_SUBSCRIPTION_UPDATED => {
+        STRIPE_EVENT_TYPE_SUBSCRIPTION_UPDATED => {
             handle_subscription_updated(&payload.detail, service, tier_map).await
         }
-        DETAIL_TYPE_SUBSCRIPTION_DELETED => {
+        STRIPE_EVENT_TYPE_SUBSCRIPTION_DELETED => {
             handle_subscription_deleted(&payload.detail, service).await
         }
         other => {
             warn!(
-                detailType = %other,
+                stripeType = %other,
                 "Received unsupported Stripe event-type, ignoring."
             );
             Ok(())
@@ -227,10 +242,12 @@ async fn handle_subscription_created(
         return Ok(());
     };
 
-    match service
-        .apply_stripe_subscription_created(&user_id, stripe_customer_id, tier)
-        .await
-    {
+    let cmd = UpdateUserCommand {
+        tier: Some(tier),
+        stripe_customer_id: Some(stripe_customer_id),
+        ..Default::default()
+    };
+    match service.update_user(&user_id, cmd).await {
         Ok(_) => {
             info!(
                 subscriptionId = %subscription_id,
@@ -289,30 +306,14 @@ async fn handle_subscription_updated(
         return Ok(());
     };
 
-    match service
-        .apply_stripe_subscription_updated(&stripe_customer_id, tier)
-        .await
-    {
-        Ok(_) => {
-            info!(
-                subscriptionId = %subscription_id,
-                tier = ?tier,
-                "Stripe subscription-updated processed."
-            );
-            Ok(())
-        }
-        Err(UserServiceError::UserNotFoundByStripeCustomerId) => {
-            error!(
-                subscriptionId = %subscription_id,
-                "Stripe subscription-updated references unknown Stripe customer-id. Skipping."
-            );
-            Ok(())
-        }
-        Err(err) => {
-            error!(error = %err, subscriptionId = %subscription_id, "Failed to apply Stripe subscription-updated.");
-            Err(Box::new(err))
-        }
-    }
+    apply_tier_change_by_customer_id(
+        service,
+        &stripe_customer_id,
+        tier,
+        subscription_id,
+        "subscription-updated",
+    )
+    .await
 }
 
 async fn handle_subscription_deleted(
@@ -333,26 +334,60 @@ async fn handle_subscription_deleted(
         return Ok(());
     };
 
-    match service
-        .apply_stripe_subscription_deleted(&stripe_customer_id)
+    apply_tier_change_by_customer_id(
+        service,
+        &stripe_customer_id,
+        UserTier::Free,
+        subscription_id,
+        "subscription-deleted",
+    )
+    .await
+}
+
+/// Looks up the user by Stripe customer-id and updates the tier. Used by both
+/// `subscription-updated` and `subscription-deleted`. The Stripe customer-id
+/// itself is intentionally **not** modified — Stripe customers persist across
+/// the subscription lifecycle.
+async fn apply_tier_change_by_customer_id(
+    service: &impl UserService,
+    stripe_customer_id: &StripeCustomerId,
+    tier: UserTier,
+    subscription_id: &str,
+    event_label: &str,
+) -> Result<(), lambda_runtime::Error> {
+    let user = match service
+        .find_user_by_stripe_customer_id(stripe_customer_id)
         .await
     {
-        Ok(_) => {
-            debug!(
-                subscriptionId = %subscription_id,
-                "Stripe subscription-deleted processed."
-            );
-            Ok(())
-        }
+        Ok(user) => user,
         Err(UserServiceError::UserNotFoundByStripeCustomerId) => {
             error!(
                 subscriptionId = %subscription_id,
-                "Stripe subscription-deleted references unknown Stripe customer-id. Skipping."
+                "Stripe {event_label} references unknown Stripe customer-id. Skipping."
+            );
+            return Ok(());
+        }
+        Err(err) => {
+            error!(error = %err, subscriptionId = %subscription_id, "Failed to look up user by Stripe customer-id for {event_label}.");
+            return Err(Box::new(err));
+        }
+    };
+
+    let cmd = UpdateUserCommand {
+        tier: Some(tier),
+        ..Default::default()
+    };
+    match service.update_user(&user.user_id, cmd).await {
+        Ok(_) => {
+            debug!(
+                subscriptionId = %subscription_id,
+                tier = ?tier,
+                "Stripe {event_label} processed."
             );
             Ok(())
         }
         Err(err) => {
-            error!(error = %err, subscriptionId = %subscription_id, "Failed to apply Stripe subscription-deleted.");
+            error!(error = %err, subscriptionId = %subscription_id, "Failed to apply Stripe {event_label}.");
             Err(Box::new(err))
         }
     }
@@ -374,9 +409,16 @@ mod tests {
         }
     }
 
-    fn lambda_event(detail_type: &str, detail: Value) -> LambdaEvent<EventBridgeEvent<Value>> {
+    /// Builds an EventBridge envelope around the supplied `detail` payload,
+    /// injecting the Stripe event-type into `detail.type` (mirroring how Stripe
+    /// delivers events through EventBridge).
+    fn lambda_event(stripe_type: &str, detail: Value) -> LambdaEvent<EventBridgeEvent<Value>> {
+        let mut detail = detail;
+        if let Some(obj) = detail.as_object_mut() {
+            obj.insert("type".to_string(), json!(stripe_type));
+        }
         let mut event = EventBridgeEvent::<Value>::default();
-        event.detail_type = detail_type.to_string();
+        event.detail_type = stripe_type.to_string();
         event.source = "aws.partner/stripe.com/test".to_string();
         event.detail = detail;
         LambdaEvent::new(event, Context::default())
@@ -479,11 +521,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_skip_when_stripe_event_type_missing_from_detail() {
+        let service = MockUserService::default();
+        let map = tier_map();
+        let mut event = EventBridgeEvent::<Value>::default();
+        event.detail_type = STRIPE_EVENT_TYPE_SUBSCRIPTION_CREATED.to_string();
+        event.detail = json!({"data": {"object": {}}}); // no `type` field
+        let actual = handler(LambdaEvent::new(event, Context::default()), &service, &map).await;
+        assert!(actual.is_ok());
+    }
+
+    #[tokio::test]
     async fn should_apply_subscription_created_when_payload_valid() {
         let user_id = UserId::new();
         let map = tier_map();
         let event = lambda_event(
-            DETAIL_TYPE_SUBSCRIPTION_CREATED,
+            STRIPE_EVENT_TYPE_SUBSCRIPTION_CREATED,
             json!({"data": {"object": {
                 "id": "sub_1",
                 "customer": "cus_1",
@@ -494,11 +547,13 @@ mod tests {
         let mut service = MockUserService::default();
         let user = dummy_user();
         service
-            .expect_apply_stripe_subscription_created()
-            .withf(move |uid, scid, tier| {
-                *uid == user_id && scid.as_ref() == "cus_1" && *tier == UserTier::Pro
+            .expect_update_user()
+            .withf(move |uid, cmd| {
+                *uid == user_id
+                    && cmd.tier == Some(UserTier::Pro)
+                    && cmd.stripe_customer_id.as_ref().map(|s| s.as_ref()) == Some("cus_1")
             })
-            .return_once(move |_, _, _| Box::pin(async move { Ok(user) }));
+            .return_once(move |_, _| Box::pin(async move { Ok(user) }));
 
         let actual = handler(event, &service, &map).await;
         assert!(actual.is_ok());
@@ -508,7 +563,7 @@ mod tests {
     async fn should_skip_subscription_created_when_user_id_missing_from_metadata() {
         let map = tier_map();
         let event = lambda_event(
-            DETAIL_TYPE_SUBSCRIPTION_CREATED,
+            STRIPE_EVENT_TYPE_SUBSCRIPTION_CREATED,
             json!({"data": {"object": {
                 "id": "sub_1",
                 "customer": "cus_1",
@@ -524,7 +579,7 @@ mod tests {
     async fn should_skip_subscription_created_when_user_id_invalid_uuid() {
         let map = tier_map();
         let event = lambda_event(
-            DETAIL_TYPE_SUBSCRIPTION_CREATED,
+            STRIPE_EVENT_TYPE_SUBSCRIPTION_CREATED,
             json!({"data": {"object": {
                 "id": "sub_1",
                 "customer": "cus_1",
@@ -542,7 +597,7 @@ mod tests {
         let user_id = UserId::new();
         let map = tier_map();
         let event = lambda_event(
-            DETAIL_TYPE_SUBSCRIPTION_CREATED,
+            STRIPE_EVENT_TYPE_SUBSCRIPTION_CREATED,
             json!({"data": {"object": {
                 "id": "sub_1",
                 "metadata": {"userId": user_id.to_string()},
@@ -559,7 +614,7 @@ mod tests {
         let user_id = UserId::new();
         let map = tier_map();
         let event = lambda_event(
-            DETAIL_TYPE_SUBSCRIPTION_CREATED,
+            STRIPE_EVENT_TYPE_SUBSCRIPTION_CREATED,
             json!({"data": {"object": {
                 "id": "sub_1",
                 "customer": "cus_1",
@@ -577,7 +632,7 @@ mod tests {
         let user_id = UserId::new();
         let map = tier_map();
         let event = lambda_event(
-            DETAIL_TYPE_SUBSCRIPTION_CREATED,
+            STRIPE_EVENT_TYPE_SUBSCRIPTION_CREATED,
             json!({"data": {"object": {
                 "id": "sub_1",
                 "customer": "cus_1",
@@ -586,12 +641,10 @@ mod tests {
             }}}),
         );
         let mut service = MockUserService::default();
-        service
-            .expect_apply_stripe_subscription_created()
-            .return_once(move |uid, _, _| {
-                let uid = *uid;
-                Box::pin(async move { Err(UserServiceError::UserNotFound(uid)) })
-            });
+        service.expect_update_user().return_once(move |uid, _| {
+            let uid = *uid;
+            Box::pin(async move { Err(UserServiceError::UserNotFound(uid)) })
+        });
 
         let actual = handler(event, &service, &map).await;
         assert!(actual.is_ok());
@@ -601,7 +654,7 @@ mod tests {
     async fn should_apply_subscription_updated_when_payload_valid() {
         let map = tier_map();
         let event = lambda_event(
-            DETAIL_TYPE_SUBSCRIPTION_UPDATED,
+            STRIPE_EVENT_TYPE_SUBSCRIPTION_UPDATED,
             json!({"data": {"object": {
                 "id": "sub_1",
                 "customer": "cus_1",
@@ -610,9 +663,19 @@ mod tests {
         );
         let mut service = MockUserService::default();
         let user = dummy_user();
+        let user_id = user.user_id;
+        let user_for_lookup = user.clone();
         service
-            .expect_apply_stripe_subscription_updated()
-            .withf(|scid, tier| scid.as_ref() == "cus_1" && *tier == UserTier::Ultimate)
+            .expect_find_user_by_stripe_customer_id()
+            .withf(|scid| scid.as_ref() == "cus_1")
+            .return_once(move |_| Box::pin(async move { Ok(user_for_lookup) }));
+        service
+            .expect_update_user()
+            .withf(move |uid, cmd| {
+                *uid == user_id
+                    && cmd.tier == Some(UserTier::Ultimate)
+                    && cmd.stripe_customer_id.is_none()
+            })
             .return_once(move |_, _| Box::pin(async move { Ok(user) }));
         let actual = handler(event, &service, &map).await;
         assert!(actual.is_ok());
@@ -622,7 +685,7 @@ mod tests {
     async fn should_skip_subscription_updated_when_customer_missing() {
         let map = tier_map();
         let event = lambda_event(
-            DETAIL_TYPE_SUBSCRIPTION_UPDATED,
+            STRIPE_EVENT_TYPE_SUBSCRIPTION_UPDATED,
             json!({"data": {"object": {
                 "id": "sub_1",
                 "items": {"data": [{"price": {"product": "prod_ultimate"}}]}
@@ -637,7 +700,7 @@ mod tests {
     async fn should_skip_subscription_updated_when_user_not_found_by_customer_id() {
         let map = tier_map();
         let event = lambda_event(
-            DETAIL_TYPE_SUBSCRIPTION_UPDATED,
+            STRIPE_EVENT_TYPE_SUBSCRIPTION_UPDATED,
             json!({"data": {"object": {
                 "id": "sub_1",
                 "customer": "cus_1",
@@ -646,8 +709,8 @@ mod tests {
         );
         let mut service = MockUserService::default();
         service
-            .expect_apply_stripe_subscription_updated()
-            .return_once(|_, _| {
+            .expect_find_user_by_stripe_customer_id()
+            .return_once(|_| {
                 Box::pin(async { Err(UserServiceError::UserNotFoundByStripeCustomerId) })
             });
         let actual = handler(event, &service, &map).await;
@@ -658,7 +721,7 @@ mod tests {
     async fn should_apply_subscription_deleted_when_payload_valid() {
         let map = tier_map();
         let event = lambda_event(
-            DETAIL_TYPE_SUBSCRIPTION_DELETED,
+            STRIPE_EVENT_TYPE_SUBSCRIPTION_DELETED,
             json!({"data": {"object": {
                 "id": "sub_1",
                 "customer": "cus_1"
@@ -666,10 +729,20 @@ mod tests {
         );
         let mut service = MockUserService::default();
         let user = dummy_user();
+        let user_id = user.user_id;
+        let user_for_lookup = user.clone();
         service
-            .expect_apply_stripe_subscription_deleted()
+            .expect_find_user_by_stripe_customer_id()
             .withf(|scid| scid.as_ref() == "cus_1")
-            .return_once(move |_| Box::pin(async move { Ok(user) }));
+            .return_once(move |_| Box::pin(async move { Ok(user_for_lookup) }));
+        service
+            .expect_update_user()
+            .withf(move |uid, cmd| {
+                *uid == user_id
+                    && cmd.tier == Some(UserTier::Free)
+                    && cmd.stripe_customer_id.is_none()
+            })
+            .return_once(move |_, _| Box::pin(async move { Ok(user) }));
         let actual = handler(event, &service, &map).await;
         assert!(actual.is_ok());
     }
@@ -678,7 +751,7 @@ mod tests {
     async fn should_skip_subscription_deleted_when_customer_missing() {
         let map = tier_map();
         let event = lambda_event(
-            DETAIL_TYPE_SUBSCRIPTION_DELETED,
+            STRIPE_EVENT_TYPE_SUBSCRIPTION_DELETED,
             json!({"data": {"object": {"id": "sub_1"}}}),
         );
         let service = MockUserService::default();
@@ -690,12 +763,12 @@ mod tests {
     async fn should_skip_subscription_deleted_when_user_not_found_by_customer_id() {
         let map = tier_map();
         let event = lambda_event(
-            DETAIL_TYPE_SUBSCRIPTION_DELETED,
+            STRIPE_EVENT_TYPE_SUBSCRIPTION_DELETED,
             json!({"data": {"object": {"id": "sub_1", "customer": "cus_1"}}}),
         );
         let mut service = MockUserService::default();
         service
-            .expect_apply_stripe_subscription_deleted()
+            .expect_find_user_by_stripe_customer_id()
             .return_once(|_| {
                 Box::pin(async { Err(UserServiceError::UserNotFoundByStripeCustomerId) })
             });
@@ -710,12 +783,12 @@ mod tests {
         use aws_sdk_dynamodb::operation::query::QueryError;
         let map = tier_map();
         let event = lambda_event(
-            DETAIL_TYPE_SUBSCRIPTION_DELETED,
+            STRIPE_EVENT_TYPE_SUBSCRIPTION_DELETED,
             json!({"data": {"object": {"id": "sub_1", "customer": "cus_1"}}}),
         );
         let mut service = MockUserService::default();
         service
-            .expect_apply_stripe_subscription_deleted()
+            .expect_find_user_by_stripe_customer_id()
             .return_once(|_| {
                 Box::pin(async {
                     Err(UserServiceError::SdkQueryError(SdkError::service_error(
@@ -729,11 +802,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_succeed_when_detail_is_completely_unparseable() {
+    async fn should_succeed_when_detail_is_not_a_json_object() {
         let map = tier_map();
-        let event = lambda_event(DETAIL_TYPE_SUBSCRIPTION_DELETED, json!("not-an-object"));
+        let mut event = EventBridgeEvent::<Value>::default();
+        event.detail_type = STRIPE_EVENT_TYPE_SUBSCRIPTION_DELETED.to_string();
+        event.detail = json!("not-an-object");
         let service = MockUserService::default();
-        let actual = handler(event, &service, &map).await;
+        let actual = handler(LambdaEvent::new(event, Context::default()), &service, &map).await;
         assert!(actual.is_ok());
     }
 }

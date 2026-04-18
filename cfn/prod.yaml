@@ -4162,11 +4162,10 @@ Resources:
                 Action:
                   - dynamodb:GetItem
                   - dynamodb:UpdateItem
-                Resource: !GetAtt TableOne.Arn
-              - Effect: Allow
-                Action:
                   - dynamodb:Query
-                Resource: !Sub "${TableOne.Arn}/index/gsi1"
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
   StripeLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -4193,10 +4192,13 @@ Resources:
       Name: "stripe-subscription-events-prod"
       EventBusName: !Ref StripeEventBusName
       EventPattern:
-        detail-type:
-          - "customer.subscription.created"
-          - "customer.subscription.updated"
-          - "customer.subscription.deleted"
+        detail:
+          type:
+            - "customer.subscription.created"
+            - "customer.subscription.updated"
+            - "customer.subscription.deleted"
+          livemode:
+            - true
       Targets:
         - Id: StripeLambda
           Arn: !GetAtt StripeLambda.Arn
