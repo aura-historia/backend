@@ -1,5 +1,8 @@
 use crate::core::{first_name::FirstName, last_name::LastName, role::UserRole, tier::UserTier};
-use common::{currency::domain::Currency, language::domain::Language, user_id::UserId};
+use common::{
+    currency::domain::Currency, language::domain::Language, stripe_customer_id::StripeCustomerId,
+    user_id::UserId,
+};
 use serde_email::Email;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -17,6 +20,7 @@ pub struct UpdateUserCommand {
     pub prohibited_content_consent: Option<bool>,
     pub tier: Option<UserTier>,
     pub role: Option<UserRole>,
+    pub stripe_customer_id: Option<StripeCustomerId>,
 }
 
 impl UpdateUserCommand {
@@ -28,6 +32,7 @@ impl UpdateUserCommand {
             && self.prohibited_content_consent.is_none()
             && self.tier.is_none()
             && self.role.is_none()
+            && self.stripe_customer_id.is_none()
     }
 }
 
@@ -62,6 +67,7 @@ mod fake {
                 prohibited_content_consent: config.fake_with_rng(rng),
                 tier: config.fake_with_rng(rng),
                 role: config.fake_with_rng(rng),
+                stripe_customer_id: config.fake_with_rng(rng),
             }
         }
     }

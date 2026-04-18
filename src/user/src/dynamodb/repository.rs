@@ -1,5 +1,5 @@
 use crate::dynamodb::{
-    user_record::{UserRecord, mk_pk, mk_sk},
+    user_record::{UserRecord, mk_gsi1_pk, mk_gsi1_sk, mk_pk, mk_sk},
     user_record_update::UserRecordUpdate,
 };
 use aws_sdk_dynamodb::{
@@ -9,11 +9,14 @@ use aws_sdk_dynamodb::{
         delete_item::{DeleteItemError, DeleteItemOutput},
         get_item::GetItemError,
         put_item::{PutItemError, PutItemOutput},
+        query::QueryError,
         update_item::UpdateItemError,
     },
     types::{AttributeValue, ReturnValue},
 };
-use common::{dynamodb_update::DynamoDbUpdate, user_id::UserId};
+use common::{
+    dynamodb_update::DynamoDbUpdate, stripe_customer_id::StripeCustomerId, user_id::UserId,
+};
 use tracing::error;
 
 #[async_trait::async_trait]
@@ -23,6 +26,11 @@ pub trait UserDynamoDbRepository {
         &self,
         user_id: &UserId,
     ) -> Result<Option<UserRecord>, SdkError<GetItemError>>;
+
+    async fn find_user_record_by_stripe_customer_id(
+        &self,
+        stripe_customer_id: &StripeCustomerId,
+    ) -> Result<Option<UserRecord>, SdkError<QueryError>>;
 
     async fn put_user_record(
         &self,
@@ -79,6 +87,46 @@ impl<'a> UserDynamoDbRepository for UserDynamoDbRepositoryImpl<'a> {
                     None
                 }
             });
+
+        Ok(rec)
+    }
+
+    async fn find_user_record_by_stripe_customer_id(
+        &self,
+        stripe_customer_id: &StripeCustomerId,
+    ) -> Result<Option<UserRecord>, SdkError<QueryError>> {
+        let items = self
+            .client
+            .query()
+            .table_name(&self.table)
+            .index_name("gsi1")
+            .key_condition_expression("#gsi1_pk = :gsi1_pk_val AND #gsi1_sk = :gsi1_sk_val")
+            .expression_attribute_names("#gsi1_pk", "gsi1_pk")
+            .expression_attribute_names("#gsi1_sk", "gsi1_sk")
+            .expression_attribute_values(
+                ":gsi1_pk_val",
+                AttributeValue::S(mk_gsi1_pk(stripe_customer_id)),
+            )
+            .expression_attribute_values(":gsi1_sk_val", AttributeValue::S(mk_gsi1_sk().to_owned()))
+            .limit(1)
+            .send()
+            .await?
+            .items
+            .unwrap_or_default();
+
+        let rec = items.into_iter().next().and_then(|item| {
+            match serde_dynamo::from_item::<_, UserRecord>(item) {
+                Ok(record) => Some(record),
+                Err(err) => {
+                    error!(
+                        error = %err,
+                        type = %std::any::type_name::<UserRecord>(),
+                        "Failed deserializing UserRecord from gsi1 query."
+                    );
+                    None
+                }
+            }
+        });
 
         Ok(rec)
     }

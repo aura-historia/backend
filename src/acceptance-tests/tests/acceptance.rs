@@ -2642,6 +2642,9 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
                 prohibited_content_consent: None,
                 tier: Some(UserTierRecord::Free),
                 role: None,
+                stripe_customer_id: None,
+                gsi1_pk: None,
+                gsi1_sk: None,
                 updated: OffsetDateTime::now_utc(),
             },
         )

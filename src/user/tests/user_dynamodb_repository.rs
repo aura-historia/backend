@@ -110,3 +110,41 @@ async fn should_not_error_when_deleting_non_existent_user_record() {
 
     assert!(result.is_ok());
 }
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_find_user_record_by_stripe_customer_id_when_set() {
+    use common::stripe_customer_id::StripeCustomerId;
+    let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let stripe_customer_id = StripeCustomerId::from(format!("cus_{}", uuid::Uuid::new_v4()));
+    let mut record = Faker.fake::<UserRecord>();
+    record.stripe_customer_id = Some(stripe_customer_id.clone());
+    record.gsi1_pk = Some(user::dynamodb::user_record::mk_gsi1_pk(&stripe_customer_id));
+    record.gsi1_sk = Some(user::dynamodb::user_record::mk_gsi1_sk().to_owned());
+
+    let _ = repository.put_user_record(record.clone()).await.unwrap();
+
+    let actual = repository
+        .find_user_record_by_stripe_customer_id(&stripe_customer_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(record.user_id, actual.user_id);
+    assert_eq!(Some(stripe_customer_id), actual.stripe_customer_id);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_return_none_when_finding_user_by_unknown_stripe_customer_id() {
+    use common::stripe_customer_id::StripeCustomerId;
+    let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+
+    let actual = repository
+        .find_user_record_by_stripe_customer_id(&StripeCustomerId::from(format!(
+            "cus_{}",
+            uuid::Uuid::new_v4()
+        )))
+        .await
+        .unwrap();
+
+    assert!(actual.is_none());
+}

@@ -15,6 +15,7 @@ search-filter-lambda = { workspace = true }
 shop = { workspace = true }
 shop-api = { workspace = true }
 shop-lambda = { workspace = true }
+stripe-lambda = { workspace = true }
 product = { workspace = true }
 product-api = { workspace = true }
 product-api-partner = { workspace = true }
@@ -62,6 +63,7 @@ members = [
     "src/shop",
     "src/shop-api",
     "src/shop-lambda",
+    "src/stripe-lambda",
     "src/user",
     "src/user-api",
     "src/notification-send",
@@ -110,6 +112,7 @@ shop = { path = "src/shop" }
 shop-lambda = { path = "src/shop-lambda" }
 shop-lambda-opensearch-index = { path = "src/shop-lambda/src/shop-lambda-opensearch-index" }
 shop-api = { path = "src/shop-api" }
+stripe-lambda = { path = "src/stripe-lambda" }
 notification-send = { path = "src/notification-send" }
 newsletter-api = { path = "src/newsletter-api" }
 notification = { path = "src/notification" }

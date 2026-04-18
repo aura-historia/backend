@@ -257,6 +257,8 @@ fn build_lambdas() {
             "staging-tests",
             "--exclude",
             "ci-determinator",
+            "--exclude",
+            "stripe-lambda",
         ])
         .current_dir(workspace_dir)
         .status()

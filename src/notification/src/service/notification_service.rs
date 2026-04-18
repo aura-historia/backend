@@ -1098,6 +1098,7 @@ mod tests {
             prohibited_content_consent: false,
             tier: user::core::tier::UserTier::Free,
             role: user::core::role::UserRole::User,
+            stripe_customer_id: None,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -2013,6 +2014,7 @@ mod tests {
                 prohibited_content_consent: false,
                 tier: user::core::tier::UserTier::Free,
                 role: user::core::role::UserRole::User,
+                stripe_customer_id: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };

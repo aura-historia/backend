@@ -235,6 +235,7 @@ dependencies = [
  "shop",
  "shop-api",
  "shop-lambda",
+ "stripe-lambda",
  "test-api",
  "user",
  "user-api",
@@ -7791,6 +7792,25 @@ dependencies = [
  "unicode-bidi",
  "unicode-normalization",
  "unicode-properties",
+]
+
+[[package]]
+name = "stripe-lambda"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "lambda_runtime",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "user",
 ]
 
 [[package]]
