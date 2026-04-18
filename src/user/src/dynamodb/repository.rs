@@ -43,6 +43,16 @@ pub trait UserDynamoDbRepository {
         user_record_update: UserRecordUpdate,
     ) -> Result<Option<UserRecord>, SdkError<UpdateItemError>>;
 
+    /// Sets the user's tier and **removes** the Stripe-related attributes
+    /// (`stripe_customer_id`, `gsi1_pk`, `gsi1_sk`) atomically. Used when a
+    /// Stripe subscription is deleted to fully detach the user from their
+    /// previous Stripe customer-id.
+    async fn clear_stripe_subscription_and_set_tier(
+        &self,
+        user_id: &UserId,
+        tier: crate::dynamodb::tier_record::UserTierRecord,
+    ) -> Result<Option<UserRecord>, SdkError<UpdateItemError>>;
+
     async fn delete_user_record(
         &self,
         user_id: &UserId,
@@ -159,6 +169,54 @@ impl<'a> UserDynamoDbRepository for UserDynamoDbRepositoryImpl<'a> {
             .update_expression(update_expr.update_expr)
             .set_expression_attribute_names(Some(update_expr.expr_attr_names))
             .set_expression_attribute_values(Some(update_expr.expr_attr_values))
+            .return_values(ReturnValue::AllNew)
+            .send()
+            .await
+            .map(|output| output.attributes)
+            .map(|attr_opt| {
+                attr_opt
+                    .map(serde_dynamo::from_item)
+                    .and_then(|record_res| match record_res {
+                        Ok(user_record) => Some(user_record),
+                        Err(err) => {
+                            error!(
+                                userId = %user_id,
+                                error = %err,
+                                type = %std::any::type_name::<UserRecord>(),
+                                "Failed deserializing UserRecord."
+                            );
+                            None
+                        }
+                    })
+            })
+    }
+
+    async fn clear_stripe_subscription_and_set_tier(
+        &self,
+        user_id: &UserId,
+        tier: crate::dynamodb::tier_record::UserTierRecord,
+    ) -> Result<Option<UserRecord>, SdkError<UpdateItemError>> {
+        let tier_av =
+            serde_dynamo::to_attribute_value(tier).map_err(SdkError::construction_failure)?;
+        let now_av = serde_dynamo::to_attribute_value(time::OffsetDateTime::now_utc())
+            .map_err(SdkError::construction_failure)?;
+
+        self.client
+            .update_item()
+            .table_name(&self.table)
+            .key("pk", AttributeValue::S(mk_pk(user_id)))
+            .key("sk", AttributeValue::S(mk_sk().to_owned()))
+            .update_expression(
+                "SET #tier = :tier, #updated = :updated \
+                 REMOVE #stripe_customer_id, #gsi1_pk, #gsi1_sk",
+            )
+            .expression_attribute_names("#tier", "tier")
+            .expression_attribute_names("#updated", "updated")
+            .expression_attribute_names("#stripe_customer_id", "stripe_customer_id")
+            .expression_attribute_names("#gsi1_pk", "gsi1_pk")
+            .expression_attribute_names("#gsi1_sk", "gsi1_sk")
+            .expression_attribute_values(":tier", tier_av)
+            .expression_attribute_values(":updated", now_av)
             .return_values(ReturnValue::AllNew)
             .send()
             .await

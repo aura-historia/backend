@@ -357,22 +357,12 @@ impl<'a> UserService for UserServiceImpl<'a> {
             .find_user_by_stripe_customer_id(stripe_customer_id)
             .await?;
 
-        let user_record_update = UserRecordUpdate {
-            first_name: None,
-            last_name: None,
-            language: None,
-            currency: None,
-            prohibited_content_consent: None,
-            tier: Some(UserTierRecord::from(UserTier::Free)),
-            role: None,
-            stripe_customer_id: None,
-            gsi1_pk: None,
-            gsi1_sk: None,
-            updated: OffsetDateTime::now_utc(),
-        };
         let user = self
             .repository
-            .update_user_record(&existing.user_id, user_record_update)
+            .clear_stripe_subscription_and_set_tier(
+                &existing.user_id,
+                UserTierRecord::from(UserTier::Free),
+            )
             .await?
             .ok_or(UserServiceError::SdkUpdateItemError(
                 SdkError::construction_failure(
@@ -1018,13 +1008,9 @@ mod tests {
                 .expect_find_user_record_by_stripe_customer_id()
                 .return_once(move |_| Box::pin(async move { Ok(Some(user_record_for_query)) }));
             repository
-                .expect_update_user_record()
-                .withf(|_uid, update| {
-                    // tier is set, gsi1 keys cleared, stripe_customer_id cleared
-                    update.tier.is_some()
-                        && update.gsi1_pk.is_none()
-                        && update.gsi1_sk.is_none()
-                        && update.stripe_customer_id.is_none()
+                .expect_clear_stripe_subscription_and_set_tier()
+                .withf(|_uid, tier| {
+                    matches!(tier, crate::dynamodb::tier_record::UserTierRecord::Free)
                 })
                 .return_once(move |_, _| Box::pin(async move { Ok(Some(user_record)) }));
             let service = UserServiceImpl::new(&repository);

@@ -16,6 +16,15 @@ Parameters:
   OpenSearchEndpointUrl:
     Type: String
     Description: "URL for the self-hosted OpenSearch-Cluster"
+  StripeEventBusName:
+    Type: String
+    Description: "Name of the AWS EventBridge Partner-Event-Bus connected to Stripe (created manually in the AWS Console — see https://docs.stripe.com/event-destinations/eventbridge)."
+  StripeProProductId:
+    Type: String
+    Description: "Stripe product-id (prod_…) corresponding to the 'Pro' user-tier."
+  StripeUltimateProductId:
+    Type: String
+    Description: "Stripe product-id (prod_…) corresponding to the 'Ultimate' user-tier."
 
 Resources:
   PrimaryUserPool:
@@ -3319,6 +3328,80 @@ Resources:
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
       SourceArn: !GetAtt FxRateSyncStartSchedule.Arn
+
+  # ---------------------------------------------------------------------------
+  # Stripe integration
+  # Stripe events are delivered through an AWS EventBridge Partner-Event-Bus
+  # (created manually in the AWS Console, see
+  # https://docs.stripe.com/event-destinations/eventbridge). The rule below
+  # forwards the supported `customer.subscription.*` events to the Lambda.
+  # ---------------------------------------------------------------------------
+  StripeLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "stripe-lambda-role-dev"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt TableOne.Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                Resource: !Sub "${TableOne.Arn}/index/gsi1"
+  StripeLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "stripe-lambda-dev"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt StripeLambdaRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "stripe-lambda-dev-${CommitSHA}.zip"
+      MemorySize: 256
+      Timeout: 30
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          STRIPE_PRO_PRODUCT_ID: !Ref StripeProProductId
+          STRIPE_ULTIMATE_PRODUCT_ID: !Ref StripeUltimateProductId
+  StripeEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "stripe-subscription-events-dev"
+      EventBusName: !Ref StripeEventBusName
+      EventPattern:
+        detail-type:
+          - "customer.subscription.created"
+          - "customer.subscription.updated"
+          - "customer.subscription.deleted"
+      Targets:
+        - Id: StripeLambda
+          Arn: !GetAtt StripeLambda.Arn
+  AllowEventBridgeInvokeStripeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref StripeLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt StripeEventRule.Arn
 
 Outputs:
   CognitoHostedUIDomain:
