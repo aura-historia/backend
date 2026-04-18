@@ -36,24 +36,15 @@ pub struct NormalizedExpectationJson {
     pub shops_product_id: String,
     pub title: String,
     pub description: Option<String>,
-    pub price_minor: Option<u64>,
+    pub price: Option<u64>,
     pub price_currency: Option<String>,
-    pub price_estimate_min_minor: Option<u64>,
+    pub price_estimate_min: Option<u64>,
     pub price_estimate_min_currency: Option<String>,
-    pub price_estimate_max_minor: Option<u64>,
+    pub price_estimate_max: Option<u64>,
     pub price_estimate_max_currency: Option<String>,
     pub state: String,
     pub url: String,
     pub images: Vec<String>,
     pub auction_start: Option<String>,
     pub auction_end: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ScraperParsingPipelineFixtureJson {
-    pub html: String,
-    pub raw_state: String,
-    pub state_record: String,
-    pub raw: RawExpectation,
-    pub normalized: NormalizedExpectationJson,
 }

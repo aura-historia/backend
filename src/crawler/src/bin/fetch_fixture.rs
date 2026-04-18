@@ -2,7 +2,7 @@
 //!
 //! Fetches a single URL using the project's own [`ReqwestHtmlFetcher`] (the
 //! same browser-impersonating reqwest client used in production) and writes
-//! the raw HTML to `tests/fixtures/<shop>/product.html` automatically.
+//! the raw HTML to `tests/fixtures/html/<shop>_<state>.html` automatically.
 //!
 //! The shop name is inferred from the URL's core domain:
 //! - `www.weitze.net`      → `weitze`
@@ -10,18 +10,19 @@
 //!
 //! Usage:
 //! ```text
-//! cargo run -p crawler --bin fetch-fixture -- <URL>
+//! cargo run -p crawler --bin fetch-fixture -- <URL> <STATE>
 //! ```
 //!
 //! Example:
 //! ```text
 //! cargo run -p crawler --bin fetch-fixture -- \
-//!   "https://www.weitze.net/antiquitaeten/auktionen/Prunkvolles_Biedermeier_Sofa__Mahagoni__1830_1840/405500/"
+//!   "https://www.weitze.net/antiquitaeten/auktionen/Prunkvolles_Biedermeier_Sofa__Mahagoni__1830_1840/405500/" \
+//!   available
 //! ```
 //!
 //! Output (relative to the crawler crate root):
 //! ```text
-//! tests/fixtures/weitze/product.html
+//! tests/fixtures/html/weitze_available.html
 //! ```
 //!
 //! No Postgres, no Gemini API key, no Docker — only an internet connection is
@@ -70,25 +71,50 @@ fn shop_name_from_host(host: &str) -> &str {
     labels[sld_idx]
 }
 
+fn normalize_state_slug(raw: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut last_was_sep = false;
+
+    for c in raw.trim().chars() {
+        let lc = c.to_ascii_lowercase();
+        if lc.is_ascii_alphanumeric() {
+            out.push(lc);
+            last_was_sep = false;
+        } else if !last_was_sep {
+            out.push('_');
+            last_was_sep = true;
+        }
+    }
+
+    let out = out.trim_matches('_').to_string();
+    if out.is_empty() { None } else { Some(out) }
+}
+
+fn fixture_file_name(shop: &str, state: &str) -> String {
+    format!("{shop}_{state}.html")
+}
+
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() != 2 {
-        eprintln!("Usage: fetch-fixture <URL>");
+    if args.len() != 3 {
+        eprintln!("Usage: fetch-fixture <URL> <STATE>");
         eprintln!();
         eprintln!("Example:");
         eprintln!(
             "  cargo run -p crawler --bin fetch-fixture -- \
-             \"https://www.weitze.net/antiquitaeten/auktionen/.../405500/\""
+             \"https://www.weitze.net/antiquitaeten/auktionen/.../405500/\" \
+             available"
         );
         eprintln!();
         eprintln!("The fixture is saved automatically to:");
-        eprintln!("  tests/fixtures/<shop>/product.html");
+        eprintln!("  tests/fixtures/html/<shop>_<state>.html");
         std::process::exit(1);
     }
 
     let raw_url = &args[1];
+    let raw_state = &args[2];
 
     let url = Url::parse(raw_url).unwrap_or_else(|e| {
         eprintln!("Error: invalid URL '{raw_url}': {e}");
@@ -101,6 +127,10 @@ async fn main() {
     });
 
     let shop = shop_name_from_host(host);
+    let state = normalize_state_slug(raw_state).unwrap_or_else(|| {
+        eprintln!("Error: invalid STATE '{raw_state}'. Use a non-empty value.");
+        std::process::exit(1);
+    });
 
     // Resolve output path relative to this crate's root (CARGO_MANIFEST_DIR is
     // set by Cargo at compile time and points to src/crawler/).
@@ -108,8 +138,8 @@ async fn main() {
     let output_path = crate_root
         .join("tests")
         .join("fixtures")
-        .join(shop)
-        .join("product.html");
+        .join("html")
+        .join(fixture_file_name(shop, &state));
 
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent).unwrap_or_else(|e| {
@@ -122,6 +152,7 @@ async fn main() {
     }
 
     eprintln!("Shop:     {shop}");
+    eprintln!("State:    {state}");
     eprintln!("Fetching: {url}");
 
     let fetcher = ReqwestHtmlFetcher::new();
@@ -160,5 +191,34 @@ mod tests {
     #[test]
     fn shop_name_multi_subdomain() {
         assert_eq!(shop_name_from_host("a.b.mysite.com"), "mysite");
+    }
+
+    #[test]
+    fn normalize_state_slug_simple() {
+        assert_eq!(
+            normalize_state_slug("available"),
+            Some("available".to_string())
+        );
+    }
+
+    #[test]
+    fn normalize_state_slug_spaces_and_symbols() {
+        assert_eq!(
+            normalize_state_slug(" Sold Out! "),
+            Some("sold_out".to_string())
+        );
+    }
+
+    #[test]
+    fn normalize_state_slug_rejects_empty() {
+        assert_eq!(normalize_state_slug("   "), None);
+    }
+
+    #[test]
+    fn fixture_file_name_includes_shop_and_state() {
+        assert_eq!(
+            fixture_file_name("weitze", "available"),
+            "weitze_available.html"
+        );
     }
 }
