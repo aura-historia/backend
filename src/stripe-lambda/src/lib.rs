@@ -139,7 +139,11 @@ fn stripe_event_type(detail: &Value) -> Option<&str> {
     skip(event, service, tier_map),
     fields(
         requestId = %event.context.request_id,
-        eventId = ?event.payload.id,
+        eventBridgeEventId = tracing::field::Empty,
+        stripeEventId = tracing::field::Empty,
+        stripeType = tracing::field::Empty,
+        userId = tracing::field::Empty,
+        stripeCustomerId = tracing::field::Empty,
         source = %event.payload.source,
     )
 )]
@@ -149,11 +153,22 @@ pub async fn handler(
     tier_map: &StripeProductTierMap,
 ) -> Result<(), lambda_runtime::Error> {
     let payload = event.payload;
+    let span = tracing::Span::current();
+
+    if let Some(event_bridge_event_id) = payload.id.as_deref() {
+        span.record("eventBridgeEventId", event_bridge_event_id);
+    }
+
+    if let Some(stripe_event_id) = payload.detail.get("id").and_then(|value| value.as_str()) {
+        span.record("stripeEventId", stripe_event_id);
+    }
 
     let Some(stripe_type) = stripe_event_type(&payload.detail) else {
         warn!("Stripe event is missing 'type' field, ignoring.");
         return Ok(());
     };
+
+    span.record("stripeType", stripe_type);
 
     match stripe_type {
         STRIPE_EVENT_TYPE_SUBSCRIPTION_CREATED => {
@@ -206,7 +221,16 @@ async fn handle_subscription_created(
         return Ok(());
     };
 
+    let span = tracing::Span::current();
     let subscription_id = subscription.id.as_deref().unwrap_or("<unknown>");
+
+    if let Some(user_id) = subscription.user_id_from_metadata() {
+        span.record("userId", user_id.to_string());
+    }
+
+    if let Some(stripe_customer_id) = subscription.stripe_customer_id() {
+        span.record("stripeCustomerId", stripe_customer_id.as_ref());
+    }
 
     let Some(user_id) = subscription.user_id_from_metadata() else {
         error!(
@@ -279,7 +303,12 @@ async fn handle_subscription_updated(
         return Ok(());
     };
 
+    let span = tracing::Span::current();
     let subscription_id = subscription.id.as_deref().unwrap_or("<unknown>");
+
+    if let Some(stripe_customer_id) = subscription.stripe_customer_id() {
+        span.record("stripeCustomerId", stripe_customer_id.as_ref());
+    }
 
     let Some(stripe_customer_id) = subscription.stripe_customer_id() else {
         error!(
@@ -324,7 +353,12 @@ async fn handle_subscription_deleted(
         return Ok(());
     };
 
+    let span = tracing::Span::current();
     let subscription_id = subscription.id.as_deref().unwrap_or("<unknown>");
+
+    if let Some(stripe_customer_id) = subscription.stripe_customer_id() {
+        span.record("stripeCustomerId", stripe_customer_id.as_ref());
+    }
 
     let Some(stripe_customer_id) = subscription.stripe_customer_id() else {
         error!(
@@ -355,6 +389,9 @@ async fn apply_tier_change_by_customer_id(
     subscription_id: &str,
     event_label: &str,
 ) -> Result<(), lambda_runtime::Error> {
+    let span = tracing::Span::current();
+    span.record("stripeCustomerId", stripe_customer_id.as_ref());
+
     let user = match service
         .find_user_by_stripe_customer_id(stripe_customer_id)
         .await
@@ -372,6 +409,8 @@ async fn apply_tier_change_by_customer_id(
             return Err(Box::new(err));
         }
     };
+
+    span.record("userId", user.user_id.to_string());
 
     let cmd = UpdateUserCommand {
         tier: Some(tier),
