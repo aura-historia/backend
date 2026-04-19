@@ -574,6 +574,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_default_price_to_none_when_raw_price_is_price_on_request() {
+        let svc = make_available_service();
+        let mut raw = minimal_raw();
+        raw.price = Some("Price on Request".into());
+
+        let result = svc.normalize(raw, base_url(), None).await.unwrap();
+
+        assert!(
+            result.price.is_none(),
+            "price should be None for 'Price on Request' markers"
+        );
+    }
+
+    #[tokio::test]
     async fn should_handle_empty_optional_auction_string_when_raw_auction_is_blank() {
         let svc = make_available_service();
         let mut raw = minimal_raw();

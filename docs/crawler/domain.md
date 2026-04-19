@@ -66,7 +66,7 @@ Four-tier lookup (see [LLM Integration — State Lookup Hierarchy](./llm-integra
 
 `StateTextTooLong` (and other normalization errors that indicate a wrong selector — bad price, empty title, etc.) feed back into the schema-fix flow in `ScraperServiceImpl` rather than being terminal failures. This means normalization errors can trigger an LLM schema correction, just like an `apply()` failure does.
 
-`NormalizationError::ShopsProductIdEmpty` is **not** routed into the schema-fix loop — see the Shops Product ID subsection above. `PriceUnknownCurrency` **is** routed into the schema-fix loop so the LLM can populate `default_currency` on the schema — see the Price subsection above.
+`NormalizationError::ShopsProductIdEmpty` is **not** routed into the schema-fix loop — see the Shops Product ID subsection above. `PriceUnknownCurrency` **is** routed into the schema-fix loop so the LLM can populate `default_currency` on the schema — see the Price subsection below.
 
 ### Shops Product ID
 
@@ -81,8 +81,9 @@ Four-tier lookup (see [LLM Integration — State Lookup Hierarchy](./llm-integra
 
 ### Price
 - Multi-locale currency parsing: handles formats like `1.200,50 €`, `$1,200.50`, `1 200 CHF`.
+- **Soft handling for "price on request" markers**: values like `"Price on Request"` / `"Preis auf Anfrage"` are treated as intentionally non-numeric and normalized to `None` (with a warning log) instead of failing the scrape.
 - **Fallback currency from schema**: if the extracted price string contains no currency symbol or ISO code (e.g. bare `"18,00"` or `"1590"`), `normalize()` checks `default_currency` — a field the LLM sets on the `ProductCssSelectorSchema` when it can determine the shop's currency from full-page context. If `default_currency` is present it is used as the currency; otherwise `PriceUnknownCurrency` is returned.
-- `PriceUnknownCurrency` **is** routed into the LLM schema-fix loop. The synthetic `ApplySchemaError` hint instructs the LLM to inspect the page for currency context and populate `default_currency` on the schema. Up to two fix attempts are made; if both fail the price is left unparseable for that product.
+- `PriceUnknownCurrency` **is** routed into the LLM schema-fix loop (for genuinely unknown currency-bearing price text). The synthetic `ApplySchemaError` hint instructs the LLM to inspect the page for currency context and populate `default_currency` on the schema. Up to two fix attempts are made; if both fail the price is left unparseable for that product.
 - Extracts both `price_value` (numeric) and `price_currency` (ISO 4217 code).
 - Stored separately on `shop_urls`.
 
