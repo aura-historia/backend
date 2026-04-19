@@ -9,16 +9,33 @@ pub enum ZohoCampaignsError {
     #[error("Zoho Campaigns API request failed: {0}")]
     ApiRequestError(String),
 
-    #[error("Zoho Campaigns API returned error status '{status}': {message}")]
-    ApiResponseError { status: String, message: String },
+    #[error("Zoho Campaigns API returned error status '{status}' (code {code:?}): {message}")]
+    ApiResponseError {
+        status: String,
+        message: String,
+        code: Option<i64>,
+    },
 }
 
 impl From<ZohoCampaignsError> for ApiError {
     fn from(err: ZohoCampaignsError) -> Self {
-        ApiError::internal_server_error(
-            common::api::error_code::INTERNAL_SERVER_ERROR,
-            Box::new(err),
-        )
+        let zoho_code = if let ZohoCampaignsError::ApiResponseError { code, .. } = &err {
+            *code
+        } else {
+            None
+        };
+
+        match zoho_code {
+            // 2004: Invalid contact email address
+            // 2005: Group email address added
+            Some(2004 | 2005) => {
+                ApiError::bad_request(common::api::error_code::INVALID_EMAIL, Box::new(err))
+            }
+            _ => ApiError::internal_server_error(
+                common::api::error_code::INTERNAL_SERVER_ERROR,
+                Box::new(err),
+            ),
+        }
     }
 }
 
@@ -47,6 +64,7 @@ struct OAuthTokenResponse {
 struct ZohoApiResponse {
     status: String,
     message: String,
+    code: Option<i64>,
 }
 
 #[derive(Debug)]
@@ -223,6 +241,7 @@ impl ZohoCampaignsService for ZohoCampaignsServiceImpl {
             return Err(ZohoCampaignsError::ApiResponseError {
                 status: api_response.status,
                 message: api_response.message,
+                code: api_response.code,
             });
         }
 
@@ -331,7 +350,8 @@ mod tests {
             .and(path("/api/v1.1/json/listsubscribe"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "status": "error",
-                "message": "Invalid list key."
+                "message": "Invalid list key.",
+                "code": 2501
             })))
             .mount(&mock_server)
             .await;
@@ -344,7 +364,35 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(
             result,
-            Err(ZohoCampaignsError::ApiResponseError { .. })
+            Err(ZohoCampaignsError::ApiResponseError {
+                code: Some(2501),
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_return_api_response_error_with_none_code_when_code_absent() {
+        let mock_server = MockServer::start().await;
+        mock_oauth_success().mount(&mock_server).await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1.1/json/listsubscribe"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "status": "error",
+                "message": "Unknown error."
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let service = mk_service(&mock_server.uri(), "bad-list-key");
+        let subscription = mk_subscription();
+
+        let result = service.subscribe(&subscription).await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(ZohoCampaignsError::ApiResponseError { code: None, .. })
         ));
     }
 
