@@ -5,6 +5,7 @@ use common::{
 };
 use once_cell::sync::OnceCell;
 use regex::Regex;
+use tracing::warn;
 
 // ---------------------------------------------------------------------------
 // Internal error type
@@ -140,6 +141,14 @@ pub(super) fn normalize_price_field(
         return Ok(None);
     }
 
+    if is_price_on_request_marker(&trimmed) {
+        warn!(
+            raw_price = %trimmed,
+            "Price text indicates 'price on request'; defaulting normalized price to None"
+        );
+        return Ok(None);
+    }
+
     match parse_price(&trimmed, fallback_currency) {
         Ok((amount, currency)) => Ok(Some(Price::new(amount, currency))),
         Err(PriceError::UnknownCurrency) => Err(make_currency_err(trimmed)),
@@ -189,6 +198,50 @@ fn split_decimal(s: &str) -> Option<(&str, &str)> {
     }
 }
 
+fn is_price_on_request_marker(raw: &str) -> bool {
+    // Keywords that, when present anywhere in the price string, indicate that
+    // the seller intentionally has not set a price and it must be requested.
+    // Covers: EN, DE, FR, IT, ES, PT, NL, PL, RU, ZH, JA, AR
+    const KEYWORDS: &[&str] = &[
+        // English
+        "request", // "on request", "price on request", "price upon request"
+        "enquire", // "please enquire"
+        "inquire", // "please inquire"
+        "contact us",
+        "call for price",
+        "ask for price",
+        // German
+        "anfrage", // "auf Anfrage", "Preis auf Anfrage"
+        // French
+        "demande", // "sur demande", "prix sur demande"
+        // Italian
+        "richiesta", // "su richiesta", "prezzo su richiesta"
+        // Spanish
+        "consultar", // "precio a consultar"
+        "bajo pedido",
+        // Portuguese
+        "consulte",     // "consulte-nos"
+        "sob consulta", // "preço sob consulta"
+        // Dutch
+        "aanvraag", // "op aanvraag", "prijs op aanvraag"
+        // Polish
+        "zapytanie", // "na zapytanie", "cena na zapytanie"
+        // Russian
+        "по запросу", // "цена по запросу"
+        // Chinese
+        "询价",
+        "面议",
+        // Japanese
+        "お問い合わせ", // "価格はお問い合わせ"
+        // Arabic
+        "بالتفاوض",
+        "عند الطلب",
+    ];
+
+    let lower = raw.to_lowercase();
+    KEYWORDS.iter().any(|kw| lower.contains(kw))
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -199,7 +252,10 @@ mod tests {
 
     use common::currency::domain::Currency;
 
-    use super::{PriceError, detect_currency, normalise_fraction, parse_price, split_decimal};
+    use super::{
+        PriceError, detect_currency, is_price_on_request_marker, normalise_fraction, parse_price,
+        split_decimal,
+    };
 
     // -----------------------------------------------------------------------
     // detect_currency
@@ -358,5 +414,50 @@ mod tests {
         #[case] expected: &str,
     ) {
         assert_eq!(normalise_fraction(frac, exponent), expected);
+    }
+
+    // -----------------------------------------------------------------------
+    // is_price_on_request_marker
+    // -----------------------------------------------------------------------
+
+    #[rstest]
+    // English
+    #[case("Price on Request", true)]
+    #[case("price available on request", true)]
+    #[case("Please enquire", true)]
+    #[case("Call for price", true)]
+    // German
+    #[case("Preis auf Anfrage", true)]
+    #[case("auf Anfrage", true)]
+    // French
+    #[case("Prix sur demande", true)]
+    #[case("sur demande", true)]
+    // Italian
+    #[case("Prezzo su richiesta", true)]
+    #[case("Su Richiesta", true)]
+    // Spanish
+    #[case("Precio a consultar", true)]
+    #[case("Consultar", true)]
+    // Portuguese
+    #[case("Preço sob consulta", true)]
+    // Dutch
+    #[case("Prijs op aanvraag", true)]
+    // Polish
+    #[case("Cena na zapytanie", true)]
+    // Russian
+    #[case("Цена по запросу", true)]
+    // Chinese
+    #[case("询价", true)]
+    #[case("面议", true)]
+    // Japanese
+    #[case("価格はお問い合わせ", true)]
+    // Arabic
+    #[case("عند الطلب", true)]
+    // Not markers
+    #[case("$1200", false)]
+    #[case("EUR 45", false)]
+    #[case("1.500,00 €", false)]
+    fn should_detect_price_on_request_markers(#[case] raw: &str, #[case] expected: bool) {
+        assert_eq!(is_price_on_request_marker(raw), expected);
     }
 }
