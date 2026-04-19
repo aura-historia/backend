@@ -1,0 +1,73 @@
+[
+  {
+    "html": "tests/fixtures/html/weitze_available.html",
+    "raw_state": "cart",
+    "state_record": "AVAILABLE",
+    "schema": {
+      "shops_product_id": {
+        "selector": ".nr",
+        "type": "text"
+      },
+      "title": {
+        "selector": "h1[itemprop='name']",
+        "type": "text"
+      },
+      "description": {
+        "selector": ".beschreibung[itemprop='description']",
+        "type": "text"
+      },
+      "price": {
+        "selector": "span[itemprop='price']",
+        "additional_selectors": [".preis .wert", ".preis"],
+        "type": "text"
+      },
+      "state": {
+        "selector": ".cart",
+        "additional_selectors": [".wert"],
+        "type": "attribute",
+        "name": "class"
+      },
+      "images": {
+        "selector": "meta[itemprop='image']",
+        "type": "attribute",
+        "name": "content",
+        "cardinality": "all"
+      },
+      "default_currency": "EUR"
+    },
+    "raw": {
+      "shops_product_id": "405500",
+      "title": "Reichswehr / Wehrmacht Paar Schulterknöpfe für einen Soldaten der 6. Kompanie",
+      "description": [
+        "Aluminium 19 mm, getragen, Zustand 2-."
+      ],
+      "price": "25,00",
+      "price_estimate_min": null,
+      "price_estimate_max": null,
+      "state": "cart",
+      "images": [
+        "https://www.weitze.net/onload/shop/gastfotos/00/405500/405500.webp"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    },
+    "normalized": {
+      "shops_product_id": "405500",
+      "title": "Reichswehr / Wehrmacht Paar Schulterknöpfe für einen Soldaten der 6. Kompanie",
+      "description": "Aluminium 19 mm, getragen, Zustand 2-.",
+      "price": 2500,
+      "price_currency": "EUR",
+      "price_estimate_min": null,
+      "price_estimate_min_currency": null,
+      "price_estimate_max": null,
+      "price_estimate_max_currency": null,
+      "state": "AVAILABLE",
+      "url": "https://www.weitze.net/antiquitaeten/auktionen/Reichswehr_Wehrmacht_Paar_Schulterknopfe_fur_einen_Soldaten_der_6_Kompanie/405500/",
+      "images": [
+        "https://www.weitze.net/onload/shop/gastfotos/00/405500/405500.webp"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    }
+  }
+]
