@@ -415,7 +415,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_500_when_zoho_service_fails() {
+    async fn should_return_500_when_zoho_service_fails_with_server_error_code() {
         use crate::service::ZohoCampaignsError;
 
         let mut zoho_service = MockZohoCampaignsService::default();
@@ -423,7 +423,8 @@ mod tests {
             Box::pin(async {
                 Err(ZohoCampaignsError::ApiResponseError {
                     status: "error".to_string(),
-                    message: "Some Zoho error".to_string(),
+                    message: "Listkey is empty or invalid.".to_string(),
+                    code: Some(2501),
                 })
             })
         });
@@ -461,5 +462,109 @@ mod tests {
         .await;
         assert!(response.is_err());
         assert_eq!(500, response.unwrap_err().status);
+    }
+
+    #[tokio::test]
+    async fn should_return_400_when_zoho_returns_invalid_email_code_2004() {
+        use crate::service::ZohoCampaignsError;
+
+        let mut zoho_service = MockZohoCampaignsService::default();
+        zoho_service.expect_subscribe().return_once(|_| {
+            Box::pin(async {
+                Err(ZohoCampaignsError::ApiResponseError {
+                    status: "error".to_string(),
+                    message: "Invalid contact email address.".to_string(),
+                    code: Some(2004),
+                })
+            })
+        });
+
+        let mut access_token_service = MockAccessTokenVerifierService::default();
+        access_token_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+
+        let user_service = MockUserService::default();
+
+        let data = PutNewsletterSubscriptionData {
+            email: "invalid@example.com".try_into().unwrap(),
+            first_name: None,
+            last_name: None,
+            language: None,
+            currency: None,
+        };
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::PUT)
+                .route_key("PUT /api/v1/newsletter-subscriptions")
+                .body_serde(&data)
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(
+            lambda_event,
+            &zoho_service,
+            &access_token_service,
+            &user_service,
+        )
+        .await;
+        assert!(response.is_err());
+        let err = response.unwrap_err();
+        assert_eq!(400, err.status);
+        assert_eq!("INVALID_EMAIL", err.error.as_str());
+    }
+
+    #[tokio::test]
+    async fn should_return_400_when_zoho_returns_group_email_code_2005() {
+        use crate::service::ZohoCampaignsError;
+
+        let mut zoho_service = MockZohoCampaignsService::default();
+        zoho_service.expect_subscribe().return_once(|_| {
+            Box::pin(async {
+                Err(ZohoCampaignsError::ApiResponseError {
+                    status: "error".to_string(),
+                    message: "Group email address added.".to_string(),
+                    code: Some(2005),
+                })
+            })
+        });
+
+        let mut access_token_service = MockAccessTokenVerifierService::default();
+        access_token_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+
+        let user_service = MockUserService::default();
+
+        let data = PutNewsletterSubscriptionData {
+            email: "group@example.com".try_into().unwrap(),
+            first_name: None,
+            last_name: None,
+            language: None,
+            currency: None,
+        };
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::PUT)
+                .route_key("PUT /api/v1/newsletter-subscriptions")
+                .body_serde(&data)
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(
+            lambda_event,
+            &zoho_service,
+            &access_token_service,
+            &user_service,
+        )
+        .await;
+        assert!(response.is_err());
+        let err = response.unwrap_err();
+        assert_eq!(400, err.status);
+        assert_eq!("INVALID_EMAIL", err.error.as_str());
     }
 }
