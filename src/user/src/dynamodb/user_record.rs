@@ -5,6 +5,7 @@ use crate::{
 use common::{
     currency::{domain::Currency, record::CurrencyRecord},
     language::{domain::Language, record::LanguageRecord},
+    stripe_customer_id::StripeCustomerId,
     user_id::UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -39,6 +40,15 @@ pub struct UserRecord {
     #[serde(default)]
     pub role: UserRoleRecord,
 
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stripe_customer_id: Option<StripeCustomerId>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gsi1_pk: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gsi1_sk: Option<String>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -53,8 +63,20 @@ pub fn mk_sk() -> &'static str {
     "user#details"
 }
 
+pub fn mk_gsi1_pk(stripe_customer_id: &StripeCustomerId) -> String {
+    format!("user#stripe_customer_id#{stripe_customer_id}")
+}
+
+pub fn mk_gsi1_sk() -> &'static str {
+    "user#details"
+}
+
 impl From<User> for UserRecord {
     fn from(user: User) -> Self {
+        let (gsi1_pk, gsi1_sk) = match user.stripe_customer_id.as_ref() {
+            Some(scid) => (Some(mk_gsi1_pk(scid)), Some(mk_gsi1_sk().to_owned())),
+            None => (None, None),
+        };
         UserRecord {
             pk: mk_pk(&user.user_id),
             sk: mk_sk().to_owned(),
@@ -67,6 +89,9 @@ impl From<User> for UserRecord {
             prohibited_content_consent: user.prohibited_content_consent,
             tier: UserTierRecord::from(user.tier),
             role: UserRoleRecord::from(user.role),
+            stripe_customer_id: user.stripe_customer_id,
+            gsi1_pk,
+            gsi1_sk,
             created: user.created,
             updated: user.updated,
         }
@@ -85,6 +110,7 @@ impl From<UserRecord> for User {
             prohibited_content_consent: record.prohibited_content_consent,
             tier: record.tier.into(),
             role: record.role.into(),
+            stripe_customer_id: record.stripe_customer_id,
             created: record.created,
             updated: record.updated,
         }

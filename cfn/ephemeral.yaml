@@ -2879,6 +2879,82 @@ Resources:
       FunctionResponseTypes:
         - ReportBatchItemFailures
 
+  # ---------------------------------------------------------------------------
+  # Stripe integration (acceptance tests)
+  # In LocalStack the partner event bus is replaced by a plain custom bus.
+  # Tests publish synthetic Stripe events via PutEvents.
+  # ---------------------------------------------------------------------------
+  StripeEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Sub "stripe-event-bus-${StageName}"
+  StripeLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "stripe-lambda-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+  StripeLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "stripe-lambda-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt StripeLambdaRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "stripe-lambda-${StageName}-${CommitSHA}.zip"
+      MemorySize: 256
+      Timeout: 30
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          STRIPE_PRO_PRODUCT_ID: "prod_test_pro"
+          STRIPE_ULTIMATE_PRODUCT_ID: "prod_test_ultimate"
+  StripeEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "stripe-subscription-events-${StageName}"
+      EventBusName: !Ref StripeEventBus
+      EventPattern:
+        detail:
+          type:
+            - "customer.subscription.created"
+            - "customer.subscription.updated"
+            - "customer.subscription.deleted"
+      Targets:
+        - Id: StripeLambda
+          Arn: !GetAtt StripeLambda.Arn
+  AllowEventBridgeInvokeStripeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref StripeLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt StripeEventRule.Arn
+
 # ---------------------------------------------------------------------------
 # Outputs
 # ---------------------------------------------------------------------------
@@ -2942,3 +3018,6 @@ Outputs:
     Value: !Ref ProductPipelineClassifyQ
   ProductPipelineClassifyDeadLetterQueueUrl:
     Value: !Ref ProductPipelineClassifyDlq
+
+  StripeEventBusName:
+    Value: !Ref StripeEventBus

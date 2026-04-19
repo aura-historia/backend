@@ -37,6 +37,7 @@ serde_dynamo = { workspace = true, optional = true, features = [
     "aws-sdk-dynamodb+1",
 ] }
 aws-sdk-sqs = { workspace = true, optional = true }
+aws-sdk-eventbridge = { workspace = true, optional = true }
 aws-sdk-cloudformation = { workspace = true, optional = true }
 aws-sdk-s3 = { workspace = true, optional = true }
 mrml = { workspace = true, optional = true }
@@ -68,6 +69,7 @@ dynamodb = ["dep:aws-sdk-dynamodb", "serde_dynamo"]
 opensearch = ["dep:opensearch", "dep:aws-sdk-opensearch"]
 rds = ["dep:sqlx"]
 sqs = ["dep:aws-sdk-sqs"]
+eventbridge = ["dep:aws-sdk-eventbridge"]
 cognito = ["dep:aws-sdk-cognitoidentityprovider", "user/full"]
 ses = ["dep:aws-sdk-sesv2", "reqwest"]
-cloudformation = ["dep:aws-sdk-cloudformation", "dep:aws-sdk-s3", "dep:aws-tests-common", "dep:zip", "dep:futures", "dep:mrml", "cognito", "dynamodb", "opensearch", "sqs", "ses"]
+cloudformation = ["dep:aws-sdk-cloudformation", "dep:aws-sdk-s3", "dep:aws-tests-common", "dep:zip", "dep:futures", "dep:mrml", "cognito", "dynamodb", "opensearch", "sqs", "ses", "eventbridge"]

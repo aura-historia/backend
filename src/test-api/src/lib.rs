@@ -6,6 +6,8 @@ mod cloudformation;
 mod cognito;
 #[cfg(feature = "dynamodb")]
 mod dynamodb;
+#[cfg(feature = "eventbridge")]
+mod eventbridge;
 pub mod localstack;
 #[cfg(feature = "opensearch")]
 mod opensearch;
@@ -27,6 +29,8 @@ pub use cloudformation::Cloudformation;
 pub use cognito::*;
 #[cfg(feature = "dynamodb")]
 pub use dynamodb::{DynamoDB, get_dynamodb_client, mk_partial_put_batch_failure};
+#[cfg(feature = "eventbridge")]
+pub use eventbridge::get_eventbridge_client;
 #[cfg(feature = "opensearch")]
 pub use opensearch::{OpenSearch, get_opensearch_client, read_by_id, refresh_index};
 #[cfg(feature = "rds")]

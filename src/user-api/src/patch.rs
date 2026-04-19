@@ -39,6 +39,7 @@ pub async fn handle(
         prohibited_content_consent: patch_user_account_data.prohibited_content_consent,
         tier: None,
         role: None,
+        stripe_customer_id: None,
     };
     let updated_user_account_data: GetUserAccountData = service
         .update_user(&user_id, update_user_command)

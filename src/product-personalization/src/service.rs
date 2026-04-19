@@ -995,6 +995,7 @@ mod tests {
             prohibited_content_consent,
             tier: user::core::tier::UserTier::Free,
             role: user::core::role::UserRole::User,
+            stripe_customer_id: None,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }

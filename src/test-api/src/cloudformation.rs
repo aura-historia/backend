@@ -69,6 +69,7 @@ const LAMBDA_BINARIES: &[&str] = &[
     "search-filter-lambda-opensearch-sync",
     "product-lambda-update-notify-user",
     "search-filter-lambda-percolate-product",
+    "stripe-lambda",
 ];
 
 /// Guards the one-time CloudFormation stack setup.

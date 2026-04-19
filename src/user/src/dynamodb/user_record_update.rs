@@ -4,7 +4,7 @@ use crate::{
 };
 use common::{
     currency::record::CurrencyRecord, dynamodb_update::DynamoDbUpdate,
-    language::record::LanguageRecord,
+    language::record::LanguageRecord, stripe_customer_id::StripeCustomerId,
 };
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -33,6 +33,15 @@ pub struct UserRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<UserRoleRecord>,
 
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stripe_customer_id: Option<StripeCustomerId>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gsi1_pk: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gsi1_sk: Option<String>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -58,6 +67,9 @@ mod fake {
                 prohibited_content_consent: config.fake_with_rng(rng),
                 tier: config.fake_with_rng(rng),
                 role: config.fake_with_rng(rng),
+                stripe_customer_id: config.fake_with_rng(rng),
+                gsi1_pk: config.fake_with_rng(rng),
+                gsi1_sk: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),
             }
         }
