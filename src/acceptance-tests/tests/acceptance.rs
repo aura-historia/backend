@@ -6222,3 +6222,99 @@ async fn should_set_free_tier_when_subscription_deleted_event() {
         tokio::time::sleep(Duration::from_secs(3)).await;
     }
 }
+
+// ---------------------------------------------------------------------------
+// API: Stripe billing
+// Verifies API Gateway routing, Cognito JWT auth, and Lambda execution for
+// both billing endpoints. The Lambda detects LocalStack at startup and uses a
+// MockStripeService, so no real Stripe credentials are required.
+// ---------------------------------------------------------------------------
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_201_for_billing_checkout_when_user_has_no_stripe_customer_id() {
+    let stack = get_cfn_output();
+    let user = create_random_test_user().await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+
+    // Freshly created users have no `stripe_customer_id` by default, so no
+    // additional setup is required.
+
+    let url = format!(
+        "{}/api/v1/me/billing/checkout",
+        stack.api_gateway_endpoint_url
+    );
+    let response = reqwest::Client::new()
+        .post(url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(201, response.status());
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(
+        body.get("url")
+            .and_then(|v| v.as_str())
+            .unwrap()
+            .starts_with("https://checkout.stripe.com/"),
+        "expected checkout URL, got {body:?}"
+    );
+    assert_eq!(
+        Some(false),
+        body.get("livemode").and_then(|v| v.as_bool()),
+        "expected livemode=false in ephemeral stage, got {body:?}"
+    );
+    assert_eq!(
+        body.get("userId").and_then(|v| v.as_str()),
+        Some(user.sub.to_string().as_str()),
+    );
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_201_for_billing_portal_when_user_has_stripe_customer_id() {
+    let stack = get_cfn_output();
+    let user = create_random_test_user().await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+
+    let stripe_customer_id =
+        common::stripe_customer_id::StripeCustomerId::from(format!("cus_{}", uuid::Uuid::new_v4()));
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    user_service
+        .update_user(
+            &user.sub.into(),
+            UpdateUserCommand {
+                stripe_customer_id: Some(stripe_customer_id),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let url = format!(
+        "{}/api/v1/me/billing/portal",
+        stack.api_gateway_endpoint_url
+    );
+    let response = reqwest::Client::new()
+        .post(url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(201, response.status());
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(
+        body.get("url")
+            .and_then(|v| v.as_str())
+            .unwrap()
+            .starts_with("https://billing.stripe.com/"),
+        "expected portal URL, got {body:?}"
+    );
+    assert_eq!(Some(false), body.get("livemode").and_then(|v| v.as_bool()),);
+    assert_eq!(
+        body.get("userId").and_then(|v| v.as_str()),
+        Some(user.sub.to_string().as_str()),
+    );
+}

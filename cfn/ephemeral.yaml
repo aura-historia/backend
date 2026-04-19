@@ -1145,6 +1145,31 @@ Resources:
       IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProductWatchlistApiLambda}"
       PayloadFormatVersion: "2.0"
 
+  # --- Stripe API Routes ---
+  StripeApiPostCheckoutRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/me/billing/checkout"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${StripeApiLambdaIntegration}"
+  StripeApiPostPortalRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/me/billing/portal"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${StripeApiLambdaIntegration}"
+  StripeApiLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${StripeApiLambda}"
+      PayloadFormatVersion: "2.0"
+
   # --- Notification API Routes ---
   NotificationApiGetRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1590,6 +1615,62 @@ Resources:
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Ref ProductWatchlistApiLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
+
+  # --- Stripe API ---
+  # The LocalStack acceptance-tests run against this Lambda. The Lambda binary
+  # detects the LocalStack environment via `LOCALSTACK_HOSTNAME` and then
+  # short-circuits all Stripe calls through `MockStripeService`, so no real
+  # Stripe credentials are required here.
+  StripeApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "stripe-api-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+  StripeApiLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "stripe-api-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt StripeApiRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "stripe-api-${StageName}-${CommitSHA}.zip"
+      MemorySize: 256
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  StripeApiLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref StripeApiLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
