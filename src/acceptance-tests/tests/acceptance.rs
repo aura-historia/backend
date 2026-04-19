@@ -5972,3 +5972,253 @@ async fn should_count_search_filter_matches_for_current_month_for_quota_enforcem
         "Expected user to have reached the search-filter-match quota ({free_quota}), but count was {match_count}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Stripe subscription lifecycle
+// Verifies EventBridge → Lambda → DynamoDB routing and IAM access for each
+// of the three `customer.subscription.*` event types.
+// ---------------------------------------------------------------------------
+
+/// Publishes a Stripe subscription event to the ephemeral Stripe EventBus.
+async fn put_stripe_event(detail_type: &str, detail: serde_json::Value) {
+    let cfn = get_cfn_output();
+    let eb = get_eventbridge_client().await;
+    let res = eb
+        .put_events()
+        .entries(
+            aws_sdk_eventbridge::types::PutEventsRequestEntry::builder()
+                .event_bus_name(&cfn.stripe_event_bus_name)
+                .source("stripe.com")
+                .detail_type(detail_type)
+                .detail(detail.to_string())
+                .build(),
+        )
+        .send()
+        .await
+        .expect("shouldn't fail publishing Stripe event to EventBridge");
+    assert_eq!(
+        res.failed_entry_count(),
+        0,
+        "EventBridge rejected the Stripe event: {:?}",
+        res.entries()
+    );
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_set_tier_and_stripe_customer_id_when_subscription_created_event() {
+    let stack = get_cfn_output();
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+
+    // Verify the user starts with Free tier and no stripe_customer_id
+    let record_before = user_repository.get_user_record(&user_id).await.unwrap();
+    assert!(record_before.is_some());
+    let record_before = record_before.unwrap();
+    assert_eq!(UserTierRecord::Free, record_before.tier);
+    assert!(record_before.stripe_customer_id.is_none());
+
+    // Publish subscription.created event
+    put_stripe_event(
+        "customer.subscription.created",
+        serde_json::json!({
+            "type": "customer.subscription.created",
+            "data": {
+                "object": {
+                    "id": "sub_test_created",
+                    "customer": "cus_test_created",
+                    "metadata": { "userId": user.sub.to_string() },
+                    "items": {
+                        "data": [{
+                            "price": { "product": "prod_test_pro" }
+                        }]
+                    }
+                }
+            }
+        }),
+    )
+    .await;
+
+    // Poll for the Lambda to update the user record
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let record = user_repository
+            .get_user_record(&user_id)
+            .await
+            .unwrap()
+            .expect("User record should exist");
+
+        if record.tier == UserTierRecord::Pro && record.stripe_customer_id.is_some() {
+            assert_eq!(
+                record.stripe_customer_id.as_ref().unwrap().as_ref(),
+                "cus_test_created"
+            );
+            break;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: user '{}' tier not updated to Pro after 60s (current tier: {:?}, stripe_customer_id: {:?})",
+                user_id, record.tier, record.stripe_customer_id
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_update_tier_when_subscription_updated_event() {
+    let stack = get_cfn_output();
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+
+    // First, set the user to Pro with a stripe_customer_id via the created flow
+    let stripe_customer_id = common::stripe_customer_id::StripeCustomerId::from("cus_test_updated");
+    user_service
+        .update_user(
+            &user_id,
+            UpdateUserCommand {
+                tier: Some(UserTier::Pro),
+                stripe_customer_id: Some(stripe_customer_id),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    // Verify the user is now Pro
+    let record_before = user_repository
+        .get_user_record(&user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(UserTierRecord::Pro, record_before.tier);
+
+    // Publish subscription.updated event changing to Ultimate
+    put_stripe_event(
+        "customer.subscription.updated",
+        serde_json::json!({
+            "type": "customer.subscription.updated",
+            "data": {
+                "object": {
+                    "id": "sub_test_updated",
+                    "customer": "cus_test_updated",
+                    "items": {
+                        "data": [{
+                            "price": { "product": "prod_test_ultimate" }
+                        }]
+                    }
+                }
+            }
+        }),
+    )
+    .await;
+
+    // Poll for the Lambda to update the user record
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let record = user_repository
+            .get_user_record(&user_id)
+            .await
+            .unwrap()
+            .expect("User record should exist");
+
+        if record.tier == UserTierRecord::Ultimate {
+            // stripe_customer_id should still be present
+            assert_eq!(
+                record.stripe_customer_id.as_ref().unwrap().as_ref(),
+                "cus_test_updated"
+            );
+            break;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: user '{}' tier not updated to Ultimate after 60s (current tier: {:?})",
+                user_id, record.tier
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_set_free_tier_when_subscription_deleted_event() {
+    let stack = get_cfn_output();
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+
+    // First, set the user to Ultimate with a stripe_customer_id
+    let stripe_customer_id = common::stripe_customer_id::StripeCustomerId::from("cus_test_deleted");
+    user_service
+        .update_user(
+            &user_id,
+            UpdateUserCommand {
+                tier: Some(UserTier::Ultimate),
+                stripe_customer_id: Some(stripe_customer_id),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    // Verify the user is now Ultimate
+    let record_before = user_repository
+        .get_user_record(&user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(UserTierRecord::Ultimate, record_before.tier);
+
+    // Publish subscription.deleted event
+    put_stripe_event(
+        "customer.subscription.deleted",
+        serde_json::json!({
+            "type": "customer.subscription.deleted",
+            "data": {
+                "object": {
+                    "id": "sub_test_deleted",
+                    "customer": "cus_test_deleted"
+                }
+            }
+        }),
+    )
+    .await;
+
+    // Poll for the Lambda to update the user record
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let record = user_repository
+            .get_user_record(&user_id)
+            .await
+            .unwrap()
+            .expect("User record should exist");
+
+        if record.tier == UserTierRecord::Free {
+            // stripe_customer_id should still be present after deletion
+            assert_eq!(
+                record.stripe_customer_id.as_ref().unwrap().as_ref(),
+                "cus_test_deleted"
+            );
+            break;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: user '{}' tier not reset to Free after 60s (current tier: {:?})",
+                user_id, record.tier
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+}

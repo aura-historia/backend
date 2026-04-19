@@ -4294,3 +4294,6 @@ Outputs:
   AlarmNotificationTopicArn:
     Value: !Ref AlarmNotificationTopic
     Description: "SNS Topic ARN for CloudWatch alarm notifications"
+
+  StripeEventBusName:
+    Value: !Ref StripeEventBusName

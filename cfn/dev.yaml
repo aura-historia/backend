@@ -3467,3 +3467,6 @@ Outputs:
     Value: !Ref SearchFilterOpenSearchSyncQ
   SearchFilterOpenSearchSyncDeadLetterQueueUrl:
     Value: !Ref SearchFilterOpenSearchSyncDlq
+
+  StripeEventBusName:
+    Value: !Ref StripeEventBusName
