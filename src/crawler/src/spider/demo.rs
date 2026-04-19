@@ -42,7 +42,7 @@ use crawler::spider::service::{SpiderService, SpiderServiceConfig, SpiderService
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use thiserror::Error;
-use tracing::{Level, error, info};
+use tracing::{error, info};
 
 #[derive(Debug, Error)]
 enum DemoError {
@@ -263,11 +263,15 @@ fn ensure_scheme(url: &str) -> String {
 
 fn init_logging() {
     let raw_level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
-    let level = raw_level.parse::<Level>().unwrap_or(Level::INFO);
+
+    let filter = tracing_subscriber::EnvFilter::new(format!(
+        "{},spider=warn,sqlx::postgres::notice=warn",
+        raw_level
+    ));
 
     tracing_subscriber::fmt()
         .json()
-        .with_max_level(level)
+        .with_env_filter(filter)
         .init();
 }
 

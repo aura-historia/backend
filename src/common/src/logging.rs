@@ -1,4 +1,5 @@
 use tracing::Level;
+use tracing_subscriber::EnvFilter;
 
 fn parse_log_level(log_level: &str) -> Option<Level> {
     match log_level.to_ascii_uppercase().as_str() {
@@ -30,6 +31,41 @@ pub fn init_logging() {
         .init();
 
     tracing::debug!(log_level = ?log_level, "Logger initialized.");
+}
+
+/// Like [`init_logging`] but accepts additional [`EnvFilter`] directives that
+/// are appended after the global log level.
+///
+/// # Example
+///
+/// ```rust
+/// // Suppress noisy third-party crates while keeping your own logs at INFO.
+/// common::logging::init_logging_with_directives(&["spider=warn", "sqlx::postgres::notice=warn"]);
+/// ```
+pub fn init_logging_with_directives(extra_directives: &[&str]) {
+    let configured_log_level = std::env::var("LOG_LEVEL").ok();
+    let raw_level = configured_log_level
+        .as_deref()
+        .unwrap_or("info")
+        .to_string();
+
+    let directives = if extra_directives.is_empty() {
+        raw_level
+    } else {
+        format!("{},{}", raw_level, extra_directives.join(","))
+    };
+
+    let filter = EnvFilter::new(directives);
+
+    tracing_subscriber::fmt()
+        .json()
+        .with_env_filter(filter)
+        .with_current_span(true)
+        .with_ansi(false)
+        .without_time()
+        .init();
+
+    tracing::debug!("Logger initialized with extra directives.");
 }
 
 #[cfg(test)]

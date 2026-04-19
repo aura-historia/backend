@@ -1,0 +1,160 @@
+use common::currency::domain::Currency;
+use common::price::domain::{MonetaryAmount, Price};
+use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
+use product::dynamodb::product_state_record::ProductStateRecord;
+use serde::Deserialize;
+
+use crate::expectation_types::{NormalizedExpectation, NormalizedExpectationJson, RawExpectation};
+
+pub struct ScraperParsingPipelineFixture {
+    pub schema: ProductCssSelectorSchema,
+    pub raw_state: String,
+    pub state_record: ProductStateRecord,
+    pub raw: RawExpectation,
+    pub normalized: NormalizedExpectation,
+    pub html_path: String,
+}
+
+impl ScraperParsingPipelineFixture {
+    pub fn load_html_source(&self) -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(&self.html_path);
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("failed reading fixture html '{}': {e}", path.display()))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct FixtureJson {
+    html: String,
+    raw_state: String,
+    state_record: String,
+    schema: ProductCssSelectorSchema,
+    raw: RawExpectation,
+    normalized: NormalizedExpectationJson,
+}
+
+/// Load all fixture cases from `tests/fixtures/fixtures.json`.
+///
+/// Adding a new shop or a new case for an existing shop requires only:
+///   1. Drop the HTML file in  `tests/fixtures/html/<shop>[_variant].html`.
+///   2. Append an element to `tests/fixtures/fixtures.json` with the `schema`,
+///      `html` path, `raw_state`, `state_record`, `raw`, and `normalized` fields.
+///
+/// No Rust code changes are needed.
+pub fn load_all_fixtures() -> Vec<ScraperParsingPipelineFixture> {
+    let full =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fixtures.json");
+    let src = std::fs::read_to_string(&full)
+        .unwrap_or_else(|e| panic!("failed reading '{}': {e}", full.display()));
+    let items: Vec<FixtureJson> = serde_json::from_str(&src)
+        .unwrap_or_else(|e| panic!("failed parsing '{}': {e}", full.display()));
+
+    assert!(
+        !items.is_empty(),
+        "tests/fixtures/fixtures.json must not be empty"
+    );
+
+    items.into_iter().map(fixture_from_json).collect()
+}
+
+fn fixture_from_json(f: FixtureJson) -> ScraperParsingPipelineFixture {
+    ScraperParsingPipelineFixture {
+        schema: f.schema,
+        raw_state: f.raw_state,
+        state_record: parse_state_record(&f.state_record),
+        raw: f.raw,
+        normalized: normalized_from_json(f.normalized),
+        html_path: f.html,
+    }
+}
+
+fn parse_state_record(s: &str) -> ProductStateRecord {
+    match s {
+        "AVAILABLE" => ProductStateRecord::Available,
+        "LISTED" => ProductStateRecord::Listed,
+        "RESERVED" => ProductStateRecord::Reserved,
+        "SOLD" => ProductStateRecord::Sold,
+        "REMOVED" => ProductStateRecord::Removed,
+        "UNKNOWN" => ProductStateRecord::Unknown,
+        other => panic!("unsupported state_record '{other}' in fixtures.json"),
+    }
+}
+
+fn normalized_from_json(data: NormalizedExpectationJson) -> NormalizedExpectation {
+    NormalizedExpectation {
+        shops_product_id: data.shops_product_id,
+        title: data.title,
+        description: data.description,
+        price: price_from_parts(data.price, data.price_currency.as_deref()),
+        price_estimate_min: price_from_parts(
+            data.price_estimate_min,
+            data.price_estimate_min_currency.as_deref(),
+        ),
+        price_estimate_max: price_from_parts(
+            data.price_estimate_max,
+            data.price_estimate_max_currency.as_deref(),
+        ),
+        state: parse_product_state(&data.state),
+        url: data.url,
+        images: data.images,
+        auction_start: parse_optional_rfc3339(data.auction_start.as_deref()),
+        auction_end: parse_optional_rfc3339(data.auction_end.as_deref()),
+    }
+}
+
+fn price_from_parts(minor: Option<u64>, currency: Option<&str>) -> Option<Price> {
+    match (minor, currency) {
+        (None, None) => None,
+        (Some(amount), Some(curr)) => Some(Price::new(
+            MonetaryAmount::from(amount),
+            parse_currency(curr),
+        )),
+        _ => panic!(
+            "invalid price in fixtures.json: price_minor and price_currency must both be set or both be null"
+        ),
+    }
+}
+
+fn parse_currency(code: &str) -> Currency {
+    match code {
+        "EUR" => Currency::Eur,
+        "USD" => Currency::Usd,
+        "GBP" => Currency::Gbp,
+        "AUD" => Currency::Aud,
+        "CAD" => Currency::Cad,
+        "NZD" => Currency::Nzd,
+        "CNY" => Currency::Cny,
+        "BRL" => Currency::Brl,
+        "PLN" => Currency::Pln,
+        "TRY" => Currency::Try,
+        "JPY" => Currency::Jpy,
+        "CZK" => Currency::Czk,
+        "RUB" => Currency::Rub,
+        "AED" => Currency::Aed,
+        "SAR" => Currency::Sar,
+        "HKD" => Currency::Hkd,
+        "SGD" => Currency::Sgd,
+        "CHF" => Currency::Chf,
+        other => panic!("unsupported currency '{other}' in fixtures.json"),
+    }
+}
+
+fn parse_product_state(s: &str) -> common::product_state::domain::ProductState {
+    use common::product_state::domain::ProductState;
+    match s {
+        "LISTED" => ProductState::Listed,
+        "AVAILABLE" => ProductState::Available,
+        "RESERVED" => ProductState::Reserved,
+        "SOLD" => ProductState::Sold,
+        "REMOVED" => ProductState::Removed,
+        "UNKNOWN" => ProductState::Unknown,
+        other => panic!("unsupported normalized state '{other}' in fixtures.json"),
+    }
+}
+
+fn parse_optional_rfc3339(value: Option<&str>) -> Option<time::OffsetDateTime> {
+    value.map(|v| {
+        time::OffsetDateTime::parse(v, &time::format_description::well_known::Rfc3339)
+            .unwrap_or_else(|e| panic!("invalid RFC3339 datetime '{v}' in fixtures.json: {e}"))
+    })
+}

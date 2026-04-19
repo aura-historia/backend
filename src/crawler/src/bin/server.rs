@@ -16,7 +16,7 @@
 //! |---------------------------|----------------------------------------------------------------|
 //! | `DATABASE_URL`            | Postgres connection string                                     |
 //! | `GEMINI_API_KEY`          | API key for the Gemini LLM backend                             |
-//! | `GEMINI_MODEL`            | Gemini model name (default: `gemini-3.1-flash-lite-preview`)   |
+//! | `GEMINI_MODEL`            | Gemini model name (default: `gemini-3.1-pro-preview`)   |
 //! | `DYNAMODB_TABLE_NAME`     | DynamoDB table for product events                              |
 //! | `OPENSEARCH_ENDPOINT_URL` | OpenSearch base URL                                            |
 //! | `OPENSEARCH_USERNAME`     | OpenSearch username                                            |
@@ -138,7 +138,7 @@ fn build_opensearch_client() -> opensearch::OpenSearch {
 async fn main() {
     dotenvy::dotenv().ok();
 
-    common::logging::init_logging();
+    common::logging::init_logging_with_directives(&["spider=warn", "sqlx::postgres::notice=warn"]);
 
     info!("Starting Crawler Server");
 
@@ -146,11 +146,12 @@ async fn main() {
     let config = CrawlerCronConfig {
         spider_interval: Duration::from_secs(600),
         scraper_interval: Duration::from_secs(60),
-        spider_batch_size: 10,
-        scraper_batch_size: 20,
-        spider_concurrency: 3,
+        spider_batch_size: 1000,
+        scraper_batch_size: 200,
+        spider_concurrency: 10,
         scraper_concurrency: 10,
-        spider_classify_threshold: 200,
+        spider_classify_threshold: 400,
+        push_batch_size: 1000,
         ..Default::default()
     };
 
@@ -178,8 +179,8 @@ async fn main() {
 
     // 4. Wire scraper + spider dependencies
     let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set");
-    let model = std::env::var("GEMINI_MODEL")
-        .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
+    let model =
+        std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.1-pro-preview".to_string());
 
     let state_llm_builder = LLMBuilder::new()
         .backend(LLMBackend::Google)
