@@ -441,6 +441,7 @@ async fn scrape_candidate(
             skipped: true,
         },
         Err(e) => {
+            let error_message = e.to_string();
             if let ScraperError::HttpError { kind, .. } = &e {
                 let cooldown = retry_cooldown_for(*kind);
                 let next_retry_at = time::OffsetDateTime::now_utc()
@@ -454,8 +455,28 @@ async fn scrape_candidate(
                         &candidate.shop_id,
                         &candidate.url,
                         &format!("{kind:?}"),
+                        &error_message,
                         status_code,
                         next_retry_at,
+                    )
+                    .await
+                {
+                    warn!(
+                        error = %mark_err,
+                        url = %candidate.url,
+                        "Failed to persist scraper fetch failure metadata"
+                    );
+                }
+            } else {
+                // Non-HTTP errors: schema failures, normalization errors, etc.
+                // These do not affect retry scheduling but are persisted for observability.
+                let error_kind = scraper_error_kind(&e);
+                if let Err(mark_err) = scraper_candidates
+                    .mark_scraper_failure(
+                        &candidate.shop_id,
+                        &candidate.url,
+                        error_kind,
+                        &error_message,
                     )
                     .await
                 {
@@ -479,6 +500,25 @@ async fn scrape_candidate(
                 skipped: false,
             }
         }
+    }
+}
+
+/// Returns a short, stable, machine-readable kind label for a [`ScraperError`].
+///
+/// These labels are persisted in `shop_urls.last_scraper_error_kind` so that
+/// operators can filter / aggregate by error category without having to parse
+/// the free-text message.  The `HttpError` variant is included for completeness
+/// even though the caller currently only invokes this helper for non-HTTP errors.
+fn scraper_error_kind(e: &ScraperError) -> &'static str {
+    match e {
+        ScraperError::HttpError { .. } => "HttpError",
+        ScraperError::ProductRemoved { .. } => "ProductRemoved",
+        ScraperError::NoHost { .. } => "NoHost",
+        ScraperError::SchemaServiceError(_) => "SchemaServiceError",
+        ScraperError::SchemaFixFailed { .. } => "SchemaFixFailed",
+        ScraperError::SchemaFixApplyFailed { .. } => "SchemaFixApplyFailed",
+        ScraperError::SchemaFixAttemptsExhausted { .. } => "SchemaFixAttemptsExhausted",
+        ScraperError::NormalizationError(_) => "NormalizationError",
     }
 }
 
@@ -927,7 +967,7 @@ mod tests {
         scraper_candidates
             .expect_mark_fetch_failure()
             .once()
-            .returning(|_, _, _, _, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
 
         let mut scraper_service = MockScraperService::new();
         scraper_service.expect_scrape().returning(|_, url, _| {

@@ -192,8 +192,24 @@ pub trait ScraperCandidateService: Send + Sync {
         shop_id: &ShopId,
         url: &Url,
         error_kind: &str,
+        error_message: &str,
         status_code: Option<i32>,
         next_retry_at: OffsetDateTime,
+    ) -> Result<(), sqlx::Error>;
+
+    /// Record a non-HTTP scraper failure (schema error, normalization error, etc.).
+    ///
+    /// Unlike [`mark_fetch_failure`] this does **not** increment `failure_count` or
+    /// set a `next_retry_at` backoff — these errors are not caused by the remote
+    /// server being unavailable and should not suppress future fetches.  They are
+    /// stored purely for observability so that operators can diagnose systematic
+    /// scraping problems for a given URL.
+    async fn mark_scraper_failure(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        error_kind: &str,
+        error_message: &str,
     ) -> Result<(), sqlx::Error>;
 }
 
@@ -311,6 +327,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                   last_scraped_state = $11,
                  failure_count = 0,
                  last_error_kind = NULL,
+                 last_scraper_error_kind = NULL,
+                 last_error_message = NULL,
                  last_status_code = NULL,
                  next_retry_at = NULL,
                  updated = NOW()
@@ -348,6 +366,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_hash = $3,
                  failure_count = 0,
                  last_error_kind = NULL,
+                 last_scraper_error_kind = NULL,
+                 last_error_message = NULL,
                  last_status_code = NULL,
                  next_retry_at = NULL,
                  updated = NOW()
@@ -393,6 +413,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         shop_id: &ShopId,
         url: &Url,
         error_kind: &str,
+        error_message: &str,
         status_code: Option<i32>,
         next_retry_at: OffsetDateTime,
     ) -> Result<(), sqlx::Error> {
@@ -403,16 +424,45 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             "UPDATE shop_urls
              SET failure_count = failure_count + 1,
                  last_error_kind = $3,
-                 last_status_code = $4,
-                 next_retry_at = $5,
+                 last_error_message = $4,
+                 last_status_code = $5,
+                 next_retry_at = $6,
                  updated = NOW()
              WHERE shop_id = $1 AND url = $2 AND url_class = 'product'",
         )
         .bind(shop_id_uuid)
         .bind(url_str)
         .bind(error_kind)
+        .bind(error_message)
         .bind(status_code)
         .bind(next_retry_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn mark_scraper_failure(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        error_kind: &str,
+        error_message: &str,
+    ) -> Result<(), sqlx::Error> {
+        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+        let url_str = url.to_string();
+
+        sqlx::query(
+            "UPDATE shop_urls
+             SET last_scraper_error_kind = $3,
+                 last_error_message = $4,
+                 updated = NOW()
+             WHERE shop_id = $1 AND url = $2 AND url_class = 'product'",
+        )
+        .bind(shop_id_uuid)
+        .bind(url_str)
+        .bind(error_kind)
+        .bind(error_message)
         .execute(&self.pool)
         .await?;
 

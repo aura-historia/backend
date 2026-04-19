@@ -72,6 +72,15 @@ impl ProductPushService for ProductPushServiceImpl {
                 total = count,
                 "Some products failed to upsert"
             );
+            for cmd in &failed {
+                let shop_id_uuid: uuid::Uuid = cmd.shop_id.into();
+                warn!(
+                    shop_id = %shop_id_uuid,
+                    shops_product_id = %cmd.shops_product_id,
+                    url = ?cmd.url.as_ref().map(|u| u.as_str()),
+                    "Product failed to upsert — will be retried on next scrape cycle"
+                );
+            }
         }
         let failed_ids: std::collections::HashSet<_> = failed
             .iter()
