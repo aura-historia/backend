@@ -311,7 +311,7 @@ jobs:
                 StripeProMonthlyPriceId=${{ vars.STRIPE_PRO_MONTHLY_PRICE_ID }} \
                 StripeProYearlyPriceId=${{ vars.STRIPE_PRO_YEARLY_PRICE_ID }} \
                 StripeUltimateMonthlyPriceId=${{ vars.STRIPE_ULTIMATE_MONTHLY_PRICE_ID }} \
-                StripeUltimateYearlyPriceId=${{ vars.STRIPE_ULTIMATE_YEARLY_PRIC
+                StripeUltimateYearlyPriceId=${{ vars.STRIPE_ULTIMATE_YEARLY_PRICE_ID }}
 
   aws-smoking-test:
     name: AWS Smoking-Test
