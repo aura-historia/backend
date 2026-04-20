@@ -504,7 +504,7 @@ mod tests {
         ScraperCandidate {
             shop_id: ShopId::new(),
             shop_name: "Test".to_string(),
-            shop_type: shop::core::shop_type::ShopType::CommercialDealer,
+            shop_type: ShopType::CommercialDealer,
             url: base_url(),
             last_scraped_hash: Some(hash.to_string()),
             last_scraped_price: None,
@@ -533,7 +533,7 @@ mod tests {
         let candidate = ScraperCandidate {
             shop_id: ShopId::new(),
             shop_name: "Test".to_string(),
-            shop_type: shop::core::shop_type::ShopType::CommercialDealer,
+            shop_type: ShopType::CommercialDealer,
             url: base_url(),
             last_scraped_hash: Some("somehash".to_string()),
             last_scraped_price: snap.price.clone(),
@@ -568,5 +568,54 @@ mod tests {
             url: base_url(),
         };
         assert!(has_product_changed(&candidate, &product));
+    }
+
+    #[test]
+    fn images_hash_for_empty_list_is_sha256_of_empty_string() {
+        let product = minimal_product();
+        let snap = ProductSnapshot::from_normalized(&product);
+        let expected = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"; // SHA256("")
+        assert_eq!(snap.images_hash, expected);
+    }
+
+    #[test]
+    fn images_hash_is_order_independent() {
+        use product::core::product_image::ProductImage;
+        use product::core::prohibited_content::ProhibitedContent;
+
+        let images_a = vec![
+            ProductImage {
+                url: Url::parse("https://example.com/a.jpg").unwrap(),
+                prohibited_content: ProhibitedContent::Unknown,
+            },
+            ProductImage {
+                url: Url::parse("https://example.com/b.jpg").unwrap(),
+                prohibited_content: ProhibitedContent::Unknown,
+            },
+        ];
+        let images_b = vec![
+            ProductImage {
+                url: Url::parse("https://example.com/b.jpg").unwrap(),
+                prohibited_content: ProhibitedContent::Unknown,
+            },
+            ProductImage {
+                url: Url::parse("https://example.com/a.jpg").unwrap(),
+                prohibited_content: ProhibitedContent::Unknown,
+            },
+        ];
+
+        let mut p1 = minimal_product();
+        p1.images = images_a;
+        let mut p2 = minimal_product();
+        p2.images = images_b;
+
+        let h1 = ProductSnapshot::from_normalized(&p1).images_hash;
+        let h2 = ProductSnapshot::from_normalized(&p2).images_hash;
+
+        assert_eq!(h1, h2, "images_hash must be invariant to input order");
+        assert_eq!(
+            h1, "5c7abbc9f485b2617e096f6e54c0e090be521f588c6fc7802ddc50d5a3b627f2",
+            "unexpected images_hash value"
+        );
     }
 }
