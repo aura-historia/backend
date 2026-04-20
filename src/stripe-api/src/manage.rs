@@ -55,7 +55,7 @@ pub async fn handle(
             let env_var = billing_request.billing_request.price_id_env_var();
             let price_id = price_ids.get(env_var).ok_or_else(|| {
                 let err_msg = format!("Missing configured price-id for env-var '{env_var}'");
-                ApiError::internal_server_error(INTERNAL_SERVER_ERROR, err_msg.clone().into())
+                ApiError::internal_server_error(INTERNAL_SERVER_ERROR, err_msg.into())
             })?;
 
             let stripe_customer_id = match user.stripe_customer_id.clone() {

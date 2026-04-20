@@ -6396,6 +6396,8 @@ async fn should_422_for_billing_portal_when_user_has_no_stripe_customer_id() {
 async fn should_201_for_billing_manage_with_checkout_for_free_and_portal_for_paid_user() {
     let stack = get_cfn_output();
     let user = create_random_test_user().await;
+    // Allow Cognito post-confirmation and initial user persistence to settle
+    // before exercising the authenticated billing endpoint.
     tokio::time::sleep(Duration::from_secs(10)).await;
 
     let url = format!(
