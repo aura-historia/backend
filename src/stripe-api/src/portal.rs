@@ -37,11 +37,7 @@ pub async fn handle(
     let url = stripe_service
         .create_portal_session(stripe_customer_id)
         .await
-        .map_err(|err| {
-            let detail = err.to_string();
-            ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
-                .with_detail(detail)
-        })?;
+        .map_err(|err| ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err)))?;
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(201)
         .body_serde(PortalSessionResponse { url })?

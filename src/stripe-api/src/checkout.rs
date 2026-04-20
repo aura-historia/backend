@@ -45,7 +45,6 @@ pub async fn handle(
     let price_id = price_ids.get(env_var).ok_or_else(|| {
         let err_msg = format!("Missing configured price-id for env-var '{env_var}'");
         ApiError::internal_server_error(INTERNAL_SERVER_ERROR, err_msg.clone().into())
-            .with_detail(err_msg)
     })?;
 
     let user = user_service.find_user(&user_id).await?;
@@ -73,11 +72,7 @@ pub async fn handle(
     let stripe_customer_id = stripe_service
         .create_customer(&create_customer)
         .await
-        .map_err(|err| {
-            let detail = err.to_string();
-            ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
-                .with_detail(detail)
-        })?;
+        .map_err(|err| ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err)))?;
 
     user_service
         .update_user(
@@ -92,11 +87,7 @@ pub async fn handle(
     let url = stripe_service
         .create_checkout_session(&user_id, &stripe_customer_id, price_id)
         .await
-        .map_err(|err| {
-            let detail = err.to_string();
-            ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
-                .with_detail(detail)
-        })?;
+        .map_err(|err| ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err)))?;
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(201)
         .body_serde(CheckoutSessionResponse { url })?
