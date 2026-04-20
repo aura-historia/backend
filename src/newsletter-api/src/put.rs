@@ -423,7 +423,7 @@ mod tests {
             Box::pin(async {
                 Err(ZohoCampaignsError::ApiResponseError {
                     status: "error".to_string(),
-                    message: "Listkey is empty or invalid.".to_string(),
+                    message: Some("Listkey is empty or invalid.".to_string()),
                     code: Some(2501),
                 })
             })
@@ -473,7 +473,7 @@ mod tests {
             Box::pin(async {
                 Err(ZohoCampaignsError::ApiResponseError {
                     status: "error".to_string(),
-                    message: "Invalid contact email address.".to_string(),
+                    message: Some("Invalid contact email address.".to_string()),
                     code: Some(2004),
                 })
             })
@@ -525,7 +525,7 @@ mod tests {
             Box::pin(async {
                 Err(ZohoCampaignsError::ApiResponseError {
                     status: "error".to_string(),
-                    message: "Group email address added.".to_string(),
+                    message: Some("Group email address added.".to_string()),
                     code: Some(2005),
                 })
             })

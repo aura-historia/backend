@@ -9,10 +9,10 @@ pub enum ZohoCampaignsError {
     #[error("Zoho Campaigns API request failed: {0}")]
     ApiRequestError(String),
 
-    #[error("Zoho Campaigns API returned error status '{status}' (code {code:?}): {message}")]
+    #[error("Zoho Campaigns API returned error status '{status}' (code {code:?}): {message:?}")]
     ApiResponseError {
         status: String,
-        message: String,
+        message: Option<String>,
         code: Option<i64>,
     },
 }
@@ -26,9 +26,9 @@ impl From<ZohoCampaignsError> for ApiError {
         };
 
         match zoho_code {
-            // 2004: Invalid contact email address
+            // 2004, 2007: Invalid contact email address
             // 2005: Group email address added
-            Some(2004 | 2005) => {
+            Some(2004 | 2005 | 2007) => {
                 ApiError::bad_request(common::api::error_code::INVALID_EMAIL, Box::new(err))
             }
             _ => ApiError::internal_server_error(
@@ -63,8 +63,30 @@ struct OAuthTokenResponse {
 #[derive(Debug, Deserialize)]
 struct ZohoApiResponse {
     status: String,
-    message: String,
+    #[serde(default)]
+    message: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_zoho_code")]
     code: Option<i64>,
+}
+
+/// Zoho Campaigns returns `code` as either a JSON integer (`2004`) or a JSON string
+/// (`"2004"`, `"SUCCESS"`) depending on the API version and the response type.
+/// This deserializer accepts both forms and converts them to `Option<i64>`:
+/// - JSON integer  → `Some(n)`
+/// - Numeric string like `"2004"` → `Some(2004)`
+/// - Non-numeric / status string like `"SUCCESS"` → `None`
+/// - JSON null / field absent → `None`
+fn deserialize_zoho_code<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt: Option<serde_json::Value> = Option::deserialize(deserializer)?;
+    match opt {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::Number(n)) => Ok(n.as_i64()),
+        Some(serde_json::Value::String(s)) => Ok(s.parse::<i64>().ok()),
+        _ => Ok(None),
+    }
 }
 
 #[derive(Debug)]
@@ -245,7 +267,7 @@ impl ZohoCampaignsService for ZohoCampaignsServiceImpl {
             });
         }
 
-        info!(email = %subscription.email, zohoMessage = api_response.message, "Subscribed contact to Zoho Campaigns.");
+        info!(email = %subscription.email, zohoMessage = ?api_response.message, "Subscribed contact to Zoho Campaigns.");
         Ok(())
     }
 }
@@ -394,6 +416,81 @@ mod tests {
             result,
             Err(ZohoCampaignsError::ApiResponseError { code: None, .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn should_parse_string_error_code_when_zoho_returns_code_as_string() {
+        let mock_server = MockServer::start().await;
+        mock_oauth_success().mount(&mock_server).await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1.1/json/listsubscribe"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "status": "error",
+                "message": "Invalid contact email address.",
+                "code": "2004"
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let service = mk_service(&mock_server.uri(), "test-list-key");
+        let subscription = mk_subscription();
+
+        let result = service.subscribe(&subscription).await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(ZohoCampaignsError::ApiResponseError {
+                code: Some(2004),
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_parse_none_code_when_zoho_returns_non_numeric_string_code() {
+        let mock_server = MockServer::start().await;
+        mock_oauth_success().mount(&mock_server).await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1.1/json/listsubscribe"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "status": "error",
+                "message": "Unknown error.",
+                "code": "ERROR"
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let service = mk_service(&mock_server.uri(), "test-list-key");
+        let subscription = mk_subscription();
+
+        let result = service.subscribe(&subscription).await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(ZohoCampaignsError::ApiResponseError { code: None, .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_succeed_when_zoho_returns_success_without_message_field() {
+        let mock_server = MockServer::start().await;
+        mock_oauth_success().mount(&mock_server).await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1.1/json/listsubscribe"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "status": "success"
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let service = mk_service(&mock_server.uri(), "test-list-key");
+        let subscription = mk_subscription();
+
+        let result = service.subscribe(&subscription).await;
+
+        assert!(result.is_ok());
     }
 
     #[tokio::test]
