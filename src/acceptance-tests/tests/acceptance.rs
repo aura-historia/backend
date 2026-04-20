@@ -6243,7 +6243,7 @@ async fn should_201_for_billing_checkout_and_persist_stripe_customer_id_when_use
     let response = reqwest::Client::new()
         .post(url)
         .bearer_auth(&user.access_token)
-        .json(&serde_json::json!({"plan": "pro", "cycle": "monthly"}))
+        .json(&serde_json::json!({"plan": "PRO", "cycle": "MONTHLY"}))
         .send()
         .await
         .unwrap();
@@ -6308,7 +6308,7 @@ async fn should_409_for_billing_checkout_when_user_already_has_stripe_customer_i
     let response = reqwest::Client::new()
         .post(url)
         .bearer_auth(&user.access_token)
-        .json(&serde_json::json!({"plan": "pro", "cycle": "monthly"}))
+        .json(&serde_json::json!({"plan": "PRO", "cycle": "MONTHLY"}))
         .send()
         .await
         .unwrap();
@@ -6350,7 +6350,6 @@ async fn should_201_for_billing_portal_when_user_has_stripe_customer_id() {
     let response = reqwest::Client::new()
         .post(url)
         .bearer_auth(&user.access_token)
-        .json(&serde_json::json!({"plan": "pro", "cycle": "monthly"}))
         .send()
         .await
         .unwrap();
@@ -6381,7 +6380,6 @@ async fn should_422_for_billing_portal_when_user_has_no_stripe_customer_id() {
     let response = reqwest::Client::new()
         .post(url)
         .bearer_auth(&user.access_token)
-        .json(&serde_json::json!({"plan": "pro", "cycle": "monthly"}))
         .send()
         .await
         .unwrap();

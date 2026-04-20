@@ -14,6 +14,7 @@ use common::{stripe_customer_id::StripeCustomerId, user_id::UserId};
 use serde_email::Email;
 use thiserror::Error;
 use url::Url;
+use user::core::name::Name;
 
 #[derive(Debug, Error)]
 pub enum StripeServiceError {
@@ -30,11 +31,11 @@ pub enum StripeServiceError {
 /// Strongly-typed view of the data we forward to Stripe when creating a
 /// `Customer`. Using a struct (instead of separate parameters) keeps the
 /// trait signature stable as we add more fields.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CreateStripeCustomer {
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreateStripeCustomerCommand {
     pub user_id: UserId,
     pub email: Email,
-    pub name: Option<String>,
+    pub name: Option<Name>,
 }
 
 /// Subset of the Stripe API consumed by `stripe-api`.
@@ -47,7 +48,7 @@ pub trait StripeService: Send + Sync {
     /// customer-portal can re-use it.
     async fn create_customer(
         &self,
-        customer: &CreateStripeCustomer,
+        customer: &CreateStripeCustomerCommand,
     ) -> Result<StripeCustomerId, StripeServiceError>;
 
     /// Create a new Stripe Checkout-Session for an *existing* Stripe customer
@@ -134,14 +135,14 @@ impl StripeServiceImpl {
 impl StripeService for StripeServiceImpl {
     async fn create_customer(
         &self,
-        customer: &CreateStripeCustomer,
+        customer: &CreateStripeCustomerCommand,
     ) -> Result<StripeCustomerId, StripeServiceError> {
         let mut form: Vec<(&str, String)> = vec![
             ("email", customer.email.to_string()),
             ("metadata[userId]", customer.user_id.to_string()),
         ];
         if let Some(name) = customer.name.as_ref() {
-            form.push(("name", name.clone()));
+            form.push(("name", name.to_string()));
         }
 
         let body = self.post_form("/v1/customers", &form).await?;

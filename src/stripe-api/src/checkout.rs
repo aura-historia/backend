@@ -1,5 +1,5 @@
 use crate::billing::BillingRequest;
-use crate::service::{CreateStripeCustomer, StripeService};
+use crate::service::{CreateStripeCustomerCommand, StripeService};
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
@@ -65,16 +65,10 @@ pub async fn handle(
     // Create the Stripe customer first so subsequent checkouts and the
     // customer-portal can re-use the same `cus_…` id, then persist it on the
     // user record before creating the checkout session.
-    let full_name = match (user.first_name.as_ref(), user.last_name.as_ref()) {
-        (Some(first), Some(last)) => Some(format!("{first} {last}")),
-        (Some(first), None) => Some(first.to_string()),
-        (None, Some(last)) => Some(last.to_string()),
-        (None, None) => None,
-    };
-    let create_customer = CreateStripeCustomer {
+    let create_customer = CreateStripeCustomerCommand {
         user_id,
         email: user.email.clone(),
-        name: full_name,
+        name: user.name(),
     };
     let stripe_customer_id = stripe_service
         .create_customer(&create_customer)
@@ -268,7 +262,7 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
                 .jwt_claim("sub", UserId::new())
-                .body_serde(&serde_json::json!({"plan":"enterprise","cycle":"monthly"}))
+                .body_serde(&serde_json::json!({"plan":"ENTERPRISE","cycle":"MONTHLY"}))
                 .build(),
             context: Default::default(),
         };

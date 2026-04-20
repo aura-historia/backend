@@ -1,11 +1,8 @@
-use crate::billing::BillingRequest;
 use crate::service::StripeService;
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::{
-    BAD_BODY_VALUE, INTERNAL_SERVER_ERROR, STRIPE_CUSTOMER_DOES_NOT_EXIST,
-};
+use common::api::error_code::{INTERNAL_SERVER_ERROR, STRIPE_CUSTOMER_DOES_NOT_EXIST};
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
 use serde::Serialize;
@@ -24,23 +21,6 @@ pub async fn handle(
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
-
-    // The portal endpoint also accepts the same `{ plan, cycle }` body for
-    // forward-compatibility with future portal-config selection. The values
-    // are validated to keep both endpoints' contracts symmetrical, but the
-    // current Stripe portal session does not branch on them.
-    let body = event
-        .payload
-        .body
-        .filter(|str| !str.is_empty())
-        .ok_or_else(|| {
-            let err_msg = "Body cannot be empty";
-            ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_detail(err_msg)
-        })?;
-    let _billing_request: BillingRequest = serde_json::from_str(&body).map_err(|err| {
-        let err_msg = err.to_string();
-        ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
-    })?;
 
     let user = user_service.find_user(&user_id).await?;
 
@@ -71,7 +51,6 @@ pub async fn handle(
 #[cfg(test)]
 mod tests {
     use super::handle;
-    use crate::billing::{BillingCycle, BillingPlan, BillingRequest};
     use crate::service::MockStripeService;
     use common::api::error_code::STRIPE_CUSTOMER_DOES_NOT_EXIST;
     use common::stripe_customer_id::StripeCustomerId;
@@ -82,13 +61,6 @@ mod tests {
     use url::Url;
     use user::core::user::User;
     use user::service::user_service::MockUserService;
-
-    fn body() -> BillingRequest {
-        BillingRequest {
-            plan: BillingPlan::Pro,
-            cycle: BillingCycle::Monthly,
-        }
-    }
 
     fn user_with_stripe_customer_id() -> User {
         let mut user: User = Faker.fake();
@@ -115,7 +87,6 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
                 .jwt_claim("sub", UserId::new())
-                .body_serde(&body())
                 .build(),
             context: Default::default(),
         };
@@ -149,7 +120,6 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
                 .jwt_claim("sub", UserId::new())
-                .body_serde(&body())
                 .build(),
             context: Default::default(),
         };
@@ -163,26 +133,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_400_when_body_is_missing() {
-        let user_service = MockUserService::default();
-        let stripe_service = MockStripeService::default();
-
-        let lambda_event = LambdaEvent {
-            payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::POST)
-                .jwt_claim("sub", UserId::new())
-                .build(),
-            context: Default::default(),
-        };
-
-        let actual = handle(lambda_event, &stripe_service, &user_service)
-            .await
-            .unwrap_err();
-
-        assert_eq!(400, actual.status);
-    }
-
-    #[tokio::test]
     async fn should_401_when_sub_missing() {
         let user_service = MockUserService::default();
         let mut stripe_service = MockStripeService::default();
@@ -191,7 +141,6 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
-                .body_serde(&body())
                 .build(),
             context: Default::default(),
         };

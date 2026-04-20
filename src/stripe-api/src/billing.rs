@@ -7,14 +7,14 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum BillingPlan {
     Pro,
     Ultimate,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum BillingCycle {
     Monthly,
     Yearly,
@@ -68,22 +68,22 @@ mod tests {
 
     #[rstest]
     #[case(
-        r#"{"plan":"pro","cycle":"monthly"}"#,
+        r#"{"plan":"PRO","cycle":"MONTHLY"}"#,
         BillingPlan::Pro,
         BillingCycle::Monthly
     )]
     #[case(
-        r#"{"plan":"pro","cycle":"yearly"}"#,
+        r#"{"plan":"PRO","cycle":"YEARLY"}"#,
         BillingPlan::Pro,
         BillingCycle::Yearly
     )]
     #[case(
-        r#"{"plan":"ultimate","cycle":"monthly"}"#,
+        r#"{"plan":"ULTIMATE","cycle":"MONTHLY"}"#,
         BillingPlan::Ultimate,
         BillingCycle::Monthly
     )]
     #[case(
-        r#"{"plan":"ultimate","cycle":"yearly"}"#,
+        r#"{"plan":"ULTIMATE","cycle":"YEARLY"}"#,
         BillingPlan::Ultimate,
         BillingCycle::Yearly
     )]
@@ -99,14 +99,14 @@ mod tests {
     #[test]
     fn should_fail_deserialize_when_unknown_plan() {
         let result: Result<BillingRequest, _> =
-            serde_json::from_str(r#"{"plan":"enterprise","cycle":"monthly"}"#);
+            serde_json::from_str(r#"{"plan":"ENTERPRISE","cycle":"MONTHLY"}"#);
         assert!(result.is_err());
     }
 
     #[test]
     fn should_fail_deserialize_when_unknown_cycle() {
         let result: Result<BillingRequest, _> =
-            serde_json::from_str(r#"{"plan":"pro","cycle":"daily"}"#);
+            serde_json::from_str(r#"{"plan":"PRO","cycle":"DAILY"}"#);
         assert!(result.is_err());
     }
 }
