@@ -160,7 +160,6 @@ CREATE TABLE IF NOT EXISTS shop_urls (
     failure_count         INT         NOT NULL DEFAULT 0,
     last_error_kind       TEXT,
     last_error_message    TEXT,
-    last_scraper_error_kind TEXT,
     last_status_code      INT,
     next_retry_at         TIMESTAMPTZ,
     created           TIMESTAMPTZ NOT NULL DEFAULT NOW(),

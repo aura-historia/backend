@@ -201,9 +201,7 @@ pub trait ScraperCandidateService: Send + Sync {
     ///
     /// Unlike [`mark_fetch_failure`] this does **not** increment `failure_count` or
     /// set a `next_retry_at` backoff — these errors are not caused by the remote
-    /// server being unavailable and should not suppress future fetches.  They are
-    /// stored purely for observability so that operators can diagnose systematic
-    /// scraping problems for a given URL.
+    /// server being unavailable and should not suppress future fetches.
     async fn mark_scraper_failure(
         &self,
         shop_id: &ShopId,
@@ -327,7 +325,6 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                   last_scraped_state = $11,
                  failure_count = 0,
                  last_error_kind = NULL,
-                 last_scraper_error_kind = NULL,
                  last_error_message = NULL,
                  last_status_code = NULL,
                  next_retry_at = NULL,
@@ -366,7 +363,6 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_hash = $3,
                  failure_count = 0,
                  last_error_kind = NULL,
-                 last_scraper_error_kind = NULL,
                  last_error_message = NULL,
                  last_status_code = NULL,
                  next_retry_at = NULL,
@@ -454,7 +450,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
 
         sqlx::query(
             "UPDATE shop_urls
-             SET last_scraper_error_kind = $3,
+             SET last_error_kind = $3,
                  last_error_message = $4,
                  updated = NOW()
              WHERE shop_id = $1 AND url = $2 AND url_class = 'product'",

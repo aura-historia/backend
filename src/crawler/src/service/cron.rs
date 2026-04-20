@@ -505,7 +505,7 @@ async fn scrape_candidate(
 
 /// Returns a short, stable, machine-readable kind label for a [`ScraperError`].
 ///
-/// These labels are persisted in `shop_urls.last_scraper_error_kind` so that
+/// These labels are persisted in `shop_urls.last_error_kind` so that
 /// operators can filter / aggregate by error category without having to parse
 /// the free-text message.  The `HttpError` variant is included for completeness
 /// even though the caller currently only invokes this helper for non-HTTP errors.
