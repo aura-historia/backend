@@ -64,7 +64,6 @@ pub trait StripeService: Send + Sync {
     /// return the hosted Portal URL.
     async fn create_portal_session(
         &self,
-        user_id: &UserId,
         stripe_customer_id: &StripeCustomerId,
     ) -> Result<Url, StripeServiceError>;
 }
@@ -162,6 +161,7 @@ impl StripeService for StripeServiceImpl {
             ("mode", "subscription".to_owned()),
             ("customer", stripe_customer_id.to_string()),
             ("customer_update[address]", "auto".to_owned()),
+            ("customer_update[name]", "auto".to_owned()),
             ("line_items[0][price]", price_id.to_owned()),
             ("line_items[0][quantity]", "1".to_owned()),
             ("billing_address_collection", "required".to_owned()),
@@ -182,7 +182,6 @@ impl StripeService for StripeServiceImpl {
             ),
             ("custom_fields[0][optional]", "true".to_owned()),
             ("client_reference_id", user_id.to_string()),
-            ("metadata[userId]", user_id.to_string()),
             ("subscription_data[metadata][userId]", user_id.to_string()),
             ("success_url", self.checkout_success_url.clone()),
             ("cancel_url", self.checkout_cancel_url.clone()),
@@ -197,12 +196,10 @@ impl StripeService for StripeServiceImpl {
 
     async fn create_portal_session(
         &self,
-        user_id: &UserId,
         stripe_customer_id: &StripeCustomerId,
     ) -> Result<Url, StripeServiceError> {
         let form = vec![
             ("customer", stripe_customer_id.to_string()),
-            ("metadata[userId]", user_id.to_string()),
             ("return_url", self.portal_return_url.clone()),
         ];
 

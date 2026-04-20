@@ -35,7 +35,7 @@ pub async fn handle(
     })?;
 
     let url = stripe_service
-        .create_portal_session(&user_id, stripe_customer_id)
+        .create_portal_session(stripe_customer_id)
         .await
         .map_err(|err| {
             let detail = err.to_string();
@@ -77,7 +77,7 @@ mod tests {
         let mut stripe_service = MockStripeService::default();
         stripe_service
             .expect_create_portal_session()
-            .return_once(|_, _| {
+            .return_once(|_| {
                 Box::pin(async move {
                     Ok(Url::parse("https://billing.stripe.com/p/session/test_123").unwrap())
                 })

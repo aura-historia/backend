@@ -68,7 +68,7 @@ async fn main() -> Result<(), Error> {
         );
         stripe_service
             .expect_create_portal_session()
-            .returning(|_, customer_id| {
+            .returning(|customer_id| {
                 let url = url::Url::parse(&format!(
                     "https://billing.stripe.com/p/session/{customer_id}"
                 ))
