@@ -161,6 +161,7 @@ impl StripeService for StripeServiceImpl {
         let form = vec![
             ("mode", "subscription".to_owned()),
             ("customer", stripe_customer_id.to_string()),
+            ("customer_update[address]", "auto".to_owned()),
             ("line_items[0][price]", price_id.to_owned()),
             ("line_items[0][quantity]", "1".to_owned()),
             ("billing_address_collection", "required".to_owned()),
