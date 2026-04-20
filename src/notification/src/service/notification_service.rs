@@ -2985,6 +2985,44 @@ mod tests {
         use common::user_search_filter_id::UserSearchFilterId;
         use rstest::rstest;
 
+        const ALL_TEMPLATE_PATHS: &[&str] = &[
+            "mjml/watchlist/product-update/price/de.mjml",
+            "mjml/watchlist/product-update/price/en.mjml",
+            "mjml/watchlist/product-update/price/es.mjml",
+            "mjml/watchlist/product-update/price/fr.mjml",
+            "mjml/watchlist/product-update/price/it.mjml",
+            "mjml/watchlist/product-update/state/de.mjml",
+            "mjml/watchlist/product-update/state/en.mjml",
+            "mjml/watchlist/product-update/state/es.mjml",
+            "mjml/watchlist/product-update/state/fr.mjml",
+            "mjml/watchlist/product-update/state/it.mjml",
+            "mjml/search-filter/match/de.mjml",
+            "mjml/search-filter/match/en.mjml",
+            "mjml/search-filter/match/es.mjml",
+            "mjml/search-filter/match/fr.mjml",
+            "mjml/search-filter/match/it.mjml",
+            "mjml/partner-application/approval/de.mjml",
+            "mjml/partner-application/approval/en.mjml",
+            "mjml/partner-application/approval/es.mjml",
+            "mjml/partner-application/approval/fr.mjml",
+            "mjml/partner-application/approval/it.mjml",
+            "mjml/partner-application/rejection/de.mjml",
+            "mjml/partner-application/rejection/en.mjml",
+            "mjml/partner-application/rejection/es.mjml",
+            "mjml/partner-application/rejection/fr.mjml",
+            "mjml/partner-application/rejection/it.mjml",
+        ];
+
+        const REQUIRED_IMPRINT_FIELDS: &[&str] = &[
+            "Imprint / Impressum",
+            "Trade name: Aura Historia",
+            "Owner: Julian Bruder Einzelunternehmen",
+            "Address: Hardenbergstraße 80, 04275 Leipzig, Germany",
+            "julian.bruder@aura-historia.com",
+            "contact@aura-historia.com",
+            "VAT ID: requested",
+        ];
+
         fn load_template(relative_path: &str) -> String {
             let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .parent()
@@ -3367,19 +3405,15 @@ mod tests {
         }
 
         #[test]
-        fn should_use_contact_email_in_all_templates() {
-            let templates = [
-                "mjml/watchlist/product-update/price/en.mjml",
-                "mjml/watchlist/product-update/state/en.mjml",
-                "mjml/search-filter/match/en.mjml",
-            ];
-
-            for template_path in templates {
+        fn should_include_contact_email_and_complete_imprint_in_all_templates() {
+            for template_path in ALL_TEMPLATE_PATHS {
                 let template = load_template(template_path);
-                assert!(
-                    template.contains("contact@aura-historia.com"),
-                    "Template '{template_path}' should use contact@aura-historia.com"
-                );
+                for required_field in REQUIRED_IMPRINT_FIELDS {
+                    assert!(
+                        template.contains(required_field),
+                        "Template '{template_path}' should contain imprint field '{required_field}'"
+                    );
+                }
                 assert!(
                     !template.contains("support@aura-historia.com"),
                     "Template '{template_path}' should NOT use support@aura-historia.com"
