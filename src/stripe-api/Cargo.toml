@@ -18,8 +18,9 @@ aws-sdk-dynamodb = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
-url = { workspace = true }
+url = { workspace = true, features = ["serde"] }
 thiserror = { workspace = true }
+serde-email = { workspace = true }
 
 [dev-dependencies]
 common = { workspace = true, features = ["test-data"] }

@@ -25,13 +25,18 @@ Parameters:
   StripeUltimateProductId:
     Type: String
     Description: "Stripe product-id (prod_…) corresponding to the 'Ultimate' user-tier."
-  StripeProPriceId:
+  StripeProMonthlyPriceId:
     Type: String
-    Description: "Stripe price-id (price_…) for the 'Pro' user-tier subscription, used as the single line-item of every Checkout-Session created by 'stripe-api'."
-  FrontendBaseUrl:
+    Description: "Stripe price-id (price_…) for the monthly 'Pro' subscription."
+  StripeProYearlyPriceId:
     Type: String
-    Description: "Base URL of the user-facing frontend, used to build success / cancel / return URLs for Stripe Checkout and Customer-Portal sessions."
-    Default: "https://aura-historia.com"
+    Description: "Stripe price-id (price_…) for the yearly 'Pro' subscription."
+  StripeUltimateMonthlyPriceId:
+    Type: String
+    Description: "Stripe price-id (price_…) for the monthly 'Ultimate' subscription."
+  StripeUltimateYearlyPriceId:
+    Type: String
+    Description: "Stripe price-id (price_…) for the yearly 'Ultimate' subscription."
 
 Resources:
   PrimaryUserPool:
@@ -806,6 +811,7 @@ Resources:
                 Action:
                   - dynamodb:GetItem
                   - dynamodb:Query
+                  - dynamodb:UpdateItem
                 Resource:
                   - !GetAtt TableOne.Arn
                   - !Sub "${TableOne.Arn}/index/*"
@@ -828,8 +834,13 @@ Resources:
           STAGE: "dev"
           DYNAMODB_TABLE_NAME: !Ref TableOne
           STRIPE_API_KEY: !Sub "{{resolve:ssm:/secrets/dev/stripe-api-key}}"
-          STRIPE_PRO_PRICE_ID: !Ref StripeProPriceId
-          FRONTEND_BASE_URL: !Ref FrontendBaseUrl
+          STRIPE_PRO_MONTHLY_PRICE_ID: !Ref StripeProMonthlyPriceId
+          STRIPE_PRO_YEARLY_PRICE_ID: !Ref StripeProYearlyPriceId
+          STRIPE_ULTIMATE_MONTHLY_PRICE_ID: !Ref StripeUltimateMonthlyPriceId
+          STRIPE_ULTIMATE_YEARLY_PRICE_ID: !Ref StripeUltimateYearlyPriceId
+          STRIPE_CHECKOUT_SUCCESS_URL: "https://stage.aura-historia.com/billing/success"
+          STRIPE_CHECKOUT_CANCEL_URL: "https://stage.aura-historia.com/billing/cancel"
+          STRIPE_PORTAL_RETURN_URL: "https://stage.aura-historia.com/billing"
   StripeApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:

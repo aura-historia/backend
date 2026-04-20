@@ -7975,6 +7975,7 @@ dependencies = [
  "reqwest 0.12.28",
  "rstest",
  "serde",
+ "serde-email",
  "serde_json",
  "test-api",
  "thiserror 2.0.18",

@@ -1,9 +1,11 @@
-use crate::LiveMode;
+use crate::billing::BillingRequest;
 use crate::service::StripeService;
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::{INTERNAL_SERVER_ERROR, UNPROCESSABLE_ENTITY};
+use common::api::error_code::{
+    BAD_BODY_VALUE, INTERNAL_SERVER_ERROR, STRIPE_CUSTOMER_DOES_NOT_EXIST,
+};
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
 use serde::Serialize;
@@ -13,28 +15,43 @@ use user::service::user_service::UserService;
 #[derive(Debug, Serialize)]
 pub struct PortalSessionResponse {
     pub url: Url,
-    pub livemode: bool,
-    #[serde(rename = "userId")]
-    pub user_id: common::user_id::UserId,
 }
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     stripe_service: &impl StripeService,
-    user_service: &impl UserService,
-    live_mode: LiveMode,
+    user_service: &(impl UserService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
 
+    // The portal endpoint also accepts the same `{ plan, cycle }` body for
+    // forward-compatibility with future portal-config selection. The values
+    // are validated to keep both endpoints' contracts symmetrical, but the
+    // current Stripe portal session does not branch on them.
+    let body = event
+        .payload
+        .body
+        .filter(|str| !str.is_empty())
+        .ok_or_else(|| {
+            let err_msg = "Body cannot be empty";
+            ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_detail(err_msg)
+        })?;
+    let _billing_request: BillingRequest = serde_json::from_str(&body).map_err(|err| {
+        let err_msg = err.to_string();
+        ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
+    })?;
+
     let user = user_service.find_user(&user_id).await?;
 
-    // The user MUST have a `stripe_customer_id` because the customer-portal is
-    // scoped to existing customers; without one there is nothing to manage.
+    // The user MUST have a `stripe_customer_id` because the customer-portal
+    // is scoped to existing customers; without one there is nothing to
+    // manage.
     let stripe_customer_id = user.stripe_customer_id.as_ref().ok_or_else(|| {
         let err_msg =
             "User has never had a Stripe subscription; no customer-portal session can be created";
-        ApiError::unprocessable_entity(UNPROCESSABLE_ENTITY, err_msg.into()).with_detail(err_msg)
+        ApiError::unprocessable_entity(STRIPE_CUSTOMER_DOES_NOT_EXIST, err_msg.into())
+            .with_detail(err_msg)
     })?;
 
     let url = stripe_service
@@ -46,22 +63,17 @@ pub async fn handle(
                 .with_detail(detail)
         })?;
 
-    let response_data = PortalSessionResponse {
-        url,
-        livemode: live_mode.0,
-        user_id,
-    };
-
     Ok(ApiGatewayV2HttpResponseBuilder::json(201)
-        .body_serde(response_data)?
+        .body_serde(PortalSessionResponse { url })?
         .build())
 }
 
 #[cfg(test)]
 mod tests {
     use super::handle;
-    use crate::LiveMode;
+    use crate::billing::{BillingCycle, BillingPlan, BillingRequest};
     use crate::service::MockStripeService;
+    use common::api::error_code::STRIPE_CUSTOMER_DOES_NOT_EXIST;
     use common::stripe_customer_id::StripeCustomerId;
     use common::user_id::UserId;
     use fake::{Fake, Faker};
@@ -70,6 +82,13 @@ mod tests {
     use url::Url;
     use user::core::user::User;
     use user::service::user_service::MockUserService;
+
+    fn body() -> BillingRequest {
+        BillingRequest {
+            plan: BillingPlan::Pro,
+            cycle: BillingCycle::Monthly,
+        }
+    }
 
     fn user_with_stripe_customer_id() -> User {
         let mut user: User = Faker.fake();
@@ -96,19 +115,14 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
                 .jwt_claim("sub", UserId::new())
-                .stage("ephemeral")
+                .body_serde(&body())
                 .build(),
             context: Default::default(),
         };
 
-        let response = handle(
-            lambda_event,
-            &stripe_service,
-            &user_service,
-            LiveMode(false),
-        )
-        .await
-        .unwrap();
+        let response = handle(lambda_event, &stripe_service, &user_service)
+            .await
+            .unwrap();
 
         assert_eq!(201, response.status_code);
         let body = match response.body.unwrap() {
@@ -116,12 +130,12 @@ mod tests {
             _ => panic!("expected text body"),
         };
         assert!(body.contains("billing.stripe.com"));
-        assert!(body.contains("\"livemode\":false"));
-        assert!(body.contains("\"userId\""));
+        assert!(!body.contains("livemode"));
+        assert!(!body.contains("userId"));
     }
 
     #[tokio::test]
-    async fn should_422_when_user_has_no_stripe_customer_id() {
+    async fn should_422_with_dedicated_error_code_when_user_has_no_stripe_customer_id() {
         let mut user = Faker.fake::<User>();
         user.stripe_customer_id = None;
         let mut user_service = MockUserService::default();
@@ -135,20 +149,37 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
                 .jwt_claim("sub", UserId::new())
+                .body_serde(&body())
                 .build(),
             context: Default::default(),
         };
 
-        let actual = handle(
-            lambda_event,
-            &stripe_service,
-            &user_service,
-            LiveMode(false),
-        )
-        .await
-        .unwrap_err();
+        let actual = handle(lambda_event, &stripe_service, &user_service)
+            .await
+            .unwrap_err();
 
         assert_eq!(422, actual.status);
+        assert_eq!(STRIPE_CUSTOMER_DOES_NOT_EXIST, actual.error);
+    }
+
+    #[tokio::test]
+    async fn should_400_when_body_is_missing() {
+        let user_service = MockUserService::default();
+        let stripe_service = MockStripeService::default();
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::POST)
+                .jwt_claim("sub", UserId::new())
+                .build(),
+            context: Default::default(),
+        };
+
+        let actual = handle(lambda_event, &stripe_service, &user_service)
+            .await
+            .unwrap_err();
+
+        assert_eq!(400, actual.status);
     }
 
     #[tokio::test]
@@ -160,18 +191,14 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
+                .body_serde(&body())
                 .build(),
             context: Default::default(),
         };
 
-        let actual = handle(
-            lambda_event,
-            &stripe_service,
-            &user_service,
-            LiveMode(false),
-        )
-        .await
-        .unwrap_err();
+        let actual = handle(lambda_event, &stripe_service, &user_service)
+            .await
+            .unwrap_err();
 
         assert_eq!(401, actual.status);
     }

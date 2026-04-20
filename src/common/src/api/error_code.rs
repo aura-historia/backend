@@ -60,6 +60,11 @@ pub const SEARCH_FILTER_QUOTA_EXCEEDED: ApiErrorCode = ApiErrorCode("SEARCH_FILT
 pub const SEARCH_FILTER_RESTRICTED_FEATURE: ApiErrorCode =
     ApiErrorCode("SEARCH_FILTER_RESTRICTED_FEATURE");
 
+pub const STRIPE_CUSTOMER_ALREADY_EXISTS: ApiErrorCode =
+    ApiErrorCode("STRIPE_CUSTOMER_ALREADY_EXISTS");
+pub const STRIPE_CUSTOMER_DOES_NOT_EXIST: ApiErrorCode =
+    ApiErrorCode("STRIPE_CUSTOMER_DOES_NOT_EXIST");
+
 impl Display for ApiErrorCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)

@@ -4,30 +4,18 @@ use common::api::{
     error_code::INTERNAL_SERVER_ERROR,
 };
 use lambda_runtime::LambdaEvent;
+use std::collections::HashMap;
 use user::service::user_service::UserService;
 
 use crate::service::StripeService;
 
+pub mod billing;
 pub mod checkout;
 pub mod portal;
 pub mod service;
 
-/// Whether the lambda runs against Stripe's live API (`prod` stage) or the
-/// test API (any other stage). The frontend uses this to decide whether to
-/// surface real-billing UX.
-#[derive(Debug, Clone, Copy)]
-pub struct LiveMode(pub bool);
-
-impl LiveMode {
-    /// Resolves [`LiveMode`] from the `STAGE` env-var. Only `STAGE=prod`
-    /// returns `true`; missing or any other value returns `false`.
-    pub fn from_stage(stage: Option<&str>) -> Self {
-        Self(matches!(stage, Some("prod")))
-    }
-}
-
 #[tracing::instrument(
-    skip(event, stripe_service, user_service, live_mode),
+    skip(event, stripe_service, user_service, price_ids),
     fields(
         requestId = %event.context.request_id,
         method = event.payload.request_context.http.method.as_str(),
@@ -41,9 +29,9 @@ pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     stripe_service: &impl StripeService,
     user_service: &(impl UserService + Sync),
-    live_mode: LiveMode,
+    price_ids: &HashMap<&'static str, String>,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(event, stripe_service, user_service, live_mode).await {
+    match handle(event, stripe_service, user_service, price_ids).await {
         Ok(response) => Ok(response),
         Err(err) => {
             log_api_error(&err);
@@ -56,14 +44,14 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     stripe_service: &impl StripeService,
     user_service: &(impl UserService + Sync),
-    live_mode: LiveMode,
+    price_ids: &HashMap<&'static str, String>,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
         Some("POST /api/v1/me/billing/checkout") => {
-            checkout::handle(event, stripe_service, user_service, live_mode).await
+            checkout::handle(event, stripe_service, user_service, price_ids).await
         }
         Some("POST /api/v1/me/billing/portal") => {
-            portal::handle(event, stripe_service, user_service, live_mode).await
+            portal::handle(event, stripe_service, user_service).await
         }
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,

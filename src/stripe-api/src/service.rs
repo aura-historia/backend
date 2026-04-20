@@ -11,6 +11,7 @@
 
 use async_trait::async_trait;
 use common::{stripe_customer_id::StripeCustomerId, user_id::UserId};
+use serde_email::Email;
 use thiserror::Error;
 use url::Url;
 
@@ -22,21 +23,41 @@ pub enum StripeServiceError {
     #[error("Stripe responded with status {status}: {body}")]
     Api { status: u16, body: String },
 
-    #[error("Stripe response is missing the expected 'url' field.")]
-    MissingUrl,
+    #[error("Stripe response is missing the expected '{0}' field.")]
+    MissingField(&'static str),
+}
+
+/// Strongly-typed view of the data we forward to Stripe when creating a
+/// `Customer`. Using a struct (instead of separate parameters) keeps the
+/// trait signature stable as we add more fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateStripeCustomer {
+    pub user_id: UserId,
+    pub email: Email,
+    pub name: Option<String>,
 }
 
 /// Subset of the Stripe API consumed by `stripe-api`.
 #[async_trait]
 #[mockall::automock]
 pub trait StripeService: Send + Sync {
-    /// Create a new Stripe Checkout-Session for the given user and return the
-    /// hosted Checkout URL.
-    ///
-    /// `livemode` is enforced server-side by Stripe based on the supplied API
-    /// key but is also surfaced through the [`crate::CheckoutSessionResponse`]
-    /// payload so the frontend can sanity-check it.
-    async fn create_checkout_session(&self, user_id: &UserId) -> Result<Url, StripeServiceError>;
+    /// Create a Stripe `Customer` for the given user and return the resulting
+    /// `cus_…` id. Called from the checkout endpoint when the user does not
+    /// yet have a `stripe_customer_id` so that subsequent checkouts and the
+    /// customer-portal can re-use it.
+    async fn create_customer(
+        &self,
+        customer: &CreateStripeCustomer,
+    ) -> Result<StripeCustomerId, StripeServiceError>;
+
+    /// Create a new Stripe Checkout-Session for an *existing* Stripe customer
+    /// and return the hosted Checkout URL.
+    async fn create_checkout_session(
+        &self,
+        user_id: &UserId,
+        stripe_customer_id: &StripeCustomerId,
+        price_id: &str,
+    ) -> Result<Url, StripeServiceError>;
 
     /// Create a new Stripe Billing-Portal-Session for the given customer and
     /// return the hosted Portal URL.
@@ -50,28 +71,35 @@ pub trait StripeService: Send + Sync {
 /// Production implementation calling the Stripe REST API.
 ///
 /// All endpoints accept `application/x-www-form-urlencoded` bodies and return
-/// JSON, see <https://stripe.com/docs/api/checkout/sessions/create> and
+/// JSON, see <https://stripe.com/docs/api/customers/create>,
+/// <https://stripe.com/docs/api/checkout/sessions/create>, and
 /// <https://stripe.com/docs/api/customer_portal/sessions/create>.
 pub struct StripeServiceImpl {
     client: reqwest::Client,
     api_key: String,
     api_base_url: String,
-    /// Stripe `Price` id (`price_…`) used as the single line-item of every
-    /// Checkout-Session created by this service.
-    price_id: String,
-    /// Base URL of the user-facing frontend, used to construct
-    /// `success_url`, `cancel_url`, and `return_url`.
-    frontend_base_url: String,
+    /// URL the user is redirected to after a successful checkout.
+    checkout_success_url: String,
+    /// URL the user is redirected to when they cancel checkout.
+    checkout_cancel_url: String,
+    /// URL the user is redirected to after closing the customer-portal.
+    portal_return_url: String,
 }
 
 impl StripeServiceImpl {
-    pub fn new(api_key: String, price_id: String, frontend_base_url: String) -> Self {
+    pub fn new(
+        api_key: String,
+        checkout_success_url: String,
+        checkout_cancel_url: String,
+        portal_return_url: String,
+    ) -> Self {
         Self {
             client: reqwest::Client::new(),
             api_key,
             api_base_url: "https://api.stripe.com".to_owned(),
-            price_id,
-            frontend_base_url,
+            checkout_success_url,
+            checkout_cancel_url,
+            portal_return_url,
         }
     }
 
@@ -79,7 +107,7 @@ impl StripeServiceImpl {
         &self,
         path: &str,
         form: &[(&str, String)],
-    ) -> Result<Url, StripeServiceError> {
+    ) -> Result<serde_json::Value, StripeServiceError> {
         let url = format!("{}{}", self.api_base_url, path);
         let response = self
             .client
@@ -98,35 +126,71 @@ impl StripeServiceImpl {
             });
         }
 
-        let body: serde_json::Value = response.json().await?;
-        body.get("url")
-            .and_then(|v| v.as_str())
-            .and_then(|s| Url::parse(s).ok())
-            .ok_or(StripeServiceError::MissingUrl)
+        Ok(response.json().await?)
     }
 }
 
 #[async_trait]
 impl StripeService for StripeServiceImpl {
-    async fn create_checkout_session(&self, user_id: &UserId) -> Result<Url, StripeServiceError> {
+    async fn create_customer(
+        &self,
+        customer: &CreateStripeCustomer,
+    ) -> Result<StripeCustomerId, StripeServiceError> {
+        let mut form: Vec<(&str, String)> = vec![
+            ("email", customer.email.to_string()),
+            ("metadata[userId]", customer.user_id.to_string()),
+        ];
+        if let Some(name) = customer.name.as_ref() {
+            form.push(("name", name.clone()));
+        }
+
+        let body = self.post_form("/v1/customers", &form).await?;
+        body.get("id")
+            .and_then(|v| v.as_str())
+            .map(StripeCustomerId::from)
+            .ok_or(StripeServiceError::MissingField("id"))
+    }
+
+    async fn create_checkout_session(
+        &self,
+        user_id: &UserId,
+        stripe_customer_id: &StripeCustomerId,
+        price_id: &str,
+    ) -> Result<Url, StripeServiceError> {
         let form = vec![
             ("mode", "subscription".to_owned()),
-            ("line_items[0][price]", self.price_id.clone()),
+            ("customer", stripe_customer_id.to_string()),
+            ("line_items[0][price]", price_id.to_owned()),
             ("line_items[0][quantity]", "1".to_owned()),
+            ("billing_address_collection", "required".to_owned()),
+            ("automatic_tax[enabled]", "true".to_owned()),
+            // Optional tax-id collection: customers can supply a VAT/tax id
+            // but are not required to.
+            ("tax_id_collection[enabled]", "true".to_owned()),
+            // Optional business-name collection via a custom-field. Stripe
+            // does not expose a dedicated `business_name_collection` flag,
+            // so we use the documented `custom_fields` mechanism with
+            // `optional=true` to allow (but not require) entering it.
+            ("custom_fields[0][key]", "business_name".to_owned()),
+            ("custom_fields[0][type]", "text".to_owned()),
+            ("custom_fields[0][label][type]", "custom".to_owned()),
+            (
+                "custom_fields[0][label][custom]",
+                "Business name".to_owned(),
+            ),
+            ("custom_fields[0][optional]", "true".to_owned()),
+            ("client_reference_id", user_id.to_string()),
             ("metadata[userId]", user_id.to_string()),
             ("subscription_data[metadata][userId]", user_id.to_string()),
-            ("client_reference_id", user_id.to_string()),
-            (
-                "success_url",
-                format!("{}/billing/success", self.frontend_base_url),
-            ),
-            (
-                "cancel_url",
-                format!("{}/billing/cancel", self.frontend_base_url),
-            ),
+            ("success_url", self.checkout_success_url.clone()),
+            ("cancel_url", self.checkout_cancel_url.clone()),
         ];
 
-        self.post_form("/v1/checkout/sessions", &form).await
+        let body = self.post_form("/v1/checkout/sessions", &form).await?;
+        body.get("url")
+            .and_then(|v| v.as_str())
+            .and_then(|s| Url::parse(s).ok())
+            .ok_or(StripeServiceError::MissingField("url"))
     }
 
     async fn create_portal_session(
@@ -137,9 +201,13 @@ impl StripeService for StripeServiceImpl {
         let form = vec![
             ("customer", stripe_customer_id.to_string()),
             ("metadata[userId]", user_id.to_string()),
-            ("return_url", format!("{}/billing", self.frontend_base_url)),
+            ("return_url", self.portal_return_url.clone()),
         ];
 
-        self.post_form("/v1/billing_portal/sessions", &form).await
+        let body = self.post_form("/v1/billing_portal/sessions", &form).await?;
+        body.get("url")
+            .and_then(|v| v.as_str())
+            .and_then(|s| Url::parse(s).ok())
+            .ok_or(StripeServiceError::MissingField("url"))
     }
 }
