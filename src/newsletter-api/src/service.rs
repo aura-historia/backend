@@ -26,9 +26,9 @@ impl From<ZohoCampaignsError> for ApiError {
         };
 
         match zoho_code {
-            // 2004: Invalid contact email address
+            // 2004, 2007: Invalid contact email address
             // 2005: Group email address added
-            Some(2004 | 2005) => {
+            Some(2004 | 2005 | 2007) => {
                 ApiError::bad_request(common::api::error_code::INVALID_EMAIL, Box::new(err))
             }
             _ => ApiError::internal_server_error(
