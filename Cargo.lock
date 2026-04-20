@@ -236,6 +236,7 @@ dependencies = [
  "shop",
  "shop-api",
  "shop-lambda",
+ "stripe-api",
  "stripe-lambda",
  "test-api",
  "user",
@@ -7956,6 +7957,33 @@ dependencies = [
  "unicode-bidi",
  "unicode-normalization",
  "unicode-properties",
+]
+
+[[package]]
+name = "stripe-api"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.4.0",
+ "lambda_runtime",
+ "mockall",
+ "reqwest 0.12.28",
+ "rstest",
+ "serde",
+ "serde-email",
+ "serde_json",
+ "test-api",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "user",
 ]
 
 [[package]]

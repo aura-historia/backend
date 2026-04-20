@@ -70,6 +70,7 @@ const LAMBDA_BINARIES: &[&str] = &[
     "product-lambda-update-notify-user",
     "search-filter-lambda-percolate-product",
     "stripe-lambda",
+    "stripe-api",
 ];
 
 /// Guards the one-time CloudFormation stack setup.

@@ -92,6 +92,7 @@ jobs:
           - src/newsletter-api
           - src/fxrate-lambda
           - src/stripe-lambda
+          - src/stripe-api
     steps:
       - uses: actions/checkout@v6
 
@@ -307,6 +308,10 @@ jobs:
                 StripeEventBusName=${{ vars.STRIPE_EVENT_BUS_NAME }} \
                 StripeProProductId=${{ vars.STRIPE_PRO_PRODUCT_ID }} \
                 StripeUltimateProductId=${{ vars.STRIPE_ULTIMATE_PRODUCT_ID }} \
+                StripeProMonthlyPriceId=${{ vars.STRIPE_PRO_MONTHLY_PRICE_ID }} \
+                StripeProYearlyPriceId=${{ vars.STRIPE_PRO_YEARLY_PRICE_ID }}
+                StripeUltimateMonthlyPriceId=${{ vars.STRIPE_ULTIMATE_MONTHLY_PRICE_ID }} \
+                StripeUltimateYearlyPriceId=${{ vars.STRIPE_ULTIMATE_YEARLY_PRIC
 
   aws-smoking-test:
     name: AWS Smoking-Test

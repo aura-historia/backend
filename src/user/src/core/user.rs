@@ -1,4 +1,6 @@
-use crate::core::{first_name::FirstName, last_name::LastName, role::UserRole, tier::UserTier};
+use crate::core::{
+    first_name::FirstName, last_name::LastName, name::Name, role::UserRole, tier::UserTier,
+};
 use common::{
     currency::domain::Currency, language::domain::Language, stripe_customer_id::StripeCustomerId,
     user_id::UserId,
@@ -20,6 +22,19 @@ pub struct User {
     pub stripe_customer_id: Option<StripeCustomerId>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
+}
+
+impl User {
+    /// Returns the user's full display name composed from the available
+    /// `first_name` / `last_name` parts, or `None` if neither is set.
+    pub fn name(&self) -> Option<Name> {
+        match (self.first_name.as_ref(), self.last_name.as_ref()) {
+            (Some(first), Some(last)) => Some(Name::from(format!("{first} {last}"))),
+            (Some(first), None) => Some(Name::from(first.as_ref())),
+            (None, Some(last)) => Some(Name::from(last.as_ref())),
+            (None, None) => None,
+        }
+    }
 }
 
 #[cfg(feature = "test-data")]
@@ -64,5 +79,43 @@ mod fake {
         fn should_fake_user() {
             let _ = Faker.fake::<User>();
         }
+    }
+}
+
+#[cfg(all(test, feature = "test-data"))]
+mod name_tests {
+    use crate::core::user::User;
+    use fake::{Fake, Faker};
+
+    #[test]
+    fn should_return_first_and_last_name_when_both_set_for_full_name() {
+        let mut user: User = Faker.fake();
+        user.first_name = Some("Ada".into());
+        user.last_name = Some("Lovelace".into());
+        assert_eq!(user.name().unwrap().as_ref(), "Ada Lovelace");
+    }
+
+    #[test]
+    fn should_return_first_name_when_only_first_set_for_full_name() {
+        let mut user: User = Faker.fake();
+        user.first_name = Some("Ada".into());
+        user.last_name = None;
+        assert_eq!(user.name().unwrap().as_ref(), "Ada");
+    }
+
+    #[test]
+    fn should_return_last_name_when_only_last_set_for_full_name() {
+        let mut user: User = Faker.fake();
+        user.first_name = None;
+        user.last_name = Some("Lovelace".into());
+        assert_eq!(user.name().unwrap().as_ref(), "Lovelace");
+    }
+
+    #[test]
+    fn should_return_none_when_neither_first_nor_last_set_for_full_name() {
+        let mut user: User = Faker.fake();
+        user.first_name = None;
+        user.last_name = None;
+        assert!(user.name().is_none());
     }
 }

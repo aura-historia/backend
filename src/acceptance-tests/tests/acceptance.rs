@@ -6222,3 +6222,172 @@ async fn should_set_free_tier_when_subscription_deleted_event() {
         tokio::time::sleep(Duration::from_secs(3)).await;
     }
 }
+
+// ---------------------------------------------------------------------------
+// API: Stripe billing
+// Verifies API Gateway routing, Cognito JWT auth, and Lambda execution for
+// both billing endpoints. The Lambda detects LocalStack at startup and uses a
+// MockStripeService, so no real Stripe credentials are required.
+// ---------------------------------------------------------------------------
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_201_for_billing_checkout_and_persist_stripe_customer_id_when_user_has_none() {
+    let stack = get_cfn_output();
+    let user = create_random_test_user().await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+
+    let url = format!(
+        "{}/api/v1/me/billing/checkout",
+        stack.api_gateway_endpoint_url
+    );
+    let response = reqwest::Client::new()
+        .post(url)
+        .bearer_auth(&user.access_token)
+        .json(&serde_json::json!({"plan": "PRO", "cycle": "MONTHLY"}))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(201, response.status());
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(
+        body.get("url")
+            .and_then(|v| v.as_str())
+            .unwrap()
+            .starts_with("https://checkout.stripe.com/"),
+        "expected checkout URL, got {body:?}"
+    );
+    // Response must contain only the URL — no `livemode`/`userId` leakage.
+    assert!(body.get("livemode").is_none(), "got {body:?}");
+    assert!(body.get("userId").is_none(), "got {body:?}");
+
+    // The mocked StripeService returned a deterministic `cus_mocked_<userId>`
+    // id which the lambda must have persisted on the user record.
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    let stored_user = user_repository
+        .get_user_record(&user.sub.into())
+        .await
+        .unwrap()
+        .expect("user record should exist");
+    assert_eq!(
+        stored_user
+            .stripe_customer_id
+            .as_ref()
+            .map(|id| id.as_ref()),
+        Some(format!("cus_mocked_{}", user.sub).as_str()),
+    );
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_409_for_billing_checkout_when_user_already_has_stripe_customer_id() {
+    let stack = get_cfn_output();
+    let user = create_random_test_user().await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+
+    let stripe_customer_id =
+        common::stripe_customer_id::StripeCustomerId::from(format!("cus_{}", uuid::Uuid::new_v4()));
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    user_service
+        .update_user(
+            &user.sub.into(),
+            UpdateUserCommand {
+                stripe_customer_id: Some(stripe_customer_id),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let url = format!(
+        "{}/api/v1/me/billing/checkout",
+        stack.api_gateway_endpoint_url
+    );
+    let response = reqwest::Client::new()
+        .post(url)
+        .bearer_auth(&user.access_token)
+        .json(&serde_json::json!({"plan": "PRO", "cycle": "MONTHLY"}))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(409, response.status());
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(
+        body.get("error").and_then(|v| v.as_str()),
+        Some("STRIPE_CUSTOMER_ALREADY_EXISTS"),
+    );
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_201_for_billing_portal_when_user_has_stripe_customer_id() {
+    let stack = get_cfn_output();
+    let user = create_random_test_user().await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+
+    let stripe_customer_id =
+        common::stripe_customer_id::StripeCustomerId::from(format!("cus_{}", uuid::Uuid::new_v4()));
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    user_service
+        .update_user(
+            &user.sub.into(),
+            UpdateUserCommand {
+                stripe_customer_id: Some(stripe_customer_id),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let url = format!(
+        "{}/api/v1/me/billing/portal",
+        stack.api_gateway_endpoint_url
+    );
+    let response = reqwest::Client::new()
+        .post(url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(201, response.status());
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(
+        body.get("url")
+            .and_then(|v| v.as_str())
+            .unwrap()
+            .starts_with("https://billing.stripe.com/"),
+        "expected portal URL, got {body:?}"
+    );
+    assert!(body.get("livemode").is_none(), "got {body:?}");
+    assert!(body.get("userId").is_none(), "got {body:?}");
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_422_for_billing_portal_when_user_has_no_stripe_customer_id() {
+    let stack = get_cfn_output();
+    let user = create_random_test_user().await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+
+    let url = format!(
+        "{}/api/v1/me/billing/portal",
+        stack.api_gateway_endpoint_url
+    );
+    let response = reqwest::Client::new()
+        .post(url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(422, response.status());
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(
+        body.get("error").and_then(|v| v.as_str()),
+        Some("STRIPE_CUSTOMER_DOES_NOT_EXIST"),
+    );
+}
