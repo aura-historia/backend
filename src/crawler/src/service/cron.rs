@@ -1,4 +1,6 @@
-use crate::scraper::candidate_service::{ScraperCandidate, ScraperCandidateService};
+use crate::scraper::candidate_service::{
+    ProductSnapshot, ScraperCandidate, ScraperCandidateService,
+};
 use crate::scraper::scraper_service::{ScraperError, ScraperService};
 use crate::service::product_push::{ProductPushService, normalize_to_upsert};
 use crate::service::shop_registration::ShopRegistrationService;
@@ -328,8 +330,21 @@ impl CrawlerCronJob {
     }
 }
 
+/// Metadata carried alongside a [`UpsertProductCommand`] so the push-collector
+/// can call [`ScraperCandidateService::mark_as_scraped`] only after the push
+/// has been confirmed.
+struct CandidateMeta {
+    shop_id: common::shop_id::ShopId,
+    url: url::Url,
+    hash: String,
+    snapshot: ProductSnapshot,
+}
+
 struct ScrapeCandidateOutcome {
-    command: Option<product::service::product_command::UpsertProductCommand>,
+    command: Option<(
+        product::service::product_command::UpsertProductCommand,
+        CandidateMeta,
+    )>,
     errored: bool,
     skipped: bool,
 }
@@ -338,6 +353,49 @@ struct ScrapeDomainOutcome {
     succeeded: usize,
     failed: usize,
     skipped: usize,
+}
+
+/// Pushes a batch of `(command, meta)` pairs to the product backend and then
+/// calls [`ScraperCandidateService::mark_as_scraped`] for each command that
+/// was successfully persisted.
+///
+/// The position correspondence between `commands` and `metas` is preserved so
+/// that succeeded commands can be matched back to their metadata by index.
+async fn flush_batch(
+    push_service: &Arc<dyn ProductPushService>,
+    scraper_candidates: &Arc<dyn ScraperCandidateService>,
+    batch: Vec<(
+        product::service::product_command::UpsertProductCommand,
+        CandidateMeta,
+    )>,
+) {
+    let (commands, metas): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
+
+    // Keep a copy of shops_product_ids in order so we can re-match after push.
+    let ids_in_order: Vec<String> = commands
+        .iter()
+        .map(|c| c.shops_product_id.to_string())
+        .collect();
+
+    let succeeded = push_service.push(commands).await;
+    let succeeded_ids: std::collections::HashSet<String> = succeeded
+        .iter()
+        .map(|c| c.shops_product_id.to_string())
+        .collect();
+
+    for (i, meta) in metas.into_iter().enumerate() {
+        if succeeded_ids.contains(&ids_in_order[i])
+            && let Err(e) = scraper_candidates
+                .mark_as_scraped(&meta.shop_id, &meta.url, &meta.hash, &meta.snapshot)
+                .await
+        {
+            warn!(
+                error = %e,
+                url = %meta.url,
+                "Failed to mark product as scraped after push"
+            );
+        }
+    }
 }
 
 async fn scrape_candidate(
@@ -364,17 +422,26 @@ async fn scrape_candidate(
         )
         .await
     {
-        Ok(Some(product)) => ScrapeCandidateOutcome {
-            command: normalize_to_upsert(product, &candidate),
-            errored: false,
-            skipped: false,
-        },
+        Ok(Some(scraped)) => {
+            let meta = CandidateMeta {
+                shop_id: candidate.shop_id,
+                url: candidate.url.clone(),
+                hash: scraped.hash,
+                snapshot: scraped.snapshot,
+            };
+            ScrapeCandidateOutcome {
+                command: normalize_to_upsert(scraped.product, &candidate).map(|cmd| (cmd, meta)),
+                errored: false,
+                skipped: false,
+            }
+        }
         Ok(None) => ScrapeCandidateOutcome {
             command: None,
             errored: false,
             skipped: true,
         },
         Err(e) => {
+            let error_message = e.to_string();
             if let ScraperError::HttpError { kind, .. } = &e {
                 let cooldown = retry_cooldown_for(*kind);
                 let next_retry_at = time::OffsetDateTime::now_utc()
@@ -388,8 +455,28 @@ async fn scrape_candidate(
                         &candidate.shop_id,
                         &candidate.url,
                         &format!("{kind:?}"),
+                        &error_message,
                         status_code,
                         next_retry_at,
+                    )
+                    .await
+                {
+                    warn!(
+                        error = %mark_err,
+                        url = %candidate.url,
+                        "Failed to persist scraper fetch failure metadata"
+                    );
+                }
+            } else {
+                // Non-HTTP errors: schema failures, normalization errors, etc.
+                // These do not affect retry scheduling but are persisted for observability.
+                let error_kind = scraper_error_kind(&e);
+                if let Err(mark_err) = scraper_candidates
+                    .mark_scraper_failure(
+                        &candidate.shop_id,
+                        &candidate.url,
+                        error_kind,
+                        &error_message,
                     )
                     .await
                 {
@@ -416,6 +503,25 @@ async fn scrape_candidate(
     }
 }
 
+/// Returns a short, stable, machine-readable kind label for a [`ScraperError`].
+///
+/// These labels are persisted in `shop_urls.last_error_kind` so that
+/// operators can filter / aggregate by error category without having to parse
+/// the free-text message.  The `HttpError` variant is included for completeness
+/// even though the caller currently only invokes this helper for non-HTTP errors.
+fn scraper_error_kind(e: &ScraperError) -> &'static str {
+    match e {
+        ScraperError::HttpError { .. } => "HttpError",
+        ScraperError::ProductRemoved { .. } => "ProductRemoved",
+        ScraperError::NoHost { .. } => "NoHost",
+        ScraperError::SchemaServiceError(_) => "SchemaServiceError",
+        ScraperError::SchemaFixFailed { .. } => "SchemaFixFailed",
+        ScraperError::SchemaFixApplyFailed { .. } => "SchemaFixApplyFailed",
+        ScraperError::SchemaFixAttemptsExhausted { .. } => "SchemaFixAttemptsExhausted",
+        ScraperError::NormalizationError(_) => "NormalizationError",
+    }
+}
+
 async fn scrape_domain_candidates(
     scraper: Arc<dyn ScraperService>,
     scraper_candidates: Arc<dyn ScraperCandidateService>,
@@ -423,7 +529,10 @@ async fn scrape_domain_candidates(
     domain: String,
     candidates: Vec<ScraperCandidate>,
     domain_delay: Duration,
-    command_tx: mpsc::UnboundedSender<product::service::product_command::UpsertProductCommand>,
+    command_tx: mpsc::UnboundedSender<(
+        product::service::product_command::UpsertProductCommand,
+        CandidateMeta,
+    )>,
 ) -> ScrapeDomainOutcome {
     let mut outcome = ScrapeDomainOutcome {
         succeeded: 0,
@@ -444,9 +553,9 @@ async fn scrape_domain_candidates(
 
         if candidate_outcome.errored {
             outcome.failed += 1;
-        } else if let Some(cmd) = candidate_outcome.command {
+        } else if let Some(pair) = candidate_outcome.command {
             outcome.succeeded += 1;
-            if command_tx.send(cmd).is_err() {
+            if command_tx.send(pair).is_err() {
                 error!("Command channel closed while scraper worker is running");
                 outcome.failed += 1;
                 outcome.succeeded = outcome.succeeded.saturating_sub(1);
@@ -507,29 +616,34 @@ impl CrawlerCronJob {
         let domain_delay = self.config.scraper_domain_delay;
         let semaphore = Arc::new(Semaphore::new(scraper_concurrency));
         let mut join_set: JoinSet<ScrapeDomainOutcome> = JoinSet::new();
-        let (command_tx, mut command_rx) =
-            mpsc::unbounded_channel::<product::service::product_command::UpsertProductCommand>();
+        let (command_tx, mut command_rx) = mpsc::unbounded_channel::<(
+            product::service::product_command::UpsertProductCommand,
+            CandidateMeta,
+        )>();
 
         let mut succeeded = 0usize;
         let mut failed = 0usize;
         let mut skipped = 0usize;
         let push_batch_size = self.config.push_batch_size;
         let push_service = Arc::clone(&self.product_push);
+        let scraper_candidates_push = Arc::clone(&self.scraper_candidates);
 
         let push_collector = tokio::spawn(async move {
-            let mut pending_commands: Vec<product::service::product_command::UpsertProductCommand> =
-                Vec::new();
+            let mut pending: Vec<(
+                product::service::product_command::UpsertProductCommand,
+                CandidateMeta,
+            )> = Vec::new();
 
-            while let Some(cmd) = command_rx.recv().await {
-                pending_commands.push(cmd);
-                if pending_commands.len() >= push_batch_size {
-                    let batch = std::mem::take(&mut pending_commands);
-                    push_service.push(batch).await;
+            while let Some(pair) = command_rx.recv().await {
+                pending.push(pair);
+                if pending.len() >= push_batch_size {
+                    let batch = std::mem::take(&mut pending);
+                    flush_batch(&push_service, &scraper_candidates_push, batch).await;
                 }
             }
 
-            if !pending_commands.is_empty() {
-                push_service.push(pending_commands).await;
+            if !pending.is_empty() {
+                flush_batch(&push_service, &scraper_candidates_push, pending).await;
             }
         });
 
@@ -620,8 +734,27 @@ mod tests {
 
     fn noop_product_push() -> Box<MockProductPushService> {
         let mut push = MockProductPushService::new();
-        push.expect_push().returning(|_| Box::pin(async {}));
+        push.expect_push()
+            .returning(|cmds| Box::pin(async move { cmds }));
         Box::new(push)
+    }
+
+    fn scraper_candidate(shop_name: &str, shop_type: ShopType, url: url::Url) -> ScraperCandidate {
+        ScraperCandidate {
+            shop_id: ShopId::new(),
+            shop_name: shop_name.to_string(),
+            shop_type,
+            url,
+            last_scraped_hash: None,
+            last_scraped_price: None,
+            last_scraped_price_estimate_min: None,
+            last_scraped_price_estimate_max: None,
+            last_scraped_url: None,
+            last_scraped_images_hash: None,
+            last_scraped_auction_start: None,
+            last_scraped_auction_end: None,
+            last_scraped_state: None,
+        }
     }
 
     #[tokio::test]
@@ -783,13 +916,11 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates.expect_get_candidates().returning(|_| {
             Box::pin(async {
-                Ok(vec![ScraperCandidate {
-                    shop_id: ShopId::new(),
-                    shop_name: "Test Shop".to_string(),
-                    shop_type: ShopType::CommercialDealer,
-                    url: url::Url::parse("https://example.com/product/1").unwrap(),
-                    last_scraped_hash: None,
-                }])
+                Ok(vec![scraper_candidate(
+                    "Test Shop",
+                    ShopType::CommercialDealer,
+                    url::Url::parse("https://example.com/product/1").unwrap(),
+                )])
             })
         });
 
@@ -826,19 +957,17 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates.expect_get_candidates().returning(|_| {
             Box::pin(async {
-                Ok(vec![ScraperCandidate {
-                    shop_id: ShopId::new(),
-                    shop_name: "Test Shop".to_string(),
-                    shop_type: ShopType::CommercialDealer,
-                    url: url::Url::parse("https://example.com/product/1").unwrap(),
-                    last_scraped_hash: None,
-                }])
+                Ok(vec![scraper_candidate(
+                    "Test Shop",
+                    ShopType::CommercialDealer,
+                    url::Url::parse("https://example.com/product/1").unwrap(),
+                )])
             })
         });
         scraper_candidates
             .expect_mark_fetch_failure()
             .once()
-            .returning(|_, _, _, _, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
 
         let mut scraper_service = MockScraperService::new();
         scraper_service.expect_scrape().returning(|_, url, _| {
@@ -881,20 +1010,16 @@ mod tests {
         scraper_candidates.expect_get_candidates().returning(|_| {
             Box::pin(async {
                 Ok(vec![
-                    ScraperCandidate {
-                        shop_id: ShopId::new(),
-                        shop_name: "Shop A".to_string(),
-                        shop_type: ShopType::CommercialDealer,
-                        url: url::Url::parse("https://domain-a.com/product/1").unwrap(),
-                        last_scraped_hash: None,
-                    },
-                    ScraperCandidate {
-                        shop_id: ShopId::new(),
-                        shop_name: "Shop B".to_string(),
-                        shop_type: ShopType::CommercialDealer,
-                        url: url::Url::parse("https://domain-b.com/product/2").unwrap(),
-                        last_scraped_hash: None,
-                    },
+                    scraper_candidate(
+                        "Shop A",
+                        ShopType::CommercialDealer,
+                        url::Url::parse("https://domain-a.com/product/1").unwrap(),
+                    ),
+                    scraper_candidate(
+                        "Shop B",
+                        ShopType::CommercialDealer,
+                        url::Url::parse("https://domain-b.com/product/2").unwrap(),
+                    ),
                 ])
             })
         });
@@ -941,20 +1066,8 @@ mod tests {
                 let open_url = open_url.clone();
                 Box::pin(async move {
                     Ok(vec![
-                        ScraperCandidate {
-                            shop_id: ShopId::new(),
-                            shop_name: "Shop A".to_string(),
-                            shop_type: ShopType::CommercialDealer,
-                            url: locked_url,
-                            last_scraped_hash: None,
-                        },
-                        ScraperCandidate {
-                            shop_id: ShopId::new(),
-                            shop_name: "Shop A".to_string(),
-                            shop_type: ShopType::CommercialDealer,
-                            url: open_url,
-                            last_scraped_hash: None,
-                        },
+                        scraper_candidate("Shop A", ShopType::CommercialDealer, locked_url),
+                        scraper_candidate("Shop A", ShopType::CommercialDealer, open_url),
                     ])
                 })
             });
@@ -998,27 +1111,21 @@ mod tests {
         scraper_candidates.expect_get_candidates().returning(|_| {
             Box::pin(async {
                 Ok(vec![
-                    ScraperCandidate {
-                        shop_id: ShopId::new(),
-                        shop_name: "Shop".to_string(),
-                        shop_type: ShopType::CommercialDealer,
-                        url: url::Url::parse("https://same-domain.com/product/1").unwrap(),
-                        last_scraped_hash: None,
-                    },
-                    ScraperCandidate {
-                        shop_id: ShopId::new(),
-                        shop_name: "Shop".to_string(),
-                        shop_type: ShopType::CommercialDealer,
-                        url: url::Url::parse("https://same-domain.com/product/2").unwrap(),
-                        last_scraped_hash: None,
-                    },
-                    ScraperCandidate {
-                        shop_id: ShopId::new(),
-                        shop_name: "Shop".to_string(),
-                        shop_type: ShopType::CommercialDealer,
-                        url: url::Url::parse("https://same-domain.com/product/3").unwrap(),
-                        last_scraped_hash: None,
-                    },
+                    scraper_candidate(
+                        "Shop",
+                        ShopType::CommercialDealer,
+                        url::Url::parse("https://same-domain.com/product/1").unwrap(),
+                    ),
+                    scraper_candidate(
+                        "Shop",
+                        ShopType::CommercialDealer,
+                        url::Url::parse("https://same-domain.com/product/2").unwrap(),
+                    ),
+                    scraper_candidate(
+                        "Shop",
+                        ShopType::CommercialDealer,
+                        url::Url::parse("https://same-domain.com/product/3").unwrap(),
+                    ),
                 ])
             })
         });

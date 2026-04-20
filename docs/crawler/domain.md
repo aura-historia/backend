@@ -46,7 +46,7 @@ UNKNOWN
 ```
 
 - Initial state when a URL is first inserted by the spider: `UNKNOWN`.
-- After a successful scrape, the crawler writes the normalized availability back into `shop_urls.state`. This can become `AVAILABLE`, `RESERVED`, `SOLD`, `LISTED`, `REMOVED`, or remain `UNKNOWN`.
+- After a successful scrape, the crawler writes the normalized availability back into `shop_urls.last_scraped_state`. This can become `AVAILABLE`, `RESERVED`, `SOLD`, `LISTED`, `REMOVED`, or remain `UNKNOWN`.
 - The same normalized product state is also propagated separately into the product backend via the product upsert command path.
 - `REMOVED`: set when the HTTP fetch returns a non-200 / page no longer exists.
 - Scraper re-visits URLs in states `UNKNOWN`, `LISTED`, `AVAILABLE`, `RESERVED` and excludes terminal states `SOLD` / `REMOVED`.

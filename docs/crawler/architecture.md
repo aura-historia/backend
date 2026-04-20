@@ -188,7 +188,7 @@ SELECT su.shop_id, su.url, su.last_scraped_hash
 FROM   shop_urls su
 JOIN   shops s ON s.shop_id = su.shop_id
 WHERE  su.url_class  = 'product'
-  AND  su.state      IN ('UNKNOWN', 'LISTED', 'AVAILABLE', 'RESERVED')
+  AND  su.last_scraped_state IN ('UNKNOWN', 'LISTED', 'AVAILABLE', 'RESERVED')
   AND  (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
   AND  (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
   AND  s.active = TRUE
@@ -237,7 +237,7 @@ scrape(shop_id, url, last_scraped_hash)
     │    ├── images: resolve relative URLs against page URL
     │    └── dates: parse ISO 8601 / RFC 3339
     │    └── other normalization error (price/title bad) → [schema-fix flow B]
- ├── set_state(shop_id, url, normalized_state) → updates shop_urls.state
+ ├── set_state(shop_id, url, normalized_state) → updates shop_urls.last_scraped_state
  ├── mark_as_scraped(shop_id, url, current_hash) → updates hash/timestamp bookkeeping
  └── if schema was fixed this run → reset_fix_attempts(domain)
 ```
@@ -288,14 +288,14 @@ The two subsystems communicate exclusively through `shop_urls`:
 
 ```
 Spider writes:
-  INSERT INTO shop_urls (url, shop_id, domain_id, url_class, state, ...)
+  INSERT INTO shop_urls (url, shop_id, domain_id, url_class, last_scraped_state, ...)
   ON CONFLICT (url) DO UPDATE SET url_class = ..., domain_id = ..., updated = NOW()
 
 Scraper reads:
   SELECT ... FROM shop_urls WHERE url_class = 'product' AND ...
 
 Scraper writes back:
-  UPDATE shop_urls SET state = $state, updated = NOW()
+  UPDATE shop_urls SET last_scraped_state = $state, updated = NOW()
   UPDATE shop_urls SET last_scraped_hash = $hash, last_scraped = NOW()
   UPDATE shop_urls SET state = 'REMOVED', updated = NOW()
 ```

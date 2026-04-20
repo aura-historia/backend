@@ -1,7 +1,7 @@
 use crate::network::policy::{
     NetworkAction, NetworkErrorKind, RetryPolicy, action_for, backoff_delay, classify_reqwest_error,
 };
-use crate::scraper::candidate_service::ScraperCandidateService;
+use crate::scraper::candidate_service::{ProductSnapshot, ScraperCandidateService};
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct, ShopsProductSchema,
 };
@@ -217,18 +217,38 @@ pub enum ScraperError {
 // ScraperService trait
 // ---------------------------------------------------------------------------
 
+/// Result of a successful scrape — the normalized product together with the
+/// metadata needed to mark the URL as scraped *after* the push has been
+/// confirmed.
+#[derive(Debug)]
+pub struct ScrapedProduct {
+    pub product: NormalizedProduct,
+    /// SHA-256 of the page's `<main>` fragment (or full HTML) that was used to
+    /// detect whether the page had changed.
+    pub hash: String,
+    /// Snapshot of the normalized product's tracked fields, serialized to the
+    /// same TEXT representation used in the database.
+    pub snapshot: ProductSnapshot,
+}
+
+// ---------------------------------------------------------------------------
+// ScraperService trait
+// ---------------------------------------------------------------------------
+
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait ScraperService: Send + Sync {
     /// Fetch the product page at `url`, extract structured data using the CSS
     /// selector schema for `shop_id`, normalise the raw data, and return a
-    /// [`NormalizedProduct`].
+    /// [`ScrapedProduct`].  The caller is responsible for calling
+    /// [`ScraperCandidateService::mark_as_scraped`] once the product has been
+    /// successfully pushed to the backend.
     async fn scrape(
         &self,
         shop_id: &ShopId,
         url: &Url,
         last_scraped_hash: Option<&str>,
-    ) -> Result<Option<NormalizedProduct>, ScraperError>;
+    ) -> Result<Option<ScrapedProduct>, ScraperError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -467,7 +487,7 @@ impl ScraperService for ScraperServiceImpl {
         shop_id: &ShopId,
         url: &Url,
         last_scraped_hash: Option<&str>,
-    ) -> Result<Option<NormalizedProduct>, ScraperError> {
+    ) -> Result<Option<ScrapedProduct>, ScraperError> {
         let domain = url
             .host_str()
             .ok_or_else(|| ScraperError::NoHost { url: url.clone() })?;
@@ -502,10 +522,10 @@ impl ScraperService for ScraperServiceImpl {
             debug!(url = %url, "Hash matches last scraped hash, skipping extraction.");
             if let Err(e) = self
                 .candidate_service
-                .mark_as_scraped(shop_id, url, &current_hash)
+                .touch_scraped(shop_id, url, &current_hash)
                 .await
             {
-                warn!(error = %e, "Failed to mark url as scraped after hash-match skip");
+                warn!(error = %e, "Failed to touch url as scraped after hash-match skip");
             }
             return Ok(None);
         }
@@ -571,13 +591,11 @@ impl ScraperService for ScraperServiceImpl {
         self.persist_scraped_state_best_effort(shop_id, url, UrlState::from(final_product.state))
             .await;
 
-        if let Err(e) = self
-            .candidate_service
-            .mark_as_scraped(shop_id, url, &current_hash)
-            .await
-        {
-            warn!(error = %e, "Failed to mark product as scraped after success");
-        }
+        // `mark_as_scraped` is intentionally NOT called here.  The caller
+        // (cron pipeline) must call it only after the push to the product
+        // backend has been confirmed, so that a failed push is retried on
+        // the next cycle.
+        let snapshot = ProductSnapshot::from_normalized(&final_product);
 
         // Reset the consecutive-failure counter on every successful scrape, not
         // only when a fix was applied.  This prevents the budget from exhausting
@@ -593,7 +611,11 @@ impl ScraperService for ScraperServiceImpl {
             url = %url,
             "Scraping complete"
         );
-        Ok(Some(final_product))
+        Ok(Some(ScrapedProduct {
+            product: final_product,
+            hash: current_hash,
+            snapshot,
+        }))
     }
 }
 
@@ -840,7 +862,6 @@ mod tests {
     use common::product_state::domain::ProductState;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
-    use mockall::Sequence;
     use product::core::title::Title;
     use time::OffsetDateTime;
     use url::Url;
@@ -943,11 +964,8 @@ mod tests {
                     && *received_state == state
             })
             .returning(|_, _, _| Box::pin(async { Ok(()) }));
-
-        cand_svc
-            .expect_mark_as_scraped()
-            .once()
-            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+        // `mark_as_scraped` is no longer called inside `scrape()` — it is
+        // called by the cron pipeline after a successful push.
     }
 
     // -----------------------------------------------------------------------
@@ -1002,9 +1020,12 @@ mod tests {
 
         let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
 
-        assert_eq!(result.shops_product_id, ShopsProductId::from("SKU-42"));
-        assert_eq!(result.state, ProductState::Available);
-        assert_eq!(result.url, url);
+        assert_eq!(
+            result.product.shops_product_id,
+            ShopsProductId::from("SKU-42")
+        );
+        assert_eq!(result.product.state, ProductState::Available);
+        assert_eq!(result.product.url, url);
     }
 
     #[tokio::test]
@@ -1052,7 +1073,7 @@ mod tests {
 
         let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
 
-        assert_eq!(result, norm);
+        assert_eq!(result.product, norm);
     }
 
     #[tokio::test]
@@ -1072,7 +1093,7 @@ mod tests {
         let norm_svc = MockProductNormalizationService::new();
         let mut cand_svc = MockScraperCandidateService::new();
         cand_svc
-            .expect_mark_as_scraped()
+            .expect_touch_scraped()
             .once()
             .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
@@ -1202,7 +1223,10 @@ mod tests {
 
         let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
 
-        assert_eq!(result.shops_product_id, ShopsProductId::from("SKU-42"));
+        assert_eq!(
+            result.product.shops_product_id,
+            ShopsProductId::from("SKU-42")
+        );
     }
 
     #[tokio::test]
@@ -1776,7 +1800,7 @@ mod tests {
 
         let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
 
-        assert_eq!(result.url, canonical_url);
+        assert_eq!(result.product.url, canonical_url);
     }
 
     // -----------------------------------------------------------------------
@@ -2032,7 +2056,10 @@ mod tests {
         // This scrape should succeed (fix applied + normalization ok) and reset the counter
         let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
 
-        assert_eq!(result.shops_product_id, ShopsProductId::from("SKU-42"));
+        assert_eq!(
+            result.product.shops_product_id,
+            ShopsProductId::from("SKU-42")
+        );
 
         // Counter is now 0 — verify by checking the internal state directly
         let attempts = service.schema_fix_attempts.lock().await;
@@ -2113,23 +2140,18 @@ mod tests {
                 Box::pin(async move { Ok(n) })
             });
 
+        // mark_as_scraped is no longer called inside scrape() — it is the
+        // caller's responsibility (cron flush_batch) after push succeeds.
         let mut cand_svc = MockScraperCandidateService::new();
-        let mut seq = Sequence::new();
         let url_for_set_state = url.clone();
         cand_svc
             .expect_set_state()
             .once()
-            .in_sequence(&mut seq)
             .withf(move |received_shop_id, received_url, received_state| {
                 *received_shop_id == id
                     && received_url == &url_for_set_state
                     && *received_state == UrlState::Sold
             })
-            .returning(|_, _, _| Box::pin(async { Ok(()) }));
-        cand_svc
-            .expect_mark_as_scraped()
-            .once()
-            .in_sequence(&mut seq)
             .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
         let service = ScraperServiceImpl::new(
@@ -2142,6 +2164,9 @@ mod tests {
 
         let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
 
-        assert_eq!(result.state, ProductState::Sold);
+        assert_eq!(result.product.state, ProductState::Sold);
+        // The snapshot must carry the persisted state so flush_batch can call
+        // mark_as_scraped with the correct data.
+        assert!(!result.snapshot.state.is_empty());
     }
 }

@@ -18,10 +18,6 @@ use async_trait::async_trait;
 use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
 use common::shop_name::ShopName;
-use product::core::authenticity::Authenticity;
-use product::core::condition::Condition;
-use product::core::provenance::Provenance;
-use product::core::restoration::Restoration;
 use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
 use product::service::command_service::CommandProductService;
@@ -39,12 +35,15 @@ use crate::scraper::normalization::product::NormalizedProduct;
 
 /// Accepts a batch of [`UpsertProductCommand`]s and forwards them to the backend.
 ///
-/// Failures (commands that could not be persisted) are logged but not propagated —
-/// the crawler is designed to retry on the next scraping cycle.
+/// Returns the subset of commands that were **successfully** persisted.
+/// Failed commands are logged but not propagated — the crawler retries on the
+/// next scraping cycle.  Callers should only call
+/// [`ScraperCandidateService::mark_as_scraped`] for the returned (succeeded)
+/// commands.
 #[async_trait]
 #[mockall::automock]
 pub trait ProductPushService: Send + Sync {
-    async fn push(&self, commands: Vec<UpsertProductCommand>);
+    async fn push(&self, commands: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand>;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,16 +63,33 @@ impl ProductPushServiceImpl {
 
 #[async_trait]
 impl ProductPushService for ProductPushServiceImpl {
-    async fn push(&self, commands: Vec<UpsertProductCommand>) {
+    async fn push(&self, commands: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand> {
         let count = commands.len();
-        let failures = self.command_service.upsert(commands).await;
-        if !failures.is_empty() {
+        let failed = self.command_service.upsert(commands.clone()).await;
+        if !failed.is_empty() {
             warn!(
-                failures = failures.len(),
+                failures = failed.len(),
                 total = count,
                 "Some products failed to upsert"
             );
+            for cmd in &failed {
+                let shop_id_uuid: uuid::Uuid = cmd.shop_id.into();
+                warn!(
+                    shop_id = %shop_id_uuid,
+                    shops_product_id = %cmd.shops_product_id,
+                    url = ?cmd.url.as_ref().map(|u| u.as_str()),
+                    "Product failed to upsert — will be retried on next scrape cycle"
+                );
+            }
         }
+        let failed_ids: std::collections::HashSet<_> = failed
+            .iter()
+            .map(|c| (&c.shop_id, c.shops_product_id.to_string()))
+            .collect();
+        commands
+            .into_iter()
+            .filter(|c| !failed_ids.contains(&(&c.shop_id, c.shops_product_id.to_string())))
+            .collect()
     }
 }
 
@@ -85,9 +101,9 @@ impl ProductPushService for ProductPushServiceImpl {
 ///
 /// Used by the demo binary where no DynamoDB/AWS is available.  Each entry in the
 /// JSON array is an [`UpsertCommandSnapshot`] containing the **full** product payload —
-/// title, description, price, images, state, auction dates — in addition to the shop
-/// identity fields.  This makes the file output a faithful representation of what would
-/// be forwarded to DynamoDB in production.
+/// title, description, price, images, state, and auction dates — in addition to the
+/// shop identity fields.  This makes the file output a faithful representation of what
+/// would be forwarded to DynamoDB in production.
 pub struct FileProductPushService {
     output_path: std::path::PathBuf,
 }
@@ -192,9 +208,9 @@ impl From<&UpsertProductCommand> for UpsertCommandSnapshot {
 
 #[async_trait]
 impl ProductPushService for FileProductPushService {
-    async fn push(&self, commands: Vec<UpsertProductCommand>) {
+    async fn push(&self, commands: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand> {
         if commands.is_empty() {
-            return;
+            return commands;
         }
 
         // Load any previously written products so we append rather than overwrite.
@@ -228,6 +244,8 @@ impl ProductPushService for FileProductPushService {
                 error!(error = %e, "Failed to serialise upsert commands to JSON");
             }
         }
+        // File push always "succeeds" — return all commands as succeeded.
+        commands
     }
 }
 
@@ -281,11 +299,11 @@ pub fn normalize_to_upsert(
         images: product.images,
         auction_start: product.auction_start,
         auction_end: product.auction_end,
-        origin_year: None,
-        authenticity: Authenticity::default(),
-        condition: Condition::default(),
-        provenance: Provenance::default(),
-        restoration: Restoration::default(),
+        origin_year: Default::default(),
+        authenticity: Default::default(),
+        condition: Default::default(),
+        provenance: Default::default(),
+        restoration: Default::default(),
     })
 }
 
@@ -311,6 +329,14 @@ mod tests {
             shop_type,
             url: Url::parse("https://example.com/product/1").unwrap(),
             last_scraped_hash: None,
+            last_scraped_price: None,
+            last_scraped_price_estimate_min: None,
+            last_scraped_price_estimate_max: None,
+            last_scraped_url: None,
+            last_scraped_images_hash: None,
+            last_scraped_auction_start: None,
+            last_scraped_auction_end: None,
+            last_scraped_state: None,
         }
     }
 

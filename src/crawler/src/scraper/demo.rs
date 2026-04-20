@@ -180,13 +180,13 @@ async fn main() {
         };
 
         match service.scrape(&shop_id, &url, None).await {
-            Ok(Some(product)) => {
+            Ok(Some(scraped)) => {
                 info!(
-                    title = %product.title.payload,
-                    shopsProductId = %product.shops_product_id,
+                    title = %scraped.product.title.payload,
+                    shopsProductId = %scraped.product.shops_product_id,
                     "Scrape succeeded"
                 );
-                products.push(product.into());
+                products.push(scraped.product.into());
             }
             Ok(None) => {
                 info!("Hash matched, skipped scraping");
