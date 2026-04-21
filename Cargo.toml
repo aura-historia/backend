@@ -145,7 +145,7 @@ product-lambda-materialize-dynamodb = { path = "src/product-lambda/src/product-l
 product-lambda-materialize-opensearch = { path = "src/product-lambda/src/product-lambda-materialize-opensearch" }
 product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lambda-update-notify-user" }
 itertools = "0.14.0"
-lambda_runtime = "1.1.2"
+lambda_runtime = "1.1.3"
 libc = "0.2.185"
 ctrlc = { version = "3.5.2", features = ["termination"] }
 mockall = "0.14.0"
