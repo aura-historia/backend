@@ -3013,15 +3013,51 @@ mod tests {
             "mjml/partner-application/rejection/it.mjml",
         ];
 
-        const REQUIRED_IMPRINT_FIELDS: &[&str] = &[
-            "Imprint / Impressum",
-            "Trade name: Aura Historia",
-            "Owner: Julian Bruder Einzelunternehmen",
-            "Address: Hardenbergstraße 80, 04275 Leipzig, Germany",
-            "julian.bruder@aura-historia.com",
-            "contact@aura-historia.com",
-            "VAT ID: requested",
-        ];
+        fn required_imprint_fields(lang: &str) -> &'static [&'static str] {
+            match lang {
+                "en" => &[
+                    "Imprint",
+                    "Trade name: Aura Historia",
+                    "Owner: Julian Bruder Einzelunternehmen",
+                    "Address: Hardenbergstraße 80, 04275 Leipzig, Germany",
+                    "Contact: <a href=\"mailto:contact@aura-historia.com\"",
+                    "VAT ID: requested",
+                ],
+                "de" => &[
+                    "Impressum",
+                    "Handelsname: Aura Historia",
+                    "Inhaber: Julian Bruder Einzelunternehmen",
+                    "Anschrift: Hardenbergstraße 80, 04275 Leipzig, Germany",
+                    "Kontakt: <a href=\"mailto:contact@aura-historia.com\"",
+                    "USt-IdNr.: angefragt",
+                ],
+                "fr" => &[
+                    "Mentions légales",
+                    "Nom commercial : Aura Historia",
+                    "Propriétaire : Julian Bruder Einzelunternehmen",
+                    "Adresse : Hardenbergstraße 80, 04275 Leipzig, Germany",
+                    "Contact : <a href=\"mailto:contact@aura-historia.com\"",
+                    "N° de TVA : demandée",
+                ],
+                "es" => &[
+                    "Aviso legal",
+                    "Nombre comercial: Aura Historia",
+                    "Titular: Julian Bruder Einzelunternehmen",
+                    "Dirección: Hardenbergstraße 80, 04275 Leipzig, Germany",
+                    "Contacto: <a href=\"mailto:contact@aura-historia.com\"",
+                    "N.º de IVA: solicitado",
+                ],
+                "it" => &[
+                    "Note legali",
+                    "Nome commerciale: Aura Historia",
+                    "Titolare: Julian Bruder Einzelunternehmen",
+                    "Indirizzo: Hardenbergstraße 80, 04275 Leipzig, Germany",
+                    "Contatto: <a href=\"mailto:contact@aura-historia.com\"",
+                    "Partita IVA: richiesta",
+                ],
+                _ => panic!("Unknown language code: {lang}"),
+            }
+        }
 
         fn load_template(relative_path: &str) -> String {
             let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -3408,12 +3444,26 @@ mod tests {
         fn should_include_contact_email_and_complete_imprint_in_all_templates() {
             for template_path in ALL_TEMPLATE_PATHS {
                 let template = load_template(template_path);
-                for required_field in REQUIRED_IMPRINT_FIELDS {
+                let lang = template_path
+                    .rsplit('/')
+                    .next()
+                    .unwrap()
+                    .strip_suffix(".mjml")
+                    .unwrap();
+                for required_field in required_imprint_fields(lang) {
                     assert!(
                         template.contains(required_field),
                         "Template '{template_path}' should contain imprint field '{required_field}'"
                     );
                 }
+                assert!(
+                    !template.contains("julian.bruder@aura-historia.com"),
+                    "Template '{template_path}' should NOT contain the personal email address"
+                );
+                assert!(
+                    !template.contains("Personal email:"),
+                    "Template '{template_path}' should NOT contain the personal email label"
+                );
                 assert!(
                     !template.contains("support@aura-historia.com"),
                     "Template '{template_path}' should NOT use support@aura-historia.com"
