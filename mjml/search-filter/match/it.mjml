@@ -95,6 +95,14 @@
                     <br />
                     <a href="mailto:contact@aura-historia.com" style="color:#42120f;text-decoration:none;">contact@aura-historia.com</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://aura-historia.com" style="color:#42120f;text-decoration:none;">aura-historia.com</a>
                     <br /><br />
+                    <span style="font-family:'Newsreader', Georgia, serif;color:#1c1c16;font-size:14px;font-weight:600;">Note legali</span>
+                    <br />
+                    Nome commerciale: Aura Historia &middot; Titolare: Julian Bruder Einzelunternehmen
+                    <br />
+                    Indirizzo: Hardenbergstraße 80, 04275 Leipzig, Germany
+                    <br />
+                    Contatto: <a href="mailto:contact@aura-historia.com" style="color:#42120f;text-decoration:none;">contact@aura-historia.com</a> &middot; Partita IVA: richiesta
+                    <br /><br />
                     Se non desideri più ricevere notifiche per questo filtro di ricerca, puoi disattivarle nelle <a href="https://aura-historia.com/search-filters/{{search_filter_id}}" style="color:#42120f;">impostazioni dei tuoi filtri di ricerca</a>.
                 </mj-text>
             </mj-column>
