@@ -17,7 +17,7 @@ use crate::scraper::normalization::product_normalization_service::ProductNormali
 use common::shop_id::ShopId;
 use scraper::Html;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
@@ -279,6 +279,9 @@ pub struct ScraperServiceImpl {
     schema_fix_attempts: Arc<Mutex<HashMap<String, u32>>>,
     /// Maximum number of failed schema-fix attempts before a domain is skipped.
     max_schema_fix_attempts: u32,
+    /// Number of HTML pages to seed first-time schema generation with.
+    /// `1` means current page only; values >1 trigger best-effort sampling/fetch.
+    schema_seed_pages: usize,
 }
 
 impl ScraperServiceImpl {
@@ -289,6 +292,24 @@ impl ScraperServiceImpl {
         candidate_service: Arc<dyn ScraperCandidateService>,
         max_schema_fix_attempts: u32,
     ) -> Self {
+        Self::new_with_schema_seed_pages(
+            html_fetcher,
+            schema_service,
+            normalization_service,
+            candidate_service,
+            max_schema_fix_attempts,
+            1,
+        )
+    }
+
+    pub fn new_with_schema_seed_pages(
+        html_fetcher: Box<dyn HtmlFetcher>,
+        schema_service: Box<dyn ProductSchemaService + Send + Sync>,
+        normalization_service: Box<dyn ProductNormalizationService + Send + Sync>,
+        candidate_service: Arc<dyn ScraperCandidateService>,
+        max_schema_fix_attempts: u32,
+        schema_seed_pages: usize,
+    ) -> Self {
         Self {
             html_fetcher,
             schema_service,
@@ -296,6 +317,7 @@ impl ScraperServiceImpl {
             candidate_service,
             schema_fix_attempts: Arc::new(Mutex::new(HashMap::new())),
             max_schema_fix_attempts,
+            schema_seed_pages: schema_seed_pages.max(1),
         }
     }
 }
@@ -380,6 +402,60 @@ impl ScraperServiceImpl {
 // ---------------------------------------------------------------------------
 
 impl ScraperServiceImpl {
+    async fn collect_schema_seed_pages(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        primary_html: &str,
+    ) -> Vec<String> {
+        let mut pages = vec![primary_html.to_string()];
+        if self.schema_seed_pages <= 1 {
+            return pages;
+        }
+
+        let extra_limit = (self.schema_seed_pages - 1) as i64;
+        let sample_urls = match self
+            .candidate_service
+            .get_random_product_urls_for_schema_seed(shop_id, url, extra_limit)
+            .await
+        {
+            Ok(urls) => urls,
+            Err(err) => {
+                warn!(
+                    error = %err,
+                    shop_id = %shop_id,
+                    url = %url,
+                    "Failed to load random schema-seed URLs; falling back to current page only"
+                );
+                return pages;
+            }
+        };
+
+        let mut seen_urls = HashSet::new();
+        seen_urls.insert(url.as_str().to_string());
+        for sample_url in sample_urls {
+            if pages.len() >= self.schema_seed_pages {
+                break;
+            }
+            let sample_url_key = sample_url.as_str().to_string();
+            if !seen_urls.insert(sample_url_key) {
+                continue;
+            }
+            match self.html_fetcher.fetch(&sample_url).await {
+                Ok(sample_html) => pages.push(sample_html),
+                Err(err) => {
+                    warn!(
+                        error = %err,
+                        sample_url = %sample_url,
+                        "Failed to fetch sampled schema-seed page; continuing with available samples"
+                    );
+                }
+            }
+        }
+
+        pages
+    }
+
     /// Obtains the CSS selector schema for `shop_id`, loading it from the DB
     /// or generating it via the LLM if it does not yet exist.
     ///
@@ -397,9 +473,10 @@ impl ScraperServiceImpl {
             debug!(domain, url = %url, "Schema found in DB");
             Ok(existing)
         } else {
+            let seed_pages = self.collect_schema_seed_pages(shop_id, url, html).await;
             Ok(self
                 .schema_service
-                .get_product_schema(shop_id, domain, html)
+                .get_product_schema(shop_id, domain, &seed_pages)
                 .await?)
         }
     }
@@ -1074,6 +1151,233 @@ mod tests {
         let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
 
         assert_eq!(result.product, norm);
+    }
+
+    #[tokio::test]
+    async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_miss() {
+        let id = shop_id();
+        let url = product_url();
+        let sample_seed_url = Url::parse("https://example.com/product/seed-2").unwrap();
+        let primary_html = sample_html();
+        let secondary_html = "<html><body><main><h1>seed</h1></main></body></html>".to_string();
+        let expected_primary_url = url.clone();
+        let expected_seed_url = sample_seed_url.clone();
+
+        let mut fetcher = MockHtmlFetcher::new();
+        let primary_html_clone = primary_html.clone();
+        let secondary_html_clone = secondary_html.clone();
+        fetcher
+            .expect_fetch()
+            .times(2)
+            .returning(move |requested_url| {
+                let requested_url = requested_url.clone();
+                let primary_html = primary_html_clone.clone();
+                let secondary_html = secondary_html_clone.clone();
+                let expected_primary_url = expected_primary_url.clone();
+                let expected_seed_url = expected_seed_url.clone();
+                Box::pin(async move {
+                    if requested_url == expected_primary_url {
+                        Ok(primary_html)
+                    } else if requested_url == expected_seed_url {
+                        Ok(secondary_html)
+                    } else {
+                        Err(FetchError::Network {
+                            kind: NetworkErrorKind::Unknown,
+                            details: "unexpected url".to_string(),
+                        })
+                    }
+                })
+            });
+
+        let schema = shops_product_schema(id);
+        let mut schema_svc = MockProductSchemaService::new();
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
+        schema_svc
+            .expect_get_product_schema()
+            .once()
+            .withf(move |_, _, html_pages| {
+                html_pages.len() == 2
+                    && html_pages[0] == sample_html()
+                    && html_pages[1] == "<html><body><main><h1>seed</h1></main></body></html>"
+            })
+            .returning(move |_, _, _| {
+                let s = schema.clone();
+                Box::pin(async move { Ok(s) })
+            });
+
+        let expected = normalized_product(url.clone());
+        let mut norm_svc = MockProductNormalizationService::new();
+        norm_svc
+            .expect_normalize()
+            .once()
+            .returning(move |_, _, _| {
+                let n = expected.clone();
+                Box::pin(async move { Ok(n) })
+            });
+
+        let mut cand_svc = MockScraperCandidateService::new();
+        let sample_seed_url_clone = sample_seed_url.clone();
+        let expected_exclude_url = url.clone();
+        cand_svc
+            .expect_get_random_product_urls_for_schema_seed()
+            .once()
+            .withf(move |shop_id, exclude_url, limit| {
+                *shop_id == id && exclude_url == &expected_exclude_url && *limit == 2
+            })
+            .returning(move |_, _, _| {
+                let sampled = vec![sample_seed_url_clone.clone()];
+                Box::pin(async move { Ok(sampled) })
+            });
+        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+            3,
+            3,
+        );
+
+        let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+        assert_eq!(
+            result.product.shops_product_id,
+            ShopsProductId::from("SKU-42")
+        );
+    }
+
+    #[tokio::test]
+    async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails() {
+        let id = shop_id();
+        let url = product_url();
+
+        let mut fetcher = MockHtmlFetcher::new();
+        fetcher
+            .expect_fetch()
+            .once()
+            .returning(|_| Box::pin(async { Ok(sample_html()) }));
+
+        let schema = shops_product_schema(id);
+        let mut schema_svc = MockProductSchemaService::new();
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
+        schema_svc
+            .expect_get_product_schema()
+            .once()
+            .withf(|_, _, html_pages| html_pages.len() == 1 && html_pages[0] == sample_html())
+            .returning(move |_, _, _| {
+                let s = schema.clone();
+                Box::pin(async move { Ok(s) })
+            });
+
+        let expected = normalized_product(url.clone());
+        let mut norm_svc = MockProductNormalizationService::new();
+        norm_svc
+            .expect_normalize()
+            .once()
+            .returning(move |_, _, _| {
+                let n = expected.clone();
+                Box::pin(async move { Ok(n) })
+            });
+
+        let mut cand_svc = MockScraperCandidateService::new();
+        cand_svc
+            .expect_get_random_product_urls_for_schema_seed()
+            .once()
+            .returning(|_, _, _| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
+        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+            3,
+            3,
+        );
+
+        let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+        assert_eq!(result.product.state, ProductState::Available);
+    }
+
+    #[tokio::test]
+    async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
+        let id = shop_id();
+        let url = product_url();
+        let sample_seed_url = Url::parse("https://example.com/product/seed-fail").unwrap();
+        let expected_primary_url = url.clone();
+
+        let mut fetcher = MockHtmlFetcher::new();
+        fetcher
+            .expect_fetch()
+            .times(2)
+            .returning(move |requested_url| {
+                let requested_url = requested_url.clone();
+                let expected_primary_url = expected_primary_url.clone();
+                Box::pin(async move {
+                    if requested_url == expected_primary_url {
+                        Ok(sample_html())
+                    } else {
+                        Err(FetchError::Network {
+                            kind: NetworkErrorKind::Timeout,
+                            details: "timeout".to_string(),
+                        })
+                    }
+                })
+            });
+
+        let schema = shops_product_schema(id);
+        let mut schema_svc = MockProductSchemaService::new();
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
+        schema_svc
+            .expect_get_product_schema()
+            .once()
+            .withf(|_, _, html_pages| html_pages.len() == 1 && html_pages[0] == sample_html())
+            .returning(move |_, _, _| {
+                let s = schema.clone();
+                Box::pin(async move { Ok(s) })
+            });
+
+        let expected = normalized_product(url.clone());
+        let mut norm_svc = MockProductNormalizationService::new();
+        norm_svc
+            .expect_normalize()
+            .once()
+            .returning(move |_, _, _| {
+                let n = expected.clone();
+                Box::pin(async move { Ok(n) })
+            });
+
+        let mut cand_svc = MockScraperCandidateService::new();
+        let sample_seed_url_clone = sample_seed_url.clone();
+        cand_svc
+            .expect_get_random_product_urls_for_schema_seed()
+            .once()
+            .returning(move |_, _, _| {
+                let sampled = vec![sample_seed_url_clone.clone()];
+                Box::pin(async move { Ok(sampled) })
+            });
+        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+            3,
+            3,
+        );
+
+        let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+        assert_eq!(result.product.state, ProductState::Available);
     }
 
     #[tokio::test]

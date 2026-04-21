@@ -31,6 +31,10 @@ pub struct CrawlerCronConfig {
     pub spider_concurrency: usize,
     pub scraper_concurrency: usize,
     pub spider_classify_threshold: usize,
+    /// Number of pages used to seed first-time schema generation per shop.
+    /// `1` means current page only; higher values fetch additional random
+    /// product pages on schema cache miss.
+    pub scraper_schema_seed_pages: usize,
     /// Delay between consecutive scraper requests for the same domain.
     pub scraper_domain_delay: Duration,
     /// Maximum Postgres connections for crawler queries.
@@ -49,6 +53,7 @@ impl Default for CrawlerCronConfig {
             spider_concurrency: 3,
             scraper_concurrency: 10,
             spider_classify_threshold: 200,
+            scraper_schema_seed_pages: 3,
             scraper_domain_delay: Duration::from_secs(1),
             db_max_connections: None,
         }

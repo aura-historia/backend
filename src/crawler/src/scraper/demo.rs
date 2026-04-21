@@ -284,11 +284,12 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
 
     let candidate_service = Arc::new(ScraperCandidateServiceImpl::new(pool.clone()));
 
-    ScraperServiceImpl::new(
+    ScraperServiceImpl::new_with_schema_seed_pages(
         fetcher,
         Box::new(schema_svc),
         Box::new(normalization_svc),
         candidate_service,
+        3,
         3,
     )
 }

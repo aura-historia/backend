@@ -151,6 +151,7 @@ async fn main() {
         spider_concurrency: 10,
         scraper_concurrency: 10,
         spider_classify_threshold: 400,
+        scraper_schema_seed_pages: 3,
         push_batch_size: 1000,
         ..Default::default()
     };
@@ -210,12 +211,13 @@ async fn main() {
     let scraper_candidates = Box::new(ScraperCandidateServiceImpl::new(pool.clone()));
 
     let fetcher = Box::new(ReqwestHtmlFetcher::new());
-    let scraper_svc = Box::new(ScraperServiceImpl::new(
+    let scraper_svc = Box::new(ScraperServiceImpl::new_with_schema_seed_pages(
         fetcher,
         Box::new(schema_svc),
         Box::new(normalization_svc),
         Arc::new(ScraperCandidateServiceImpl::new(pool.clone())),
         3,
+        config.scraper_schema_seed_pages,
     ));
 
     let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));

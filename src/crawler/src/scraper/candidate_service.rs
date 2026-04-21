@@ -165,6 +165,18 @@ pub fn has_product_changed(candidate: &ScraperCandidate, product: &NormalizedPro
 #[mockall::automock]
 pub trait ScraperCandidateService: Send + Sync {
     async fn get_candidates(&self, limit: i64) -> Result<Vec<ScraperCandidate>, sqlx::Error>;
+    /// Returns a random sample of product URLs for a shop (excluding the current
+    /// URL) to seed first-time schema generation with additional page layouts.
+    ///
+    /// This query intentionally uses `ORDER BY RANDOM()` because the path is
+    /// only used on schema cache misses, which are rare (typically one-time per
+    /// shop unless schema rows are reset).
+    async fn get_random_product_urls_for_schema_seed(
+        &self,
+        shop_id: &ShopId,
+        exclude_url: &Url,
+        limit: i64,
+    ) -> Result<Vec<Url>, sqlx::Error>;
     async fn mark_as_scraped(
         &self,
         shop_id: &ShopId,
@@ -299,6 +311,39 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         }
 
         Ok(candidates)
+    }
+
+    async fn get_random_product_urls_for_schema_seed(
+        &self,
+        shop_id: &ShopId,
+        exclude_url: &Url,
+        limit: i64,
+    ) -> Result<Vec<Url>, sqlx::Error> {
+        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+        let rows: Vec<(String,)> = sqlx::query_as(
+            r#"
+            SELECT su.url
+            FROM shop_urls su
+            JOIN shops s ON s.shop_id = su.shop_id
+            WHERE s.active = TRUE
+              AND su.shop_id = $1
+              AND su.url_class = 'product'
+              AND su.last_scraped_state IN ('AVAILABLE', 'UNKNOWN', 'LISTED', 'RESERVED')
+              AND su.url <> $2
+            ORDER BY RANDOM()
+            LIMIT $3
+            "#,
+        )
+        .bind(shop_id_uuid)
+        .bind(exclude_url.to_string())
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|(raw_url,)| Url::parse(&raw_url).ok())
+            .collect())
     }
 
     async fn mark_as_scraped(

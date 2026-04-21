@@ -30,7 +30,7 @@ pub enum ProductSchemaServiceError {
 pub trait ProductSchemaService {
     async fn create_product_schema(
         &self,
-        html: &str,
+        html_pages: &[String],
     ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError>;
 
     async fn fix_product_schema(
@@ -56,7 +56,7 @@ pub trait ProductSchemaService {
         &self,
         shop_id: &ShopId,
         domain: &str,
-        html: &str,
+        html_pages: &[String],
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
 }
 
@@ -98,12 +98,9 @@ impl ProductSchemaServiceImpl {
 impl ProductSchemaService for ProductSchemaServiceImpl {
     async fn create_product_schema(
         &self,
-        html: &str,
+        html_pages: &[String],
     ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError> {
-        let instruction = format!(
-            "Generate a robust Extraction-Schema for given HTML. Here is the HTML: \n\n {}",
-            clean_html_for_schema_generation(html),
-        );
+        let instruction = build_create_schema_instruction(html_pages);
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
 
@@ -141,6 +138,8 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         let current_schema_json =
             serde_json::to_string_pretty(schema).unwrap_or_else(|_| "<serialization error>".into());
 
+        let missing = missing_optional_fields(schema);
+        let enrichment = build_optional_enrichment_instruction(&missing);
         let instruction = format!(
             "The following CSS-selector extraction schema failed to extract data from the given HTML page.\n\
              \n\
@@ -156,12 +155,14 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
              \n\
              Instructions:\n\
              1. PREFER fixing only the failing rule by adding one or more entries to its \
-                `additional_selectors` array so that the correct element is still found.\n\
+                 `additional_selectors` array so that the correct element is still found.\n\
              2. Only rewrite the entire schema if the page structure makes a targeted fix impossible.\n\
-             3. Return the corrected schema as JSON and nothing else.",
+             3. Return the corrected schema as JSON and nothing else.\n\
+             {enrichment}",
             err = err,
             current_schema_json = current_schema_json,
             cleaned_html = clean_html_for_schema_generation(html),
+            enrichment = enrichment,
         );
 
         let mut last_err: Option<ProductSchemaServiceError> = None;
@@ -283,7 +284,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         &self,
         shop_id: &ShopId,
         domain: &str,
-        html: &str,
+        html_pages: &[String],
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
         if let Some(existing) = self.find_product_schema(shop_id).await? {
             debug!(domain = %domain, "Found existing product schema");
@@ -291,10 +292,103 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         }
 
         info!(domain = %domain, "No product schema found for shop, creating via LLM");
-        let product_schema = self.create_product_schema(html).await?;
+        let product_schema = self.create_product_schema(html_pages).await?;
         self.save_product_schema(shop_id, domain, product_schema)
             .await
     }
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct MissingOptionalFields {
+    selector_fields: Vec<&'static str>,
+    default_currency_missing: bool,
+}
+
+fn missing_optional_fields(schema: &ProductCssSelectorSchema) -> MissingOptionalFields {
+    let mut selector_fields = Vec::new();
+    if schema.description.is_none() {
+        selector_fields.push("description");
+    }
+    if schema.price.is_none() {
+        selector_fields.push("price");
+    }
+    if schema.price_estimate_min.is_none() {
+        selector_fields.push("price_estimate_min");
+    }
+    if schema.price_estimate_max.is_none() {
+        selector_fields.push("price_estimate_max");
+    }
+    if schema.auction_start.is_none() {
+        selector_fields.push("auction_start");
+    }
+    if schema.auction_end.is_none() {
+        selector_fields.push("auction_end");
+    }
+    MissingOptionalFields {
+        selector_fields,
+        default_currency_missing: schema.default_currency.is_none(),
+    }
+}
+
+fn build_optional_enrichment_instruction(missing: &MissingOptionalFields) -> String {
+    if missing.selector_fields.is_empty() && !missing.default_currency_missing {
+        return "4. Keep all existing optional fields unchanged unless the current fix requires updates."
+            .to_string();
+    }
+
+    let mut lines = vec![String::from(
+        "4. Opportunistically enrich missing optional fields only when confidence is high:",
+    )];
+    if !missing.selector_fields.is_empty() {
+        lines.push(format!(
+            "   - Missing selector-based optional fields: {}. Add extraction rules for these fields if clearly visible in the HTML.",
+            missing.selector_fields.join(", ")
+        ));
+    }
+    if missing.default_currency_missing {
+        lines.push(String::from(
+            "   - `default_currency` is currently missing. Infer an ISO 4217 currency code from page context (labels, metadata, structured data) when possible; do not treat `default_currency` as a CSS selector.",
+        ));
+    }
+    lines.push(String::from(
+        "   - If an optional field is not confidently visible, leave it null.",
+    ));
+    lines.join("\n")
+}
+
+fn build_create_schema_instruction(html_pages: &[String]) -> String {
+    let cleaned_pages: Vec<String> = if html_pages.is_empty() {
+        Vec::new()
+    } else {
+        html_pages
+            .iter()
+            .map(|html| clean_html_for_schema_generation(html))
+            .collect()
+    };
+
+    if cleaned_pages.is_empty() {
+        return String::from(
+            "Generate a robust Extraction-Schema for the given HTML product pages.",
+        );
+    }
+
+    let mut samples = String::new();
+    for (idx, cleaned) in cleaned_pages.iter().enumerate() {
+        let _ = std::fmt::Write::write_fmt(
+            &mut samples,
+            format_args!(
+                "\n--- SAMPLE {sample_idx} ---\n{html}\n",
+                sample_idx = idx + 1,
+                html = cleaned
+            ),
+        );
+    }
+
+    format!(
+        "Generate a robust Extraction-Schema that works across multiple product page HTML samples from the same shop.\n\
+         Prioritize selectors that generalize across the samples. Optional fields may remain null if not confidently present.\n\
+         Here are the cleaned HTML samples:{samples}"
+    )
 }
 
 pub fn strip_markdown_json_embedding(s: &str) -> &str {
@@ -638,8 +732,9 @@ mod tests {
             repository: Box::new(repository),
         };
 
+        let html_pages = vec!["<html></html>".to_string()];
         let result = service
-            .get_product_schema(&shop_id, "example.com", "<html></html>")
+            .get_product_schema(&shop_id, "example.com", &html_pages)
             .await
             .unwrap();
         assert_eq!(result.shop_id, existing.shop_id);
@@ -676,8 +771,9 @@ mod tests {
             repository: Box::new(repository),
         };
 
+        let html_pages = vec!["<html></html>".to_string()];
         let result = service
-            .get_product_schema(&shop_id, "example.com", "<html></html>")
+            .get_product_schema(&shop_id, "example.com", &html_pages)
             .await
             .unwrap();
         assert_eq!(result.shop_id, saved.shop_id);
@@ -697,14 +793,55 @@ mod tests {
             repository: Box::new(repository),
         };
 
+        let html_pages = vec!["<html></html>".to_string()];
         let result = service
-            .get_product_schema(&shop_id, "example.com", "<html></html>")
+            .get_product_schema(&shop_id, "example.com", &html_pages)
             .await;
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
             ProductSchemaServiceError::DatabaseError(_)
         ));
+    }
+
+    #[test]
+    fn should_report_missing_optional_fields_split_by_selector_vs_default_currency() {
+        let schema = sample_css_schema();
+        let missing = missing_optional_fields(&schema);
+        assert_eq!(
+            missing.selector_fields,
+            vec![
+                "description",
+                "price",
+                "price_estimate_min",
+                "price_estimate_max",
+                "auction_start",
+                "auction_end"
+            ]
+        );
+        assert!(missing.default_currency_missing);
+    }
+
+    #[test]
+    fn should_build_optional_enrichment_instruction_with_distinct_default_currency_hint() {
+        let schema = sample_css_schema();
+        let missing = missing_optional_fields(&schema);
+        let instruction = build_optional_enrichment_instruction(&missing);
+        assert!(instruction.contains("Missing selector-based optional fields"));
+        assert!(instruction.contains("default_currency"));
+        assert!(instruction.contains("do not treat `default_currency` as a CSS selector"));
+    }
+
+    #[test]
+    fn should_include_all_html_samples_in_create_instruction() {
+        let html_pages = vec![
+            "<html><body><h1>A</h1></body></html>".to_string(),
+            "<html><body><h1>B</h1></body></html>".to_string(),
+        ];
+        let instruction = build_create_schema_instruction(&html_pages);
+        assert!(instruction.contains("--- SAMPLE 1 ---"));
+        assert!(instruction.contains("--- SAMPLE 2 ---"));
+        assert!(instruction.contains("works across multiple product page HTML samples"));
     }
 
     // -----------------------------------------------------------------------
