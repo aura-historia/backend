@@ -11,6 +11,7 @@ use crate::service::StripeService;
 
 pub mod billing;
 pub mod checkout;
+pub mod manage;
 pub mod portal;
 pub mod service;
 
@@ -52,6 +53,9 @@ pub async fn handle(
         }
         Some("POST /api/v1/me/billing/portal") => {
             portal::handle(event, stripe_service, user_service).await
+        }
+        Some("POST /api/v1/me/billing/manage") => {
+            manage::handle(event, stripe_service, user_service, price_ids).await
         }
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,

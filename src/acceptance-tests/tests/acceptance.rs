@@ -6391,3 +6391,90 @@ async fn should_422_for_billing_portal_when_user_has_no_stripe_customer_id() {
         Some("STRIPE_CUSTOMER_DOES_NOT_EXIST"),
     );
 }
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_201_for_billing_manage_with_checkout_for_free_and_portal_for_paid_user() {
+    let stack = get_cfn_output();
+    let user = create_random_test_user().await;
+    // Allow Cognito post-confirmation and initial user persistence to settle
+    // before exercising the authenticated billing endpoint.
+    tokio::time::sleep(Duration::from_secs(10)).await;
+
+    let url = format!(
+        "{}/api/v1/me/billing/manage",
+        stack.api_gateway_endpoint_url
+    );
+    let request_body = serde_json::json!({"plan": "PRO", "cycle": "MONTHLY"});
+
+    let response = reqwest::Client::new()
+        .post(&url)
+        .bearer_auth(&user.access_token)
+        .json(&request_body)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(201, response.status());
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(
+        body.get("url")
+            .and_then(|v| v.as_str())
+            .unwrap()
+            .starts_with("https://checkout.stripe.com/"),
+        "expected checkout URL, got {body:?}"
+    );
+    assert!(body.get("livemode").is_none(), "got {body:?}");
+    assert!(body.get("userId").is_none(), "got {body:?}");
+
+    let expected_stripe_customer_id = format!("cus_mocked_{}", user.sub);
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    let stored_user = user_repository
+        .get_user_record(&user.sub.into())
+        .await
+        .unwrap()
+        .expect("user record should exist");
+    assert_eq!(UserTierRecord::Free, stored_user.tier);
+    assert_eq!(
+        stored_user
+            .stripe_customer_id
+            .as_ref()
+            .map(|id| id.as_ref()),
+        Some(expected_stripe_customer_id.as_str()),
+    );
+
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    user_service
+        .update_user(
+            &user.sub.into(),
+            UpdateUserCommand {
+                tier: Some(UserTier::Pro),
+                stripe_customer_id: Some(common::stripe_customer_id::StripeCustomerId::from(
+                    expected_stripe_customer_id.as_str(),
+                )),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let response = reqwest::Client::new()
+        .post(url)
+        .bearer_auth(&user.access_token)
+        .json(&request_body)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(201, response.status());
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(
+        body.get("url")
+            .and_then(|v| v.as_str())
+            .unwrap()
+            .starts_with("https://billing.stripe.com/"),
+        "expected portal URL, got {body:?}"
+    );
+    assert!(body.get("livemode").is_none(), "got {body:?}");
+    assert!(body.get("userId").is_none(), "got {body:?}");
+}
