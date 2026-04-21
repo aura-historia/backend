@@ -198,6 +198,8 @@ LIMIT  $1
 
 Only product URLs for **active** shops that haven't been scraped today, are in an active state, and whose retry cooldown has elapsed are eligible.
 
+For schema seeding on schema-cache miss, the same service also samples random same-shop product URLs using `ORDER BY RANDOM() LIMIT ...` while excluding the current URL. This is intentional because schema cache misses are rare (typically one-time per shop unless schema rows are reset), so this query is not in the hot path.
+
 ### Retry metadata and cooldowns
 
 The scraper now persists network-failure metadata on each URL row:
@@ -256,6 +258,8 @@ scrape(shop_id, url, last_scraped_hash)
 ```
 
 The dispatcher (`cron.rs`) guarantees at most one in-flight scrape per domain at a time, so no per-domain mutex is needed inside the fix path.
+
+On schema cache miss, scraper schema generation can include multiple seed pages (current page + up to `N-1` additional same-shop product pages, best-effort). This improves first schema quality, but first scrape latency can increase due to additional fetches on that one-time path.
 
 **Schema-fix flow B** — triggered when normalization returns a schema-fixable error (bad state selector text, price parse failure, empty title, etc.).  `ShopsProductIdEmpty` is **not** schema-fixable and is propagated directly as `ScraperError::NormalizationError` without calling the LLM. `PriceUnknownCurrency` **is** schema-fixable for genuinely unknown currency-bearing price text — the synthetic hint asks the LLM to add a `default_currency` to the schema. Explicit non-numeric markers like `"Price on Request"` are normalized to `price=None` and do not enter the fix loop:
 

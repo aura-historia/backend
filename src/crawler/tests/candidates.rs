@@ -785,3 +785,178 @@ async fn scraper_mark_as_scraped_should_exclude_url_from_subsequent_get_candidat
         "URL should not appear after mark_as_scraped"
     );
 }
+
+// ---------------------------------------------------------------------------
+// get_random_product_urls_for_schema_seed — excludes current URL
+// ---------------------------------------------------------------------------
+
+#[serial]
+#[localstack_test(services = [RDS])]
+async fn scraper_seed_urls_should_exclude_current_url() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+
+    let shop_id_uuid = uuid::Uuid::new_v4();
+    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "seed-exclude.example.com").await;
+
+    let exclude_url = "https://seed-exclude.example.com/p/current";
+    let other_url = "https://seed-exclude.example.com/p/other";
+    insert_product_url(&pool, shop_id_uuid, domain_id, exclude_url).await;
+    insert_product_url(&pool, shop_id_uuid, domain_id, other_url).await;
+
+    let shop_id = common::shop_id::ShopId::from(shop_id_uuid);
+    let exclude = url::Url::parse(exclude_url).unwrap();
+    let sampled = service
+        .get_random_product_urls_for_schema_seed(&shop_id, &exclude, 5)
+        .await
+        .unwrap();
+
+    assert!(
+        sampled.iter().all(|u| u.as_str() != exclude_url),
+        "excluded URL must never be returned"
+    );
+    assert!(
+        sampled.iter().any(|u| u.as_str() == other_url),
+        "another eligible product URL should be sampled"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// get_random_product_urls_for_schema_seed — same shop + product class + states
+// ---------------------------------------------------------------------------
+
+#[serial]
+#[localstack_test(services = [RDS])]
+async fn scraper_seed_urls_should_only_include_same_shop_product_urls_in_eligible_states() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+
+    let seed_shop_uuid = uuid::Uuid::new_v4();
+    let seed_domain_id =
+        insert_shop_with_domain(&pool, seed_shop_uuid, "seed-filters.example.com").await;
+    let seed_shop_id = common::shop_id::ShopId::from(seed_shop_uuid);
+    let repo = UrlMetadataRepositoryImpl::new(pool.clone());
+
+    let current_url = url::Url::parse("https://seed-filters.example.com/p/current").unwrap();
+    repo.upsert_link(
+        &seed_shop_id,
+        &seed_domain_id,
+        &current_url,
+        &UrlClass::Product,
+    )
+    .await
+    .unwrap();
+
+    let eligible_url = url::Url::parse("https://seed-filters.example.com/p/eligible").unwrap();
+    repo.upsert_link(
+        &seed_shop_id,
+        &seed_domain_id,
+        &eligible_url,
+        &UrlClass::Product,
+    )
+    .await
+    .unwrap();
+    repo.set_state(&seed_shop_id, &eligible_url, &UrlState::Available)
+        .await
+        .unwrap();
+
+    let sold_url = url::Url::parse("https://seed-filters.example.com/p/sold").unwrap();
+    repo.upsert_link(
+        &seed_shop_id,
+        &seed_domain_id,
+        &sold_url,
+        &UrlClass::Product,
+    )
+    .await
+    .unwrap();
+    repo.set_state(&seed_shop_id, &sold_url, &UrlState::Sold)
+        .await
+        .unwrap();
+
+    let category_url =
+        url::Url::parse("https://seed-filters.example.com/category/whatever").unwrap();
+    repo.upsert_link(
+        &seed_shop_id,
+        &seed_domain_id,
+        &category_url,
+        &UrlClass::Category,
+    )
+    .await
+    .unwrap();
+
+    let other_shop_uuid = uuid::Uuid::new_v4();
+    let other_domain_id =
+        insert_shop_with_domain(&pool, other_shop_uuid, "seed-other-shop.example.com").await;
+    let other_shop_id = common::shop_id::ShopId::from(other_shop_uuid);
+    let other_shop_url = url::Url::parse("https://seed-other-shop.example.com/p/other").unwrap();
+    repo.upsert_link(
+        &other_shop_id,
+        &other_domain_id,
+        &other_shop_url,
+        &UrlClass::Product,
+    )
+    .await
+    .unwrap();
+
+    let sampled = service
+        .get_random_product_urls_for_schema_seed(&seed_shop_id, &current_url, 20)
+        .await
+        .unwrap();
+
+    assert!(
+        sampled.iter().any(|u| u == &eligible_url),
+        "eligible product URL from same shop should be included"
+    );
+    assert!(
+        sampled.iter().all(|u| u != &current_url),
+        "current URL must be excluded"
+    );
+    assert!(
+        sampled.iter().all(|u| u != &sold_url),
+        "SOLD URLs must be excluded"
+    );
+    assert!(
+        sampled.iter().all(|u| u != &category_url),
+        "non-product URLs must be excluded"
+    );
+    assert!(
+        sampled.iter().all(|u| u != &other_shop_url),
+        "URLs from other shops must be excluded"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// get_random_product_urls_for_schema_seed — limit is respected
+// ---------------------------------------------------------------------------
+
+#[serial]
+#[localstack_test(services = [RDS])]
+async fn scraper_seed_urls_should_respect_limit() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+
+    let shop_id_uuid = uuid::Uuid::new_v4();
+    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "seed-limit.example.com").await;
+    let shop_id = common::shop_id::ShopId::from(shop_id_uuid);
+
+    let current_url = "https://seed-limit.example.com/p/current";
+    insert_product_url(&pool, shop_id_uuid, domain_id, current_url).await;
+
+    for i in 0..6u32 {
+        insert_product_url(
+            &pool,
+            shop_id_uuid,
+            domain_id,
+            &format!("https://seed-limit.example.com/p/{i}"),
+        )
+        .await;
+    }
+
+    let exclude = url::Url::parse(current_url).unwrap();
+    let sampled = service
+        .get_random_product_urls_for_schema_seed(&shop_id, &exclude, 3)
+        .await
+        .unwrap();
+
+    assert_eq!(sampled.len(), 3, "query should respect the requested LIMIT");
+}

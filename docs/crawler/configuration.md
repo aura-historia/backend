@@ -18,6 +18,7 @@ Controls the three background tasks spawned by `CrawlerCronJob`.
 | `push_batch_size` | `usize` | 25 | Number of scraped products accumulated before flushing a push to the backend. Keeps memory bounded and avoids holding all results until the last scrape finishes. |
 | `spider_concurrency` | `usize` | 3 | Max concurrent spider domain worker tasks per tick |
 | `scraper_concurrency` | `usize` | 10 | Max concurrent scraper domain worker tasks per tick |
+| `scraper_schema_seed_pages` | `usize` | 3 | Number of product pages used to seed initial schema generation on a schema cache miss. The scraper always includes the current page and then samples up to `N-1` extra same-shop product URLs. |
 | `spider_classify_threshold` | `usize` | 200 | Passed through to `SpiderServiceConfig::classify_threshold` — number of URLs buffered before triggering mid-run LLM URL classification |
 | `db_max_connections` | `Option<u32>` | `None` (auto) | Maximum Postgres connections in the pool. Locks are now in-memory (`LocalLockManager`), so this setting mainly controls query capacity. When `None`, auto-computed as `spider_concurrency + scraper_concurrency + 10`. |
 
@@ -55,3 +56,5 @@ Controls per-run behavior of the spider.
 - **`push_batch_size`**: Controls how often the scraper loop flushes scraped products to the backend push service. Smaller values reduce peak memory at the cost of more push calls; larger values amortise push overhead but hold more results in memory.
 
 - **`db_batch_size`**: Tune this based on Postgres UNNEST performance. Larger batches reduce round-trips but increase per-statement memory. Default of 100 is conservative.
+
+- **`scraper_schema_seed_pages`**: Increasing this improves first-time schema quality by sampling more page layouts, but first scrape latency can increase because each schema cache miss may perform up to `N-1` additional HTTP fetches. These extra fetches are best-effort and only occur on cache miss.

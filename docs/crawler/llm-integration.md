@@ -32,6 +32,9 @@ The crawler uses three distinct LLM instances, each with its own system prompt, 
 
 **When called:**
 - On first scrape of a product URL for a given shop (cache miss in `shops_product_schema`).
+  - Schema seeding uses multiple pages (`scraper_schema_seed_pages`, default `3`): current page + up to `N-1` additional random same-shop product pages.
+  - Extra seed-page fetches are best-effort and never block schema creation when only the current page is available.
+  - This path runs only on schema cache miss, so first scrape can be slower while later scrapes reuse the cached schema.
 - On schema failure: if applying the schema throws an error (e.g. selector no longer valid), `fix_product_schema` is called with the broken schema + error message. The dispatcher (`cron.rs`) guarantees at most one in-flight scrape per domain at a time, so no per-domain mutex is required.
 - On normalization failure: if `ProductNormalizationService::normalize` returns a schema-fixable error (e.g. `StateTextTooLong`, `PriceParseError`, `TitleEmpty`), the same `fix_product_schema` path is triggered via `normalize_with_retry` using a synthetic `ApplySchemaError` hint derived from the normalization error.
   - Note: `PriceUnknownCurrency` **is** treated as schema-fixable. When a raw price string contains no currency marker `normalize()` first checks `schema.default_currency`. If absent, normalization returns `PriceUnknownCurrency`, which the scraper routes into `normalize_with_retry` with a synthetic hint asking the LLM to inspect the page for currency context and populate `default_currency` on the schema. Up to two fix attempts are made; if both fail the price is left unparseable for that product.
@@ -70,6 +73,10 @@ re-apply fixed schema:
   ok → persist (save_product_schema) and return (raw, schema_was_fixed=true)
   still fails → return SchemaFixApplyFailed (not persisted)
 ```
+
+`fix_product_schema` is also used for opportunistic optional-field enrichment without adding any extra LLM call path:
+- Selector-based optionals (`description`, `price`, `price_estimate_min`, `price_estimate_max`, `auction_start`, `auction_end`) are requested as selectors if confidently visible.
+- `default_currency` is requested separately as contextual metadata (ISO 4217), not as a selector.
 
 **Persistence:** Schema stored in `shops_product_schema` (keyed by `shop_id`). Shared across all product URLs of the same shop.
 
