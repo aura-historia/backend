@@ -33,6 +33,10 @@ pub trait ProductSchemaService {
         html_pages: &[String],
     ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError>;
 
+    /// Intentionally accepts only a single `html` page, unlike
+    /// [`ProductSchemaService::create_product_schema`] which takes multiple
+    /// seed pages, because the fix flow only has the current primary page
+    /// available when an apply/normalization error occurs.
     async fn fix_product_schema(
         &self,
         schema: &ProductCssSelectorSchema,

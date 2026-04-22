@@ -37,7 +37,9 @@ use crawler::scraper::css_selector::product_schema_service::ProductSchemaService
 use crawler::scraper::normalization::product_normalization_service::ProductNormalizationServiceImpl;
 use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
-use crawler::scraper::scraper_service::{ReqwestHtmlFetcher, ScraperServiceImpl};
+use crawler::scraper::scraper_service::{
+    DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
+};
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crawler::service::product_push::FileProductPushService;
 use crawler::service::shop_registration::{
@@ -89,6 +91,13 @@ fn demo_shops() -> Vec<RegisteredShop> {
             shop_type: ShopType::CommercialDealer,
             domains: HashSet::from([Domain::try_from("20thcenturymilitaria.com").unwrap()]),
         },
+        RegisteredShop {
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000003").unwrap(),
+            shop_name: "Antichita Daziano".to_string(),
+            shop_slug: "Antichita Daziano".to_string(),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::from([Domain::try_from("antichitadaziano.com").unwrap()]),
+        },
     ]
 }
 
@@ -121,7 +130,7 @@ async fn main() {
         spider_concurrency: 5,
         scraper_concurrency: 5,
         spider_classify_threshold: 200,
-        scraper_schema_seed_pages: 3,
+        scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
         ..Default::default()
     };
 

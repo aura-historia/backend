@@ -25,6 +25,7 @@ use tracing::{debug, info, warn};
 use url::Url;
 
 const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
+pub const DEFAULT_SCHEMA_SEED_PAGES: usize = 3;
 
 // ---------------------------------------------------------------------------
 // HtmlFetcher trait — abstracted so it can be mocked in unit tests
@@ -298,7 +299,7 @@ impl ScraperServiceImpl {
             normalization_service,
             candidate_service,
             max_schema_fix_attempts,
-            1,
+            DEFAULT_SCHEMA_SEED_PAGES,
         )
     }
 
@@ -431,6 +432,10 @@ impl ScraperServiceImpl {
             }
         };
 
+        // Keep this exclusion keying aligned with the DB query in
+        // `get_random_product_urls_for_schema_seed`: both currently operate on
+        // raw URL strings. If URL canonicalization is introduced, update both
+        // places together to avoid duplicate samples slipping through.
         let mut seen_urls = HashSet::new();
         seen_urls.insert(url.as_str().to_string());
         for sample_url in sample_urls {
@@ -474,9 +479,13 @@ impl ScraperServiceImpl {
             Ok(existing)
         } else {
             let seed_pages = self.collect_schema_seed_pages(shop_id, url, html).await;
+            let schema = self
+                .schema_service
+                .create_product_schema(&seed_pages)
+                .await?;
             Ok(self
                 .schema_service
-                .get_product_schema(shop_id, domain, &seed_pages)
+                .save_product_schema(shop_id, domain, schema)
                 .await?)
         }
     }
@@ -1061,16 +1070,25 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let schema = shops_product_schema(id);
+        let schema_for_create = schema.product_schema.clone();
+        let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
             .expect_find_product_schema()
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_get_product_schema()
+            .expect_create_product_schema()
+            .once()
+            .returning(move |_| {
+                let s = schema_for_create.clone();
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc
+            .expect_save_product_schema()
             .once()
             .returning(move |_, _, _| {
-                let s = schema.clone();
+                let s = schema_for_save.clone();
                 Box::pin(async move { Ok(s) })
             });
 
@@ -1087,12 +1105,13 @@ mod tests {
         let mut cand_svc = MockScraperCandidateService::new();
         expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
-        let service = ScraperServiceImpl::new(
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
             Box::new(fetcher),
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
             3,
+            1,
         );
 
         let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
@@ -1117,15 +1136,25 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let schema = shops_product_schema(id);
+        let schema_for_create = schema.product_schema.clone();
+        let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
             .expect_find_product_schema()
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_get_product_schema()
+            .expect_create_product_schema()
+            .once()
+            .returning(move |_| {
+                let s = schema_for_create.clone();
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc
+            .expect_save_product_schema()
+            .once()
             .returning(move |_, _, _| {
-                let s = schema.clone();
+                let s = schema_for_save.clone();
                 Box::pin(async move { Ok(s) })
             });
 
@@ -1140,12 +1169,13 @@ mod tests {
         let mut cand_svc = MockScraperCandidateService::new();
         expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
-        let service = ScraperServiceImpl::new(
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
             Box::new(fetcher),
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
             3,
+            1,
         );
 
         let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
@@ -1190,21 +1220,30 @@ mod tests {
             });
 
         let schema = shops_product_schema(id);
+        let schema_for_create = schema.product_schema.clone();
+        let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
             .expect_find_product_schema()
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_get_product_schema()
+            .expect_create_product_schema()
             .once()
-            .withf(move |_, _, html_pages| {
+            .withf(move |html_pages| {
                 html_pages.len() == 2
                     && html_pages[0] == sample_html()
                     && html_pages[1] == "<html><body><main><h1>seed</h1></main></body></html>"
             })
+            .returning(move |_| {
+                let s = schema_for_create.clone();
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc
+            .expect_save_product_schema()
+            .once()
             .returning(move |_, _, _| {
-                let s = schema.clone();
+                let s = schema_for_save.clone();
                 Box::pin(async move { Ok(s) })
             });
 
@@ -1261,17 +1300,26 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let schema = shops_product_schema(id);
+        let schema_for_create = schema.product_schema.clone();
+        let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
             .expect_find_product_schema()
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_get_product_schema()
+            .expect_create_product_schema()
             .once()
-            .withf(|_, _, html_pages| html_pages.len() == 1 && html_pages[0] == sample_html())
+            .withf(|html_pages| html_pages.len() == 1 && html_pages[0] == sample_html())
+            .returning(move |_| {
+                let s = schema_for_create.clone();
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc
+            .expect_save_product_schema()
+            .once()
             .returning(move |_, _, _| {
-                let s = schema.clone();
+                let s = schema_for_save.clone();
                 Box::pin(async move { Ok(s) })
             });
 
@@ -1332,17 +1380,26 @@ mod tests {
             });
 
         let schema = shops_product_schema(id);
+        let schema_for_create = schema.product_schema.clone();
+        let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
             .expect_find_product_schema()
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_get_product_schema()
+            .expect_create_product_schema()
             .once()
-            .withf(|_, _, html_pages| html_pages.len() == 1 && html_pages[0] == sample_html())
+            .withf(|html_pages| html_pages.len() == 1 && html_pages[0] == sample_html())
+            .returning(move |_| {
+                let s = schema_for_create.clone();
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc
+            .expect_save_product_schema()
+            .once()
             .returning(move |_, _, _| {
-                let s = schema.clone();
+                let s = schema_for_save.clone();
                 Box::pin(async move { Ok(s) })
             });
 
@@ -1381,6 +1438,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
+        let id = shop_id();
+        let url = product_url();
+
+        let mut fetcher = MockHtmlFetcher::new();
+        fetcher
+            .expect_fetch()
+            .once()
+            .returning(|_| Box::pin(async { Ok(sample_html()) }));
+
+        let schema = shops_product_schema(id);
+        let schema_for_create = schema.product_schema.clone();
+        let schema_for_save = schema.clone();
+        let mut schema_svc = MockProductSchemaService::new();
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
+        schema_svc
+            .expect_create_product_schema()
+            .once()
+            .withf(|html_pages| html_pages.len() == 1 && html_pages[0] == sample_html())
+            .returning(move |_| {
+                let s = schema_for_create.clone();
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc
+            .expect_save_product_schema()
+            .once()
+            .returning(move |_, _, _| {
+                let s = schema_for_save.clone();
+                Box::pin(async move { Ok(s) })
+            });
+
+        let expected = normalized_product(url.clone());
+        let mut norm_svc = MockProductNormalizationService::new();
+        norm_svc
+            .expect_normalize()
+            .once()
+            .returning(move |_, _, _| {
+                let n = expected.clone();
+                Box::pin(async move { Ok(n) })
+            });
+
+        let mut cand_svc = MockScraperCandidateService::new();
+        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+            3,
+            1,
+        );
+
+        let result = service.scrape(&id, &url, None).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_some());
+    }
+
+    #[tokio::test]
     async fn should_skip_fetching_and_return_none_when_hashes_match() {
         let id = shop_id();
         let url = product_url();
@@ -1401,12 +1520,13 @@ mod tests {
             .once()
             .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
-        let service = ScraperServiceImpl::new(
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
             Box::new(fetcher),
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
             3,
+            1,
         );
 
         let result = service
@@ -1478,9 +1598,16 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
 
-        // Initial schema fetch returns a broken schema.
+        // Initial schema generation returns a broken schema.
         schema_svc
-            .expect_get_product_schema()
+            .expect_create_product_schema()
+            .once()
+            .returning(move |_| {
+                let s = broken_shops_product_schema(id).product_schema;
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc
+            .expect_save_product_schema()
             .once()
             .returning(move |_, _, _| {
                 let s = broken_shops_product_schema(id);
@@ -1517,12 +1644,13 @@ mod tests {
         let mut cand_svc = MockScraperCandidateService::new();
         expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
-        let service = ScraperServiceImpl::new(
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
             Box::new(fetcher),
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
             3,
+            1,
         );
 
         let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
@@ -1562,6 +1690,8 @@ mod tests {
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };
+        let broken_schema_for_create = broken_schema.product_schema.clone();
+        let broken_schema_for_save = broken_schema.clone();
 
         let mut fetcher = MockHtmlFetcher::new();
         fetcher
@@ -1575,9 +1705,17 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_get_product_schema()
+            .expect_create_product_schema()
+            .once()
+            .returning(move |_| {
+                let s = broken_schema_for_create.clone();
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc
+            .expect_save_product_schema()
+            .once()
             .returning(move |_, _, _| {
-                let s = broken_schema.clone();
+                let s = broken_schema_for_save.clone();
                 Box::pin(async move { Ok(s) })
             });
         schema_svc.expect_fix_product_schema().returning(|_, _, _| {
@@ -1591,12 +1729,13 @@ mod tests {
         let norm_svc = MockProductNormalizationService::new();
         let cand_svc = MockScraperCandidateService::new();
 
-        let service = ScraperServiceImpl::new(
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
             Box::new(fetcher),
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
             3,
+            1,
         );
 
         let err = service.scrape(&id, &url, None).await.unwrap_err();
@@ -1636,6 +1775,8 @@ mod tests {
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };
+        let broken_schema_for_create = broken_schema.product_schema.clone();
+        let broken_schema_for_save = broken_schema.clone();
         let good_schema = minimal_schema();
 
         let mut fetcher = MockHtmlFetcher::new();
@@ -1650,9 +1791,17 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_get_product_schema()
+            .expect_create_product_schema()
+            .once()
+            .returning(move |_| {
+                let s = broken_schema_for_create.clone();
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc
+            .expect_save_product_schema()
+            .once()
             .returning(move |_, _, _| {
-                let s = broken_schema.clone();
+                let s = broken_schema_for_save.clone();
                 Box::pin(async move { Ok(s) })
             });
         schema_svc
@@ -1682,12 +1831,13 @@ mod tests {
         let mut cand_svc = MockScraperCandidateService::new();
         expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
-        let service = ScraperServiceImpl::new(
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
             Box::new(fetcher),
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
             3,
+            1,
         );
 
         service.scrape(&id, &url, None).await.unwrap();
@@ -1716,12 +1866,13 @@ mod tests {
         let norm_svc = MockProductNormalizationService::new();
         let cand_svc = MockScraperCandidateService::new();
 
-        let service = ScraperServiceImpl::new(
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
             Box::new(fetcher),
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
             3,
+            1,
         );
 
         let err = service.scrape(&id, &url, None).await.unwrap_err();
@@ -1752,12 +1903,13 @@ mod tests {
         let norm_svc = MockProductNormalizationService::new();
         let cand_svc = MockScraperCandidateService::new();
 
-        let service = ScraperServiceImpl::new(
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
             Box::new(fetcher),
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
             3,
+            1,
         );
 
         let err = service.scrape(&id, &url, None).await.unwrap_err();
@@ -1796,12 +1948,13 @@ mod tests {
             })
             .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
-        let service = ScraperServiceImpl::new(
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
             Box::new(fetcher),
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
             3,
+            1,
         );
 
         let err = service.scrape(&id, &url, None).await.unwrap_err();
@@ -1833,12 +1986,13 @@ mod tests {
         cand_svc.expect_set_state().times(0);
         cand_svc.expect_mark_as_scraped().times(0);
 
-        let service = ScraperServiceImpl::new(
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
             Box::new(fetcher),
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
             3,
+            1,
         );
 
         let err = service.scrape(&id, &url, None).await.unwrap_err();
@@ -1866,23 +2020,27 @@ mod tests {
             .expect_find_product_schema()
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
-        schema_svc.expect_get_product_schema().returning(|_, _, _| {
-            Box::pin(async {
-                Err(ProductSchemaServiceError::NoTextResponse(
-                    "LLM timed out".to_string(),
-                ))
-            })
-        });
+        schema_svc
+            .expect_create_product_schema()
+            .once()
+            .returning(|_| {
+                Box::pin(async {
+                    Err(ProductSchemaServiceError::NoTextResponse(
+                        "LLM timed out".to_string(),
+                    ))
+                })
+            });
 
         let norm_svc = MockProductNormalizationService::new();
         let cand_svc = MockScraperCandidateService::new();
 
-        let service = ScraperServiceImpl::new(
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
             Box::new(fetcher),
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
             3,
+            1,
         );
 
         let err = service.scrape(&id, &url, None).await.unwrap_err();
@@ -1908,6 +2066,8 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let schema = shops_product_schema(id);
+        let schema_for_create = schema.product_schema.clone();
+        let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
 
         schema_svc
@@ -1915,9 +2075,17 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_get_product_schema()
+            .expect_create_product_schema()
+            .once()
+            .returning(move |_| {
+                let s = schema_for_create.clone();
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc
+            .expect_save_product_schema()
+            .once()
             .returning(move |_, _, _| {
-                let s = schema.clone();
+                let s = schema_for_save.clone();
                 Box::pin(async move { Ok(s) })
             });
 
@@ -1933,12 +2101,13 @@ mod tests {
 
         let cand_svc = MockScraperCandidateService::new();
 
-        let service = ScraperServiceImpl::new(
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
             Box::new(fetcher),
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
             3,
+            1,
         );
 
         let err = service.scrape(&id, &url, None).await.unwrap_err();
@@ -1969,16 +2138,25 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let schema = shops_product_schema(id);
+        let schema_for_create = schema.product_schema.clone();
+        let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
             .expect_find_product_schema()
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_get_product_schema()
+            .expect_create_product_schema()
+            .once()
+            .returning(move |_| {
+                let s = schema_for_create.clone();
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc
+            .expect_save_product_schema()
             .once()
             .returning(move |_, _, _| {
-                let s = schema.clone();
+                let s = schema_for_save.clone();
                 Box::pin(async move { Ok(s) })
             });
         // fix_product_schema must NOT be registered — if called the mock panics.
@@ -1990,12 +2168,13 @@ mod tests {
 
         let cand_svc = MockScraperCandidateService::new();
 
-        let service = ScraperServiceImpl::new(
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
             Box::new(fetcher),
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
             3,
+            1,
         );
 
         let err = service.scrape(&id, &url, None).await.unwrap_err();
@@ -2022,6 +2201,8 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let schema = shops_product_schema(id);
+        let schema_for_create = schema.product_schema.clone();
+        let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
 
         schema_svc
@@ -2029,9 +2210,17 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_get_product_schema()
+            .expect_create_product_schema()
+            .once()
+            .returning(move |_| {
+                let s = schema_for_create.clone();
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc
+            .expect_save_product_schema()
+            .once()
             .returning(move |_, _, _| {
-                let s = schema.clone();
+                let s = schema_for_save.clone();
                 Box::pin(async move { Ok(s) })
             });
 
@@ -2048,12 +2237,13 @@ mod tests {
         let mut cand_svc = MockScraperCandidateService::new();
         expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
-        let service = ScraperServiceImpl::new(
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
             Box::new(fetcher),
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
             3,
+            1,
         );
 
         service.scrape(&id, &url, None).await.unwrap();
@@ -2072,6 +2262,8 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let schema = shops_product_schema(id);
+        let schema_for_create = schema.product_schema.clone();
+        let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
 
         schema_svc
@@ -2079,9 +2271,17 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_get_product_schema()
+            .expect_create_product_schema()
+            .once()
+            .returning(move |_| {
+                let s = schema_for_create.clone();
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc
+            .expect_save_product_schema()
+            .once()
             .returning(move |_, _, _| {
-                let s = schema.clone();
+                let s = schema_for_save.clone();
                 Box::pin(async move { Ok(s) })
             });
 
@@ -2094,12 +2294,13 @@ mod tests {
         let mut cand_svc = MockScraperCandidateService::new();
         expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
-        let service = ScraperServiceImpl::new(
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
             Box::new(fetcher),
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
             3,
+            1,
         );
 
         let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
@@ -2258,9 +2459,16 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
 
-        // Initial schema fetch returns a broken schema.
+        // Initial schema generation returns a broken schema.
         schema_svc
-            .expect_get_product_schema()
+            .expect_create_product_schema()
+            .once()
+            .returning(move |_| {
+                let s = broken_shops_product_schema(id).product_schema;
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc
+            .expect_save_product_schema()
             .once()
             .returning(move |_, _, _| {
                 let s = broken_shops_product_schema(id);
@@ -2272,12 +2480,13 @@ mod tests {
         let norm_svc = MockProductNormalizationService::new();
         let cand_svc = MockScraperCandidateService::new();
 
-        let service = ScraperServiceImpl::new(
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
             Box::new(fetcher),
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
             0, // max = 0 → immediately exhausted, no LLM calls
+            1,
         );
 
         let err = service.scrape(&id, &url, None).await.unwrap_err();
@@ -2310,9 +2519,16 @@ mod tests {
             .expect_find_product_schema()
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
-        // Initial schema fetch returns a broken schema.
+        // Initial schema generation returns a broken schema.
         schema_svc
-            .expect_get_product_schema()
+            .expect_create_product_schema()
+            .once()
+            .returning(move |_| {
+                let s = broken_shops_product_schema(id).product_schema;
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc
+            .expect_save_product_schema()
             .once()
             .returning(move |_, _, _| {
                 let s = broken_shops_product_schema(id);
@@ -2349,11 +2565,12 @@ mod tests {
         expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
         // max = 1 so only 1 failed attempt is allowed before exhaustion
-        let service = ScraperServiceImpl::new(
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
             Box::new(fetcher),
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
+            1,
             1,
         );
 
@@ -2420,16 +2637,25 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let schema = shops_product_schema(id);
+        let schema_for_create = schema.product_schema.clone();
+        let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
             .expect_find_product_schema()
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_get_product_schema()
+            .expect_create_product_schema()
+            .once()
+            .returning(move |_| {
+                let s = schema_for_create.clone();
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc
+            .expect_save_product_schema()
             .once()
             .returning(move |_, _, _| {
-                let s = schema.clone();
+                let s = schema_for_save.clone();
                 Box::pin(async move { Ok(s) })
             });
 
@@ -2458,12 +2684,13 @@ mod tests {
             })
             .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
-        let service = ScraperServiceImpl::new(
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
             Box::new(fetcher),
             Box::new(schema_svc),
             Box::new(norm_svc),
             Arc::new(cand_svc),
             3,
+            1,
         );
 
         let result = service.scrape(&id, &url, None).await.unwrap().unwrap();

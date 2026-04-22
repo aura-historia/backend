@@ -33,7 +33,9 @@ use crawler::scraper::css_selector::product_schema_service::ProductSchemaService
 use crawler::scraper::normalization::product_normalization_service::ProductNormalizationServiceImpl;
 use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
-use crawler::scraper::scraper_service::{ReqwestHtmlFetcher, ScraperServiceImpl};
+use crawler::scraper::scraper_service::{
+    DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
+};
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crawler::service::product_push::ProductPushServiceImpl;
 use crawler::service::shop_registration::{
@@ -151,7 +153,7 @@ async fn main() {
         spider_concurrency: 10,
         scraper_concurrency: 10,
         spider_classify_threshold: 400,
-        scraper_schema_seed_pages: 3,
+        scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
         push_batch_size: 1000,
         ..Default::default()
     };

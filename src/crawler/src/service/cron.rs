@@ -1,7 +1,7 @@
 use crate::scraper::candidate_service::{
     ProductSnapshot, ScraperCandidate, ScraperCandidateService,
 };
-use crate::scraper::scraper_service::{ScraperError, ScraperService};
+use crate::scraper::scraper_service::{DEFAULT_SCHEMA_SEED_PAGES, ScraperError, ScraperService};
 use crate::service::product_push::{ProductPushService, normalize_to_upsert};
 use crate::service::shop_registration::ShopRegistrationService;
 use crate::spider::advisory_lock::{DomainLock, LocalLockManager, UrlLock};
@@ -53,7 +53,7 @@ impl Default for CrawlerCronConfig {
             spider_concurrency: 3,
             scraper_concurrency: 10,
             spider_classify_threshold: 200,
-            scraper_schema_seed_pages: 3,
+            scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
             scraper_domain_delay: Duration::from_secs(1),
             db_max_connections: None,
         }

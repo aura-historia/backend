@@ -330,6 +330,9 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
               AND su.url_class = 'product'
               AND su.last_scraped_state IN ('AVAILABLE', 'UNKNOWN', 'LISTED', 'RESERVED')
               AND su.url <> $2
+            -- Intentional: schema seeding runs on a rare path (typically once per
+            -- shop), so ORDER BY RANDOM() keeps this simple. If rows per shop grow
+            -- to millions, switch to TABLESAMPLE BERNOULLI or keyset-random.
             ORDER BY RANDOM()
             LIMIT $3
             "#,
