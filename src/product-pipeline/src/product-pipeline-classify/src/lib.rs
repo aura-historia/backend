@@ -94,7 +94,7 @@ pub async fn handler(
                     shopId = %enrichment_record.shop_id,
                     shopsProductId = %enrichment_record.shops_product_id,
                     eventId = %enrichment_record.event_id,
-                    "Enrichment record has no native title, skipping classification."
+                    "Enrichment record has no native title (legacy record), skipping classification."
                 );
                 continue;
             }
@@ -110,6 +110,8 @@ pub async fn handler(
             );
             continue;
         }
+
+        let title = Title::from(title.as_str());
 
         let (similar_categories_res, similar_periods_res) = tokio::join!(
             category_service.find_similar(embedding, 5),
@@ -178,7 +180,7 @@ pub async fn handler(
         };
 
         let (chosen_category, chosen_period) = match classification_service
-            .classify(&Title::from(title.as_str()), &category_ids, &period_ids)
+            .classify(&title, &category_ids, &period_ids)
             .await
         {
             Ok(result) => result,
