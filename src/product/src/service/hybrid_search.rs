@@ -3,8 +3,9 @@ use crate::core::product_search::ProductSearch;
 use crate::core::sort_product_field::SortProductField;
 use crate::opensearch::product_document::ProductDocument;
 use crate::opensearch::repository::ProductOpenSearchRepository;
-use crate::service::intent::{HybridSearchParams, IntentSignals, compute_intent_signals,
-    intent_centroids};
+use crate::service::intent::{
+    HybridSearchParams, IntentSignals, compute_intent_signals, intent_centroids,
+};
 use crate::service::query_embedding_service::{QueryEmbeddingError, QueryEmbeddingService};
 use common::language::domain::Language;
 use common::opensearch::search_response::SearchResponse;
@@ -168,19 +169,20 @@ pub async fn hybrid_search(
     let mut fused = rrf_fuse(bm25_docs, knn_docs, params.vector_weight);
 
     // 6. Apply pagination via search_after = [fused_score, productId].
-    if let Some(cursor) = page {
-        if let Some(sa) = &cursor.search_after {
-            if let Some((cursor_score, cursor_id)) = decode_cursor(sa) {
-                fused.retain(|(score, doc)| {
-                    let s_cmp = score.partial_cmp(&cursor_score).unwrap_or(std::cmp::Ordering::Equal);
-                    match s_cmp {
-                        std::cmp::Ordering::Less => true,
-                        std::cmp::Ordering::Greater => false,
-                        std::cmp::Ordering::Equal => doc.product_id.to_string() > cursor_id,
-                    }
-                });
+    if let Some(cursor) = page
+        && let Some(sa) = &cursor.search_after
+        && let Some((cursor_score, cursor_id)) = decode_cursor(sa)
+    {
+        fused.retain(|(score, doc)| {
+            let s_cmp = score
+                .partial_cmp(&cursor_score)
+                .unwrap_or(std::cmp::Ordering::Equal);
+            match s_cmp {
+                std::cmp::Ordering::Less => true,
+                std::cmp::Ordering::Greater => false,
+                std::cmp::Ordering::Equal => doc.product_id > cursor_id,
             }
-        }
+        });
     }
 
     let page_size = page.as_ref().map(|c| c.size).unwrap_or(20).max(1) as usize;
@@ -212,10 +214,11 @@ pub async fn hybrid_search(
     })
 }
 
-fn decode_cursor(value: &serde_json::Value) -> Option<(f32, String)> {
+fn decode_cursor(value: &serde_json::Value) -> Option<(f32, common::product_id::ProductId)> {
     let arr = value.as_array()?;
     let score = arr.first()?.as_f64()? as f32;
-    let id = arr.get(1)?.as_str()?.to_string();
+    let id_str = arr.get(1)?.as_str()?;
+    let id = common::product_id::ProductId::try_from(id_str).ok()?;
     Some((score, id))
 }
 
@@ -284,10 +287,11 @@ mod tests {
 
     #[test]
     fn should_decode_pagination_cursor() {
-        let v = serde_json::json!([0.0123_f64, "abc-123"]);
-        let (score, id) = decode_cursor(&v).unwrap();
+        let id = ProductId::new();
+        let v = serde_json::json!([0.0123_f64, id.to_string()]);
+        let (score, decoded) = decode_cursor(&v).unwrap();
         assert!((score - 0.0123).abs() < 1e-6);
-        assert_eq!(id, "abc-123");
+        assert_eq!(decoded, id);
     }
 
     #[test]
@@ -295,5 +299,7 @@ mod tests {
         assert!(decode_cursor(&serde_json::json!("nope")).is_none());
         assert!(decode_cursor(&serde_json::json!([])).is_none());
         assert!(decode_cursor(&serde_json::json!([0.1])).is_none());
+        // Valid array shape but the second element is not a parseable ProductId.
+        assert!(decode_cursor(&serde_json::json!([0.1, "not-a-uuid"])).is_none());
     }
 }

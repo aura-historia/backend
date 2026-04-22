@@ -140,15 +140,14 @@ impl<S> CachedQueryEmbeddingService<S> {
         let ttl = self.ttl;
         state.entries.retain(|_, e| e.inserted_at.elapsed() <= ttl);
         // If still over capacity, drop the oldest entry to bound memory.
-        if state.entries.len() >= self.capacity {
-            if let Some(oldest_key) = state
+        if state.entries.len() >= self.capacity
+            && let Some(oldest_key) = state
                 .entries
                 .iter()
                 .min_by_key(|(_, e)| e.inserted_at)
                 .map(|(k, _)| k.clone())
-            {
-                state.entries.remove(&oldest_key);
-            }
+        {
+            state.entries.remove(&oldest_key);
         }
         state.entries.insert(
             query,
@@ -161,7 +160,9 @@ impl<S> CachedQueryEmbeddingService<S> {
 }
 
 #[async_trait]
-impl<S: QueryEmbeddingService + Send + Sync> QueryEmbeddingService for CachedQueryEmbeddingService<S> {
+impl<S: QueryEmbeddingService + Send + Sync> QueryEmbeddingService
+    for CachedQueryEmbeddingService<S>
+{
     async fn embed_query(&self, query: &str) -> Result<Vec<f32>, QueryEmbeddingError> {
         if let Some(cached) = self.get_fresh(query) {
             return Ok(cached);
@@ -238,8 +239,7 @@ mod tests {
         let stub = StubService {
             calls: Mutex::new(0),
         };
-        let cached =
-            CachedQueryEmbeddingService::new(stub, Duration::from_millis(1), 8);
+        let cached = CachedQueryEmbeddingService::new(stub, Duration::from_millis(1), 8);
         let _ = cached.embed_query("vase").await.unwrap();
         tokio::time::sleep(Duration::from_millis(20)).await;
         let _ = cached.embed_query("vase").await.unwrap();

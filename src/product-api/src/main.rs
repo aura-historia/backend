@@ -75,14 +75,15 @@ async fn main() -> Result<(), Error> {
     // Use a boxed trait object so the same handler call site works whether or not we have
     // an embedding service configured (the two `QueryProductServiceImpl` instantiations
     // would otherwise have different concrete types).
-    let query_product_service: Box<dyn product::service::query_service::QueryProductService + Sync + Send> =
-        match query_embedding_service.as_ref() {
-            Some(embedding_service) => Box::new(QueryProductServiceImpl::with_hybrid(
-                &product_opensearch_repository,
-                embedding_service,
-            )),
-            None => Box::new(QueryProductServiceImpl::new(&product_opensearch_repository)),
-        };
+    let query_product_service: Box<
+        dyn product::service::query_service::QueryProductService + Sync + Send,
+    > = match query_embedding_service.as_ref() {
+        Some(embedding_service) => Box::new(QueryProductServiceImpl::with_hybrid(
+            &product_opensearch_repository,
+            embedding_service,
+        )),
+        None => Box::new(QueryProductServiceImpl::new(&product_opensearch_repository)),
+    };
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
         &product_opensearch_repository,

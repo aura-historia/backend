@@ -1126,6 +1126,7 @@ mod tests {
                     text: "Test title".to_string(),
                 }],
             },
+            task_type: None,
         };
         let json = serde_json::to_value(&request).unwrap();
         assert_eq!(

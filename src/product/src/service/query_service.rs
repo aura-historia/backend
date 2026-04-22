@@ -55,8 +55,6 @@ pub mod api {
     }
 }
 
-use common::language::domain::Language;
-
 #[async_trait]
 #[mockall::automock]
 pub trait QueryProductService {
@@ -72,8 +70,7 @@ pub trait QueryProductService {
 /// when no `product_query` is supplied or no embedding service is configured) or the
 /// hybrid (BM25 + kNN, RRF-fused) flow when both a textual query and an embedding service
 /// are available.
-pub struct QueryProductServiceImpl<'a, E: QueryEmbeddingService = NoopQueryEmbeddingService>
-{
+pub struct QueryProductServiceImpl<'a, E: QueryEmbeddingService = NoopQueryEmbeddingService> {
     repository: &'a (dyn ProductOpenSearchRepository + Sync),
     embedding_service: Option<&'a E>,
 }
@@ -107,13 +104,17 @@ impl<'a, E: QueryEmbeddingService> QueryProductServiceImpl<'a, E> {
 
 /// Placeholder embedding service used as the type parameter when the bare-bones
 /// constructor [`QueryProductServiceImpl::new`] is used. It is never invoked because
-/// `embedding_service` is `None` in that mode.
+/// `embedding_service` is `None` in that mode; reaching its body indicates a programming
+/// error in [`QueryProductServiceImpl`]'s dispatch.
 pub struct NoopQueryEmbeddingService;
 
 #[async_trait]
 impl QueryEmbeddingService for NoopQueryEmbeddingService {
     async fn embed_query(&self, _query: &str) -> Result<Vec<f32>, QueryEmbeddingError> {
-        Err(QueryEmbeddingError::EmptyResponse)
+        unreachable!(
+            "NoopQueryEmbeddingService::embed_query must never be called; it is only \
+             instantiated as a phantom type parameter on QueryProductServiceImpl::new"
+        )
     }
 }
 
@@ -194,7 +195,6 @@ impl<'a, E: QueryEmbeddingService> QueryProductServiceImpl<'a, E> {
             );
         }
 
-        let _ = std::marker::PhantomData::<Language>;
         let product_views = search_response
             .hits
             .hits
@@ -708,5 +708,171 @@ mod tests {
                 .iter()
                 .all(|item| item.description.clone().unwrap().payload.as_ref() == expected)
         );
+    }
+
+    mod hybrid {
+        use super::*;
+        use crate::service::query_embedding_service::MockQueryEmbeddingService;
+        use common::product_id::ProductId;
+        use fake::{Fake, Faker};
+
+        fn neutral_search() -> ProductSearch {
+            ProductSearch {
+                language: Language::En,
+                currency: Currency::Eur,
+                product_query: Some("blue ceramic vase".try_into().unwrap()),
+                category_id: Default::default(),
+                period_id: Default::default(),
+                shop_name_query: Default::default(),
+                exclude_shop_name_query: Default::default(),
+                seller_name_query: Default::default(),
+                exclude_seller_name_query: Default::default(),
+                shop_type_query: Default::default(),
+                price_query: None,
+                state_query: Default::default(),
+                origin_year_query: None,
+                authenticity_query: Default::default(),
+                condition_query: Default::default(),
+                provenance_query: Default::default(),
+                restoration_query: Default::default(),
+                created_query: None,
+                updated_query: None,
+                auction_start_query: None,
+                auction_end_query: None,
+                shop_slug_id_query: Default::default(),
+                exclude_shop_slug_id_query: Default::default(),
+                seller_slug_id_query: Default::default(),
+                exclude_seller_slug_id_query: Default::default(),
+            }
+        }
+
+        fn doc_with_id(id: ProductId) -> ProductDocument {
+            let mut doc: ProductDocument = Faker.fake();
+            doc.product_id = id;
+            doc
+        }
+
+        #[tokio::test]
+        async fn should_invoke_hybrid_search_when_embedding_service_is_configured() {
+            let bm25_only_id = ProductId::new();
+            let shared_id = ProductId::new();
+            let knn_only_id = ProductId::new();
+
+            let mut repository = MockProductOpenSearchRepository::default();
+            // The probe + the candidate-fetch BM25 calls share the same expectation.
+            repository
+                .expect_search_product_documents()
+                .returning(move |_, _, _| {
+                    let docs = vec![doc_with_id(bm25_only_id), doc_with_id(shared_id)];
+                    Box::pin(async move { Ok(mk_search_response(docs)) })
+                });
+            repository
+                .expect_knn_search_product_documents()
+                .return_once(move |_, _, _| {
+                    let docs = vec![doc_with_id(shared_id), doc_with_id(knn_only_id)];
+                    Box::pin(async move { Ok(mk_search_response(docs)) })
+                });
+
+            let mut embedding_service = MockQueryEmbeddingService::default();
+            embedding_service
+                .expect_embed_query()
+                .return_once(|_| Box::pin(async { Ok(vec![0.1f32; 768]) }));
+
+            let service = QueryProductServiceImpl::with_hybrid(&repository, &embedding_service);
+            let outcome = service
+                .search_products(&neutral_search(), &None, &None)
+                .await
+                .unwrap();
+
+            // Three unique ids should be present in the union (RRF fuses them).
+            assert_eq!(outcome.items.len(), 3);
+            // Total reflects the union, not BM25-only.
+            assert_eq!(outcome.total.unwrap(), 3);
+            // Cursor is a [score, productId] tuple.
+            let next = outcome.cursor.search_after.unwrap();
+            assert!(next.is_array());
+            assert_eq!(next.as_array().unwrap().len(), 2);
+        }
+
+        #[tokio::test]
+        async fn should_skip_hybrid_when_no_text_query_for_filter_only_search() {
+            let mut repository = MockProductOpenSearchRepository::default();
+            repository
+                .expect_search_product_documents()
+                .return_once(|_, _, _| {
+                    Box::pin(async { Ok(mk_search_response(fake::vec![ProductDocument; 5])) })
+                });
+            // kNN must NOT be called.
+            repository.expect_knn_search_product_documents().never();
+
+            let mut embedding_service = MockQueryEmbeddingService::default();
+            // Embedding must NOT be requested.
+            embedding_service.expect_embed_query().never();
+
+            let service = QueryProductServiceImpl::with_hybrid(&repository, &embedding_service);
+            let mut search = neutral_search();
+            search.product_query = None;
+
+            let outcome = service
+                .search_products(&search, &None, &None)
+                .await
+                .unwrap();
+            assert_eq!(outcome.items.len(), 5);
+        }
+
+        #[tokio::test]
+        async fn should_skip_hybrid_when_explicit_non_score_sort_is_requested() {
+            let mut repository = MockProductOpenSearchRepository::default();
+            repository
+                .expect_search_product_documents()
+                .return_once(|_, _, _| {
+                    Box::pin(async { Ok(mk_search_response(fake::vec![ProductDocument; 3])) })
+                });
+            repository.expect_knn_search_product_documents().never();
+
+            let mut embedding_service = MockQueryEmbeddingService::default();
+            embedding_service.expect_embed_query().never();
+
+            let service = QueryProductServiceImpl::with_hybrid(&repository, &embedding_service);
+            let outcome = service
+                .search_products(
+                    &neutral_search(),
+                    &Some(Sort {
+                        sort: SortProductField::Price,
+                        order: SortOrder::Asc,
+                    }),
+                    &None,
+                )
+                .await
+                .unwrap();
+            assert_eq!(outcome.items.len(), 3);
+        }
+
+        #[tokio::test]
+        async fn should_propagate_embedding_error_as_query_embedding_error() {
+            let mut repository = MockProductOpenSearchRepository::default();
+            // Probe BM25 succeeds; embedding fails before kNN runs.
+            repository
+                .expect_search_product_documents()
+                .return_once(|_, _, _| Box::pin(async { Ok(mk_search_response(vec![])) }));
+            repository.expect_knn_search_product_documents().never();
+
+            let mut embedding_service = MockQueryEmbeddingService::default();
+            embedding_service.expect_embed_query().return_once(|_| {
+                Box::pin(async {
+                    Err(crate::service::query_embedding_service::QueryEmbeddingError::EmptyResponse)
+                })
+            });
+
+            let service = QueryProductServiceImpl::with_hybrid(&repository, &embedding_service);
+            let result = service
+                .search_products(&neutral_search(), &None, &None)
+                .await;
+
+            assert!(matches!(
+                result,
+                Err(crate::service::query_service::SearchProductsError::QueryEmbeddingError(_))
+            ));
+        }
     }
 }

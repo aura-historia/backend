@@ -59,10 +59,7 @@ pub struct IntentCentroids {
     pub exploratory: Vec<f32>,
 }
 
-static INTENT_EXAMPLES_RAW: &str = include_str!(concat!(
-    env!("CARGO_WORKSPACE_DIR"),
-    "src/product/data/intent_examples.json"
-));
+static INTENT_EXAMPLES_RAW: &str = include_str!("../../data/intent_examples.json");
 
 static INTENT_CENTROIDS: Lazy<IntentCentroids> = Lazy::new(|| {
     let parsed: IntentExamplesFile = serde_json::from_str(INTENT_EXAMPLES_RAW)
@@ -144,7 +141,8 @@ pub fn compute_intent_signals(
     // Compose raw logits per intent. Weights are deliberately tuned so that with
     // placeholder zero embeddings (centroid_sims == 0) the keyword + bm25 signals
     // still produce sensible behaviour.
-    let precision_logit = 1.5 * centroid_sims.precision + 1.2 * kw.precision + 0.8 * bm25.peakedness;
+    let precision_logit =
+        1.5 * centroid_sims.precision + 1.2 * kw.precision + 0.8 * bm25.peakedness;
     let style_logit = 1.5 * centroid_sims.style + 1.0 * kw.style;
     let visual_logit = 1.5 * centroid_sims.visual + 1.0 * kw.visual;
     let exploratory_logit =
@@ -211,6 +209,10 @@ fn keyword_scores(query: &str) -> KeywordScores {
     // Years (3-4 digit numbers, optional BC/AD), explicit material grams etc → precision
     let has_year = regex_year().is_match(&q);
     let has_long_digit = q.chars().filter(|c| c.is_ascii_digit()).count() >= 3;
+    // Heuristic: a 3+ character token starting with an uppercase letter is treated as a
+    // brand-like signal. This is intentionally permissive — it produces some false positives
+    // for sentence-initial words like "The" but biases the score by a small amount and is
+    // backed up by the year/digit signals before precision overtakes other intents.
     let has_uppercase_brand = query
         .split_whitespace()
         .any(|tok| tok.len() >= 3 && tok.chars().next().is_some_and(|c| c.is_uppercase()));
@@ -233,9 +235,30 @@ fn keyword_scores(query: &str) -> KeywordScores {
         "neoclassical",
     ];
     let visual_keywords = [
-        "blue", "red", "green", "yellow", "black", "white", "gold", "silver", "bronze", "brass",
-        "wooden", "ceramic", "porcelain", "glass", "ornate", "carved", "engraved", "patterned",
-        "round", "square", "small", "large", "tiny", "huge",
+        "blue",
+        "red",
+        "green",
+        "yellow",
+        "black",
+        "white",
+        "gold",
+        "silver",
+        "bronze",
+        "brass",
+        "wooden",
+        "ceramic",
+        "porcelain",
+        "glass",
+        "ornate",
+        "carved",
+        "engraved",
+        "patterned",
+        "round",
+        "square",
+        "small",
+        "large",
+        "tiny",
+        "huge",
     ];
     let exploratory_keywords = [
         "antique",
@@ -348,10 +371,9 @@ impl HybridSearchParams {
             + 800.0 * signals.style_score
             + 1500.0 * signals.visual_score
             + 3000.0 * signals.exploratory_score;
-        let candidate_k = (raw_k.round() as i32).clamp(
-            Self::MIN_CANDIDATE_K as i32,
-            Self::MAX_CANDIDATE_K as i32,
-        ) as u16;
+        let candidate_k = (raw_k.round() as i32)
+            .clamp(Self::MIN_CANDIDATE_K as i32, Self::MAX_CANDIDATE_K as i32)
+            as u16;
 
         Self {
             vector_weight,
@@ -386,12 +408,8 @@ mod tests {
     #[test]
     fn should_score_uniform_when_query_is_neutral() {
         // Neutral query: 4 tokens (no short-query bonus) and no keyword hits in any bucket.
-        let signals = compute_intent_signals(
-            "the unique piece offering",
-            None,
-            &[],
-            intent_centroids(),
-        );
+        let signals =
+            compute_intent_signals("the unique piece offering", None, &[], intent_centroids());
         // No keyword hits, no embedding, no bm25 distribution → uniform after softmax.
         let total = signals.precision_score
             + signals.style_score
@@ -420,24 +438,15 @@ mod tests {
 
     #[test]
     fn should_skew_towards_style_when_query_contains_period_keyword() {
-        let signals = compute_intent_signals(
-            "art deco floor lamp",
-            None,
-            &[],
-            intent_centroids(),
-        );
+        let signals = compute_intent_signals("art deco floor lamp", None, &[], intent_centroids());
         assert!(signals.style_score > signals.precision_score);
         assert!(signals.style_score > signals.exploratory_score);
     }
 
     #[test]
     fn should_skew_towards_visual_when_query_contains_color_and_material() {
-        let signals = compute_intent_signals(
-            "blue ceramic ornate vase",
-            None,
-            &[],
-            intent_centroids(),
-        );
+        let signals =
+            compute_intent_signals("blue ceramic ornate vase", None, &[], intent_centroids());
         assert!(signals.visual_score > signals.precision_score);
         assert!(signals.visual_score > signals.style_score);
     }
