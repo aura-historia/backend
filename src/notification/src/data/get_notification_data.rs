@@ -53,7 +53,6 @@ pub enum NotificationPayloadData {
         image: Option<ProductImageData>,
         watchlist_payload: WatchlistPayloadData,
     },
-    #[serde(rename_all = "camelCase")]
     SearchFilter {
         product_id: ProductId,
         shop_id: ShopId,
@@ -66,7 +65,6 @@ pub enum NotificationPayloadData {
         image: Option<ProductImageData>,
         search_filter_payload: SearchFilterPayloadData,
     },
-    #[serde(rename_all = "camelCase")]
     PartnerApplication {
         shop_name: ShopName,
         partner_application_payload: PartnerApplicationPayloadData,
@@ -109,11 +107,9 @@ pub struct SearchFilterPayloadData {
     rename_all_fields = "camelCase"
 )]
 pub enum PartnerApplicationPayloadData {
-    #[serde(rename_all = "camelCase")]
     Approved {
         partner_application_id: PartnerShopApplicationId,
     },
-    #[serde(rename_all = "camelCase")]
     Rejected {
         partner_application_id: PartnerShopApplicationId,
     },
