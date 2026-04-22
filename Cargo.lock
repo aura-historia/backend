@@ -4059,12 +4059,13 @@ checksum = "241eaef5fd12c88705a01fc1066c48c4b36e0dd4377dcdc7ec3942cea7a69956"
 
 [[package]]
 name = "llm"
-version = "1.3.7"
+version = "1.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cbc94a23fd2414950347cd358662ede9f879858d1e96527ffb8d4c0b2a450366"
+checksum = "9bceab1ad0261ca65a160f53421dc92e102669bd182c9db07ef58d5c8c57047c"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "bytes",
  "chrono",
  "dirs",
  "either",
@@ -4073,10 +4074,12 @@ dependencies = [
  "rand 0.8.5",
  "regex",
  "reqwest 0.12.28",
+ "secrecy",
  "serde",
  "serde_bytes",
  "serde_json",
  "serde_yaml",
+ "thiserror 1.0.69",
  "tokio",
  "toml 0.8.23",
 ]
@@ -6907,6 +6910,16 @@ dependencies = [
  "generic-array",
  "pkcs8 0.10.2",
  "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "secrecy"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9bd1c54ea06cfd2f6b63219704de0b9b4f72dcc2b8fdef820be6cd799780e91e"
+dependencies = [
+ "serde",
  "zeroize",
 ]
 
