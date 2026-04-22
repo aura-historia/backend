@@ -86,7 +86,7 @@ mod tests {
             serde_json::from_value(json.clone()).unwrap();
 
         assert_eq!(PartnerShopApplicationDecisionData::Approve, data);
-        assert_eq!(json, serde_json::to_value(&data).unwrap());
+        assert_eq!(json, serde_json::to_value(data).unwrap());
     }
 
     #[test]
