@@ -9,12 +9,16 @@ use notification::service::notification_service::NotificationServiceImpl;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
 use product::service::get_service::GetProductServiceImpl;
+use product::service::query_embedding_service::{
+    CachedQueryEmbeddingService, GeminiQueryEmbeddingService,
+};
 use product::service::query_service::QueryProductServiceImpl;
 use product::service::semantic_service::SemanticSearchServiceImpl;
 use product_api::handler;
 use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
+use std::time::Duration;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::UserServiceImpl;
 
@@ -38,6 +42,10 @@ async fn main() -> Result<(), Error> {
         user_pool_public_client_id.as_str(),
         user_pool_admin_client_id.as_str(),
     ];
+    // Hybrid search is opt-in via the GEMINI_API_KEY env-var. When unset, the lambda
+    // falls back to the existing pure-BM25 query path so the lambda continues to work
+    // in environments without an embedding provider configured.
+    let gemini_api_key = std::env::var("GEMINI_API_KEY").ok();
 
     let dynamodb = aws_sdk_dynamodb::Client::new(&aws_config);
     let opensearch = common::opensearch::client::load_client()
@@ -56,7 +64,25 @@ async fn main() -> Result<(), Error> {
     static NOOP_S3: NoopS3Adapter = NoopS3Adapter;
 
     let get_product_service = GetProductServiceImpl::new(&product_dynamodb_repository);
-    let query_product_service = QueryProductServiceImpl::new(&product_opensearch_repository);
+    // 256 entries × 768 f32 ≈ 770 KB — bounded so the warm Lambda stays lightweight.
+    let query_embedding_service = gemini_api_key.as_deref().map(|key| {
+        CachedQueryEmbeddingService::new(
+            GeminiQueryEmbeddingService::new(key),
+            Duration::from_secs(300),
+            256,
+        )
+    });
+    // Use a boxed trait object so the same handler call site works whether or not we have
+    // an embedding service configured (the two `QueryProductServiceImpl` instantiations
+    // would otherwise have different concrete types).
+    let query_product_service: Box<dyn product::service::query_service::QueryProductService + Sync + Send> =
+        match query_embedding_service.as_ref() {
+            Some(embedding_service) => Box::new(QueryProductServiceImpl::with_hybrid(
+                &product_opensearch_repository,
+                embedding_service,
+            )),
+            None => Box::new(QueryProductServiceImpl::new(&product_opensearch_repository)),
+        };
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
         &product_opensearch_repository,
@@ -88,7 +114,7 @@ async fn main() -> Result<(), Error> {
             handler(
                 event,
                 &get_product_service,
-                &query_product_service,
+                query_product_service.as_ref(),
                 &semantic_search_service,
                 &product_personalization_service,
                 &access_token_verifier_service,

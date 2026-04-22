@@ -26,7 +26,7 @@ use product_personalization::service::ProductPersonalizationService;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl QueryProductService,
+    service: &(impl QueryProductService + ?Sized),
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
     product_personalization_service: &impl ProductPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {

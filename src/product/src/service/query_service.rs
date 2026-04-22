@@ -3,6 +3,8 @@ use crate::core::product::Product;
 use crate::core::product_search::ProductSearch;
 use crate::core::sort_product_field::SortProductField;
 use crate::opensearch::repository::ProductOpenSearchRepository;
+use crate::service::hybrid_search::{HybridSearchError, hybrid_search};
+use crate::service::query_embedding_service::{QueryEmbeddingError, QueryEmbeddingService};
 use async_trait::async_trait;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::sort::{Sort, SortOrder};
@@ -12,20 +14,48 @@ use tracing::warn;
 pub enum SearchProductsError {
     #[error("OpenSearchError: {0}")]
     OpenSearchError(#[from] opensearch::Error),
+    #[error("QueryEmbeddingError: {0}")]
+    QueryEmbeddingError(#[from] QueryEmbeddingError),
 }
 
-#[cfg(feature = "data")]
-pub mod api {
-    use crate::service::query_service::SearchProductsError;
-    use common::api::error::ApiError;
-    impl From<SearchProductsError> for ApiError {
-        fn from(err: SearchProductsError) -> Self {
-            match err {
-                SearchProductsError::OpenSearchError(opensearch_err) => opensearch_err.into(),
+impl From<HybridSearchError> for SearchProductsError {
+    fn from(err: HybridSearchError) -> Self {
+        match err {
+            HybridSearchError::OpenSearchError(e) => SearchProductsError::OpenSearchError(e),
+            HybridSearchError::QueryEmbeddingError(e) => {
+                SearchProductsError::QueryEmbeddingError(e)
             }
         }
     }
 }
+
+#[cfg(feature = "data")]
+pub mod api {
+    use crate::service::query_embedding_service::QueryEmbeddingError;
+    use crate::service::query_service::SearchProductsError;
+    use common::api::error::ApiError;
+    use common::api::error_code::INTERNAL_SERVER_ERROR;
+
+    impl From<SearchProductsError> for ApiError {
+        fn from(err: SearchProductsError) -> Self {
+            match err {
+                SearchProductsError::OpenSearchError(opensearch_err) => opensearch_err.into(),
+                SearchProductsError::QueryEmbeddingError(query_err) => query_err.into(),
+            }
+        }
+    }
+
+    impl From<QueryEmbeddingError> for ApiError {
+        fn from(err: QueryEmbeddingError) -> Self {
+            // The Gemini API is an upstream dependency we don't expose to the caller. If it
+            // fails (network, quota, malformed response) we treat it as an internal error so
+            // the user sees a generic 5xx instead of leaking provider details.
+            ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
+        }
+    }
+}
+
+use common::language::domain::Language;
 
 #[async_trait]
 #[mockall::automock]
@@ -38,19 +68,97 @@ pub trait QueryProductService {
     ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchProductsError>;
 }
 
-pub struct QueryProductServiceImpl<'a> {
+/// `QueryProductServiceImpl` orchestrates either pure BM25 (existing behaviour, preserved
+/// when no `product_query` is supplied or no embedding service is configured) or the
+/// hybrid (BM25 + kNN, RRF-fused) flow when both a textual query and an embedding service
+/// are available.
+pub struct QueryProductServiceImpl<'a, E: QueryEmbeddingService = NoopQueryEmbeddingService>
+{
     repository: &'a (dyn ProductOpenSearchRepository + Sync),
+    embedding_service: Option<&'a E>,
 }
 
-impl<'a> QueryProductServiceImpl<'a> {
+impl<'a> QueryProductServiceImpl<'a, NoopQueryEmbeddingService> {
+    /// Constructs a query service without an embedding service. All searches use pure BM25.
+    /// This preserves backwards compatibility for callers that haven't been wired with an
+    /// embedding provider yet.
     pub fn new(repository: &'a (dyn ProductOpenSearchRepository + Sync)) -> Self {
-        Self { repository }
+        Self {
+            repository,
+            embedding_service: None,
+        }
+    }
+}
+
+impl<'a, E: QueryEmbeddingService> QueryProductServiceImpl<'a, E> {
+    /// Constructs a query service with hybrid search enabled. Searches that include a
+    /// textual `product_query` will fan out to BM25 + kNN and fuse the rankings via RRF.
+    /// Searches without a textual query keep using the existing BM25/filter-only path.
+    pub fn with_hybrid(
+        repository: &'a (dyn ProductOpenSearchRepository + Sync),
+        embedding_service: &'a E,
+    ) -> Self {
+        Self {
+            repository,
+            embedding_service: Some(embedding_service),
+        }
+    }
+}
+
+/// Placeholder embedding service used as the type parameter when the bare-bones
+/// constructor [`QueryProductServiceImpl::new`] is used. It is never invoked because
+/// `embedding_service` is `None` in that mode.
+pub struct NoopQueryEmbeddingService;
+
+#[async_trait]
+impl QueryEmbeddingService for NoopQueryEmbeddingService {
+    async fn embed_query(&self, _query: &str) -> Result<Vec<f32>, QueryEmbeddingError> {
+        Err(QueryEmbeddingError::EmptyResponse)
     }
 }
 
 #[async_trait]
-impl<'a> QueryProductService for QueryProductServiceImpl<'a> {
+impl<'a, E: QueryEmbeddingService + Sync + Send> QueryProductService
+    for QueryProductServiceImpl<'a, E>
+{
     async fn search_products(
+        &self,
+        search: &ProductSearch,
+        sort: &Option<Sort<SortProductField>>,
+        page: &Option<Cursor<serde_json::Value>>,
+    ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchProductsError> {
+        // Hybrid search is only meaningful when there's a textual query AND an embedding
+        // service has been supplied. We also restrict it to the default score-desc sort,
+        // because RRF only produces a meaningful score axis — explicit sorts (e.g. price)
+        // would render hybrid retrieval moot.
+        let is_default_sort = sort
+            .as_ref()
+            .map(|s| matches!(s.sort, SortProductField::Score))
+            .unwrap_or(true);
+        if let (Some(embedding_service), Some(_), true) = (
+            self.embedding_service,
+            search.product_query.as_ref(),
+            is_default_sort,
+        ) {
+            let outcome = hybrid_search(
+                self.repository,
+                embedding_service,
+                search,
+                sort,
+                page,
+                &[search.language],
+            )
+            .await?;
+            return Ok(outcome.items);
+        }
+
+        // Pure BM25 / filter-only fallback (preserves existing behaviour).
+        self.bm25_only_search(search, sort, page).await
+    }
+}
+
+impl<'a, E: QueryEmbeddingService> QueryProductServiceImpl<'a, E> {
+    async fn bm25_only_search(
         &self,
         search: &ProductSearch,
         sort: &Option<Sort<SortProductField>>,
@@ -86,6 +194,7 @@ impl<'a> QueryProductService for QueryProductServiceImpl<'a> {
             );
         }
 
+        let _ = std::marker::PhantomData::<Language>;
         let product_views = search_response
             .hits
             .hits

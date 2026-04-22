@@ -39,7 +39,7 @@ pub mod search;
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_product_service: &impl GetProductService,
-    query_product_service: &impl QueryProductService,
+    query_product_service: &(impl QueryProductService + ?Sized),
     semantic_search_service: &impl SemanticSearchService,
     product_personalization_service: &impl ProductPersonalizationService,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
@@ -65,7 +65,7 @@ pub async fn handler(
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_product_service: &impl GetProductService,
-    query_product_service: &impl QueryProductService,
+    query_product_service: &(impl QueryProductService + ?Sized),
     semantic_search_service: &impl SemanticSearchService,
     product_personalization_service: &impl ProductPersonalizationService,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),

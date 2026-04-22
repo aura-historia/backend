@@ -25,6 +25,14 @@ pub trait MultimodalEmbeddingService {
         description: Option<&Description>,
         image: Option<&Url>,
     ) -> Result<Vec<f32>, MultimodalEmbeddingError>;
+
+    /// Embed a free-text product search query.
+    ///
+    /// Uses the Gemini `RETRIEVAL_QUERY` task type as recommended in
+    /// <https://ai.google.dev/gemini-api/docs/embeddings#task-types-embeddings-2>
+    /// so the resulting vector lives in the same space as documents embedded with
+    /// `RETRIEVAL_DOCUMENT` (or its multimodal equivalent used in [`Self::embed`]).
+    async fn embed_query(&self, query: &str) -> Result<Vec<f32>, MultimodalEmbeddingError>;
 }
 
 pub struct MultimodalEmbeddingServiceImpl {
@@ -120,6 +128,7 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
         let request = EmbedContentRequest {
             model: "models/gemini-embedding-2-preview-03-25",
             content: Content { parts },
+            task_type: None,
         };
 
         debug!("Requesting multimodal embedding from Gemini API.");
@@ -151,12 +160,54 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
 
         Ok(values)
     }
+
+    async fn embed_query(&self, query: &str) -> Result<Vec<f32>, MultimodalEmbeddingError> {
+        let request = EmbedContentRequest {
+            model: "models/gemini-embedding-2-preview-03-25",
+            content: Content {
+                parts: vec![ContentPart::Text {
+                    text: query.to_string(),
+                }],
+            },
+            task_type: Some("RETRIEVAL_QUERY"),
+        };
+
+        debug!("Requesting query embedding from Gemini API.");
+
+        let response = self
+            .client
+            .post("https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2-preview:embedContent")
+            .header("x-goog-api-key", &self.api_key)
+            .query(&[("output_dimensionality", "768")])
+            .json(&request)
+            .send()
+            .await?
+            .error_for_status()
+            .map_err(MultimodalEmbeddingError::RequestFailed)?;
+
+        let body: EmbedContentResponse = response.json().await?;
+        let mut values = body.embedding.values;
+        if values.is_empty() {
+            return Err(MultimodalEmbeddingError::EmptyResponse);
+        }
+        let norm = values.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm == 0.0 {
+            return Err(MultimodalEmbeddingError::EmptyResponse);
+        }
+        for v in &mut values {
+            *v /= norm;
+        }
+
+        Ok(values)
+    }
 }
 
 #[derive(Debug, Serialize)]
 struct EmbedContentRequest<'a> {
     model: &'a str,
     content: Content,
+    #[serde(rename = "taskType", skip_serializing_if = "Option::is_none")]
+    task_type: Option<&'a str>,
 }
 
 #[derive(Debug, Serialize)]
