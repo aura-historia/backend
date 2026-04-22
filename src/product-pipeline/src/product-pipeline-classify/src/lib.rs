@@ -13,7 +13,6 @@ use common::{
 use lambda_runtime::LambdaEvent;
 use product::{
     core::{
-        product::Product,
         product_event::{
             ProductEvent, ProductEventPayload,
             enrichment::{
@@ -21,9 +20,9 @@ use product::{
                 ClassifiedPeriodProductEnrichmentEventPayload, ProductEnrichmentEventPayload,
             },
         },
+        title::Title,
     },
     dynamodb::{product_event_record::ProductEventRecord, repository::ProductDynamoDbRepository},
-    service::get_service::GetProductService,
 };
 use product_classification::{category::service::CategoryService, period::service::PeriodService};
 use service::ClassificationService;
@@ -32,12 +31,11 @@ use time::OffsetDateTime;
 use tracing::{error, info, warn};
 
 #[tracing::instrument(
-    skip(classification_service, get_product_service, product_repository, category_service, period_service, event),
+    skip(classification_service, product_repository, category_service, period_service, event),
     fields(requestId = %event.context.request_id)
 )]
 pub async fn handler(
     classification_service: &(impl ClassificationService + Sync),
-    get_product_service: &(impl GetProductService + Sync),
     product_repository: &(impl ProductDynamoDbRepository + Sync),
     category_service: &(impl CategoryService + Sync),
     period_service: &(impl PeriodService + Sync),
@@ -80,25 +78,6 @@ pub async fn handler(
         }
     }
 
-    // Batch-fetch all product records
-    let product_keys: Vec<ProductKey> = valid_enrichment_records
-        .iter()
-        .map(|(_, record)| record.key())
-        .collect();
-
-    let product_map: HashMap<ProductKey, Product> = if product_keys.is_empty() {
-        HashMap::new()
-    } else {
-        match get_product_service.find_products(product_keys).await {
-            Ok(products) => products.into_iter().map(|p| (p.key(), p)).collect(),
-            Err(err) => {
-                error!(error = %err, "Failed batch-fetching product records from DynamoDB.");
-                failed_message_ids.extend(valid_enrichment_records.drain(..).map(|(id, _)| id));
-                HashMap::new()
-            }
-        }
-    };
-
     let mut enrichment_events: Vec<(String, ProductEventRecord)> = Vec::new();
 
     for (message_id, enrichment_record) in valid_enrichment_records {
@@ -107,22 +86,19 @@ pub async fn handler(
             .as_ref()
             .expect("embedding was checked to be Some in the first pass");
 
-        let product = match product_map.get(&enrichment_record.key()) {
-            Some(product) => product,
+        let title = match enrichment_record.native_title.as_ref() {
+            Some(title) => title,
             None => {
-                error!(
+                warn!(
                     messageId = message_id,
                     shopId = %enrichment_record.shop_id,
                     shopsProductId = %enrichment_record.shops_product_id,
                     eventId = %enrichment_record.event_id,
-                    "Product record not found in DynamoDB."
+                    "Enrichment record has no native title, skipping classification."
                 );
-                failed_message_ids.push(message_id);
                 continue;
             }
         };
-
-        let title = &product.native_title.payload;
 
         if title.is_empty() {
             warn!(
@@ -132,7 +108,6 @@ pub async fn handler(
                 eventId = %enrichment_record.event_id,
                 "Product has empty native title, skipping classification."
             );
-            failed_message_ids.push(message_id);
             continue;
         }
 
@@ -203,7 +178,7 @@ pub async fn handler(
         };
 
         let (chosen_category, chosen_period) = match classification_service
-            .classify(title, &category_ids, &period_ids)
+            .classify(&Title::from(title.as_str()), &category_ids, &period_ids)
             .await
         {
             Ok(result) => result,
@@ -338,7 +313,6 @@ mod tests {
     use common::product_id::ProductId;
     use fake::{Fake, Faker};
     use lambda_runtime::{Context, LambdaEvent};
-    use product::core::product::Product;
     use product::core::product_event::domain::{
         ProductCreatedDomainEventPayload, ProductDomainEventPayload,
     };
@@ -346,7 +320,6 @@ mod tests {
     use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
     use product::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord;
     use product::dynamodb::repository::MockProductDynamoDbRepository;
-    use product::service::get_service::{GetProductError, MockGetProductService};
     use product_classification::category::core::Category;
     use product_classification::category::service::MockCategoryService;
     use product_classification::period::core::Period;
@@ -403,6 +376,7 @@ mod tests {
     fn mk_enrichment_event_record() -> ProductEnrichmentEventRecord {
         let mut record: ProductEnrichmentEventRecord = Faker.fake();
         record.embedding = Some(vec![0.42f32; 768]);
+        record.native_title = Some("Antique vase".to_string());
         record
     }
 
@@ -445,36 +419,6 @@ mod tests {
         mock
     }
 
-    /// Returns a `MockGetProductService` that, for every `find_products` call, synthesises a
-    /// `Product` per requested key so that the product map lookup always succeeds.
-    fn mk_get_service_returning_matching_products() -> MockGetProductService {
-        let mut mock = MockGetProductService::default();
-        mock.expect_find_products().returning(|keys| {
-            Box::pin(async move {
-                let products: Vec<Product> = keys
-                    .into_iter()
-                    .map(|key| {
-                        let mut product: Product = Faker.fake();
-                        product.shop_id = key.shop_id;
-                        product.shops_product_id = key.shops_product_id;
-                        product
-                    })
-                    .collect();
-                Ok(products)
-            })
-        });
-        mock
-    }
-
-    /// Returns a `MockGetProductService` whose `find_products` returns an empty vec, simulating
-    /// every requested product being absent from DynamoDB.
-    fn mk_get_service_returning_no_products() -> MockGetProductService {
-        let mut mock = MockGetProductService::default();
-        mock.expect_find_products()
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
-        mock
-    }
-
     /// Returns a `MockProductDynamoDbRepository` that only expects write calls
     /// (`put_product_event_records`) and succeeds.
     fn mk_write_repository() -> MockProductDynamoDbRepository {
@@ -493,7 +437,6 @@ mod tests {
     #[tokio::test]
     async fn should_return_no_failures_when_batch_is_empty() {
         let mock_classification_service = MockClassificationService::default();
-        let mock_get_service = MockGetProductService::default();
         let mock_repository = MockProductDynamoDbRepository::default();
         let mock_category_service = MockCategoryService::default();
         let mock_period_service = MockPeriodService::default();
@@ -501,7 +444,6 @@ mod tests {
 
         let result = handler(
             &mock_classification_service,
-            &mock_get_service,
             &mock_repository,
             &mock_category_service,
             &mock_period_service,
@@ -519,7 +461,6 @@ mod tests {
         let event_record = ProductEventRecord::Enrichment(enrichment_record);
 
         let mock_classification_service = mk_classification_service_returning_first();
-        let mock_get_service = mk_get_service_returning_matching_products();
         let mock_repository = mk_write_repository();
         let mock_category_service = mk_category_service_returning_categories();
         let mock_period_service = mk_period_service_returning_periods();
@@ -527,7 +468,6 @@ mod tests {
         let event = mk_lambda_event(vec![mk_sqs_message(&event_record)]);
         let result = handler(
             &mock_classification_service,
-            &mock_get_service,
             &mock_repository,
             &mock_category_service,
             &mock_period_service,
@@ -557,7 +497,6 @@ mod tests {
                 })
             });
 
-        let mock_get_service = mk_get_service_returning_matching_products();
         let mock_repository = MockProductDynamoDbRepository::default();
         let mock_category_service = mk_category_service_returning_categories();
         let mock_period_service = mk_period_service_returning_periods();
@@ -568,7 +507,6 @@ mod tests {
         )]);
         let result = handler(
             &mock_classification_service,
-            &mock_get_service,
             &mock_repository,
             &mock_category_service,
             &mock_period_service,
@@ -582,13 +520,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_failure_when_product_record_not_found() {
-        let enrichment_record = mk_enrichment_event_record();
+    async fn should_skip_when_enrichment_record_has_no_native_title() {
+        let mut enrichment_record = mk_enrichment_event_record();
+        enrichment_record.native_title = None;
         let event_record = ProductEventRecord::Enrichment(enrichment_record);
-        let message_id = "test-msg-not-found".to_string();
+        let message_id = "test-msg-no-title".to_string();
 
         let mock_classification_service = MockClassificationService::default();
-        let mock_get_service = mk_get_service_returning_no_products();
         let mock_repository = MockProductDynamoDbRepository::default();
         let mock_category_service = MockCategoryService::default();
         let mock_period_service = MockPeriodService::default();
@@ -599,7 +537,6 @@ mod tests {
         )]);
         let result = handler(
             &mock_classification_service,
-            &mock_get_service,
             &mock_repository,
             &mock_category_service,
             &mock_period_service,
@@ -608,56 +545,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(1, result.batch_item_failures.len());
-        assert_eq!(message_id, result.batch_item_failures[0].item_identifier);
-    }
-
-    #[tokio::test]
-    async fn should_return_all_failures_when_batch_fetch_fails() {
-        let enrichment_record1 = mk_enrichment_event_record();
-        let enrichment_record2 = mk_enrichment_event_record();
-        let message_id1 = "test-msg-batch-fail-1".to_string();
-        let message_id2 = "test-msg-batch-fail-2".to_string();
-
-        let mock_classification_service = MockClassificationService::default();
-        let mut mock_get_service = MockGetProductService::default();
-        mock_get_service
-            .expect_find_products()
-            .times(1)
-            .returning(|_| Box::pin(async { Err(GetProductError::UnprocessedAfterMaxRetries(3)) }));
-        let mock_repository = MockProductDynamoDbRepository::default();
-        let mock_category_service = MockCategoryService::default();
-        let mock_period_service = MockPeriodService::default();
-
-        let event = mk_lambda_event(vec![
-            mk_sqs_message_with_id(
-                &ProductEventRecord::Enrichment(enrichment_record1),
-                message_id1.clone(),
-            ),
-            mk_sqs_message_with_id(
-                &ProductEventRecord::Enrichment(enrichment_record2),
-                message_id2.clone(),
-            ),
-        ]);
-        let result = handler(
-            &mock_classification_service,
-            &mock_get_service,
-            &mock_repository,
-            &mock_category_service,
-            &mock_period_service,
-            event,
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(2, result.batch_item_failures.len());
-        let failed_ids: Vec<&str> = result
-            .batch_item_failures
-            .iter()
-            .map(|f| f.item_identifier.as_str())
-            .collect();
-        assert!(failed_ids.contains(&message_id1.as_str()));
-        assert!(failed_ids.contains(&message_id2.as_str()));
+        assert!(result.batch_item_failures.is_empty());
     }
 
     #[tokio::test]
@@ -668,7 +556,6 @@ mod tests {
         let message_id = "test-msg-no-embedding".to_string();
 
         let mock_classification_service = MockClassificationService::default();
-        let mock_get_service = MockGetProductService::default();
         let mock_repository = MockProductDynamoDbRepository::default();
         let mock_category_service = MockCategoryService::default();
         let mock_period_service = MockPeriodService::default();
@@ -679,7 +566,6 @@ mod tests {
         )]);
         let result = handler(
             &mock_classification_service,
-            &mock_get_service,
             &mock_repository,
             &mock_category_service,
             &mock_period_service,
@@ -698,7 +584,6 @@ mod tests {
         let message_id = "non-enrichment-msg".to_string();
 
         let mock_classification_service = MockClassificationService::default();
-        let mock_get_service = MockGetProductService::default();
         let mock_repository = MockProductDynamoDbRepository::default();
         let mock_category_service = MockCategoryService::default();
         let mock_period_service = MockPeriodService::default();
@@ -709,7 +594,6 @@ mod tests {
         )]);
         let result = handler(
             &mock_classification_service,
-            &mock_get_service,
             &mock_repository,
             &mock_category_service,
             &mock_period_service,
@@ -728,7 +612,6 @@ mod tests {
         let message_id = "test-msg-no-categories".to_string();
 
         let mock_classification_service = MockClassificationService::default();
-        let mock_get_service = mk_get_service_returning_matching_products();
         let mock_repository = MockProductDynamoDbRepository::default();
         let mut mock_category_service = MockCategoryService::default();
         mock_category_service
@@ -742,7 +625,6 @@ mod tests {
         )]);
         let result = handler(
             &mock_classification_service,
-            &mock_get_service,
             &mock_repository,
             &mock_category_service,
             &mock_period_service,
@@ -762,7 +644,6 @@ mod tests {
         let message_id = "test-msg-no-periods".to_string();
 
         let mock_classification_service = MockClassificationService::default();
-        let mock_get_service = mk_get_service_returning_matching_products();
         let mock_repository = MockProductDynamoDbRepository::default();
         let mock_category_service = mk_category_service_returning_categories();
         let mut mock_period_service = MockPeriodService::default();
@@ -776,7 +657,6 @@ mod tests {
         )]);
         let result = handler(
             &mock_classification_service,
-            &mock_get_service,
             &mock_repository,
             &mock_category_service,
             &mock_period_service,
@@ -806,26 +686,6 @@ mod tests {
                 Box::pin(async move { Ok((cat, per)) })
             });
 
-        // find_products is called exactly once for the entire batch of two records.
-        let mut mock_get_service = MockGetProductService::default();
-        mock_get_service
-            .expect_find_products()
-            .times(1)
-            .returning(|keys| {
-                Box::pin(async move {
-                    let products: Vec<Product> = keys
-                        .into_iter()
-                        .map(|key| {
-                            let mut product: Product = Faker.fake();
-                            product.shop_id = key.shop_id;
-                            product.shops_product_id = key.shops_product_id;
-                            product
-                        })
-                        .collect();
-                    Ok(products)
-                })
-            });
-
         let mock_repository = mk_write_repository();
 
         let mut mock_category_service = MockCategoryService::default();
@@ -852,7 +712,6 @@ mod tests {
         ]);
         let result = handler(
             &mock_classification_service,
-            &mock_get_service,
             &mock_repository,
             &mock_category_service,
             &mock_period_service,

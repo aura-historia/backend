@@ -3,7 +3,6 @@ use aws_lambda_events::sqs::SqsEvent;
 use aws_sdk_dynamodb::Client;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
-use product::service::get_service::GetProductServiceImpl;
 use product_classification::{
     category::{
         dynamodb_repository::CategoryDynamoDbRepositoryImpl,
@@ -30,7 +29,6 @@ async fn main() -> Result<(), Error> {
 
     let client = Client::new(&aws_config);
     let product_repository = ProductDynamoDbRepositoryImpl::new(&client, &table_name);
-    let get_product_service = GetProductServiceImpl::new(&product_repository);
 
     let opensearch = common::opensearch::client::load_client()
         .await
@@ -62,7 +60,6 @@ async fn main() -> Result<(), Error> {
         run(service_fn(|event: LambdaEvent<SqsEvent>| async {
             handler(
                 &classification_service,
-                &get_product_service,
                 &product_repository,
                 &category_service,
                 &period_service,
@@ -78,7 +75,6 @@ async fn main() -> Result<(), Error> {
         run(service_fn(|event: LambdaEvent<SqsEvent>| async {
             handler(
                 &classification_service,
-                &get_product_service,
                 &product_repository,
                 &category_service,
                 &period_service,

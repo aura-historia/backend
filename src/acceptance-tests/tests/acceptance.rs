@@ -1836,6 +1836,7 @@ async fn should_materialize_product_in_dynamodb_for_enrichment_event() {
                 seller_id: materialized_old.seller_id,
                 shops_product_id: materialized_old.shops_product_id.clone(),
                 embedding: embedding.clone(),
+                native_title: None,
             }),
         ),
     })])
@@ -2206,8 +2207,10 @@ async fn should_materialize_product_in_opensearch_for_enrichment_event() {
             ProductEnrichmentEventPayload::Embedded(
                 EmbeddedProductEnrichmentEventPayload {
                     shop_id: materialized_old.shop_id,
+                    seller_id: materialized_old.seller_id,
                     shops_product_id: materialized_old.shops_product_id.clone(),
                     embedding: EXAMPLE_EMBEDDING.into(),
+                    native_title: None,
                 },
             ),
         ),

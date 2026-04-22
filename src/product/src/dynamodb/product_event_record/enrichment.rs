@@ -55,6 +55,8 @@ pub struct ProductEnrichmentEventRecord {
     // text-embedding
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub embedding: Option<Vec<f32>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub native_title: Option<String>,
 
     // attribute-extraction
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -115,6 +117,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     target_language: Some(payload.target_language.into()),
                     target: Some(payload.target.into()),
                     embedding: None,
+                    native_title: None,
                     origin_year_min: None,
                     origin_year: None,
                     origin_year_max: None,
@@ -142,6 +145,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     target_language: Some(payload.target_language.into()),
                     target: Some(payload.target.into()),
                     embedding: None,
+                    native_title: None,
                     origin_year_min: None,
                     origin_year: None,
                     origin_year_max: None,
@@ -168,6 +172,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                 target_language: None,
                 target: None,
                 embedding: Some(payload.embedding),
+                native_title: payload.native_title.map(Into::into),
                 origin_year_min: None,
                 origin_year: None,
                 origin_year_max: None,
@@ -194,6 +199,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     target_language: None,
                     target: None,
                     embedding: None,
+                    native_title: None,
                     origin_year_min: payload.origin_year_min,
                     origin_year: payload.origin_year,
                     origin_year_max: payload.origin_year_max,
@@ -221,6 +227,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     target_language: None,
                     target: None,
                     embedding: None,
+                    native_title: None,
                     origin_year_min: None,
                     origin_year: None,
                     origin_year_max: None,
@@ -248,6 +255,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     target_language: None,
                     target: None,
                     embedding: None,
+                    native_title: None,
                     origin_year_min: None,
                     origin_year: None,
                     origin_year_max: None,
@@ -346,6 +354,7 @@ impl TryFrom<ProductEnrichmentEventRecord> for ProductEnrichmentEvent {
                             embedding: record.embedding.ok_or(MissingPersistenceField::new(
                                 field::field!(embedding@ProductEnrichmentEventRecord),
                             ))?,
+                            native_title: record.native_title.map(Into::into),
                         },
                     ),
                 };
