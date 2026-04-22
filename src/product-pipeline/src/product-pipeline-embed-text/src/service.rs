@@ -270,8 +270,6 @@ struct Embedding {
     values: Vec<f32>,
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1255,7 +1253,10 @@ mod tests {
         let cache = svc.query_cache.lock().await;
         assert_eq!(cache.len(), QUERY_EMBEDDING_CACHE_CAPACITY);
         assert!(cache.peek("q-0").is_some(), "promoted entry must survive");
-        assert!(cache.peek("q-1").is_none(), "least-recently-used must be evicted");
+        assert!(
+            cache.peek("q-1").is_none(),
+            "least-recently-used must be evicted"
+        );
         assert!(cache.peek("q-new").is_some());
     }
 }

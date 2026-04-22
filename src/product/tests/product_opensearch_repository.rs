@@ -28,6 +28,7 @@ use product::opensearch::product_update_document::ProductUpdateDocument;
 use product::opensearch::repository::{
     ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl,
 };
+use product::service::intent::HybridSearchParams;
 use serde_json::json;
 use shop::core::shop_type::ShopType;
 use shop::opensearch::shop_type_document::ShopTypeDocument;
@@ -4875,5 +4876,514 @@ async fn should_search_product_documents_when_query_is_empty(
         expected_products
             .iter()
             .all(|product| actual_items.contains(product))
+    );
+}
+
+// =====================================================================================
+// Hybrid (BM25 + kNN) search integration tests
+// =====================================================================================
+//
+// These tests prove that `hybrid_search_product_documents` produces a request OpenSearch
+// can actually execute against the configured `products` index, and that the relevant
+// behaviours (filter pass-through, source excludes, sort+paging, weight bounds, dynamic
+// `candidate_k`) all work end-to-end.
+
+/// Build an embedding of the configured 768-d shape with `value` in slot `slot` and 0
+/// elsewhere. Useful for constructing near-orthogonal embeddings in tests so that we can
+/// reason precisely about kNN ranking.
+fn one_hot_embedding(slot: usize, value: f32) -> [f32; 768] {
+    let mut v = [0.0_f32; 768];
+    v[slot] = value;
+    v
+}
+
+/// Build a `ProductDocument` with all required fields filled in by `Faker`, then apply
+/// a customizer closure so individual tests can override only the fields they care about.
+fn make_product_doc(customize: impl FnOnce(&mut ProductDocument)) -> ProductDocument {
+    let mut doc: ProductDocument = Faker.fake();
+    // Many fake fields are unrealistic and would interfere with filter/sort assertions.
+    // Reset to safe, predictable defaults.
+    doc.embedding = None;
+    doc.state = ProductStateDocument::Available;
+    doc.shop_type = ShopTypeDocument::CommercialDealer;
+    doc.url = Url::parse("https://example.com/product").unwrap();
+    doc.created = OffsetDateTime::now_utc();
+    doc.updated = OffsetDateTime::now_utc();
+    customize(&mut doc);
+    doc
+}
+
+/// Build a baseline `ProductSearch` with no filters and the supplied free-text query.
+fn search_with_query(query: &str) -> ProductSearch {
+    ProductSearch {
+        language: Language::En,
+        currency: Currency::Eur,
+        product_query: Some(query.try_into().unwrap()),
+        category_id: Default::default(),
+        period_id: Default::default(),
+        shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
+    }
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_return_results_combining_bm25_and_knn_for_hybrid_search() {
+    // Three documents:
+    //   * A — matches BM25 only ("Rolex Submariner" title, orthogonal embedding)
+    //   * B — matches kNN only (lorem-ipsum title, embedding aligned with the query)
+    //   * C — matches neither
+    // The hybrid request with both signals should surface A and B, not C.
+    let bm25_only = make_product_doc(|d| {
+        d.title_en = Some("Rolex Submariner Vintage 1965".to_string());
+        d.embedding = Some(one_hot_embedding(0, 1.0).into());
+    });
+    let knn_only = make_product_doc(|d| {
+        d.title_en = Some("lorem ipsum dolor".to_string());
+        d.embedding = Some(one_hot_embedding(7, 1.0).into());
+    });
+    let unrelated = make_product_doc(|d| {
+        d.title_en = Some("lorem ipsum dolor".to_string());
+        d.embedding = Some(one_hot_embedding(500, 1.0).into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![bm25_only.clone(), knn_only.clone(), unrelated.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let query_embedding = one_hot_embedding(7, 1.0);
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query("Rolex Submariner"),
+            &query_embedding,
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        returned_ids.contains(&bm25_only.product_id),
+        "BM25-matching document must appear in hybrid results"
+    );
+    assert!(
+        returned_ids.contains(&knn_only.product_id),
+        "kNN-matching document must appear in hybrid results"
+    );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_apply_category_filter_to_hybrid_search() {
+    // Both documents match BM25 AND kNN, but only one matches the category_id filter.
+    let target_category: CategoryId = Faker.fake();
+    let other_category: CategoryId = loop {
+        let candidate: CategoryId = Faker.fake();
+        if candidate != target_category {
+            break candidate;
+        }
+    };
+
+    let included = make_product_doc(|d| {
+        d.title_en = Some("Antique Brass Lamp".to_string());
+        d.embedding = Some(one_hot_embedding(3, 1.0).into());
+        d.category_id = Some(target_category.clone());
+    });
+    let excluded = make_product_doc(|d| {
+        d.title_en = Some("Antique Brass Lamp".to_string());
+        d.embedding = Some(one_hot_embedding(3, 1.0).into());
+        d.category_id = Some(other_category);
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![included.clone(), excluded.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let mut search = search_with_query("Antique Brass Lamp");
+    search.category_id = AnyOfQuery::from(HashSet::from([target_category]));
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search,
+            &one_hot_embedding(3, 1.0),
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        returned_ids.contains(&included.product_id),
+        "document matching the category filter must be returned"
+    );
+    assert!(
+        !returned_ids.contains(&excluded.product_id),
+        "document NOT matching the category filter must be excluded by both BM25 and kNN sub-queries"
+    );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_omit_descriptions_and_embedding_in_hybrid_response() {
+    // The `_source.excludes` list in the hybrid request must strip the (large) embedding
+    // and the per-language description fields from the response payload, so clients
+    // never have to download them.
+    let doc = make_product_doc(|d| {
+        d.title_en = Some("Tea Cup Set".to_string());
+        d.description_en =
+            Some("This long description should be excluded from the hit".to_string());
+        d.description_de =
+            Some("Diese lange Beschreibung darf nicht im Treffer landen".to_string());
+        d.embedding = Some(one_hot_embedding(11, 1.0).into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![doc.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query("Tea Cup Set"),
+            &one_hot_embedding(11, 1.0),
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let hit = response
+        .hits
+        .hits
+        .into_iter()
+        .find(|h| h.source.product_id == doc.product_id)
+        .expect("freshly-indexed document must be returned");
+    assert!(
+        hit.source.embedding.is_none(),
+        "embedding must be excluded from the hit source"
+    );
+    assert!(
+        hit.source.description_en.is_none(),
+        "description_en must be excluded from the hit source"
+    );
+    assert!(
+        hit.source.description_de.is_none(),
+        "description_de must be excluded from the hit source"
+    );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_respect_page_size_and_search_after_for_hybrid_search() {
+    // Index a handful of documents that all match BM25 + kNN identically; verify the
+    // `size` is honoured AND that `search_after` advances the cursor without overlap.
+    let mut docs = Vec::new();
+    for _ in 0..6 {
+        docs.push(make_product_doc(|d| {
+            d.title_en = Some("Porcelain Vase".to_string());
+            d.embedding = Some(one_hot_embedding(15, 1.0).into());
+        }));
+    }
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(docs.clone())
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let params = HybridSearchParams {
+        vector_weight: 0.5,
+        candidate_k: 200,
+    };
+    let page1 = repository
+        .hybrid_search_product_documents(
+            &search_with_query("Porcelain Vase"),
+            &one_hot_embedding(15, 1.0),
+            params,
+            &Some(Cursor {
+                size: 3,
+                search_after: None,
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(3, page1.hits.hits.len(), "page size must be honoured");
+
+    // Take the last hit's sort values and use them as `search_after` for page 2.
+    let last_sort = page1
+        .hits
+        .hits
+        .last()
+        .expect("page 1 should have hits")
+        .sort
+        .clone()
+        .expect("sort values must be returned for cursor pagination");
+    let page2 = repository
+        .hybrid_search_product_documents(
+            &search_with_query("Porcelain Vase"),
+            &one_hot_embedding(15, 1.0),
+            params,
+            &Some(Cursor {
+                size: 3,
+                search_after: Some(last_sort),
+            }),
+        )
+        .await
+        .unwrap();
+
+    let page1_ids: HashSet<_> = page1
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    let page2_ids: HashSet<_> = page2
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        page1_ids.is_disjoint(&page2_ids),
+        "search_after must advance the cursor without repeating page-1 hits"
+    );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_handle_extreme_vector_weight_for_hybrid_search() {
+    // With `vector_weight = 0.8` (the documented upper bound), a document that only
+    // matches kNN must still surface because vector influence dominates fusion.
+    // A document that only matches BM25 must also surface because BM25 keeps >= 0.2
+    // influence (the guardrail).
+    let knn_only = make_product_doc(|d| {
+        d.title_en = Some("totally unrelated text".to_string());
+        d.embedding = Some(one_hot_embedding(42, 1.0).into());
+    });
+    let bm25_only = make_product_doc(|d| {
+        d.title_en = Some("Mahogany Writing Desk".to_string());
+        d.embedding = Some(one_hot_embedding(0, 1.0).into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![knn_only.clone(), bm25_only.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query("Mahogany Writing Desk"),
+            &one_hot_embedding(42, 1.0),
+            HybridSearchParams {
+                vector_weight: 0.8,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        returned_ids.contains(&knn_only.product_id),
+        "kNN-only doc must surface at vector_weight = 0.8"
+    );
+    assert!(
+        returned_ids.contains(&bm25_only.product_id),
+        "BM25-only doc must still surface (BM25 keeps >= 0.2 influence)"
+    );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_return_no_hits_for_hybrid_search_when_filter_excludes_everything() {
+    // The hybrid request must be valid and execute cleanly even when nothing matches.
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let mut search = search_with_query("nothing-here-zzz-xxx");
+    // Filter on a definitely-non-existent slug so even latent index state can't sneak
+    // in and cause flakiness.
+    let bogus_slug: SlugId<0> = SlugId::from("nonexistent-shop-slug-zzz".to_string());
+    search.shop_slug_id_query = AnyOfQuery::from(HashSet::from([bogus_slug]));
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search,
+            &one_hot_embedding(0, 1.0),
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+    assert!(response.hits.hits.is_empty());
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_apply_state_filter_to_hybrid_search() {
+    let available = make_product_doc(|d| {
+        d.title_en = Some("Bronze Statue".to_string());
+        d.embedding = Some(one_hot_embedding(20, 1.0).into());
+        d.state = ProductStateDocument::Available;
+    });
+    let sold = make_product_doc(|d| {
+        d.title_en = Some("Bronze Statue".to_string());
+        d.embedding = Some(one_hot_embedding(20, 1.0).into());
+        d.state = ProductStateDocument::Sold;
+    });
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![available.clone(), sold.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let mut search = search_with_query("Bronze Statue");
+    search.state_query = AnyOfQuery::from(HashSet::from([ProductState::Available]));
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search,
+            &one_hot_embedding(20, 1.0),
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(returned_ids.contains(&available.product_id));
+    assert!(
+        !returned_ids.contains(&sold.product_id),
+        "state filter must apply to both BM25 and kNN sub-queries"
+    );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_respect_candidate_k_bound_for_hybrid_search() {
+    // candidate_k = 1 must restrict the kNN side to exactly one neighbour, so a
+    // kNN-only document that ranks 2nd in the unfiltered nearest-neighbour list will
+    // not surface in the hybrid result. The BM25-matching doc still appears via BM25.
+    let bm25_only = make_product_doc(|d| {
+        d.title_en = Some("Silver Mirror".to_string());
+        d.embedding = Some(one_hot_embedding(0, 1.0).into());
+    });
+    let knn_top = make_product_doc(|d| {
+        d.title_en = Some("totally unrelated text".to_string());
+        d.embedding = Some(one_hot_embedding(50, 1.0).into());
+    });
+    let knn_second = make_product_doc(|d| {
+        d.title_en = Some("totally unrelated text".to_string());
+        // Slightly off-axis so this is the 2nd nearest neighbour, not the 1st.
+        let mut v = one_hot_embedding(50, 0.9);
+        v[51] = 0.43;
+        d.embedding = Some(v.into());
+    });
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![bm25_only.clone(), knn_top.clone(), knn_second.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query("Silver Mirror"),
+            &one_hot_embedding(50, 1.0),
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 1,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        returned_ids.contains(&bm25_only.product_id),
+        "BM25-side hit must be returned"
+    );
+    assert!(
+        returned_ids.contains(&knn_top.product_id),
+        "single nearest neighbour must be returned"
+    );
+    assert!(
+        !returned_ids.contains(&knn_second.product_id),
+        "2nd nearest neighbour must be excluded when candidate_k = 1"
     );
 }
