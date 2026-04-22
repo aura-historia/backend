@@ -14,11 +14,10 @@ use product::service::semantic_service::SemanticSearchServiceImpl;
 use product_api::handler;
 use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_pipeline_embed_text::service::{
-    CachedMultimodalEmbeddingService, MultimodalEmbeddingService, MultimodalEmbeddingServiceImpl,
+    MultimodalEmbeddingService, MultimodalEmbeddingServiceImpl,
 };
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
-use std::time::Duration;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::UserServiceImpl;
 
@@ -64,16 +63,11 @@ async fn main() -> Result<(), Error> {
     static NOOP_S3: NoopS3Adapter = NoopS3Adapter;
 
     let get_product_service = GetProductServiceImpl::new(&product_dynamodb_repository);
-    // 1024 entries × 768 f32 ≈ 3 MB worst case — bounded so the warm Lambda stays light.
+    // The impl now caches `embed_query` results internally via a 4096-entry LRU.
     let query_embedding_service: Option<Box<dyn MultimodalEmbeddingService + Sync + Send>> =
-        gemini_api_key.as_deref().map(|key| {
-            let cached = CachedMultimodalEmbeddingService::new(
-                MultimodalEmbeddingServiceImpl::new(key),
-                Duration::from_secs(300),
-                1024,
-            );
-            Box::new(cached) as Box<dyn MultimodalEmbeddingService + Sync + Send>
-        });
+        gemini_api_key
+            .as_deref()
+            .map(|key| Box::new(MultimodalEmbeddingServiceImpl::new(key)) as Box<_>);
     let query_product_service = QueryProductServiceImpl::new(&product_opensearch_repository);
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,

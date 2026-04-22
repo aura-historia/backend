@@ -5743,6 +5743,7 @@ dependencies = [
  "common",
  "fake",
  "lambda_runtime",
+ "lru",
  "mockall",
  "product",
  "reqwest 0.12.28",
