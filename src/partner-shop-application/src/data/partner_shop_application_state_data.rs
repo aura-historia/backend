@@ -36,6 +36,7 @@ impl From<PartnerShopApplicationStateData> for PartnerShopApplicationState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn should_convert_state_domain_to_data_and_back() {
@@ -50,5 +51,14 @@ mod tests {
             let converted: PartnerShopApplicationState = data.into();
             assert_eq!(state, converted);
         }
+    }
+
+    #[test]
+    fn should_roundtrip_partner_shop_application_state_data_when_using_screaming_snake_case() {
+        let json = json!("IN_REVIEW");
+        let data: PartnerShopApplicationStateData = serde_json::from_value(json.clone()).unwrap();
+
+        assert_eq!(PartnerShopApplicationStateData::InReview, data);
+        assert_eq!(json, serde_json::to_value(&data).unwrap());
     }
 }

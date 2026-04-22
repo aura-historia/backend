@@ -50,6 +50,7 @@ mod faker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn should_convert_decision_data_to_domain_and_back() {
@@ -76,5 +77,25 @@ mod tests {
         let json = r#"{"decision":"REJECT"}"#;
         let data: PostPartnerShopApplicationDecisionData = serde_json::from_str(json).unwrap();
         assert_eq!(PartnerShopApplicationDecisionData::Reject, data.decision);
+    }
+
+    #[test]
+    fn should_roundtrip_decision_data_when_using_screaming_snake_case() {
+        let json = json!("APPROVE");
+        let data: PartnerShopApplicationDecisionData =
+            serde_json::from_value(json.clone()).unwrap();
+
+        assert_eq!(PartnerShopApplicationDecisionData::Approve, data);
+        assert_eq!(json, serde_json::to_value(&data).unwrap());
+    }
+
+    #[test]
+    fn should_roundtrip_post_partner_shop_application_decision_data_when_using_camel_case_fields() {
+        let json = json!({ "decision": "REJECT" });
+        let data: PostPartnerShopApplicationDecisionData =
+            serde_json::from_value(json.clone()).unwrap();
+
+        assert_eq!(PartnerShopApplicationDecisionData::Reject, data.decision);
+        assert_eq!(json, serde_json::to_value(&data).unwrap());
     }
 }
