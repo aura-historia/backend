@@ -215,7 +215,7 @@ crawler = { path = "src/crawler" }
 spider = { version = "2", default-features = false, features = ["sync", "reqwest_rustls_tls"] }
 scraper = "0.26.0"
 schemars = "1.2.1"
-llm = { version = "1.3.7", default-features = false, features = ["rustls-tls"] }
+llm = { version = "1.3.8", default-features = false, features = ["rustls-tls"] }
 kuchiki = "0.8.1"
 lingua = { version = "1.7.2", default-features = false, features = ["english", "german", "french", "spanish", "italian", "chinese", "portuguese", "polish", "turkish", "dutch", "czech", "japanese", "russian", "arabic"] }
 dotenvy = "0.15"
