@@ -69,6 +69,7 @@ async fn should_200_when_no_hits() {
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -175,6 +176,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let response_1 = handle(
         lambda_event_1,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -220,6 +222,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let response_2 = handle(
         lambda_event_2,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -344,6 +347,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let response_1 = handle(
         lambda_event_1,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -389,6 +393,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let response_2 = handle(
         lambda_event_2,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -495,6 +500,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
     let response_1 = handle(
         lambda_event_1,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -525,6 +531,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
     let response_2 = handle(
         lambda_event_2,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -628,6 +635,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
     let response_1 = handle(
         lambda_event_1,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -660,6 +668,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
     let response_2 = handle(
         lambda_event_2,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -764,6 +773,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let response_1 = handle(
         lambda_event_1,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -796,6 +806,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let response_2 = handle(
         lambda_event_2,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -899,6 +910,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let response_1 = handle(
         lambda_event_1,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -931,6 +943,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let response_2 = handle(
         lambda_event_2,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -1040,6 +1053,7 @@ async fn should_200_when_created_query(
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -1157,6 +1171,7 @@ async fn should_200_when_updated_query(
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -1274,6 +1289,7 @@ async fn should_200_when_year_query(#[case] min: Option<Year>, #[case] max: Opti
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -1373,6 +1389,7 @@ async fn should_200_when_authenticity_query(#[case] query: HashSet<AuthenticityD
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -1475,6 +1492,7 @@ async fn should_200_when_condition_query(#[case] query: HashSet<ConditionData>) 
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -1575,6 +1593,7 @@ async fn should_200_when_provenance_query(#[case] query: HashSet<ProvenanceData>
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -1675,6 +1694,7 @@ async fn should_200_when_restoration_query(#[case] query: HashSet<RestorationDat
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -1778,6 +1798,7 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -1889,6 +1910,7 @@ async fn should_respond_200_and_respect_language_query_param(
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -1989,6 +2011,7 @@ async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -2099,6 +2122,7 @@ async fn should_200_when_shop_name_query_for_keyword_filter(#[case] query: HashS
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -2210,6 +2234,7 @@ async fn should_200_when_exclude_shop_name_query(#[case] query: HashSet<&str>) {
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -2315,6 +2340,7 @@ async fn should_200_when_category_id_filter_is_given() {
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -2413,6 +2439,7 @@ async fn should_200_when_period_id_filter_is_given() {
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -2514,6 +2541,7 @@ async fn should_200_when_auction_start_range_is_given() {
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -2615,6 +2643,7 @@ async fn should_200_when_auction_end_range_is_given() {
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -2717,6 +2746,7 @@ async fn should_200_when_seller_name_query_for_keyword_filter(#[case] query: Has
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )
@@ -2827,6 +2857,7 @@ async fn should_200_when_exclude_seller_name_query(#[case] query: HashSet<&str>)
     let response = handle(
         lambda_event,
         &query_service,
+        None,
         &access_token_verifier_service,
         &product_personalization_service,
     )

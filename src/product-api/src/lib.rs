@@ -10,17 +10,20 @@ use product::service::{
     semantic_service::SemanticSearchService,
 };
 use product_personalization::service::ProductPersonalizationService;
+use product_pipeline_embed_text::service::MultimodalEmbeddingService;
 
 pub mod get_product;
 pub mod get_product_history;
 pub mod get_product_similar;
 pub mod search;
 
+#[allow(clippy::too_many_arguments)]
 #[tracing::instrument(
     skip(
         event,
         get_product_service,
         query_product_service,
+        query_embedding_service,
         semantic_search_service,
         product_personalization_service,
         access_token_verifier_service,
@@ -39,7 +42,8 @@ pub mod search;
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_product_service: &impl GetProductService,
-    query_product_service: &(impl QueryProductService + ?Sized),
+    query_product_service: &impl QueryProductService,
+    query_embedding_service: Option<&(dyn MultimodalEmbeddingService + Sync + Send)>,
     semantic_search_service: &impl SemanticSearchService,
     product_personalization_service: &impl ProductPersonalizationService,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
@@ -48,6 +52,7 @@ pub async fn handler(
         event,
         get_product_service,
         query_product_service,
+        query_embedding_service,
         semantic_search_service,
         product_personalization_service,
         access_token_verifier_service,
@@ -62,10 +67,12 @@ pub async fn handler(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_product_service: &impl GetProductService,
-    query_product_service: &(impl QueryProductService + ?Sized),
+    query_product_service: &impl QueryProductService,
+    query_embedding_service: Option<&(dyn MultimodalEmbeddingService + Sync + Send)>,
     semantic_search_service: &impl SemanticSearchService,
     product_personalization_service: &impl ProductPersonalizationService,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
@@ -94,6 +101,7 @@ pub async fn handle(
             search::handle(
                 event,
                 query_product_service,
+                query_embedding_service,
                 access_token_verifier_service,
                 product_personalization_service,
             )

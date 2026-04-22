@@ -1,93 +1,45 @@
+//! Adaptive hybrid (BM25 + kNN, RRF-fused) retrieval orchestrated against an
+//! OpenSearch cluster. The actual hybrid query and rank fusion run server-side via
+//! OpenSearch's native `hybrid` query and the `score-ranker-processor` (RRF). This
+//! module only computes the soft intent signals + adaptive `HybridSearchParams` and
+//! dispatches the request through the repository.
+
 use crate::core::product::{LocalizedProductView, Product};
 use crate::core::product_search::ProductSearch;
 use crate::core::sort_product_field::SortProductField;
-use crate::opensearch::product_document::ProductDocument;
 use crate::opensearch::repository::ProductOpenSearchRepository;
 use crate::service::intent::{
     HybridSearchParams, IntentSignals, compute_intent_signals, intent_centroids,
 };
-use crate::service::query_embedding_service::{QueryEmbeddingError, QueryEmbeddingService};
 use common::language::domain::Language;
-use common::opensearch::search_response::SearchResponse;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::sort::{Sort, SortOrder};
-use std::collections::HashMap;
 use tracing::warn;
 
-/// Reciprocal Rank Fusion constant. The standard literature value is 60; it gives a smooth
-/// decay so that hits ranked far down the list still contribute meaningfully.
-pub const RRF_K: f32 = 60.0;
-
-/// Rank-fuse two ranked lists of `ProductDocument`s using weighted Reciprocal Rank Fusion.
-///
-/// Each list is ordered descending by relevance (rank 0 = best). The fused score for a doc
-/// is `bm25_weight / (RRF_K + rank_bm25) + vector_weight / (RRF_K + rank_knn)` (missing
-/// rank in either list contributes 0). Returns docs sorted by fused score desc, productId asc.
-pub fn rrf_fuse(
-    bm25_hits: Vec<ProductDocument>,
-    knn_hits: Vec<ProductDocument>,
-    vector_weight: f32,
-) -> Vec<(f32, ProductDocument)> {
-    let bm25_weight = (1.0 - vector_weight).max(0.0);
-
-    let mut scored: HashMap<common::product_id::ProductId, (f32, ProductDocument)> =
-        HashMap::with_capacity(bm25_hits.len() + knn_hits.len());
-
-    for (rank, doc) in bm25_hits.into_iter().enumerate() {
-        let id = doc.product_id;
-        let contribution = bm25_weight / (RRF_K + rank as f32);
-        scored
-            .entry(id)
-            .and_modify(|e| e.0 += contribution)
-            .or_insert((contribution, doc));
-    }
-
-    for (rank, doc) in knn_hits.into_iter().enumerate() {
-        let id = doc.product_id;
-        let contribution = vector_weight / (RRF_K + rank as f32);
-        scored
-            .entry(id)
-            .and_modify(|e| e.0 += contribution)
-            .or_insert_with(|| (contribution, doc));
-    }
-
-    let mut fused: Vec<(f32, ProductDocument)> = scored.into_values().collect();
-    fused.sort_by(|a, b| {
-        b.0.partial_cmp(&a.0)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.1.product_id.cmp(&b.1.product_id))
-    });
-    fused
+#[derive(thiserror::Error, Debug)]
+pub enum HybridSearchError {
+    #[error("OpenSearchError: {0}")]
+    OpenSearchError(#[from] opensearch::Error),
 }
 
-/// Outcome of a single hybrid search request.
+/// Outcome of a single hybrid search request: the cursored result plus the derived
+/// intent signals & params so callers can introspect / log them.
 pub struct HybridSearchOutcome {
     pub items: CursoredResult<LocalizedProductView, serde_json::Value>,
     pub intent: IntentSignals,
     pub params: HybridSearchParams,
 }
 
-#[derive(thiserror::Error, Debug)]
-pub enum HybridSearchError {
-    #[error("OpenSearchError: {0}")]
-    OpenSearchError(#[from] opensearch::Error),
-    #[error("QueryEmbeddingError: {0}")]
-    QueryEmbeddingError(#[from] QueryEmbeddingError),
-}
-
-/// Run a hybrid (BM25 + kNN, RRF-fused) search for `search.product_query`.
+/// Run a hybrid (BM25 + kNN) search using OpenSearch's native `hybrid` query with an
+/// inline RRF search pipeline. Caller supplies the pre-computed query `embedding`
+/// (typically via `MultimodalEmbeddingService::embed_query`).
 ///
-/// `embedding_service` is used to embed the query (cached upstream). `embedding` may be
-/// passed directly to skip the embedding step (used in tests / pagination warm path).
-///
-/// Pagination uses the cursor's `search_after = [fused_score, productId]` which is
-/// re-applied to the freshly fused candidate list. The candidate_k is held constant to
-/// guarantee stable pagination as required by the issue's guidelines.
+/// Pagination uses standard OpenSearch `search_after` over `[_score, productId]`. The
+/// candidate window is held stable per request via `params.candidate_k`.
 pub async fn hybrid_search(
     repository: &(dyn ProductOpenSearchRepository + Sync),
-    embedding_service: &(dyn QueryEmbeddingService + Sync),
     search: &ProductSearch,
-    sort: &Option<Sort<SortProductField>>,
+    embedding: &[f32],
     page: &Option<Cursor<serde_json::Value>>,
     languages: &[Language],
 ) -> Result<HybridSearchOutcome, HybridSearchError> {
@@ -97,12 +49,9 @@ pub async fn hybrid_search(
         .map(|q| q.as_ref().to_string())
         .unwrap_or_default();
 
-    // 1. Embed the query (small, cached call).
-    let embedding = embedding_service.embed_query(&query_text).await?;
-
-    // 2. Fetch a small BM25 probe to feed the intent signal computation. We use the existing
-    //    repository search with the user-supplied filters and a tiny page so the round-trip
-    //    is cheap.
+    // 1. Fetch a small BM25 probe to feed the intent signal computation. This uses the
+    //    existing repository search with the user-supplied filters and a tiny page so
+    //    the round-trip is cheap.
     let probe_sort = Sort {
         sort: SortProductField::Score,
         order: SortOrder::Desc,
@@ -121,185 +70,149 @@ pub async fn hybrid_search(
         .filter_map(|h| h.score.map(|s| s as f32))
         .collect();
 
-    // 3. Compute soft intent signals + adaptive params.
+    // 2. Compute soft intent signals + adaptive params.
     let intent = compute_intent_signals(
         &query_text,
-        Some(&embedding),
+        Some(embedding),
         &bm25_scores,
         intent_centroids(),
     );
-    let params = HybridSearchParams::from_intent(&intent);
+    let params = HybridSearchParams::from(&intent);
 
-    // 4. Run BM25 (full candidate_k) and kNN in parallel.
-    let bm25_cursor = Some(Cursor::<serde_json::Value> {
-        size: params.candidate_k as u64,
-        search_after: None,
-    });
-    let bm25_fut = repository.search_product_documents(search, &probe_sort, &bm25_cursor);
-    let knn_fut = repository.knn_search_product_documents(search, &embedding, params.candidate_k);
-    let (bm25_resp, knn_resp) = tokio::join!(bm25_fut, knn_fut);
-    let bm25_resp: SearchResponse<ProductDocument> = bm25_resp?;
-    let knn_resp: SearchResponse<ProductDocument> = knn_resp?;
+    // 3. Issue the native OpenSearch hybrid query with RRF fusion server-side.
+    let response = repository
+        .hybrid_search_product_documents(search, embedding, params, page)
+        .await?;
 
-    if bm25_resp.timed_out || knn_resp.timed_out {
+    if response.timed_out {
         warn!(
             searchFilter = ?search,
-            sort = ?sort,
             page = ?page,
-            "Hybrid search: at least one of BM25/kNN OpenSearch requests timed out."
+            took = response.took,
+            "Hybrid search OpenSearch request timed out."
         );
     }
 
-    // 5. Fuse via Reciprocal Rank Fusion.
-    let bm25_docs: Vec<ProductDocument> =
-        bm25_resp.hits.hits.into_iter().map(|h| h.source).collect();
-    let knn_docs: Vec<ProductDocument> = knn_resp.hits.hits.into_iter().map(|h| h.source).collect();
-    let total_unique = {
-        // For total: count of distinct product ids among the candidate set.
-        let mut ids: std::collections::HashSet<common::product_id::ProductId> =
-            std::collections::HashSet::with_capacity(bm25_docs.len() + knn_docs.len());
-        for d in &bm25_docs {
-            ids.insert(d.product_id);
-        }
-        for d in &knn_docs {
-            ids.insert(d.product_id);
-        }
-        ids.len() as u64
-    };
-    let mut fused = rrf_fuse(bm25_docs, knn_docs, params.vector_weight);
-
-    // 6. Apply pagination via search_after = [fused_score, productId].
-    if let Some(cursor) = page
-        && let Some(sa) = &cursor.search_after
-        && let Some((cursor_score, cursor_id)) = decode_cursor(sa)
-    {
-        fused.retain(|(score, doc)| {
-            let s_cmp = score
-                .partial_cmp(&cursor_score)
-                .unwrap_or(std::cmp::Ordering::Equal);
-            match s_cmp {
-                std::cmp::Ordering::Less => true,
-                std::cmp::Ordering::Greater => false,
-                std::cmp::Ordering::Equal => doc.product_id > cursor_id,
-            }
-        });
-    }
-
-    let page_size = page.as_ref().map(|c| c.size).unwrap_or(20).max(1) as usize;
-    let page_items: Vec<(f32, ProductDocument)> = fused.into_iter().take(page_size).collect();
-
-    let next_search_after = page_items
-        .last()
-        .map(|(score, doc)| serde_json::json!([score, doc.product_id.to_string()]));
-
     let cursor = Cursor {
-        size: page_items.len() as u64,
-        search_after: next_search_after,
+        size: response.hits.hits.len() as u64,
+        search_after: response.hits.hits.last().and_then(|last| last.sort.clone()),
     };
-
+    let total = response.hits.total.value;
     let currency = search.currency;
-    let product_views: Vec<LocalizedProductView> = page_items
+    let product_views: Vec<LocalizedProductView> = response
+        .hits
+        .hits
         .into_iter()
-        .map(|(_score, doc)| Product::from(doc).localized(&currency, languages))
+        .map(|hit| Product::from(hit.source).localized(&currency, languages))
         .collect();
 
     Ok(HybridSearchOutcome {
         items: CursoredResult {
             items: product_views,
             cursor,
-            total: Some(total_unique),
+            total: Some(total),
         },
         intent,
         params,
     })
 }
 
-fn decode_cursor(value: &serde_json::Value) -> Option<(f32, common::product_id::ProductId)> {
-    let arr = value.as_array()?;
-    let score = arr.first()?.as_f64()? as f32;
-    let id_str = arr.get(1)?.as_str()?;
-    let id = common::product_id::ProductId::try_from(id_str).ok()?;
-    Some((score, id))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::product_search::ProductSearch;
     use crate::opensearch::product_document::ProductDocument;
-    use common::product_id::ProductId;
+    use crate::opensearch::repository::MockProductOpenSearchRepository;
+    use common::opensearch::search_response::{
+        HitsMetadata, SearchHit, SearchResponse, ShardStats, TotalHits,
+    };
     use fake::{Fake, Faker};
 
-    fn doc_with_id(id: ProductId) -> ProductDocument {
-        let mut doc: ProductDocument = Faker.fake();
-        doc.product_id = id;
-        doc
+    fn mk_search() -> ProductSearch {
+        let mut s: ProductSearch = Faker.fake();
+        s.product_query = Some("art deco lamp".try_into().unwrap());
+        s
     }
 
-    #[test]
-    fn should_rank_intersecting_documents_higher_when_present_in_both_lists() {
-        let shared_id = ProductId::new();
-        let bm25_only = ProductId::new();
-        let knn_only = ProductId::new();
-
-        let bm25 = vec![doc_with_id(bm25_only), doc_with_id(shared_id)];
-        let knn = vec![doc_with_id(shared_id), doc_with_id(knn_only)];
-
-        let fused = rrf_fuse(bm25, knn, 0.5);
-        assert_eq!(fused[0].1.product_id, shared_id);
-    }
-
-    #[test]
-    fn should_respect_vector_weight_zero_for_pure_bm25_ranking() {
-        let id_a = ProductId::new();
-        let id_b = ProductId::new();
-        // BM25 ranks A first, kNN ranks B first.
-        let bm25 = vec![doc_with_id(id_a), doc_with_id(id_b)];
-        let knn = vec![doc_with_id(id_b), doc_with_id(id_a)];
-        let fused = rrf_fuse(bm25, knn, 0.0);
-        assert_eq!(fused[0].1.product_id, id_a);
-    }
-
-    #[test]
-    fn should_respect_vector_weight_high_for_knn_dominance() {
-        let id_a = ProductId::new();
-        let id_b = ProductId::new();
-        let bm25 = vec![doc_with_id(id_a), doc_with_id(id_b)];
-        let knn = vec![doc_with_id(id_b), doc_with_id(id_a)];
-        // vector_weight=0.8 ⟹ kNN dominates ⟹ B should rank first.
-        let fused = rrf_fuse(bm25, knn, 0.8);
-        assert_eq!(fused[0].1.product_id, id_b);
-    }
-
-    #[test]
-    fn should_break_ties_by_product_id_ascending() {
-        // Two singleton lists with same vector_weight=0.5 — both contribute identical RRF scores.
-        let mut id_a = ProductId::new();
-        let mut id_b = ProductId::new();
-        if id_a > id_b {
-            std::mem::swap(&mut id_a, &mut id_b);
+    fn mk_response(docs: Vec<ProductDocument>) -> SearchResponse<ProductDocument> {
+        let total = docs.len() as u64;
+        SearchResponse {
+            took: 1,
+            timed_out: false,
+            shards: ShardStats {
+                total: 1,
+                successful: 1,
+                skipped: 0,
+                failed: 0,
+            },
+            hits: HitsMetadata {
+                total: TotalHits {
+                    value: total,
+                    relation: "eq".to_string(),
+                },
+                max_score: Some(1.0),
+                hits: docs
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, d)| {
+                        let id = d.product_id.to_string();
+                        SearchHit {
+                            index: "products".to_string(),
+                            id: id.clone(),
+                            score: Some(1.0 / (i as f64 + 1.0)),
+                            sort: Some(serde_json::json!([1.0 / (i as f64 + 1.0), id])),
+                            source: d,
+                        }
+                    })
+                    .collect(),
+            },
         }
-        let bm25 = vec![doc_with_id(id_a)];
-        let knn = vec![doc_with_id(id_b)];
-        let fused = rrf_fuse(bm25, knn, 0.5);
-        assert_eq!(fused[0].1.product_id, id_a);
-        assert_eq!(fused[1].1.product_id, id_b);
     }
 
-    #[test]
-    fn should_decode_pagination_cursor() {
-        let id = ProductId::new();
-        let v = serde_json::json!([0.0123_f64, id.to_string()]);
-        let (score, decoded) = decode_cursor(&v).unwrap();
-        assert!((score - 0.0123).abs() < 1e-6);
-        assert_eq!(decoded, id);
+    #[tokio::test]
+    async fn should_dispatch_native_hybrid_query_for_text_search() {
+        let mut repo = MockProductOpenSearchRepository::default();
+        let docs: Vec<ProductDocument> = (0..3).map(|_| Faker.fake::<ProductDocument>()).collect();
+        let probe_response = mk_response(docs.clone());
+        let hybrid_response = mk_response(docs);
+
+        repo.expect_search_product_documents()
+            .return_once(move |_, _, _| Box::pin(async move { Ok(probe_response) }));
+        repo.expect_hybrid_search_product_documents()
+            .return_once(move |_, _, _, _| Box::pin(async move { Ok(hybrid_response) }));
+
+        let search = mk_search();
+        let embedding = vec![0.1f32; 768];
+        let outcome = hybrid_search(&repo, &search, &embedding, &None, &[search.language])
+            .await
+            .unwrap();
+        assert_eq!(outcome.items.items.len(), 3);
+        assert!(outcome.params.vector_weight <= 1.0 - HybridSearchParams::MIN_BM25_WEIGHT);
+        assert!(outcome.params.candidate_k >= HybridSearchParams::MIN_CANDIDATE_K);
+        assert!(outcome.params.candidate_k <= HybridSearchParams::MAX_CANDIDATE_K);
     }
 
-    #[test]
-    fn should_return_none_for_malformed_pagination_cursor() {
-        assert!(decode_cursor(&serde_json::json!("nope")).is_none());
-        assert!(decode_cursor(&serde_json::json!([])).is_none());
-        assert!(decode_cursor(&serde_json::json!([0.1])).is_none());
-        // Valid array shape but the second element is not a parseable ProductId.
-        assert!(decode_cursor(&serde_json::json!([0.1, "not-a-uuid"])).is_none());
+    #[tokio::test]
+    async fn should_propagate_pagination_cursor_from_opensearch_response() {
+        let mut repo = MockProductOpenSearchRepository::default();
+        let docs: Vec<ProductDocument> = (0..2).map(|_| Faker.fake::<ProductDocument>()).collect();
+        let probe = mk_response(docs.clone());
+        let hybrid = mk_response(docs);
+        repo.expect_search_product_documents()
+            .return_once(move |_, _, _| Box::pin(async move { Ok(probe) }));
+        repo.expect_hybrid_search_product_documents()
+            .return_once(move |_, _, _, _| Box::pin(async move { Ok(hybrid) }));
+
+        let search = mk_search();
+        let outcome = hybrid_search(
+            &repo,
+            &search,
+            &vec![0.0f32; 768],
+            &None,
+            &[search.language],
+        )
+        .await
+        .unwrap();
+        assert!(outcome.items.cursor.search_after.is_some());
     }
 }

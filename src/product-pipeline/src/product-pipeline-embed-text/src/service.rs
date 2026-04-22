@@ -244,6 +244,95 @@ struct Embedding {
     values: Vec<f32>,
 }
 
+/// In-memory TTL + capacity-bounded decorator over any [`MultimodalEmbeddingService`],
+/// caching `embed_query` results so that warm Lambda invocations and paged calls reuse
+/// the same query embedding without re-hitting the upstream API.
+///
+/// Sized so the warm Lambda stays lightweight: 1024 entries × 768 f32 ≈ 3 MB worst case.
+/// The cache only memoises `embed_query`; `embed` (multimodal product ingestion) calls
+/// pass through unchanged because they are one-shot per product event.
+pub struct CachedMultimodalEmbeddingService<S: MultimodalEmbeddingService + Sync + Send> {
+    inner: S,
+    ttl: std::time::Duration,
+    capacity: usize,
+    cache: tokio::sync::Mutex<std::collections::VecDeque<CacheEntry>>,
+}
+
+struct CacheEntry {
+    key: String,
+    value: Vec<f32>,
+    inserted_at: std::time::Instant,
+}
+
+impl<S: MultimodalEmbeddingService + Sync + Send> CachedMultimodalEmbeddingService<S> {
+    pub fn new(inner: S, ttl: std::time::Duration, capacity: usize) -> Self {
+        Self {
+            inner,
+            ttl,
+            capacity: capacity.max(1),
+            cache: tokio::sync::Mutex::new(std::collections::VecDeque::with_capacity(
+                capacity.max(1),
+            )),
+        }
+    }
+
+    async fn lookup(&self, key: &str) -> Option<Vec<f32>> {
+        let mut cache = self.cache.lock().await;
+        let now = std::time::Instant::now();
+        // Drop expired entries lazily.
+        while let Some(front) = cache.front()
+            && now.duration_since(front.inserted_at) > self.ttl
+        {
+            cache.pop_front();
+        }
+        cache
+            .iter()
+            .find(|entry| entry.key == key && now.duration_since(entry.inserted_at) <= self.ttl)
+            .map(|entry| entry.value.clone())
+    }
+
+    async fn insert(&self, key: String, value: Vec<f32>) {
+        let mut cache = self.cache.lock().await;
+        // Replace existing entry for the same key, otherwise append.
+        if let Some(pos) = cache.iter().position(|entry| entry.key == key) {
+            cache.remove(pos);
+        }
+        if cache.len() >= self.capacity {
+            cache.pop_front();
+        }
+        cache.push_back(CacheEntry {
+            key,
+            value,
+            inserted_at: std::time::Instant::now(),
+        });
+    }
+}
+
+#[async_trait]
+impl<S: MultimodalEmbeddingService + Sync + Send> MultimodalEmbeddingService
+    for CachedMultimodalEmbeddingService<S>
+{
+    async fn embed(
+        &self,
+        title: &Title,
+        description: Option<&Description>,
+        image: Option<&Url>,
+    ) -> Result<Vec<f32>, MultimodalEmbeddingError> {
+        // Multimodal product embedding is not cached: it is one-shot per product event
+        // and deduplication should happen upstream.
+        self.inner.embed(title, description, image).await
+    }
+
+    async fn embed_query(&self, query: &str) -> Result<Vec<f32>, MultimodalEmbeddingError> {
+        if let Some(hit) = self.lookup(query).await {
+            return Ok(hit);
+        }
+        let value = self.inner.embed_query(query).await?;
+        self.insert(query.to_string(), value.clone()).await;
+        Ok(value)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1180,5 +1269,81 @@ mod tests {
             "Expected normalized 768-dim vector to have L2 norm of 1.0, got {}",
             normalized_norm
         );
+    }
+
+    // -------- CachedMultimodalEmbeddingService --------
+
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    struct CountingService {
+        calls: Arc<AtomicUsize>,
+        value: Vec<f32>,
+    }
+
+    #[async_trait]
+    impl MultimodalEmbeddingService for CountingService {
+        async fn embed(
+            &self,
+            _: &Title,
+            _: Option<&Description>,
+            _: Option<&Url>,
+        ) -> Result<Vec<f32>, MultimodalEmbeddingError> {
+            Ok(self.value.clone())
+        }
+        async fn embed_query(&self, _: &str) -> Result<Vec<f32>, MultimodalEmbeddingError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(self.value.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn should_serve_from_cache_when_query_repeats_for_warm_lambda() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let inner = CountingService {
+            calls: calls.clone(),
+            value: vec![1.0, 2.0, 3.0],
+        };
+        let cache = CachedMultimodalEmbeddingService::new(inner, Duration::from_secs(60), 4);
+
+        let a = cache.embed_query("hello").await.unwrap();
+        let b = cache.embed_query("hello").await.unwrap();
+        assert_eq!(a, b);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn should_call_inner_again_when_ttl_expired_for_paged_query() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let inner = CountingService {
+            calls: calls.clone(),
+            value: vec![0.5],
+        };
+        let cache = CachedMultimodalEmbeddingService::new(inner, Duration::from_millis(10), 4);
+
+        let _ = cache.embed_query("q").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let _ = cache.embed_query("q").await.unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn should_evict_oldest_entry_when_capacity_exceeded() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let inner = CountingService {
+            calls: calls.clone(),
+            value: vec![1.0],
+        };
+        let cache = CachedMultimodalEmbeddingService::new(inner, Duration::from_secs(60), 2);
+
+        let _ = cache.embed_query("a").await.unwrap();
+        let _ = cache.embed_query("b").await.unwrap();
+        let _ = cache.embed_query("c").await.unwrap(); // evicts "a"
+        let _ = cache.embed_query("a").await.unwrap(); // miss again
+        assert_eq!(calls.load(Ordering::SeqCst), 4);
+
+        let _ = cache.embed_query("c").await.unwrap(); // hit
+        assert_eq!(calls.load(Ordering::SeqCst), 4);
     }
 }

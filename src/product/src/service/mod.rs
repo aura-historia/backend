@@ -10,9 +10,6 @@ pub mod product_command;
 pub mod query_service;
 
 #[cfg(feature = "opensearch")]
-pub mod query_embedding_service;
-
-#[cfg(feature = "opensearch")]
 pub mod intent;
 
 #[cfg(feature = "opensearch")]

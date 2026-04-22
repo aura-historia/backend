@@ -7,6 +7,7 @@ use crate::opensearch::product_state_document::ProductStateDocument;
 use crate::opensearch::product_update_document::ProductUpdateDocument;
 use crate::opensearch::provenance_document::ProvenanceDocument;
 use crate::opensearch::restoration_document::RestorationDocument;
+use crate::service::intent::HybridSearchParams;
 use async_trait::async_trait;
 use common::currency::domain::Currency;
 use common::language::domain::Language;
@@ -57,13 +58,15 @@ pub trait ProductOpenSearchRepository {
         k: u16,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error>;
 
-    /// kNN retrieval honouring the filter clauses derived from `search` (everything except
-    /// the BM25 text-match part). Used by hybrid search to fetch the semantic candidate set.
-    async fn knn_search_product_documents(
+    /// Native OpenSearch hybrid retrieval. The request body uses the `hybrid` query type
+    /// (parallel BM25 + kNN) combined via an inline search pipeline that runs a
+    /// `score-ranker-processor` with RRF fusion. Pagination uses standard `search_after`.
+    async fn hybrid_search_product_documents(
         &self,
         search: &ProductSearch,
         embedding: &[f32],
-        k: u16,
+        params: HybridSearchParams,
+        cursor: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error>;
 }
 
@@ -218,13 +221,14 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         Ok(knn_response)
     }
 
-    async fn knn_search_product_documents(
+    async fn hybrid_search_product_documents(
         &self,
         search: &ProductSearch,
         embedding: &[f32],
-        k: u16,
+        params: HybridSearchParams,
+        cursor: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error> {
-        let body = build_knn_search_request(search, embedding, k)?;
+        let body = build_hybrid_search_request(search, embedding, params, cursor)?;
         let response = self
             .client
             .search(SearchParts::Index(&["products"]))
@@ -233,13 +237,13 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             .await?
             .error_for_status_code()?;
         let payload = response.text().await?;
-        let knn_response = serde_json::from_str::<SearchResponse<ProductDocument>>(&payload)
+        let res = serde_json::from_str::<SearchResponse<ProductDocument>>(&payload)
             .map_err(|err| {
                 serde_json::Error::custom(format!(
                     "Failed deserializing 'SearchResponse<ProductDocument>' with error '{err}'. Received payload: {payload}"
                 ))
             })?;
-        Ok(knn_response)
+        Ok(res)
     }
 }
 
@@ -721,21 +725,51 @@ fn price_field_for(currency: &Currency) -> &'static str {
     }
 }
 
-/// Builds a kNN search request body, applying the same `(must_not, filter)` derived from
-/// `search` so the semantic candidate set respects user-supplied filters.
-pub fn build_knn_search_request(
+/// Builds the request body for an OpenSearch *native hybrid* search.
+///
+/// Combines a BM25 sub-query (text-match + filters) and a kNN sub-query in a single
+/// `hybrid` query. An inline `search_pipeline` runs a `score-ranker-processor` with
+/// Reciprocal Rank Fusion so OpenSearch performs the rank fusion server-side. The
+/// `weights` array carries the dynamic BM25/vector weighting derived from intent signals,
+/// which biases RRF's contribution per sub-query (the BM25-only path remains via the
+/// `MIN_BM25_WEIGHT` guardrail).
+///
+/// Pagination uses standard `search_after` over `[_score desc, productId asc]`.
+pub fn build_hybrid_search_request(
     search: &ProductSearch,
     embedding: &[f32],
-    k: u16,
+    params: HybridSearchParams,
+    cursor: &Option<Cursor<serde_json::Value>>,
 ) -> Result<serde_json::Value, serde_json::Error> {
     let (must_not, filter) = build_filter_clauses(search)?;
 
     let mut source_excludes = ProductDocumentSerdeField::description_fields();
     source_excludes.push(ProductDocumentSerdeField::Embedding);
 
+    // ---------- BM25 sub-query: text-match + filters ----------
+    let (title_field, description_field) = title_and_description_fields(&search.language);
+    let bm25_text_clause = match search.product_query.as_ref() {
+        Some(q) => build_text_match_clause(q.as_ref(), title_field, description_field),
+        // Defensive: hybrid search is only meaningful with a text query, but fall back to
+        // a match-all so the request is still valid.
+        None => json!({ "match_all": {} }),
+    };
+    let bm25_subquery = if filter.is_empty() && must_not.is_empty() {
+        bm25_text_clause
+    } else {
+        json!({
+            "bool": {
+                "must": [bm25_text_clause],
+                "filter": filter.clone(),
+                "must_not": must_not.clone(),
+            }
+        })
+    };
+
+    // ---------- kNN sub-query: vector + filters ----------
     let mut knn_body = json!({
         "vector": embedding,
-        "k": k,
+        "k": params.candidate_k,
     });
     if !filter.is_empty() || !must_not.is_empty() {
         knn_body["filter"] = json!({
@@ -745,16 +779,55 @@ pub fn build_knn_search_request(
             }
         });
     }
-
-    Ok(json!({
-        "_source": { "excludes": source_excludes },
-        "size": k,
-        "query": {
-            "knn": {
-                ProductDocumentSerdeField::Embedding.as_str(): knn_body,
-            }
+    let knn_subquery = json!({
+        "knn": {
+            ProductDocumentSerdeField::Embedding.as_str(): knn_body,
         }
-    }))
+    });
+
+    // ---------- Inline search pipeline (RRF) ----------
+    // OpenSearch ships the `score-ranker-processor` with the `neural-search` plugin in
+    // recent versions; passing the pipeline definition inline avoids an extra
+    // `PUT _search/pipeline/...` setup step.
+    let bm25_weight = (1.0 - params.vector_weight).clamp(0.0, 1.0);
+    let vector_weight = params.vector_weight.clamp(0.0, 1.0);
+    let pipeline = json!({
+        "phase_results_processors": [
+            {
+                "score-ranker-processor": {
+                    "combination": {
+                        "technique": "rrf",
+                        "rank_constant": 60,
+                        "weights": [bm25_weight, vector_weight],
+                    }
+                }
+            }
+        ]
+    });
+
+    let page_size = cursor.as_ref().map(|c| c.size).unwrap_or(20).max(1);
+    let mut body = json!({
+        "search_pipeline": pipeline,
+        "_source": { "excludes": source_excludes },
+        "size": page_size,
+        "query": {
+            "hybrid": {
+                "queries": [bm25_subquery, knn_subquery]
+            }
+        },
+        "sort": [
+            { "_score": { "order": "desc" } },
+            { ProductDocumentSerdeField::ProductId.as_str(): { "order": "asc" } }
+        ]
+    });
+
+    if let Some(c) = cursor
+        && let Some(sa) = &c.search_after
+    {
+        body["search_after"] = sa.clone();
+    }
+
+    Ok(body)
 }
 
 fn apply_any_of_filter<T: Hash + Eq + EnumCount>(

@@ -5434,6 +5434,7 @@ dependencies = [
  "notification",
  "product",
  "product-personalization",
+ "product-pipeline-embed-text",
  "product-watchlist",
  "rstest",
  "search-filter",
