@@ -234,9 +234,15 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             .search(SearchParts::Index(&["products"]))
             .body(body)
             .send()
-            .await?
-            .error_for_status_code()?;
+            .await?;
+        let status = response.status_code();
         let payload = response.text().await?;
+        if !status.is_success() {
+            return Err(serde_json::Error::custom(format!(
+                "hybrid_search_product_documents failed with HTTP {status}: {payload}"
+            ))
+            .into());
+        }
         let res = serde_json::from_str::<SearchResponse<ProductDocument>>(&payload)
             .map_err(|err| {
                 serde_json::Error::custom(format!(
