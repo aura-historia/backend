@@ -239,17 +239,16 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         cursor: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error> {
         let body = build_hybrid_search_request(search, embedding, params, cursor)?;
-        let path = format!(
-            "{}?search_pipeline={HYBRID_SEARCH_PIPELINE_NAME}",
-            SearchParts::Index(&["products"]).url()
-        );
+        // Pass the pipeline name as a URL query parameter so `reqwest` URL-encodes it,
+        // rather than interpolating it into the path string directly.
+        let pipeline_param = &[("search_pipeline", HYBRID_SEARCH_PIPELINE_NAME)];
         let response = self
             .client
             .send(
                 Method::Post,
-                &path,
+                SearchParts::Index(&["products"]).url().as_ref(),
                 HeaderMap::new(),
-                None::<&serde_json::Value>,
+                Some(pipeline_param),
                 Some(JsonBody::new(body)),
                 None,
             )

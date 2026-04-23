@@ -315,6 +315,14 @@ fn check_status_allow_not_found(response: &Response) -> Result<(), Error> {
 /// Failures are logged but do not abort test setup; non-hybrid tests remain unaffected
 /// even if the engine does not support search pipelines.
 async fn register_hybrid_search_pipeline(client: &Client) {
+    // The pipeline name constant contains only alphanumeric characters and hyphens, which
+    // are safe to embed in a URL path without encoding.
+    debug_assert!(
+        HYBRID_SEARCH_PIPELINE_NAME
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-'),
+        "HYBRID_SEARCH_PIPELINE_NAME must contain only alphanumeric characters and hyphens"
+    );
     let path = format!("_search/pipeline/{HYBRID_SEARCH_PIPELINE_NAME}");
     let body = json!({
         "description": "Hybrid BM25+kNN search pipeline with score normalization",
