@@ -1,19 +1,18 @@
 //! Adaptive hybrid (BM25 + kNN, RRF-fused) retrieval orchestrated against an
 //! OpenSearch cluster. The actual hybrid query and rank fusion run server-side via
-//! OpenSearch's native `hybrid` query and the `score-ranker-processor` (RRF). This
-//! module only computes the soft intent signals + adaptive `HybridSearchParams` and
-//! dispatches the request through the repository.
+//! OpenSearch's native `hybrid` query and the pre-registered `score-ranker-processor`
+//! pipeline (RRF with `rank_constant = 60`). This module only computes the soft intent
+//! signals + adaptive `HybridSearchParams` and dispatches the request through the
+//! repository.
 
 use crate::core::product::{LocalizedProductView, Product};
 use crate::core::product_search::ProductSearch;
-use crate::core::sort_product_field::SortProductField;
 use crate::opensearch::repository::ProductOpenSearchRepository;
 use crate::service::intent::{
     HybridSearchParams, IntentSignals, compute_intent_signals, intent_centroids,
 };
 use common::language::domain::Language;
 use common::pagination::cursor::{Cursor, CursoredResult};
-use common::sort::{Sort, SortOrder};
 use tracing::warn;
 
 #[derive(thiserror::Error, Debug)]
@@ -30,12 +29,15 @@ pub struct HybridSearchOutcome {
     pub params: HybridSearchParams,
 }
 
-/// Run a hybrid (BM25 + kNN) search using OpenSearch's native `hybrid` query with an
-/// inline RRF search pipeline. Caller supplies the pre-computed query `embedding`
+/// Run a hybrid (BM25 + kNN) search using OpenSearch's native `hybrid` query with the
+/// pre-registered RRF search pipeline. Caller supplies the pre-computed query `embedding`
 /// (typically via `MultimodalEmbeddingService::embed_query`).
 ///
-/// Pagination uses standard OpenSearch `search_after` over `[_score, productId]`. The
-/// candidate window is held stable per request via `params.candidate_k`.
+/// Intent signals are derived from the query text and embedding alone (no extra probe
+/// query). Pagination uses standard OpenSearch `search_after` over `[_score desc]`. Ties
+/// on score are non-deterministic; callers that need fully stable pagination should request
+/// a fresh first page. The candidate window is held stable per request via
+/// `params.candidate_k`.
 pub async fn hybrid_search(
     repository: &(dyn ProductOpenSearchRepository + Sync),
     search: &ProductSearch,
@@ -49,37 +51,11 @@ pub async fn hybrid_search(
         .map(|q| q.as_ref().to_string())
         .unwrap_or_default();
 
-    // 1. Fetch a small BM25 probe to feed the intent signal computation. This uses the
-    //    existing repository search with the user-supplied filters and a tiny page so
-    //    the round-trip is cheap.
-    let probe_sort = Sort {
-        sort: SortProductField::Score,
-        order: SortOrder::Desc,
-    };
-    let probe_cursor = Cursor::<serde_json::Value> {
-        size: 20,
-        search_after: None,
-    };
-    let bm25_probe = repository
-        .search_product_documents(search, &probe_sort, &Some(probe_cursor))
-        .await?;
-    let bm25_scores: Vec<f32> = bm25_probe
-        .hits
-        .hits
-        .iter()
-        .filter_map(|h| h.score.map(|s| s as f32))
-        .collect();
-
-    // 2. Compute soft intent signals + adaptive params.
-    let intent = compute_intent_signals(
-        &query_text,
-        Some(embedding),
-        &bm25_scores,
-        intent_centroids(),
-    );
+    // Compute soft intent signals from query text + embedding only (no BM25 probe).
+    let intent = compute_intent_signals(&query_text, Some(embedding), &[], intent_centroids());
     let params = HybridSearchParams::from(&intent);
 
-    // 3. Issue the native OpenSearch hybrid query with RRF fusion server-side.
+    // Issue the native OpenSearch hybrid query with RRF fusion server-side.
     let response = repository
         .hybrid_search_product_documents(search, embedding, params, page)
         .await?;
@@ -160,7 +136,7 @@ mod tests {
                             index: "products".to_string(),
                             id: id.clone(),
                             score: Some(1.0 / (i as f64 + 1.0)),
-                            sort: Some(serde_json::json!([1.0 / (i as f64 + 1.0), id])),
+                            sort: Some(serde_json::json!([1.0 / (i as f64 + 1.0)])),
                             source: d,
                         }
                     })
@@ -173,11 +149,8 @@ mod tests {
     async fn should_dispatch_native_hybrid_query_for_text_search() {
         let mut repo = MockProductOpenSearchRepository::default();
         let docs: Vec<ProductDocument> = (0..3).map(|_| Faker.fake::<ProductDocument>()).collect();
-        let probe_response = mk_response(docs.clone());
         let hybrid_response = mk_response(docs);
 
-        repo.expect_search_product_documents()
-            .return_once(move |_, _, _| Box::pin(async move { Ok(probe_response) }));
         repo.expect_hybrid_search_product_documents()
             .return_once(move |_, _, _, _| Box::pin(async move { Ok(hybrid_response) }));
 
@@ -196,10 +169,7 @@ mod tests {
     async fn should_propagate_pagination_cursor_from_opensearch_response() {
         let mut repo = MockProductOpenSearchRepository::default();
         let docs: Vec<ProductDocument> = (0..2).map(|_| Faker.fake::<ProductDocument>()).collect();
-        let probe = mk_response(docs.clone());
         let hybrid = mk_response(docs);
-        repo.expect_search_product_documents()
-            .return_once(move |_, _, _| Box::pin(async move { Ok(probe) }));
         repo.expect_hybrid_search_product_documents()
             .return_once(move |_, _, _, _| Box::pin(async move { Ok(hybrid) }));
 

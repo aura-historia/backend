@@ -44,16 +44,15 @@ pub trait QueryProductService {
         page: &Option<Cursor<serde_json::Value>>,
     ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchProductsError>;
 
-    /// Adaptive hybrid retrieval: BM25 + kNN run in parallel, ranked via Reciprocal Rank
-    /// Fusion. The kNN side uses the supplied query `embedding` (computed by the caller via
-    /// the existing [`product_pipeline_embed_text::service::MultimodalEmbeddingService`]).
+    /// Adaptive hybrid retrieval: BM25 + kNN run server-side, ranked via Reciprocal Rank
+    /// Fusion (RRF). The kNN side uses the supplied query `embedding` (computed by the caller
+    /// via the existing [`product_pipeline_embed_text::service::MultimodalEmbeddingService`]).
     /// `vector_weight` and `candidate_k` are derived dynamically from soft intent signals
     /// over the textual query.
     ///
-    /// `search.product_query` MUST be set; this method always uses score-desc / productId-asc
-    /// ordering and is therefore unsuitable for searches with explicit non-score sort.
-    /// Pagination is via `search_after = [fused_score, productId]` and is stable across calls
-    /// as long as the same `search` and `embedding` are supplied.
+    /// `search.product_query` MUST be set; this method always uses `_score desc` ordering
+    /// and is therefore unsuitable for searches with explicit non-score sort.
+    /// Pagination is via `search_after = [fused_score]`; ties on score are non-deterministic.
     async fn search_products_with_dynamic_semantics(
         &self,
         search: &ProductSearch,

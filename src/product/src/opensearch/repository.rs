@@ -756,7 +756,7 @@ fn price_field_for(currency: &Currency) -> &'static str {
 /// referenced by [`HYBRID_SEARCH_PIPELINE_NAME`], which is passed as the
 /// `search_pipeline` URL query parameter by the caller.
 ///
-/// Pagination uses standard `search_after` over `[productId asc]`.
+/// Pagination uses standard `search_after` over `[_score desc]`.
 pub fn build_hybrid_search_request(
     search: &ProductSearch,
     embedding: &[f32],
@@ -817,10 +817,12 @@ pub fn build_hybrid_search_request(
             }
         },
         // OpenSearch's `hybrid` query type forbids combining `_score` with any other sort
-        // criterion. Results are already ordered by the pipeline's fusion score, so a single
-        // `productId` tiebreaker is sufficient for deterministic `search_after` pagination.
+        // criterion — only a single sort field is allowed.  Sorting by `_score` preserves the
+        // pipeline's RRF-fused relevance ordering so the most-relevant documents come first.
+        // Ties on score (rare in practice) may produce non-deterministic page splits, which is
+        // acceptable given that relevance ordering is the primary concern.
         "sort": [
-            { ProductDocumentSerdeField::ProductId.as_str(): { "order": "asc" } }
+            { "_score": { "order": "desc" } }
         ]
     });
 

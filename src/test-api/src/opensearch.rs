@@ -20,8 +20,11 @@ use tokio::sync::OnceCell;
 use tokio::time::sleep;
 use tracing::debug;
 
-/// Name of the hybrid search pipeline — must match
-/// [`product::opensearch::repository::HYBRID_SEARCH_PIPELINE_NAME`].
+/// Name of the hybrid search pipeline — must stay in sync with
+/// `product::opensearch::repository::HYBRID_SEARCH_PIPELINE_NAME`.
+///
+/// A direct import is not possible because `product` tests depend on `test-api` as a
+/// dev-dependency, making a `test-api → product` dependency circular.
 const HYBRID_SEARCH_PIPELINE_NAME: &str = "hybrid-search-pipeline";
 
 pub const TEST_DOMAIN_NAME: &str = "test-domain";
@@ -309,8 +312,9 @@ fn check_status_allow_not_found(response: &Response) -> Result<(), Error> {
 /// [`product::opensearch::repository::hybrid_search_product_documents`] references via the
 /// `search_pipeline` query parameter.
 ///
-/// The pipeline applies `min_max` score normalization followed by `arithmetic_mean`
-/// combination — both features are available since OpenSearch 2.9 (LocalStack Pro).
+/// The pipeline uses Reciprocal Rank Fusion (RRF) via the `score-ranker-processor`
+/// (available since OpenSearch 2.11 / LocalStack Pro). RRF combines the per-document ranks
+/// from the BM25 and kNN sub-queries without requiring score normalisation.
 ///
 /// Failures are logged but do not abort test setup; non-hybrid tests remain unaffected
 /// even if the engine does not support search pipelines.
@@ -325,12 +329,14 @@ async fn register_hybrid_search_pipeline(client: &Client) {
     );
     let path = format!("_search/pipeline/{HYBRID_SEARCH_PIPELINE_NAME}");
     let body = json!({
-        "description": "Hybrid BM25+kNN search pipeline with score normalization",
+        "description": "Hybrid BM25+kNN search pipeline using Reciprocal Rank Fusion",
         "phase_results_processors": [
             {
-                "normalization-processor": {
-                    "normalization": { "technique": "min_max" },
-                    "combination": { "technique": "arithmetic_mean" }
+                "score-ranker-processor": {
+                    "combination": {
+                        "technique": "rrf",
+                        "parameters": { "rank_constant": 60 }
+                    }
                 }
             }
         ]

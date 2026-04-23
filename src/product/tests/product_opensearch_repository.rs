@@ -5124,13 +5124,23 @@ async fn should_omit_descriptions_and_embedding_in_hybrid_response() {
 
 #[localstack_test(services = [OpenSearch()])]
 async fn should_respect_page_size_and_search_after_for_hybrid_search() {
-    // Index a handful of documents that all match BM25 + kNN identically; verify the
-    // `size` is honoured AND that `search_after` advances the cursor without overlap.
+    // Index 6 documents all matching the BM25 query "Porcelain Vase" but with embeddings at
+    // increasing angles from the query vector.  Because their cosine similarities to the
+    // query differ (1/7, 2/7, … 6/7), the RRF pipeline assigns each document a distinct
+    // fused score, so `search_after` by `_score` can advance the cursor without overlap.
+    //
+    // Embeddings lie in the (slot 15, slot 16) 2-d plane of the 768-d space, unit-normalised:
+    //   emb_i = (cos_theta_i, sin_theta_i)  where  cos_theta_i = (i + 1) / 7
     let mut docs = Vec::new();
-    for _ in 0..6 {
+    for i in 0..6u32 {
+        let cos_theta = (i as f32 + 1.0) / 7.0;
+        let sin_theta = (1.0_f32 - cos_theta * cos_theta).sqrt();
+        let mut emb = [0.0_f32; 768];
+        emb[15] = cos_theta;
+        emb[16] = sin_theta;
         docs.push(make_product_doc(|d| {
             d.title_en = Some("Porcelain Vase".to_string());
-            d.embedding = Some(one_hot_embedding(15, 1.0).into());
+            d.embedding = Some(emb.into());
         }));
     }
     let client = get_opensearch_client().await;
@@ -5142,6 +5152,7 @@ async fn should_respect_page_size_and_search_after_for_hybrid_search() {
     refresh_index("products").await;
     tokio::time::sleep(Duration::from_secs(2)).await;
 
+    let query_emb = one_hot_embedding(15, 1.0);
     let params = HybridSearchParams {
         vector_weight: 0.5,
         candidate_k: 200,
@@ -5149,7 +5160,7 @@ async fn should_respect_page_size_and_search_after_for_hybrid_search() {
     let page1 = repository
         .hybrid_search_product_documents(
             &search_with_query("Porcelain Vase"),
-            &one_hot_embedding(15, 1.0),
+            &query_emb,
             params,
             &Some(Cursor {
                 size: 3,
@@ -5172,7 +5183,7 @@ async fn should_respect_page_size_and_search_after_for_hybrid_search() {
     let page2 = repository
         .hybrid_search_product_documents(
             &search_with_query("Porcelain Vase"),
-            &one_hot_embedding(15, 1.0),
+            &query_emb,
             params,
             &Some(Cursor {
                 size: 3,
@@ -5386,4 +5397,669 @@ async fn should_respect_candidate_k_bound_for_hybrid_search() {
         !returned_ids.contains(&knn_second.product_id),
         "2nd nearest neighbour must be excluded when candidate_k = 1"
     );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// Intent-example integration tests
+//
+// These tests load the real Gemini embeddings from `data/intent_examples.json` and prove
+// that the hybrid search pipeline (RRF fusion, filters, score ordering) behaves correctly
+// across all four intent categories: precision, style, visual, exploratory.
+//
+// Design principle: for each test, one or more "target" products are indexed whose stored
+// embedding matches the query embedding exactly (guaranteeing a perfect kNN match).
+// Accompanying noise documents use orthogonal embeddings and unrelated titles.  Assertions
+// verify that:
+//   - target documents appear in the results;
+//   - relevant ordering holds (dual-match document ranked above single-match);
+//   - the pipeline executes without error for every intent-example embedding.
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+/// Raw JSON for intent examples bundled at compile time.
+static INTENT_EXAMPLES_JSON: &str = include_str!("../data/intent_examples.json");
+
+#[derive(serde::Deserialize)]
+struct IntentExampleEntry {
+    query: String,
+    embedding: Vec<f32>,
+}
+
+#[derive(serde::Deserialize)]
+struct IntentBucketRaw {
+    examples: Vec<IntentExampleEntry>,
+}
+
+#[derive(serde::Deserialize)]
+struct IntentExamplesRaw {
+    precision: IntentBucketRaw,
+    style: IntentBucketRaw,
+    visual: IntentBucketRaw,
+    exploratory: IntentBucketRaw,
+}
+
+fn load_intent_examples() -> IntentExamplesRaw {
+    serde_json::from_str(INTENT_EXAMPLES_JSON).expect("intent_examples.json must be valid")
+}
+
+/// Convert a `Vec<f32>` of length 768 to a fixed-size array.
+fn to_embedding_array(v: &[f32]) -> [f32; 768] {
+    let mut arr = [0.0_f32; 768];
+    arr.copy_from_slice(&v[..768]);
+    arr
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 1. The pipeline executes without error for every intent-example embedding
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_execute_pipeline_without_error_for_all_intent_example_embeddings() {
+    // One noise document so kNN has at least one candidate.
+    let noise = make_product_doc(|d| {
+        d.title_en = Some("Antique clock".to_string());
+        d.embedding = Some(one_hot_embedding(300, 1.0).into());
+    });
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![noise])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let examples = load_intent_examples();
+    let all_examples: Vec<(&str, &IntentExampleEntry)> = examples
+        .precision
+        .examples
+        .iter()
+        .map(|e| ("precision", e))
+        .chain(examples.style.examples.iter().map(|e| ("style", e)))
+        .chain(examples.visual.examples.iter().map(|e| ("visual", e)))
+        .chain(
+            examples
+                .exploratory
+                .examples
+                .iter()
+                .map(|e| ("exploratory", e)),
+        )
+        .collect();
+
+    for (category, example) in &all_examples {
+        let emb = to_embedding_array(&example.embedding);
+        let result = repository
+            .hybrid_search_product_documents(
+                &search_with_query(&example.query),
+                &emb,
+                HybridSearchParams {
+                    vector_weight: 0.5,
+                    candidate_k: 200,
+                },
+                &None,
+            )
+            .await;
+        assert!(
+            result.is_ok(),
+            "category={category} query='{}' must not produce an error: {:?}",
+            example.query,
+            result.err()
+        );
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 2. Precision queries surface exact-keyword matches (BM25-dominant)
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_surface_exact_match_product_for_precision_intent_query() {
+    let examples = load_intent_examples();
+    // Use the first precision example: "Rolex Submariner 1965"
+    let ex = &examples.precision.examples[0];
+    let query_emb = to_embedding_array(&ex.embedding);
+
+    // A "perfect" product: title matches the query AND its stored embedding equals the
+    // query embedding, so it wins on both BM25 and kNN.
+    let perfect_match = make_product_doc(|d| {
+        d.title_en = Some(ex.query.clone());
+        d.embedding = Some(query_emb.into());
+    });
+    // A noise product with an unrelated title and orthogonal embedding.
+    let noise = make_product_doc(|d| {
+        d.title_en = Some("lorem ipsum dolor sit amet".to_string());
+        d.embedding = Some(one_hot_embedding(400, 1.0).into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![perfect_match.clone(), noise.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query(&ex.query),
+            &query_emb,
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        returned_ids.contains(&perfect_match.product_id),
+        "precision query '{}' must surface the exact-match product",
+        ex.query
+    );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 3. Visual queries surface embedding-similar documents even without keyword match
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_surface_embedding_similar_product_for_visual_intent_query() {
+    let examples = load_intent_examples();
+    // Use the first visual example: "blue ceramic vase with floral pattern"
+    let ex = &examples.visual.examples[0];
+    let query_emb = to_embedding_array(&ex.embedding);
+
+    // kNN-only match: stored embedding matches the query, but title is irrelevant.
+    let knn_only = make_product_doc(|d| {
+        d.title_en = Some("lorem ipsum dolor sit amet".to_string());
+        d.embedding = Some(query_emb.into());
+    });
+    // BM25-only match: title matches the query, but embedding is orthogonal.
+    let bm25_only = make_product_doc(|d| {
+        d.title_en = Some(ex.query.clone());
+        d.embedding = Some(one_hot_embedding(410, 1.0).into());
+    });
+    // Noise: neither keyword nor embedding match.
+    let noise = make_product_doc(|d| {
+        d.title_en = Some("old bronze cannon 1800".to_string());
+        d.embedding = Some(one_hot_embedding(411, 1.0).into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![knn_only.clone(), bm25_only.clone(), noise.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query(&ex.query),
+            &query_emb,
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        returned_ids.contains(&knn_only.product_id),
+        "visual query must surface the embedding-similar product (kNN match)"
+    );
+    assert!(
+        returned_ids.contains(&bm25_only.product_id),
+        "visual query must also surface the BM25 keyword match"
+    );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 4. Dual-match document ranks above single-match (RRF fusion benefit)
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_rank_dual_matching_document_above_single_match_in_hybrid_search() {
+    let examples = load_intent_examples();
+    // Use the second precision example: "Meissen porcelain figurine 1750"
+    let ex = &examples.precision.examples[1];
+    let query_emb = to_embedding_array(&ex.embedding);
+
+    // Dual-match: both title and embedding align with the query.
+    let dual_match = make_product_doc(|d| {
+        d.title_en = Some(ex.query.clone());
+        d.embedding = Some(query_emb.into());
+    });
+    // BM25-only: title matches but embedding is orthogonal.
+    let bm25_only = make_product_doc(|d| {
+        d.title_en = Some(ex.query.clone());
+        d.embedding = Some(one_hot_embedding(420, 1.0).into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![dual_match.clone(), bm25_only.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query(&ex.query),
+            &query_emb,
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        !response.hits.hits.is_empty(),
+        "hybrid search must return at least one hit"
+    );
+    // The dual-match document must appear first (higher RRF score = wins on both BM25 and kNN).
+    assert_eq!(
+        response.hits.hits[0].source.product_id, dual_match.product_id,
+        "dual-match document must be ranked first by the RRF pipeline"
+    );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 5. Style queries surface style-keyword and embedding-matched documents
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_surface_style_matching_product_for_style_intent_query() {
+    let examples = load_intent_examples();
+    // Use the first style example: "art deco lamp"
+    let ex = &examples.style.examples[0];
+    let query_emb = to_embedding_array(&ex.embedding);
+
+    let style_match = make_product_doc(|d| {
+        d.title_en = Some(ex.query.clone());
+        d.embedding = Some(query_emb.into());
+    });
+    let noise = make_product_doc(|d| {
+        d.title_en = Some("industrial machine part".to_string());
+        d.embedding = Some(one_hot_embedding(430, 1.0).into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![style_match.clone(), noise.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query(&ex.query),
+            &query_emb,
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        returned_ids.contains(&style_match.product_id),
+        "style query '{}' must surface the style-matching product",
+        ex.query
+    );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 6. Exploratory queries return results even for vague queries
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_return_results_for_exploratory_intent_query() {
+    let examples = load_intent_examples();
+    // Use the first exploratory example: "antique decorations"
+    let ex = &examples.exploratory.examples[0];
+    let query_emb = to_embedding_array(&ex.embedding);
+
+    // A product that is a reasonable kNN match (same embedding) but with a vague title
+    // that partially overlaps the exploratory query vocabulary.
+    let target = make_product_doc(|d| {
+        d.title_en = Some("antique home decoration".to_string());
+        d.embedding = Some(query_emb.into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![target.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query(&ex.query),
+            &query_emb,
+            HybridSearchParams {
+                vector_weight: 0.7,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        returned_ids.contains(&target.product_id),
+        "exploratory query '{}' must surface the embedding-matching product",
+        ex.query
+    );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 7. Scores decrease with embedding distance (pipeline respects kNN ranking)
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_order_results_by_descending_relevance_score_in_hybrid_search() {
+    // Three documents have the same BM25 score (identical title) but decreasing cosine
+    // similarity to the query.  The RRF pipeline must place the closest embedding first.
+    //
+    //  near  — cos_sim ≈ 0.98 (slot 200 = 0.98, slot 201 = 0.20)
+    //  mid   — cos_sim ≈ 0.71 (slot 200 = 0.71, slot 201 = 0.71 — 45°)
+    //  far   — cos_sim ≈ 0.20 (slot 200 = 0.20, slot 201 = 0.98)
+    // Query: one-hot in slot 200.
+    let make_angled = |a: f32, b: f32| -> [f32; 768] {
+        let mut v = [0.0_f32; 768];
+        v[200] = a;
+        v[201] = b;
+        v
+    };
+    let near = make_product_doc(|d| {
+        d.title_en = Some("Vintage French Clock".to_string());
+        d.embedding = Some(make_angled(0.98, 0.20).into());
+    });
+    let mid = make_product_doc(|d| {
+        d.title_en = Some("Vintage French Clock".to_string());
+        d.embedding = Some(make_angled(0.71, 0.71).into());
+    });
+    let far = make_product_doc(|d| {
+        d.title_en = Some("Vintage French Clock".to_string());
+        d.embedding = Some(make_angled(0.20, 0.98).into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![near.clone(), mid.clone(), far.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query("Vintage French Clock"),
+            &one_hot_embedding(200, 1.0),
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let hit_ids: Vec<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert_eq!(3, hit_ids.len(), "all three documents must be returned");
+    assert_eq!(
+        hit_ids[0], near.product_id,
+        "nearest-embedding document must rank first"
+    );
+    assert_eq!(
+        hit_ids[2], far.product_id,
+        "farthest-embedding document must rank last"
+    );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 8. vector_weight shifts fusion balance toward kNN
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_promote_knn_match_when_vector_weight_is_high_for_all_intent_categories() {
+    // For each intent category we take the first example embedding, store a product with
+    // that exact embedding (kNN-perfect match) and an unrelated title, then search with
+    // a high vector_weight.  The kNN-matched product must appear in the results even though
+    // BM25 would never find it.
+    let examples = load_intent_examples();
+    let category_examples: &[(&str, &IntentExampleEntry)] = &[
+        ("precision", &examples.precision.examples[0]),
+        ("style", &examples.style.examples[0]),
+        ("visual", &examples.visual.examples[0]),
+        ("exploratory", &examples.exploratory.examples[0]),
+    ];
+
+    for (category, ex) in category_examples {
+        let query_emb = to_embedding_array(&ex.embedding);
+        let knn_target = make_product_doc(|d| {
+            // Deliberately unrelated title so BM25 won't match.
+            d.title_en = Some("unrelated lorem ipsum product title".to_string());
+            d.embedding = Some(query_emb.into());
+        });
+
+        let client = get_opensearch_client().await;
+        let repository = ProductOpenSearchRepositoryImpl::new(client);
+        repository
+            .create_product_documents(vec![knn_target.clone()])
+            .await
+            .unwrap();
+        refresh_index("products").await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let response = repository
+            .hybrid_search_product_documents(
+                &search_with_query(&ex.query),
+                &query_emb,
+                HybridSearchParams {
+                    vector_weight: 0.8,
+                    candidate_k: 200,
+                },
+                &None,
+            )
+            .await
+            .unwrap();
+
+        let returned_ids: HashSet<_> = response
+            .hits
+            .hits
+            .iter()
+            .map(|h| h.source.product_id)
+            .collect();
+        assert!(
+            returned_ids.contains(&knn_target.product_id),
+            "category={category}: kNN-matched product must be surfaced at vector_weight=0.8 \
+             for query '{}'",
+            ex.query
+        );
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 9. Price filter applies correctly together with hybrid search
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_apply_price_filter_to_hybrid_search() {
+    let emb = one_hot_embedding(250, 1.0);
+
+    let in_range = make_product_doc(|d| {
+        d.title_en = Some("Silver Candlestick".to_string());
+        d.embedding = Some(emb.into());
+        d.price_eur = Some(50);
+    });
+    let out_of_range = make_product_doc(|d| {
+        d.title_en = Some("Silver Candlestick".to_string());
+        d.embedding = Some(emb.into());
+        d.price_eur = Some(500);
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![in_range.clone(), out_of_range.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let mut search = search_with_query("Silver Candlestick");
+    search.price_query = Some(RangeQuery {
+        min: Some(1u64.into()),
+        max: Some(100u64.into()),
+    });
+    search.currency = Currency::Eur;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search,
+            &emb,
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        returned_ids.contains(&in_range.product_id),
+        "product within price range must be returned"
+    );
+    assert!(
+        !returned_ids.contains(&out_of_range.product_id),
+        "product outside price range must be excluded"
+    );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 10. All 20 intent-example queries return non-empty results when matching products exist
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_return_hits_for_every_intent_example_when_matching_product_exists() {
+    let examples = load_intent_examples();
+    let all_examples: Vec<(&str, &IntentExampleEntry)> = examples
+        .precision
+        .examples
+        .iter()
+        .map(|e| ("precision", e))
+        .chain(examples.style.examples.iter().map(|e| ("style", e)))
+        .chain(examples.visual.examples.iter().map(|e| ("visual", e)))
+        .chain(
+            examples
+                .exploratory
+                .examples
+                .iter()
+                .map(|e| ("exploratory", e)),
+        )
+        .collect();
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+
+    for (category, ex) in &all_examples {
+        let query_emb = to_embedding_array(&ex.embedding);
+
+        // A "perfect" product: title = query text, embedding = query embedding.
+        let target = make_product_doc(|d| {
+            d.title_en = Some(ex.query.clone());
+            d.embedding = Some(query_emb.into());
+        });
+        repository
+            .create_product_documents(vec![target.clone()])
+            .await
+            .unwrap();
+        refresh_index("products").await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let response = repository
+            .hybrid_search_product_documents(
+                &search_with_query(&ex.query),
+                &query_emb,
+                HybridSearchParams {
+                    vector_weight: 0.5,
+                    candidate_k: 200,
+                },
+                &None,
+            )
+            .await
+            .unwrap_or_else(|e| {
+                panic!(
+                    "category={category} query='{}' returned error: {e}",
+                    ex.query
+                )
+            });
+
+        let returned_ids: HashSet<_> = response
+            .hits
+            .hits
+            .iter()
+            .map(|h| h.source.product_id)
+            .collect();
+        assert!(
+            returned_ids.contains(&target.product_id),
+            "category={category} query='{}': matching product must appear in hybrid results",
+            ex.query
+        );
+    }
 }
