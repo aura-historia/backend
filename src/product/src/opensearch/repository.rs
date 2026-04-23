@@ -17,6 +17,9 @@ use common::product_id::ProductId;
 use common::query::any_of_query::AnyOfQuery;
 use common::shop_name::ShopName;
 use common::sort::{Sort, SortOrder};
+use opensearch::http::Method;
+use opensearch::http::headers::HeaderMap;
+use opensearch::http::request::JsonBody;
 use opensearch::{BulkOperation, BulkOperations, BulkParts, GetParts, SearchParts};
 use serde::ser::Error;
 use serde_json::json;
@@ -26,6 +29,12 @@ use std::hash::Hash;
 use std::ops::Deref;
 use strum::EnumCount;
 use time::format_description::well_known;
+
+/// Name of the pre-registered OpenSearch search pipeline used for hybrid (BM25 + kNN) queries.
+///
+/// The pipeline must be registered on the cluster before hybrid searches are issued.
+/// In tests this is done by [`test_api::opensearch::set_up_indices`].
+pub const HYBRID_SEARCH_PIPELINE_NAME: &str = "hybrid-search-pipeline";
 
 #[async_trait]
 #[mockall::automock]
@@ -59,8 +68,9 @@ pub trait ProductOpenSearchRepository {
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error>;
 
     /// Native OpenSearch hybrid retrieval. The request body uses the `hybrid` query type
-    /// (parallel BM25 + kNN) combined via an inline search pipeline that runs a
-    /// `score-ranker-processor` with RRF fusion. Pagination uses standard `search_after`.
+    /// (parallel BM25 + kNN) combined via the pre-registered search pipeline named
+    /// [`HYBRID_SEARCH_PIPELINE_NAME`], which is passed as a URL query parameter.
+    /// Pagination uses standard `search_after`.
     async fn hybrid_search_product_documents(
         &self,
         search: &ProductSearch,
@@ -229,11 +239,20 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         cursor: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error> {
         let body = build_hybrid_search_request(search, embedding, params, cursor)?;
+        let path = format!(
+            "{}?search_pipeline={HYBRID_SEARCH_PIPELINE_NAME}",
+            SearchParts::Index(&["products"]).url()
+        );
         let response = self
             .client
-            .search(SearchParts::Index(&["products"]))
-            .body(body)
-            .send()
+            .send(
+                Method::Post,
+                &path,
+                HeaderMap::new(),
+                None::<&serde_json::Value>,
+                Some(JsonBody::new(body)),
+                None,
+            )
             .await?;
         let status = response.status_code();
         let payload = response.text().await?;
@@ -734,11 +753,9 @@ fn price_field_for(currency: &Currency) -> &'static str {
 /// Builds the request body for an OpenSearch *native hybrid* search.
 ///
 /// Combines a BM25 sub-query (text-match + filters) and a kNN sub-query in a single
-/// `hybrid` query. An inline `search_pipeline` runs a `score-ranker-processor` with
-/// Reciprocal Rank Fusion so OpenSearch performs the rank fusion server-side. The
-/// `weights` array carries the dynamic BM25/vector weighting derived from intent signals,
-/// which biases RRF's contribution per sub-query (the BM25-only path remains via the
-/// `MIN_BM25_WEIGHT` guardrail).
+/// `hybrid` query. Score fusion is performed by the pre-registered search pipeline
+/// referenced by [`HYBRID_SEARCH_PIPELINE_NAME`], which is passed as the
+/// `search_pipeline` URL query parameter by the caller.
 ///
 /// Pagination uses standard `search_after` over `[_score desc, productId asc]`.
 pub fn build_hybrid_search_request(
@@ -791,29 +808,8 @@ pub fn build_hybrid_search_request(
         }
     });
 
-    // ---------- Inline search pipeline (RRF) ----------
-    // OpenSearch ships the `score-ranker-processor` with the `neural-search` plugin in
-    // recent versions; passing the pipeline definition inline avoids an extra
-    // `PUT _search/pipeline/...` setup step.
-    let bm25_weight = (1.0 - params.vector_weight).clamp(0.0, 1.0);
-    let vector_weight = params.vector_weight.clamp(0.0, 1.0);
-    let pipeline = json!({
-        "phase_results_processors": [
-            {
-                "score-ranker-processor": {
-                    "combination": {
-                        "technique": "rrf",
-                        "rank_constant": 60,
-                        "weights": [bm25_weight, vector_weight],
-                    }
-                }
-            }
-        ]
-    });
-
     let page_size = cursor.as_ref().map(|c| c.size).unwrap_or(20).max(1);
     let mut body = json!({
-        "search_pipeline": pipeline,
         "_source": { "excludes": source_excludes },
         "size": page_size,
         "query": {

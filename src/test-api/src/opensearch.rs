@@ -6,9 +6,11 @@ use aws_sdk_opensearch::error::SdkError;
 use aws_sdk_opensearch::operation::create_domain::{CreateDomainError, CreateDomainOutput};
 use aws_sdk_opensearch::operation::describe_domain::DescribeDomainError;
 use aws_sdk_opensearch::types::DomainEndpointOptions;
+use opensearch::http::headers::HeaderMap;
+use opensearch::http::request::JsonBody;
 use opensearch::http::response::Response;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
-use opensearch::http::{StatusCode, Url};
+use opensearch::http::{Method, StatusCode, Url};
 use opensearch::indices::{IndicesExistsParts, IndicesRefreshParts};
 use opensearch::{DeleteByQueryParts, Error, GetParts, OpenSearch as Client};
 use serde::de::DeserializeOwned;
@@ -17,6 +19,10 @@ use std::time::Duration;
 use tokio::sync::OnceCell;
 use tokio::time::sleep;
 use tracing::debug;
+
+/// Name of the hybrid search pipeline — must match
+/// [`product::opensearch::repository::HYBRID_SEARCH_PIPELINE_NAME`].
+const HYBRID_SEARCH_PIPELINE_NAME: &str = "hybrid-search-pipeline";
 
 pub const TEST_DOMAIN_NAME: &str = "test-domain";
 
@@ -297,8 +303,68 @@ fn check_status_allow_not_found(response: &Response) -> Result<(), Error> {
     Ok(())
 }
 
+/// Registers the hybrid search pipeline on the local OpenSearch cluster.
+///
+/// Uses [`HYBRID_SEARCH_PIPELINE_NAME`] as the pipeline ID so it matches what
+/// [`product::opensearch::repository::hybrid_search_product_documents`] references via the
+/// `search_pipeline` query parameter.
+///
+/// The pipeline applies `min_max` score normalization followed by `arithmetic_mean`
+/// combination — both features are available since OpenSearch 2.9 (LocalStack Pro).
+///
+/// Failures are logged but do not abort test setup; non-hybrid tests remain unaffected
+/// even if the engine does not support search pipelines.
+async fn register_hybrid_search_pipeline(client: &Client) {
+    let path = format!("_search/pipeline/{HYBRID_SEARCH_PIPELINE_NAME}");
+    let body = json!({
+        "description": "Hybrid BM25+kNN search pipeline with score normalization",
+        "phase_results_processors": [
+            {
+                "normalization-processor": {
+                    "normalization": { "technique": "min_max" },
+                    "combination": { "technique": "arithmetic_mean" }
+                }
+            }
+        ]
+    });
+    match client
+        .send(
+            Method::Put,
+            &path,
+            HeaderMap::new(),
+            None::<&serde_json::Value>,
+            Some(JsonBody::new(body)),
+            None,
+        )
+        .await
+    {
+        Ok(resp) if resp.status_code().is_success() => {
+            debug!("Registered hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}'");
+        }
+        Ok(resp) => {
+            debug!(
+                status = %resp.status_code(),
+                "Hybrid search pipeline registration returned non-success; \
+                 hybrid tests may fail if the pipeline is required"
+            );
+        }
+        Err(e) => {
+            debug!(
+                error = %e,
+                "Hybrid search pipeline registration failed; \
+                 hybrid tests may fail if the pipeline is required"
+            );
+        }
+    }
+}
+
 async fn set_up_indices() -> Result<Response, Error> {
     let client = get_opensearch_client().await;
+
+    // Register hybrid search pipeline (idempotent PUT; errors are logged but do not abort
+    // test setup so that non-hybrid tests are unaffected even on engines without pipeline
+    // support).
+    register_hybrid_search_pipeline(client).await;
 
     // Index 'products'
     let exists_response = client
