@@ -37,6 +37,7 @@ pub struct EmbeddedProductEnrichmentEventPayload {
     pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub embedding: Vec<f32>,
+    pub native_title: Option<Title>,
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]

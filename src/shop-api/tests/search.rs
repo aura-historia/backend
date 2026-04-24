@@ -1,7 +1,10 @@
 use common::pagination::cursor::api::JsonCursoredData;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
-use shop::data::{get_shop_data::GetShopData, shop_search_data::ShopSearchData};
+use shop::data::{
+    get_shop_data::GetShopData, partner_status_data::ShopPartnerStatusData,
+    shop_search_data::ShopSearchData,
+};
 use shop::opensearch::repository::{ShopOpenSearchRepository, ShopOpenSearchRepositoryImpl};
 use shop::service::command_service::MockCommandShopService;
 use shop::service::get_service::MockGetShopService;
@@ -164,5 +167,120 @@ async fn should_200_when_shop_type_query(
             .items
             .iter()
             .all(|shop| query.contains(&shop.shop_type))
+    );
+}
+
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case([ShopPartnerStatusData::Partnered].into())]
+#[case([ShopPartnerStatusData::Scraped].into())]
+#[case([ShopPartnerStatusData::Partnered, ShopPartnerStatusData::Scraped].into())]
+#[trace]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_200_when_partner_status_query_via_post(
+    #[case] query: std::collections::HashSet<ShopPartnerStatusData>,
+) {
+    let repository = ShopOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let service = QueryShopServiceImpl::new(&repository);
+
+    for _ in 0..100 {
+        let _ = repository.index_shop_document(Faker.fake()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    }
+    refresh_index("shops").await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+    let search = ShopSearchData {
+        shop_name_query: None,
+        shop_type_query: Default::default(),
+        partner_status_query: query.clone(),
+        created: None,
+        updated: None,
+    };
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .route_key("POST /api/v1/shops/search")
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+    let response = handle(
+        lambda_event,
+        &MockGetShopService::default(),
+        &service,
+        &MockCommandShopService::default(),
+        &MockUserService::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+
+    let payload = serde_json::from_value::<JsonCursoredData<GetShopData>>(
+        extract_apigw_response_json_body!(response),
+    )
+    .unwrap();
+
+    assert!(payload.total.unwrap() > 0);
+    assert!(
+        payload
+            .items
+            .iter()
+            .all(|shop| query.contains(&shop.partner_status))
+    );
+}
+
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case("PARTNERED", ShopPartnerStatusData::Partnered)]
+#[case("SCRAPED", ShopPartnerStatusData::Scraped)]
+#[trace]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_200_when_partner_status_query_via_get(
+    #[case] partner_status_query_param: &str,
+    #[case] expected_status: ShopPartnerStatusData,
+) {
+    let repository = ShopOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let service = QueryShopServiceImpl::new(&repository);
+
+    for _ in 0..100 {
+        let _ = repository.index_shop_document(Faker.fake()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    }
+    refresh_index("shops").await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+    let raw_query = format!("partnerStatus={partner_status_query_param}");
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/shops")
+            .raw_query_string(raw_query)
+            .build(),
+        context: Default::default(),
+    };
+    let response = handle(
+        lambda_event,
+        &MockGetShopService::default(),
+        &service,
+        &MockCommandShopService::default(),
+        &MockUserService::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+
+    let payload = serde_json::from_value::<JsonCursoredData<GetShopData>>(
+        extract_apigw_response_json_body!(response),
+    )
+    .unwrap();
+
+    assert!(payload.total.unwrap() > 0);
+    assert!(
+        payload
+            .items
+            .iter()
+            .all(|shop| shop.partner_status == expected_status)
     );
 }

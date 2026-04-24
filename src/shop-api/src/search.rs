@@ -158,6 +158,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_handle_get_request_with_partner_status_filter() {
+        use shop::core::partner_status::ShopPartnerStatus;
+        use std::collections::HashSet;
+
+        let raw_query = "shopNameQuery=weitze&partnerStatus=PARTNERED";
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/shops")
+                .raw_query_string(raw_query.to_string())
+                .build(),
+            context: Default::default(),
+        };
+
+        let mut service = MockQueryShopService::default();
+        service.expect_search_shops().return_once(|search, _, _| {
+            let expected: HashSet<ShopPartnerStatus> =
+                HashSet::from_iter([ShopPartnerStatus::Partnered]);
+            assert_eq!(
+                expected,
+                HashSet::from_iter(search.partner_status_query.iter().copied())
+            );
+            Box::pin(async move {
+                Ok(CursoredResult {
+                    items: vec![],
+                    total: Some(0),
+                    cursor: Cursor {
+                        size: 21,
+                        search_after: None,
+                    },
+                })
+            })
+        });
+        let response = handle(
+            lambda_event,
+            &MockGetShopService::default(),
+            &service,
+            &MockCommandShopService::default(),
+            &MockUserService::default(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(200, response.status_code);
+    }
+
+    #[tokio::test]
     async fn should_handle_get_simple_search_with_query_params() {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()

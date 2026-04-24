@@ -36,3 +36,24 @@ mod faker {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::AdminPatchPartnerShopApplicationData;
+    use serde_json::json;
+
+    #[test]
+    fn should_roundtrip_admin_patch_partner_shop_application_data_when_using_camel_case_fields() {
+        let json = json!({
+            "shopName": "Test Shop",
+            "shopType": "COMMERCIAL_DEALER",
+            "shopDomains": ["test.example"],
+            "shopImage": "https://test.example/logo.svg",
+        });
+
+        let data: AdminPatchPartnerShopApplicationData =
+            serde_json::from_value(json.clone()).unwrap();
+
+        assert_eq!(json, serde_json::to_value(&data).unwrap());
+    }
+}
