@@ -331,7 +331,6 @@ async fn register_hybrid_search_pipeline(client: &Client) {
     );
     let path = format!("_search/pipeline/{HYBRID_SEARCH_PIPELINE_NAME}");
 
-    // First attempt: RRF via score-ranker-processor (OpenSearch 2.11+ / LocalStack Pro).
     let rrf_body = json!({
         "description": "Hybrid BM25+kNN search pipeline using Reciprocal Rank Fusion",
         "phase_results_processors": [
@@ -344,7 +343,8 @@ async fn register_hybrid_search_pipeline(client: &Client) {
             }
         ]
     });
-    let rrf_ok = match client
+
+    match client
         .send(
             Method::Put,
             &path,
@@ -365,7 +365,10 @@ async fn register_hybrid_search_pipeline(client: &Client) {
                 "score-ranker-processor RRF pipeline registration returned non-success; \
                  will attempt normalization-processor fallback"
             );
-            false
+            panic!(
+                "Failed to register hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' with score-ranker-processor: HTTP {status}",
+                status = resp.status_code()
+            );
         }
         Err(e) => {
             debug!(
@@ -373,57 +376,11 @@ async fn register_hybrid_search_pipeline(client: &Client) {
                 "score-ranker-processor RRF pipeline registration failed; \
                  will attempt normalization-processor fallback"
             );
-            false
+            panic!(
+                "Failed to register hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' with score-ranker-processor: {e}"
+            );
         }
     };
-
-    if rrf_ok {
-        return;
-    }
-
-    // Fallback: normalization-processor with min_max + arithmetic_mean (OpenSearch 2.9+).
-    let fallback_body = json!({
-        "description": "Hybrid BM25+kNN search pipeline (normalization fallback)",
-        "phase_results_processors": [
-            {
-                "normalization-processor": {
-                    "normalization": { "technique": "min_max" },
-                    "combination": { "technique": "arithmetic_mean" }
-                }
-            }
-        ]
-    });
-    match client
-        .send(
-            Method::Put,
-            &path,
-            HeaderMap::new(),
-            None::<&serde_json::Value>,
-            Some(JsonBody::new(fallback_body)),
-            None,
-        )
-        .await
-    {
-        Ok(resp) if resp.status_code().is_success() => {
-            debug!(
-                "Registered hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' \
-                 (normalization fallback)"
-            );
-        }
-        Ok(resp) => {
-            panic!(
-                "Hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' registration failed \
-                 (status {}); hybrid tests will not work",
-                resp.status_code()
-            );
-        }
-        Err(e) => {
-            panic!(
-                "Hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' registration error: \
-                 {e}; hybrid tests will not work"
-            );
-        }
-    }
 }
 
 async fn set_up_indices() -> Result<Response, Error> {
