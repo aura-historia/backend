@@ -402,8 +402,9 @@ mod tests {
 
         #[tokio::test]
         async fn should_no_op_when_command_is_empty() {
-            let expected = Faker.fake::<Shop>();
-            let shop_record = ShopRecord::from(expected.clone());
+            let shop = Faker.fake::<Shop>();
+            let shop_record = ShopRecord::from(shop);
+            let expected = Shop::from(shop_record.clone());
 
             let mut shop_repository = MockShopDynamoDbRepository::default();
             shop_repository
