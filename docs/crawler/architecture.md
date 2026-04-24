@@ -198,7 +198,9 @@ LIMIT  $1
 
 Only product URLs for **active** shops that haven't been scraped today, are in an active state, and whose retry cooldown has elapsed are eligible.
 
-For schema seeding on schema-cache miss, the same service also samples random same-shop product URLs using `ORDER BY RANDOM() LIMIT ...` while excluding the current URL. This is intentional because schema cache misses are rare (typically one-time per shop unless schema rows are reset), so this query is not in the hot path.
+**Schema seeding on schema-cache miss:** The same service also samples random same-shop product URLs using `ORDER BY RANDOM() LIMIT ...` while excluding the current URL. This is intentional because schema cache misses are rare (typically one-time per shop unless schema rows are reset), so this query is not in the hot path. Up to `scraper_schema_seed_pages - 1` (default 2) additional pages are fetched best-effort; if fetches fail the current page alone is used to seed the initial schema generation.
+
+**Append-on-miss (runtime schema miss):** When a cached schema variant fails to apply at scrape-time, `append_single_schema()` generates a single new schema from the current page only — no additional random sampling is needed. This keeps the append path fast and focused.
 
 ### Retry metadata and cooldowns
 
@@ -221,13 +223,21 @@ scrape(shop_id, url, last_scraped_hash)
  ├── current_hash = SHA-256(<main> fragment) if present, else SHA-256(full HTML)
  ├── if <main> present AND current_hash == last_scraped_hash
  │    └── mark_as_scraped(current_hash) and return None   — page unchanged, skip extraction
- ├── ProductSchemaService::get_product_schema(shop_id, html)
- │    ├── DB hit  → return cached CSS selector schema set
- │    └── DB miss → LLM generates schema set (single call) → persist → return
+ ├── ProductSchemaService::obtain_schemas(shop_id, html)
+ │    ├── DB hit  → return cached CSS selector schema set (Vec of variants)
+ │    └── DB miss → seed pages (current + up to N-1 random same-shop)
+ │         └── LLM generates schema set (single call, may return multiple)
+ │              → persist → return
  ├── try cached schema variants in order
- │    ├── first applicable schema → RawExtractedProduct
- │    └── none applies → regenerate schema set from seed pages, retry variants
- │         └── still none applies → [schema-fix flow A] (see below)
+ │    ├── first applicable variant → RawExtractedProduct
+ │    └── none applies → [append-on-miss flow]
+ │         ├── ProductSchemaService::append_single_schema(shop_id, html)
+ │         │    ├── LLM generates single schema for this page only
+ │         │    ├── append to existing set
+ │         │    └── persist expanded set
+ │         ├── retry variants with expanded schema set
+ │         │    ├── matches now? → RawExtractedProduct, skip fix-flow
+ │         │    └── still no match → [schema-fix flow A]
  ├── ProductNormalizationService::normalize(raw, url)
  │    ├── state: ProductStateMappingService::get_state_mapping(raw.state)
  │    │    ├── [guard] len > MAX_STATE_RAW_LEN (512 bytes)?
@@ -235,18 +245,18 @@ scrape(shop_id, url, last_scraped_hash)
  │    │    ├── exact DB lookup   (e.g. "sold" → SOLD)
  │    │    ├── regex DB scan     (e.g. "3 left" matches \b[1-9]...\bleft\b → AVAILABLE)
  │    │    └── LLM fallback → persist result for future lookups
-    │    ├── shops_product_id: if extracted value is blank, falls back to the full URL (infallible)
-    │    ├── title: detect language (lingua), wrap in Localized<Title>
-    │    ├── price: parse currency + amount (multi-locale)
-    │    ├── images: resolve relative URLs against page URL
-    │    └── dates: parse ISO 8601 / RFC 3339
-    │    └── other normalization error (price/title bad) → [schema-fix flow B]
+     │    ├── shops_product_id: if extracted value is blank, falls back to the full URL (infallible)
+     │    ├── title: detect language (lingua), wrap in Localized<Title>
+     │    ├── price: parse currency + amount (multi-locale)
+     │    ├── images: resolve relative URLs against page URL
+     │    └── dates: parse ISO 8601 / RFC 3339
+     │    └── other normalization error (price/title bad) → [schema-fix flow B]
  ├── set_state(shop_id, url, normalized_state) → updates shop_urls.last_scraped_state
  ├── mark_as_scraped(shop_id, url, current_hash) → updates hash/timestamp bookkeeping
  └── if schema was fixed this run → reset_fix_attempts(domain)
 ```
 
-**Schema-fix flow A** — triggered when `schema.apply()` fails:
+**Schema-fix flow A** — triggered when no cached schema variant applies (after append-on-miss attempt also fails):
 
 ```
 [schema-fix flow A]
@@ -262,6 +272,24 @@ scrape(shop_id, url, last_scraped_hash)
 The dispatcher (`cron.rs`) guarantees at most one in-flight scrape per domain at a time, so no per-domain mutex is needed inside the fix path.
 
 On schema cache miss, scraper schema generation can include multiple seed pages (current page + up to `N-1` additional same-shop product pages, best-effort). These seed pages are sent in one LLM call that may return multiple schema variants for heterogeneous templates. This improves first schema quality, but first scrape latency can increase due to additional fetches on that one-time path.
+
+**Append-on-miss flow (issue #801)** — triggered when no cached schema variant applies during scrape:
+
+```
+[append-on-miss flow]
+ ├── ProductSchemaService::append_single_schema(shop_id, domain, html)
+ │    ├── LLM: generate single schema for this HTML page only (not array)
+ │    │        Prompt emphasizes: "single schema for one page, will be appended to existing set"
+ │    ├── append to existing variant set
+ │    ├── persist expanded set to shops_product_schema
+ │    └── return expanded ShopsProductSchema
+ │
+ ├── retry all variants (including new one) against HTML
+ │    ├── matches now? → RawExtractedProduct (skip schema-fix)
+ │    └── still no match → fall through to schema-fix flow A (above)
+```
+
+This enables heterogeneous shops (with multiple page layouts) to dynamically accumulate schema variants without triggering expensive full regeneration from seed pages. The append path is cheaper: one focused LLM call per new layout discovered, vs. re-fetching seed pages and regenerating the entire set.
 
 **Schema-fix flow B** — triggered when normalization returns a schema-fixable error (bad state selector text, price parse failure, empty title, etc.).  `ShopsProductIdEmpty` is **not** schema-fixable and is propagated directly as `ScraperError::NormalizationError` without calling the LLM. `PriceUnknownCurrency` **is** schema-fixable for genuinely unknown currency-bearing price text — the synthetic hint asks the LLM to add a `default_currency` to the schema. Explicit non-numeric markers like `"Price on Request"` are normalized to `price=None` and do not enter the fix loop:
 
