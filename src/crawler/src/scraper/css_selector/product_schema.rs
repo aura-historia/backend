@@ -11,6 +11,7 @@ use time::OffsetDateTime;
 pub struct ShopsProductSchema {
     pub shop_id: ShopId,
     pub product_schema: ProductCssSelectorSchema,
+    pub product_schemas: Vec<ProductCssSelectorSchema>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -29,6 +30,7 @@ mod faker {
             ShopsProductSchema {
                 shop_id: config.fake_with_rng(rng),
                 product_schema: config.fake_with_rng(rng),
+                product_schemas: vec![],
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -45,17 +47,32 @@ mod faker {
     The rules are intended to extract raw data from the HTML, not normalized data."
 )]
 pub struct ProductCssSelectorSchema {
-    #[schemars(description = "ID of the product on the shop's website")]
+    #[schemars(
+        description = "ID of the product on the shop's website. \
+        Look for attributes like data-id, data-product-id, id, or href patterns. \
+        Extract the unique identifier value, not labels."
+    )]
     pub shops_product_id: ExtractionRule,
 
-    #[schemars(description = "Title of the product")]
+    #[schemars(
+        description = "Title/name of the product. \
+        Usually in <h1>, <h2>, or <meta name='title'> elements. \
+        Extract the product name text, not metadata."
+    )]
     pub title: ExtractionRule,
 
-    #[schemars(description = "Description of the product. May be fragmented.")]
+    #[schemars(
+        description = "Description of the product. May be fragmented across multiple elements. \
+        Look for <meta name='description'>, <meta property='og:description'>, or descriptive text blocks."
+    )]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<ExtractionRule>,
 
-    #[schemars(description = "Price of the product.")]
+    #[schemars(
+        description = "Price of the product as displayed. \
+        Look for text content (not attributes) in elements with classes/ids like 'price', 'preis', 'cost', 'amount'. \
+        Extract the raw price string with currency symbol if present."
+    )]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price: Option<ExtractionRule>,
 
@@ -72,11 +89,21 @@ pub struct ProductCssSelectorSchema {
     pub price_estimate_max: Option<ExtractionRule>,
 
     #[schemars(
-        description = "Availability state of the product. E.g. 'in stock', 'out of stock', 'preorder', 'add to cart', etc."
+        description = "Availability state of the product. \
+        Look for signals in this order: \
+        1. link[itemprop='availability'] or meta[itemprop='availability'] (schema.org) \
+        2. An element whose class or text clearly encodes availability (e.g. 'instock', 'outofstock', 'sold') \
+        3. A cart or buy button whose presence implies the item is purchasable \
+        NEVER use price or layout elements as the state selector — \
+        a layout or formatting class is never an availability indicator."
     )]
     pub state: ExtractionRule,
 
-    #[schemars(description = "Images of the product. May be fragmented.")]
+    #[schemars(
+        description = "Images of the product. Preferably URLs. \
+        Look for <img src=''>, <meta property='og:image'>, <meta itemprop='image'>, or data attributes. \
+        Extract all image URLs for the product (use cardinality='all')."
+    )]
     pub images: ExtractionRule,
 
     #[schemars(description = "Start-Date/Time of the auction for the product")]

@@ -21,7 +21,7 @@ pub trait ShopsProductSchemaRepository {
     async fn update_product_schema(
         &self,
         shop_id: &ShopId,
-        product_schema: &ProductCssSelectorSchema,
+        product_schemas: &[ProductCssSelectorSchema],
     ) -> Result<ShopsProductSchema, sqlx::Error>;
 }
 
@@ -41,12 +41,21 @@ fn row_to_schema(row: sqlx::postgres::PgRow) -> Result<ShopsProductSchema, sqlx:
     let created: OffsetDateTime = row.try_get("created")?;
     let updated: OffsetDateTime = row.try_get("updated")?;
 
-    let product_schema: ProductCssSelectorSchema = serde_json::from_value(product_schema_json)
-        .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+    let product_schemas: Vec<ProductCssSelectorSchema> =
+        match serde_json::from_value::<Vec<ProductCssSelectorSchema>>(product_schema_json.clone()) {
+            Ok(list) => list,
+            Err(_) => vec![serde_json::from_value::<ProductCssSelectorSchema>(product_schema_json)
+                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?],
+        };
+    let product_schema = product_schemas
+        .first()
+        .cloned()
+        .ok_or_else(|| sqlx::Error::Protocol("empty product_schemas payload".into()))?;
 
     Ok(ShopsProductSchema {
         shop_id: ShopId::from(shop_id_uuid),
         product_schema,
+        product_schemas,
         created,
         updated,
     })
@@ -75,7 +84,12 @@ impl<'a> ShopsProductSchemaRepository for ShopsProductSchemaRepositoryImpl<'a> {
         shop_id: &ShopId,
         schema: &ShopsProductSchema,
     ) -> Result<ShopsProductSchema, sqlx::Error> {
-        let product_schema_json = serde_json::to_value(&schema.product_schema)
+        let schemas = if schema.product_schemas.is_empty() {
+            vec![schema.product_schema.clone()]
+        } else {
+            schema.product_schemas.clone()
+        };
+        let product_schema_json = serde_json::to_value(&schemas)
             .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
 
         sqlx::query(
@@ -95,10 +109,10 @@ impl<'a> ShopsProductSchemaRepository for ShopsProductSchemaRepositoryImpl<'a> {
     async fn update_product_schema(
         &self,
         shop_id: &ShopId,
-        product_schema: &ProductCssSelectorSchema,
+        product_schemas: &[ProductCssSelectorSchema],
     ) -> Result<ShopsProductSchema, sqlx::Error> {
-        let product_schema_json =
-            serde_json::to_value(product_schema).map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
+        let product_schema_json = serde_json::to_value(product_schemas)
+            .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
 
         sqlx::query(
             "UPDATE shops_product_schema

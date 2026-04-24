@@ -1,5 +1,5 @@
 use crate::network::policy::{
-    NetworkAction, NetworkErrorKind, RetryPolicy, action_for, backoff_delay, classify_reqwest_error,
+    action_for, backoff_delay, classify_reqwest_error, NetworkAction, NetworkErrorKind, RetryPolicy,
 };
 use crate::scraper::candidate_service::{ProductSnapshot, ScraperCandidateService};
 use crate::scraper::css_selector::product_schema::{
@@ -25,7 +25,7 @@ use tracing::{debug, info, warn};
 use url::Url;
 
 const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
-pub const DEFAULT_SCHEMA_SEED_PAGES: usize = 3;
+pub const DEFAULT_SCHEMA_SEED_PAGES: usize = 5;
 
 // ---------------------------------------------------------------------------
 // HtmlFetcher trait — abstracted so it can be mocked in unit tests
@@ -461,31 +461,31 @@ impl ScraperServiceImpl {
         pages
     }
 
-    /// Obtains the CSS selector schema for `shop_id`, loading it from the DB
-    /// or generating it via the LLM if it does not yet exist.
+    /// Obtains product CSS selector schemas for `shop_id`, loading them from
+    /// the DB or generating them via the LLM if they do not yet exist.
     ///
     /// The dispatcher guarantees at most one in-flight scrape per domain at a
     /// time, so no additional locking is required here.
-    async fn obtain_schema(
+    async fn obtain_schemas(
         &self,
         shop_id: &ShopId,
         domain: &str,
         url: &Url,
         html: &str,
     ) -> Result<ShopsProductSchema, ScraperError> {
-        debug!(domain, url = %url, "Obtaining product CSS selector schema");
+        debug!(domain, url = %url, "Obtaining product CSS selector schemas");
         if let Some(existing) = self.schema_service.find_product_schema(shop_id).await? {
             debug!(domain, url = %url, "Schema found in DB");
             Ok(existing)
         } else {
             let seed_pages = self.collect_schema_seed_pages(shop_id, url, html).await;
-            let schema = self
+            let schemas = self
                 .schema_service
-                .create_product_schema(&seed_pages)
+                .create_product_schemas(&seed_pages)
                 .await?;
             Ok(self
                 .schema_service
-                .save_product_schema(shop_id, domain, schema)
+                .save_product_schemas(shop_id, domain, schemas)
                 .await?)
         }
     }
@@ -545,7 +545,7 @@ impl ScraperServiceImpl {
                 // this page.  Saving a schema that still fails would
                 // poison every subsequent URL for the domain.
                 self.schema_service
-                    .save_product_schema(shop_id, domain, fixed_schema.clone())
+                    .save_product_schemas(shop_id, domain, vec![fixed_schema.clone()])
                     .await?;
                 info!(domain, url = %url, "Schema fixed via LLM ({context})");
                 Ok((raw, true))
@@ -616,61 +616,94 @@ impl ScraperService for ScraperServiceImpl {
             return Ok(None);
         }
 
-        // 2. Obtain schema (from DB or freshly created by LLM) -----------
-        let shops_product_schema = self.obtain_schema(shop_id, domain, url, &html).await?;
+        // 2. Obtain schemas (from DB or freshly created by LLM) -----------
+        let mut shops_product_schema = self.obtain_schemas(shop_id, domain, url, &html).await?;
 
-        // 3. Apply schema → RawExtractedProduct -------------------------
-        let (raw, _schema_was_fixed) =
-            match Self::apply_schema(&shops_product_schema.product_schema, &html) {
+        // 3. Apply one schema that fits this page -------------------------
+        let mut selected_schema: Option<ProductCssSelectorSchema> = None;
+        let mut raw_opt: Option<RawExtractedProduct> = None;
+
+        for schema in &shops_product_schema.product_schemas {
+            match Self::apply_schema(schema, &html) {
                 Ok(raw) => {
-                    debug!(
-                        domain,
-                        url = %url,
-                        shops_product_id = %raw.shops_product_id,
-                        title = %raw.title,
-                        state = %raw.state,
-                        price = ?raw.price,
-                        price_estimate_min = ?raw.price_estimate_min,
-                        price_estimate_max = ?raw.price_estimate_max,
-                        images_count = raw.images.len(),
-                        has_description = !raw.description.is_empty(),
-                        has_auction_start = raw.auction_start.is_some(),
-                        has_auction_end = raw.auction_end.is_some(),
-                        "Schema applied successfully"
-                    );
-                    (raw, false)
+                    selected_schema = Some(schema.clone());
+                    raw_opt = Some(raw);
+                    break;
                 }
-                Err(apply_error) => {
-                    warn!(
-                        domain,
-                        url = %url,
-                        error = %apply_error,
-                        "Schema application failed, attempting LLM-based fix"
-                    );
-                    self.fix_and_apply_schema(
-                        shop_id,
-                        domain,
-                        url,
-                        &html,
-                        &shops_product_schema.product_schema,
-                        &apply_error,
-                        "apply-error fix",
-                    )
-                    .await?
+                Err(err) => {
+                    debug!(domain, url = %url, error = %err, "Schema candidate not applicable");
                 }
-            };
+            }
+        }
 
-        // 4. Normalise --------------------------------------------------
-        debug!(domain, url = %url, "Normalizing extracted product data");
-        let (final_product, _fixed_in_normalize) = self
-            .normalize_with_retry(
+        if raw_opt.is_none() {
+            warn!(
+                domain,
+                url = %url,
+                schemas = shops_product_schema.product_schemas.len(),
+                "No cached schema applied; appending new schema"
+            );
+            shops_product_schema = self.schema_service
+                .append_single_schema(shop_id, domain, &html)
+                .await?;
+            for schema in &shops_product_schema.product_schemas {
+                if let Ok(raw) = Self::apply_schema(schema, &html) {
+                    selected_schema = Some(schema.clone());
+                    raw_opt = Some(raw);
+                    break;
+                }
+            }
+        }
+
+        let selected_schema = selected_schema.unwrap_or_else(|| {
+            shops_product_schema
+                .product_schemas
+                .first()
+                .cloned()
+                .unwrap_or_else(minimal_fallback_schema)
+        });
+
+        let (raw, _schema_was_fixed) = if let Some(raw) = raw_opt {
+            debug!(
+                domain,
+                url = %url,
+                shops_product_id = %raw.shops_product_id,
+                title = %raw.title,
+                state = %raw.state,
+                price = ?raw.price,
+                price_estimate_min = ?raw.price_estimate_min,
+                price_estimate_max = ?raw.price_estimate_max,
+                images_count = raw.images.len(),
+                has_description = !raw.description.is_empty(),
+                has_auction_start = raw.auction_start.is_some(),
+                has_auction_end = raw.auction_end.is_some(),
+                "Schema applied successfully"
+            );
+            (raw, false)
+        } else {
+            let apply_error = Self::apply_schema(&selected_schema, &html).unwrap_err();
+            warn!(
+                domain,
+                url = %url,
+                error = %apply_error,
+                "Regenerated schemas still failed, attempting LLM-based fix"
+            );
+            self.fix_and_apply_schema(
                 shop_id,
                 domain,
                 url,
                 &html,
-                &shops_product_schema.product_schema,
-                raw,
+                &selected_schema,
+                &apply_error,
+                "apply-error fix",
             )
+            .await?
+        };
+
+        // 4. Normalise --------------------------------------------------
+        debug!(domain, url = %url, "Normalizing extracted product data");
+        let (final_product, _fixed_in_normalize) = self
+            .normalize_with_retry(shop_id, domain, url, &html, &selected_schema, raw)
             .await?;
 
         // 5. Bookkeeping ------------------------------------------------
@@ -893,6 +926,40 @@ fn normalization_error_to_schema_hint(err: &NormalizationError) -> Option<ApplyS
     }
 }
 
+fn minimal_fallback_schema() -> ProductCssSelectorSchema {
+    use crate::scraper::css_selector::rule::{
+        CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule,
+    };
+
+    let text_rule = |selector: &str| ExtractionRule {
+        selector: CssSelector::from(selector),
+        additional_selectors: vec![],
+        extract: ExtractionKind::Text,
+        cardinality: ExtractionCardinality::First,
+    };
+
+    let attr_all_rule = |selector: &str, attr: &str| ExtractionRule {
+        selector: CssSelector::from(selector),
+        additional_selectors: vec![],
+        extract: ExtractionKind::Attribute { name: attr.into() },
+        cardinality: ExtractionCardinality::All,
+    };
+
+    ProductCssSelectorSchema {
+        shops_product_id: text_rule("#product-id"),
+        title: text_rule("h1"),
+        description: None,
+        price: None,
+        price_estimate_min: None,
+        price_estimate_max: None,
+        state: text_rule("#state"),
+        images: attr_all_rule("img", "src"),
+        auction_start: None,
+        auction_end: None,
+        default_currency: None,
+    }
+}
+
 fn hash_main_fragment(html: &str) -> Option<String> {
     let content = extract_main_fragment(html)?;
     let mut hasher = Sha256::new();
@@ -1009,9 +1076,11 @@ mod tests {
     }
 
     fn shops_product_schema(shop_id: ShopId) -> ShopsProductSchema {
+        let schema = minimal_schema();
         ShopsProductSchema {
             shop_id,
-            product_schema: minimal_schema(),
+            product_schema: schema.clone(),
+            product_schemas: vec![schema],
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -1070,7 +1139,7 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let schema = shops_product_schema(id);
-        let schema_for_create = schema.product_schema.clone();
+        let schema_for_create = schema.product_schemas.first().cloned().unwrap();
         let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
@@ -1078,14 +1147,14 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_create_product_schema()
+            .expect_create_product_schemas()
             .once()
             .returning(move |_| {
-                let s = schema_for_create.clone();
+                let s = vec![schema_for_create.clone()];
                 Box::pin(async move { Ok(s) })
             });
         schema_svc
-            .expect_save_product_schema()
+            .expect_save_product_schemas()
             .once()
             .returning(move |_, _, _| {
                 let s = schema_for_save.clone();
@@ -1136,7 +1205,7 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let schema = shops_product_schema(id);
-        let schema_for_create = schema.product_schema.clone();
+        let schema_for_create = schema.product_schemas.first().cloned().unwrap();
         let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
@@ -1144,14 +1213,14 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_create_product_schema()
+            .expect_create_product_schemas()
             .once()
             .returning(move |_| {
-                let s = schema_for_create.clone();
+                let s = vec![schema_for_create.clone()];
                 Box::pin(async move { Ok(s) })
             });
         schema_svc
-            .expect_save_product_schema()
+            .expect_save_product_schemas()
             .once()
             .returning(move |_, _, _| {
                 let s = schema_for_save.clone();
@@ -1187,63 +1256,72 @@ mod tests {
     async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_miss() {
         let id = shop_id();
         let url = product_url();
-        let sample_seed_url = Url::parse("https://example.com/product/seed-2").unwrap();
         let primary_html = sample_html();
-        let secondary_html = "<html><body><main><h1>seed</h1></main></body></html>".to_string();
-        let expected_primary_url = url.clone();
-        let expected_seed_url = sample_seed_url.clone();
 
         let mut fetcher = MockHtmlFetcher::new();
-        let primary_html_clone = primary_html.clone();
-        let secondary_html_clone = secondary_html.clone();
+        let primary_html_for_fetch = primary_html.clone();
         fetcher
             .expect_fetch()
-            .times(2)
-            .returning(move |requested_url| {
-                let requested_url = requested_url.clone();
-                let primary_html = primary_html_clone.clone();
-                let secondary_html = secondary_html_clone.clone();
-                let expected_primary_url = expected_primary_url.clone();
-                let expected_seed_url = expected_seed_url.clone();
+            .once()
+            .returning(move |_| {
+                let html = primary_html_for_fetch.clone();
                 Box::pin(async move {
-                    if requested_url == expected_primary_url {
-                        Ok(primary_html)
-                    } else if requested_url == expected_seed_url {
-                        Ok(secondary_html)
-                    } else {
-                        Err(FetchError::Network {
-                            kind: NetworkErrorKind::Unknown,
-                            details: "unexpected url".to_string(),
-                        })
-                    }
+                    Ok(html)
                 })
             });
 
+        let initial_schema = {
+            // Create a schema that won't match the sample_html
+            let text_rule = |selector: &str| ExtractionRule {
+                selector: CssSelector::from(selector),
+                additional_selectors: vec![],
+                extract: ExtractionKind::Text,
+                cardinality: ExtractionCardinality::First,
+            };
+            let attr_rule_all = |selector: &str, attr: &str| ExtractionRule {
+                selector: CssSelector::from(selector),
+                additional_selectors: vec![],
+                extract: ExtractionKind::Attribute { name: attr.into() },
+                cardinality: ExtractionCardinality::All,
+            };
+            ProductCssSelectorSchema {
+                shops_product_id: text_rule("non-existent-id"),
+                title: text_rule("non-existent-title"),
+                description: None,
+                price: None,
+                price_estimate_min: None,
+                price_estimate_max: None,
+                state: text_rule("non-existent-state"),
+                images: attr_rule_all("img", "src"),
+                auction_start: None,
+                auction_end: None,
+                default_currency: None,
+            }
+        };
+
         let schema = shops_product_schema(id);
-        let schema_for_create = schema.product_schema.clone();
-        let schema_for_save = schema.clone();
+        let final_schema_for_append = schema.clone();
+
         let mut schema_svc = MockProductSchemaService::new();
+        let initial_schema_for_find = initial_schema.clone();
         schema_svc
             .expect_find_product_schema()
             .once()
-            .returning(|_| Box::pin(async { Ok(None) }));
-        schema_svc
-            .expect_create_product_schema()
-            .once()
-            .withf(move |html_pages| {
-                html_pages.len() == 2
-                    && html_pages[0] == sample_html()
-                    && html_pages[1] == "<html><body><main><h1>seed</h1></main></body></html>"
-            })
             .returning(move |_| {
-                let s = schema_for_create.clone();
-                Box::pin(async move { Ok(s) })
+                let s = ShopsProductSchema {
+                    shop_id: shop_id(),
+                    product_schema: initial_schema_for_find.clone(),
+                    product_schemas: vec![initial_schema_for_find.clone()],
+                    created: OffsetDateTime::now_utc(),
+                    updated: OffsetDateTime::now_utc(),
+                };
+                Box::pin(async move { Ok(Some(s)) })
             });
         schema_svc
-            .expect_save_product_schema()
+            .expect_append_single_schema()
             .once()
             .returning(move |_, _, _| {
-                let s = schema_for_save.clone();
+                let s = final_schema_for_append.clone();
                 Box::pin(async move { Ok(s) })
             });
 
@@ -1258,18 +1336,6 @@ mod tests {
             });
 
         let mut cand_svc = MockScraperCandidateService::new();
-        let sample_seed_url_clone = sample_seed_url.clone();
-        let expected_exclude_url = url.clone();
-        cand_svc
-            .expect_get_random_product_urls_for_schema_seed()
-            .once()
-            .withf(move |shop_id, exclude_url, limit| {
-                *shop_id == id && exclude_url == &expected_exclude_url && *limit == 2
-            })
-            .returning(move |_, _, _| {
-                let sampled = vec![sample_seed_url_clone.clone()];
-                Box::pin(async move { Ok(sampled) })
-            });
         expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
         let service = ScraperServiceImpl::new_with_schema_seed_pages(
@@ -1300,7 +1366,7 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let schema = shops_product_schema(id);
-        let schema_for_create = schema.product_schema.clone();
+        let schema_for_create = schema.product_schemas.first().cloned().unwrap();
         let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
@@ -1308,15 +1374,15 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_create_product_schema()
+            .expect_create_product_schemas()
             .once()
             .withf(|html_pages| html_pages.len() == 1 && html_pages[0] == sample_html())
             .returning(move |_| {
-                let s = schema_for_create.clone();
+                let s = vec![schema_for_create.clone()];
                 Box::pin(async move { Ok(s) })
             });
         schema_svc
-            .expect_save_product_schema()
+            .expect_save_product_schemas()
             .once()
             .returning(move |_, _, _| {
                 let s = schema_for_save.clone();
@@ -1380,7 +1446,7 @@ mod tests {
             });
 
         let schema = shops_product_schema(id);
-        let schema_for_create = schema.product_schema.clone();
+        let schema_for_create = schema.product_schemas.first().cloned().unwrap();
         let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
@@ -1388,15 +1454,15 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_create_product_schema()
+            .expect_create_product_schemas()
             .once()
             .withf(|html_pages| html_pages.len() == 1 && html_pages[0] == sample_html())
             .returning(move |_| {
-                let s = schema_for_create.clone();
+                let s = vec![schema_for_create.clone()];
                 Box::pin(async move { Ok(s) })
             });
         schema_svc
-            .expect_save_product_schema()
+            .expect_save_product_schemas()
             .once()
             .returning(move |_, _, _| {
                 let s = schema_for_save.clone();
@@ -1449,7 +1515,7 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let schema = shops_product_schema(id);
-        let schema_for_create = schema.product_schema.clone();
+        let schema_for_create = schema.product_schemas.first().cloned().unwrap();
         let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
@@ -1457,15 +1523,15 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_create_product_schema()
+            .expect_create_product_schemas()
             .once()
             .withf(|html_pages| html_pages.len() == 1 && html_pages[0] == sample_html())
             .returning(move |_| {
-                let s = schema_for_create.clone();
+                let s = vec![schema_for_create.clone()];
                 Box::pin(async move { Ok(s) })
             });
         schema_svc
-            .expect_save_product_schema()
+            .expect_save_product_schemas()
             .once()
             .returning(move |_, _, _| {
                 let s = schema_for_save.clone();
@@ -1600,17 +1666,27 @@ mod tests {
 
         // Initial schema generation returns a broken schema.
         schema_svc
-            .expect_create_product_schema()
+            .expect_create_product_schemas()
             .once()
             .returning(move |_| {
-                let s = broken_shops_product_schema(id).product_schema;
+                let s = broken_shops_product_schema(id).product_schemas;
                 Box::pin(async move { Ok(s) })
             });
         schema_svc
-            .expect_save_product_schema()
+            .expect_save_product_schemas()
             .once()
             .returning(move |_, _, _| {
                 let s = broken_shops_product_schema(id);
+                Box::pin(async move { Ok(s) })
+            });
+
+        // When no cached schema applies, append_single_schema is called
+        let broken_for_append = broken_shops_product_schema(id);
+        schema_svc
+            .expect_append_single_schema()
+            .once()
+            .returning(move |_, _, _| {
+                let s = broken_for_append.clone();
                 Box::pin(async move { Ok(s) })
             });
 
@@ -1624,7 +1700,7 @@ mod tests {
 
         let saved_schema = shops_product_schema(id);
         schema_svc
-            .expect_save_product_schema()
+            .expect_save_product_schemas()
             .once()
             .returning(move |_, _, _| {
                 let s = saved_schema.clone();
@@ -1682,15 +1758,28 @@ mod tests {
                 price_estimate_min: None,
                 price_estimate_max: None,
                 state: bad_rule.clone(),
-                images: bad_rule,
+                images: bad_rule.clone(),
                 auction_start: None,
                 auction_end: None,
                 default_currency: None,
             },
+            product_schemas: vec![ProductCssSelectorSchema {
+                shops_product_id: bad_rule.clone(),
+                title: bad_rule.clone(),
+                description: None,
+                price: None,
+                price_estimate_min: None,
+                price_estimate_max: None,
+                state: bad_rule.clone(),
+                images: bad_rule,
+                auction_start: None,
+                auction_end: None,
+                default_currency: None,
+            }],
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };
-        let broken_schema_for_create = broken_schema.product_schema.clone();
+        let broken_schema_for_create = broken_schema.product_schemas.first().cloned().unwrap();
         let broken_schema_for_save = broken_schema.clone();
 
         let mut fetcher = MockHtmlFetcher::new();
@@ -1705,17 +1794,26 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_create_product_schema()
-            .once()
+            .expect_create_product_schemas()
+            .times(1)
             .returning(move |_| {
-                let s = broken_schema_for_create.clone();
+                let s = vec![broken_schema_for_create.clone()];
                 Box::pin(async move { Ok(s) })
             });
         schema_svc
-            .expect_save_product_schema()
-            .once()
+            .expect_save_product_schemas()
+            .times(1)
             .returning(move |_, _, _| {
                 let s = broken_schema_for_save.clone();
+                Box::pin(async move { Ok(s) })
+            });
+        // When no cached schema applies, append_single_schema is called
+        let broken_schema_for_append = broken_schema.clone();
+        schema_svc
+            .expect_append_single_schema()
+            .once()
+            .returning(move |_, _, _| {
+                let s = broken_schema_for_append.clone();
                 Box::pin(async move { Ok(s) })
             });
         schema_svc.expect_fix_product_schema().returning(|_, _, _| {
@@ -1767,15 +1865,28 @@ mod tests {
                 price_estimate_min: None,
                 price_estimate_max: None,
                 state: bad_rule.clone(),
-                images: bad_rule,
+                images: bad_rule.clone(),
                 auction_start: None,
                 auction_end: None,
                 default_currency: None,
             },
+            product_schemas: vec![ProductCssSelectorSchema {
+                shops_product_id: bad_rule.clone(),
+                title: bad_rule.clone(),
+                description: None,
+                price: None,
+                price_estimate_min: None,
+                price_estimate_max: None,
+                state: bad_rule.clone(),
+                images: bad_rule,
+                auction_start: None,
+                auction_end: None,
+                default_currency: None,
+            }],
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };
-        let broken_schema_for_create = broken_schema.product_schema.clone();
+        let broken_schema_for_create = broken_schema.product_schemas.first().cloned().unwrap();
         let broken_schema_for_save = broken_schema.clone();
         let good_schema = minimal_schema();
 
@@ -1791,17 +1902,26 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_create_product_schema()
+            .expect_create_product_schemas()
             .once()
             .returning(move |_| {
-                let s = broken_schema_for_create.clone();
+                let s = vec![broken_schema_for_create.clone()];
                 Box::pin(async move { Ok(s) })
             });
         schema_svc
-            .expect_save_product_schema()
+            .expect_save_product_schemas()
             .once()
             .returning(move |_, _, _| {
                 let s = broken_schema_for_save.clone();
+                Box::pin(async move { Ok(s) })
+            });
+        // When no cached schema applies, append_single_schema is called
+        let broken_for_append = broken_schema.clone();
+        schema_svc
+            .expect_append_single_schema()
+            .once()
+            .returning(move |_, _, _| {
+                let s = broken_for_append.clone();
                 Box::pin(async move { Ok(s) })
             });
         schema_svc
@@ -1814,7 +1934,7 @@ mod tests {
         // The key assertion: save must be called exactly once
         let saved = shops_product_schema(id);
         schema_svc
-            .expect_save_product_schema()
+            .expect_save_product_schemas()
             .once()
             .returning(move |_, _, _| {
                 let s = saved.clone();
@@ -2021,7 +2141,7 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_create_product_schema()
+            .expect_create_product_schemas()
             .once()
             .returning(|_| {
                 Box::pin(async {
@@ -2066,7 +2186,7 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let schema = shops_product_schema(id);
-        let schema_for_create = schema.product_schema.clone();
+        let schema_for_create = schema.product_schemas.first().cloned().unwrap();
         let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
 
@@ -2075,14 +2195,14 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_create_product_schema()
+            .expect_create_product_schemas()
             .once()
             .returning(move |_| {
-                let s = schema_for_create.clone();
+                let s = vec![schema_for_create.clone()];
                 Box::pin(async move { Ok(s) })
             });
         schema_svc
-            .expect_save_product_schema()
+            .expect_save_product_schemas()
             .once()
             .returning(move |_, _, _| {
                 let s = schema_for_save.clone();
@@ -2138,7 +2258,7 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let schema = shops_product_schema(id);
-        let schema_for_create = schema.product_schema.clone();
+        let schema_for_create = schema.product_schemas.first().cloned().unwrap();
         let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
@@ -2146,14 +2266,14 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_create_product_schema()
+            .expect_create_product_schemas()
             .once()
             .returning(move |_| {
-                let s = schema_for_create.clone();
+                let s = vec![schema_for_create.clone()];
                 Box::pin(async move { Ok(s) })
             });
         schema_svc
-            .expect_save_product_schema()
+            .expect_save_product_schemas()
             .once()
             .returning(move |_, _, _| {
                 let s = schema_for_save.clone();
@@ -2201,7 +2321,7 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let schema = shops_product_schema(id);
-        let schema_for_create = schema.product_schema.clone();
+        let schema_for_create = schema.product_schemas.first().cloned().unwrap();
         let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
 
@@ -2210,14 +2330,14 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_create_product_schema()
+            .expect_create_product_schemas()
             .once()
             .returning(move |_| {
-                let s = schema_for_create.clone();
+                let s = vec![schema_for_create.clone()];
                 Box::pin(async move { Ok(s) })
             });
         schema_svc
-            .expect_save_product_schema()
+            .expect_save_product_schemas()
             .once()
             .returning(move |_, _, _| {
                 let s = schema_for_save.clone();
@@ -2262,7 +2382,7 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let schema = shops_product_schema(id);
-        let schema_for_create = schema.product_schema.clone();
+        let schema_for_create = schema.product_schemas.first().cloned().unwrap();
         let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
 
@@ -2271,14 +2391,14 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_create_product_schema()
+            .expect_create_product_schemas()
             .once()
             .returning(move |_| {
-                let s = schema_for_create.clone();
+                let s = vec![schema_for_create.clone()];
                 Box::pin(async move { Ok(s) })
             });
         schema_svc
-            .expect_save_product_schema()
+            .expect_save_product_schemas()
             .once()
             .returning(move |_, _, _| {
                 let s = schema_for_save.clone();
@@ -2428,11 +2548,24 @@ mod tests {
                 price_estimate_min: None,
                 price_estimate_max: None,
                 state: bad_rule.clone(),
-                images: bad_rule,
+                images: bad_rule.clone(),
                 auction_start: None,
                 auction_end: None,
                 default_currency: None,
             },
+            product_schemas: vec![ProductCssSelectorSchema {
+                shops_product_id: bad_rule.clone(),
+                title: bad_rule.clone(),
+                description: None,
+                price: None,
+                price_estimate_min: None,
+                price_estimate_max: None,
+                state: bad_rule.clone(),
+                images: bad_rule,
+                auction_start: None,
+                auction_end: None,
+                default_currency: None,
+            }],
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -2461,17 +2594,26 @@ mod tests {
 
         // Initial schema generation returns a broken schema.
         schema_svc
-            .expect_create_product_schema()
+            .expect_create_product_schemas()
             .once()
             .returning(move |_| {
-                let s = broken_shops_product_schema(id).product_schema;
+                let s = broken_shops_product_schema(id).product_schemas;
                 Box::pin(async move { Ok(s) })
             });
         schema_svc
-            .expect_save_product_schema()
+            .expect_save_product_schemas()
             .once()
             .returning(move |_, _, _| {
                 let s = broken_shops_product_schema(id);
+                Box::pin(async move { Ok(s) })
+            });
+        // When no cached schema applies, append_single_schema is called
+        let broken_for_append = broken_shops_product_schema(id);
+        schema_svc
+            .expect_append_single_schema()
+            .once()
+            .returning(move |_, _, _| {
+                let s = broken_for_append.clone();
                 Box::pin(async move { Ok(s) })
             });
         // fix_product_schema must NOT be registered — max=0 means skip immediately.
@@ -2521,17 +2663,26 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(None) }));
         // Initial schema generation returns a broken schema.
         schema_svc
-            .expect_create_product_schema()
+            .expect_create_product_schemas()
             .once()
             .returning(move |_| {
-                let s = broken_shops_product_schema(id).product_schema;
+                let s = broken_shops_product_schema(id).product_schemas;
                 Box::pin(async move { Ok(s) })
             });
         schema_svc
-            .expect_save_product_schema()
+            .expect_save_product_schemas()
             .once()
             .returning(move |_, _, _| {
                 let s = broken_shops_product_schema(id);
+                Box::pin(async move { Ok(s) })
+            });
+        // When no cached schema applies, append_single_schema is called
+        let broken_for_append = broken_shops_product_schema(id);
+        schema_svc
+            .expect_append_single_schema()
+            .once()
+            .returning(move |_, _, _| {
+                let s = broken_for_append.clone();
                 Box::pin(async move { Ok(s) })
             });
         // LLM returns a working schema
@@ -2544,7 +2695,7 @@ mod tests {
             });
         let saved = shops_product_schema(id);
         schema_svc
-            .expect_save_product_schema()
+            .expect_save_product_schemas()
             .once()
             .returning(move |_, _, _| {
                 let s = saved.clone();
@@ -2637,7 +2788,7 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(sample_html()) }));
 
         let schema = shops_product_schema(id);
-        let schema_for_create = schema.product_schema.clone();
+        let schema_for_create = schema.product_schemas.first().cloned().unwrap();
         let schema_for_save = schema.clone();
         let mut schema_svc = MockProductSchemaService::new();
         schema_svc
@@ -2645,14 +2796,14 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(None) }));
         schema_svc
-            .expect_create_product_schema()
+            .expect_create_product_schemas()
             .once()
             .returning(move |_| {
-                let s = schema_for_create.clone();
+                let s = vec![schema_for_create.clone()];
                 Box::pin(async move { Ok(s) })
             });
         schema_svc
-            .expect_save_product_schema()
+            .expect_save_product_schemas()
             .once()
             .returning(move |_, _, _| {
                 let s = schema_for_save.clone();

@@ -222,10 +222,12 @@ scrape(shop_id, url, last_scraped_hash)
  ├── if <main> present AND current_hash == last_scraped_hash
  │    └── mark_as_scraped(current_hash) and return None   — page unchanged, skip extraction
  ├── ProductSchemaService::get_product_schema(shop_id, html)
- │    ├── DB hit  → return cached CSS selector schema
- │    └── DB miss → LLM generates schema → persist → return
- ├── schema.apply(Html::parse_document(&html))  → RawExtractedProduct
- │    └── fails → [schema-fix flow A] (see below)
+ │    ├── DB hit  → return cached CSS selector schema set
+ │    └── DB miss → LLM generates schema set (single call) → persist → return
+ ├── try cached schema variants in order
+ │    ├── first applicable schema → RawExtractedProduct
+ │    └── none applies → regenerate schema set from seed pages, retry variants
+ │         └── still none applies → [schema-fix flow A] (see below)
  ├── ProductNormalizationService::normalize(raw, url)
  │    ├── state: ProductStateMappingService::get_state_mapping(raw.state)
  │    │    ├── [guard] len > MAX_STATE_RAW_LEN (512 bytes)?
@@ -259,7 +261,7 @@ scrape(shop_id, url, last_scraped_hash)
 
 The dispatcher (`cron.rs`) guarantees at most one in-flight scrape per domain at a time, so no per-domain mutex is needed inside the fix path.
 
-On schema cache miss, scraper schema generation can include multiple seed pages (current page + up to `N-1` additional same-shop product pages, best-effort). This improves first schema quality, but first scrape latency can increase due to additional fetches on that one-time path.
+On schema cache miss, scraper schema generation can include multiple seed pages (current page + up to `N-1` additional same-shop product pages, best-effort). These seed pages are sent in one LLM call that may return multiple schema variants for heterogeneous templates. This improves first schema quality, but first scrape latency can increase due to additional fetches on that one-time path.
 
 **Schema-fix flow B** — triggered when normalization returns a schema-fixable error (bad state selector text, price parse failure, empty title, etc.).  `ShopsProductIdEmpty` is **not** schema-fixable and is propagated directly as `ScraperError::NormalizationError` without calling the LLM. `PriceUnknownCurrency` **is** schema-fixable for genuinely unknown currency-bearing price text — the synthetic hint asks the LLM to add a `default_currency` to the schema. Explicit non-numeric markers like `"Price on Request"` are normalized to `price=None` and do not enter the fix loop:
 

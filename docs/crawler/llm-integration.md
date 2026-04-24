@@ -28,11 +28,12 @@ The crawler uses three distinct LLM instances, each with its own system prompt, 
 
 ## 2. Product Schema Generation — `ProductSchemaServiceImpl`
 
-**Purpose:** Given a cleaned HTML page from a product URL, produce a `ProductCssSelectorSchema` — a set of CSS selectors for extracting title, price, state, images, and dates.
+**Purpose:** Given cleaned HTML pages from product URLs, produce one or more `ProductCssSelectorSchema` variants that together cover heterogeneous templates in the same shop.
 
 **When called:**
 - On first scrape of a product URL for a given shop (cache miss in `shops_product_schema`).
   - Schema seeding uses multiple pages (`scraper_schema_seed_pages`, default `3`): current page + up to `N-1` additional random same-shop product pages.
+  - The seed set is sent in a **single** LLM call. The model may return multiple schemas, where each schema can target a subset of page layouts.
   - Extra seed-page fetches are best-effort and never block schema creation when only the current page is available.
   - This path runs only on schema cache miss, so first scrape can be slower while later scrapes reuse the cached schema.
 - On schema failure: if applying the schema throws an error (e.g. selector no longer valid), `fix_product_schema` is called with the broken schema + error message. The dispatcher (`cron.rs`) guarantees at most one in-flight scrape per domain at a time, so no per-domain mutex is required.
@@ -47,17 +48,19 @@ The crawler uses three distinct LLM instances, each with its own system prompt, 
 - Noisy attributes (`class`, `id`, `style`, `data-*`, `aria-*`) removed via `kuchiki`.
 - This dramatically reduces token usage.
 
-**Output (JSON):** A `ProductCssSelectorSchema` struct, serialized:
+**Output (JSON):** An array of `ProductCssSelectorSchema` objects:
 ```json
-{
-  "title": "h1.product-title",
-  "price": "span.price",
-  "state": "div.availability",
-  "images": ["img.product-image"],
-  "date_listed": "time.listed",
-  "date_sold": null,
-  "default_currency": "EUR"
-}
+[
+  {
+    "title": "h1.product-title",
+    "price": "span.price",
+    "state": "div.availability",
+    "images": ["img.product-image"],
+    "date_listed": "time.listed",
+    "date_sold": null,
+    "default_currency": "EUR"
+  }
+]
 ```
 
 `default_currency` is an optional ISO 4217 code the LLM sets when it can determine the shop's currency from full-page context (e.g. a currency shown in the page header or footer). It is `null` when no currency context is visible. The field is used as a fallback by `normalize()` when the extracted price string contains no currency marker.
@@ -78,7 +81,7 @@ re-apply fixed schema:
 - Selector-based optionals (`description`, `price`, `price_estimate_min`, `price_estimate_max`, `auction_start`, `auction_end`) are requested as selectors if confidently visible.
 - `default_currency` is requested separately as contextual metadata (ISO 4217), not as a selector.
 
-**Persistence:** Schema stored in `shops_product_schema` (keyed by `shop_id`). Shared across all product URLs of the same shop.
+**Persistence:** Schema set stored in `shops_product_schema` (keyed by `shop_id`) as a JSON array. During scrape, variants are tried in order until one applies.
 
 ---
 

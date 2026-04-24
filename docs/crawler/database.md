@@ -129,15 +129,15 @@ Every URL the spider has ever seen. Shared between the spider (writes) and the s
 
 ### `shops_product_schema`
 
-Caches the LLM-generated CSS selector schema for each shop. One row per shop.
+Caches the LLM-generated CSS selector schemas for each shop. One row per shop.
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `shop_id` | UUID PK | |
-| `product_schema` | JSONB | Serialized `ProductCssSelectorSchema` |
+| `product_schema` | JSONB | Serialized array of `ProductCssSelectorSchema` variants (legacy single-object payloads are still readable) |
 | `created` / `updated` | TIMESTAMPTZ | |
 
-If a schema fails to apply to a product page, the LLM is asked to fix it and the repaired schema overwrites this row.
+If no cached schema variant applies to a product page, the scraper regenerates the schema set from seed pages and overwrites this row. If a selected schema fails during a fix attempt, the repaired schema set is also persisted back to this row.
 
 ---
 

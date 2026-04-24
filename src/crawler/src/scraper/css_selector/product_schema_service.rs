@@ -33,8 +33,23 @@ pub trait ProductSchemaService {
         html_pages: &[String],
     ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError>;
 
+    async fn create_product_schemas(
+        &self,
+        html_pages: &[String],
+    ) -> Result<Vec<ProductCssSelectorSchema>, ProductSchemaServiceError>;
+
+    /// Generate a single schema from a single HTML page and append it to the
+    /// cached schema set. Used when a runtime schema-variant match fails to
+    /// dynamically expand the schema set without full regeneration.
+    async fn append_single_schema(
+        &self,
+        shop_id: &ShopId,
+        domain: &str,
+        html: &str,
+    ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
+
     /// Intentionally accepts only a single `html` page, unlike
-    /// [`ProductSchemaService::create_product_schema`] which takes multiple
+    /// [`ProductSchemaService::create_product_schemas`] which takes multiple
     /// seed pages, because the fix flow only has the current primary page
     /// available when an apply/normalization error occurs.
     async fn fix_product_schema(
@@ -54,6 +69,13 @@ pub trait ProductSchemaService {
         shop_id: &ShopId,
         domain: &str,
         product_schema: ProductCssSelectorSchema,
+    ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
+
+    async fn save_product_schemas(
+        &self,
+        shop_id: &ShopId,
+        domain: &str,
+        product_schemas: Vec<ProductCssSelectorSchema>,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
 
     async fn get_product_schema(
@@ -78,7 +100,10 @@ impl ProductSchemaServiceImpl {
             .unwrap_or_else(|_| "Failed to generate schema".to_string());
         let system_prompt = format!(
             "You are an e-commerce scraper-assistant for antiques creating extraction-schemas for HTML given product-pages.
-            Only answer with JSON for the following schema: \n\n {schema}",
+            Return only JSON. The output may be either:
+            - a single object matching this schema, or
+            - an array of such objects.
+            Schema:\n\n {schema}",
         );
         let llm = llm
             .resilient(true)
@@ -88,7 +113,7 @@ impl ProductSchemaServiceImpl {
             .reasoning(true)
             .timeout_seconds(180)
             .validator(|res| {
-                serde_json::from_str::<ProductCssSelectorSchema>(strip_markdown_json_embedding(res))
+                parse_product_schemas_response(strip_markdown_json_embedding(res))
                     .map(|_| ())
                     .map_err(|err| err.to_string())
             })
@@ -98,13 +123,32 @@ impl ProductSchemaServiceImpl {
     }
 }
 
+fn parse_product_schemas_response(
+    raw: &str,
+) -> Result<Vec<ProductCssSelectorSchema>, serde_json::Error> {
+    match serde_json::from_str::<Vec<ProductCssSelectorSchema>>(raw) {
+        Ok(list) => Ok(list),
+        Err(_) => serde_json::from_str::<ProductCssSelectorSchema>(raw).map(|single| vec![single]),
+    }
+}
+
 #[async_trait::async_trait]
 impl ProductSchemaService for ProductSchemaServiceImpl {
     async fn create_product_schema(
         &self,
         html_pages: &[String],
     ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError> {
-        let instruction = build_create_schema_instruction(html_pages);
+        let schemas = self.create_product_schemas(html_pages).await?;
+        schemas.first().cloned().ok_or_else(|| {
+            ProductSchemaServiceError::NoTextResponse("LLM produced zero schemas".to_string())
+        })
+    }
+
+    async fn create_product_schemas(
+        &self,
+        html_pages: &[String],
+    ) -> Result<Vec<ProductCssSelectorSchema>, ProductSchemaServiceError> {
+        let instruction = build_create_schemas_instruction(html_pages);
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
 
@@ -112,23 +156,62 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
             ProductSchemaServiceError::NoTextResponse("Expected text response".to_string())
         })?;
 
-        let schema: ProductCssSelectorSchema =
-            serde_json::from_str(strip_markdown_json_embedding(&res))
-                .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?;
+        let parsed = strip_markdown_json_embedding(&res);
+        let schemas = parse_product_schemas_response(parsed)
+            .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?;
+        if schemas.is_empty() {
+            return Err(ProductSchemaServiceError::NoTextResponse(
+                "LLM produced zero schemas".to_string(),
+            ));
+        }
+
+        info!(schemas_count = schemas.len(), "LLM created product CSS selector schemas");
+        Ok(schemas)
+    }
+
+    async fn append_single_schema(
+        &self,
+        shop_id: &ShopId,
+        domain: &str,
+        html: &str,
+    ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
+        // Load existing schemas
+        let mut existing = self.find_product_schema(shop_id).await?
+            .ok_or_else(|| ProductSchemaServiceError::NoTextResponse(
+                "No existing schemas found to append to".to_string()
+            ))?;
+
+        // Generate single schema for this HTML page
+        let instruction = build_append_schema_instruction(html);
+        let message = ChatMessage::user().content(instruction).build();
+        let messages = vec![message];
+
+        let res = self.llm.chat(&messages).await?.text().ok_or_else(|| {
+            ProductSchemaServiceError::NoTextResponse("Expected text response".to_string())
+        })?;
+
+        let parsed = strip_markdown_json_embedding(&res);
+        let new_schemas = parse_product_schemas_response(parsed)
+            .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?;
+
+        if new_schemas.is_empty() {
+            return Err(ProductSchemaServiceError::NoTextResponse(
+                "LLM produced zero schemas when appending".to_string(),
+            ));
+        }
+
+        // Append new schema(s) to existing ones
+        existing.product_schemas.extend(new_schemas.clone());
+
         info!(
-            shops_product_id_selector = %schema.shops_product_id.selector,
-            title_selector = %schema.title.selector,
-            state_selector = %schema.state.selector,
-            images_selector = %schema.images.selector,
-            has_price = schema.price.is_some(),
-            has_price_estimate_min = schema.price_estimate_min.is_some(),
-            has_price_estimate_max = schema.price_estimate_max.is_some(),
-            has_auction_start = schema.auction_start.is_some(),
-            has_auction_end = schema.auction_end.is_some(),
-            default_currency = ?schema.default_currency,
-            "LLM created new product CSS selector schema"
+            total_schemas = existing.product_schemas.len(),
+            appended = new_schemas.len(),
+            "Appended schema to existing set"
         );
-        Ok(schema)
+
+        // Persist the expanded schema set
+        self.save_product_schemas(shop_id, domain, existing.product_schemas.clone())
+            .await
     }
 
     async fn fix_product_schema(
@@ -257,14 +340,30 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         domain: &str,
         product_schema: ProductCssSelectorSchema,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
+        self.save_product_schemas(shop_id, domain, vec![product_schema])
+            .await
+    }
+
+    async fn save_product_schemas(
+        &self,
+        shop_id: &ShopId,
+        domain: &str,
+        product_schemas: Vec<ProductCssSelectorSchema>,
+    ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
         let existing = self.repository.find_product_schema(shop_id).await?;
 
         match existing {
             Some(_) => {
                 info!(domain = %domain, "Updating existing product schema");
                 self.repository
-                    .update_product_schema(shop_id, &product_schema)
+                    .update_product_schema(shop_id, &product_schemas)
                     .await
+                    .map(|mut saved| {
+                        if let Some(first) = saved.product_schemas.first().cloned() {
+                            saved.product_schema = first;
+                        }
+                        saved
+                    })
                     .map_err(ProductSchemaServiceError::DatabaseError)
             }
             None => {
@@ -272,13 +371,27 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
                 let now = OffsetDateTime::now_utc();
                 let schema = ShopsProductSchema {
                     shop_id: *shop_id,
-                    product_schema,
+                    product_schema: product_schemas
+                        .first()
+                        .cloned()
+                        .ok_or_else(|| {
+                            ProductSchemaServiceError::NoTextResponse(
+                                "LLM produced zero schemas".to_string(),
+                            )
+                        })?,
+                    product_schemas,
                     created: now,
                     updated: now,
                 };
                 self.repository
                     .insert_product_schema(shop_id, &schema)
                     .await
+                    .map(|mut saved| {
+                        if let Some(first) = saved.product_schemas.first().cloned() {
+                            saved.product_schema = first;
+                        }
+                        saved
+                    })
                     .map_err(ProductSchemaServiceError::DatabaseError)
             }
         }
@@ -296,8 +409,8 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         }
 
         info!(domain = %domain, "No product schema found for shop, creating via LLM");
-        let product_schema = self.create_product_schema(html_pages).await?;
-        self.save_product_schema(shop_id, domain, product_schema)
+        let product_schemas = self.create_product_schemas(html_pages).await?;
+        self.save_product_schemas(shop_id, domain, product_schemas)
             .await
     }
 }
@@ -360,7 +473,7 @@ fn build_optional_enrichment_instruction(missing: &MissingOptionalFields) -> Str
     lines.join("\n")
 }
 
-fn build_create_schema_instruction(html_pages: &[String]) -> String {
+fn build_create_schemas_instruction(html_pages: &[String]) -> String {
     let cleaned_pages: Vec<String> = if html_pages.is_empty() {
         Vec::new()
     } else {
@@ -372,7 +485,7 @@ fn build_create_schema_instruction(html_pages: &[String]) -> String {
 
     if cleaned_pages.is_empty() {
         return String::from(
-            "Generate a robust Extraction-Schema for the given HTML product pages.",
+            "Generate one or more robust Extraction-Schemas for the given HTML product pages.",
         );
     }
 
@@ -389,9 +502,23 @@ fn build_create_schema_instruction(html_pages: &[String]) -> String {
     }
 
     format!(
-        "Generate a robust Extraction-Schema that works across multiple product page HTML samples from the same shop.\n\
-         Prioritize selectors that generalize across the samples. Optional fields may remain null if not confidently present.\n\
+        "Generate one or more robust Extraction-Schemas that together cover these product page HTML samples from the same shop.\n\
+         If a single schema cannot generalize to all samples, return multiple schemas where each schema works for a subset of samples.\n\
+         Return ONLY JSON as an array of ProductCssSelectorSchema objects.\n\
+         Optional fields may remain null if not confidently present.\n\
          Here are the cleaned HTML samples:{samples}"
+    )
+}
+
+fn build_append_schema_instruction(html: &str) -> String {
+    let cleaned = clean_html_for_schema_generation(html);
+    format!(
+        "Generate a single robust Extraction-Schema for the following product page HTML.\n\
+         This schema will be appended to a set of existing schemas from the same shop.\n\
+         Return ONLY JSON as a single ProductCssSelectorSchema object (not an array).\n\
+         Optional fields may remain null if not confidently present.\n\
+         Here is the cleaned HTML:\n\
+         {cleaned}"
     )
 }
 
@@ -524,6 +651,7 @@ mod tests {
         ShopsProductSchema {
             shop_id,
             product_schema: sample_css_schema(),
+            product_schemas: vec![sample_css_schema()],
             created: now,
             updated: now,
         }
@@ -842,10 +970,26 @@ mod tests {
             "<html><body><h1>A</h1></body></html>".to_string(),
             "<html><body><h1>B</h1></body></html>".to_string(),
         ];
-        let instruction = build_create_schema_instruction(&html_pages);
+        let instruction = build_create_schemas_instruction(&html_pages);
         assert!(instruction.contains("--- SAMPLE 1 ---"));
         assert!(instruction.contains("--- SAMPLE 2 ---"));
-        assert!(instruction.contains("works across multiple product page HTML samples"));
+        assert!(instruction.contains("return multiple schemas where each schema works for a subset of samples"));
+    }
+
+    #[test]
+    fn should_parse_array_of_schemas_response() {
+        let payload = format!("[{}]", serde_json::to_string(&sample_css_schema()).unwrap());
+        let parsed = parse_product_schemas_response(&payload).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0], sample_css_schema());
+    }
+
+    #[test]
+    fn should_parse_single_schema_response_as_singleton_vec() {
+        let payload = serde_json::to_string(&sample_css_schema()).unwrap();
+        let parsed = parse_product_schemas_response(&payload).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0], sample_css_schema());
     }
 
     // -----------------------------------------------------------------------
