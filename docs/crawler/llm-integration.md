@@ -86,6 +86,9 @@ re-apply fixed schema:
 `fix_product_schema` is also used for opportunistic optional-field enrichment without adding any extra LLM call path:
 - Selector-based optionals (`description`, `price`, `price_estimate_min`, `price_estimate_max`, `auction_start`, `auction_end`) are requested as selectors if confidently visible.
 - `default_currency` is requested separately as contextual metadata (ISO 4217), not as a selector.
+- If no optional fields are missing the instruction instead says "keep all existing optional fields unchanged."
+
+**Fix strategy — `additional_selectors` first:** The fix prompt explicitly instructs the LLM to prefer a surgical repair: add one or more entries to the failing rule's `additional_selectors` array rather than rewriting the entire schema. `additional_selectors` is an array of fallback CSS selectors on an `ExtractionRule`; results from all selectors are aggregated in order. A full schema rewrite is only requested if the page structure makes a targeted fix impossible.
 
 **Persistence:** Schema set stored in `shops_product_schema` (keyed by `shop_id`) as a JSON array. During scrape, variants are tried in order until one applies.
 
