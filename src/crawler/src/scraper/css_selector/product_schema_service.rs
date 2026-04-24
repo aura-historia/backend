@@ -165,7 +165,10 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
             ));
         }
 
-        info!(schemas_count = schemas.len(), "LLM created product CSS selector schemas");
+        info!(
+            schemas_count = schemas.len(),
+            "LLM created product CSS selector schemas"
+        );
         Ok(schemas)
     }
 
@@ -176,10 +179,11 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         html: &str,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
         // Load existing schemas
-        let mut existing = self.find_product_schema(shop_id).await?
-            .ok_or_else(|| ProductSchemaServiceError::NoTextResponse(
-                "No existing schemas found to append to".to_string()
-            ))?;
+        let mut existing = self.find_product_schema(shop_id).await?.ok_or_else(|| {
+            ProductSchemaServiceError::NoTextResponse(
+                "No existing schemas found to append to".to_string(),
+            )
+        })?;
 
         // Generate single schema for this HTML page
         let instruction = build_append_schema_instruction(html);
@@ -371,14 +375,11 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
                 let now = OffsetDateTime::now_utc();
                 let schema = ShopsProductSchema {
                     shop_id: *shop_id,
-                    product_schema: product_schemas
-                        .first()
-                        .cloned()
-                        .ok_or_else(|| {
-                            ProductSchemaServiceError::NoTextResponse(
-                                "LLM produced zero schemas".to_string(),
-                            )
-                        })?,
+                    product_schema: product_schemas.first().cloned().ok_or_else(|| {
+                        ProductSchemaServiceError::NoTextResponse(
+                            "LLM produced zero schemas".to_string(),
+                        )
+                    })?,
                     product_schemas,
                     created: now,
                     updated: now,
@@ -973,7 +974,11 @@ mod tests {
         let instruction = build_create_schemas_instruction(&html_pages);
         assert!(instruction.contains("--- SAMPLE 1 ---"));
         assert!(instruction.contains("--- SAMPLE 2 ---"));
-        assert!(instruction.contains("return multiple schemas where each schema works for a subset of samples"));
+        assert!(
+            instruction.contains(
+                "return multiple schemas where each schema works for a subset of samples"
+            )
+        );
     }
 
     #[test]

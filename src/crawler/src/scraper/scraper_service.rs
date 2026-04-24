@@ -1,5 +1,5 @@
 use crate::network::policy::{
-    action_for, backoff_delay, classify_reqwest_error, NetworkAction, NetworkErrorKind, RetryPolicy,
+    NetworkAction, NetworkErrorKind, RetryPolicy, action_for, backoff_delay, classify_reqwest_error,
 };
 use crate::scraper::candidate_service::{ProductSnapshot, ScraperCandidateService};
 use crate::scraper::css_selector::product_schema::{
@@ -25,7 +25,7 @@ use tracing::{debug, info, warn};
 use url::Url;
 
 const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
-pub const DEFAULT_SCHEMA_SEED_PAGES: usize = 5;
+pub const DEFAULT_SCHEMA_SEED_PAGES: usize = 8;
 
 // ---------------------------------------------------------------------------
 // HtmlFetcher trait — abstracted so it can be mocked in unit tests
@@ -643,7 +643,8 @@ impl ScraperService for ScraperServiceImpl {
                 schemas = shops_product_schema.product_schemas.len(),
                 "No cached schema applied; appending new schema"
             );
-            shops_product_schema = self.schema_service
+            shops_product_schema = self
+                .schema_service
                 .append_single_schema(shop_id, domain, &html)
                 .await?;
             for schema in &shops_product_schema.product_schemas {
@@ -1260,15 +1261,10 @@ mod tests {
 
         let mut fetcher = MockHtmlFetcher::new();
         let primary_html_for_fetch = primary_html.clone();
-        fetcher
-            .expect_fetch()
-            .once()
-            .returning(move |_| {
-                let html = primary_html_for_fetch.clone();
-                Box::pin(async move {
-                    Ok(html)
-                })
-            });
+        fetcher.expect_fetch().once().returning(move |_| {
+            let html = primary_html_for_fetch.clone();
+            Box::pin(async move { Ok(html) })
+        });
 
         let initial_schema = {
             // Create a schema that won't match the sample_html

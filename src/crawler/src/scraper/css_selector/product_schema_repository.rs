@@ -41,12 +41,16 @@ fn row_to_schema(row: sqlx::postgres::PgRow) -> Result<ShopsProductSchema, sqlx:
     let created: OffsetDateTime = row.try_get("created")?;
     let updated: OffsetDateTime = row.try_get("updated")?;
 
-    let product_schemas: Vec<ProductCssSelectorSchema> =
-        match serde_json::from_value::<Vec<ProductCssSelectorSchema>>(product_schema_json.clone()) {
-            Ok(list) => list,
-            Err(_) => vec![serde_json::from_value::<ProductCssSelectorSchema>(product_schema_json)
-                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?],
-        };
+    let product_schemas: Vec<ProductCssSelectorSchema> = match serde_json::from_value::<
+        Vec<ProductCssSelectorSchema>,
+    >(product_schema_json.clone())
+    {
+        Ok(list) => list,
+        Err(_) => vec![
+            serde_json::from_value::<ProductCssSelectorSchema>(product_schema_json)
+                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+        ],
+    };
     let product_schema = product_schemas
         .first()
         .cloned()
@@ -89,8 +93,8 @@ impl<'a> ShopsProductSchemaRepository for ShopsProductSchemaRepositoryImpl<'a> {
         } else {
             schema.product_schemas.clone()
         };
-        let product_schema_json = serde_json::to_value(&schemas)
-            .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
+        let product_schema_json =
+            serde_json::to_value(&schemas).map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
 
         sqlx::query(
             "INSERT INTO shops_product_schema (shop_id, product_schema, created, updated)
@@ -111,8 +115,8 @@ impl<'a> ShopsProductSchemaRepository for ShopsProductSchemaRepositoryImpl<'a> {
         shop_id: &ShopId,
         product_schemas: &[ProductCssSelectorSchema],
     ) -> Result<ShopsProductSchema, sqlx::Error> {
-        let product_schema_json = serde_json::to_value(product_schemas)
-            .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
+        let product_schema_json =
+            serde_json::to_value(product_schemas).map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
 
         sqlx::query(
             "UPDATE shops_product_schema
