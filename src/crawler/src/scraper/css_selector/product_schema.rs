@@ -47,26 +47,17 @@ mod faker {
     The rules are intended to extract raw data from the HTML, not normalized data."
 )]
 pub struct ProductCssSelectorSchema {
-    #[schemars(description = "ID of the product on the shop's website. \
-        Look for attributes like data-id, data-product-id, id, or href patterns. \
-        Extract the unique identifier value, not labels.")]
+    #[schemars(description = "ID of the product on the shop's website")]
     pub shops_product_id: ExtractionRule,
 
-    #[schemars(description = "Title/name of the product. \
-        Usually in <h1>, <h2>, or <meta name='title'> elements. \
-        Extract the product name text, not metadata.")]
+    #[schemars(description = "Title of the product")]
     pub title: ExtractionRule,
 
-    #[schemars(
-        description = "Description of the product. May be fragmented across multiple elements. \
-        Look for <meta name='description'>, <meta property='og:description'>, or descriptive text blocks."
-    )]
+    #[schemars(description = "Description of the product. May be fragmented.")]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<ExtractionRule>,
 
-    #[schemars(description = "Price of the product as displayed. \
-        Look for text content (not attributes) in elements with classes/ids like 'price', 'preis', 'cost', 'amount'. \
-        Extract the raw price string with currency symbol if present.")]
+    #[schemars(description = "Price of the product.")]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price: Option<ExtractionRule>,
 
@@ -91,9 +82,7 @@ pub struct ProductCssSelectorSchema {
         a layout or formatting class is never an availability indicator.")]
     pub state: ExtractionRule,
 
-    #[schemars(description = "Images of the product. Preferably URLs. \
-        Look for <img src=''>, <meta property='og:image'>, <meta itemprop='image'>, or data attributes. \
-        Extract all image URLs for the product (use cardinality='all').")]
+    #[schemars(description = "Images of the product. May be fragmented.")]
     pub images: ExtractionRule,
 
     #[schemars(description = "Start-Date/Time of the auction for the product")]
