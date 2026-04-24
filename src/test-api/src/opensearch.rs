@@ -312,12 +312,14 @@ fn check_status_allow_not_found(response: &Response) -> Result<(), Error> {
 /// [`product::opensearch::repository::hybrid_search_product_documents`] references via the
 /// `search_pipeline` query parameter.
 ///
-/// The pipeline uses Reciprocal Rank Fusion (RRF) via the `score-ranker-processor`
-/// (available since OpenSearch 2.11 / LocalStack Pro). RRF combines the per-document ranks
-/// from the BM25 and kNN sub-queries without requiring score normalisation.
+/// Attempts to register a `score-ranker-processor` pipeline using Reciprocal Rank Fusion
+/// (RRF, `rank_constant = 60`) — the same technique used in production (OpenSearch 2.11+).
+/// If the cluster does not support `score-ranker-processor` (e.g. an older LocalStack
+/// image), the function falls back to a `normalization-processor` pipeline with `min_max`
+/// normalisation and `arithmetic_mean` combination, which is available since OpenSearch 2.9.
 ///
-/// Failures are logged but do not abort test setup; non-hybrid tests remain unaffected
-/// even if the engine does not support search pipelines.
+/// Panics if neither pipeline variant can be registered, so hybrid tests fail fast with a
+/// meaningful message rather than surfacing a confusing "pipeline not defined" 400 error.
 async fn register_hybrid_search_pipeline(client: &Client) {
     // The pipeline name constant contains only alphanumeric characters and hyphens, which
     // are safe to embed in a URL path without encoding.
@@ -328,7 +330,9 @@ async fn register_hybrid_search_pipeline(client: &Client) {
         "HYBRID_SEARCH_PIPELINE_NAME must contain only alphanumeric characters and hyphens"
     );
     let path = format!("_search/pipeline/{HYBRID_SEARCH_PIPELINE_NAME}");
-    let body = json!({
+
+    // First attempt: RRF via score-ranker-processor (OpenSearch 2.11+ / LocalStack Pro).
+    let rrf_body = json!({
         "description": "Hybrid BM25+kNN search pipeline using Reciprocal Rank Fusion",
         "phase_results_processors": [
             {
@@ -341,32 +345,83 @@ async fn register_hybrid_search_pipeline(client: &Client) {
             }
         ]
     });
+    let rrf_ok = match client
+        .send(
+            Method::Put,
+            &path,
+            HeaderMap::new(),
+            None::<&serde_json::Value>,
+            Some(JsonBody::new(rrf_body)),
+            None,
+        )
+        .await
+    {
+        Ok(resp) if resp.status_code().is_success() => {
+            debug!("Registered hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' (RRF)");
+            true
+        }
+        Ok(resp) => {
+            debug!(
+                status = %resp.status_code(),
+                "score-ranker-processor RRF pipeline registration returned non-success; \
+                 will attempt normalization-processor fallback"
+            );
+            false
+        }
+        Err(e) => {
+            debug!(
+                error = %e,
+                "score-ranker-processor RRF pipeline registration failed; \
+                 will attempt normalization-processor fallback"
+            );
+            false
+        }
+    };
+
+    if rrf_ok {
+        return;
+    }
+
+    // Fallback: normalization-processor with min_max + arithmetic_mean (OpenSearch 2.9+).
+    let fallback_body = json!({
+        "description": "Hybrid BM25+kNN search pipeline (normalization fallback)",
+        "phase_results_processors": [
+            {
+                "normalization-processor": {
+                    "normalization": { "technique": "min_max" },
+                    "combination": { "technique": "arithmetic_mean" }
+                }
+            }
+        ]
+    });
     match client
         .send(
             Method::Put,
             &path,
             HeaderMap::new(),
             None::<&serde_json::Value>,
-            Some(JsonBody::new(body)),
+            Some(JsonBody::new(fallback_body)),
             None,
         )
         .await
     {
         Ok(resp) if resp.status_code().is_success() => {
-            debug!("Registered hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}'");
+            debug!(
+                "Registered hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' \
+                 (normalization fallback)"
+            );
         }
         Ok(resp) => {
-            debug!(
-                status = %resp.status_code(),
-                "Hybrid search pipeline registration returned non-success; \
-                 hybrid tests may fail if the pipeline is required"
+            panic!(
+                "Hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' registration failed \
+                 (status {}); hybrid tests will not work",
+                resp.status_code()
             );
         }
         Err(e) => {
-            debug!(
-                error = %e,
-                "Hybrid search pipeline registration failed; \
-                 hybrid tests may fail if the pipeline is required"
+            panic!(
+                "Hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' registration error: \
+                 {e}; hybrid tests will not work"
             );
         }
     }
