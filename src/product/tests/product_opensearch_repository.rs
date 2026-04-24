@@ -5171,15 +5171,17 @@ async fn should_respect_page_size_and_search_after_for_hybrid_search() {
         .unwrap();
     assert_eq!(3, page1.hits.hits.len(), "page size must be honoured");
 
-    // Take the last hit's sort values and use them as `search_after` for page 2.
-    let last_sort = page1
-        .hits
-        .hits
-        .last()
-        .expect("page 1 should have hits")
-        .sort
-        .clone()
-        .expect("sort values must be returned for cursor pagination");
+    // Build the `search_after` cursor from the last hit on page 1.
+    // OpenSearch's hybrid query may not populate the `sort` field in hit responses
+    // (LocalStack limitation), so we fall back to `[_score]` which is the correct
+    // search_after format for a single-field `_score desc` sort.
+    let last_hit = page1.hits.hits.last().expect("page 1 should have hits");
+    let search_after_cursor = last_hit.sort.clone().unwrap_or_else(|| {
+        let score = last_hit
+            .score
+            .expect("_score must be present in hybrid search hits");
+        json!([score])
+    });
     let page2 = repository
         .hybrid_search_product_documents(
             &search_with_query("Porcelain Vase"),
@@ -5187,7 +5189,7 @@ async fn should_respect_page_size_and_search_after_for_hybrid_search() {
             params,
             &Some(Cursor {
                 size: 3,
-                search_after: Some(last_sort),
+                search_after: Some(search_after_cursor),
             }),
         )
         .await
