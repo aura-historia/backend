@@ -338,8 +338,7 @@ async fn register_hybrid_search_pipeline(client: &Client) {
             {
                 "score-ranker-processor": {
                     "combination": {
-                        "technique": "rrf",
-                        "parameters": { "rank_constant": 60 }
+                        "technique": "rrf"
                     }
                 }
             }
