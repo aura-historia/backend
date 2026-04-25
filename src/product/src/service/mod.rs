@@ -10,9 +10,6 @@ pub mod product_command;
 pub mod query_service;
 
 #[cfg(feature = "opensearch")]
-pub mod intent;
-
-#[cfg(feature = "opensearch")]
 pub mod hybrid_search;
 
 #[cfg(all(feature = "opensearch", feature = "dynamodb"))]

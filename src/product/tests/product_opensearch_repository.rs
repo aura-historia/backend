@@ -22,13 +22,13 @@ use product::core::product_search::ProductSearch;
 use product::core::provenance::Provenance;
 use product::core::restoration::Restoration;
 use product::core::sort_product_field::SortProductField;
+use product::opensearch::intent::HybridSearchParams;
 use product::opensearch::product_document::ProductDocument;
 use product::opensearch::product_state_document::ProductStateDocument;
 use product::opensearch::product_update_document::ProductUpdateDocument;
 use product::opensearch::repository::{
     ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl,
 };
-use product::service::intent::HybridSearchParams;
 use serde_json::json;
 use shop::core::shop_type::ShopType;
 use shop::opensearch::shop_type_document::ShopTypeDocument;

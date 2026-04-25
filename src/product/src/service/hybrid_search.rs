@@ -7,10 +7,10 @@
 
 use crate::core::product::{LocalizedProductView, Product};
 use crate::core::product_search::ProductSearch;
-use crate::opensearch::repository::ProductOpenSearchRepository;
-use crate::service::intent::{
+use crate::opensearch::intent::{
     HybridSearchParams, IntentSignals, compute_intent_signals, intent_centroids,
 };
+use crate::opensearch::repository::ProductOpenSearchRepository;
 use common::language::domain::Language;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use tracing::warn;
