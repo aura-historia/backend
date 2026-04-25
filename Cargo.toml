@@ -29,6 +29,7 @@ product-lambda = { workspace = true }
 test-api = { workspace = true }
 user = { workspace = true }
 user-api = { workspace = true }
+user-lambda = { workspace = true }
 notification-send = { workspace = true }
 notification = { workspace = true }
 newsletter-api = { workspace = true }
@@ -68,6 +69,7 @@ members = [
     "src/stripe-api",
     "src/user",
     "src/user-api",
+    "src/user-lambda",
     "src/notification-send",
     "src/notification",
     "src/notification-api",
@@ -195,6 +197,8 @@ smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tes
 staging-tests-macros = { path = "src/aws-tests/src/staging-tests/src/staging-tests-macros" }
 user = { path = "src/user" }
 user-api = { path = "src/user-api" }
+user-lambda = { path = "src/user-lambda" }
+user-lambda-index-opensearch = { path = "src/user-lambda/src/user-lambda-index-opensearch" }
 cognito = { path = "src/cognito" }
 cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 serde-email = "3.2.0"

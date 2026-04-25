@@ -9,12 +9,22 @@ use crate::dynamodb::user_record_update::UserRecordUpdate;
 use crate::service::cognito_admin_service::{CognitoAdminError, CognitoAdminService};
 use crate::service::command::{CreateUserCommand, UpdateUserCommand};
 use aws_sdk_dynamodb::error::SdkError;
-use common::currency::record::CurrencyRecord;
-use common::language::record::LanguageRecord;
-use common::stripe_customer_id::StripeCustomerId;
-use common::user_id::UserId;
+use common::{
+    currency::record::CurrencyRecord,
+    language::record::LanguageRecord,
+    pagination::cursor::{Cursor, CursoredResult},
+    sort::{Sort, SortOrder},
+    stripe_customer_id::StripeCustomerId,
+    user_id::UserId,
+};
 use time::OffsetDateTime;
 use tracing::{error, info, warn};
+
+#[cfg(feature = "opensearch")]
+use crate::{
+    core::{sort_user_field::SortUserField, user_search::UserSearch},
+    opensearch::repository::UserOpenSearchRepository,
+};
 
 const MAX_DELETE_RETRIES: u32 = 5;
 
@@ -52,6 +62,14 @@ pub enum UserServiceError {
 
     #[error("Cognito admin service not configured")]
     CognitoAdminServiceNotConfigured,
+
+    #[cfg(feature = "opensearch")]
+    #[error("OpenSearchError: {0}")]
+    OpenSearchError(#[from] opensearch::Error),
+
+    #[cfg(feature = "opensearch")]
+    #[error("User OpenSearch repository not configured")]
+    UserOpenSearchRepositoryNotConfigured,
 }
 
 #[cfg(feature = "data")]
@@ -88,6 +106,12 @@ pub mod api {
                 UserServiceError::CognitoAdminServiceNotConfigured => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
+                #[cfg(feature = "opensearch")]
+                UserServiceError::OpenSearchError(opensearch_err) => opensearch_err.into(),
+                #[cfg(feature = "opensearch")]
+                UserServiceError::UserOpenSearchRepositoryNotConfigured => {
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
+                }
             }
         }
     }
@@ -114,11 +138,21 @@ pub trait UserService {
     ) -> Result<User, UserServiceError>;
 
     async fn delete_user(&self, user_id: &UserId) -> Result<(), UserServiceError>;
+
+    #[cfg(feature = "opensearch")]
+    async fn search_users(
+        &self,
+        search: &UserSearch,
+        sort: &Option<Sort<SortUserField>>,
+        cursor: &Option<Cursor<serde_json::Value>>,
+    ) -> Result<CursoredResult<User, serde_json::Value>, UserServiceError>;
 }
 
 pub struct UserServiceImpl<'a> {
     repository: &'a (dyn UserDynamoDbRepository + Sync),
     cognito_admin_service: Option<&'a (dyn CognitoAdminService + Sync)>,
+    #[cfg(feature = "opensearch")]
+    opensearch_repository: Option<&'a (dyn UserOpenSearchRepository + Sync)>,
 }
 
 impl<'a> UserServiceImpl<'a> {
@@ -126,6 +160,8 @@ impl<'a> UserServiceImpl<'a> {
         Self {
             repository,
             cognito_admin_service: None,
+            #[cfg(feature = "opensearch")]
+            opensearch_repository: None,
         }
     }
 
@@ -136,6 +172,21 @@ impl<'a> UserServiceImpl<'a> {
         Self {
             repository,
             cognito_admin_service: Some(cognito_admin_service),
+            #[cfg(feature = "opensearch")]
+            opensearch_repository: None,
+        }
+    }
+
+    #[cfg(feature = "opensearch")]
+    pub fn with_cognito_and_opensearch(
+        repository: &'a (dyn UserDynamoDbRepository + Sync),
+        cognito_admin_service: &'a (dyn CognitoAdminService + Sync),
+        opensearch_repository: &'a (dyn UserOpenSearchRepository + Sync),
+    ) -> Self {
+        Self {
+            repository,
+            cognito_admin_service: Some(cognito_admin_service),
+            opensearch_repository: Some(opensearch_repository),
         }
     }
 }
@@ -282,6 +333,69 @@ impl<'a> UserService for UserServiceImpl<'a> {
         }
 
         Err(last_err.unwrap().into())
+    }
+
+    #[cfg(feature = "opensearch")]
+    async fn search_users(
+        &self,
+        search: &UserSearch,
+        sort: &Option<Sort<SortUserField>>,
+        cursor: &Option<Cursor<serde_json::Value>>,
+    ) -> Result<CursoredResult<User, serde_json::Value>, UserServiceError> {
+        let repository = self
+            .opensearch_repository
+            .ok_or(UserServiceError::UserOpenSearchRepositoryNotConfigured)?;
+        let sort = (*sort).unwrap_or(Sort {
+            sort: SortUserField::Score,
+            order: SortOrder::Desc,
+        });
+        let sort = if search.query.is_none()
+            && search.email_query.is_none()
+            && search.first_name_query.is_none()
+            && search.last_name_query.is_none()
+            && matches!(sort.sort, SortUserField::Score)
+        {
+            Sort {
+                sort: SortUserField::Email,
+                order: SortOrder::Asc,
+            }
+        } else {
+            sort
+        };
+
+        let search_response = repository
+            .search_user_documents(search, &sort, cursor)
+            .await?;
+        if search_response.timed_out {
+            warn!(
+                searchFilter = ?search,
+                sort = ?sort,
+                cursor = ?cursor,
+                took = search_response.took,
+                shardStats = ?search_response.shards,
+                "Search-Request to OpenSearch timed out when querying users."
+            );
+        }
+        let cursor = Cursor {
+            size: search_response.hits.hits.len() as u64,
+            search_after: search_response
+                .hits
+                .hits
+                .last()
+                .and_then(|last| last.sort.clone()),
+        };
+        let users = search_response
+            .hits
+            .hits
+            .into_iter()
+            .map(|hit| hit.source.into())
+            .collect::<Vec<_>>();
+
+        Ok(CursoredResult {
+            items: users,
+            cursor,
+            total: Some(search_response.hits.total.value),
+        })
     }
 }
 
@@ -871,5 +985,111 @@ mod tests {
                 UserServiceError::UserNotFoundByStripeCustomerId
             ));
         }
+    }
+}
+
+#[cfg(all(test, feature = "opensearch"))]
+mod search_users_tests {
+    use crate::{
+        core::{sort_user_field::SortUserField, user::User, user_search::UserSearch},
+        dynamodb::repository::MockUserDynamoDbRepository,
+        opensearch::{repository::MockUserOpenSearchRepository, user_document::UserDocument},
+        service::user_service::{UserService, UserServiceError, UserServiceImpl},
+    };
+    use common::{
+        opensearch::search_response::{
+            HitsMetadata, SearchHit, SearchResponse, ShardStats, TotalHits,
+        },
+        pagination::cursor::Cursor,
+        sort::{Sort, SortOrder},
+    };
+    use fake::{Fake, Faker};
+
+    fn mk_search_response(user_documents: Vec<UserDocument>) -> SearchResponse<UserDocument> {
+        SearchResponse {
+            took: 42,
+            timed_out: false,
+            shards: ShardStats {
+                total: 1,
+                successful: 1,
+                skipped: 0,
+                failed: 0,
+            },
+            hits: HitsMetadata {
+                total: TotalHits {
+                    value: user_documents.len() as u64,
+                    relation: "eq".to_string(),
+                },
+                max_score: None,
+                hits: user_documents
+                    .into_iter()
+                    .map(|user_document| SearchHit {
+                        index: "users".to_string(),
+                        id: user_document.user_id.to_string(),
+                        score: None,
+                        source: user_document,
+                        sort: None,
+                    })
+                    .collect(),
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn should_search_users_when_opensearch_repository_configured() {
+        let expected_user: User = Faker.fake();
+        let expected_document = UserDocument::from(expected_user.clone());
+        let dynamodb_repository = MockUserDynamoDbRepository::default();
+        let mut opensearch_repository = MockUserOpenSearchRepository::default();
+        opensearch_repository
+            .expect_search_user_documents()
+            .return_once(move |_, sort, cursor| {
+                assert_eq!(SortUserField::Email, sort.sort);
+                assert_eq!(SortOrder::Asc, sort.order);
+                assert_eq!(Some(10), cursor.as_ref().map(|cursor| cursor.size));
+                Box::pin(async move { Ok(mk_search_response(vec![expected_document])) })
+            });
+        let service = UserServiceImpl {
+            repository: &dynamodb_repository,
+            cognito_admin_service: None,
+            opensearch_repository: Some(&opensearch_repository),
+        };
+
+        let actual = service
+            .search_users(
+                &UserSearch::default(),
+                &None,
+                &Some(Cursor {
+                    size: 10,
+                    search_after: None,
+                }),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(vec![expected_user], actual.items);
+        assert_eq!(Some(1), actual.total);
+    }
+
+    #[tokio::test]
+    async fn should_err_when_opensearch_repository_not_configured_for_search_users() {
+        let dynamodb_repository = MockUserDynamoDbRepository::default();
+        let service = UserServiceImpl::new(&dynamodb_repository);
+
+        let actual = service
+            .search_users(
+                &UserSearch::default(),
+                &Some(Sort {
+                    sort: SortUserField::Email,
+                    order: SortOrder::Asc,
+                }),
+                &None,
+            )
+            .await;
+
+        assert!(matches!(
+            actual.unwrap_err(),
+            UserServiceError::UserOpenSearchRepositoryNotConfigured
+        ));
     }
 }

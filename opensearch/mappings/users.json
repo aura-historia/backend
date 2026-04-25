@@ -1,0 +1,52 @@
+{
+    "settings": {
+        "analysis": {
+            "normalizer": {
+                "lowercase_normalizer": {
+                    "type": "custom",
+                    "filter": ["lowercase"]
+                }
+            }
+        }
+    },
+    "mappings": {
+        "properties": {
+            "userId": { "type": "keyword" },
+            "email": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "normalizer": "lowercase_normalizer"
+                    }
+                }
+            },
+            "firstName": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "normalizer": "lowercase_normalizer"
+                    }
+                }
+            },
+            "lastName": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "normalizer": "lowercase_normalizer"
+                    }
+                }
+            },
+            "language": { "type": "keyword" },
+            "currency": { "type": "keyword" },
+            "prohibitedContentConsent": { "type": "boolean" },
+            "tier": { "type": "keyword" },
+            "role": { "type": "keyword" },
+            "stripeCustomerId": { "type": "keyword" },
+            "created": { "type": "date", "format": "strict_date_time" },
+            "updated": { "type": "date", "format": "strict_date_time" }
+        }
+    }
+}

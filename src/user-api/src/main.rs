@@ -4,6 +4,7 @@ use aws_sdk_dynamodb::Client;
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
+use user::opensearch::repository::UserOpenSearchRepositoryImpl;
 use user::service::cognito_admin_service::cognito_impl::CognitoAdminServiceImpl;
 use user::service::user_service::UserServiceImpl;
 use user_api::handler;
@@ -23,10 +24,16 @@ async fn main() -> Result<(), Error> {
 
     let dynamodb_client = Client::new(&aws_config);
     let cognito_client = aws_sdk_cognitoidentityprovider::Client::new(&aws_config);
+    let opensearch_client = common::opensearch::client::load_client().await?;
 
     let repository = UserDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let cognito_admin_service = CognitoAdminServiceImpl::new(&cognito_client, &user_pool_id);
-    let service = UserServiceImpl::with_cognito(&repository, &cognito_admin_service);
+    let opensearch_repository = UserOpenSearchRepositoryImpl::new(&opensearch_client);
+    let service = UserServiceImpl::with_cognito_and_opensearch(
+        &repository,
+        &cognito_admin_service,
+        &opensearch_repository,
+    );
 
     debug!("Lambda initialized.");
 

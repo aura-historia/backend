@@ -21,6 +21,8 @@ aws-sdk-dynamodb = { workspace = true, optional = true }
 aws-sdk-cognitoidentityprovider = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["time"], optional = true }
 fake = { workspace = true, optional = true }
+opensearch = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 user = { workspace = true, features = ["full"] }
@@ -33,7 +35,8 @@ tokio = { workspace = true, features = ["macros"] }
 default = []
 data = ["common/api"]
 dynamodb = ["aws-sdk-dynamodb", "serde_dynamo", "serde_dynamo/aws-sdk-dynamodb+1", "tracing", "common/dynamodb"]
+opensearch = ["common/opensearch", "dep:opensearch", "serde_json", "tracing", "dynamodb", "tokio", "time/formatting"]
 cognito = ["aws-sdk-cognitoidentityprovider"]
 service = ["dynamodb", "tokio"]
 test-data = ["fake", "common/test-data"]
-full = ["data", "test-data", "dynamodb", "service", "cognito"]
+full = ["data", "test-data", "dynamodb", "opensearch", "service", "cognito"]
