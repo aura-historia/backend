@@ -13,6 +13,9 @@ use product::service::query_service::QueryProductServiceImpl;
 use product::service::semantic_service::SemanticSearchServiceImpl;
 use product_api::handler;
 use product_personalization::service::ProductPersonalizationServiceImpl;
+use product_pipeline_embed_text::service::{
+    MultimodalEmbeddingService, MultimodalEmbeddingServiceImpl,
+};
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
@@ -38,6 +41,10 @@ async fn main() -> Result<(), Error> {
         user_pool_public_client_id.as_str(),
         user_pool_admin_client_id.as_str(),
     ];
+    // Hybrid (BM25 + kNN, OpenSearch-native RRF) search is opt-in via the GEMINI_API_KEY
+    // env-var. When unset, the lambda falls back to the existing pure-BM25 query path so
+    // the lambda continues to work in environments without an embedding provider.
+    let gemini_api_key = std::env::var("GEMINI_API_KEY").ok();
 
     let dynamodb = aws_sdk_dynamodb::Client::new(&aws_config);
     let opensearch = common::opensearch::client::load_client()
@@ -56,6 +63,11 @@ async fn main() -> Result<(), Error> {
     static NOOP_S3: NoopS3Adapter = NoopS3Adapter;
 
     let get_product_service = GetProductServiceImpl::new(&product_dynamodb_repository);
+    // The impl now caches `embed_query` results internally via a 4096-entry LRU.
+    let query_embedding_service: Option<Box<dyn MultimodalEmbeddingService + Sync + Send>> =
+        gemini_api_key
+            .as_deref()
+            .map(|key| Box::new(MultimodalEmbeddingServiceImpl::new(key)) as Box<_>);
     let query_product_service = QueryProductServiceImpl::new(&product_opensearch_repository);
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
@@ -89,6 +101,7 @@ async fn main() -> Result<(), Error> {
                 event,
                 &get_product_service,
                 &query_product_service,
+                query_embedding_service.as_deref(),
                 &semantic_search_service,
                 &product_personalization_service,
                 &access_token_verifier_service,

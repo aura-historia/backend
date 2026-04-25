@@ -7,6 +7,7 @@ use crate::opensearch::product_state_document::ProductStateDocument;
 use crate::opensearch::product_update_document::ProductUpdateDocument;
 use crate::opensearch::provenance_document::ProvenanceDocument;
 use crate::opensearch::restoration_document::RestorationDocument;
+use crate::service::intent::HybridSearchParams;
 use async_trait::async_trait;
 use common::currency::domain::Currency;
 use common::language::domain::Language;
@@ -16,6 +17,9 @@ use common::product_id::ProductId;
 use common::query::any_of_query::AnyOfQuery;
 use common::shop_name::ShopName;
 use common::sort::{Sort, SortOrder};
+use opensearch::http::Method;
+use opensearch::http::headers::HeaderMap;
+use opensearch::http::request::JsonBody;
 use opensearch::{BulkOperation, BulkOperations, BulkParts, GetParts, SearchParts};
 use serde::ser::Error;
 use serde_json::json;
@@ -25,6 +29,12 @@ use std::hash::Hash;
 use std::ops::Deref;
 use strum::EnumCount;
 use time::format_description::well_known;
+
+/// Name of the pre-registered OpenSearch search pipeline used for hybrid (BM25 + kNN) queries.
+///
+/// The pipeline must be registered on the cluster before hybrid searches are issued.
+/// In tests this is done by [`test_api::opensearch::set_up_indices`].
+pub const HYBRID_SEARCH_PIPELINE_NAME: &str = "hybrid-search-pipeline";
 
 #[async_trait]
 #[mockall::automock]
@@ -55,6 +65,18 @@ pub trait ProductOpenSearchRepository {
         &self,
         embedding: &[f32],
         k: u16,
+    ) -> Result<SearchResponse<ProductDocument>, opensearch::Error>;
+
+    /// Native OpenSearch hybrid retrieval. The request body uses the `hybrid` query type
+    /// (parallel BM25 + kNN) combined via the pre-registered search pipeline named
+    /// [`HYBRID_SEARCH_PIPELINE_NAME`], which is passed as a URL query parameter.
+    /// Pagination uses standard `search_after`.
+    async fn hybrid_search_product_documents(
+        &self,
+        search: &ProductSearch,
+        embedding: &[f32],
+        params: HybridSearchParams,
+        cursor: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error>;
 }
 
@@ -208,6 +230,45 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             })?;
         Ok(knn_response)
     }
+
+    async fn hybrid_search_product_documents(
+        &self,
+        search: &ProductSearch,
+        embedding: &[f32],
+        params: HybridSearchParams,
+        cursor: &Option<Cursor<serde_json::Value>>,
+    ) -> Result<SearchResponse<ProductDocument>, opensearch::Error> {
+        let body = build_hybrid_search_request(search, embedding, params, cursor)?;
+        // Pass the pipeline name as a URL query parameter so `reqwest` URL-encodes it,
+        // rather than interpolating it into the path string directly.
+        let pipeline_param = &[("search_pipeline", HYBRID_SEARCH_PIPELINE_NAME)];
+        let response = self
+            .client
+            .send(
+                Method::Post,
+                SearchParts::Index(&["products"]).url().as_ref(),
+                HeaderMap::new(),
+                Some(pipeline_param),
+                Some(JsonBody::new(body)),
+                None,
+            )
+            .await?;
+        let status = response.status_code();
+        let payload = response.text().await?;
+        if !status.is_success() {
+            return Err(serde_json::Error::custom(format!(
+                "hybrid_search_product_documents failed with HTTP {status}: {payload}"
+            ))
+            .into());
+        }
+        let res = serde_json::from_str::<SearchResponse<ProductDocument>>(&payload)
+            .map_err(|err| {
+                serde_json::Error::custom(format!(
+                    "Failed deserializing 'SearchResponse<ProductDocument>' with error '{err}'. Received payload: {payload}"
+                ))
+            })?;
+        Ok(res)
+    }
 }
 
 pub fn build_search_request(
@@ -231,26 +292,7 @@ pub fn build_search_request(
     }
 
     // ---------- Sorting ----------
-    let price_field = match search.currency {
-        Currency::Eur => ProductDocumentSerdeField::PriceEur.as_str(),
-        Currency::Gbp => ProductDocumentSerdeField::PriceGbp.as_str(),
-        Currency::Usd => ProductDocumentSerdeField::PriceUsd.as_str(),
-        Currency::Aud => ProductDocumentSerdeField::PriceAud.as_str(),
-        Currency::Cad => ProductDocumentSerdeField::PriceCad.as_str(),
-        Currency::Nzd => ProductDocumentSerdeField::PriceNzd.as_str(),
-        Currency::Cny => ProductDocumentSerdeField::PriceCny.as_str(),
-        Currency::Brl => ProductDocumentSerdeField::PriceBrl.as_str(),
-        Currency::Pln => ProductDocumentSerdeField::PricePln.as_str(),
-        Currency::Try => ProductDocumentSerdeField::PriceTry.as_str(),
-        Currency::Jpy => ProductDocumentSerdeField::PriceJpy.as_str(),
-        Currency::Czk => ProductDocumentSerdeField::PriceCzk.as_str(),
-        Currency::Rub => ProductDocumentSerdeField::PriceRub.as_str(),
-        Currency::Aed => ProductDocumentSerdeField::PriceAed.as_str(),
-        Currency::Sar => ProductDocumentSerdeField::PriceSar.as_str(),
-        Currency::Hkd => ProductDocumentSerdeField::PriceHkd.as_str(),
-        Currency::Sgd => ProductDocumentSerdeField::PriceSgd.as_str(),
-        Currency::Chf => ProductDocumentSerdeField::PriceChf.as_str(),
-    };
+    let price_field = price_field_for(&search.currency);
     let sort_field = match sort.sort {
         SortProductField::Score => "_score",
         SortProductField::Price => price_field,
@@ -280,11 +322,55 @@ pub fn build_search_request(
 
 pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, serde_json::Error> {
     let mut must = Vec::with_capacity(3);
-    let mut must_not = Vec::with_capacity(1);
-    let mut filter = Vec::with_capacity(16);
 
     // ---------- Text search ----------
-    let (title_field, description_field) = match search.language {
+    let (title_field, description_field) = title_and_description_fields(&search.language);
+
+    if let Some(product_query) = search.product_query.as_ref() {
+        must.push(build_text_match_clause(
+            product_query.as_ref(),
+            title_field,
+            description_field,
+        ));
+    }
+
+    let (must_not, filter) = build_filter_clauses(search)?;
+
+    // When there are no scoring clauses (no text query), a plain `bool` filter-only query
+    // produces a relevance score of 0.0 in OpenSearch. This falls below the percolation
+    // min_score threshold used in the search-filter percolator, which means filter-only
+    // search alerts (e.g. "state = Listed") would never trigger any matches.
+    //
+    // Wrapping in `constant_score` gives every matching document a fixed boost above the
+    // percolation min_score threshold (currently 3.1) so filter-only queries are returned
+    // correctly while text queries continue to use real BM25 relevance scoring.
+    if must.is_empty() {
+        Ok(json!({
+            "constant_score": {
+                "filter": {
+                    "bool": {
+                        "must_not": must_not,
+                        "filter": filter
+                    }
+                },
+                "boost": 4.0
+            }
+        }))
+    } else {
+        Ok(json!({
+            "bool": {
+                "must": must,
+                "must_not": must_not,
+                "filter": filter
+            }
+        }))
+    }
+}
+
+fn title_and_description_fields(
+    language: &Language,
+) -> (ProductDocumentSerdeField, ProductDocumentSerdeField) {
+    match language {
         Language::De => (
             ProductDocumentSerdeField::TitleDe,
             ProductDocumentSerdeField::DescriptionDe,
@@ -310,87 +396,101 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
             ProductDocumentSerdeField::TitleEn,
             ProductDocumentSerdeField::DescriptionEn,
         ),
-    };
-
-    if let Some(product_query) = search.product_query.as_ref() {
-        must.push(json!({
-            "bool": {
-                "must": [
-                  {
-                    "bool": {
-                      "should": [
-                        // Primary (preferred)
-                        {
-                          "multi_match": {
-                            "query": product_query,
-                            "fields": [
-                              format!("{title_field}^5")
-                            ],
-                            "type": "best_fields",
-                            "operator": "and"
-                          }
-                        },
-                        // Fallback ONLY
-                        {
-                          "bool": {
-                            "must": [
-                              {
-                                "multi_match": {
-                                  "query": product_query,
-                                  "fields": [
-                                    "titleNative.text^3"
-                                  ],
-                                  "type": "best_fields",
-                                  "operator": "and"
-                                }
-                              }
-                            ],
-                            "boost": 0.7
-                          }
-                        }
-                      ],
-                      "minimum_should_match": 1
-                    }
-                  }
-                ],
-                "should": [
-                    // Strong exact phrase (language-specific)
-                    {
-                        "match_phrase": {
-                            title_field.as_str(): {
-                                "query": product_query,
-                                "boost": 6
-                            }
-                        }
-                    },
-
-                    // Add native title phrase boost (lower!)
-                    {
-                        "match_phrase": {
-                            "titleNative.text": {
-                                "query": product_query,
-                                "boost": 3
-                            }
-                        }
-                    },
-
-                    // Fuzzy + recall layer (language-specific)
-                    {
-                        "multi_match": {
-                            "query": product_query,
-                            "fields": [
-                                format!("{title_field}^3"),
-                                format!("{description_field}^1")
-                            ],
-                            "type": "best_fields",
-                            "fuzziness": "AUTO:4,6",
-                            "minimum_should_match": "2<75%"
-                        }
-                    }
-                ]
-            }
-        }));
     }
+}
+
+fn build_text_match_clause(
+    product_query: &str,
+    title_field: ProductDocumentSerdeField,
+    description_field: ProductDocumentSerdeField,
+) -> serde_json::Value {
+    json!({
+        "bool": {
+            "must": [
+              {
+                "bool": {
+                  "should": [
+                    // Primary (preferred)
+                    {
+                      "multi_match": {
+                        "query": product_query,
+                        "fields": [
+                          format!("{title_field}^5")
+                        ],
+                        "type": "best_fields",
+                        "operator": "and"
+                      }
+                    },
+                    // Fallback ONLY
+                    {
+                      "bool": {
+                        "must": [
+                          {
+                            "multi_match": {
+                              "query": product_query,
+                              "fields": [
+                                "titleNative.text^3"
+                              ],
+                              "type": "best_fields",
+                              "operator": "and"
+                            }
+                          }
+                        ],
+                        "boost": 0.7
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              }
+            ],
+            "should": [
+                // Strong exact phrase (language-specific)
+                {
+                    "match_phrase": {
+                        title_field.as_str(): {
+                            "query": product_query,
+                            "boost": 6
+                        }
+                    }
+                },
+
+                // Add native title phrase boost (lower!)
+                {
+                    "match_phrase": {
+                        "titleNative.text": {
+                            "query": product_query,
+                            "boost": 3
+                        }
+                    }
+                },
+
+                // Fuzzy + recall layer (language-specific)
+                {
+                    "multi_match": {
+                        "query": product_query,
+                        "fields": [
+                            format!("{title_field}^3"),
+                            format!("{description_field}^1")
+                        ],
+                        "type": "best_fields",
+                        "fuzziness": "AUTO:4,6",
+                        "minimum_should_match": "2<75%"
+                    }
+                }
+            ]
+        }
+    })
+}
+
+/// Builds the `(must_not, filter)` clauses derived from `search` (everything except the
+/// BM25 text-match part). Reused by both BM25 and kNN search builders to keep the filter
+/// surface in lockstep.
+pub fn build_filter_clauses(
+    search: &ProductSearch,
+) -> Result<(Vec<serde_json::Value>, Vec<serde_json::Value>), serde_json::Error> {
+    let mut must_not = Vec::with_capacity(1);
+    let mut filter = Vec::with_capacity(16);
 
     // ---------- Exclusions ----------
     if !search.exclude_shop_name_query.is_empty() {
@@ -423,26 +523,7 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
     }
 
     // ---------- Price ----------
-    let price_field = match search.currency {
-        Currency::Eur => ProductDocumentSerdeField::PriceEur.as_str(),
-        Currency::Gbp => ProductDocumentSerdeField::PriceGbp.as_str(),
-        Currency::Usd => ProductDocumentSerdeField::PriceUsd.as_str(),
-        Currency::Aud => ProductDocumentSerdeField::PriceAud.as_str(),
-        Currency::Cad => ProductDocumentSerdeField::PriceCad.as_str(),
-        Currency::Nzd => ProductDocumentSerdeField::PriceNzd.as_str(),
-        Currency::Cny => ProductDocumentSerdeField::PriceCny.as_str(),
-        Currency::Brl => ProductDocumentSerdeField::PriceBrl.as_str(),
-        Currency::Pln => ProductDocumentSerdeField::PricePln.as_str(),
-        Currency::Try => ProductDocumentSerdeField::PriceTry.as_str(),
-        Currency::Jpy => ProductDocumentSerdeField::PriceJpy.as_str(),
-        Currency::Czk => ProductDocumentSerdeField::PriceCzk.as_str(),
-        Currency::Rub => ProductDocumentSerdeField::PriceRub.as_str(),
-        Currency::Aed => ProductDocumentSerdeField::PriceAed.as_str(),
-        Currency::Sar => ProductDocumentSerdeField::PriceSar.as_str(),
-        Currency::Hkd => ProductDocumentSerdeField::PriceHkd.as_str(),
-        Currency::Sgd => ProductDocumentSerdeField::PriceSgd.as_str(),
-        Currency::Chf => ProductDocumentSerdeField::PriceChf.as_str(),
-    };
+    let price_field = price_field_for(&search.currency);
 
     if let Some(min) = search.price_query.and_then(|q| q.min) {
         filter.push(json!({ "range": { price_field: { "gte": min.deref() } } }));
@@ -642,35 +723,116 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
         }
     }
 
-    // When there are no scoring clauses (no text query), a plain `bool` filter-only query
-    // produces a relevance score of 0.0 in OpenSearch. This falls below the percolation
-    // min_score threshold used in the search-filter percolator, which means filter-only
-    // search alerts (e.g. "state = Listed") would never trigger any matches.
-    //
-    // Wrapping in `constant_score` gives every matching document a fixed boost above the
-    // percolation min_score threshold (currently 3.1) so filter-only queries are returned
-    // correctly while text queries continue to use real BM25 relevance scoring.
-    if must.is_empty() {
-        Ok(json!({
-            "constant_score": {
-                "filter": {
-                    "bool": {
-                        "must_not": must_not,
-                        "filter": filter
-                    }
-                },
-                "boost": 4.0
-            }
-        }))
-    } else {
-        Ok(json!({
-            "bool": {
-                "must": must,
-                "must_not": must_not,
-                "filter": filter
-            }
-        }))
+    Ok((must_not, filter))
+}
+
+fn price_field_for(currency: &Currency) -> &'static str {
+    match currency {
+        Currency::Eur => ProductDocumentSerdeField::PriceEur.as_str(),
+        Currency::Gbp => ProductDocumentSerdeField::PriceGbp.as_str(),
+        Currency::Usd => ProductDocumentSerdeField::PriceUsd.as_str(),
+        Currency::Aud => ProductDocumentSerdeField::PriceAud.as_str(),
+        Currency::Cad => ProductDocumentSerdeField::PriceCad.as_str(),
+        Currency::Nzd => ProductDocumentSerdeField::PriceNzd.as_str(),
+        Currency::Cny => ProductDocumentSerdeField::PriceCny.as_str(),
+        Currency::Brl => ProductDocumentSerdeField::PriceBrl.as_str(),
+        Currency::Pln => ProductDocumentSerdeField::PricePln.as_str(),
+        Currency::Try => ProductDocumentSerdeField::PriceTry.as_str(),
+        Currency::Jpy => ProductDocumentSerdeField::PriceJpy.as_str(),
+        Currency::Czk => ProductDocumentSerdeField::PriceCzk.as_str(),
+        Currency::Rub => ProductDocumentSerdeField::PriceRub.as_str(),
+        Currency::Aed => ProductDocumentSerdeField::PriceAed.as_str(),
+        Currency::Sar => ProductDocumentSerdeField::PriceSar.as_str(),
+        Currency::Hkd => ProductDocumentSerdeField::PriceHkd.as_str(),
+        Currency::Sgd => ProductDocumentSerdeField::PriceSgd.as_str(),
+        Currency::Chf => ProductDocumentSerdeField::PriceChf.as_str(),
     }
+}
+
+/// Builds the request body for an OpenSearch *native hybrid* search.
+///
+/// Combines a BM25 sub-query (text-match + filters) and a kNN sub-query in a single
+/// `hybrid` query. Score fusion is performed by the pre-registered search pipeline
+/// referenced by [`HYBRID_SEARCH_PIPELINE_NAME`], which is passed as the
+/// `search_pipeline` URL query parameter by the caller.
+///
+/// Pagination uses standard `search_after` over `[_score desc]`.
+pub fn build_hybrid_search_request(
+    search: &ProductSearch,
+    embedding: &[f32],
+    params: HybridSearchParams,
+    cursor: &Option<Cursor<serde_json::Value>>,
+) -> Result<serde_json::Value, serde_json::Error> {
+    let (must_not, filter) = build_filter_clauses(search)?;
+
+    let mut source_excludes = ProductDocumentSerdeField::description_fields();
+    source_excludes.push(ProductDocumentSerdeField::Embedding);
+
+    // ---------- BM25 sub-query: text-match + filters ----------
+    let (title_field, description_field) = title_and_description_fields(&search.language);
+    let bm25_text_clause = match search.product_query.as_ref() {
+        Some(q) => build_text_match_clause(q.as_ref(), title_field, description_field),
+        // Defensive: hybrid search is only meaningful with a text query, but fall back to
+        // a match-all so the request is still valid.
+        None => json!({ "match_all": {} }),
+    };
+    let bm25_subquery = if filter.is_empty() && must_not.is_empty() {
+        bm25_text_clause
+    } else {
+        json!({
+            "bool": {
+                "must": [bm25_text_clause],
+                "filter": filter.clone(),
+                "must_not": must_not.clone(),
+            }
+        })
+    };
+
+    // ---------- kNN sub-query: vector + filters ----------
+    let mut knn_body = json!({
+        "vector": embedding,
+        "k": params.candidate_k,
+    });
+    if !filter.is_empty() || !must_not.is_empty() {
+        knn_body["filter"] = json!({
+            "bool": {
+                "must_not": must_not,
+                "filter": filter,
+            }
+        });
+    }
+    let knn_subquery = json!({
+        "knn": {
+            ProductDocumentSerdeField::Embedding.as_str(): knn_body,
+        }
+    });
+
+    let page_size = cursor.as_ref().map(|c| c.size).unwrap_or(20).max(1);
+    let mut body = json!({
+        "_source": { "excludes": source_excludes },
+        "size": page_size,
+        "query": {
+            "hybrid": {
+                "queries": [bm25_subquery, knn_subquery]
+            }
+        },
+        // OpenSearch's `hybrid` query type forbids combining `_score` with any other sort
+        // criterion — only a single sort field is allowed.  Sorting by `_score` preserves the
+        // pipeline's RRF-fused relevance ordering so the most-relevant documents come first.
+        // Ties on score (rare in practice) may produce non-deterministic page splits, which is
+        // acceptable given that relevance ordering is the primary concern.
+        "sort": [
+            { "_score": { "order": "desc" } }
+        ]
+    });
+
+    if let Some(c) = cursor
+        && let Some(sa) = &c.search_after
+    {
+        body["search_after"] = sa.clone();
+    }
+
+    Ok(body)
 }
 
 fn apply_any_of_filter<T: Hash + Eq + EnumCount>(

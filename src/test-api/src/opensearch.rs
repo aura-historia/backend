@@ -6,9 +6,11 @@ use aws_sdk_opensearch::error::SdkError;
 use aws_sdk_opensearch::operation::create_domain::{CreateDomainError, CreateDomainOutput};
 use aws_sdk_opensearch::operation::describe_domain::DescribeDomainError;
 use aws_sdk_opensearch::types::DomainEndpointOptions;
+use opensearch::http::headers::HeaderMap;
+use opensearch::http::request::JsonBody;
 use opensearch::http::response::Response;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
-use opensearch::http::{StatusCode, Url};
+use opensearch::http::{Method, StatusCode, Url};
 use opensearch::indices::{IndicesExistsParts, IndicesRefreshParts};
 use opensearch::{DeleteByQueryParts, Error, GetParts, OpenSearch as Client};
 use serde::de::DeserializeOwned;
@@ -17,6 +19,13 @@ use std::time::Duration;
 use tokio::sync::OnceCell;
 use tokio::time::sleep;
 use tracing::debug;
+
+/// Name of the hybrid search pipeline — must stay in sync with
+/// `product::opensearch::repository::HYBRID_SEARCH_PIPELINE_NAME`.
+///
+/// A direct import is not possible because `product` tests depend on `test-api` as a
+/// dev-dependency, making a `test-api → product` dependency circular.
+const HYBRID_SEARCH_PIPELINE_NAME: &str = "hybrid-search-pipeline";
 
 pub const TEST_DOMAIN_NAME: &str = "test-domain";
 
@@ -297,8 +306,90 @@ fn check_status_allow_not_found(response: &Response) -> Result<(), Error> {
     Ok(())
 }
 
+/// Registers the hybrid search pipeline on the local OpenSearch cluster.
+///
+/// Uses [`HYBRID_SEARCH_PIPELINE_NAME`] as the pipeline ID so it matches what
+/// [`product::opensearch::repository::hybrid_search_product_documents`] references via the
+/// `search_pipeline` query parameter.
+///
+/// Attempts to register a `score-ranker-processor` pipeline using Reciprocal Rank Fusion
+/// (RRF, `rank_constant = 60`) — the same technique used in production (OpenSearch 2.11+).
+/// If the cluster does not support `score-ranker-processor` (e.g. an older LocalStack
+/// image), the function falls back to a `normalization-processor` pipeline with `min_max`
+/// normalisation and `arithmetic_mean` combination, which is available since OpenSearch 2.9.
+///
+/// Panics if neither pipeline variant can be registered, so hybrid tests fail fast with a
+/// meaningful message rather than surfacing a confusing "pipeline not defined" 400 error.
+async fn register_hybrid_search_pipeline(client: &Client) {
+    // The pipeline name constant contains only alphanumeric characters and hyphens, which
+    // are safe to embed in a URL path without encoding.
+    debug_assert!(
+        HYBRID_SEARCH_PIPELINE_NAME
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-'),
+        "HYBRID_SEARCH_PIPELINE_NAME must contain only alphanumeric characters and hyphens"
+    );
+    let path = format!("_search/pipeline/{HYBRID_SEARCH_PIPELINE_NAME}");
+
+    let rrf_body = json!({
+        "description": "Hybrid BM25+kNN search pipeline using Reciprocal Rank Fusion",
+        "phase_results_processors": [
+            {
+                "score-ranker-processor": {
+                    "combination": {
+                        "technique": "rrf"
+                    }
+                }
+            }
+        ]
+    });
+
+    match client
+        .send(
+            Method::Put,
+            &path,
+            HeaderMap::new(),
+            None::<&serde_json::Value>,
+            Some(JsonBody::new(rrf_body)),
+            None,
+        )
+        .await
+    {
+        Ok(resp) if resp.status_code().is_success() => {
+            debug!("Registered hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' (RRF)");
+            true
+        }
+        Ok(resp) => {
+            debug!(
+                status = %resp.status_code(),
+                "score-ranker-processor RRF pipeline registration returned non-success; \
+                 will attempt normalization-processor fallback"
+            );
+            panic!(
+                "Failed to register hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' with score-ranker-processor: HTTP {status}",
+                status = resp.status_code()
+            );
+        }
+        Err(e) => {
+            debug!(
+                error = %e,
+                "score-ranker-processor RRF pipeline registration failed; \
+                 will attempt normalization-processor fallback"
+            );
+            panic!(
+                "Failed to register hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' with score-ranker-processor: {e}"
+            );
+        }
+    };
+}
+
 async fn set_up_indices() -> Result<Response, Error> {
     let client = get_opensearch_client().await;
+
+    // Register hybrid search pipeline (idempotent PUT; errors are logged but do not abort
+    // test setup so that non-hybrid tests are unaffected even on engines without pipeline
+    // support).
+    register_hybrid_search_pipeline(client).await;
 
     // Index 'products'
     let exists_response = client

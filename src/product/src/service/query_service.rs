@@ -3,6 +3,7 @@ use crate::core::product::Product;
 use crate::core::product_search::ProductSearch;
 use crate::core::sort_product_field::SortProductField;
 use crate::opensearch::repository::ProductOpenSearchRepository;
+use crate::service::hybrid_search::HybridSearchError;
 use async_trait::async_trait;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::sort::{Sort, SortOrder};
@@ -12,16 +13,22 @@ use tracing::warn;
 pub enum SearchProductsError {
     #[error("OpenSearchError: {0}")]
     OpenSearchError(#[from] opensearch::Error),
+    #[error("HybridSearchError: {0}")]
+    HybridSearchError(#[from] HybridSearchError),
 }
 
 #[cfg(feature = "data")]
 pub mod api {
+    use crate::service::hybrid_search::HybridSearchError;
     use crate::service::query_service::SearchProductsError;
     use common::api::error::ApiError;
     impl From<SearchProductsError> for ApiError {
         fn from(err: SearchProductsError) -> Self {
             match err {
                 SearchProductsError::OpenSearchError(opensearch_err) => opensearch_err.into(),
+                SearchProductsError::HybridSearchError(err) => match err {
+                    HybridSearchError::OpenSearchError(opensearch_err) => opensearch_err.into(),
+                },
             }
         }
     }
@@ -34,6 +41,22 @@ pub trait QueryProductService {
         &self,
         search: &ProductSearch,
         sort: &Option<Sort<SortProductField>>,
+        page: &Option<Cursor<serde_json::Value>>,
+    ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchProductsError>;
+
+    /// Adaptive hybrid retrieval: BM25 + kNN run server-side, ranked via Reciprocal Rank
+    /// Fusion (RRF). The kNN side uses the supplied query `embedding` (computed by the caller
+    /// via the existing [`product_pipeline_embed_text::service::MultimodalEmbeddingService`]).
+    /// `vector_weight` and `candidate_k` are derived dynamically from soft intent signals
+    /// over the textual query.
+    ///
+    /// `search.product_query` MUST be set; this method always uses `_score desc` ordering
+    /// and is therefore unsuitable for searches with explicit non-score sort.
+    /// Pagination is via `search_after = [fused_score]`; ties on score are non-deterministic.
+    async fn search_products_with_dynamic_semantics(
+        &self,
+        search: &ProductSearch,
+        embedding: &[f32],
         page: &Option<Cursor<serde_json::Value>>,
     ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchProductsError>;
 }
@@ -100,6 +123,23 @@ impl<'a> QueryProductService for QueryProductServiceImpl<'a> {
             cursor,
             total: Some(search_response.hits.total.value),
         })
+    }
+
+    async fn search_products_with_dynamic_semantics(
+        &self,
+        search: &ProductSearch,
+        embedding: &[f32],
+        page: &Option<Cursor<serde_json::Value>>,
+    ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchProductsError> {
+        let outcome = crate::service::hybrid_search::hybrid_search(
+            self.repository,
+            search,
+            embedding,
+            page,
+            &[search.language],
+        )
+        .await?;
+        Ok(outcome.items)
     }
 }
 
