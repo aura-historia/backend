@@ -345,7 +345,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
         let repository = self
             .opensearch_repository
             .ok_or(UserServiceError::UserOpenSearchRepositoryNotConfigured)?;
-        let sort = (*sort).unwrap_or(Sort {
+        let sort = sort.unwrap_or(Sort {
             sort: SortUserField::Score,
             order: SortOrder::Desc,
         });

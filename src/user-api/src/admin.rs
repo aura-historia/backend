@@ -24,6 +24,8 @@ use user::{
     service::{command::UpdateUserCommand, user_service::UserService},
 };
 
+const DEFAULT_SEARCH_PAGE_SIZE: u64 = 21;
+
 fn extract_user_id_path(
     path_params: &std::collections::HashMap<String, String>,
 ) -> Result<UserId, ApiError> {
@@ -59,22 +61,22 @@ pub async fn search(
         .map(|sort_data| sort_data.map(SortUserField::from));
     let cursor =
         extract_json_cursor_query(&event.payload.query_string_parameters)?.unwrap_or(Cursor {
-            size: 21,
+            size: DEFAULT_SEARCH_PAGE_SIZE,
             search_after: None,
         });
-    let query = event
-        .payload
-        .raw_query_string
-        .clone()
-        .filter(|query| !query.is_empty())
-        .unwrap_or_else(|| {
+    let query;
+    let query = match event.payload.raw_query_string.as_deref() {
+        Some(raw_query) if !raw_query.is_empty() => raw_query,
+        _ => {
             let mut serializer = url::form_urlencoded::Serializer::new(String::new());
             for (key, value) in event.payload.query_string_parameters.iter() {
                 serializer.append_pair(key, value);
             }
-            serializer.finish()
-        });
-    let search_data: UserSearchData = serde_qs::from_str(&query).map_err(|err| {
+            query = serializer.finish();
+            &query
+        }
+    };
+    let search_data: UserSearchData = serde_qs::from_str(query).map_err(|err| {
         let err_msg = err.to_string();
         ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
     })?;

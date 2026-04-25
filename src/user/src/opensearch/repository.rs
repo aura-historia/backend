@@ -127,13 +127,10 @@ impl<'a> UserOpenSearchRepository for UserOpenSearchRepositoryImpl<'a> {
 
         let mut body = json!({ "query": { "bool": { "must": must, "filter": filter } } });
         if let Some(c) = cursor {
-            body.as_object_mut()
-                .unwrap()
-                .insert("size".to_string(), json!(c.size));
+            let body_obj = body.as_object_mut().unwrap();
+            body_obj.insert("size".to_string(), json!(c.size));
             if let Some(search_after) = &c.search_after {
-                body.as_object_mut()
-                    .unwrap()
-                    .insert("search_after".to_string(), json!(search_after));
+                body_obj.insert("search_after".to_string(), json!(search_after));
             }
         }
 
