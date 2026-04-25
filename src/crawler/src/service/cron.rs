@@ -476,20 +476,46 @@ async fn scrape_candidate(
                 // Non-HTTP errors: schema failures, normalization errors, etc.
                 // These do not affect retry scheduling but are persisted for observability.
                 let error_kind = scraper_error_kind(&e);
-                if let Err(mark_err) = scraper_candidates
-                    .mark_scraper_failure(
-                        &candidate.shop_id,
-                        &candidate.url,
-                        error_kind,
-                        &error_message,
-                    )
-                    .await
-                {
-                    warn!(
-                        error = %mark_err,
-                        url = %candidate.url,
-                        "Failed to persist scraper failure metadata"
-                    );
+                match &e {
+                    ScraperError::SchemaRegenerationExhausted { .. } => {
+                        let cooldown = std::time::Duration::from_secs(30 * 60);
+                        let next_retry_at = time::OffsetDateTime::now_utc()
+                            + time::Duration::seconds(cooldown.as_secs() as i64);
+                        if let Err(mark_err) = scraper_candidates
+                            .mark_fetch_failure(
+                                &candidate.shop_id,
+                                &candidate.url,
+                                error_kind,
+                                &error_message,
+                                None,
+                                next_retry_at,
+                            )
+                            .await
+                        {
+                            warn!(
+                                error = %mark_err,
+                                url = %candidate.url,
+                                "Failed to persist schema-regeneration cooldown metadata"
+                            );
+                        }
+                    }
+                    _ => {
+                        if let Err(mark_err) = scraper_candidates
+                            .mark_scraper_failure(
+                                &candidate.shop_id,
+                                &candidate.url,
+                                error_kind,
+                                &error_message,
+                            )
+                            .await
+                        {
+                            warn!(
+                                error = %mark_err,
+                                url = %candidate.url,
+                                "Failed to persist scraper failure metadata"
+                            );
+                        }
+                    }
                 }
             }
 
@@ -520,9 +546,7 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::ProductRemoved { .. } => "ProductRemoved",
         ScraperError::NoHost { .. } => "NoHost",
         ScraperError::SchemaServiceError(_) => "SchemaServiceError",
-        ScraperError::SchemaFixFailed { .. } => "SchemaFixFailed",
-        ScraperError::SchemaFixApplyFailed { .. } => "SchemaFixApplyFailed",
-        ScraperError::SchemaFixAttemptsExhausted { .. } => "SchemaFixAttemptsExhausted",
+        ScraperError::SchemaRegenerationExhausted { .. } => "SchemaRegenerationExhausted",
         ScraperError::NormalizationError(_) => "NormalizationError",
     }
 }

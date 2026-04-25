@@ -62,6 +62,7 @@ The top-level entity. One row per shop.
 | `shop_slug` | TEXT (nullable) | URL-friendly slug identifier, synced from the upstream shop service |
 | `active` | BOOLEAN NOT NULL DEFAULT TRUE | Soft-delete flag managed by shop sync. `TRUE` shops are crawl/scrape eligible; `FALSE` shops are ignored by candidate selection. |
 | `url_pattern` | TEXT (nullable) | LLM-discovered regex that matches product page URLs. `NULL` until the spider classifies the shop for the first time. |
+| `llm_calls_count` | BIGINT NOT NULL DEFAULT 0 | Total number of schema-generation LLM calls made for this shop (seed generation + append retries). |
 | `created` | TIMESTAMPTZ | |
 | `updated` | TIMESTAMPTZ | Set to `NOW()` on every shop registration sync |
 
@@ -137,7 +138,7 @@ Caches the LLM-generated CSS selector schemas for each shop. One row per shop.
 | `product_schema` | JSONB | Serialized array of `ProductCssSelectorSchema` variants (legacy single-object payloads are still readable) |
 | `created` / `updated` | TIMESTAMPTZ | |
 
-If no cached schema variant applies to a product page, the scraper regenerates the schema set from seed pages and overwrites this row. If a selected schema fails during a fix attempt, the repaired schema set is also persisted back to this row.
+If no cached schema variant applies to a product page, the scraper enters append-and-retry mode: each attempt generates one schema for the current page, re-applies all variants, and persists only when one applies. Non-applicable generated schemas are discarded. Existing schema variants are never fully replaced. Persisted sets are deduplicated and capped to prevent unbounded schema growth.
 
 ---
 

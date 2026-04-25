@@ -126,7 +126,7 @@ async fn main() {
         spider_interval: Duration::from_secs(120), // Demo: retry spider every 2 minutes
         scraper_interval: Duration::from_secs(30), // Demo: run scraper loop every 30 seconds
         spider_batch_size: 5,
-        scraper_batch_size: 100,
+        scraper_batch_size: 10000,
         spider_concurrency: 5,
         scraper_concurrency: 5,
         spider_classify_threshold: 200,

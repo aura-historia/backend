@@ -59,20 +59,18 @@ After raw HTML extraction via CSS selectors, `ProductNormalizationService` trans
 
 ### State
 Four-tier lookup (see [LLM Integration — State Lookup Hierarchy](./llm-integration.md#state-lookup-hierarchy-4-tier)):
-0. **Length guard**: if `len(trim+lowercase(raw)) > 512` bytes, return `NormalizationError::StateTextTooLong` — which the scraper routes into the schema-fix path (the `state` CSS selector is extracting the wrong element).
+0. **Length guard**: if `len(trim+lowercase(raw)) > 512` bytes, return `NormalizationError::StateTextTooLong`.
 1. Exact match in `product_state_mapping`
 2. Regex scan over persisted patterns
 3. LLM call → persist → return
 
-`StateTextTooLong` (and other normalization errors that indicate a wrong selector — bad price, empty title, etc.) feed back into the schema-fix flow in `ScraperServiceImpl` rather than being terminal failures. This means normalization errors can trigger an LLM schema correction, just like an `apply()` failure does.
-
-`NormalizationError::ShopsProductIdEmpty` is **not** routed into the schema-fix loop — see the Shops Product ID subsection above. `PriceUnknownCurrency` **is** routed into the schema-fix loop so the LLM can populate `default_currency` on the schema — see the Price subsection below.
+Normalization errors are not used to trigger schema regeneration. Schema regeneration is only triggered when no schema variant applies at extraction time.
 
 ### Shops Product ID
 
 - Extracted from the page by the CSS selector schema field `shops_product_id`.
 - If the extracted value is blank after trimming, the full product page URL is used as a stable fallback identifier (infallible — normalization never fails on this field).
-- The fallback means `NormalizationError::ShopsProductIdEmpty` is never produced by the main pipeline and never triggers the schema-fix loop.
+- The fallback means `NormalizationError::ShopsProductIdEmpty` is never produced by the main pipeline.
 
 ### Title
 - Language detected using `lingua` (language detection library).
@@ -83,7 +81,7 @@ Four-tier lookup (see [LLM Integration — State Lookup Hierarchy](./llm-integra
 - Multi-locale currency parsing: handles formats like `1.200,50 €`, `$1,200.50`, `1 200 CHF`.
 - **Soft handling for "price on request" markers**: values like `"Price on Request"` / `"Preis auf Anfrage"` are treated as intentionally non-numeric and normalized to `None` (with a warning log) instead of failing the scrape.
 - **Fallback currency from schema**: if the extracted price string contains no currency symbol or ISO code (e.g. bare `"18,00"` or `"1590"`), `normalize()` checks `default_currency` — a field the LLM sets on the `ProductCssSelectorSchema` when it can determine the shop's currency from full-page context. If `default_currency` is present it is used as the currency; otherwise `PriceUnknownCurrency` is returned.
-- `PriceUnknownCurrency` **is** routed into the LLM schema-fix loop (for genuinely unknown currency-bearing price text). The synthetic `ApplySchemaError` hint instructs the LLM to inspect the page for currency context and populate `default_currency` on the schema. Up to two fix attempts are made; if both fail the price is left unparseable for that product.
+- `PriceUnknownCurrency` is returned as a normalization error when no currency marker is present and `default_currency` is missing.
 - Extracts both `price_value` (numeric) and `price_currency` (ISO 4217 code).
 - Stored separately on `shop_urls`.
 

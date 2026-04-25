@@ -221,6 +221,13 @@ pub trait ScraperCandidateService: Send + Sync {
         error_kind: &str,
         error_message: &str,
     ) -> Result<(), sqlx::Error>;
+
+    /// Increment per-shop LLM call counter used by schema generation flows.
+    async fn increment_shop_llm_calls(
+        &self,
+        shop_id: &ShopId,
+        delta: i64,
+    ) -> Result<(), sqlx::Error>;
 }
 
 // ---------------------------------------------------------------------------
@@ -507,6 +514,25 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(url_str)
         .bind(error_kind)
         .bind(error_message)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn increment_shop_llm_calls(
+        &self,
+        shop_id: &ShopId,
+        delta: i64,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE shops
+             SET llm_calls_count = llm_calls_count + $2,
+                 updated = NOW()
+             WHERE shop_id = $1",
+        )
+        .bind(uuid::Uuid::from(*shop_id))
+        .bind(delta)
         .execute(&self.pool)
         .await?;
 
