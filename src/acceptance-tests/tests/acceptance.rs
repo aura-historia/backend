@@ -94,6 +94,7 @@ use serde::de::DeserializeOwned;
 use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
 use shop::data::get_shop_data::GetShopData;
 use shop::data::patch_shop_data::PatchShopData;
+use shop::data::post_shop_data::PostShopData;
 use shop::dynamodb::repository::ShopDynamoDbRepository;
 use shop::dynamodb::shop_record::ShopRecord;
 use shop::{core::shop::Shop, dynamodb::repository::ShopDynamoDbRepositoryImpl};
@@ -4615,6 +4616,24 @@ async fn should_respond_200_for_shop_patch_by_partner() {
         .await
         .unwrap();
     assert_eq!(200, response.status());
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_201_for_shop_post_by_admin() {
+    let admin = create_admin_test_user().await;
+    let stack = get_cfn_output();
+
+    let post_data: PostShopData = Faker.fake();
+
+    let url = format!("{}/api/v1/shops", stack.api_gateway_endpoint_url,);
+    let response = reqwest::Client::new()
+        .post(&url)
+        .bearer_auth(&admin.access_token)
+        .json(&post_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(201, response.status());
 }
 
 #[localstack_test(services = [Cloudformation()])]

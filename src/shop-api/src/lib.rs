@@ -9,6 +9,7 @@ use user::service::user_service::UserService;
 
 pub mod get;
 pub mod patch;
+pub mod post;
 pub mod put_api_key;
 pub mod search;
 
@@ -67,6 +68,7 @@ pub async fn handle(
         Some("PATCH /api/v1/shops/{shopId}") => {
             patch::handle(event, command_shop_service, get_shop_service, user_service).await
         }
+        Some("POST /api/v1/shops") => post::handle(event, command_shop_service, user_service).await,
         Some("PUT /api/v1/shops/{shopId}/api-key") => {
             put_api_key::handle(event, command_shop_service, get_shop_service, user_service).await
         }
