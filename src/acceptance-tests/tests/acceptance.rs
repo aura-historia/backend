@@ -6492,7 +6492,6 @@ async fn should_201_for_billing_manage_with_checkout_for_free_and_portal_for_pai
 // management endpoints with Cognito JWT authentication and admin role check.
 // ---------------------------------------------------------------------------
 
-#[allow(dead_code)]
 async fn wait_until_user_document_exists(user_id: impl Into<String>) -> UserDocument {
     let user_id = user_id.into();
     for _ in 0..24 {

@@ -83,7 +83,6 @@ async fn should_update_user_document_when_already_exists() {
 
     assert!(res.is_ok());
     refresh_index("users").await;
-    tokio::time::sleep(Duration::from_secs(3)).await;
     let actual = read_by_id::<UserDocument>("users", updated_record.user_id).await;
     assert_eq!(UserDocument::from(updated_record), actual);
 }
