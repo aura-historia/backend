@@ -1,7 +1,9 @@
 use crate::scraper::candidate_service::{
     ProductSnapshot, ScraperCandidate, ScraperCandidateService,
 };
-use crate::scraper::scraper_service::{DEFAULT_SCHEMA_SEED_PAGES, ScraperError, ScraperService};
+use crate::scraper::scraper_service::{
+    DEFAULT_MAX_LLM_CALLS_PER_SHOP, DEFAULT_SCHEMA_SEED_PAGES, ScraperError, ScraperService,
+};
 use crate::service::product_push::{ProductPushService, normalize_to_upsert};
 use crate::service::shop_registration::ShopRegistrationService;
 use crate::spider::advisory_lock::{DomainLock, LocalLockManager, UrlLock};
@@ -37,6 +39,8 @@ pub struct CrawlerCronConfig {
     pub scraper_schema_seed_pages: usize,
     /// Delay between consecutive scraper requests for the same domain.
     pub scraper_domain_delay: Duration,
+    /// Hard per-shop budget for schema-generation LLM calls.
+    pub scraper_max_llm_calls_per_shop: i64,
     /// Maximum Postgres connections for crawler queries.
     pub db_max_connections: Option<u32>,
 }
@@ -55,6 +59,7 @@ impl Default for CrawlerCronConfig {
             spider_classify_threshold: 200,
             scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
             scraper_domain_delay: Duration::from_secs(1),
+            scraper_max_llm_calls_per_shop: DEFAULT_MAX_LLM_CALLS_PER_SHOP,
             db_max_connections: None,
         }
     }
@@ -170,16 +175,16 @@ impl CrawlerCronJob {
         let sync_job = self.clone();
         let scraper_job = self;
 
+        let sync_handle = tokio::spawn(async move {
+            sync_job.shop_sync_loop().await;
+        });
+
         let spider_handle = tokio::spawn(async move {
             spider_job.spider_loop().await;
         });
 
         let scraper_handle = tokio::spawn(async move {
             scraper_job.scraper_loop().await;
-        });
-
-        let sync_handle = tokio::spawn(async move {
-            sync_job.shop_sync_loop().await;
         });
 
         let _ = tokio::join!(spider_handle, scraper_handle, sync_handle);
@@ -477,7 +482,8 @@ async fn scrape_candidate(
                 // These do not affect retry scheduling but are persisted for observability.
                 let error_kind = scraper_error_kind(&e);
                 match &e {
-                    ScraperError::SchemaRegenerationExhausted { .. } => {
+                    ScraperError::SchemaRegenerationExhausted { .. }
+                    | ScraperError::LlmBudgetExceeded { .. } => {
                         let cooldown = std::time::Duration::from_secs(30 * 60);
                         let next_retry_at = time::OffsetDateTime::now_utc()
                             + time::Duration::seconds(cooldown.as_secs() as i64);
@@ -495,7 +501,7 @@ async fn scrape_candidate(
                             warn!(
                                 error = %mark_err,
                                 url = %candidate.url,
-                                "Failed to persist schema-regeneration cooldown metadata"
+                                "Failed to persist schema-regeneration/LLM-budget cooldown metadata"
                             );
                         }
                     }
@@ -547,6 +553,7 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::NoHost { .. } => "NoHost",
         ScraperError::SchemaServiceError(_) => "SchemaServiceError",
         ScraperError::SchemaRegenerationExhausted { .. } => "SchemaRegenerationExhausted",
+        ScraperError::LlmBudgetExceeded { .. } => "LlmBudgetExceeded",
         ScraperError::NormalizationError(_) => "NormalizationError",
     }
 }
@@ -1009,6 +1016,61 @@ mod tests {
                 })
             })
         });
+
+        let mut push_service = MockProductPushService::new();
+        push_service.expect_push().times(0);
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_shop_registration(),
+            Box::new(push_service),
+        );
+
+        job.run_scraper_once().await;
+    }
+
+    #[tokio::test]
+    async fn should_mark_fetch_failure_for_llm_budget_exceeded_error() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+        let spider_service = MockSpiderService::new();
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates.expect_get_candidates().returning(|_| {
+            Box::pin(async {
+                Ok(vec![scraper_candidate(
+                    "Test Shop",
+                    ShopType::CommercialDealer,
+                    url::Url::parse("https://example.com/product/1").unwrap(),
+                )])
+            })
+        });
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .once()
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .returning(|shop_id, url, _| {
+                let url = url.clone();
+                let shop_id = *shop_id;
+                Box::pin(async move {
+                    Err(ScraperError::LlmBudgetExceeded {
+                        shop_id,
+                        url,
+                        max_calls: 5,
+                    })
+                })
+            });
 
         let mut push_service = MockProductPushService::new();
         push_service.expect_push().times(0);

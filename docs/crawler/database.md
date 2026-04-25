@@ -72,6 +72,8 @@ The top-level entity. One row per shop.
 
 `url_pattern` is the handoff from the URL classification LLM to the spider's per-URL classification logic. Once set, it is reused on subsequent crawls and only refreshed if it matches zero products.
 
+`llm_calls_count` is used by the scraper hard-budget guardrail (`scraper_max_llm_calls_per_shop`, default `20`). Scraper candidate selection requires `shops.llm_calls_count < cap`, so once a shop reaches the cap, subsequent scraper runs no longer pick its URLs. If the cap is hit mid-scrape, the scrape fails with `LlmBudgetExceeded` and cooldown metadata is recorded.
+
 ---
 
 ### `shop_domains`
@@ -214,6 +216,7 @@ SELECT su.shop_id, su.url, su.last_scraped_hash
 FROM   shop_urls su
 JOIN   shops s ON s.shop_id = su.shop_id
 WHERE  su.url_class = 'product'
+  AND  s.llm_calls_count < $2
   AND  su.last_scraped_state IN ('UNKNOWN', 'LISTED', 'AVAILABLE', 'RESERVED')
   AND  (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
   AND  (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')

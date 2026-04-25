@@ -188,6 +188,7 @@ SELECT su.shop_id, su.url, su.last_scraped_hash
 FROM   shop_urls su
 JOIN   shops s ON s.shop_id = su.shop_id
 WHERE  su.url_class  = 'product'
+  AND  s.llm_calls_count < $2
   AND  su.last_scraped_state IN ('UNKNOWN', 'LISTED', 'AVAILABLE', 'RESERVED')
   AND  (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
   AND  (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
@@ -196,7 +197,7 @@ ORDER BY su.last_scraped NULLS FIRST
 LIMIT  $1
 ```
 
-Only product URLs for **active** shops that haven't been scraped today, are in an active state, and whose retry cooldown has elapsed are eligible.
+Only product URLs for **active** shops that haven't been scraped today, are in an active state, whose retry cooldown has elapsed, and whose shop-level LLM-call budget is still below cap are eligible.
 
 **Schema seeding on schema-cache miss:** The same service also samples random same-shop product URLs using `ORDER BY RANDOM() LIMIT ...` while excluding the current URL. This is intentional because schema cache misses are rare (typically one-time per shop unless schema rows are reset), so this query is not in the hot path. Up to `scraper_schema_seed_pages - 1` (default 2) additional pages are fetched best-effort; if fetches fail the current page alone is used to seed the initial schema generation.
 
@@ -212,6 +213,7 @@ The scraper now persists network-failure metadata on each URL row:
 - `next_retry_at` — earliest timestamp when the URL is eligible again.
 
 On each successful scrape (`mark_as_scraped`) these fields are reset. On retryable HTTP failures, the cron worker records a cooldown (`mark_fetch_failure`) so the URL is skipped until `next_retry_at`. The same cooldown path is used for `SchemaRegenerationExhausted` to prevent repeated LLM-call bursts on a single problematic URL.
+The same cooldown path is also used for `LlmBudgetExceeded`: when the per-shop schema-generation budget is exhausted during an in-flight scrape, a retry cooldown is written for observability. In steady state, hard-stop is enforced earlier by candidate selection (`shops.llm_calls_count < cap`).
 
 ### Scrape execution — `ScraperServiceImpl`
 
@@ -277,6 +279,8 @@ This enables heterogeneous shops (with multiple page layouts) to dynamically acc
 **`scraper::Html` is `!Send`**: the parsed HTML object cannot be held across an `.await`. `apply_schema()` is a synchronous helper that parses the HTML, applies the schema, and returns — ensuring no `Html` value is live when any `.await` point is reached.
 
 **Attempt budget and observability**: `max_schema_fix_attempts` is reused as the regeneration-attempt budget for the append-and-retry loop. When exhausted, scraping returns `SchemaRegenerationExhausted`, cron persists the failure and writes a cooldown (`next_retry_at`) so the URL is skipped for a backoff window. Every schema-generation LLM call increments `shops.llm_calls_count`.
+
+**Hard LLM budget stop**: schema-generation calls are guarded by `scraper_max_llm_calls_per_shop` (default `20`). Once the cap is reached, scraper candidate selection excludes that shop entirely (`shops.llm_calls_count < cap`), preventing subsequent scrape loops. If a scrape hits the cap mid-run, scraper returns `LlmBudgetExceeded`; cron records cooldown metadata via `mark_fetch_failure`.
 
 ---
 

@@ -210,16 +210,27 @@ async fn main() {
     let schema_svc = ProductSchemaServiceImpl::new(schema_llm_builder, schema_repo)
         .expect("failed to build ProductSchemaServiceImpl");
 
-    let scraper_candidates = Box::new(ScraperCandidateServiceImpl::new(pool.clone()));
+    let scraper_candidates = Box::new(
+        ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
+            pool.clone(),
+            config.scraper_max_llm_calls_per_shop,
+        ),
+    );
 
     let fetcher = Box::new(ReqwestHtmlFetcher::new());
     let scraper_svc = Box::new(ScraperServiceImpl::new_with_schema_seed_pages(
         fetcher,
         Box::new(schema_svc),
         Box::new(normalization_svc),
-        Arc::new(ScraperCandidateServiceImpl::new(pool.clone())),
+        Arc::new(
+            ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
+                pool.clone(),
+                config.scraper_max_llm_calls_per_shop,
+            ),
+        ),
         3,
         config.scraper_schema_seed_pages,
+        config.scraper_max_llm_calls_per_shop,
     ));
 
     let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));

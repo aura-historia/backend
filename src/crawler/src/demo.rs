@@ -38,7 +38,7 @@ use crawler::scraper::normalization::product_normalization_service::ProductNorma
 use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
 use crawler::scraper::scraper_service::{
-    DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
+    ReqwestHtmlFetcher, ScraperServiceImpl, DEFAULT_SCHEMA_SEED_PAGES,
 };
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crawler::service::product_push::FileProductPushService;
@@ -124,7 +124,7 @@ async fn main() {
     // Build the cron config first so it can drive pool sizing below.
     let config = CrawlerCronConfig {
         spider_interval: Duration::from_secs(120), // Demo: retry spider every 2 minutes
-        scraper_interval: Duration::from_secs(30), // Demo: run scraper loop every 30 seconds
+        scraper_interval: Duration::from_secs(30), // Dem
         spider_batch_size: 5,
         scraper_batch_size: 10000,
         spider_concurrency: 5,
@@ -186,16 +186,27 @@ async fn main() {
     let schema_svc = ProductSchemaServiceImpl::new(schema_llm_builder, schema_repo)
         .expect("failed to build ProductSchemaServiceImpl");
 
-    let scraper_candidates = Box::new(ScraperCandidateServiceImpl::new(pool.clone()));
+    let scraper_candidates = Box::new(
+        ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
+            pool.clone(),
+            config.scraper_max_llm_calls_per_shop,
+        ),
+    );
 
     let fetcher = Box::new(ReqwestHtmlFetcher::new());
     let scraper_svc = Box::new(ScraperServiceImpl::new_with_schema_seed_pages(
         fetcher,
         Box::new(schema_svc),
         Box::new(normalization_svc),
-        Arc::new(ScraperCandidateServiceImpl::new(pool.clone())),
+        Arc::new(
+            ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
+                pool.clone(),
+                config.scraper_max_llm_calls_per_shop,
+            ),
+        ),
         3,
         config.scraper_schema_seed_pages,
+        config.scraper_max_llm_calls_per_shop,
     ));
 
     let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));

@@ -14,6 +14,7 @@ use time::OffsetDateTime;
 use url::Url;
 
 use crate::scraper::normalization::product::NormalizedProduct;
+use crate::scraper::scraper_service::DEFAULT_MAX_LLM_CALLS_PER_SHOP;
 use crate::service::shop_registration::shop_type_from_db;
 use crate::spider::classification::url_metadata::UrlState;
 
@@ -228,6 +229,23 @@ pub trait ScraperCandidateService: Send + Sync {
         shop_id: &ShopId,
         delta: i64,
     ) -> Result<(), sqlx::Error>;
+
+    /// Try to increment per-shop LLM call counter if the configured max would
+    /// not be exceeded. Returns `true` when incremented, `false` when blocked
+    /// by the limit.
+    async fn try_increment_shop_llm_calls_with_limit(
+        &self,
+        shop_id: &ShopId,
+        delta: i64,
+        max_calls: i64,
+    ) -> Result<bool, sqlx::Error>;
+
+    /// Returns whether the per-shop LLM-call budget is already exhausted.
+    async fn is_shop_llm_budget_exhausted(
+        &self,
+        shop_id: &ShopId,
+        max_calls: i64,
+    ) -> Result<bool, sqlx::Error>;
 }
 
 // ---------------------------------------------------------------------------
@@ -236,11 +254,19 @@ pub trait ScraperCandidateService: Send + Sync {
 
 pub struct ScraperCandidateServiceImpl {
     pool: PgPool,
+    max_llm_calls_per_shop: i64,
 }
 
 impl ScraperCandidateServiceImpl {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self::new_with_max_llm_calls_per_shop(pool, DEFAULT_MAX_LLM_CALLS_PER_SHOP)
+    }
+
+    pub fn new_with_max_llm_calls_per_shop(pool: PgPool, max_llm_calls_per_shop: i64) -> Self {
+        Self {
+            pool,
+            max_llm_calls_per_shop,
+        }
     }
 }
 
@@ -280,6 +306,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             FROM shop_urls su
             JOIN shops s ON s.shop_id = su.shop_id
             WHERE s.active = TRUE
+              AND s.llm_calls_count < $2
               AND su.url_class = 'product'
               AND su.last_scraped_state IN ('AVAILABLE', 'UNKNOWN', 'LISTED', 'RESERVED')
               AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
@@ -289,6 +316,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             "#,
         )
         .bind(limit)
+        .bind(self.max_llm_calls_per_shop)
         .fetch_all(&self.pool)
         .await?;
 
@@ -537,6 +565,47 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .await?;
 
         Ok(())
+    }
+
+    async fn try_increment_shop_llm_calls_with_limit(
+        &self,
+        shop_id: &ShopId,
+        delta: i64,
+        max_calls: i64,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            "UPDATE shops
+             SET llm_calls_count = llm_calls_count + $2,
+                 updated = NOW()
+             WHERE shop_id = $1
+               AND llm_calls_count + $2 <= $3",
+        )
+        .bind(uuid::Uuid::from(*shop_id))
+        .bind(delta)
+        .bind(max_calls)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn is_shop_llm_budget_exhausted(
+        &self,
+        shop_id: &ShopId,
+        max_calls: i64,
+    ) -> Result<bool, sqlx::Error> {
+        let exhausted = sqlx::query_scalar::<_, bool>(
+            "SELECT llm_calls_count >= $2
+             FROM shops
+             WHERE shop_id = $1",
+        )
+        .bind(uuid::Uuid::from(*shop_id))
+        .bind(max_calls)
+        .fetch_optional(&self.pool)
+        .await?
+        .unwrap_or(false);
+
+        Ok(exhausted)
     }
 }
 

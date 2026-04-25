@@ -50,7 +50,9 @@ use crawler::scraper::normalization::product::NormalizedProduct;
 use crawler::scraper::normalization::product_normalization_service::ProductNormalizationServiceImpl;
 use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
-use crawler::scraper::scraper_service::{ReqwestHtmlFetcher, ScraperService, ScraperServiceImpl};
+use crawler::scraper::scraper_service::{
+    DEFAULT_MAX_LLM_CALLS_PER_SHOP, ReqwestHtmlFetcher, ScraperService, ScraperServiceImpl,
+};
 use llm::builder::{LLMBackend, LLMBuilder};
 use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
@@ -291,5 +293,6 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
         candidate_service,
         3,
         3,
+        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     )
 }

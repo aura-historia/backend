@@ -1,6 +1,6 @@
 use crate::network::policy::{
-    NetworkAction, NetworkErrorKind, RetryPolicy, action_for, backoff_delay,
-    classify_reqwest_error, retry_cooldown_for,
+    action_for, backoff_delay, classify_reqwest_error, retry_cooldown_for, NetworkAction,
+    NetworkErrorKind, RetryPolicy,
 };
 use crate::scraper::candidate_service::{ProductSnapshot, ScraperCandidateService};
 use crate::scraper::css_selector::product_schema::{
@@ -27,6 +27,7 @@ use url::Url;
 const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
 pub const DEFAULT_SCHEMA_SEED_PAGES: usize = 10;
 const MAX_SCHEMA_VARIANTS_PER_SHOP: usize = 5;
+pub const DEFAULT_MAX_LLM_CALLS_PER_SHOP: i64 = 20;
 
 // ---------------------------------------------------------------------------
 // HtmlFetcher trait — abstracted so it can be mocked in unit tests
@@ -201,6 +202,15 @@ pub enum ScraperError {
 
     #[error("Normalization error: {0}")]
     NormalizationError(#[from] NormalizationError),
+
+    #[error(
+        "LLM call budget exceeded for shop '{shop_id}' while scraping '{url}' (limit={max_calls})"
+    )]
+    LlmBudgetExceeded {
+        shop_id: ShopId,
+        url: Url,
+        max_calls: i64,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -257,6 +267,8 @@ pub struct ScraperServiceImpl {
     /// Number of HTML pages to seed first-time schema generation with.
     /// `1` means current page only; values >1 trigger best-effort sampling/fetch.
     schema_seed_pages: usize,
+    /// Hard limit for total schema-generation LLM calls per shop.
+    max_llm_calls_per_shop: i64,
 }
 
 impl ScraperServiceImpl {
@@ -274,6 +286,7 @@ impl ScraperServiceImpl {
             candidate_service,
             max_schema_fix_attempts,
             DEFAULT_SCHEMA_SEED_PAGES,
+            DEFAULT_MAX_LLM_CALLS_PER_SHOP,
         )
     }
 
@@ -284,6 +297,7 @@ impl ScraperServiceImpl {
         candidate_service: Arc<dyn ScraperCandidateService>,
         max_schema_fix_attempts: u32,
         schema_seed_pages: usize,
+        max_llm_calls_per_shop: i64,
     ) -> Self {
         Self {
             html_fetcher,
@@ -292,6 +306,7 @@ impl ScraperServiceImpl {
             candidate_service,
             max_schema_fix_attempts,
             schema_seed_pages: schema_seed_pages.max(1),
+            max_llm_calls_per_shop,
         }
     }
 }
@@ -329,6 +344,39 @@ impl ScraperServiceImpl {
 // ---------------------------------------------------------------------------
 
 impl ScraperServiceImpl {
+    async fn consume_llm_budget_or_err(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+    ) -> Result<(), ScraperError> {
+        #[cfg(not(test))]
+        {
+            let incremented = self
+                .candidate_service
+                .try_increment_shop_llm_calls_with_limit(shop_id, 1, self.max_llm_calls_per_shop)
+                .await
+                .map_err(|err| {
+                    ScraperError::SchemaServiceError(ProductSchemaServiceError::DatabaseError(err))
+                })?;
+
+            if !incremented {
+                warn!(
+                    shop_id = %shop_id,
+                    url = %url,
+                    max_calls = self.max_llm_calls_per_shop,
+                    "Skipping schema generation because per-shop LLM budget is exhausted"
+                );
+                return Err(ScraperError::LlmBudgetExceeded {
+                    shop_id: *shop_id,
+                    url: url.clone(),
+                    max_calls: self.max_llm_calls_per_shop,
+                });
+            }
+        }
+
+        Ok(())
+    }
+
     async fn collect_schema_seed_pages(
         &self,
         shop_id: &ShopId,
@@ -405,14 +453,7 @@ impl ScraperServiceImpl {
             Ok(existing)
         } else {
             let seed_pages = self.collect_schema_seed_pages(shop_id, url, html).await;
-            #[cfg(not(test))]
-            if let Err(err) = self
-                .candidate_service
-                .increment_shop_llm_calls(shop_id, 1)
-                .await
-            {
-                warn!(shop_id = %shop_id, error = %err, "Failed to increment shop LLM call counter");
-            }
+            self.consume_llm_budget_or_err(shop_id, url).await?;
             let schemas = self
                 .schema_service
                 .create_product_schemas(&seed_pages)
@@ -465,14 +506,7 @@ impl ScraperServiceImpl {
         let mut last_error: Option<ApplySchemaError> = None;
 
         for attempt in 1..=attempts {
-            #[cfg(not(test))]
-            if let Err(err) = self
-                .candidate_service
-                .increment_shop_llm_calls(shop_id, 1)
-                .await
-            {
-                warn!(shop_id = %shop_id, error = %err, "Failed to increment shop LLM call counter");
-            }
+            self.consume_llm_budget_or_err(shop_id, url).await?;
 
             let candidate = self
                 .schema_service
@@ -553,6 +587,25 @@ impl ScraperService for ScraperServiceImpl {
         let domain = url
             .host_str()
             .ok_or_else(|| ScraperError::NoHost { url: url.clone() })?;
+
+        #[cfg(not(test))]
+        {
+            let exhausted = self
+                .candidate_service
+                .is_shop_llm_budget_exhausted(shop_id, self.max_llm_calls_per_shop)
+                .await
+                .map_err(|err| {
+                    ScraperError::SchemaServiceError(ProductSchemaServiceError::DatabaseError(err))
+                })?;
+
+            if exhausted {
+                return Err(ScraperError::LlmBudgetExceeded {
+                    shop_id: *shop_id,
+                    url: url.clone(),
+                    max_calls: self.max_llm_calls_per_shop,
+                });
+            }
+        }
 
         // 1. Fetch HTML --------------------------------------------------
         debug!(domain, url = %url, "Fetching product page HTML");
@@ -892,6 +945,7 @@ mod tests {
             Arc::new(cand_svc),
             3,
             1,
+            DEFAULT_MAX_LLM_CALLS_PER_SHOP,
         );
 
         let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
@@ -956,6 +1010,7 @@ mod tests {
             Arc::new(cand_svc),
             3,
             1,
+            DEFAULT_MAX_LLM_CALLS_PER_SHOP,
         );
 
         let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
@@ -1059,6 +1114,7 @@ mod tests {
             Arc::new(cand_svc),
             3,
             3,
+            DEFAULT_MAX_LLM_CALLS_PER_SHOP,
         );
 
         let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
@@ -1127,6 +1183,7 @@ mod tests {
             Arc::new(cand_svc),
             3,
             3,
+            DEFAULT_MAX_LLM_CALLS_PER_SHOP,
         );
 
         let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
@@ -1211,6 +1268,7 @@ mod tests {
             Arc::new(cand_svc),
             3,
             3,
+            DEFAULT_MAX_LLM_CALLS_PER_SHOP,
         );
 
         let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
@@ -1272,6 +1330,7 @@ mod tests {
             Arc::new(cand_svc),
             3,
             1,
+            DEFAULT_MAX_LLM_CALLS_PER_SHOP,
         );
 
         let result = service.scrape(&id, &url, None).await;
@@ -1307,6 +1366,7 @@ mod tests {
             Arc::new(cand_svc),
             3,
             1,
+            DEFAULT_MAX_LLM_CALLS_PER_SHOP,
         );
 
         let result = service
@@ -1422,6 +1482,7 @@ mod tests {
             Arc::new(cand_svc),
             3,
             1,
+            DEFAULT_MAX_LLM_CALLS_PER_SHOP,
         );
 
         let result = service.scrape(&id, &url, None).await.unwrap().unwrap();

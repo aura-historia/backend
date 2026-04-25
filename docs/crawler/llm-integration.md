@@ -50,6 +50,9 @@ The crawler uses three distinct LLM instances, each with its own system prompt, 
   - on exhaustion, scraping returns `SchemaRegenerationExhausted`; cron records the error and sets a retry cooldown.
 - Normalization does **not** trigger schema regeneration anymore. Normalization errors are propagated directly.
 - Every schema-generation LLM call increments `shops.llm_calls_count` for per-shop observability.
+- Hard budget guardrail: schema-generation calls are capped by `scraper_max_llm_calls_per_shop` (default `20`).
+  - Candidate selection enforces a hard stop for that shop once the cap is reached (`shops.llm_calls_count < cap`).
+  - If the cap is reached during an in-flight scrape, scraper returns `LlmBudgetExceeded` and cron writes cooldown metadata (`next_retry_at`) for observability.
 
 **HTML pre-processing (before sending to LLM):**
 - `<script>`, `<style>`, `<nav>`, `<footer>`, `<header>`, `<form>` elements stripped.
