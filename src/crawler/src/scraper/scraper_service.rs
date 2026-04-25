@@ -374,6 +374,11 @@ impl ScraperServiceImpl {
             }
         }
 
+        #[cfg(test)]
+        {
+            let _ = (shop_id, url, self.max_llm_calls_per_shop);
+        }
+
         Ok(())
     }
 

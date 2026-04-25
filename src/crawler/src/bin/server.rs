@@ -34,7 +34,7 @@ use crawler::scraper::normalization::product_normalization_service::ProductNorma
 use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
 use crawler::scraper::scraper_service::{
-    DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
+    ReqwestHtmlFetcher, ScraperServiceImpl, DEFAULT_SCHEMA_SEED_PAGES,
 };
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crawler::service::product_push::ProductPushServiceImpl;
@@ -146,10 +146,10 @@ async fn main() {
 
     // 1. Build cron config (needed for pool sizing before everything else)
     let config = CrawlerCronConfig {
-        spider_interval: Duration::from_secs(600),
-        scraper_interval: Duration::from_secs(60),
-        spider_batch_size: 1000,
-        scraper_batch_size: 200,
+        spider_interval: Duration::from_hours(72),
+        scraper_interval: Duration::from_hours(2),
+        spider_batch_size: 100,
+        scraper_batch_size: 10000,
         spider_concurrency: 10,
         scraper_concurrency: 10,
         spider_classify_threshold: 400,
@@ -258,7 +258,6 @@ async fn main() {
     ));
 
     let spider_config = SpiderServiceConfig {
-        db_batch_size: 10,
         ..Default::default()
     };
     let website_spider = Box::new(SpiderImpl::default());
