@@ -130,6 +130,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
         shop_url: &str,
         urls: &[String],
     ) -> Result<Option<Regex>, UrlPatternServiceError> {
+        self.repository.increment_shop_llm_calls(shop_id, 1).await?;
         let pattern = self
             .classification_service
             .find_product_url_pattern(shop_url, urls)
@@ -240,6 +241,9 @@ mod service_tests {
     #[tokio::test]
     async fn should_classify_and_save_pattern() {
         let mut mock_repo = MockShopUrlPatternRepository::new();
+        mock_repo
+            .expect_increment_shop_llm_calls()
+            .returning(|_, _| Box::pin(async { Ok(()) }));
         mock_repo
             .expect_save_pattern()
             .returning(|_, _, _| Box::pin(async { Ok(()) }));

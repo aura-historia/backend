@@ -62,7 +62,7 @@ The top-level entity. One row per shop.
 | `shop_slug` | TEXT (nullable) | URL-friendly slug identifier, synced from the upstream shop service |
 | `active` | BOOLEAN NOT NULL DEFAULT TRUE | Soft-delete flag managed by shop sync. `TRUE` shops are crawl/scrape eligible; `FALSE` shops are ignored by candidate selection. |
 | `url_pattern` | TEXT (nullable) | LLM-discovered regex that matches product page URLs. `NULL` until the spider classifies the shop for the first time. |
-| `llm_calls_count` | BIGINT NOT NULL DEFAULT 0 | Total number of schema-generation LLM calls made for this shop (seed generation + append retries). |
+| `llm_calls_count` | BIGINT NOT NULL DEFAULT 0 | Total number of shop-scoped LLM calls for this shop (URL pattern classification + schema generation/retries). |
 | `created` | TIMESTAMPTZ | |
 | `updated` | TIMESTAMPTZ | Set to `NOW()` on every shop registration sync |
 

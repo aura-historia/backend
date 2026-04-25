@@ -115,18 +115,24 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
 
         let price = normalize_price_field(
             raw.price,
+            "price",
+            &url,
             default_currency,
             |r| NormalizationError::PriceUnknownCurrency { raw: r },
             |r| NormalizationError::PriceParseError { raw: r },
         )?;
         let price_estimate_min = normalize_price_field(
             raw.price_estimate_min,
+            "price_estimate_min",
+            &url,
             default_currency,
             |r| NormalizationError::PriceEstimateMinUnknownCurrency { raw: r },
             |r| NormalizationError::PriceEstimateMinParseError { raw: r },
         )?;
         let price_estimate_max = normalize_price_field(
             raw.price_estimate_max,
+            "price_estimate_max",
+            &url,
             default_currency,
             |r| NormalizationError::PriceEstimateMaxUnknownCurrency { raw: r },
             |r| NormalizationError::PriceEstimateMaxParseError { raw: r },

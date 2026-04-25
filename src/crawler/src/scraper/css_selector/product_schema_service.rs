@@ -152,7 +152,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
             ));
         }
 
-        info!(
+        debug!(
             schemas_count = schemas.len(),
             "LLM created product CSS selector schemas"
         );
@@ -198,7 +198,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
             existing.product_schema = first;
         }
 
-        info!(
+        debug!(
             total_schemas = existing.product_schemas.len(),
             appended = new_schemas.len(),
             "Appended schema to existing set"

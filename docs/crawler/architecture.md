@@ -280,7 +280,7 @@ This enables heterogeneous shops (with multiple page layouts) to dynamically acc
 
 **Attempt budget and observability**: `max_schema_fix_attempts` is reused as the regeneration-attempt budget for the append-and-retry loop. When exhausted, scraping returns `SchemaRegenerationExhausted`, cron persists the failure and writes a cooldown (`next_retry_at`) so the URL is skipped for a backoff window. Every schema-generation LLM call increments `shops.llm_calls_count`.
 
-**Hard LLM budget stop**: schema-generation calls are guarded by `scraper_max_llm_calls_per_shop` (default `20`). Once the cap is reached, scraper candidate selection excludes that shop entirely (`shops.llm_calls_count < cap`), preventing subsequent scrape loops. If a scrape hits the cap mid-run, scraper returns `LlmBudgetExceeded`; cron records cooldown metadata via `mark_fetch_failure`.
+**Hard LLM budget stop**: shop-scoped LLM calls are tracked in `shops.llm_calls_count` (URL pattern classification + schema generation). Scraper schema-generation calls are guarded by `scraper_max_llm_calls_per_shop` (default `20`). Once the cap is reached, scraper candidate selection excludes that shop entirely (`shops.llm_calls_count < cap`), preventing subsequent scrape loops. If a scrape hits the cap mid-run, scraper returns `LlmBudgetExceeded`; cron records cooldown metadata via `mark_fetch_failure`.
 
 ---
 

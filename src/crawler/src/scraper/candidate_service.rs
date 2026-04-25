@@ -50,6 +50,13 @@ pub struct ScraperCandidate {
     pub last_scraped_state: Option<String>,
 }
 
+/// Per-shop LLM usage snapshot for operational logging.
+pub struct ShopLlmUsage {
+    pub shop_id: ShopId,
+    pub shop_name: String,
+    pub llm_calls_count: i64,
+}
+
 // ---------------------------------------------------------------------------
 // Change detection
 // ---------------------------------------------------------------------------
@@ -246,6 +253,12 @@ pub trait ScraperCandidateService: Send + Sync {
         shop_id: &ShopId,
         max_calls: i64,
     ) -> Result<bool, sqlx::Error>;
+
+    /// Returns per-shop LLM call counts for the provided shop IDs.
+    async fn get_shop_llm_usage(
+        &self,
+        shop_ids: Vec<ShopId>,
+    ) -> Result<Vec<ShopLlmUsage>, sqlx::Error>;
 }
 
 // ---------------------------------------------------------------------------
@@ -606,6 +619,34 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .unwrap_or(false);
 
         Ok(exhausted)
+    }
+
+    async fn get_shop_llm_usage(
+        &self,
+        shop_ids: Vec<ShopId>,
+    ) -> Result<Vec<ShopLlmUsage>, sqlx::Error> {
+        if shop_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let ids: Vec<uuid::Uuid> = shop_ids.into_iter().map(uuid::Uuid::from).collect();
+        let rows: Vec<(uuid::Uuid, Option<String>, i64)> = sqlx::query_as(
+            "SELECT shop_id, shop_name, llm_calls_count
+             FROM shops
+             WHERE shop_id = ANY($1::uuid[])",
+        )
+        .bind(ids)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(id, name, llm_calls_count)| ShopLlmUsage {
+                shop_id: id.into(),
+                shop_name: name.unwrap_or_else(|| id.to_string()),
+                llm_calls_count,
+            })
+            .collect())
     }
 }
 

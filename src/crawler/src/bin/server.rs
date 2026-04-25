@@ -154,9 +154,19 @@ async fn main() {
         scraper_concurrency: 10,
         spider_classify_threshold: 400,
         scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
-        push_batch_size: 1000,
+        push_batch_size: 200,
         ..Default::default()
     };
+
+    info!(
+        spider_interval_s = config.spider_interval.as_secs(),
+        scraper_interval_s = config.scraper_interval.as_secs(),
+        spider_concurrency = config.spider_concurrency,
+        scraper_concurrency = config.scraper_concurrency,
+        scraper_schema_seed_pages = config.scraper_schema_seed_pages,
+        scraper_max_llm_calls_per_shop = config.scraper_max_llm_calls_per_shop,
+        "Crawler cron configuration loaded"
+    );
 
     // 2. Connect to database — pool is sized to spider_concurrency + scraper_concurrency + 10
     //    to keep headroom for concurrent repository queries.
@@ -315,6 +325,9 @@ async fn main() {
     ));
     let product_push = Box::new(ProductPushServiceImpl::new(command_product_service));
 
+    let db_max_connections = config.effective_db_max_connections();
+    let scraper_max_llm_calls_per_shop = config.scraper_max_llm_calls_per_shop;
+
     // 7. Build cron job
     let cron_job = CrawlerCronJob::new(
         config,
@@ -328,6 +341,10 @@ async fn main() {
     );
 
     // 8. Run forever
-    info!("Crawler Server is fully initialized. Starting background tasks...");
+    info!(
+        db_max_connections,
+        scraper_max_llm_calls_per_shop,
+        "Crawler Server is fully initialized. Starting background tasks..."
+    );
     cron_job.run_loop().await;
 }

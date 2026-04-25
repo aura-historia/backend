@@ -38,7 +38,7 @@ use crawler::scraper::normalization::product_normalization_service::ProductNorma
 use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
 use crawler::scraper::scraper_service::{
-    ReqwestHtmlFetcher, ScraperServiceImpl, DEFAULT_SCHEMA_SEED_PAGES,
+    DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
 };
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crawler::service::product_push::FileProductPushService;

@@ -1,6 +1,6 @@
 use crate::network::policy::{
-    action_for, backoff_delay, classify_reqwest_error, retry_cooldown_for, NetworkAction,
-    NetworkErrorKind, RetryPolicy,
+    NetworkAction, NetworkErrorKind, RetryPolicy, action_for, backoff_delay,
+    classify_reqwest_error, retry_cooldown_for,
 };
 use crate::scraper::candidate_service::{ProductSnapshot, ScraperCandidateService};
 use crate::scraper::css_selector::product_schema::{

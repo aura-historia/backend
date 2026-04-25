@@ -19,7 +19,7 @@ Controls the three background tasks spawned by `CrawlerCronJob`.
 | `spider_concurrency` | `usize` | 3 | Max concurrent spider domain worker tasks per tick |
 | `scraper_concurrency` | `usize` | 10 | Max concurrent scraper domain worker tasks per tick |
 | `scraper_schema_seed_pages` | `usize` | 3 | Number of product pages used to seed initial schema generation on a schema cache miss. The scraper always includes the current page and then samples up to `N-1` extra same-shop product URLs; all seed pages are sent in a single LLM call that may return multiple schema variants. |
-| `scraper_max_llm_calls_per_shop` | `i64` | 20 | Hard per-shop cap for schema-generation LLM calls (`create_product_schemas` + append-on-miss regeneration). Once reached, the scraper candidate query excludes that shop entirely (`shops.llm_calls_count < cap`) so subsequent scrapes are blocked for cost safety. |
+| `scraper_max_llm_calls_per_shop` | `i64` | 20 | Hard per-shop cap used by scraper cost guardrails. The cap is checked against `shops.llm_calls_count` (shop-scoped LLM counter: URL pattern classification + schema generation). Once reached, the scraper candidate query excludes that shop entirely (`shops.llm_calls_count < cap`) so subsequent scrapes are blocked for cost safety. |
 | `spider_classify_threshold` | `usize` | 200 | Passed through to `SpiderServiceConfig::classify_threshold` — number of URLs buffered before triggering mid-run LLM URL classification |
 | `db_max_connections` | `Option<u32>` | `None` (auto) | Maximum Postgres connections in the pool. Locks are now in-memory (`LocalLockManager`), so this setting mainly controls query capacity. When `None`, auto-computed as `spider_concurrency + scraper_concurrency + 10`. |
 

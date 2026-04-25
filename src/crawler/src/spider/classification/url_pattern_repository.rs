@@ -81,6 +81,13 @@ pub trait ShopUrlPatternRepository: Send + Sync {
         shop_id: &ShopId,
         shop_domain: &Domain,
     ) -> Result<(), sqlx::Error>;
+
+    /// Increments the per-shop LLM call counter.
+    async fn increment_shop_llm_calls(
+        &self,
+        shop_id: &ShopId,
+        delta: i64,
+    ) -> Result<(), sqlx::Error>;
 }
 
 /// PostgreSQL-backed implementation of [`ShopUrlPatternRepository`].
@@ -180,6 +187,26 @@ impl ShopUrlPatternRepository for ShopUrlPatternRepositoryImpl {
         )
         .bind(shop_id_uuid)
         .bind(shop_domain.as_str())
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn increment_shop_llm_calls(
+        &self,
+        shop_id: &ShopId,
+        delta: i64,
+    ) -> Result<(), sqlx::Error> {
+        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+        sqlx::query(
+            "UPDATE shops
+             SET llm_calls_count = llm_calls_count + $2,
+                 updated = NOW()
+             WHERE shop_id = $1",
+        )
+        .bind(shop_id_uuid)
+        .bind(delta)
         .execute(&self.pool)
         .await?;
 

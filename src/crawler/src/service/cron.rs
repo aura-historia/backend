@@ -171,6 +171,8 @@ impl CrawlerCronJob {
     pub async fn run_loop(self) {
         info!("Starting crawler cron job loop");
 
+        self.run_shop_sync_once().await;
+
         let spider_job = self.clone();
         let sync_job = self.clone();
         let scraper_job = self;
@@ -206,18 +208,14 @@ impl CrawlerCronJob {
 
     async fn shop_sync_loop(&self) {
         loop {
-            self.run_shop_sync_once().await;
             tokio::time::sleep(self.config.shop_sync_interval).await;
+            self.run_shop_sync_once().await;
         }
     }
 
     async fn run_shop_sync_once(&self) {
         match self.shop_registration.sync().await {
-            Ok(count) => {
-                if count > 0 {
-                    info!(count, "Shop sync tick complete");
-                }
-            }
+            Ok(_) => {}
             Err(e) => error!(error = %e, "Shop sync failed"),
         }
     }
@@ -628,6 +626,10 @@ impl CrawlerCronJob {
         }
 
         let total = all_candidates.len();
+        let mut unique_shop_ids = std::collections::HashSet::new();
+        for candidate in &all_candidates {
+            unique_shop_ids.insert(candidate.shop_id);
+        }
         let batch_start = tokio::time::Instant::now();
         let scraper_concurrency = self.config.scraper_concurrency;
         if scraper_concurrency == 0 {
@@ -740,6 +742,30 @@ impl CrawlerCronJob {
             total,
             succeeded, failed, skipped, duration_ms, "Scraper batch complete"
         );
+
+        #[cfg(not(test))]
+        {
+            match self
+                .scraper_candidates
+                .get_shop_llm_usage(unique_shop_ids.into_iter().collect())
+                .await
+            {
+                Ok(usages) => {
+                    for usage in usages {
+                        info!(
+                            shop_name = %usage.shop_name,
+                            llm_calls_count = usage.llm_calls_count,
+                            llm_calls_cap = self.config.scraper_max_llm_calls_per_shop,
+                            llm_budget_exhausted = usage.llm_calls_count >= self.config.scraper_max_llm_calls_per_shop,
+                            "Shop LLM usage summary"
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to load per-shop LLM usage summary");
+                }
+            }
+        }
 
         self.scraper_perf.record(total as u64, duration_ms);
     }
