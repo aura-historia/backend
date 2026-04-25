@@ -35,7 +35,11 @@ pub struct GetNotificationData {
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(
+    tag = "type",
+    rename_all = "SCREAMING_SNAKE_CASE",
+    rename_all_fields = "camelCase"
+)]
 pub enum NotificationPayloadData {
     Watchlist {
         product_id: ProductId,
@@ -49,7 +53,6 @@ pub enum NotificationPayloadData {
         image: Option<ProductImageData>,
         watchlist_payload: WatchlistPayloadData,
     },
-    #[serde(rename_all = "camelCase")]
     SearchFilter {
         product_id: ProductId,
         shop_id: ShopId,
@@ -62,7 +65,6 @@ pub enum NotificationPayloadData {
         image: Option<ProductImageData>,
         search_filter_payload: SearchFilterPayloadData,
     },
-    #[serde(rename_all = "camelCase")]
     PartnerApplication {
         shop_name: ShopName,
         partner_application_payload: PartnerApplicationPayloadData,
@@ -71,7 +73,11 @@ pub enum NotificationPayloadData {
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(
+    tag = "type",
+    rename_all = "SCREAMING_SNAKE_CASE",
+    rename_all_fields = "camelCase"
+)]
 pub enum WatchlistPayloadData {
     PriceChange {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -95,13 +101,15 @@ pub struct SearchFilterPayloadData {
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(
+    tag = "type",
+    rename_all = "SCREAMING_SNAKE_CASE",
+    rename_all_fields = "camelCase"
+)]
 pub enum PartnerApplicationPayloadData {
-    #[serde(rename_all = "camelCase")]
     Approved {
         partner_application_id: PartnerShopApplicationId,
     },
-    #[serde(rename_all = "camelCase")]
     Rejected {
         partner_application_id: PartnerShopApplicationId,
     },
@@ -209,5 +217,117 @@ impl From<LocalizedNotification> for GetNotificationData {
             created: notification.created,
             updated: notification.updated,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        GetNotificationData, NotificationPayloadData, PartnerApplicationPayloadData,
+        SearchFilterPayloadData, WatchlistPayloadData,
+    };
+    use serde_json::json;
+
+    #[test]
+    fn should_roundtrip_watchlist_notification_payload_when_using_camel_case_fields() {
+        let json = json!({
+            "type": "WATCHLIST",
+            "productId": "f6f6c303-f70f-4f6e-bdc5-20b0d22f41a1",
+            "shopId": "1608beec-e0bc-4f3d-9794-24718c3f8558",
+            "shopsProductId": "shop-product-123",
+            "shopSlugId": "test-shop",
+            "productSlugId": "test-product-abcdef",
+            "shopName": "Test Shop",
+            "title": {
+                "text": "Test title",
+                "language": "en"
+            },
+            "image": {
+                "url": "https://test.example/product.jpg",
+                "prohibitedContent": "NONE"
+            },
+            "watchlistPayload": {
+                "type": "PRICE_CHANGE",
+                "oldPrice": {
+                    "currency": "EUR",
+                    "amount": 1000
+                },
+                "newPrice": {
+                    "currency": "EUR",
+                    "amount": 900
+                }
+            }
+        });
+
+        let data: NotificationPayloadData = serde_json::from_value(json.clone()).unwrap();
+
+        assert!(matches!(data, NotificationPayloadData::Watchlist { .. }));
+        assert_eq!(json, serde_json::to_value(&data).unwrap());
+    }
+
+    #[test]
+    fn should_roundtrip_watchlist_payload_data_when_using_camel_case_fields() {
+        let json = json!({
+            "type": "STATE_CHANGE",
+            "oldState": "AVAILABLE",
+            "newState": "SOLD",
+        });
+
+        let data: WatchlistPayloadData = serde_json::from_value(json.clone()).unwrap();
+
+        assert!(matches!(data, WatchlistPayloadData::StateChange { .. }));
+        assert_eq!(json, serde_json::to_value(&data).unwrap());
+    }
+
+    #[test]
+    fn should_roundtrip_search_filter_payload_data_when_using_camel_case_fields() {
+        let json = json!({
+            "userSearchFilterId": "0196580c-e4ca-723f-a7e0-1a73588380f0",
+            "userSearchFilterName": "Important Filter",
+        });
+
+        let data: SearchFilterPayloadData = serde_json::from_value(json.clone()).unwrap();
+
+        assert_eq!(json, serde_json::to_value(&data).unwrap());
+    }
+
+    #[test]
+    fn should_roundtrip_partner_application_payload_data_when_using_camel_case_fields() {
+        let json = json!({
+            "type": "APPROVED",
+            "partnerApplicationId": "0196580c-e4ca-723f-a7e0-1a73588380f0",
+        });
+
+        let data: PartnerApplicationPayloadData = serde_json::from_value(json.clone()).unwrap();
+
+        assert!(matches!(
+            data,
+            PartnerApplicationPayloadData::Approved { .. }
+        ));
+        assert_eq!(json, serde_json::to_value(&data).unwrap());
+    }
+
+    #[test]
+    fn should_roundtrip_get_notification_data_when_using_camel_case_fields() {
+        let json = json!({
+            "originEventId": "0196580c-e4ca-723f-a7e0-1a73588380f0",
+            "notificationId": "0196580c-e4ca-723f-a7e0-1a73588380f0",
+            "payload": {
+                "type": "PARTNER_APPLICATION",
+                "shopName": "Test Shop",
+                "partnerApplicationPayload": {
+                    "type": "REJECTED",
+                    "partnerApplicationId": "0196580c-e4ca-723f-a7e0-1a73588380f0"
+                }
+            },
+            "seen": false,
+            "external": true,
+            "created": "2026-04-22T00:00:00Z",
+            "updated": "2026-04-22T01:00:00Z",
+        });
+
+        let data: GetNotificationData = serde_json::from_value(json.clone()).unwrap();
+
+        assert_eq!(json, serde_json::to_value(&data).unwrap());
     }
 }

@@ -609,6 +609,7 @@ impl Product {
                     seller_id: self.seller_id,
                     shops_product_id: self.shops_product_id.clone(),
                     embedding,
+                    native_title: Some(self.native_title.payload.clone()),
                 });
             let event = Event {
                 aggregate_id: self.product_id,
@@ -2817,6 +2818,7 @@ mod tests {
                             seller_id: product.seller_id,
                             shops_product_id: product.shops_product_id.clone(),
                             embedding: embedding.clone(),
+                            native_title: None,
                         },
                     ),
                 ),

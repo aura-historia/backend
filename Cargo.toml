@@ -94,10 +94,10 @@ aws-sdk-cloudformation = "1.111.0"
 aws-sdk-dynamodb = "1.111.0"
 aws-sdk-eventbridge = "1.105.0"
 aws-sdk-lambda = "1.100.0"
-aws-sdk-opensearch = "1.123.0"
+aws-sdk-opensearch = "1.125.0"
 aws-sdk-sqs = "1.98.0"
 aws-sdk-sesv2 = "1.118.0"
-aws-sdk-s3 = "1.130.0"
+aws-sdk-s3 = "1.131.0"
 aws-sdk-sfn = "1.103.0"
 aws-sdk-cloudwatch = "1.110.0"
 aws_lambda_events = { version = "1.1.3", default-features = false }
@@ -146,7 +146,7 @@ product-lambda-materialize-opensearch = { path = "src/product-lambda/src/product
 product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lambda-update-notify-user" }
 itertools = "0.14.0"
 lambda_runtime = "1.1.3"
-libc = "0.2.185"
+libc = "0.2.186"
 ctrlc = { version = "3.5.2", features = ["termination"] }
 mockall = "0.14.0"
 mrml = { version = "6.0.0", default-features = false, features = ["parse", "render"] }
@@ -186,7 +186,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 typed-builder = "0.23.2"
 url = "2.5.8"
-uuid = "1.23.0"
+uuid = "1.23.1"
 walkdir = "2.5.0"
 zip = { version = "8.5.1", default-features = false, features = ["deflate"] }
 futures-util = "0.3.32"
@@ -203,7 +203,7 @@ once_cell = "1.21.4"
 openssl = { version = "0.10.78", default-features = false }
 jsonwebtokens = "1.2.0"
 jsonwebtokens-cognito = "0.1.1"
-aws-sdk-cognitoidentityprovider = "1.115.0"
+aws-sdk-cognitoidentityprovider = "1.116.0"
 html-escape = "0.2.13"
 pyo3 = "0.27.2"
 pyo3-ffi = "0.27.0"
@@ -215,7 +215,7 @@ crawler = { path = "src/crawler" }
 spider = { version = "2", default-features = false, features = ["sync", "reqwest_rustls_tls"] }
 scraper = "0.26.0"
 schemars = "1.2.1"
-llm = { version = "1.3.7", default-features = false, features = ["rustls-tls"] }
+llm = { version = "1.3.8", default-features = false, features = ["rustls-tls"] }
 kuchiki = "0.8.1"
 lingua = { version = "1.7.2", default-features = false, features = ["english", "german", "french", "spanish", "italian", "chinese", "portuguese", "polish", "turkish", "dutch", "czech", "japanese", "russian", "arabic"] }
 dotenvy = "0.15"
