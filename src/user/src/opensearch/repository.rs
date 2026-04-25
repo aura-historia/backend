@@ -1,7 +1,9 @@
-use crate::core::{
-    role::UserRole, sort_user_field::SortUserField, tier::UserTier, user_search::UserSearch,
+use crate::core::{sort_user_field::SortUserField, user_search::UserSearch};
+use crate::opensearch::{
+    role_document::UserRoleDocument,
+    tier_document::UserTierDocument,
+    user_document::{UserDocument, UserDocumentSerdeField},
 };
-use crate::opensearch::user_document::{UserDocument, UserDocumentSerdeField};
 use common::opensearch::index_response::IndexResponse;
 use common::opensearch::search_response::SearchResponse;
 use common::pagination::cursor::Cursor;
@@ -92,11 +94,21 @@ impl<'a> UserOpenSearchRepository for UserOpenSearchRepositoryImpl<'a> {
         }
 
         if !search.tier_query.is_empty() {
-            let tiers: Vec<UserTier> = search.tier_query.iter().copied().collect();
+            let tiers: Vec<UserTierDocument> = search
+                .tier_query
+                .iter()
+                .copied()
+                .map(UserTierDocument::from)
+                .collect();
             filter.push(json!({ "terms": { UserDocumentSerdeField::Tier.as_str(): tiers } }));
         }
         if !search.role_query.is_empty() {
-            let roles: Vec<UserRole> = search.role_query.iter().copied().collect();
+            let roles: Vec<UserRoleDocument> = search
+                .role_query
+                .iter()
+                .copied()
+                .map(UserRoleDocument::from)
+                .collect();
             filter.push(json!({ "terms": { UserDocumentSerdeField::Role.as_str(): roles } }));
         }
 

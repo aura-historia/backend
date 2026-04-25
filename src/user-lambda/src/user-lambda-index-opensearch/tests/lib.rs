@@ -58,3 +58,32 @@ async fn should_index_user_document_when_not_exists() {
     let actual = read_by_id::<UserDocument>("users", user_record.user_id).await;
     assert_eq!(UserDocument::from(user_record), actual);
 }
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_update_user_document_when_already_exists() {
+    let repository = UserOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let user_record: UserRecord = Faker.fake();
+    let mut lambda_event: LambdaEvent<SqsEvent> = LambdaEvent {
+        payload: Default::default(),
+        context: Context::default(),
+    };
+    lambda_event.payload.records = vec![mk_sqs_message(&user_record)];
+    let _ = handler(&repository, lambda_event).await;
+    refresh_index("users").await;
+
+    let mut updated_record = user_record.clone();
+    updated_record.first_name = Some(Faker.fake());
+    let mut update_event: LambdaEvent<SqsEvent> = LambdaEvent {
+        payload: Default::default(),
+        context: Context::default(),
+    };
+    update_event.payload.records = vec![mk_sqs_message(&updated_record)];
+
+    let res = handler(&repository, update_event).await;
+
+    assert!(res.is_ok());
+    refresh_index("users").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let actual = read_by_id::<UserDocument>("users", updated_record.user_id).await;
+    assert_eq!(UserDocument::from(updated_record), actual);
+}

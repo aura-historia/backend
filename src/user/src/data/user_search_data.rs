@@ -10,11 +10,11 @@ use time::OffsetDateTime;
 pub struct UserSearchData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub query: Option<TextQuery<0>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "email", default, skip_serializing_if = "Option::is_none")]
     pub email_query: Option<TextQuery<0>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "firstName", default, skip_serializing_if = "Option::is_none")]
     pub first_name_query: Option<TextQuery<0>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "lastName", default, skip_serializing_if = "Option::is_none")]
     pub last_name_query: Option<TextQuery<0>>,
     #[serde(rename = "tier", skip_serializing_if = "HashSet::is_empty", default)]
     pub tier_query: HashSet<UserTierData>,

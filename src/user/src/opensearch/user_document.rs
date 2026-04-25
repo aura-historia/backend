@@ -3,6 +3,7 @@ use crate::{
         first_name::FirstName, last_name::LastName, role::UserRole, tier::UserTier, user::User,
     },
     dynamodb::user_record::UserRecord,
+    opensearch::{role_document::UserRoleDocument, tier_document::UserTierDocument},
 };
 use common::{
     currency::record::CurrencyRecord, language::record::LanguageRecord,
@@ -27,8 +28,8 @@ pub struct UserDocument {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<CurrencyRecord>,
     pub prohibited_content_consent: bool,
-    pub tier: UserTier,
-    pub role: UserRole,
+    pub tier: UserTierDocument,
+    pub role: UserRoleDocument,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stripe_customer_id: Option<StripeCustomerId>,
     #[serde(with = "time::serde::rfc3339")]
@@ -53,8 +54,8 @@ impl From<User> for UserDocument {
             language: user.language.map(LanguageRecord::from),
             currency: user.currency.map(CurrencyRecord::from),
             prohibited_content_consent: user.prohibited_content_consent,
-            tier: user.tier,
-            role: user.role,
+            tier: user.tier.into(),
+            role: user.role.into(),
             stripe_customer_id: user.stripe_customer_id,
             created: user.created,
             updated: user.updated,
@@ -72,8 +73,8 @@ impl From<UserDocument> for User {
             language: document.language.map(Into::into),
             currency: document.currency.map(Into::into),
             prohibited_content_consent: document.prohibited_content_consent,
-            tier: document.tier,
-            role: document.role,
+            tier: UserTier::from(document.tier),
+            role: UserRole::from(document.role),
             stripe_customer_id: document.stripe_customer_id,
             created: document.created,
             updated: document.updated,
