@@ -6,7 +6,7 @@ use crate::{
     data::partner_shop_application_state_data::PartnerShopApplicationStateData,
 };
 use common::execution_state::data::ExecutionStateData;
-use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName};
+use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, user_id::UserId};
 use serde::{Deserialize, Serialize};
 use shop::data::shop_type_data::ShopTypeData;
 use std::collections::HashSet;
@@ -17,6 +17,7 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub struct GetPartnerShopApplicationData {
     pub id: PartnerShopApplicationId,
+    pub applicant_user_id: UserId,
     pub business_state: PartnerShopApplicationStateData,
     pub execution_state: ExecutionStateData,
     pub payload: GetPartnerShopApplicationPayloadData,
@@ -62,6 +63,7 @@ impl From<PartnerShopApplication> for GetPartnerShopApplicationData {
 
         GetPartnerShopApplicationData {
             id: application.id,
+            applicant_user_id: application.applicant_user_id,
             business_state: application.business_state.into(),
             execution_state: application.execution_state.into(),
             payload,
@@ -135,6 +137,7 @@ mod tests {
     fn should_roundtrip_get_partner_shop_application_data_when_using_camel_case_fields() {
         let json = json!({
             "id": "0196580c-e4ca-723f-a7e0-1a73588380f0",
+            "applicantUserId": "0196580c-e4ca-723f-a7e0-1a73588380f1",
             "businessState": "SUBMITTED",
             "executionState": "WAITING",
             "payload": {
