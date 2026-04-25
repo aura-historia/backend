@@ -27,8 +27,8 @@ impl Default for RetryPolicy {
     fn default() -> Self {
         Self {
             max_attempts: 3,
-            base_delay: Duration::from_millis(300),
-            max_delay: Duration::from_secs(5),
+            base_delay: Duration::from_millis(1000),
+            max_delay: Duration::from_secs(200),
         }
     }
 }
@@ -84,7 +84,7 @@ pub fn backoff_delay(policy: RetryPolicy, attempt: u32) -> Duration {
 
 pub fn retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
     match kind {
-        NetworkErrorKind::HttpStatus(429) => Duration::from_secs(10 * 60),
+        NetworkErrorKind::HttpStatus(429) => Duration::from_secs(10),
         NetworkErrorKind::HttpStatus(503) | NetworkErrorKind::HttpStatus(504) => {
             Duration::from_secs(15 * 60)
         }

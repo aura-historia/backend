@@ -1,5 +1,6 @@
 use crate::network::policy::{
-    NetworkAction, NetworkErrorKind, RetryPolicy, action_for, backoff_delay, classify_reqwest_error,
+    NetworkAction, NetworkErrorKind, RetryPolicy, action_for, backoff_delay,
+    classify_reqwest_error, retry_cooldown_for,
 };
 use crate::scraper::candidate_service::{ProductSnapshot, ScraperCandidateService};
 use crate::scraper::css_selector::product_schema::{
@@ -147,7 +148,12 @@ impl HtmlFetcher for ReqwestHtmlFetcher {
                     if action != NetworkAction::Retry || attempt >= self.retry_policy.max_attempts {
                         return Err(err);
                     }
-                    let delay = backoff_delay(self.retry_policy, attempt);
+                    // For status codes with a dedicated cooldown (e.g. 429 → 1 sec),
+                    // use that cooldown as the retry delay so the policy's max_delay
+                    // cap doesn't truncate it to a much smaller value.
+                    let cooldown = retry_cooldown_for(err.kind());
+                    let backoff = backoff_delay(self.retry_policy, attempt);
+                    let delay = cooldown.max(backoff);
                     if !delay.is_zero() {
                         sleep(delay).await;
                     }
