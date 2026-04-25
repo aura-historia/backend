@@ -6624,7 +6624,6 @@ async fn should_index_user_to_opensearch_on_create() {
     assert_eq!(user_id, document.user_id);
 }
 
-#[ignore = "Cannot get Localstack-Lambda to reach OpenSearch"]
 #[localstack_test(services = [Cloudformation()])]
 async fn should_update_user_document_in_opensearch_on_patch() {
     let admin = create_admin_test_user().await;

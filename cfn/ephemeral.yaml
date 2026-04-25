@@ -490,6 +490,14 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:*
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/test-domain/*"
         - PolicyName: SqsAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -1907,6 +1915,18 @@ Resources:
                 Action:
                   - cognito-idp:AdminDeleteUser
                 Resource: !GetAtt PrimaryUserPool.Arn
+        - PolicyName: OpenSearchReadOnly
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:Describe*
+                  - es:List*
+                  - es:ESHttpGet
+                  - es:ESHttpHead
+                  - es:ESHttpPost
+                Resource: !Sub "${OpenSearchDomain.Arn}/*"
   UserApiLambda:
     Type: AWS::Lambda::Function
     Properties:
