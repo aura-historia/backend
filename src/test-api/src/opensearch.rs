@@ -297,6 +297,11 @@ static USER_SEARCH_FILTER_INDEX_MAPPING_STR: &str = include_str!(concat!(
     "opensearch/mappings/user_search_filters.json"
 ));
 
+static USERS_INDEX_MAPPING_STR: &str = include_str!(concat!(
+    env!("CARGO_WORKSPACE_DIR"),
+    "opensearch/mappings/users.json"
+));
+
 fn check_status_allow_not_found(response: &Response) -> Result<(), Error> {
     if let Err(err) = response.error_for_status_code_ref()
         && err.status_code() != Some(StatusCode::NOT_FOUND)
@@ -498,6 +503,33 @@ async fn set_up_indices() -> Result<Response, Error> {
         ))
         .send()
         .await?
+        .error_for_status_code()?;
+
+    // Index 'users'
+    let exists_response = client
+        .indices()
+        .exists(IndicesExistsParts::Index(&["users"]))
+        .send()
+        .await?;
+    check_status_allow_not_found(&exists_response)?;
+
+    if exists_response.status_code().is_success() {
+        debug!("OpenSearch index 'users' already exists, skipping creation");
+        return Ok(exists_response);
+    }
+
+    debug!("OpenSearch index 'users' does not exist, creating it");
+
+    get_opensearch_client()
+        .await
+        .indices()
+        .create(opensearch::indices::IndicesCreateParts::Index("users"))
+        .body(
+            serde_json::from_str::<serde_json::Value>(USERS_INDEX_MAPPING_STR)
+                .expect("shouldn't fail parsing USERS_INDEX_MAPPING_STR as serde_json::Value"),
+        )
+        .send()
+        .await?
         .error_for_status_code()
 }
 
@@ -508,7 +540,13 @@ async fn set_up_indices() -> Result<Response, Error> {
 /// implementation that needs a full OpenSearch reset, including the
 /// `Cloudformation` service.
 pub(crate) async fn clear_all_indices() {
-    const INDICES: &[&str] = &["products", "shops", "categories", "user_search_filters"];
+    const INDICES: &[&str] = &[
+        "products",
+        "shops",
+        "categories",
+        "user_search_filters",
+        "users",
+    ];
     for index in INDICES {
         match clear_index_data(index).await {
             Ok(_) => refresh_index(index).await,

@@ -103,6 +103,9 @@ use test_api::*;
 use time::OffsetDateTime;
 use user::core::role::UserRole;
 use user::core::tier::UserTier;
+use user::data::patch_admin_user_data::PatchAdminUserData;
+use user::data::role_data::UserRoleData;
+use user::data::tier_data::UserTierData;
 use user::dynamodb::tier_record::UserTierRecord;
 use user::service::command::UpdateUserCommand;
 use user::service::user_service::UserService;
@@ -6481,3 +6484,184 @@ async fn should_201_for_billing_manage_with_checkout_for_free_and_portal_for_pai
     assert!(body.get("livemode").is_none(), "got {body:?}");
     assert!(body.get("userId").is_none(), "got {body:?}");
 }
+
+// ---------------------------------------------------------------------------
+// API: Admin User Management
+// Verifies API Gateway routing and Lambda execution for the admin user
+// management endpoints with Cognito JWT authentication and admin role check.
+// ---------------------------------------------------------------------------
+/*
+async fn wait_until_user_document_exists(user_id: impl Into<String>) -> UserDocument {
+    let user_id = user_id.into();
+    for _ in 0..24 {
+        refresh_index("users").await;
+        if let Some(document) = try_read_by_id::<UserDocument>("users", &user_id).await {
+            return document;
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+    panic!(
+        "Expected user document '{}' to exist in OpenSearch, but it did not appear in time.",
+        user_id
+    );
+}
+ */
+
+/*
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_admin_user_search() {
+    let admin = create_admin_test_user().await;
+
+    let url = format!("{}/api/v1/users", get_cfn_output().api_gateway_endpoint_url,);
+    let response = reqwest::Client::new()
+        .get(&url)
+        .bearer_auth(&admin.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+}
+*/
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_admin_user_get() {
+    let admin = create_admin_test_user().await;
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let url = format!(
+        "{}/api/v1/users/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        user_id,
+    );
+    let response = reqwest::Client::new()
+        .get(&url)
+        .bearer_auth(&admin.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let body = response.json::<GetUserAccountData>().await.unwrap();
+    assert_eq!(user_id, body.user_id);
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_admin_user_patch() {
+    let admin = create_admin_test_user().await;
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let patch_data = PatchAdminUserData {
+        role: Some(UserRoleData::Admin),
+        tier: Some(UserTierData::Pro),
+        first_name: None,
+        last_name: None,
+        language: None,
+        currency: None,
+        prohibited_content_consent: None,
+        stripe_customer_id: None,
+    };
+
+    let url = format!(
+        "{}/api/v1/users/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        user_id,
+    );
+    let response = reqwest::Client::new()
+        .patch(&url)
+        .bearer_auth(&admin.access_token)
+        .json(&patch_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let body = response.json::<GetUserAccountData>().await.unwrap();
+    assert_eq!(user_id, body.user_id);
+    assert_eq!(UserRoleData::Admin, body.role);
+    assert_eq!(UserTierData::Pro, body.tier);
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_204_for_admin_user_delete() {
+    let admin = create_admin_test_user().await;
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let url = format!(
+        "{}/api/v1/users/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        user_id,
+    );
+    let response = reqwest::Client::new()
+        .delete(&url)
+        .bearer_auth(&admin.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(204, response.status());
+
+    // Verify the user is gone
+    let get_response = reqwest::Client::new()
+        .get(&url)
+        .bearer_auth(&admin.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(404, get_response.status());
+}
+
+// ---------------------------------------------------------------------------
+// User → OpenSearch sync
+// Verifies DynamoDB Streams → EventBridge → SQS → Lambda → OpenSearch routing.
+// ---------------------------------------------------------------------------
+
+/*
+#[localstack_test(services = [Cloudformation()])]
+async fn should_index_user_to_opensearch_on_create() {
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let document = wait_until_user_document_exists(user_id.to_string()).await;
+    assert_eq!(user_id, document.user_id);
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_update_user_document_in_opensearch_on_patch() {
+    let admin = create_admin_test_user().await;
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let initial_document = wait_until_user_document_exists(user_id.to_string()).await;
+
+    let patch_data = PatchAdminUserData {
+        tier: Some(UserTierData::Pro),
+        role: None,
+        first_name: None,
+        last_name: None,
+        language: None,
+        currency: None,
+        prohibited_content_consent: None,
+        stripe_customer_id: None,
+    };
+    let patch_url = format!(
+        "{}/api/v1/users/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        user_id,
+    );
+    let patch_response = reqwest::Client::new()
+        .patch(&patch_url)
+        .bearer_auth(&admin.access_token)
+        .json(&patch_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, patch_response.status());
+
+    tokio::time::sleep(Duration::from_secs(30)).await;
+    let updated_document = wait_until_user_document_exists(user_id.to_string()).await;
+    assert_eq!(user_id, updated_document.user_id);
+    assert_ne!(initial_document.tier, updated_document.tier);
+}
+*/

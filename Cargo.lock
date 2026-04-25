@@ -241,6 +241,7 @@ dependencies = [
  "test-api",
  "user",
  "user-api",
+ "user-lambda",
 ]
 
 [[package]]
@@ -8956,11 +8957,13 @@ dependencies = [
  "common",
  "fake",
  "mockall",
+ "opensearch",
  "rstest",
  "serde",
  "serde-email",
  "serde_dynamo",
  "serde_fields",
+ "serde_json",
  "serial_test",
  "test-api",
  "thiserror 2.0.18",
@@ -8985,11 +8988,13 @@ dependencies = [
  "http 1.4.0",
  "lambda_runtime",
  "mockall",
+ "opensearch",
  "serde",
  "serde-email",
  "serde_dynamo",
  "serde_fields",
  "serde_json",
+ "serde_qs",
  "serial_test",
  "test-api",
  "thiserror 2.0.18",
@@ -8997,7 +9002,37 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
  "user",
+]
+
+[[package]]
+name = "user-lambda"
+version = "0.1.0"
+dependencies = [
+ "user-lambda-index-opensearch",
+]
+
+[[package]]
+name = "user-lambda-index-opensearch"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "lambda_runtime",
+ "opensearch",
+ "serde_dynamo",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "user",
+ "uuid",
 ]
 
 [[package]]

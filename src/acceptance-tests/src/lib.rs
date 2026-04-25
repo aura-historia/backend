@@ -19,6 +19,9 @@ pub async fn reset() {
     clear_os_index_data("shops")
         .await
         .expect("shouldn't fail clearing os-index 'shops'");
+    clear_os_index_data("users")
+        .await
+        .expect("shouldn't fail clearing os-index 'users'");
     clear_os_index_data("user_search_filters")
         .await
         .expect("shouldn't fail clearing os-index 'user_search_filter'");
@@ -31,6 +34,8 @@ pub async fn reset() {
         cfn_output.product_materialize_opensearch_dead_letter_queue_url,
         cfn_output.shop_opensearch_index_queue_url,
         cfn_output.shop_opensearch_index_dead_letter_queue_url,
+        cfn_output.user_opensearch_index_queue_url,
+        cfn_output.user_opensearch_index_dead_letter_queue_url,
         cfn_output.search_filter_open_search_sync_queue_url,
         cfn_output.search_filter_open_search_sync_dead_letter_queue_url,
         cfn_output.product_update_notify_user_queue_url,
