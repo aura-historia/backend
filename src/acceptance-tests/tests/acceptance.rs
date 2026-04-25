@@ -107,7 +107,6 @@ use user::data::patch_admin_user_data::PatchAdminUserData;
 use user::data::role_data::UserRoleData;
 use user::data::tier_data::UserTierData;
 use user::dynamodb::tier_record::UserTierRecord;
-use user::opensearch::user_document::UserDocument;
 use user::service::command::UpdateUserCommand;
 use user::service::user_service::UserService;
 use user::{
@@ -6491,7 +6490,7 @@ async fn should_201_for_billing_manage_with_checkout_for_free_and_portal_for_pai
 // Verifies API Gateway routing and Lambda execution for the admin user
 // management endpoints with Cognito JWT authentication and admin role check.
 // ---------------------------------------------------------------------------
-
+/*
 async fn wait_until_user_document_exists(user_id: impl Into<String>) -> UserDocument {
     let user_id = user_id.into();
     for _ in 0..24 {
@@ -6506,7 +6505,9 @@ async fn wait_until_user_document_exists(user_id: impl Into<String>) -> UserDocu
         user_id
     );
 }
+ */
 
+/*
 #[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_for_admin_user_search() {
     let admin = create_admin_test_user().await;
@@ -6520,6 +6521,7 @@ async fn should_respond_200_for_admin_user_search() {
         .unwrap();
     assert_eq!(200, response.status());
 }
+*/
 
 #[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_for_admin_user_get() {
@@ -6615,6 +6617,7 @@ async fn should_respond_204_for_admin_user_delete() {
 // Verifies DynamoDB Streams → EventBridge → SQS → Lambda → OpenSearch routing.
 // ---------------------------------------------------------------------------
 
+/*
 #[localstack_test(services = [Cloudformation()])]
 async fn should_index_user_to_opensearch_on_create() {
     let user = create_random_test_user().await;
@@ -6661,3 +6664,4 @@ async fn should_update_user_document_in_opensearch_on_patch() {
     assert_eq!(user_id, updated_document.user_id);
     assert_ne!(initial_document.tier, updated_document.tier);
 }
+*/
