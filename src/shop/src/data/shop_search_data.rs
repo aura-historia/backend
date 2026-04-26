@@ -3,6 +3,8 @@ use crate::core::shop_search::ShopSearch;
 use crate::core::shop_type::ShopType;
 use crate::data::partner_status_data::ShopPartnerStatusData;
 use crate::data::shop_type_data::ShopTypeData;
+use common::category_key::CategoryId;
+use common::period_key::PeriodId;
 use common::query::{range_query::RangeQuery, text_query::TextQuery};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -27,6 +29,12 @@ pub struct ShopSearchData {
         default
     )]
     pub partner_status_query: HashSet<ShopPartnerStatusData>,
+
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub specialities_categories: Vec<CategoryId>,
+
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub specialities_periods: Vec<PeriodId>,
 
     #[serde(
         with = "common::query::range_query::range_rfc3339::option",
@@ -57,6 +65,8 @@ impl From<ShopSearch> for ShopSearchData {
                 .into_iter()
                 .map(ShopPartnerStatusData::from)
                 .collect(),
+            specialities_categories: search.specialities_categories,
+            specialities_periods: search.specialities_periods,
             created: search.created,
             updated: search.updated,
         }
@@ -77,6 +87,8 @@ impl From<ShopSearchData> for ShopSearch {
                 .into_iter()
                 .map(ShopPartnerStatus::from)
                 .collect(),
+            specialities_categories: data.specialities_categories,
+            specialities_periods: data.specialities_periods,
             created: data.created,
             updated: data.updated,
         }
@@ -94,6 +106,8 @@ mod faker {
                 shop_name_query: Faker.fake(),
                 shop_type_query: config.fake_with_rng(rng),
                 partner_status_query: config.fake_with_rng(rng),
+                specialities_categories: config.fake_with_rng(rng),
+                specialities_periods: config.fake_with_rng(rng),
                 created: fake_range_query_datetime(config, rng),
                 updated: fake_range_query_datetime(config, rng),
             }
@@ -137,6 +151,8 @@ mod faker {
 mod tests {
     use crate::data::shop_search_data::ShopSearchData;
     use crate::data::shop_type_data::ShopTypeData;
+    use common::category_key::CategoryId;
+    use common::period_key::PeriodId;
     use common::query::range_query::RangeQuery;
     use serde_json::json;
     use std::collections::HashSet;
@@ -160,6 +176,8 @@ mod tests {
             shop_name_query: Some("Baap".try_into().unwrap()),
             shop_type_query: HashSet::from_iter([ShopTypeData::AuctionHouse]),
             partner_status_query: Default::default(),
+            specialities_categories: vec![],
+            specialities_periods: vec![],
             created: Some(RangeQuery {
                 min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                 max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
@@ -184,6 +202,8 @@ mod tests {
             shop_name_query: Some("Baap".try_into().unwrap()),
             shop_type_query: Default::default(),
             partner_status_query: Default::default(),
+            specialities_categories: vec![],
+            specialities_periods: vec![],
             created: None,
             updated: None,
         };
@@ -200,6 +220,8 @@ mod tests {
             shop_name_query: None,
             shop_type_query: Default::default(),
             partner_status_query: Default::default(),
+            specialities_categories: vec![],
+            specialities_periods: vec![],
             created: None,
             updated: None,
         };
@@ -207,5 +229,24 @@ mod tests {
         let actual: ShopSearchData = serde_json::from_value(json).unwrap();
 
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn should_deserialize_when_specialities_filters_provided() {
+        let json = json!({
+            "specialitiesCategories": ["medals", "coins"],
+            "specialitiesPeriods": ["ww2"],
+        });
+
+        let actual: ShopSearchData = serde_json::from_value(json).unwrap();
+
+        assert_eq!(
+            actual
+                .specialities_categories
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            HashSet::from_iter([CategoryId::raw("medals"), CategoryId::raw("coins")]),
+        );
+        assert_eq!(actual.specialities_periods, vec![PeriodId::raw("ww2")],);
     }
 }
