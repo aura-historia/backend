@@ -2318,6 +2318,7 @@ Resources:
           S3_BUCKET_NAME_TEMPLATES: "aura-historia-mail-templates-eu-central-1"
           STAGE_NAME: !Sub "${StageName}"
           COMMIT_SHA: !Sub "${CommitSHA}"
+          GOOGLE_GEOCODING_API_KEY: "test-key"
   PartnerShopApplicationStateMachineExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -2472,6 +2473,7 @@ Resources:
           DYNAMODB_TABLE_NAME: !Ref TableOne
           OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
           LOCALSTACK_MAPPED_PORT: !Ref LocalStackMappedPort
+          GOOGLE_GEOCODING_API_KEY: "test-key"
   ShopApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
