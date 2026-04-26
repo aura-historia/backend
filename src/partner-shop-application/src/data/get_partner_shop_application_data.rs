@@ -6,8 +6,13 @@ use crate::{
     data::partner_shop_application_state_data::PartnerShopApplicationStateData,
 };
 use common::execution_state::data::ExecutionStateData;
-use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, user_id::UserId};
+use common::{
+    category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_id::ShopId,
+    shop_name::ShopName, user_id::UserId,
+};
 use serde::{Deserialize, Serialize};
+use serde_email::Email;
+use shop::data::address_data::StructuredAddressData;
 use shop::data::shop_type_data::ShopTypeData;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -29,6 +34,7 @@ pub struct GetPartnerShopApplicationData {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 #[serde(
     rename_all = "camelCase",
     rename_all_fields = "camelCase",
@@ -44,6 +50,16 @@ pub enum GetPartnerShopApplicationPayloadData {
         shop_domains: HashSet<Domain>,
         #[serde(skip_serializing_if = "Option::is_none", default)]
         shop_image: Option<Url>,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        shop_structured_address: Option<StructuredAddressData>,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        shop_phone: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        shop_email: Option<Email>,
+        #[serde(skip_serializing_if = "Vec::is_empty", default)]
+        shop_specialities_categories: Vec<CategoryId>,
+        #[serde(skip_serializing_if = "Vec::is_empty", default)]
+        shop_specialities_periods: Vec<PeriodId>,
     },
 }
 
@@ -58,6 +74,11 @@ impl From<PartnerShopApplication> for GetPartnerShopApplicationData {
                 shop_type: cmd.shop_type.into(),
                 shop_domains: cmd.domains,
                 shop_image: cmd.image,
+                shop_structured_address: cmd.structured_address.map(Into::into),
+                shop_phone: cmd.phone,
+                shop_email: cmd.email,
+                shop_specialities_categories: cmd.specialities_categories,
+                shop_specialities_periods: cmd.specialities_periods,
             },
         };
 

@@ -4605,6 +4605,11 @@ async fn should_respond_200_for_shop_patch_by_partner() {
         shop_type: None,
         domains: None,
         image: Some(url::Url::parse("https://new-image.example.com/logo.png").unwrap()),
+        structured_address: None,
+        phone: None,
+        email: None,
+        specialities_categories: None,
+        specialities_periods: None,
     };
 
     let url = format!(
@@ -5093,6 +5098,11 @@ async fn should_respond_200_for_partner_application_patch() {
         shop_type: None,
         shop_domains: None,
         shop_image: None,
+        shop_structured_address: None,
+        shop_phone: None,
+        shop_email: None,
+        shop_specialities_categories: None,
+        shop_specialities_periods: None,
     };
     let patch_response = reqwest::Client::new()
         .patch(&patch_url)
@@ -5307,6 +5317,11 @@ async fn should_respond_200_for_admin_partner_application_patch() {
         shop_type: None,
         shop_domains: None,
         shop_image: None,
+        shop_structured_address: None,
+        shop_phone: None,
+        shop_email: None,
+        shop_specialities_categories: None,
+        shop_specialities_periods: None,
     };
     let response = reqwest::Client::new()
         .patch(&admin_url)
@@ -5341,6 +5356,11 @@ async fn should_respond_200_for_admin_decision_approve() {
         shop_type: shop::data::shop_type_data::ShopTypeData::CommercialDealer,
         shop_domains: std::collections::HashSet::new(),
         shop_image: None,
+        shop_structured_address: None,
+        shop_phone: None,
+        shop_email: None,
+        shop_specialities_categories: Vec::new(),
+        shop_specialities_periods: Vec::new(),
     };
     let create_response = reqwest::Client::new()
         .post(&user_url)

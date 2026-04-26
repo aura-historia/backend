@@ -1,7 +1,11 @@
 use crate::dynamodb::partner_shop_application_state_record::PartnerShopApplicationStateRecord;
 use common::execution_state::record::ExecutionStateRecord;
-use common::{domain::Domain, dynamodb_update::DynamoDbUpdate, shop_name::ShopName};
+use common::{
+    category_key::CategoryId, domain::Domain, dynamodb_update::DynamoDbUpdate,
+    period_key::PeriodId, shop_name::ShopName,
+};
 use serde::{Deserialize, Serialize};
+use serde_email::Email;
 use serde_fields::SerdeField;
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use std::collections::HashSet;
@@ -29,6 +33,25 @@ pub struct PartnerShopApplicationRecordUpdate {
     pub shop_image: Option<Url>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_structured_address_address_lines: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_structured_address_locality: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_structured_address_region: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_structured_address_postal_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_structured_address_country: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_phone: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_email: Option<Email>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_specialities_categories: Option<Vec<CategoryId>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_specialities_periods: Option<Vec<PeriodId>>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_token: Option<String>,
 
     #[serde(with = "time::serde::rfc3339")]
@@ -51,6 +74,15 @@ mod tests {
             shop_type: None,
             shop_domains: None,
             shop_image: None,
+            shop_structured_address_address_lines: None,
+            shop_structured_address_locality: None,
+            shop_structured_address_region: None,
+            shop_structured_address_postal_code: None,
+            shop_structured_address_country: None,
+            shop_phone: None,
+            shop_email: None,
+            shop_specialities_categories: None,
+            shop_specialities_periods: None,
             task_token: None,
             updated: OffsetDateTime::now_utc(),
         };
@@ -70,6 +102,15 @@ mod tests {
             shop_type: None,
             shop_domains: None,
             shop_image: None,
+            shop_structured_address_address_lines: None,
+            shop_structured_address_locality: None,
+            shop_structured_address_region: None,
+            shop_structured_address_postal_code: None,
+            shop_structured_address_country: None,
+            shop_phone: None,
+            shop_email: None,
+            shop_specialities_categories: None,
+            shop_specialities_periods: None,
             task_token: None,
             updated: OffsetDateTime::now_utc(),
         };
@@ -89,6 +130,15 @@ mod tests {
             shop_type: None,
             shop_domains: None,
             shop_image: None,
+            shop_structured_address_address_lines: None,
+            shop_structured_address_locality: None,
+            shop_structured_address_region: None,
+            shop_structured_address_postal_code: None,
+            shop_structured_address_country: None,
+            shop_phone: None,
+            shop_email: None,
+            shop_specialities_categories: None,
+            shop_specialities_periods: None,
             task_token: None,
             updated: OffsetDateTime::now_utc(),
         };
@@ -108,6 +158,15 @@ mod tests {
             shop_type: Some(ShopTypeRecord::Marketplace),
             shop_domains: Some(HashSet::new()),
             shop_image: Some(Url::parse("https://example.com/image.png").unwrap()),
+            shop_structured_address_address_lines: None,
+            shop_structured_address_locality: None,
+            shop_structured_address_region: None,
+            shop_structured_address_postal_code: None,
+            shop_structured_address_country: None,
+            shop_phone: None,
+            shop_email: None,
+            shop_specialities_categories: Some(Vec::new()),
+            shop_specialities_periods: Some(Vec::new()),
             task_token: None,
             updated: OffsetDateTime::now_utc(),
         };

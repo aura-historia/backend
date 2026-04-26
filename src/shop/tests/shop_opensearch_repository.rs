@@ -63,6 +63,8 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
         shop_name_query: Some(expected.name.to_string().try_into().unwrap()),
         shop_type_query: Default::default(),
         partner_status_query: Default::default(),
+        specialities_categories: Default::default(),
+        specialities_periods: Default::default(),
         created: None,
         updated: None,
     };
@@ -91,6 +93,8 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
             shop_type_query: Default::default(),
             partner_status_query: Default::default(),
+            specialities_categories: Default::default(),
+            specialities_periods: Default::default(),
         },
     Sort {
         sort: SortShopField::Score,
@@ -104,6 +108,8 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             updated: None,
             shop_type_query: Default::default(),
             partner_status_query: Default::default(),
+            specialities_categories: Default::default(),
+            specialities_periods: Default::default(),
         },
     Sort {
         sort: SortShopField::Score,
@@ -117,6 +123,8 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             updated: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             shop_type_query: Default::default(),
             partner_status_query: Default::default(),
+            specialities_categories: Default::default(),
+            specialities_periods: Default::default(),
         },
     Sort {
         sort: SortShopField::Score,
@@ -182,6 +190,16 @@ async fn should_update_shop_document_for_index() {
             Domain::try_from("hansi-hans.com").unwrap(),
         ]),
         image: Some(Url::parse("https://hansi-hanseatic.es/foo.png").unwrap()),
+        structured_address_address_lines: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        geo_address: None,
+        phone: None,
+        email: None,
+        specialities_categories: Vec::new(),
+        specialities_periods: Vec::new(),
         partner_status:
             shop::opensearch::partner_status_document::ShopPartnerStatusDocument::Scraped,
         created: created.created,
@@ -295,6 +313,8 @@ async fn should_search_shop_documents_when_shop_types_are_given(
         shop_name_query: None,
         shop_type_query: AnyOfQuery::from(HashSet::from_iter(shop_types.iter().copied())),
         partner_status_query: Default::default(),
+        specialities_categories: Default::default(),
+        specialities_periods: Default::default(),
         created: None,
         updated: None,
     };
@@ -345,6 +365,8 @@ async fn should_search_shop_documents_when_partner_status_is_given(
         partner_status_query: AnyOfQuery::from(HashSet::from_iter(
             partner_statuses.iter().copied(),
         )),
+        specialities_categories: Default::default(),
+        specialities_periods: Default::default(),
         created: None,
         updated: None,
     };

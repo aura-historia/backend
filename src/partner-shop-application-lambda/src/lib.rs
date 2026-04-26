@@ -16,6 +16,7 @@ use partner_shop_application::dynamodb::partner_shop_application_record_update::
 use partner_shop_application::dynamodb::partner_shop_application_state_record::PartnerShopApplicationStateRecord;
 use partner_shop_application::dynamodb::repository::PartnerShopApplicationDynamoDbRepository;
 use serde::{Deserialize, Serialize};
+use shop::core::address::StructuredAddress;
 use shop::dynamodb::repository::ShopDynamoDbRepository;
 use shop::dynamodb::shop_record;
 use shop::dynamodb::shop_record_update::ShopRecordUpdate;
@@ -135,6 +136,15 @@ async fn handle_wait_for_review(
         shop_type: None,
         shop_domains: None,
         shop_image: None,
+        shop_structured_address_address_lines: None,
+        shop_structured_address_locality: None,
+        shop_structured_address_region: None,
+        shop_structured_address_postal_code: None,
+        shop_structured_address_country: None,
+        shop_phone: None,
+        shop_email: None,
+        shop_specialities_categories: None,
+        shop_specialities_periods: None,
         updated: OffsetDateTime::now_utc(),
     };
 
@@ -210,6 +220,11 @@ async fn create_or_resolve_shop(
                 shop_type: shop_type.into(),
                 domains,
                 image,
+                structured_address: structured_address_from_record(record),
+                phone: record.shop_phone.clone(),
+                email: record.shop_email.clone(),
+                specialities_categories: record.shop_specialities_categories.clone(),
+                specialities_periods: record.shop_specialities_periods.clone(),
             };
 
             let shop = shop_service
@@ -239,6 +254,22 @@ async fn create_or_resolve_shop(
     }
 }
 
+fn structured_address_from_record(
+    record: &PartnerShopApplicationRecord,
+) -> Option<StructuredAddress> {
+    let structured_address = StructuredAddress {
+        address_lines: record
+            .shop_structured_address_address_lines
+            .clone()
+            .unwrap_or_default(),
+        locality: record.shop_structured_address_locality.clone(),
+        region: record.shop_structured_address_region.clone(),
+        postal_code: record.shop_structured_address_postal_code.clone(),
+        country: record.shop_structured_address_country.clone(),
+    };
+    (!structured_address.is_empty()).then_some(structured_address)
+}
+
 async fn link_shop_to_partner(
     shop_repository: &(impl ShopDynamoDbRepository + Sync),
     shop_id: &ShopId,
@@ -251,6 +282,17 @@ async fn link_shop_to_partner(
         shop_type: None,
         domains: None,
         image: None,
+        structured_address_address_lines: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        geo_address_lat: None,
+        geo_address_lon: None,
+        phone: None,
+        email: None,
+        specialities_categories: None,
+        specialities_periods: None,
         partner_api_key_short: None,
         partner_api_key_long_hash: None,
         updated: OffsetDateTime::now_utc(),
@@ -278,6 +320,15 @@ async fn persist_approved_state(
         shop_type: None,
         shop_domains: None,
         shop_image: None,
+        shop_structured_address_address_lines: None,
+        shop_structured_address_locality: None,
+        shop_structured_address_region: None,
+        shop_structured_address_postal_code: None,
+        shop_structured_address_country: None,
+        shop_phone: None,
+        shop_email: None,
+        shop_specialities_categories: None,
+        shop_specialities_periods: None,
         updated: OffsetDateTime::now_utc(),
     };
 
@@ -341,6 +392,15 @@ async fn handle_reject(
         shop_type: None,
         shop_domains: None,
         shop_image: None,
+        shop_structured_address_address_lines: None,
+        shop_structured_address_locality: None,
+        shop_structured_address_region: None,
+        shop_structured_address_postal_code: None,
+        shop_structured_address_country: None,
+        shop_phone: None,
+        shop_email: None,
+        shop_specialities_categories: None,
+        shop_specialities_periods: None,
         updated: OffsetDateTime::now_utc(),
     };
 

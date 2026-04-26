@@ -1,5 +1,7 @@
 use crate::core::partner_status::ShopPartnerStatus;
 use crate::core::shop_type::ShopType;
+use common::category_key::CategoryId;
+use common::period_key::PeriodId;
 use common::query::{any_of_query::AnyOfQuery, range_query::RangeQuery, text_query::TextQuery};
 use time::OffsetDateTime;
 
@@ -8,6 +10,8 @@ pub struct ShopSearch {
     pub shop_name_query: Option<TextQuery<0>>,
     pub shop_type_query: AnyOfQuery<ShopType>,
     pub partner_status_query: AnyOfQuery<ShopPartnerStatus>,
+    pub specialities_categories: Vec<CategoryId>,
+    pub specialities_periods: Vec<PeriodId>,
     pub created: Option<RangeQuery<OffsetDateTime>>,
     pub updated: Option<RangeQuery<OffsetDateTime>>,
 }

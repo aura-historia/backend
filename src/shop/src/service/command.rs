@@ -1,5 +1,6 @@
-use crate::core::shop_type::ShopType;
-use common::{domain::Domain, shop_name::ShopName};
+use crate::core::{address::StructuredAddress, shop_type::ShopType};
+use common::{category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_name::ShopName};
+use serde_email::Email;
 use std::collections::HashSet;
 use url::Url;
 
@@ -9,19 +10,35 @@ pub struct CreateShopCommand {
     pub shop_type: ShopType,
     pub domains: HashSet<Domain>,
     pub image: Option<Url>,
+    pub structured_address: Option<StructuredAddress>,
+    pub phone: Option<String>,
+    pub email: Option<Email>,
+    pub specialities_categories: Vec<CategoryId>,
+    pub specialities_periods: Vec<PeriodId>,
 }
 
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdateShopCommand {
     pub shop_type: Option<ShopType>,
     pub domains: Option<HashSet<Domain>>,
     pub image: Option<Url>,
+    pub structured_address: Option<StructuredAddress>,
+    pub phone: Option<String>,
+    pub email: Option<Email>,
+    pub specialities_categories: Option<Vec<CategoryId>>,
+    pub specialities_periods: Option<Vec<PeriodId>>,
 }
 
 impl UpdateShopCommand {
     pub fn is_empty(&self) -> bool {
-        self.shop_type.is_none() && self.domains.is_none() && self.image.is_none()
+        self.shop_type.is_none()
+            && self.domains.is_none()
+            && self.image.is_none()
+            && self.structured_address.is_none()
+            && self.phone.is_none()
+            && self.email.is_none()
+            && self.specialities_categories.is_none()
+            && self.specialities_periods.is_none()
     }
 }
 
@@ -42,6 +59,26 @@ mod faker {
                 .unwrap()]
                 .into(),
                 image: config.fake_with_rng(rng),
+                structured_address: None,
+                phone: None,
+                email: None,
+                specialities_categories: Vec::new(),
+                specialities_periods: Vec::new(),
+            }
+        }
+    }
+
+    impl Dummy<Faker> for UpdateShopCommand {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            UpdateShopCommand {
+                shop_type: config.fake_with_rng(rng),
+                domains: config.fake_with_rng(rng),
+                image: config.fake_with_rng(rng),
+                structured_address: None,
+                phone: None,
+                email: None,
+                specialities_categories: None,
+                specialities_periods: None,
             }
         }
     }

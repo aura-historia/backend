@@ -150,6 +150,34 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
             }));
         }
 
+        // Add specialities_categories filter
+        if !search.specialities_categories.is_empty() {
+            let categories: Vec<String> = search
+                .specialities_categories
+                .iter()
+                .map(|c| c.to_string())
+                .collect();
+            filter.push(json!({
+                "terms": {
+                    ShopDocumentSerdeField::SpecialitiesCategories.as_str(): categories
+                }
+            }));
+        }
+
+        // Add specialities_periods filter
+        if !search.specialities_periods.is_empty() {
+            let periods: Vec<String> = search
+                .specialities_periods
+                .iter()
+                .map(|p| p.to_string())
+                .collect();
+            filter.push(json!({
+                "terms": {
+                    ShopDocumentSerdeField::SpecialitiesPeriods.as_str(): periods
+                }
+            }));
+        }
+
         if let Some(min) = search.created.and_then(|created| created.min) {
             let formatted_min = min
                 .format(&well_known::Rfc3339)
