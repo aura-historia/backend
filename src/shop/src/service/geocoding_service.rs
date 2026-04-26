@@ -50,7 +50,7 @@ impl GeocodingService for GoogleGeocodingService {
             .header("X-Goog-Api-Key", &self.api_key)
             .header(
                 "X-Goog-FieldMask",
-                "geocodingResults.geocoding.location,geocodingResults.geocode.location,results.geometry.location,results.location",
+                "geocodingResults.geocoding.location,geocodingResults.geocode.location",
             )
             .json(&GoogleGeocodingRequest { address })
             .send()
@@ -82,8 +82,6 @@ struct GoogleGeocodingRequest {
 struct GoogleGeocodingResponse {
     #[serde(default)]
     geocoding_results: Vec<GoogleGeocodingV4Result>,
-    #[serde(default)]
-    results: Vec<GoogleGeocodingResult>,
 }
 
 impl GoogleGeocodingResponse {
@@ -91,11 +89,6 @@ impl GoogleGeocodingResponse {
         self.geocoding_results
             .into_iter()
             .find_map(GoogleGeocodingV4Result::into_geo_address)
-            .or_else(|| {
-                self.results
-                    .into_iter()
-                    .find_map(GoogleGeocodingResult::into_geo_address)
-            })
     }
 }
 
@@ -124,46 +117,13 @@ struct GoogleGeocodingV4Geocode {
 struct GoogleGeocodingV4Location {
     latitude: Option<f64>,
     longitude: Option<f64>,
-    lat: Option<f64>,
-    lng: Option<f64>,
 }
 
 impl GoogleGeocodingV4Location {
     fn into_geo_address(self) -> Option<GeoAddress> {
         Some(GeoAddress {
-            lat: self.latitude.or(self.lat)?,
-            lon: self.longitude.or(self.lng)?,
+            lat: self.latitude?,
+            lon: self.longitude?,
         })
     }
-}
-
-#[derive(Deserialize)]
-struct GoogleGeocodingResult {
-    geometry: Option<GoogleGeocodingGeometry>,
-    location: Option<GoogleGeocodingV4Location>,
-}
-
-impl GoogleGeocodingResult {
-    fn into_geo_address(self) -> Option<GeoAddress> {
-        self.location
-            .and_then(GoogleGeocodingV4Location::into_geo_address)
-            .or_else(|| {
-                let location = self.geometry?.location;
-                Some(GeoAddress {
-                    lat: location.lat,
-                    lon: location.lng,
-                })
-            })
-    }
-}
-
-#[derive(Deserialize)]
-struct GoogleGeocodingGeometry {
-    location: GoogleGeocodingLocation,
-}
-
-#[derive(Deserialize)]
-struct GoogleGeocodingLocation {
-    lat: f64,
-    lng: f64,
 }
