@@ -6,6 +6,9 @@ use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
 use shop::opensearch::repository::ShopOpenSearchRepositoryImpl;
 use shop::service::command_service::CommandShopServiceImpl;
+use shop::service::geocoding_service::{
+    GeocodingService, GoogleGeocodingService, NoopGeocodingService,
+};
 use shop::service::get_service::GetShopServiceImpl;
 use shop::service::query_service::QueryShopServiceImpl;
 use shop_api::handler;
@@ -25,9 +28,13 @@ async fn main() -> Result<(), Error> {
     let dynamodb = Client::new(&aws_config);
     let shop_dynamodb_repository = ShopDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let get_shop_service = GetShopServiceImpl::new(&shop_dynamodb_repository);
-    let geocoding_service = shop::service::geocoding_service::GoogleGeocodingService::from_env()?;
+    let geocoding_service: Box<dyn GeocodingService + Sync> =
+        match std::env::var("LOCALSTACK_HOSTNAME") {
+            Ok(_) => Box::new(NoopGeocodingService),
+            Err(_) => Box::new(GoogleGeocodingService::from_env()?),
+        };
     let command_shop_service =
-        CommandShopServiceImpl::new(&shop_dynamodb_repository, &geocoding_service);
+        CommandShopServiceImpl::new(&shop_dynamodb_repository, geocoding_service.as_ref());
 
     let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let user_service = UserServiceImpl::new(&user_repository);

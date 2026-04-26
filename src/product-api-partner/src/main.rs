@@ -19,6 +19,9 @@ use product_classification::period::service::PeriodServiceImpl;
 use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
 use shop::opensearch::repository::ShopOpenSearchRepositoryImpl;
 use shop::service::command_service::CommandShopServiceImpl;
+use shop::service::geocoding_service::{
+    GeocodingService, GoogleGeocodingService, NoopGeocodingService,
+};
 use shop::service::get_service::GetShopServiceImpl;
 use shop::service::query_service::QueryShopServiceImpl;
 use shop::service::seller_service::{MockSellerService, SellerService, SellerServiceImpl};
@@ -43,9 +46,13 @@ async fn main() -> Result<(), Error> {
     let get_shop_service = GetShopServiceImpl::new(&shop_dynamodb_repository);
 
     let shop_opensearch_repository = ShopOpenSearchRepositoryImpl::new(&opensearch);
-    let geocoding_service = shop::service::geocoding_service::GoogleGeocodingService::from_env()?;
+    let geocoding_service: Box<dyn GeocodingService + Sync> =
+        match std::env::var("LOCALSTACK_HOSTNAME") {
+            Ok(_) => Box::new(NoopGeocodingService),
+            Err(_) => Box::new(GoogleGeocodingService::from_env()?),
+        };
     let command_shop_service =
-        CommandShopServiceImpl::new(&shop_dynamodb_repository, &geocoding_service);
+        CommandShopServiceImpl::new(&shop_dynamodb_repository, geocoding_service.as_ref());
     let query_shop_service = QueryShopServiceImpl::new(&shop_opensearch_repository);
 
     let seller_service: Box<dyn SellerService> = match std::env::var("LOCALSTACK_HOSTNAME") {
