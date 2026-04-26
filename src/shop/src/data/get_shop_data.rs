@@ -1,9 +1,14 @@
+use crate::core::address::{GeoAddress, StructuredAddress};
 use crate::{
     core::shop::Shop,
     data::{partner_status_data::ShopPartnerStatusData, shop_type_data::ShopTypeData},
 };
-use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
+use common::{
+    category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_id::ShopId,
+    shop_name::ShopName, slug_id::SlugId,
+};
 use serde::{Deserialize, Serialize};
+use serde_email::Email;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
@@ -18,6 +23,18 @@ pub struct GetShopData {
     pub domains: HashSet<Domain>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address: Option<StructuredAddress>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub geo_address: Option<GeoAddress>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub phone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub email: Option<Email>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub specialities_categories: Vec<CategoryId>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub specialities_periods: Vec<PeriodId>,
     pub partner_status: ShopPartnerStatusData,
 
     #[serde(with = "time::serde::rfc3339")]
@@ -35,6 +52,12 @@ impl From<Shop> for GetShopData {
             shop_type: shop.shop_type.into(),
             domains: shop.domains,
             image: shop.image,
+            structured_address: shop.structured_address,
+            geo_address: shop.geo_address,
+            phone: shop.phone,
+            email: shop.email,
+            specialities_categories: shop.specialities_categories,
+            specialities_periods: shop.specialities_periods,
             partner_status: shop.partner_status.into(),
             created: shop.created,
             updated: shop.updated,
@@ -62,6 +85,12 @@ mod tests {
             shop_type: ShopTypeData::CommercialDealer,
             domains: [Domain::try_from("https://woaah.co.ltd.com").unwrap()].into(),
             image: Some(Url::parse("https://woaah.co.ltd.com/logo.svg").unwrap()),
+            structured_address: None,
+            geo_address: None,
+            phone: None,
+            email: None,
+            specialities_categories: Vec::new(),
+            specialities_periods: Vec::new(),
             partner_status: ShopPartnerStatusData::Partnered,
             created: datetime!(1976 - 12 - 01 0:00 UTC),
             updated: datetime!(1976 - 12 - 01 0:00 UTC),

@@ -17,7 +17,10 @@ use user::service::user_service::MockUserService;
 async fn should_200_respond_shop() {
     let repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let get_service = GetShopServiceImpl::new(&repository);
-    let command_service = CommandShopServiceImpl::new(&repository);
+    let command_service = CommandShopServiceImpl::new(
+        &repository,
+        &shop::service::geocoding_service::NoopGeocodingService,
+    );
 
     let create_cmd = Faker.fake();
     let expected = command_service.create(create_cmd).await.unwrap();
@@ -48,7 +51,10 @@ async fn should_200_respond_shop() {
 async fn should_200_respond_shop_for_slug() {
     let repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let get_service = GetShopServiceImpl::new(&repository);
-    let command_service = CommandShopServiceImpl::new(&repository);
+    let command_service = CommandShopServiceImpl::new(
+        &repository,
+        &shop::service::geocoding_service::NoopGeocodingService,
+    );
 
     let create_cmd = Faker.fake();
     let expected = command_service.create(create_cmd).await.unwrap();

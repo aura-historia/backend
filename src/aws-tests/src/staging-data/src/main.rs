@@ -495,7 +495,10 @@ async fn populate_shops() -> Vec<GetShopData> {
     let dynamodb_client = get_dynamodb_client().await;
     let shop_repository =
         ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
-    let command_service = CommandShopServiceImpl::new(&shop_repository);
+    let command_service = CommandShopServiceImpl::new(
+        &shop_repository,
+        &shop::service::geocoding_service::NoopGeocodingService,
+    );
 
     let mut shops = vec![];
     for _ in 0..42 {

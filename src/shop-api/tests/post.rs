@@ -14,7 +14,10 @@ use user::service::user_service::MockUserService;
 async fn should_201_respond_created_shop_when_admin_posts_shop() {
     let repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let get_service = GetShopServiceImpl::new(&repository);
-    let command_service = CommandShopServiceImpl::new(&repository);
+    let command_service = CommandShopServiceImpl::new(
+        &repository,
+        &shop::service::geocoding_service::NoopGeocodingService,
+    );
 
     let admin_user_id = UserId::new();
 

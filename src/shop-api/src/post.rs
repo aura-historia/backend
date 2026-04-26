@@ -42,6 +42,11 @@ pub async fn handle(
         shop_type: post_data.shop_type.into(),
         domains: post_data.domains,
         image: post_data.image,
+        structured_address: post_data.structured_address,
+        phone: post_data.phone,
+        email: post_data.email,
+        specialities_categories: post_data.specialities_categories,
+        specialities_periods: post_data.specialities_periods,
     };
 
     let created_shop = command_shop_service.create(create_command).await?;

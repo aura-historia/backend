@@ -196,6 +196,11 @@ impl<'a> SellerService for SellerServiceImpl<'a> {
                             shop_type: ShopType::AuctionHouse,
                             domains: Default::default(),
                             image: None,
+                            structured_address: None,
+                            phone: None,
+                            email: None,
+                            specialities_categories: Vec::new(),
+                            specialities_periods: Vec::new(),
                         })
                         .await?
                 }
@@ -207,6 +212,11 @@ impl<'a> SellerService for SellerServiceImpl<'a> {
                     shop_type: ShopType::AuctionHouse,
                     domains: Default::default(),
                     image: None,
+                    structured_address: None,
+                    phone: None,
+                    email: None,
+                    specialities_categories: Vec::new(),
+                    specialities_periods: Vec::new(),
                 })
                 .await?
         };

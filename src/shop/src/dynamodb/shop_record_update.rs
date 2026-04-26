@@ -1,6 +1,10 @@
 use crate::dynamodb::shop_type_record::ShopTypeRecord;
-use common::{domain::Domain, dynamodb_update::DynamoDbUpdate, user_id::UserId};
+use common::{
+    category_key::CategoryId, domain::Domain, dynamodb_update::DynamoDbUpdate,
+    period_key::PeriodId, user_id::UserId,
+};
 use serde::{Deserialize, Serialize};
+use serde_email::Email;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
@@ -24,6 +28,31 @@ pub struct ShopRecordUpdate {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_address_lines: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_locality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_region: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_postal_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_country: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub geo_address_lat: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub geo_address_lon: Option<f64>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub phone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub email: Option<Email>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub specialities_categories: Option<Vec<CategoryId>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub specialities_periods: Option<Vec<PeriodId>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub partner_api_key_short: Option<String>,

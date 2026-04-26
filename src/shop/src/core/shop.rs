@@ -1,7 +1,14 @@
 use crate::core::{
-    partner_shop::PartnerShop, partner_status::ShopPartnerStatus, shop_type::ShopType,
+    address::{GeoAddress, StructuredAddress},
+    partner_shop::PartnerShop,
+    partner_status::ShopPartnerStatus,
+    shop_type::ShopType,
 };
-use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
+use common::{
+    category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_id::ShopId,
+    shop_name::ShopName, slug_id::SlugId,
+};
+use serde_email::Email;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
@@ -14,6 +21,12 @@ pub struct Shop {
     pub shop_type: ShopType,
     pub domains: HashSet<Domain>,
     pub image: Option<Url>,
+    pub structured_address: Option<StructuredAddress>,
+    pub geo_address: Option<GeoAddress>,
+    pub phone: Option<String>,
+    pub email: Option<Email>,
+    pub specialities_categories: Vec<CategoryId>,
+    pub specialities_periods: Vec<PeriodId>,
     pub partner_status: ShopPartnerStatus,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -28,6 +41,12 @@ impl From<PartnerShop> for Shop {
             shop_type: partner_shop.shop_type,
             domains: partner_shop.domains,
             image: partner_shop.image,
+            structured_address: partner_shop.structured_address,
+            geo_address: partner_shop.geo_address,
+            phone: partner_shop.phone,
+            email: partner_shop.email,
+            specialities_categories: partner_shop.specialities_categories,
+            specialities_periods: partner_shop.specialities_periods,
             partner_status: ShopPartnerStatus::Partnered,
             created: partner_shop.created,
             updated: partner_shop.updated,
@@ -50,6 +69,12 @@ mod faker {
                 shop_type: config.fake_with_rng(rng),
                 domains: [Faker.fake()].into(),
                 image: config.fake_with_rng(rng),
+                structured_address: None,
+                geo_address: None,
+                phone: None,
+                email: None,
+                specialities_categories: Vec::new(),
+                specialities_periods: Vec::new(),
                 partner_status: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),

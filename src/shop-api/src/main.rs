@@ -25,7 +25,9 @@ async fn main() -> Result<(), Error> {
     let dynamodb = Client::new(&aws_config);
     let shop_dynamodb_repository = ShopDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let get_shop_service = GetShopServiceImpl::new(&shop_dynamodb_repository);
-    let command_shop_service = CommandShopServiceImpl::new(&shop_dynamodb_repository);
+    let geocoding_service = shop::service::geocoding_service::GoogleGeocodingService::from_env();
+    let command_shop_service =
+        CommandShopServiceImpl::new(&shop_dynamodb_repository, &geocoding_service);
 
     let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let user_service = UserServiceImpl::new(&user_repository);

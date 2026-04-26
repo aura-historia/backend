@@ -1,5 +1,7 @@
-use common::{domain::Domain, shop_name::ShopName};
+use common::{category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
+use serde_email::Email;
+use shop::core::address::StructuredAddress;
 use shop::data::shop_type_data::ShopTypeData;
 use std::collections::HashSet;
 use url::Url;
@@ -18,6 +20,16 @@ pub struct AdminPatchPartnerShopApplicationData {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_image: Option<Url>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_structured_address: Option<StructuredAddress>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_phone: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_email: Option<Email>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_specialities_categories: Option<Vec<CategoryId>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_specialities_periods: Option<Vec<PeriodId>>,
 }
 
 #[cfg(feature = "test-data")]
@@ -32,6 +44,11 @@ mod faker {
                 shop_type: config.fake_with_rng(rng),
                 shop_domains: config.fake_with_rng(rng),
                 shop_image: config.fake_with_rng(rng),
+                shop_structured_address: None,
+                shop_phone: None,
+                shop_email: None,
+                shop_specialities_categories: None,
+                shop_specialities_periods: None,
             }
         }
     }

@@ -3,10 +3,11 @@ use crate::core::{
     partner_shop_application_state::PartnerShopApplicationState,
 };
 use common::{
-    domain::Domain, execution_state::ExecutionState, shop_id::ShopId, shop_name::ShopName,
-    user_id::UserId,
+    category_key::CategoryId, domain::Domain, execution_state::ExecutionState,
+    period_key::PeriodId, shop_id::ShopId, shop_name::ShopName, user_id::UserId,
 };
-use shop::core::shop_type::ShopType;
+use serde_email::Email;
+use shop::core::{address::StructuredAddress, shop_type::ShopType};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
@@ -36,6 +37,11 @@ pub struct PartnerShopApplicationPayloadInfo {
     pub shop_type: Option<ShopType>,
     pub shop_domains: Option<HashSet<Domain>>,
     pub shop_image: Option<Url>,
+    pub shop_structured_address: Option<StructuredAddress>,
+    pub shop_phone: Option<String>,
+    pub shop_email: Option<Email>,
+    pub shop_specialities_categories: Option<Vec<CategoryId>>,
+    pub shop_specialities_periods: Option<Vec<PeriodId>>,
 }
 
 #[cfg(feature = "test-data")]

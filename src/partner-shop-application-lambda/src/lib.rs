@@ -135,6 +135,11 @@ async fn handle_wait_for_review(
         shop_type: None,
         shop_domains: None,
         shop_image: None,
+        shop_structured_address: None,
+        shop_phone: None,
+        shop_email: None,
+        shop_specialities_categories: None,
+        shop_specialities_periods: None,
         updated: OffsetDateTime::now_utc(),
     };
 
@@ -210,6 +215,11 @@ async fn create_or_resolve_shop(
                 shop_type: shop_type.into(),
                 domains,
                 image,
+                structured_address: record.shop_structured_address.clone(),
+                phone: record.shop_phone.clone(),
+                email: record.shop_email.clone(),
+                specialities_categories: record.shop_specialities_categories.clone(),
+                specialities_periods: record.shop_specialities_periods.clone(),
             };
 
             let shop = shop_service
@@ -251,6 +261,17 @@ async fn link_shop_to_partner(
         shop_type: None,
         domains: None,
         image: None,
+        structured_address_address_lines: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        geo_address_lat: None,
+        geo_address_lon: None,
+        phone: None,
+        email: None,
+        specialities_categories: None,
+        specialities_periods: None,
         partner_api_key_short: None,
         partner_api_key_long_hash: None,
         updated: OffsetDateTime::now_utc(),
@@ -278,6 +299,11 @@ async fn persist_approved_state(
         shop_type: None,
         shop_domains: None,
         shop_image: None,
+        shop_structured_address: None,
+        shop_phone: None,
+        shop_email: None,
+        shop_specialities_categories: None,
+        shop_specialities_periods: None,
         updated: OffsetDateTime::now_utc(),
     };
 
@@ -341,6 +367,11 @@ async fn handle_reject(
         shop_type: None,
         shop_domains: None,
         shop_image: None,
+        shop_structured_address: None,
+        shop_phone: None,
+        shop_email: None,
+        shop_specialities_categories: None,
+        shop_specialities_periods: None,
         updated: OffsetDateTime::now_utc(),
     };
 
