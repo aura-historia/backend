@@ -28,7 +28,7 @@ pub(super) enum PriceError {
 
 /// Detects the currency from a raw price string.
 ///
-/// Returns `None` if no recognised currency symbol or ISO code is present.
+/// Returns `None` if no recognized currency symbol or ISO code is present.
 /// Multi-character symbols (`NZD`, `AUD`, `CAD`) are checked before the plain
 /// `$` to avoid false matches.
 pub(super) fn detect_currency(raw: &str) -> Option<Currency> {
@@ -258,8 +258,8 @@ mod tests {
     use common::currency::domain::Currency;
 
     use super::{
-        PriceError, detect_currency, is_price_on_request_marker, normalise_fraction, parse_price,
-        split_decimal,
+        detect_currency, is_price_on_request_marker, normalise_fraction, parse_price, split_decimal,
+        PriceError,
     };
 
     // -----------------------------------------------------------------------
