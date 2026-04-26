@@ -58,6 +58,7 @@ pub(super) fn detect_currency(raw: &str) -> Option<Currency> {
 /// Handles formats such as:
 ///   - `"1.234,56 €"`   (European: dot-thousands, comma-decimal)
 ///   - `"1,234.56 USD"` (Anglo: comma-thousands, dot-decimal)
+///   - `"£8,800"`       (Anglo: comma-thousands, no decimal)
 ///   - `"£1 234.56"`    (space-thousands)
 ///   - `"1234.5"`       (single decimal digit)
 ///   - `"1'234.56"`     (apostrophe-thousands)
@@ -176,18 +177,42 @@ fn normalise_fraction(frac: &str, exponent: u32) -> String {
     }
 }
 
+/// Returns `true` when the string slice is exactly 3 ASCII digits, which
+/// indicates a thousands-separator group rather than a decimal fraction.
+fn is_thousands_group(s: &str) -> bool {
+    s.len() == 3 && s.chars().all(|c| c.is_ascii_digit())
+}
+
 /// Splits a cleaned number string at the decimal separator.
 ///
 /// The *later* of the last `.` and last `,` is treated as the decimal
 /// separator; the earlier one (if present) is the thousands separator.
+///
+/// Special case: when only a single separator is present and the trailing
+/// group has **exactly 3 digits** it is treated as a thousands separator and
+/// `None` is returned (e.g. `"8,800"` → `None`, `"8.800"` → `None`).
 fn split_decimal(s: &str) -> Option<(&str, &str)> {
     let last_dot = s.rfind('.');
     let last_comma = s.rfind(',');
 
     match (last_dot, last_comma) {
         (None, None) => None,
-        (Some(d), None) => Some((&s[..d], &s[d + 1..])),
-        (None, Some(c)) => Some((&s[..c], &s[c + 1..])),
+        (Some(d), None) => {
+            let after = &s[d + 1..];
+            if is_thousands_group(after) {
+                None
+            } else {
+                Some((&s[..d], after))
+            }
+        }
+        (None, Some(c)) => {
+            let after = &s[c + 1..];
+            if is_thousands_group(after) {
+                None
+            } else {
+                Some((&s[..c], after))
+            }
+        }
         (Some(d), Some(c)) => {
             if d > c {
                 Some((&s[..d], &s[d + 1..]))
@@ -318,6 +343,11 @@ mod tests {
     #[case("1.5 EUR", 150, Currency::Eur)]
     #[case("1'234.56 USD", 123456, Currency::Usd)]
     #[case("£ 0.01", 1, Currency::Gbp)]
+    // UK/US comma-thousands prices (the comma is a thousands separator, not decimal)
+    #[case("£8,800", 880000, Currency::Gbp)]
+    #[case("$1,500", 150000, Currency::Usd)]
+    #[case("$10,000", 1000000, Currency::Usd)]
+    #[case("£1,800,000", 180000000, Currency::Gbp)]
     fn should_parse_price_when_valid_string_provided(
         #[case] raw: &str,
         #[case] expected_amount: u64,
@@ -391,6 +421,11 @@ mod tests {
     #[case("1.234,56", Some(("1.234", "56")))]
     // comma is later → comma is decimal separator
     #[case("1,234.56", Some(("1,234", "56")))]
+    // lone comma/dot followed by exactly 3 digits → thousands separator, not decimal
+    #[case("8,800", None)]
+    #[case("1,234", None)]
+    #[case("8.800", None)]
+    #[case("1.234", None)]
     fn should_split_decimal_correctly_for_various_formats(
         #[case] input: &str,
         #[case] expected: Option<(&str, &str)>,
