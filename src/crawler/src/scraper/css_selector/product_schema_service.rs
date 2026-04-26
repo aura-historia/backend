@@ -194,9 +194,6 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         // Append new schema(s) in-memory. The caller persists only after
         // verifying at least one schema applies successfully.
         existing.product_schemas.extend(new_schemas.clone());
-        if let Some(first) = existing.product_schemas.first().cloned() {
-            existing.product_schema = first;
-        }
 
         debug!(
             total_schemas = existing.product_schemas.len(),
@@ -233,6 +230,12 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         domain: &str,
         product_schemas: Vec<ProductCssSelectorSchema>,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
+        if product_schemas.is_empty() {
+            return Err(ProductSchemaServiceError::NoTextResponse(
+                "LLM produced zero schemas".to_string(),
+            ));
+        }
+
         let existing = self.repository.find_product_schema(shop_id).await?;
 
         match existing {
@@ -241,12 +244,6 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
                 self.repository
                     .update_product_schema(shop_id, &product_schemas)
                     .await
-                    .map(|mut saved| {
-                        if let Some(first) = saved.product_schemas.first().cloned() {
-                            saved.product_schema = first;
-                        }
-                        saved
-                    })
                     .map_err(ProductSchemaServiceError::DatabaseError)
             }
             None => {
@@ -254,11 +251,6 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
                 let now = OffsetDateTime::now_utc();
                 let schema = ShopsProductSchema {
                     shop_id: *shop_id,
-                    product_schema: product_schemas.first().cloned().ok_or_else(|| {
-                        ProductSchemaServiceError::NoTextResponse(
-                            "LLM produced zero schemas".to_string(),
-                        )
-                    })?,
                     product_schemas,
                     created: now,
                     updated: now,
@@ -266,12 +258,6 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
                 self.repository
                     .insert_product_schema(shop_id, &schema)
                     .await
-                    .map(|mut saved| {
-                        if let Some(first) = saved.product_schemas.first().cloned() {
-                            saved.product_schema = first;
-                        }
-                        saved
-                    })
                     .map_err(ProductSchemaServiceError::DatabaseError)
             }
         }
@@ -474,7 +460,6 @@ mod tests {
         let now = OffsetDateTime::now_utc();
         ShopsProductSchema {
             shop_id,
-            product_schema: sample_css_schema(),
             product_schemas: vec![sample_css_schema()],
             created: now,
             updated: now,
@@ -506,7 +491,7 @@ mod tests {
         assert!(result.is_some());
         let result = result.unwrap();
         assert_eq!(result.shop_id, expected.shop_id);
-        assert_eq!(result.product_schema, expected.product_schema);
+        assert_eq!(result.product_schemas, expected.product_schemas);
     }
 
     #[tokio::test]
@@ -579,7 +564,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result.shop_id, expected.shop_id);
-        assert_eq!(result.product_schema, expected.product_schema);
+        assert_eq!(result.product_schemas, expected.product_schemas);
     }
 
     #[tokio::test]
@@ -694,7 +679,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result.shop_id, existing.shop_id);
-        assert_eq!(result.product_schema, existing.product_schema);
+        assert_eq!(result.product_schemas, existing.product_schemas);
     }
 
     #[tokio::test]

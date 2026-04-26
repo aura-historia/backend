@@ -51,14 +51,8 @@ fn row_to_schema(row: sqlx::postgres::PgRow) -> Result<ShopsProductSchema, sqlx:
                 .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
         ],
     };
-    let product_schema = product_schemas
-        .first()
-        .cloned()
-        .ok_or_else(|| sqlx::Error::Protocol("empty product_schemas payload".into()))?;
-
     Ok(ShopsProductSchema {
         shop_id: ShopId::from(shop_id_uuid),
-        product_schema,
         product_schemas,
         created,
         updated,
@@ -88,11 +82,7 @@ impl<'a> ShopsProductSchemaRepository for ShopsProductSchemaRepositoryImpl<'a> {
         shop_id: &ShopId,
         schema: &ShopsProductSchema,
     ) -> Result<ShopsProductSchema, sqlx::Error> {
-        let schemas = if schema.product_schemas.is_empty() {
-            vec![schema.product_schema.clone()]
-        } else {
-            schema.product_schemas.clone()
-        };
+        let schemas = schema.product_schemas.clone();
         let product_schema_json =
             serde_json::to_value(&schemas).map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
 

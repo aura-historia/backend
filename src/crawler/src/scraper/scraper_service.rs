@@ -848,7 +848,6 @@ mod tests {
         let schema = minimal_schema();
         ShopsProductSchema {
             shop_id,
-            product_schema: schema.clone(),
             product_schemas: vec![schema],
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
@@ -1076,7 +1075,6 @@ mod tests {
             .returning(move |_| {
                 let s = ShopsProductSchema {
                     shop_id: shop_id(),
-                    product_schema: initial_schema_for_find.clone(),
                     product_schemas: vec![initial_schema_for_find.clone()],
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),

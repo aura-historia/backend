@@ -10,7 +10,6 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShopsProductSchema {
     pub shop_id: ShopId,
-    pub product_schema: ProductCssSelectorSchema,
     pub product_schemas: Vec<ProductCssSelectorSchema>,
 
     #[serde(with = "time::serde::rfc3339")]
@@ -29,7 +28,6 @@ mod faker {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             ShopsProductSchema {
                 shop_id: config.fake_with_rng(rng),
-                product_schema: config.fake_with_rng(rng),
                 product_schemas: vec![],
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
