@@ -217,8 +217,8 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
                 .structured_address
                 .as_ref()
                 .and_then(|address| address.country.clone()),
-            geo_address_lat: geo_address.map(|address| address.lat),
-            geo_address_lon: geo_address.map(|address| address.lon),
+            geo_address_lat: geo_address.as_ref().map(|address| address.lat),
+            geo_address_lon: geo_address.as_ref().map(|address| address.lon),
             phone: command.phone.clone(),
             email: command.email.clone(),
             specialities_categories: command.specialities_categories.clone(),

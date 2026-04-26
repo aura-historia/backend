@@ -7,6 +7,8 @@ pub enum GeocodingError {
     EmptyAddress,
     #[error("Missing Google Geocoding API key")]
     MissingApiKey,
+    #[error("Geocoding is disabled")]
+    GeocodingDisabled,
     #[error("Google Geocoding API request failed: {0}")]
     RequestFailed(#[from] reqwest::Error),
     #[error("Google Geocoding API returned no result for address")]
@@ -67,7 +69,7 @@ pub struct NoopGeocodingService;
 #[async_trait::async_trait]
 impl GeocodingService for NoopGeocodingService {
     async fn geocode(&self, _address: &StructuredAddress) -> Result<GeoAddress, GeocodingError> {
-        Err(GeocodingError::MissingApiKey)
+        Err(GeocodingError::GeocodingDisabled)
     }
 }
 
