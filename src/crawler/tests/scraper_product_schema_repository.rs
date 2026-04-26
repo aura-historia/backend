@@ -127,7 +127,6 @@ fn make_shops_product_schema(
     let now = OffsetDateTime::now_utc();
     ShopsProductSchema {
         shop_id,
-        product_schema: schema.clone(),
         product_schemas: vec![schema],
         created: now,
         updated: now,
