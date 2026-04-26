@@ -7,7 +7,6 @@ use common::{
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use serde_fields::SerdeField;
-use shop::core::address::StructuredAddress;
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -34,7 +33,15 @@ pub struct PartnerShopApplicationRecordUpdate {
     pub shop_image: Option<Url>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shop_structured_address: Option<StructuredAddress>,
+    pub shop_structured_address_address_lines: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_structured_address_locality: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_structured_address_region: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_structured_address_postal_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_structured_address_country: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_phone: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -67,7 +74,11 @@ mod tests {
             shop_type: None,
             shop_domains: None,
             shop_image: None,
-            shop_structured_address: None,
+            shop_structured_address_address_lines: None,
+            shop_structured_address_locality: None,
+            shop_structured_address_region: None,
+            shop_structured_address_postal_code: None,
+            shop_structured_address_country: None,
             shop_phone: None,
             shop_email: None,
             shop_specialities_categories: None,
@@ -91,7 +102,11 @@ mod tests {
             shop_type: None,
             shop_domains: None,
             shop_image: None,
-            shop_structured_address: None,
+            shop_structured_address_address_lines: None,
+            shop_structured_address_locality: None,
+            shop_structured_address_region: None,
+            shop_structured_address_postal_code: None,
+            shop_structured_address_country: None,
             shop_phone: None,
             shop_email: None,
             shop_specialities_categories: None,
@@ -115,7 +130,11 @@ mod tests {
             shop_type: None,
             shop_domains: None,
             shop_image: None,
-            shop_structured_address: None,
+            shop_structured_address_address_lines: None,
+            shop_structured_address_locality: None,
+            shop_structured_address_region: None,
+            shop_structured_address_postal_code: None,
+            shop_structured_address_country: None,
             shop_phone: None,
             shop_email: None,
             shop_specialities_categories: None,
@@ -139,7 +158,11 @@ mod tests {
             shop_type: Some(ShopTypeRecord::Marketplace),
             shop_domains: Some(HashSet::new()),
             shop_image: Some(Url::parse("https://example.com/image.png").unwrap()),
-            shop_structured_address: None,
+            shop_structured_address_address_lines: None,
+            shop_structured_address_locality: None,
+            shop_structured_address_region: None,
+            shop_structured_address_postal_code: None,
+            shop_structured_address_country: None,
             shop_phone: None,
             shop_email: None,
             shop_specialities_categories: Some(Vec::new()),

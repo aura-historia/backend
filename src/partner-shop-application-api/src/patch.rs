@@ -38,7 +38,7 @@ pub async fn handle(
         shop_type: patch_data.shop_type.map(Into::into),
         shop_domains: patch_data.shop_domains,
         shop_image: patch_data.shop_image,
-        shop_structured_address: patch_data.shop_structured_address,
+        shop_structured_address: patch_data.shop_structured_address.map(Into::into),
         shop_phone: patch_data.shop_phone,
         shop_email: patch_data.shop_email,
         shop_specialities_categories: patch_data.shop_specialities_categories,

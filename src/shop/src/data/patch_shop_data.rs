@@ -1,4 +1,4 @@
-use crate::core::address::StructuredAddress;
+use crate::data::address_data::StructuredAddressData;
 use crate::data::shop_type_data::ShopTypeData;
 use common::{category_key::CategoryId, domain::Domain, period_key::PeriodId};
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ pub struct PatchShopData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub structured_address: Option<StructuredAddress>,
+    pub structured_address: Option<StructuredAddressData>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub phone: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]

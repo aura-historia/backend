@@ -50,7 +50,15 @@ pub struct PartnerShopApplicationRecord {
     pub shop_image: Option<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub shop_structured_address: Option<StructuredAddress>,
+    pub shop_structured_address_address_lines: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shop_structured_address_locality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shop_structured_address_region: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shop_structured_address_postal_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shop_structured_address_country: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shop_phone: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -94,7 +102,11 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
             shop_type,
             shop_domains,
             shop_image,
-            shop_structured_address,
+            shop_structured_address_address_lines,
+            shop_structured_address_locality,
+            shop_structured_address_region,
+            shop_structured_address_postal_code,
+            shop_structured_address_country,
             shop_phone,
             shop_email,
             shop_specialities_categories,
@@ -103,6 +115,10 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
             PartnerShopApplicationPayload::Existing(shop_id) => (
                 PartnerShopApplicationPayloadTypeRecord::Existing,
                 Some(shop_id),
+                None,
+                None,
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -120,7 +136,22 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
                 Some(cmd.shop_type.into()),
                 Some(cmd.domains),
                 cmd.image,
-                cmd.structured_address,
+                cmd.structured_address
+                    .as_ref()
+                    .filter(|address| !address.address_lines.is_empty())
+                    .map(|address| address.address_lines.clone()),
+                cmd.structured_address
+                    .as_ref()
+                    .and_then(|address| address.locality.clone()),
+                cmd.structured_address
+                    .as_ref()
+                    .and_then(|address| address.region.clone()),
+                cmd.structured_address
+                    .as_ref()
+                    .and_then(|address| address.postal_code.clone()),
+                cmd.structured_address
+                    .as_ref()
+                    .and_then(|address| address.country.clone()),
                 cmd.phone,
                 cmd.email,
                 cmd.specialities_categories,
@@ -143,7 +174,11 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
             shop_type,
             shop_domains,
             shop_image,
-            shop_structured_address,
+            shop_structured_address_address_lines,
+            shop_structured_address_locality,
+            shop_structured_address_region,
+            shop_structured_address_postal_code,
+            shop_structured_address_country,
             shop_phone,
             shop_email,
             shop_specialities_categories,
@@ -181,7 +216,13 @@ impl TryFrom<PartnerShopApplicationRecord> for PartnerShopApplication {
                     shop_type: shop_type_record.into(),
                     domains,
                     image,
-                    structured_address: record.shop_structured_address,
+                    structured_address: structured_address_from_flat(
+                        record.shop_structured_address_address_lines,
+                        record.shop_structured_address_locality,
+                        record.shop_structured_address_region,
+                        record.shop_structured_address_postal_code,
+                        record.shop_structured_address_country,
+                    ),
                     phone: record.shop_phone,
                     email: record.shop_email,
                     specialities_categories: record.shop_specialities_categories,
@@ -200,6 +241,23 @@ impl TryFrom<PartnerShopApplicationRecord> for PartnerShopApplication {
             updated: record.updated,
         })
     }
+}
+
+fn structured_address_from_flat(
+    address_lines: Option<Vec<String>>,
+    locality: Option<String>,
+    region: Option<String>,
+    postal_code: Option<String>,
+    country: Option<String>,
+) -> Option<StructuredAddress> {
+    let structured_address = StructuredAddress {
+        address_lines: address_lines.unwrap_or_default(),
+        locality,
+        region,
+        postal_code,
+        country,
+    };
+    (!structured_address.is_empty()).then_some(structured_address)
 }
 
 #[cfg(feature = "test-data")]

@@ -37,7 +37,7 @@ async fn main() -> Result<(), Error> {
         PartnerShopApplicationDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
 
     let shop_repository = ShopDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
-    let geocoding_service = shop::service::geocoding_service::GoogleGeocodingService::from_env();
+    let geocoding_service = shop::service::geocoding_service::GoogleGeocodingService::from_env()?;
     let shop_service = CommandShopServiceImpl::new(&shop_repository, &geocoding_service);
 
     let notification_repository =

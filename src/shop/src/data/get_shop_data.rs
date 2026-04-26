@@ -1,7 +1,10 @@
-use crate::core::address::{GeoAddress, StructuredAddress};
 use crate::{
     core::shop::Shop,
-    data::{partner_status_data::ShopPartnerStatusData, shop_type_data::ShopTypeData},
+    data::{
+        address_data::{GeoAddressData, StructuredAddressData},
+        partner_status_data::ShopPartnerStatusData,
+        shop_type_data::ShopTypeData,
+    },
 };
 use common::{
     category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_id::ShopId,
@@ -24,9 +27,9 @@ pub struct GetShopData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub structured_address: Option<StructuredAddress>,
+    pub structured_address: Option<StructuredAddressData>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub geo_address: Option<GeoAddress>,
+    pub geo_address: Option<GeoAddressData>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub phone: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -52,8 +55,8 @@ impl From<Shop> for GetShopData {
             shop_type: shop.shop_type.into(),
             domains: shop.domains,
             image: shop.image,
-            structured_address: shop.structured_address,
-            geo_address: shop.geo_address,
+            structured_address: shop.structured_address.map(Into::into),
+            geo_address: shop.geo_address.map(Into::into),
             phone: shop.phone,
             email: shop.email,
             specialities_categories: shop.specialities_categories,

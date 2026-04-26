@@ -43,7 +43,7 @@ async fn main() -> Result<(), Error> {
     let get_shop_service = GetShopServiceImpl::new(&shop_dynamodb_repository);
 
     let shop_opensearch_repository = ShopOpenSearchRepositoryImpl::new(&opensearch);
-    let geocoding_service = shop::service::geocoding_service::GoogleGeocodingService::from_env();
+    let geocoding_service = shop::service::geocoding_service::GoogleGeocodingService::from_env()?;
     let command_shop_service =
         CommandShopServiceImpl::new(&shop_dynamodb_repository, &geocoding_service);
     let query_shop_service = QueryShopServiceImpl::new(&shop_opensearch_repository);

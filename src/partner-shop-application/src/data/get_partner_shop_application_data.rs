@@ -12,7 +12,7 @@ use common::{
 };
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
-use shop::core::address::StructuredAddress;
+use shop::data::address_data::StructuredAddressData;
 use shop::data::shop_type_data::ShopTypeData;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -51,7 +51,7 @@ pub enum GetPartnerShopApplicationPayloadData {
         #[serde(skip_serializing_if = "Option::is_none", default)]
         shop_image: Option<Url>,
         #[serde(skip_serializing_if = "Option::is_none", default)]
-        shop_structured_address: Option<StructuredAddress>,
+        shop_structured_address: Option<StructuredAddressData>,
         #[serde(skip_serializing_if = "Option::is_none", default)]
         shop_phone: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -74,7 +74,7 @@ impl From<PartnerShopApplication> for GetPartnerShopApplicationData {
                 shop_type: cmd.shop_type.into(),
                 shop_domains: cmd.domains,
                 shop_image: cmd.image,
-                shop_structured_address: cmd.structured_address,
+                shop_structured_address: cmd.structured_address.map(Into::into),
                 shop_phone: cmd.phone,
                 shop_email: cmd.email,
                 shop_specialities_categories: cmd.specialities_categories,

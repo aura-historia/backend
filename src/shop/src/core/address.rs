@@ -1,18 +1,10 @@
-use serde::{Deserialize, Serialize};
-
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct StructuredAddress {
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub address_lines: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub locality: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub region: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub postal_code: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub country: Option<String>,
 }
 
@@ -49,8 +41,7 @@ impl StructuredAddress {
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct GeoAddress {
     pub lat: f64,
     pub lon: f64,

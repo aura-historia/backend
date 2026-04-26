@@ -1,7 +1,7 @@
 use common::{category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
-use shop::core::address::StructuredAddress;
+use shop::data::address_data::StructuredAddressData;
 use shop::data::shop_type_data::ShopTypeData;
 use std::collections::HashSet;
 use url::Url;
@@ -21,7 +21,7 @@ pub struct PatchPartnerShopApplicationData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_image: Option<Url>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shop_structured_address: Option<StructuredAddress>,
+    pub shop_structured_address: Option<StructuredAddressData>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_phone: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

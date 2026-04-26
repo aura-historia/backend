@@ -4,7 +4,7 @@ use common::{
 };
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
-use shop::core::address::StructuredAddress;
+use shop::data::address_data::StructuredAddressData;
 use shop::data::shop_type_data::ShopTypeData;
 use std::collections::HashSet;
 use url::Url;
@@ -27,7 +27,7 @@ pub enum PostPartnerShopApplicationPayloadData {
         #[serde(skip_serializing_if = "Option::is_none", default)]
         shop_image: Option<Url>,
         #[serde(skip_serializing_if = "Option::is_none", default)]
-        shop_structured_address: Option<StructuredAddress>,
+        shop_structured_address: Option<StructuredAddressData>,
         #[serde(skip_serializing_if = "Option::is_none", default)]
         shop_phone: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none", default)]
