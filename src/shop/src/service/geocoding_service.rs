@@ -1,7 +1,7 @@
 use crate::core::address::{GeoAddress, StructuredAddress};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-const GOOGLE_GEOCODING_V4_URL: &str = "https://geocoding.googleapis.com/v4beta/geocode:address";
+const GOOGLE_GEOCODING_V4_URL: &str = "https://geocode.googleapis.com/v4/geocode/address";
 
 #[derive(Debug, thiserror::Error)]
 pub enum GeocodingError {
@@ -46,13 +46,8 @@ impl GeocodingService for GoogleGeocodingService {
             .ok_or(GeocodingError::EmptyAddress)?;
         let response = self
             .client
-            .post(GOOGLE_GEOCODING_V4_URL)
+            .get(format!("{GOOGLE_GEOCODING_V4_URL}/{}", address))
             .header("X-Goog-Api-Key", &self.api_key)
-            .header(
-                "X-Goog-FieldMask",
-                "geocodingResults.geocoding.location,geocodingResults.geocode.location",
-            )
-            .json(&GoogleGeocodingRequest { address })
             .send()
             .await?
             .error_for_status()?
@@ -71,22 +66,16 @@ impl GeocodingService for NoopGeocodingService {
     }
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GoogleGeocodingRequest {
-    address: String,
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GoogleGeocodingResponse {
     #[serde(default)]
-    geocoding_results: Vec<GoogleGeocodingV4Result>,
+    results: Vec<GoogleGeocodingV4Result>,
 }
 
 impl GoogleGeocodingResponse {
     fn into_geo_address(self) -> Option<GeoAddress> {
-        self.geocoding_results
+        self.results
             .into_iter()
             .find_map(GoogleGeocodingV4Result::into_geo_address)
     }
@@ -95,22 +84,13 @@ impl GoogleGeocodingResponse {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GoogleGeocodingV4Result {
-    geocoding: Option<GoogleGeocodingV4Geocode>,
-    geocode: Option<GoogleGeocodingV4Geocode>,
+    location: Option<GoogleGeocodingV4Location>,
 }
 
 impl GoogleGeocodingV4Result {
     fn into_geo_address(self) -> Option<GeoAddress> {
-        self.geocoding
-            .or(self.geocode)?
-            .location?
-            .into_geo_address()
+        self.location?.into_geo_address()
     }
-}
-
-#[derive(Deserialize)]
-struct GoogleGeocodingV4Geocode {
-    location: Option<GoogleGeocodingV4Location>,
 }
 
 #[derive(Deserialize)]
