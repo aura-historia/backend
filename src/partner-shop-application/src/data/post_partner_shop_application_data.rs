@@ -10,6 +10,7 @@ use std::collections::HashSet;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 #[serde(
     rename_all = "camelCase",
     rename_all_fields = "camelCase",

@@ -26,6 +26,7 @@ pub struct PartnerShopApplication {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum PartnerShopApplicationPayload {
     Existing(ShopId),
     New(CreateShopCommand),
