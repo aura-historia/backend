@@ -140,7 +140,7 @@ Caches the LLM-generated CSS selector schemas for each shop. One row per shop.
 | `product_schema` | JSONB | Serialized array of `ProductCssSelectorSchema` variants (legacy single-object payloads are still readable) |
 | `created` / `updated` | TIMESTAMPTZ | |
 
-If no cached schema variant applies to a product page, the scraper enters append-and-retry mode: each attempt generates one schema for the current page, re-applies all variants, and persists only when one applies. Non-applicable generated schemas are discarded. Existing schema variants are never fully replaced. Persisted sets are deduplicated and capped to prevent unbounded schema growth.
+If no cached schema variant applies to a product page, the scraper enters append-and-retry mode: each attempt generates one schema for the current page, re-applies only newly appended candidate schemas for that attempt, and persists only when one applies. Non-applicable generated schemas are discarded. Existing schema variants are never fully replaced. Persisted sets are deduplicated.
 
 ---
 

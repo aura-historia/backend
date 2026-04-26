@@ -44,8 +44,8 @@ The crawler uses three distinct LLM instances, each with its own system prompt, 
 - On runtime schema miss (append-on-miss flow, issue #801): if no cached schema variant applies during scrape, calls `append_single_schema()` to generate and append a single new schema for that page to the existing set, then retries. This enables heterogeneous shops to accumulate schema variants dynamically without triggering full regeneration.
 - On runtime schema miss, regeneration uses an attempt loop (`max_schema_fix_attempts` config slot):
   - each attempt generates one schema from the current page,
-  - appends in-memory to cached schemas and re-applies all,
-  - persists only when at least one schema applies (after dedupe + cap),
+  - appends in-memory to cached schemas and re-applies only newly appended candidates for that attempt,
+  - persists only when at least one schema applies (deduplicated),
   - discards non-applicable generated schemas and retries.
   - on exhaustion, scraping returns `SchemaRegenerationExhausted`; cron records the error and sets a retry cooldown.
 - Normalization does **not** trigger schema regeneration anymore. Normalization errors are propagated directly.
@@ -85,8 +85,8 @@ The crawler uses three distinct LLM instances, each with its own system prompt, 
 for attempt in 1..=max_schema_fix_attempts:
   increment shops.llm_calls_count
   candidate = append_single_schema(shop_id, html)   // in-memory append
-  re-apply candidate schemas:
-    ok -> dedupe + cap, persist candidate set, continue pipeline
+  re-apply only newly appended schema candidates:
+    ok -> dedupe, persist candidate set, continue pipeline
     fail -> discard generated schema and retry
 if exhausted -> return SchemaRegenerationExhausted
 ```

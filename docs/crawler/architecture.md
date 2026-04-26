@@ -237,7 +237,7 @@ scrape(shop_id, url, last_scraped_hash)
  │         │    ├── LLM generates ONE schema for current page
  │         │    ├── in-memory candidate = existing schemas + generated schema
  │         │    ├── re-apply all variants
- │         │    ├── if one applies → dedupe + cap schema set, persist, continue
+ │         │    ├── if one applies → dedupe schema set, persist, continue
  │         │    └── if none apply → discard generated schema and retry
  │         └── if attempts exhausted → return SchemaRegenerationExhausted
  ├── ProductNormalizationService::normalize(raw, url)
@@ -274,7 +274,7 @@ On schema cache miss, scraper schema generation can include multiple seed pages 
  │    └── still no match → discard generated schema and retry generation (up to N)
 ```
 
-This enables heterogeneous shops (with multiple page layouts) to dynamically accumulate schema variants without full regeneration. Only applicable generated schemas are persisted; non-applicable candidates are discarded. Before persistence, schemas are deduplicated and capped (`MAX_SCHEMA_VARIANTS_PER_SHOP`) to prevent unbounded growth.
+This enables heterogeneous shops (with multiple page layouts) to dynamically accumulate schema variants without full regeneration. Only applicable generated schemas are persisted; non-applicable candidates are discarded. Before persistence, schemas are deduplicated.
 
 **`scraper::Html` is `!Send`**: the parsed HTML object cannot be held across an `.await`. `apply_schema()` is a synchronous helper that parses the HTML, applies the schema, and returns — ensuring no `Html` value is live when any `.await` point is reached.
 
