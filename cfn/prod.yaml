@@ -1631,6 +1631,7 @@ Resources:
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
           STAGE_NAME: "prod"
           COMMIT_SHA: !Sub "${CommitSHA}"
+          GOOGLE_GEOCODING_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/google-geocoding-api-key}}"
   PartnerShopApplicationStateMachineExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -1834,6 +1835,7 @@ Resources:
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
           OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/prod/username}}"
           OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/prod/password}}"
+          GOOGLE_GEOCODING_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/google-geocoding-api-key}}"
   ShopApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
