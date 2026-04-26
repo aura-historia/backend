@@ -258,8 +258,8 @@ mod tests {
     use common::currency::domain::Currency;
 
     use super::{
-        detect_currency, is_price_on_request_marker, normalise_fraction, parse_price, split_decimal,
-        PriceError,
+        PriceError, detect_currency, is_price_on_request_marker, normalise_fraction, parse_price,
+        split_decimal,
     };
 
     // -----------------------------------------------------------------------
