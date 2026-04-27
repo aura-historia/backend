@@ -1,6 +1,7 @@
 use crate::core::partner_shop_api_key::HashedPartnerShopApiKey;
 use crate::core::{
     address::{GeoAddress, StructuredAddress},
+    continent::Continent,
     partner_shop::PartnerShop,
     shop::Shop,
 };
@@ -10,6 +11,7 @@ use common::{
     category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_id::ShopId,
     shop_name::ShopName, slug_id::SlugId, user_id::UserId,
 };
+use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use std::collections::HashSet;
@@ -36,7 +38,9 @@ pub struct ShopRecord {
     pub image: Option<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub structured_address_address_lines: Option<Vec<String>>,
+    pub structured_address_addressline: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_addressline_extra: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub structured_address_locality: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -44,7 +48,7 @@ pub struct ShopRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub structured_address_postal_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub structured_address_country: Option<String>,
+    pub structured_address_country: Option<CountryCode>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub geo_address_lat: Option<f64>,
@@ -117,11 +121,14 @@ impl From<Shop> for ShopRecord {
             shop_type: shop.shop_type.into(),
             domains: shop.domains,
             image: shop.image,
-            structured_address_address_lines: shop
+            structured_address_addressline: shop
                 .structured_address
                 .as_ref()
-                .filter(|address| !address.address_lines.is_empty())
-                .map(|address| address.address_lines.clone()),
+                .and_then(|a| a.addressline.clone()),
+            structured_address_addressline_extra: shop
+                .structured_address
+                .as_ref()
+                .and_then(|a| a.addressline_extra.clone()),
             structured_address_locality: shop
                 .structured_address
                 .as_ref()
@@ -134,10 +141,7 @@ impl From<Shop> for ShopRecord {
                 .structured_address
                 .as_ref()
                 .and_then(|address| address.postal_code.clone()),
-            structured_address_country: shop
-                .structured_address
-                .as_ref()
-                .and_then(|address| address.country.clone()),
+            structured_address_country: shop.structured_address.as_ref().and_then(|a| a.country),
             geo_address_lat: shop.geo_address.map(|address| address.lat),
             geo_address_lon: shop.geo_address.map(|address| address.lon),
             phone: shop.phone,
@@ -165,7 +169,8 @@ impl From<ShopRecord> for Shop {
             domains: record.domains,
             image: record.image,
             structured_address: structured_address_from_flat(
-                record.structured_address_address_lines,
+                record.structured_address_addressline,
+                record.structured_address_addressline_extra,
                 record.structured_address_locality,
                 record.structured_address_region,
                 record.structured_address_postal_code,
@@ -208,7 +213,8 @@ impl TryFrom<ShopRecord> for PartnerShop {
             domains: value.domains,
             image: value.image,
             structured_address: structured_address_from_flat(
-                value.structured_address_address_lines,
+                value.structured_address_addressline,
+                value.structured_address_addressline_extra,
                 value.structured_address_locality,
                 value.structured_address_region,
                 value.structured_address_postal_code,
@@ -228,18 +234,22 @@ impl TryFrom<ShopRecord> for PartnerShop {
 }
 
 fn structured_address_from_flat(
-    address_lines: Option<Vec<String>>,
+    addressline: Option<String>,
+    addressline_extra: Option<String>,
     locality: Option<String>,
     region: Option<String>,
     postal_code: Option<String>,
-    country: Option<String>,
+    country: Option<CountryCode>,
 ) -> Option<StructuredAddress> {
+    let continent = country.map(Continent::from);
     let structured_address = StructuredAddress {
-        address_lines: address_lines.unwrap_or_default(),
+        addressline,
+        addressline_extra,
         locality,
         region,
         postal_code,
         country,
+        continent,
     };
     (!structured_address.is_empty()).then_some(structured_address)
 }

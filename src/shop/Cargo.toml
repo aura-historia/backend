@@ -6,6 +6,7 @@ edition = "2024"
 ## core
 [dependencies]
 common = { workspace = true }
+isocountry = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
 url = { workspace = true, features = ["serde"] }
 serde = { workspace = true }

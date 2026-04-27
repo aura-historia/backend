@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 common = { workspace = true }
 shop = { workspace = true, features = ["service", "dynamodb"] }
+isocountry = { workspace = true }
 serde = { workspace = true }
 serde-email = { workspace = true }
 serde_fields = { workspace = true }

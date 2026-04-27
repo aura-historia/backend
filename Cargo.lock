@@ -3618,6 +3618,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "isocountry"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ea1dc4bf0fb4904ba83ffdb98af3d9c325274e92e6e295e4151e86c96363e04"
+dependencies = [
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4868,6 +4878,7 @@ dependencies = [
  "aws-sdk-sfn",
  "common",
  "fake",
+ "isocountry",
  "mockall",
  "partner-shop-application",
  "rstest",
@@ -7382,6 +7393,7 @@ dependencies = [
  "fake",
  "field",
  "http 1.4.0",
+ "isocountry",
  "llm",
  "mockall",
  "opensearch",
