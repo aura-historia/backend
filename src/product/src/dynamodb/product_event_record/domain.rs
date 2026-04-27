@@ -37,6 +37,8 @@ use strum::EnumCount;
 use time::OffsetDateTime;
 use url::Url;
 
+use crate::dynamodb::utm::append_utm_params;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct ProductDomainEventRecord {
     pub pk: String,
@@ -1958,9 +1960,9 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                                 field!(new_state@ProductDomainEventRecord),
                             ),
                         )?,
-                        url: record.url.ok_or(MissingPersistenceField::new(
+                        url: append_utm_params(record.url.ok_or(MissingPersistenceField::new(
                             field!(url@ProductDomainEventRecord),
-                        ))?,
+                        ))?),
                         images: record
                             .images
                             .unwrap_or_default()
@@ -2021,9 +2023,9 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                         shop_id,
                         seller_id,
                         shops_product_id,
-                        url: record.url.ok_or(MissingPersistenceField::new(
+                        url: append_utm_params(record.url.ok_or(MissingPersistenceField::new(
                             field!(url@ProductDomainEventRecord),
-                        ))?,
+                        ))?),
                     })
                 }
                 ProductDomainEventTypeRecord::DomainImagesChanged => {
@@ -2153,6 +2155,83 @@ mod faker {
         #[test]
         fn should_fake_get_product_event_record() {
             let _ = Faker.fake::<ProductDomainEventRecord>();
+        }
+    }
+}
+
+#[cfg(all(test, feature = "test-data"))]
+mod tests {
+    use super::*;
+    use crate::core::product_event::ProductDomainEvent;
+    use crate::core::product_event::domain::{
+        ProductCreatedDomainEventPayload, ProductDomainEventPayload,
+        ProductUrlChangeDomainEventPayload,
+    };
+    use fake::{Fake, Faker};
+    use time::OffsetDateTime;
+    use url::Url;
+
+    #[test]
+    fn should_append_utm_params_to_url_when_mapping_created_event_record_to_domain_event() {
+        let mut payload: ProductCreatedDomainEventPayload = Faker.fake();
+        payload.url = Url::parse("https://example-shop.com/product/1").unwrap();
+        let event = ProductDomainEvent {
+            aggregate_id: Faker.fake(),
+            event_id: Faker.fake(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::Created(payload),
+        };
+        let record: ProductDomainEventRecord = event.into();
+        let result = ProductDomainEvent::try_from(record).unwrap();
+
+        if let ProductDomainEventPayload::Created(payload) = result.payload {
+            let query: Vec<(_, _)> = payload.url.query_pairs().collect();
+            assert!(
+                query
+                    .iter()
+                    .any(|(k, v)| k == "utm_source" && v == "aura_historia"),
+                "utm_source=aura_historia not found in URL query params"
+            );
+            assert!(
+                query
+                    .iter()
+                    .any(|(k, v)| k == "utm_medium" && v == "referral"),
+                "utm_medium=referral not found in URL query params"
+            );
+        } else {
+            panic!("Expected ProductDomainEventPayload::Created");
+        }
+    }
+
+    #[test]
+    fn should_append_utm_params_to_url_when_mapping_url_changed_event_record_to_domain_event() {
+        let mut payload: ProductUrlChangeDomainEventPayload = Faker.fake();
+        payload.url = Url::parse("https://example-shop.com/product/2").unwrap();
+        let event = ProductDomainEvent {
+            aggregate_id: Faker.fake(),
+            event_id: Faker.fake(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::UrlChanged(payload),
+        };
+        let record: ProductDomainEventRecord = event.into();
+        let result = ProductDomainEvent::try_from(record).unwrap();
+
+        if let ProductDomainEventPayload::UrlChanged(payload) = result.payload {
+            let query: Vec<(_, _)> = payload.url.query_pairs().collect();
+            assert!(
+                query
+                    .iter()
+                    .any(|(k, v)| k == "utm_source" && v == "aura_historia"),
+                "utm_source=aura_historia not found in URL query params"
+            );
+            assert!(
+                query
+                    .iter()
+                    .any(|(k, v)| k == "utm_medium" && v == "referral"),
+                "utm_medium=referral not found in URL query params"
+            );
+        } else {
+            panic!("Expected ProductDomainEventPayload::UrlChanged");
         }
     }
 }
