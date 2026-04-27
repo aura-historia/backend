@@ -253,7 +253,9 @@ scrape(shop_id, url, last_scraped_hash)
       │    ├── price: parse currency + amount (multi-locale)
       │    ├── images: resolve relative URLs against page URL
       │    └── dates: parse ISO 8601 / RFC 3339
-      │    └── normalization error → propagate (no schema regeneration)
+      │    └── normalization error
+      │         ├── fixable selector-type errors (title/price/state-text-too-long) → append-and-retry schema regeneration (budget-guarded)
+      │         └── all other errors → propagate as normalization failure
  ├── set_state(shop_id, url, normalized_state) → updates shop_urls.last_scraped_state
  └── mark_as_scraped is done by caller after successful product push
 ```

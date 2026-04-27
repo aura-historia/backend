@@ -49,7 +49,8 @@ The crawler uses three distinct LLM instances, each with its own system prompt, 
   - persists only when at least one schema applies (deduplicated),
   - discards non-applicable generated schemas and retries.
   - on exhaustion, scraping returns `SchemaRegenerationExhausted`; cron records the error and sets a retry cooldown.
-- Normalization does **not** trigger schema regeneration anymore. Normalization errors are propagated directly.
+- Normalization can trigger schema regeneration only for schema-fixable errors (title empty/unknown language, price parse/currency issues, `StateTextTooLong`).
+  - Non-fixable normalization errors (e.g. state mapping DB failures, invalid image URL, datetime parse issues) are propagated directly.
 - Every shop-scoped LLM call increments `shops.llm_calls_count` for per-shop observability:
   - URL pattern classification (spider)
   - schema generation/retry (scraper)

@@ -270,6 +270,15 @@ pub struct ScraperServiceImpl {
     max_llm_calls_per_shop: i64,
 }
 
+struct NormalizationRetryContext<'a> {
+    shop_id: &'a ShopId,
+    domain: &'a str,
+    url: &'a Url,
+    html: &'a str,
+    existing_schemas: &'a [ProductCssSelectorSchema],
+    selected_schema: ProductCssSelectorSchema,
+}
+
 impl ScraperServiceImpl {
     pub fn new(
         html_fetcher: Box<dyn HtmlFetcher>,
@@ -554,6 +563,94 @@ impl ScraperServiceImpl {
             }),
         })
     }
+
+    async fn normalize_with_schema_fix_retry(
+        &self,
+        ctx: NormalizationRetryContext<'_>,
+        raw: RawExtractedProduct,
+    ) -> Result<NormalizedProduct, ScraperError> {
+        match self
+            .normalization_service
+            .normalize(
+                raw,
+                ctx.url.clone(),
+                ctx.selected_schema
+                    .default_currency
+                    .map(common::currency::domain::Currency::from),
+            )
+            .await
+        {
+            Ok(product) => Ok(product),
+            Err(err) => {
+                let Some(mut last_error) = normalization_error_to_schema_hint(&err) else {
+                    return Err(ScraperError::NormalizationError(err));
+                };
+
+                let attempts = self.max_schema_fix_attempts.max(1);
+                let mut last_generated_schema = Some(ctx.selected_schema);
+
+                for attempt in 1..=attempts {
+                    self.consume_llm_budget_or_err(ctx.shop_id, ctx.url).await?;
+
+                    let generated_schema = self
+                        .schema_service
+                        .append_single_schema(
+                            ctx.domain,
+                            ctx.html,
+                            last_generated_schema.as_ref(),
+                            Some(&last_error),
+                        )
+                        .await?;
+
+                    let reapplied =
+                        match Self::try_apply_schemas(std::iter::once(&generated_schema), ctx.html)
+                        {
+                            Ok((_, raw)) => raw,
+                            Err(apply_err) => {
+                                last_generated_schema = Some(generated_schema);
+                                last_error = apply_err;
+                                continue;
+                            }
+                        };
+
+                    match self
+                        .normalization_service
+                        .normalize(
+                            reapplied,
+                            ctx.url.clone(),
+                            generated_schema
+                                .default_currency
+                                .map(common::currency::domain::Currency::from),
+                        )
+                        .await
+                    {
+                        Ok(product) => {
+                            let mut persisted_schemas = ctx.existing_schemas.to_vec();
+                            persisted_schemas.push(generated_schema);
+                            self.schema_service
+                                .save_product_schemas(ctx.shop_id, ctx.domain, persisted_schemas)
+                                .await?;
+                            info!(domain = ctx.domain, url = %ctx.url, attempt, "Schema fixed normalization failure");
+                            return Ok(product);
+                        }
+                        Err(norm_err) => {
+                            let Some(hint) = normalization_error_to_schema_hint(&norm_err) else {
+                                return Err(ScraperError::NormalizationError(norm_err));
+                            };
+                            last_generated_schema = Some(generated_schema);
+                            last_error = hint;
+                        }
+                    }
+                }
+
+                Err(ScraperError::SchemaRegenerationExhausted {
+                    url: ctx.url.clone(),
+                    attempts,
+                    last_error,
+                })
+            }
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -653,13 +750,16 @@ impl ScraperService for ScraperServiceImpl {
         // 4. Normalise --------------------------------------------------
         debug!(domain, url = %url, "Normalizing extracted product data");
         let final_product = self
-            .normalization_service
-            .normalize(
+            .normalize_with_schema_fix_retry(
+                NormalizationRetryContext {
+                    shop_id,
+                    domain,
+                    url,
+                    html: &html,
+                    existing_schemas: &shops_product_schema.product_schemas,
+                    selected_schema,
+                },
                 raw,
-                url.clone(),
-                selected_schema
-                    .default_currency
-                    .map(common::currency::domain::Currency::from),
             )
             .await?;
 
@@ -723,6 +823,40 @@ fn extract_main_fragment(html: &str) -> Option<&str> {
     let main_end_rel = find_case_insensitive(&html[content_start..], "</main>")?;
     let content_end = content_start + main_end_rel;
     Some(&html[content_start..content_end])
+}
+
+fn normalization_error_to_schema_hint(err: &NormalizationError) -> Option<ApplySchemaError> {
+    match err {
+        NormalizationError::PriceUnknownCurrency { .. }
+        | NormalizationError::PriceParseError { .. } => {
+            Some(ApplySchemaError::Price(ExtractionError::NoElementMatched {
+                selector: "price".to_string(),
+            }))
+        }
+        NormalizationError::PriceEstimateMinUnknownCurrency { .. }
+        | NormalizationError::PriceEstimateMinParseError { .. } => Some(
+            ApplySchemaError::PriceEstimateMin(ExtractionError::NoElementMatched {
+                selector: "price_estimate_min".to_string(),
+            }),
+        ),
+        NormalizationError::PriceEstimateMaxUnknownCurrency { .. }
+        | NormalizationError::PriceEstimateMaxParseError { .. } => Some(
+            ApplySchemaError::PriceEstimateMax(ExtractionError::NoElementMatched {
+                selector: "price_estimate_max".to_string(),
+            }),
+        ),
+        NormalizationError::TitleEmpty | NormalizationError::TitleUnknownLanguage { .. } => {
+            Some(ApplySchemaError::Title(ExtractionError::NoElementMatched {
+                selector: "title".to_string(),
+            }))
+        }
+        NormalizationError::StateTextTooLong { .. } => {
+            Some(ApplySchemaError::State(ExtractionError::NoElementMatched {
+                selector: "state".to_string(),
+            }))
+        }
+        _ => None,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1516,6 +1650,150 @@ mod tests {
                 ..
             } if shop_id == id && max_calls == DEFAULT_MAX_LLM_CALLS_PER_SHOP
         ));
+    }
+
+    #[tokio::test]
+    async fn should_regenerate_schema_when_normalization_error_is_fixable() {
+        let id = shop_id();
+        let url = product_url();
+
+        let mut fetcher = MockHtmlFetcher::new();
+        fetcher
+            .expect_fetch()
+            .once()
+            .returning(|_| Box::pin(async { Ok(sample_html()) }));
+
+        let existing_schema = minimal_schema();
+        let schema = ShopsProductSchema {
+            shop_id: id,
+            product_schemas: vec![existing_schema.clone()],
+            created: OffsetDateTime::now_utc(),
+            updated: OffsetDateTime::now_utc(),
+        };
+        let mut schema_svc = MockProductSchemaService::new();
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(move |_| {
+                let s = schema.clone();
+                Box::pin(async move { Ok(Some(s)) })
+            });
+        let existing_schema_for_append = existing_schema.clone();
+        schema_svc
+            .expect_append_single_schema()
+            .once()
+            .withf(move |_, _, failed_schema, last_error| {
+                failed_schema == &Some(&existing_schema_for_append)
+                    && matches!(
+                        last_error,
+                        Some(ApplySchemaError::Title(ExtractionError::NoElementMatched {
+                            selector
+                        })) if selector == "title"
+                    )
+            })
+            .returning(move |_, _, _, _| {
+                let s = minimal_schema();
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc
+            .expect_save_product_schemas()
+            .once()
+            .returning(move |_, _, schemas| {
+                let saved = ShopsProductSchema {
+                    shop_id: id,
+                    product_schemas: schemas,
+                    created: OffsetDateTime::now_utc(),
+                    updated: OffsetDateTime::now_utc(),
+                };
+                Box::pin(async move { Ok(saved) })
+            });
+
+        let expected = normalized_product(url.clone());
+        let norm_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut norm_svc = MockProductNormalizationService::new();
+        norm_svc
+            .expect_normalize()
+            .times(2)
+            .returning(move |_, _, _| {
+                let n = expected.clone();
+                let norm_calls = norm_calls.clone();
+                Box::pin(async move {
+                    if norm_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                        Err(NormalizationError::TitleEmpty)
+                    } else {
+                        Ok(n)
+                    }
+                })
+            });
+
+        let mut cand_svc = MockScraperCandidateService::new();
+        expect_budget_increment(&mut cand_svc, 1);
+        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+            3,
+            1,
+            DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        );
+
+        let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+        assert_eq!(
+            result.product.shops_product_id,
+            ShopsProductId::from("SKU-42")
+        );
+    }
+
+    #[tokio::test]
+    async fn should_not_regenerate_schema_when_normalization_error_is_not_fixable() {
+        let id = shop_id();
+        let url = product_url();
+
+        let mut fetcher = MockHtmlFetcher::new();
+        fetcher
+            .expect_fetch()
+            .once()
+            .returning(|_| Box::pin(async { Ok(sample_html()) }));
+
+        let schema = shops_product_schema(id);
+        let mut schema_svc = MockProductSchemaService::new();
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(move |_| {
+                let s = schema.clone();
+                Box::pin(async move { Ok(Some(s)) })
+            });
+        schema_svc.expect_append_single_schema().never();
+        schema_svc.expect_save_product_schemas().never();
+
+        let mut norm_svc = MockProductNormalizationService::new();
+        norm_svc.expect_normalize().once().returning(|_, _, _| {
+            Box::pin(async {
+                Err(NormalizationError::InvalidImageUrl {
+                    raw: "not-a-url".to_string(),
+                    source: url::Url::parse("://bad").unwrap_err(),
+                })
+            })
+        });
+
+        let cand_svc = MockScraperCandidateService::new();
+
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+            3,
+            1,
+            DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        );
+
+        let err = service.scrape(&id, &url, None).await.unwrap_err();
+        assert!(matches!(err, ScraperError::NormalizationError(_)));
     }
 
     #[tokio::test]
