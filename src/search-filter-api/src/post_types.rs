@@ -102,6 +102,10 @@ mod tests {
                 seller_name_query: Default::default(),
                 exclude_seller_name_query: Default::default(),
                 shop_type_query: HashSet::new(),
+                countries: HashSet::new(),
+                continents: HashSet::new(),
+                geo_address_lat_query: None,
+                geo_address_lon_query: None,
                 price_query: Some(RangeQuery {
                     min: Some(37),
                     max: Some(42),

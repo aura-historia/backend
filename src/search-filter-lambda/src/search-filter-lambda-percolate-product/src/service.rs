@@ -476,6 +476,8 @@ mod tests {
                     shop_name: product.shop_name.clone(),
                     seller_name: product.seller_name.clone(),
                     shop_type: product.shop_type,
+                    structured_address: product.structured_address.clone(),
+                    geo_address: product.geo_address,
                     native_title: product.native_title.clone(),
                     native_description: product.native_description.clone(),
                     native_price: product.native_price,

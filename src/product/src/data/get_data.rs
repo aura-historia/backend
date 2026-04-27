@@ -240,6 +240,8 @@ mod tests {
             shop_name: "My shop".into(),
             seller_name: "My seller".into(),
             shop_type: ShopTypeData::AuctionHouse,
+            structured_address: None,
+            geo_address: None,
             category_id: Some("musical-instruments".into()),
             category: Some(LocalizedTextData::new("Musikinstrumente", LanguageData::De)),
             period_id: Some("baroque".into()),

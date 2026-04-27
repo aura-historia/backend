@@ -205,6 +205,7 @@ async fn create_user(user_service: &impl UserService, email: &str) -> UserId {
         .create_user(user::service::command::CreateUserCommand {
             id: user_id,
             email: email.parse().unwrap(),
+            structured_address: None,
         })
         .await
         .unwrap();

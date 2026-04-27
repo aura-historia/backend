@@ -762,6 +762,7 @@ mod tests {
                 tier: None,
                 role: None,
                 stripe_customer_id: None,
+                structured_address: None,
             };
             let actual = service.update_user(&user_id, update).await;
 
@@ -1125,6 +1126,7 @@ mod search_users_tests {
             repository: &dynamodb_repository,
             cognito_admin_service: None,
             opensearch_repository: Some(&opensearch_repository),
+            geocoding_service: &geo::service::geocoding_service::NoopGeocodingService,
         };
 
         let actual = service

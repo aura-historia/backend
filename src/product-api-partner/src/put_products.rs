@@ -287,6 +287,8 @@ mod tests {
                 provenance: Default::default(),
                 restoration: Default::default(),
                 seller_name: None,
+                structured_address: None,
+                geo_address: None,
             },
             &partner_shop,
             partner_shop.shop_id,
@@ -588,6 +590,8 @@ mod tests {
             provenance: Default::default(),
             restoration: Default::default(),
             seller_name: None,
+            structured_address: None,
+            geo_address: None,
         };
 
         let cmd = to_upsert_command(data, &partner_shop, seller_id, seller_name.clone());
@@ -641,6 +645,8 @@ mod tests {
             provenance: Default::default(),
             restoration: Default::default(),
             seller_name: Some("Full Seller".to_string()),
+            structured_address: None,
+            geo_address: None,
         };
 
         let cmd = to_upsert_command(data, &partner_shop, seller_id, seller_name.clone());

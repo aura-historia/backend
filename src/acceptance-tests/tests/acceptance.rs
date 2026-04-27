@@ -2496,6 +2496,7 @@ async fn should_get_and_patch_user_account() {
         language: Some(LanguageData::Fr),
         currency: Some(CurrencyData::Nzd),
         prohibited_content_consent: None,
+        structured_address: None,
     };
     let patch_response = reqwest::Client::new()
         .patch(url.clone())
@@ -2650,6 +2651,14 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
                 tier: Some(UserTierRecord::Free),
                 role: None,
                 stripe_customer_id: None,
+                structured_address_addressline: None,
+                structured_address_addressline_extra: None,
+                structured_address_locality: None,
+                structured_address_region: None,
+                structured_address_postal_code: None,
+                structured_address_country: None,
+                geo_address_lat: None,
+                geo_address_lon: None,
                 gsi1_pk: None,
                 gsi1_sk: None,
                 updated: OffsetDateTime::now_utc(),
@@ -5940,6 +5949,7 @@ async fn should_count_search_filter_matches_for_current_month_for_quota_enforcem
         .create_user(user::service::command::CreateUserCommand {
             id: user_id,
             email: "quota-test@example.com".parse().unwrap(),
+            structured_address: None,
         })
         .await
         .unwrap();
@@ -6600,6 +6610,7 @@ async fn should_respond_200_for_admin_user_patch() {
         currency: None,
         prohibited_content_consent: None,
         stripe_customer_id: None,
+        structured_address: None,
     };
 
     let url = format!(
@@ -6683,6 +6694,7 @@ async fn should_update_user_document_in_opensearch_on_patch() {
         currency: None,
         prohibited_content_consent: None,
         stripe_customer_id: None,
+        structured_address: None,
     };
     let patch_url = format!(
         "{}/api/v1/users/{}",
