@@ -26,9 +26,8 @@ use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use common::year::{Year, YearRange};
 use field::field;
-use geo::core::{
-    address::{GeoAddress, StructuredAddress},
-    continent::Continent,
+use geo::dynamodb::{
+    GeoAddressFlat, StructuredAddressFlat, geo_address_from_flat, structured_address_from_flat,
 };
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
@@ -559,15 +558,18 @@ impl From<ProductRecord> for Product {
             shop_name: record.shop_name.into(),
             seller_name: record.seller_name.into(),
             shop_type: record.shop_type.into(),
-            structured_address: structured_address_from_flat(
-                record.structured_address_addressline,
-                record.structured_address_addressline_extra,
-                record.structured_address_locality,
-                record.structured_address_region,
-                record.structured_address_postal_code,
-                record.structured_address_country,
-            ),
-            geo_address: geo_address_from_flat(record.geo_address_lat, record.geo_address_lon),
+            structured_address: structured_address_from_flat(StructuredAddressFlat {
+                addressline: record.structured_address_addressline,
+                addressline_extra: record.structured_address_addressline_extra,
+                locality: record.structured_address_locality,
+                region: record.structured_address_region,
+                postal_code: record.structured_address_postal_code,
+                country: record.structured_address_country,
+            }),
+            geo_address: geo_address_from_flat(GeoAddressFlat {
+                lat: record.geo_address_lat,
+                lon: record.geo_address_lon,
+            }),
             category_id: record.category_id,
             category_name,
             period_id: record.period_id,
@@ -759,33 +761,6 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
 
         Ok(record)
     }
-}
-
-fn structured_address_from_flat(
-    addressline: Option<String>,
-    addressline_extra: Option<String>,
-    locality: Option<String>,
-    region: Option<String>,
-    postal_code: Option<String>,
-    country: Option<CountryCode>,
-) -> Option<StructuredAddress> {
-    let structured_address = StructuredAddress {
-        addressline,
-        addressline_extra,
-        locality,
-        region,
-        postal_code,
-        country,
-        continent: country.map(Continent::from),
-    };
-    (!structured_address.is_empty()).then_some(structured_address)
-}
-
-fn geo_address_from_flat(lat: Option<f64>, lon: Option<f64>) -> Option<GeoAddress> {
-    Some(GeoAddress {
-        lat: lat?,
-        lon: lon?,
-    })
 }
 
 #[cfg(feature = "test-data")]

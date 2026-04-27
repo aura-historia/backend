@@ -74,6 +74,10 @@ fn mk_search_filter_record(
         seller_slug_id_query: HashSet::new(),
         exclude_seller_slug_id_query: HashSet::new(),
         shop_type_query: HashSet::new(),
+        countries: HashSet::new(),
+        continents: HashSet::new(),
+        geo_address_lat_query: None,
+        geo_address_lon_query: None,
         price_query: None,
         state_query: HashSet::from_iter([ProductStateRecord::Listed]),
         created_query: None,
@@ -205,7 +209,6 @@ async fn create_user(user_service: &impl UserService, email: &str) -> UserId {
         .create_user(user::service::command::CreateUserCommand {
             id: user_id,
             email: email.parse().unwrap(),
-            structured_address: None,
         })
         .await
         .unwrap();

@@ -2,7 +2,7 @@ use product::data::product_search_data::ProductSearchData;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PostUserSearchFilterData {
     pub name: UserSearchFilterName,
@@ -102,10 +102,16 @@ mod tests {
                 seller_name_query: Default::default(),
                 exclude_seller_name_query: Default::default(),
                 shop_type_query: HashSet::new(),
-                countries: HashSet::new(),
-                continents: HashSet::new(),
-                geo_address_lat_query: None,
-                geo_address_lon_query: None,
+                countries: HashSet::from_iter([isocountry::CountryCode::DEU]),
+                continents: HashSet::from_iter([geo::data::continent_data::ContinentData::Europe]),
+                geo_address_lat_query: Some(RangeQuery {
+                    min: Some(47.0),
+                    max: Some(55.0),
+                }),
+                geo_address_lon_query: Some(RangeQuery {
+                    min: Some(5.0),
+                    max: Some(15.0),
+                }),
                 price_query: Some(RangeQuery {
                     min: Some(37),
                     max: Some(42),

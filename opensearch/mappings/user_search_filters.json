@@ -150,42 +150,114 @@
     },
     "mappings": {
         "properties": {
-            "userSearchFilterId": { "type": "keyword" },
-            "userId": { "type": "keyword" },
-            "name": { "type": "keyword" },
-            "enhancedSearchDescription": { "type": "keyword" },
-            "query": { "type": "percolator" },
-            "categoryId": { "type": "keyword" },
-            "periodId": { "type": "keyword" },
-            "shopName": { "type": "keyword" },
-            "sellerName": { "type": "keyword" },
-            "shopType": { "type": "keyword" },
-            "priceEur": { "type": "unsigned_long" },
-            "priceUsd": { "type": "unsigned_long" },
-            "priceGbp": { "type": "unsigned_long" },
-            "priceAud": { "type": "unsigned_long" },
-            "priceCad": { "type": "unsigned_long" },
-            "priceNzd": { "type": "unsigned_long" },
-            "priceCny": { "type": "unsigned_long" },
-            "priceBrl": { "type": "unsigned_long" },
-            "pricePln": { "type": "unsigned_long" },
-            "priceTry": { "type": "unsigned_long" },
-            "priceJpy": { "type": "unsigned_long" },
-            "priceCzk": { "type": "unsigned_long" },
-            "priceRub": { "type": "unsigned_long" },
-            "priceAed": { "type": "unsigned_long" },
-            "priceSar": { "type": "unsigned_long" },
-            "priceHkd": { "type": "unsigned_long" },
-            "priceSgd": { "type": "unsigned_long" },
-            "priceChf": { "type": "unsigned_long" },
-            "state": { "type": "keyword" },
-            "originYearMin": { "type": "integer" },
-            "originYear": { "type": "integer" },
-            "originYearMax": { "type": "integer" },
-            "authenticity": { "type": "keyword" },
-            "condition": { "type": "keyword" },
-            "provenance": { "type": "keyword" },
-            "restoration": { "type": "keyword" },
+            "userSearchFilterId": {
+                "type": "keyword"
+            },
+            "userId": {
+                "type": "keyword"
+            },
+            "name": {
+                "type": "keyword"
+            },
+            "enhancedSearchDescription": {
+                "type": "keyword"
+            },
+            "query": {
+                "type": "percolator"
+            },
+            "categoryId": {
+                "type": "keyword"
+            },
+            "periodId": {
+                "type": "keyword"
+            },
+            "shopName": {
+                "type": "keyword"
+            },
+            "sellerName": {
+                "type": "keyword"
+            },
+            "shopType": {
+                "type": "keyword"
+            },
+            "priceEur": {
+                "type": "unsigned_long"
+            },
+            "priceUsd": {
+                "type": "unsigned_long"
+            },
+            "priceGbp": {
+                "type": "unsigned_long"
+            },
+            "priceAud": {
+                "type": "unsigned_long"
+            },
+            "priceCad": {
+                "type": "unsigned_long"
+            },
+            "priceNzd": {
+                "type": "unsigned_long"
+            },
+            "priceCny": {
+                "type": "unsigned_long"
+            },
+            "priceBrl": {
+                "type": "unsigned_long"
+            },
+            "pricePln": {
+                "type": "unsigned_long"
+            },
+            "priceTry": {
+                "type": "unsigned_long"
+            },
+            "priceJpy": {
+                "type": "unsigned_long"
+            },
+            "priceCzk": {
+                "type": "unsigned_long"
+            },
+            "priceRub": {
+                "type": "unsigned_long"
+            },
+            "priceAed": {
+                "type": "unsigned_long"
+            },
+            "priceSar": {
+                "type": "unsigned_long"
+            },
+            "priceHkd": {
+                "type": "unsigned_long"
+            },
+            "priceSgd": {
+                "type": "unsigned_long"
+            },
+            "priceChf": {
+                "type": "unsigned_long"
+            },
+            "state": {
+                "type": "keyword"
+            },
+            "originYearMin": {
+                "type": "integer"
+            },
+            "originYear": {
+                "type": "integer"
+            },
+            "originYearMax": {
+                "type": "integer"
+            },
+            "authenticity": {
+                "type": "keyword"
+            },
+            "condition": {
+                "type": "keyword"
+            },
+            "provenance": {
+                "type": "keyword"
+            },
+            "restoration": {
+                "type": "keyword"
+            },
             "titleNative": {
                 "type": "object",
                 "properties": {
@@ -257,6 +329,66 @@
             "updated": {
                 "type": "date",
                 "format": "strict_date_time"
+            },
+            "structuredAddressAddressline": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressAddresslineExtra": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressLocality": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressRegion": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressPostalCode": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressCountry": {
+                "type": "keyword"
+            },
+            "structuredAddressContinent": {
+                "type": "keyword"
+            },
+            "geoAddress": {
+                "type": "geo_point"
+            },
+            "geoAddressLat": {
+                "type": "double"
+            },
+            "geoAddressLon": {
+                "type": "double"
             }
         }
     }

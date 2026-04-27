@@ -20,23 +20,6 @@ use serde_fields::SerdeField;
 use shop::core::shop_type::ShopType;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
-pub struct GeoCoordinateQuery {
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub min: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub max: Option<f64>,
-}
-
-impl PartialEq for GeoCoordinateQuery {
-    fn eq(&self, other: &Self) -> bool {
-        self.min.map(f64::to_bits) == other.min.map(f64::to_bits)
-            && self.max.map(f64::to_bits) == other.max.map(f64::to_bits)
-    }
-}
-
-impl Eq for GeoCoordinateQuery {}
-
 #[derive(Debug, Clone, PartialEq, Default, SerdeField)]
 pub struct ProductSearch {
     pub language: Language,
@@ -55,8 +38,8 @@ pub struct ProductSearch {
     pub shop_type_query: AnyOfQuery<ShopType>,
     pub countries: AnyOfQuery<CountryCode>,
     pub continents: AnyOfQuery<Continent>,
-    pub geo_address_lat_query: Option<GeoCoordinateQuery>,
-    pub geo_address_lon_query: Option<GeoCoordinateQuery>,
+    pub geo_address_lat_query: Option<RangeQuery<f32>>,
+    pub geo_address_lon_query: Option<RangeQuery<f32>>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
     pub state_query: AnyOfQuery<ProductState>,
     pub origin_year_query: Option<RangeQuery<Year>>,
@@ -190,12 +173,12 @@ impl ProductSearch {
         self
     }
 
-    pub fn with_geo_address_lat_query(mut self, geo_address_lat_query: GeoCoordinateQuery) -> Self {
+    pub fn with_geo_address_lat_query(mut self, geo_address_lat_query: RangeQuery<f32>) -> Self {
         self.geo_address_lat_query = Some(geo_address_lat_query);
         self
     }
 
-    pub fn with_geo_address_lon_query(mut self, geo_address_lon_query: GeoCoordinateQuery) -> Self {
+    pub fn with_geo_address_lon_query(mut self, geo_address_lon_query: RangeQuery<f32>) -> Self {
         self.geo_address_lon_query = Some(geo_address_lon_query);
         self
     }

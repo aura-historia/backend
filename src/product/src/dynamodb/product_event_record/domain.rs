@@ -29,9 +29,8 @@ use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use field::field;
-use geo::core::{
-    address::{GeoAddress, StructuredAddress},
-    continent::Continent,
+use geo::dynamodb::{
+    GeoAddressFlat, StructuredAddressFlat, geo_address_from_flat, structured_address_from_flat,
 };
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
@@ -332,33 +331,6 @@ impl HasKey for ProductDomainEventRecord {
             shops_product_id: self.shops_product_id.clone(),
         }
     }
-}
-
-fn structured_address_from_flat(
-    addressline: Option<String>,
-    addressline_extra: Option<String>,
-    locality: Option<String>,
-    region: Option<String>,
-    postal_code: Option<String>,
-    country: Option<CountryCode>,
-) -> Option<StructuredAddress> {
-    let structured_address = StructuredAddress {
-        addressline,
-        addressline_extra,
-        locality,
-        region,
-        postal_code,
-        country,
-        continent: country.map(Continent::from),
-    };
-    (!structured_address.is_empty()).then_some(structured_address)
-}
-
-fn geo_address_from_flat(lat: Option<f64>, lon: Option<f64>) -> Option<GeoAddress> {
-    Some(GeoAddress {
-        lat: lat?,
-        lon: lon?,
-    })
 }
 
 impl From<ProductDomainEvent> for ProductDomainEventRecord {
@@ -2035,18 +2007,18 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                                 field!(shop_type@ProductDomainEventRecord),
                             ),
                         )?,
-                        structured_address: structured_address_from_flat(
-                            record.structured_address_addressline,
-                            record.structured_address_addressline_extra,
-                            record.structured_address_locality,
-                            record.structured_address_region,
-                            record.structured_address_postal_code,
-                            record.structured_address_country,
-                        ),
-                        geo_address: geo_address_from_flat(
-                            record.geo_address_lat,
-                            record.geo_address_lon,
-                        ),
+                        structured_address: structured_address_from_flat(StructuredAddressFlat {
+                            addressline: record.structured_address_addressline,
+                            addressline_extra: record.structured_address_addressline_extra,
+                            locality: record.structured_address_locality,
+                            region: record.structured_address_region,
+                            postal_code: record.structured_address_postal_code,
+                            country: record.structured_address_country,
+                        }),
+                        geo_address: geo_address_from_flat(GeoAddressFlat {
+                            lat: record.geo_address_lat,
+                            lon: record.geo_address_lon,
+                        }),
                         native_title: record.title_native.map(Localized::from).ok_or(
                             MissingPersistenceField::new(
                                 field!(title_native@ProductDomainEventRecord),

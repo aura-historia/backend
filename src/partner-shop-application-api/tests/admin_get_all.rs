@@ -20,7 +20,6 @@ async fn create_admin_user(user_service: &impl UserService) -> UserId {
     let cmd = CreateUserCommand {
         id: user_id,
         email: format!("admin-{}@test.com", user_id).try_into().unwrap(),
-        structured_address: None,
     };
     user_service.create_user(cmd).await.unwrap();
 
@@ -94,7 +93,6 @@ async fn should_403_respond_when_non_admin_calls_admin_get_all() {
     let cmd = CreateUserCommand {
         id: user_id,
         email: format!("user-{}@test.com", user_id).try_into().unwrap(),
-        structured_address: None,
     };
     user_service.create_user(cmd).await.unwrap();
 

@@ -1,578 +1,578 @@
 {
-  "settings": {
-    "index.knn": true,
-    "knn.algo_param.ef_search": 128,
-    "analysis": {
-      "filter": {
-        "english_stop": {
-          "type": "stop",
-          "stopwords": "_english_"
-        },
-        "english_stemmer": {
-          "type": "stemmer",
-          "language": "english"
-        },
-        "english_possessive_stemmer": {
-          "type": "stemmer",
-          "language": "possessive_english"
-        },
-        "english_synonyms": {
-          "type": "synonym_graph",
-          "synonyms_path": "analysis/english_synonyms.txt",
-          "updateable": true
-        },
-        "german_stop": {
-          "type": "stop",
-          "stopwords": "_german_"
-        },
-        "german_stemmer": {
-          "type": "stemmer",
-          "language": "light_german"
-        },
-        "german_synonyms": {
-          "type": "synonym_graph",
-          "synonyms_path": "analysis/german_synonyms.txt",
-          "updateable": true
-        },
-        "french_stop": {
-          "type": "stop",
-          "stopwords": "_french_"
-        },
-        "french_stemmer": {
-          "type": "stemmer",
-          "language": "light_french"
-        },
-        "french_elision": {
-          "type": "elision",
-          "articles_case": true,
-          "articles": [
-            "l",
-            "m",
-            "t",
-            "qu",
-            "n",
-            "s",
-            "j",
-            "d",
-            "c",
-            "jusqu",
-            "quoiqu",
-            "lorsqu",
-            "puisqu"
-          ]
-        },
-        "french_synonyms": {
-          "type": "synonym_graph",
-          "synonyms_path": "analysis/french_synonyms.txt",
-          "updateable": true
-        },
-        "spanish_stop": {
-          "type": "stop",
-          "stopwords": "_spanish_"
-        },
-        "spanish_stemmer": {
-          "type": "stemmer",
-          "language": "light_spanish"
-        },
-        "spanish_synonyms": {
-          "type": "synonym_graph",
-          "synonyms_path": "analysis/spanish_synonyms.txt",
-          "updateable": true
-        },
-        "italian_stop": {
-          "type": "stop",
-          "stopwords": "_italian_"
-        },
-        "italian_stemmer": {
-          "type": "stemmer",
-          "language": "light_italian"
-        },
-        "italian_synonyms": {
-          "type": "synonym_graph",
-          "synonyms_path": "analysis/italian_synonyms.txt",
-          "updateable": true
-        }
-      },
-      "analyzer": {
-        "english_with_synonyms": {
-          "type": "custom",
-          "tokenizer": "standard",
-          "filter": [
-            "english_possessive_stemmer",
-            "lowercase",
-            "english_synonyms",
-            "english_stop",
-            "english_stemmer"
-          ]
-        },
-        "german_with_synonyms": {
-          "type": "custom",
-          "tokenizer": "standard",
-          "filter": [
-            "lowercase",
-            "german_stop",
-            "german_synonyms",
-            "german_normalization",
-            "german_stemmer"
-          ]
-        },
-        "french_with_synonyms": {
-          "type": "custom",
-          "tokenizer": "standard",
-          "filter": [
-            "french_elision",
-            "lowercase",
-            "french_synonyms",
-            "french_stop",
-            "french_stemmer"
-          ]
-        },
-        "spanish_with_synonyms": {
-          "type": "custom",
-          "tokenizer": "standard",
-          "filter": [
-            "lowercase",
-            "spanish_synonyms",
-            "spanish_stop",
-            "spanish_stemmer"
-          ]
-        },
-        "italian_with_synonyms": {
-          "type": "custom",
-          "tokenizer": "standard",
-          "filter": [
-            "lowercase",
-            "italian_synonyms",
-            "italian_stop",
-            "italian_stemmer"
-          ]
-        }
-      }
-    }
-  },
-  "mappings": {
-    "properties": {
-      "productId": {
-        "type": "keyword"
-      },
-      "productSlugId": {
-        "type": "keyword"
-      },
-      "shopSlugId": {
-        "type": "keyword"
-      },
-      "sellerSlugId": {
-        "type": "keyword"
-      },
-      "eventId": {
-        "type": "keyword"
-      },
-      "shopId": {
-        "type": "keyword"
-      },
-      "sellerId": {
-        "type": "keyword"
-      },
-      "shopsProductId": {
-        "type": "keyword"
-      },
-      "shopName": {
-        "type": "keyword"
-      },
-      "sellerName": {
-        "type": "keyword"
-      },
-      "shopType": {
-        "type": "keyword"
-      },
-      "categoryId": {
-        "type": "keyword"
-      },
-      "categoryNameDe": {
-        "type": "keyword"
-      },
-      "categoryNameEn": {
-        "type": "keyword"
-      },
-      "categoryNameFr": {
-        "type": "keyword"
-      },
-      "categoryNameEs": {
-        "type": "keyword"
-      },
-      "categoryNameIt": {
-        "type": "keyword"
-      },
-      "periodId": {
-        "type": "keyword"
-      },
-      "periodNameDe": {
-        "type": "keyword"
-      },
-      "periodNameEn": {
-        "type": "keyword"
-      },
-      "periodNameFr": {
-        "type": "keyword"
-      },
-      "periodNameEs": {
-        "type": "keyword"
-      },
-      "periodNameIt": {
-        "type": "keyword"
-      },
-      "titleNative": {
-        "type": "object",
-        "properties": {
-          "text": {
-            "type": "text"
-          },
-          "language": {
-            "type": "keyword"
-          }
-        }
-      },
-      "titleDe": {
-        "type": "text",
-        "analyzer": "german",
-        "search_analyzer": "german_with_synonyms"
-      },
-      "titleEn": {
-        "type": "text",
-        "analyzer": "english",
-        "search_analyzer": "english_with_synonyms"
-      },
-      "titleFr": {
-        "type": "text",
-        "analyzer": "french",
-        "search_analyzer": "french_with_synonyms"
-      },
-      "titleEs": {
-        "type": "text",
-        "analyzer": "spanish",
-        "search_analyzer": "spanish_with_synonyms"
-      },
-      "titleIt": {
-        "type": "text",
-        "analyzer": "italian",
-        "search_analyzer": "italian_with_synonyms"
-      },
-      "descriptionDe": {
-        "type": "text",
-        "analyzer": "german"
-      },
-      "descriptionEn": {
-        "type": "text",
-        "analyzer": "english"
-      },
-      "descriptionFr": {
-        "type": "text",
-        "analyzer": "french"
-      },
-      "descriptionEs": {
-        "type": "text",
-        "analyzer": "spanish"
-      },
-      "descriptionIt": {
-        "type": "text",
-        "analyzer": "italian"
-      },
-      "priceEur": {
-        "type": "unsigned_long"
-      },
-      "priceUsd": {
-        "type": "unsigned_long"
-      },
-      "priceGbp": {
-        "type": "unsigned_long"
-      },
-      "priceAud": {
-        "type": "unsigned_long"
-      },
-      "priceCad": {
-        "type": "unsigned_long"
-      },
-      "priceNzd": {
-        "type": "unsigned_long"
-      },
-      "priceCny": {
-        "type": "unsigned_long"
-      },
-      "priceBrl": {
-        "type": "unsigned_long"
-      },
-      "pricePln": {
-        "type": "unsigned_long"
-      },
-      "priceTry": {
-        "type": "unsigned_long"
-      },
-      "priceJpy": {
-        "type": "unsigned_long"
-      },
-      "priceCzk": {
-        "type": "unsigned_long"
-      },
-      "priceRub": {
-        "type": "unsigned_long"
-      },
-      "priceAed": {
-        "type": "unsigned_long"
-      },
-      "priceSar": {
-        "type": "unsigned_long"
-      },
-      "priceHkd": {
-        "type": "unsigned_long"
-      },
-      "priceSgd": {
-        "type": "unsigned_long"
-      },
-      "priceChf": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMinEur": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMinUsd": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMinGbp": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMinAud": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMinCad": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMinNzd": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMinCny": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMinBrl": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMinPln": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMinTry": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMinJpy": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMinCzk": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMinRub": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMinAed": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMinSar": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMinHkd": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMinSgd": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMinChf": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMaxEur": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMaxUsd": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMaxGbp": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMaxAud": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMaxCad": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMaxNzd": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMaxCny": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMaxBrl": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMaxPln": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMaxTry": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMaxJpy": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMaxCzk": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMaxRub": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMaxAed": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMaxSar": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMaxHkd": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMaxSgd": {
-        "type": "unsigned_long"
-      },
-      "priceEstimateMaxChf": {
-        "type": "unsigned_long"
-      },
-      "state": {
-        "type": "keyword"
-      },
-      "url": {
-        "type": "keyword"
-      },
-      "images": {
-        "type": "object",
-        "properties": {
-          "url": {
-            "type": "keyword"
-          },
-          "prohibitedContent": {
-            "type": "keyword"
-          }
-        }
-      },
-      "embedding": {
-        "type": "knn_vector",
-        "dimension": 768,
-        "method": {
-          "engine": "faiss",
-          "space_type": "cosinesimil",
-          "name": "hnsw",
-          "parameters": {
-            "m": 32,
-            "ef_construction": 512,
-            "encoder": {
-              "name": "sq",
-              "parameters": {
-                "type": "fp16",
-                "clip": false
-              }
+    "settings": {
+        "index.knn": true,
+        "knn.algo_param.ef_search": 128,
+        "analysis": {
+            "filter": {
+                "english_stop": {
+                    "type": "stop",
+                    "stopwords": "_english_"
+                },
+                "english_stemmer": {
+                    "type": "stemmer",
+                    "language": "english"
+                },
+                "english_possessive_stemmer": {
+                    "type": "stemmer",
+                    "language": "possessive_english"
+                },
+                "english_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/english_synonyms.txt",
+                    "updateable": true
+                },
+                "german_stop": {
+                    "type": "stop",
+                    "stopwords": "_german_"
+                },
+                "german_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_german"
+                },
+                "german_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/german_synonyms.txt",
+                    "updateable": true
+                },
+                "french_stop": {
+                    "type": "stop",
+                    "stopwords": "_french_"
+                },
+                "french_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_french"
+                },
+                "french_elision": {
+                    "type": "elision",
+                    "articles_case": true,
+                    "articles": [
+                        "l",
+                        "m",
+                        "t",
+                        "qu",
+                        "n",
+                        "s",
+                        "j",
+                        "d",
+                        "c",
+                        "jusqu",
+                        "quoiqu",
+                        "lorsqu",
+                        "puisqu"
+                    ]
+                },
+                "french_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/french_synonyms.txt",
+                    "updateable": true
+                },
+                "spanish_stop": {
+                    "type": "stop",
+                    "stopwords": "_spanish_"
+                },
+                "spanish_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_spanish"
+                },
+                "spanish_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/spanish_synonyms.txt",
+                    "updateable": true
+                },
+                "italian_stop": {
+                    "type": "stop",
+                    "stopwords": "_italian_"
+                },
+                "italian_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_italian"
+                },
+                "italian_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/italian_synonyms.txt",
+                    "updateable": true
+                }
+            },
+            "analyzer": {
+                "english_with_synonyms": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "english_possessive_stemmer",
+                        "lowercase",
+                        "english_synonyms",
+                        "english_stop",
+                        "english_stemmer"
+                    ]
+                },
+                "german_with_synonyms": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "lowercase",
+                        "german_stop",
+                        "german_synonyms",
+                        "german_normalization",
+                        "german_stemmer"
+                    ]
+                },
+                "french_with_synonyms": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "french_elision",
+                        "lowercase",
+                        "french_synonyms",
+                        "french_stop",
+                        "french_stemmer"
+                    ]
+                },
+                "spanish_with_synonyms": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "lowercase",
+                        "spanish_synonyms",
+                        "spanish_stop",
+                        "spanish_stemmer"
+                    ]
+                },
+                "italian_with_synonyms": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "lowercase",
+                        "italian_synonyms",
+                        "italian_stop",
+                        "italian_stemmer"
+                    ]
+                }
             }
-          }
         }
-      },
-      "originYearMin": {
-        "type": "integer"
-      },
-      "originYear": {
-        "type": "integer"
-      },
-      "originYearMax": {
-        "type": "integer"
-      },
-      "authenticity": {
-        "type": "keyword"
-      },
-      "condition": {
-        "type": "keyword"
-      },
-      "provenance": {
-        "type": "keyword"
-      },
-      "restoration": {
-        "type": "keyword"
-      },
-      "auctionStart": {
-        "type": "date",
-        "format": "strict_date_time"
-      },
-      "auctionEnd": {
-        "type": "date",
-        "format": "strict_date_time"
-      },
-      "created": {
-        "type": "date",
-        "format": "strict_date_time"
-      },
-      "updated": {
-        "type": "date",
-        "format": "strict_date_time"
-      },
-      "structuredAddressAddressline": {
-        "type": "text",
-        "fields": {
-          "keyword": {
-            "type": "keyword",
-            "ignore_above": 256
-          }
+    },
+    "mappings": {
+        "properties": {
+            "productId": {
+                "type": "keyword"
+            },
+            "productSlugId": {
+                "type": "keyword"
+            },
+            "shopSlugId": {
+                "type": "keyword"
+            },
+            "sellerSlugId": {
+                "type": "keyword"
+            },
+            "eventId": {
+                "type": "keyword"
+            },
+            "shopId": {
+                "type": "keyword"
+            },
+            "sellerId": {
+                "type": "keyword"
+            },
+            "shopsProductId": {
+                "type": "keyword"
+            },
+            "shopName": {
+                "type": "keyword"
+            },
+            "sellerName": {
+                "type": "keyword"
+            },
+            "shopType": {
+                "type": "keyword"
+            },
+            "categoryId": {
+                "type": "keyword"
+            },
+            "categoryNameDe": {
+                "type": "keyword"
+            },
+            "categoryNameEn": {
+                "type": "keyword"
+            },
+            "categoryNameFr": {
+                "type": "keyword"
+            },
+            "categoryNameEs": {
+                "type": "keyword"
+            },
+            "categoryNameIt": {
+                "type": "keyword"
+            },
+            "periodId": {
+                "type": "keyword"
+            },
+            "periodNameDe": {
+                "type": "keyword"
+            },
+            "periodNameEn": {
+                "type": "keyword"
+            },
+            "periodNameFr": {
+                "type": "keyword"
+            },
+            "periodNameEs": {
+                "type": "keyword"
+            },
+            "periodNameIt": {
+                "type": "keyword"
+            },
+            "titleNative": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "text"
+                    },
+                    "language": {
+                        "type": "keyword"
+                    }
+                }
+            },
+            "titleDe": {
+                "type": "text",
+                "analyzer": "german",
+                "search_analyzer": "german_with_synonyms"
+            },
+            "titleEn": {
+                "type": "text",
+                "analyzer": "english",
+                "search_analyzer": "english_with_synonyms"
+            },
+            "titleFr": {
+                "type": "text",
+                "analyzer": "french",
+                "search_analyzer": "french_with_synonyms"
+            },
+            "titleEs": {
+                "type": "text",
+                "analyzer": "spanish",
+                "search_analyzer": "spanish_with_synonyms"
+            },
+            "titleIt": {
+                "type": "text",
+                "analyzer": "italian",
+                "search_analyzer": "italian_with_synonyms"
+            },
+            "descriptionDe": {
+                "type": "text",
+                "analyzer": "german"
+            },
+            "descriptionEn": {
+                "type": "text",
+                "analyzer": "english"
+            },
+            "descriptionFr": {
+                "type": "text",
+                "analyzer": "french"
+            },
+            "descriptionEs": {
+                "type": "text",
+                "analyzer": "spanish"
+            },
+            "descriptionIt": {
+                "type": "text",
+                "analyzer": "italian"
+            },
+            "priceEur": {
+                "type": "unsigned_long"
+            },
+            "priceUsd": {
+                "type": "unsigned_long"
+            },
+            "priceGbp": {
+                "type": "unsigned_long"
+            },
+            "priceAud": {
+                "type": "unsigned_long"
+            },
+            "priceCad": {
+                "type": "unsigned_long"
+            },
+            "priceNzd": {
+                "type": "unsigned_long"
+            },
+            "priceCny": {
+                "type": "unsigned_long"
+            },
+            "priceBrl": {
+                "type": "unsigned_long"
+            },
+            "pricePln": {
+                "type": "unsigned_long"
+            },
+            "priceTry": {
+                "type": "unsigned_long"
+            },
+            "priceJpy": {
+                "type": "unsigned_long"
+            },
+            "priceCzk": {
+                "type": "unsigned_long"
+            },
+            "priceRub": {
+                "type": "unsigned_long"
+            },
+            "priceAed": {
+                "type": "unsigned_long"
+            },
+            "priceSar": {
+                "type": "unsigned_long"
+            },
+            "priceHkd": {
+                "type": "unsigned_long"
+            },
+            "priceSgd": {
+                "type": "unsigned_long"
+            },
+            "priceChf": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinEur": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinUsd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinGbp": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinAud": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinCad": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinNzd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinCny": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinBrl": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinPln": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinTry": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinJpy": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinCzk": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinRub": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinAed": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinSar": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinHkd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinSgd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinChf": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxEur": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxUsd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxGbp": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxAud": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxCad": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxNzd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxCny": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxBrl": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxPln": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxTry": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxJpy": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxCzk": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxRub": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxAed": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxSar": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxHkd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxSgd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxChf": {
+                "type": "unsigned_long"
+            },
+            "state": {
+                "type": "keyword"
+            },
+            "url": {
+                "type": "keyword"
+            },
+            "images": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "keyword"
+                    },
+                    "prohibitedContent": {
+                        "type": "keyword"
+                    }
+                }
+            },
+            "embedding": {
+                "type": "knn_vector",
+                "dimension": 768,
+                "method": {
+                    "engine": "faiss",
+                    "space_type": "cosinesimil",
+                    "name": "hnsw",
+                    "parameters": {
+                        "m": 32,
+                        "ef_construction": 512,
+                        "encoder": {
+                            "name": "sq",
+                            "parameters": {
+                                "type": "fp16",
+                                "clip": false
+                            }
+                        }
+                    }
+                }
+            },
+            "originYearMin": {
+                "type": "integer"
+            },
+            "originYear": {
+                "type": "integer"
+            },
+            "originYearMax": {
+                "type": "integer"
+            },
+            "authenticity": {
+                "type": "keyword"
+            },
+            "condition": {
+                "type": "keyword"
+            },
+            "provenance": {
+                "type": "keyword"
+            },
+            "restoration": {
+                "type": "keyword"
+            },
+            "auctionStart": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "auctionEnd": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "created": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "updated": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "structuredAddressAddressline": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressAddresslineExtra": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressLocality": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressRegion": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressPostalCode": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressCountry": {
+                "type": "keyword"
+            },
+            "structuredAddressContinent": {
+                "type": "keyword"
+            },
+            "geoAddress": {
+                "type": "geo_point"
+            },
+            "geoAddressLat": {
+                "type": "double"
+            },
+            "geoAddressLon": {
+                "type": "double"
+            }
         }
-      },
-      "structuredAddressAddresslineExtra": {
-        "type": "text",
-        "fields": {
-          "keyword": {
-            "type": "keyword",
-            "ignore_above": 256
-          }
-        }
-      },
-      "structuredAddressLocality": {
-        "type": "text",
-        "fields": {
-          "keyword": {
-            "type": "keyword",
-            "ignore_above": 256
-          }
-        }
-      },
-      "structuredAddressRegion": {
-        "type": "text",
-        "fields": {
-          "keyword": {
-            "type": "keyword",
-            "ignore_above": 256
-          }
-        }
-      },
-      "structuredAddressPostalCode": {
-        "type": "text",
-        "fields": {
-          "keyword": {
-            "type": "keyword",
-            "ignore_above": 256
-          }
-        }
-      },
-      "structuredAddressCountry": {
-        "type": "keyword"
-      },
-      "structuredAddressContinent": {
-        "type": "keyword"
-      },
-      "geoAddress": {
-        "type": "geo_point"
-      },
-      "geoAddressLat": {
-        "type": "double"
-      },
-      "geoAddressLon": {
-        "type": "double"
-      }
     }
-  }
 }

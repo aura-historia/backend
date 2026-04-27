@@ -1,6 +1,6 @@
 use crate::core::authenticity::Authenticity;
 use crate::core::condition::Condition;
-use crate::core::product_search::{GeoCoordinateQuery, ProductSearch};
+use crate::core::product_search::ProductSearch;
 use crate::core::provenance::Provenance;
 use crate::core::restoration::Restoration;
 use crate::data::authenticity_data::AuthenticityData;
@@ -28,7 +28,7 @@ use shop::data::shop_type_data::ShopTypeData;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProductSearchData {
     #[serde(default)]
     pub language: LanguageData,
@@ -119,13 +119,13 @@ pub struct ProductSearchData {
         skip_serializing_if = "Option::is_none",
         default
     )]
-    pub geo_address_lat_query: Option<GeoCoordinateQuery>,
+    pub geo_address_lat_query: Option<RangeQuery<f32>>,
     #[serde(
         rename = "geoAddressLon",
         skip_serializing_if = "Option::is_none",
         default
     )]
-    pub geo_address_lon_query: Option<GeoCoordinateQuery>,
+    pub geo_address_lon_query: Option<RangeQuery<f32>>,
     #[serde(rename = "price", skip_serializing_if = "Option::is_none", default)]
     pub price_query: Option<RangeQuery<u64>>,
     #[serde(rename = "state", skip_serializing_if = "HashSet::is_empty", default)]

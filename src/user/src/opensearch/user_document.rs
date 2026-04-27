@@ -9,7 +9,10 @@ use common::{
     currency::record::CurrencyRecord, language::record::LanguageRecord,
     stripe_customer_id::StripeCustomerId, user_id::UserId,
 };
-use geo::core::address::{GeoAddress, StructuredAddress};
+use geo::opensearch::{
+    StructuredAddressDocumentFields, geo_address_from_geo_point, geo_address_to_document_fields,
+    structured_address_from_document_fields, structured_address_to_document_fields,
+};
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
@@ -62,6 +65,9 @@ impl UserDocument {
 
 impl From<User> for UserDocument {
     fn from(user: User) -> Self {
+        let structured_address =
+            structured_address_to_document_fields(user.structured_address.as_ref(), |_| ());
+        let geo_address = geo_address_to_document_fields(user.geo_address);
         UserDocument {
             user_id: user.user_id,
             email: user.email,
@@ -73,28 +79,13 @@ impl From<User> for UserDocument {
             tier: user.tier.into(),
             role: user.role.into(),
             stripe_customer_id: user.stripe_customer_id,
-            structured_address_addressline: user
-                .structured_address
-                .as_ref()
-                .and_then(|a| a.addressline.clone()),
-            structured_address_addressline_extra: user
-                .structured_address
-                .as_ref()
-                .and_then(|a| a.addressline_extra.clone()),
-            structured_address_locality: user
-                .structured_address
-                .as_ref()
-                .and_then(|a| a.locality.clone()),
-            structured_address_region: user
-                .structured_address
-                .as_ref()
-                .and_then(|a| a.region.clone()),
-            structured_address_postal_code: user
-                .structured_address
-                .as_ref()
-                .and_then(|a| a.postal_code.clone()),
-            structured_address_country: user.structured_address.as_ref().and_then(|a| a.country),
-            geo_address: user.geo_address.map(GeoAddress::to_opensearch_geo_point),
+            structured_address_addressline: structured_address.addressline,
+            structured_address_addressline_extra: structured_address.addressline_extra,
+            structured_address_locality: structured_address.locality,
+            structured_address_region: structured_address.region,
+            structured_address_postal_code: structured_address.postal_code,
+            structured_address_country: structured_address.country,
+            geo_address: geo_address.geo_point,
             created: user.created,
             updated: user.updated,
         }
@@ -114,42 +105,22 @@ impl From<UserDocument> for User {
             tier: UserTier::from(document.tier),
             role: UserRole::from(document.role),
             stripe_customer_id: document.stripe_customer_id,
-            structured_address: structured_address_from_flat(
-                document.structured_address_addressline,
-                document.structured_address_addressline_extra,
-                document.structured_address_locality,
-                document.structured_address_region,
-                document.structured_address_postal_code,
-                document.structured_address_country,
+            structured_address: structured_address_from_document_fields(
+                StructuredAddressDocumentFields::<()> {
+                    addressline: document.structured_address_addressline,
+                    addressline_extra: document.structured_address_addressline_extra,
+                    locality: document.structured_address_locality,
+                    region: document.structured_address_region,
+                    postal_code: document.structured_address_postal_code,
+                    country: document.structured_address_country,
+                    continent: None,
+                },
             ),
-            geo_address: document
-                .geo_address
-                .as_deref()
-                .and_then(GeoAddress::from_opensearch_geo_point),
+            geo_address: geo_address_from_geo_point(document.geo_address.as_deref()),
             created: document.created,
             updated: document.updated,
         }
     }
-}
-
-fn structured_address_from_flat(
-    addressline: Option<String>,
-    addressline_extra: Option<String>,
-    locality: Option<String>,
-    region: Option<String>,
-    postal_code: Option<String>,
-    country: Option<CountryCode>,
-) -> Option<StructuredAddress> {
-    let structured_address = StructuredAddress {
-        addressline,
-        addressline_extra,
-        locality,
-        region,
-        postal_code,
-        country,
-        continent: country.map(geo::core::continent::Continent::from),
-    };
-    (!structured_address.is_empty()).then_some(structured_address)
 }
 
 impl From<UserRecord> for UserDocument {

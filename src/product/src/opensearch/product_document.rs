@@ -26,9 +26,10 @@ use common::slug_id::SlugId;
 use common::year::{Year, YearRange};
 use common::{event_id::EventId, has_key::HasKey};
 use field::field;
-use geo::core::{
-    address::{GeoAddress, StructuredAddress},
-    continent::Continent,
+use geo::opensearch::{
+    StructuredAddressDocumentFields, continent_from_country, geo_address_from_geo_point,
+    geo_address_to_document_fields, structured_address_from_document_fields,
+    structured_address_to_document_fields,
 };
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
@@ -341,11 +342,11 @@ impl TryFrom<ProductDomainEventRecord> for ProductDocument {
             structured_address_country: event_product_document.structured_address_country,
             structured_address_continent: event_product_document
                 .structured_address_country
-                .map(|c| ContinentDocument::from(Continent::from(c))),
+                .map(continent_from_country),
             geo_address: event_product_document
                 .geo_address_lat
                 .zip(event_product_document.geo_address_lon)
-                .map(|(lat, lon)| GeoAddress { lat, lon }.to_opensearch_geo_point()),
+                .map(|(lat, lon)| format!("{lat},{lon}")),
             geo_address_lat: event_product_document.geo_address_lat,
             geo_address_lon: event_product_document.geo_address_lon,
             category_id: None,
@@ -480,11 +481,11 @@ impl From<ProductRecord> for ProductDocument {
             structured_address_country: product_document.structured_address_country,
             structured_address_continent: product_document
                 .structured_address_country
-                .map(|c| ContinentDocument::from(Continent::from(c))),
+                .map(continent_from_country),
             geo_address: product_document
                 .geo_address_lat
                 .zip(product_document.geo_address_lon)
-                .map(|(lat, lon)| GeoAddress { lat, lon }.to_opensearch_geo_point()),
+                .map(|(lat, lon)| format!("{lat},{lon}")),
             geo_address_lat: product_document.geo_address_lat,
             geo_address_lon: product_document.geo_address_lon,
             category_id: product_document.category_id,
@@ -587,26 +588,6 @@ impl From<ProductRecord> for ProductDocument {
     }
 }
 
-fn structured_address_from_flat(
-    addressline: Option<String>,
-    addressline_extra: Option<String>,
-    locality: Option<String>,
-    region: Option<String>,
-    postal_code: Option<String>,
-    country: Option<CountryCode>,
-) -> Option<StructuredAddress> {
-    let structured_address = StructuredAddress {
-        addressline,
-        addressline_extra,
-        locality,
-        region,
-        postal_code,
-        country,
-        continent: country.map(Continent::from),
-    };
-    (!structured_address.is_empty()).then_some(structured_address)
-}
-
 impl ProductDocumentSerdeField {
     pub fn description_fields() -> Vec<ProductDocumentSerdeField> {
         [
@@ -684,6 +665,12 @@ impl From<Product> for ProductDocument {
             None => (None, None, None),
         };
 
+        let structured_address = structured_address_to_document_fields(
+            product.structured_address.as_ref(),
+            continent_from_country,
+        );
+        let geo_address = geo_address_to_document_fields(product.geo_address);
+
         ProductDocument {
             product_id: product.product_id,
             product_slug_id: product.product_slug_id,
@@ -696,35 +683,16 @@ impl From<Product> for ProductDocument {
             shop_name: String::from(product.shop_name),
             seller_name: String::from(product.seller_name),
             shop_type: product.shop_type.into(),
-            structured_address_addressline: product
-                .structured_address
-                .as_ref()
-                .and_then(|a| a.addressline.clone()),
-            structured_address_addressline_extra: product
-                .structured_address
-                .as_ref()
-                .and_then(|a| a.addressline_extra.clone()),
-            structured_address_locality: product
-                .structured_address
-                .as_ref()
-                .and_then(|a| a.locality.clone()),
-            structured_address_region: product
-                .structured_address
-                .as_ref()
-                .and_then(|a| a.region.clone()),
-            structured_address_postal_code: product
-                .structured_address
-                .as_ref()
-                .and_then(|a| a.postal_code.clone()),
-            structured_address_country: product.structured_address.as_ref().and_then(|a| a.country),
-            structured_address_continent: product
-                .structured_address
-                .as_ref()
-                .and_then(|a| a.country)
-                .map(|c| ContinentDocument::from(Continent::from(c))),
-            geo_address: product.geo_address.map(GeoAddress::to_opensearch_geo_point),
-            geo_address_lat: product.geo_address.map(|address| address.lat),
-            geo_address_lon: product.geo_address.map(|address| address.lon),
+            structured_address_addressline: structured_address.addressline,
+            structured_address_addressline_extra: structured_address.addressline_extra,
+            structured_address_locality: structured_address.locality,
+            structured_address_region: structured_address.region,
+            structured_address_postal_code: structured_address.postal_code,
+            structured_address_country: structured_address.country,
+            structured_address_continent: structured_address.continent,
+            geo_address: geo_address.geo_point,
+            geo_address_lat: geo_address.lat,
+            geo_address_lon: geo_address.lon,
             category_id: product.category_id,
             period_id: product.period_id,
             category_name_de,
@@ -1290,18 +1258,18 @@ impl From<ProductDocument> for Product {
             shop_name: product_document.shop_name.into(),
             seller_name: product_document.seller_name.into(),
             shop_type: product_document.shop_type.into(),
-            structured_address: structured_address_from_flat(
-                product_document.structured_address_addressline,
-                product_document.structured_address_addressline_extra,
-                product_document.structured_address_locality,
-                product_document.structured_address_region,
-                product_document.structured_address_postal_code,
-                product_document.structured_address_country,
+            structured_address: structured_address_from_document_fields(
+                StructuredAddressDocumentFields::<ContinentDocument> {
+                    addressline: product_document.structured_address_addressline,
+                    addressline_extra: product_document.structured_address_addressline_extra,
+                    locality: product_document.structured_address_locality,
+                    region: product_document.structured_address_region,
+                    postal_code: product_document.structured_address_postal_code,
+                    country: product_document.structured_address_country,
+                    continent: product_document.structured_address_continent,
+                },
             ),
-            geo_address: product_document
-                .geo_address
-                .as_deref()
-                .and_then(GeoAddress::from_opensearch_geo_point),
+            geo_address: geo_address_from_geo_point(product_document.geo_address.as_deref()),
             category_id: product_document.category_id,
             category_name,
             period_id: product_document.period_id,

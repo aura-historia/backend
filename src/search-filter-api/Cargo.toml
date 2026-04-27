@@ -8,6 +8,8 @@ common = { workspace = true, features = ["api"] }
 search-filter = { workspace = true, features = ["data", "service", "dynamodb"] }
 shop = { workspace = true, features = ["dynamodb"] }
 product = { workspace = true, features = ["data", "service", "dynamodb"] }
+geo = { workspace = true, features = ["data"] }
+isocountry = { workspace = true }
 product-watchlist = { workspace = true, features = ["data", "service", "dynamodb"] }
 product-personalization = { workspace = true }
 notification = { workspace = true, features = ["service"] }

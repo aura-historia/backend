@@ -10,7 +10,6 @@ use serde_email::Email;
 pub struct CreateUserCommand {
     pub id: UserId,
     pub email: Email,
-    pub structured_address: Option<StructuredAddress>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -54,7 +53,6 @@ mod fake {
             CreateUserCommand {
                 id: config.fake_with_rng(rng),
                 email: email_str.try_into().unwrap(),
-                structured_address: None,
             }
         }
     }

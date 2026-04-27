@@ -12,6 +12,8 @@ use common::{
     currency::record::CurrencyRecord, language::record::LanguageRecord,
     price::domain::MonetaryAmount, product_state::domain::ProductState, user_id::UserId,
 };
+use geo::{core::continent::Continent, data::continent_data::ContinentData};
+use isocountry::CountryCode;
 use product::core::authenticity::Authenticity;
 use product::core::condition::Condition;
 use product::core::product_search::ProductSearch;
@@ -65,6 +67,14 @@ pub struct UserSearchFilterRecord {
     pub exclude_seller_slug_id_query: HashSet<SlugId<0>>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub shop_type_query: HashSet<ShopTypeRecord>,
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    pub countries: HashSet<CountryCode>,
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    pub continents: HashSet<ContinentData>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geo_address_lat_query: Option<RangeQuery<f32>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geo_address_lon_query: Option<RangeQuery<f32>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price_query: Option<RangeQuery<u64>>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
@@ -154,10 +164,10 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                     .into_iter()
                     .map(ShopType::from)
                     .collect(),
-                countries: Default::default(),
-                continents: Default::default(),
-                geo_address_lat_query: None,
-                geo_address_lon_query: None,
+                countries: record.countries.into(),
+                continents: record.continents.into_iter().map(Continent::from).collect(),
+                geo_address_lat_query: record.geo_address_lat_query,
+                geo_address_lon_query: record.geo_address_lon_query,
                 price_query: record
                     .price_query
                     .map(|range_query| range_query.map(MonetaryAmount::from)),
@@ -230,6 +240,15 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
                 .into_iter()
                 .map(ShopTypeRecord::from)
                 .collect(),
+            countries: user_search_filter.search.countries.into(),
+            continents: user_search_filter
+                .search
+                .continents
+                .into_iter()
+                .map(ContinentData::from)
+                .collect(),
+            geo_address_lat_query: user_search_filter.search.geo_address_lat_query,
+            geo_address_lon_query: user_search_filter.search.geo_address_lon_query,
             price_query: user_search_filter
                 .search
                 .price_query
@@ -308,6 +327,10 @@ mod fake {
                 seller_slug_id_query: config.fake_with_rng(rng),
                 exclude_seller_slug_id_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
+                countries: Default::default(),
+                continents: config.fake_with_rng(rng),
+                geo_address_lat_query: None,
+                geo_address_lon_query: None,
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
                 created_query: fake_range_query_datetime(config, rng),

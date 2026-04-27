@@ -1789,7 +1789,6 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
         .create_user(user::service::command::CreateUserCommand {
             id: user_id,
             email: "foo@bar.de".try_into().unwrap(),
-            structured_address: None,
         })
         .await
         .unwrap();

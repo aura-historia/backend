@@ -219,6 +219,7 @@ mod tests {
         shops_product_id::ShopsProductId,
         slug_id::SlugId,
     };
+    use geo::data::address_data::{GeoAddressData, StructuredAddressData};
     use serde_json::json;
     use shop::data::shop_type_data::ShopTypeData;
     use time::macros::utc_datetime;
@@ -240,8 +241,19 @@ mod tests {
             shop_name: "My shop".into(),
             seller_name: "My seller".into(),
             shop_type: ShopTypeData::AuctionHouse,
-            structured_address: None,
-            geo_address: None,
+            structured_address: Some(StructuredAddressData {
+                addressline: Some("Example Street 1".into()),
+                addressline_extra: None,
+                locality: Some("Berlin".into()),
+                region: None,
+                postal_code: Some("10115".into()),
+                country: Some(isocountry::CountryCode::DEU),
+                continent: Some(geo::data::continent_data::ContinentData::Europe),
+            }),
+            geo_address: Some(GeoAddressData {
+                lat: 52.52,
+                lon: 13.405,
+            }),
             category_id: Some("musical-instruments".into()),
             category: Some(LocalizedTextData::new("Musikinstrumente", LanguageData::De)),
             period_id: Some("baroque".into()),

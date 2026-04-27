@@ -5949,7 +5949,6 @@ async fn should_count_search_filter_matches_for_current_month_for_quota_enforcem
         .create_user(user::service::command::CreateUserCommand {
             id: user_id,
             email: "quota-test@example.com".parse().unwrap(),
-            structured_address: None,
         })
         .await
         .unwrap();
