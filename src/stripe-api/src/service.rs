@@ -55,8 +55,9 @@ impl StripePriceInfo {
     }
 }
 
-/// `Customer`. Using a struct (instead of separate parameters) keeps the
-/// trait signature stable as we add more fields.
+/// Holds the data needed to create a Stripe `Customer`. Using a struct
+/// (instead of separate parameters) keeps the trait signature stable as we add
+/// more fields.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateStripeCustomerCommand {
     pub user_id: UserId,
@@ -245,8 +246,7 @@ impl StripeServiceImpl {
                 .ok_or(StripeServiceError::MissingField("currency"))?
                 .to_owned();
 
-            let mut supported_currencies: HashSet<String> = HashSet::new();
-            supported_currencies.insert(native_currency);
+            let mut supported_currencies = HashSet::from([native_currency]);
 
             if let Some(currency_options) =
                 price.get("currency_options").and_then(|v| v.as_object())
