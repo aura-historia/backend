@@ -54,7 +54,8 @@ The crawler uses three distinct LLM instances, each with its own system prompt, 
 - Every shop-scoped LLM call increments `shops.llm_calls_count` for per-shop observability:
   - URL pattern classification (spider)
   - schema generation/retry (scraper)
-- Hard budget guardrail: schema-generation calls are capped by `scraper_max_llm_calls_per_shop` (default `20`).
+  - state-mapping LLM fallback (scraper normalization)
+- Hard budget guardrail: **all three LLM call types share a single combined cap** `scraper_max_llm_calls_per_shop` (default `20`).
   - Candidate selection enforces a hard stop for that shop once the cap is reached (`shops.llm_calls_count < cap`).
   - If the cap is reached during an in-flight scrape, scraper returns `LlmBudgetExceeded` and cron writes cooldown metadata (`next_retry_at`) for observability.
 
@@ -122,6 +123,8 @@ The `REGEX` variant is used when the LLM determines the raw value follows a patt
 
 **LLM config:** `resilient=3`, `reasoning=true`, `timeout=60s`
 
+**Return contract:** `get_state_mapping()` returns `(ProductStateMappingRecord, bool)` where the `bool` is `true` only when the LLM fallback (step 3) was invoked. The caller (`normalize()` in `product_normalization_service.rs`) propagates this as the `u32` component of its own `(NormalizedProduct, u32)` return value. `scraper_service.rs` charges `consume_llm_budget_n_or_err(shop_id, url, n)` post-hoc with that count; `n = 0` is a no-op so DB-hit paths incur zero budget overhead.
+
 **Persistence:** Written to `product_state_mapping` with `mapping_type` of `VALUE` or `REGEX`.
 
 ---
@@ -145,8 +148,8 @@ This means the LLM is only invoked once per novel raw state string (or pattern).
 
 ## Summary Table
 
-| Instance | Trigger | Output format | Timeout | Cached in |
-|---|---|---|---|---|
-| URL Classification | Spider: at threshold / end of stream / zero-product reclassify | JSON `{pattern}` | 180s | `shops.url_pattern` |
-| Product Schema | Scraper: first scrape per shop / runtime apply miss (append-and-retry) | JSON CSS selectors | 180s | `shops_product_schema` |
-| State Mapping | Scraper: novel raw state string (after length guard passes) | Plain text `STATE:` or `REGEX:` | 60s | `product_state_mapping` |
+| Instance | Trigger | Output format | Timeout | Cached in | Budget-tracked |
+|---|---|---|---|---|---|
+| URL Classification | Spider: at threshold / end of stream / zero-product reclassify | JSON `{pattern}` | 180s | `shops.url_pattern` | Yes |
+| Product Schema | Scraper: first scrape per shop / runtime apply miss (append-and-retry) | JSON CSS selectors | 180s | `shops_product_schema` | Yes |
+| State Mapping | Scraper: novel raw state string (after length guard passes) | Plain text `STATE:` or `REGEX:` | 60s | `product_state_mapping` | Yes (via `normalize` return count) |

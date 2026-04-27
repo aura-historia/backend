@@ -197,7 +197,7 @@ ORDER BY su.last_scraped NULLS FIRST
 LIMIT  $1
 ```
 
-Only product URLs for **active** shops that haven't been scraped today, are in an active state, whose retry cooldown has elapsed, and whose shop-level LLM-call budget is still below cap are eligible.
+Only product URLs for **active** shops that haven't been scraped today, are in an active state, whose retry cooldown has elapsed, and whose shop-level LLM-call budget (combined across URL classification, schema generation, and state-mapping LLM fallback) is still below cap are eligible.
 
 **Schema seeding on schema-cache miss:** The same service also samples random same-shop product URLs using `ORDER BY RANDOM() LIMIT ...` while excluding the current URL. This is intentional because schema cache misses are rare (typically one-time per shop unless schema rows are reset), so this query is not in the hot path. Up to `scraper_schema_seed_pages - 1` (default 2) additional pages are fetched best-effort; if fetches fail the current page alone is used to seed the initial schema generation.
 
@@ -284,7 +284,9 @@ This enables heterogeneous shops (with multiple page layouts) to dynamically acc
 
 **Attempt budget and observability**: `max_schema_fix_attempts` is reused as the regeneration-attempt budget for the append-and-retry loop. When exhausted, scraping returns `SchemaRegenerationExhausted`, cron persists the failure and writes a cooldown (`next_retry_at`) so the URL is skipped for a backoff window. Every schema-generation LLM call increments `shops.llm_calls_count`.
 
-**Hard LLM budget stop**: shop-scoped LLM calls are tracked in `shops.llm_calls_count` (URL pattern classification + schema generation). Scraper schema-generation calls are guarded by `scraper_max_llm_calls_per_shop` (default `20`). Once the cap is reached, scraper candidate selection excludes that shop entirely (`shops.llm_calls_count < cap`), preventing subsequent scrape loops. If a scrape hits the cap mid-run, scraper returns `LlmBudgetExceeded`; cron records cooldown metadata via `mark_fetch_failure`.
+**Hard LLM budget stop**: shop-scoped LLM calls are tracked in `shops.llm_calls_count` (URL pattern classification + schema generation + state-mapping LLM fallback). All three LLM call types share a single combined cap (`scraper_max_llm_calls_per_shop`, default `20`). Once the cap is reached, scraper candidate selection excludes that shop entirely (`shops.llm_calls_count < cap`), preventing subsequent scrape loops. If a scrape hits the cap mid-run, scraper returns `LlmBudgetExceeded`; cron records cooldown metadata via `mark_fetch_failure`.
+
+State-mapping LLM calls are charged post-hoc: `normalize()` returns `(NormalizedProduct, u32)` where the `u32` is the number of LLM calls used (0 when the state was resolved via DB lookup, 1 when the LLM fallback was invoked). The caller (`normalize_with_schema_fix_retry` in `scraper_service.rs`) charges `consume_llm_budget_n_or_err(shop_id, url, n)` after each normalize call; the function is a no-op when `n == 0`.
 
 ---
 

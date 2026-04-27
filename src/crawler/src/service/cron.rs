@@ -10,16 +10,30 @@ use crate::spider::advisory_lock::{DomainLock, LocalLockManager, UrlLock};
 use crate::spider::candidate_service::SpiderCandidateService;
 use crate::spider::service::SpiderService;
 use crate::{network::policy::NetworkErrorKind, network::policy::retry_cooldown_for};
+use common::shop_id::ShopId;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use tokio::sync::Semaphore;
 use tokio::sync::mpsc;
+use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
+
+/// Context for scraping a domain's candidates.
+struct ScrapeDomainContext {
+    scraper: Arc<dyn ScraperService>,
+    scraper_candidates: Arc<dyn ScraperCandidateService>,
+    lock_manager: Arc<LocalLockManager>,
+    domain_delay: Duration,
+    command_tx: mpsc::UnboundedSender<(
+        product::service::product_command::UpsertProductCommand,
+        CandidateMeta,
+    )>,
+    budget_exhausted_shops: Arc<Mutex<HashSet<ShopId>>>,
+}
 
 #[derive(Clone)]
 pub struct CrawlerCronConfig {
@@ -407,13 +421,28 @@ async fn flush_batch(
 }
 
 async fn scrape_candidate(
-    scraper: Arc<dyn ScraperService>,
-    scraper_candidates: Arc<dyn ScraperCandidateService>,
-    lock_manager: Arc<LocalLockManager>,
     candidate: ScraperCandidate,
     domain: String,
+    ctx: &ScrapeDomainContext,
 ) -> ScrapeCandidateOutcome {
-    let Some(_lock) = UrlLock::try_acquire(&lock_manager, &candidate.url) else {
+    // Skip URLs from shops with already-exhausted budgets
+    {
+        let exhausted = ctx.budget_exhausted_shops.lock().await;
+        if exhausted.contains(&candidate.shop_id) {
+            debug!(
+                shop_id = %candidate.shop_id,
+                url = %candidate.url,
+                "Skipping URL — shop LLM budget already exhausted in this batch"
+            );
+            return ScrapeCandidateOutcome {
+                command: None,
+                errored: false,
+                skipped: true,
+            };
+        }
+    }
+
+    let Some(_lock) = UrlLock::try_acquire(&ctx.lock_manager, &candidate.url) else {
         warn!(url = %candidate.url, "Skipping URL — lock held by another worker");
         return ScrapeCandidateOutcome {
             command: None,
@@ -422,7 +451,8 @@ async fn scrape_candidate(
         };
     };
 
-    match scraper
+    match ctx
+        .scraper
         .scrape(
             &candidate.shop_id,
             &candidate.url,
@@ -450,6 +480,8 @@ async fn scrape_candidate(
         },
         Err(e) => {
             let error_message = e.to_string();
+            let is_llm_budget_exceeded = matches!(&e, ScraperError::LlmBudgetExceeded { .. });
+
             if let ScraperError::HttpError { kind, .. } = &e {
                 let cooldown = retry_cooldown_for(*kind);
                 let next_retry_at = time::OffsetDateTime::now_utc()
@@ -458,7 +490,8 @@ async fn scrape_candidate(
                     NetworkErrorKind::HttpStatus(code) => Some(*code as i32),
                     _ => None,
                 };
-                if let Err(mark_err) = scraper_candidates
+                if let Err(mark_err) = ctx
+                    .scraper_candidates
                     .mark_fetch_failure(
                         &candidate.shop_id,
                         &candidate.url,
@@ -485,7 +518,8 @@ async fn scrape_candidate(
                         let cooldown = std::time::Duration::from_secs(30 * 60);
                         let next_retry_at = time::OffsetDateTime::now_utc()
                             + time::Duration::seconds(cooldown.as_secs() as i64);
-                        if let Err(mark_err) = scraper_candidates
+                        if let Err(mark_err) = ctx
+                            .scraper_candidates
                             .mark_fetch_failure(
                                 &candidate.shop_id,
                                 &candidate.url,
@@ -504,7 +538,8 @@ async fn scrape_candidate(
                         }
                     }
                     _ => {
-                        if let Err(mark_err) = scraper_candidates
+                        if let Err(mark_err) = ctx
+                            .scraper_candidates
                             .mark_scraper_failure(
                                 &candidate.shop_id,
                                 &candidate.url,
@@ -523,12 +558,30 @@ async fn scrape_candidate(
                 }
             }
 
-            error!(
-                domain = %domain,
-                url = %candidate.url,
-                error = %e,
-                "Scraper run failed"
-            );
+            // Log LLM budget exhaustion at INFO level only once per shop per batch
+            if is_llm_budget_exceeded {
+                if let ScraperError::LlmBudgetExceeded {
+                    shop_id, max_calls, ..
+                } = &e
+                {
+                    let mut exhausted = ctx.budget_exhausted_shops.lock().await;
+                    if exhausted.insert(*shop_id) {
+                        info!(
+                            shop_id = %shop_id,
+                            max_calls,
+                            "LLM call budget exhausted for shop; skipping remaining URLs in batch"
+                        );
+                    }
+                }
+            } else {
+                error!(
+                    domain = %domain,
+                    url = %candidate.url,
+                    error = %e,
+                    "Scraper run failed"
+                );
+            }
+
             ScrapeCandidateOutcome {
                 command: None,
                 errored: true,
@@ -557,16 +610,9 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
 }
 
 async fn scrape_domain_candidates(
-    scraper: Arc<dyn ScraperService>,
-    scraper_candidates: Arc<dyn ScraperCandidateService>,
-    lock_manager: Arc<LocalLockManager>,
     domain: String,
     candidates: Vec<ScraperCandidate>,
-    domain_delay: Duration,
-    command_tx: mpsc::UnboundedSender<(
-        product::service::product_command::UpsertProductCommand,
-        CandidateMeta,
-    )>,
+    ctx: ScrapeDomainContext,
 ) -> ScrapeDomainOutcome {
     let mut outcome = ScrapeDomainOutcome {
         succeeded: 0,
@@ -576,20 +622,13 @@ async fn scrape_domain_candidates(
 
     let len = candidates.len();
     for (idx, candidate) in candidates.into_iter().enumerate() {
-        let candidate_outcome = scrape_candidate(
-            Arc::clone(&scraper),
-            Arc::clone(&scraper_candidates),
-            Arc::clone(&lock_manager),
-            candidate,
-            domain.clone(),
-        )
-        .await;
+        let candidate_outcome = scrape_candidate(candidate, domain.clone(), &ctx).await;
 
         if candidate_outcome.errored {
             outcome.failed += 1;
         } else if let Some(pair) = candidate_outcome.command {
             outcome.succeeded += 1;
-            if command_tx.send(pair).is_err() {
+            if ctx.command_tx.send(pair).is_err() {
                 error!("Command channel closed while scraper worker is running");
                 outcome.failed += 1;
                 outcome.succeeded = outcome.succeeded.saturating_sub(1);
@@ -600,8 +639,8 @@ async fn scrape_domain_candidates(
             outcome.succeeded += 1;
         }
 
-        if idx + 1 < len && !domain_delay.is_zero() {
-            tokio::time::sleep(domain_delay).await;
+        if idx + 1 < len && !ctx.domain_delay.is_zero() {
+            tokio::time::sleep(ctx.domain_delay).await;
         }
     }
 
@@ -659,6 +698,9 @@ impl CrawlerCronJob {
             CandidateMeta,
         )>();
 
+        // Track shops with exhausted LLM budgets to avoid repeated logging
+        let budget_exhausted_shops = Arc::new(Mutex::new(HashSet::new()));
+
         let mut succeeded = 0usize;
         let mut failed = 0usize;
         let mut skipped = 0usize;
@@ -691,6 +733,7 @@ impl CrawlerCronJob {
             let lock_manager = Arc::clone(&self.lock_manager);
             let permit_pool = Arc::clone(&semaphore);
             let domain_tx = command_tx.clone();
+            let budget_exhausted_shops = Arc::clone(&budget_exhausted_shops);
 
             join_set.spawn(async move {
                 let Ok(_permit) = permit_pool.acquire_owned().await else {
@@ -702,16 +745,16 @@ impl CrawlerCronJob {
                     };
                 };
 
-                scrape_domain_candidates(
+                let ctx = ScrapeDomainContext {
                     scraper,
                     scraper_candidates,
                     lock_manager,
-                    domain,
-                    candidates,
                     domain_delay,
-                    domain_tx,
-                )
-                .await
+                    command_tx: domain_tx,
+                    budget_exhausted_shops,
+                };
+
+                scrape_domain_candidates(domain, candidates, ctx).await
             });
         }
         drop(command_tx);

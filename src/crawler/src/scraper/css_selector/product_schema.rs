@@ -71,13 +71,37 @@ pub struct ProductCssSelectorSchema {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_estimate_max: Option<ExtractionRule>,
 
-    #[schemars(description = "Availability state of the product. \
-        Look for signals in this order: \
-        1. link[itemprop='availability'] or meta[itemprop='availability'] (schema.org) \
-        2. An element whose class or text clearly encodes availability (e.g. 'instock', 'outofstock', 'sold') \
-        3. A cart or buy button whose presence implies the item is purchasable \
-        NEVER use price or layout elements as the state selector — \
-        a layout or formatting class is never an availability indicator.")]
+    #[schemars(description = "Availability state of the product.
+        
+        Valid outputs are signals such as:
+        - available
+        - in stock
+        - sold
+        - reserved
+        - unavailable
+        - out of stock
+        
+        Choose selectors in this priority order:
+        1. schema.org availability metadata:
+           link[itemprop='availability'], meta[itemprop='availability']
+        2. Dedicated availability badge/text
+        3. Add-to-cart / buy-now button presence
+        
+        Hard rules:
+        - NEVER select elements whose primary content is a price
+        - NEVER select generic containers that also contain prices
+        - NEVER use layout wrappers
+        - If no reliable state exists, choose a selector returning no match rather than guessing
+        
+        Bad examples:
+        .price
+        [data-testid*='price']
+        [class*='amount']
+        
+        Good examples:
+        [class*='sold']
+        [class*='stock']
+        button.add-to-cart")]
     pub state: ExtractionRule,
 
     #[schemars(description = "Images of the product. May be fragmented.")]

@@ -99,10 +99,14 @@ pub trait ProductStateMappingService {
     /// 1. Exact DB key lookup on the trimmed, lowercased input.
     /// 2. Scan all regex mappings from the DB; return on first match.
     /// 3. Ask the LLM; persist and return the result.
+    ///
+    /// Returns `(record, llm_called)` where `llm_called` is `true` only when
+    /// the LLM fallback (step 3) was reached.  Callers use this flag to charge
+    /// the resolved mapping against the per-shop LLM budget.
     async fn get_state_mapping(
         &self,
         raw: &str,
-    ) -> Result<ProductStateMappingRecord, StateMappingServiceError>;
+    ) -> Result<(ProductStateMappingRecord, bool), StateMappingServiceError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -325,7 +329,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
     async fn get_state_mapping(
         &self,
         raw: &str,
-    ) -> Result<ProductStateMappingRecord, StateMappingServiceError> {
+    ) -> Result<(ProductStateMappingRecord, bool), StateMappingServiceError> {
         let key = raw.trim().to_lowercase();
 
         // ── Guard: reject text that is too long to fit in the DB index ───
@@ -346,7 +350,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
         // ── Step 1: exact DB lookup ──────────────────────────────────────
         if let Some(existing) = self.repository.find_mapping(&key).await? {
             debug!(raw = %key, "Found exact state mapping in DB.");
-            return Ok(existing);
+            return Ok((existing, false));
         }
 
         // ── Step 2: scan regex mappings from DB ──────────────────────────
@@ -362,7 +366,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
                         pattern = %mapping.raw,
                         "Matched state via DB regex pattern."
                     );
-                    return Ok(mapping.clone());
+                    return Ok((mapping.clone(), false));
                 }
                 Ok(_) => {}
                 Err(err) => {
@@ -386,8 +390,10 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
             ProductState::from(record.normalized),
             record.mapping_type,
         );
-        self.save_state_mapping(&persist_key, normalized, mapping_type)
-            .await
+        let persisted = self
+            .save_state_mapping(&persist_key, normalized, mapping_type)
+            .await?;
+        Ok((persisted, true))
     }
 }
 
@@ -1175,9 +1181,10 @@ mod tests {
             repository: Box::new(repo),
         };
 
-        let result = svc.get_state_mapping("sold").await.unwrap();
+        let (result, llm_called) = svc.get_state_mapping("sold").await.unwrap();
         assert_eq!(result.raw, "sold");
         assert_eq!(result.normalized, ProductStateRecord::Sold);
+        assert!(!llm_called, "DB hit must not set llm_called");
     }
 
     #[tokio::test]
@@ -1196,8 +1203,9 @@ mod tests {
         };
 
         // "  SOLD  " must be normalised to "sold" before the lookup.
-        let result = svc.get_state_mapping("  SOLD  ").await.unwrap();
+        let (result, llm_called) = svc.get_state_mapping("  SOLD  ").await.unwrap();
         assert_eq!(result.raw, "sold");
+        assert!(!llm_called);
     }
 
     // ────────────────────────────────────────────────────────────────────
@@ -1224,9 +1232,10 @@ mod tests {
             repository: Box::new(repo),
         };
 
-        let result = svc.get_state_mapping("5 in stock").await.unwrap();
+        let (result, llm_called) = svc.get_state_mapping("5 in stock").await.unwrap();
         assert_eq!(result.normalized, ProductStateRecord::Available);
         assert_eq!(result.mapping_type, StateMappingType::Regex);
+        assert!(!llm_called);
     }
 
     #[tokio::test]
@@ -1250,8 +1259,9 @@ mod tests {
             repository: Box::new(repo),
         };
 
-        let result = svc.get_state_mapping("3 left").await.unwrap();
+        let (result, llm_called) = svc.get_state_mapping("3 left").await.unwrap();
         assert_eq!(result.normalized, ProductStateRecord::Available);
+        assert!(!llm_called);
     }
 
     #[tokio::test]
@@ -1271,8 +1281,9 @@ mod tests {
             repository: Box::new(repo),
         };
 
-        let result = svc.get_state_mapping("0 available").await.unwrap();
+        let (result, llm_called) = svc.get_state_mapping("0 available").await.unwrap();
         assert_eq!(result.normalized, ProductStateRecord::Sold);
+        assert!(!llm_called);
     }
 
     #[tokio::test]
@@ -1293,8 +1304,9 @@ mod tests {
             repository: Box::new(repo),
         };
 
-        let result = svc.get_state_mapping("sold out").await.unwrap();
+        let (result, llm_called) = svc.get_state_mapping("sold out").await.unwrap();
         assert_eq!(result.normalized, ProductStateRecord::Sold);
+        assert!(!llm_called);
     }
 
     #[tokio::test]
@@ -1318,8 +1330,9 @@ mod tests {
             repository: Box::new(repo),
         };
 
-        let result = svc.get_state_mapping("ONLY 2 LEFT").await.unwrap();
+        let (result, llm_called) = svc.get_state_mapping("ONLY 2 LEFT").await.unwrap();
         assert_eq!(result.normalized, ProductStateRecord::Available);
+        assert!(!llm_called);
     }
 
     #[tokio::test]
@@ -1352,8 +1365,9 @@ mod tests {
             repository: Box::new(repo),
         };
 
-        let result = svc.get_state_mapping("brand new phrase").await.unwrap();
+        let (result, llm_called) = svc.get_state_mapping("brand new phrase").await.unwrap();
         assert_eq!(result.normalized, ProductStateRecord::Listed);
+        assert!(llm_called, "LLM fallback must set llm_called");
     }
 
     // ────────────────────────────────────────────────────────────────────
@@ -1396,9 +1410,10 @@ mod tests {
             repository: Box::new(repo),
         };
 
-        let result = svc.get_state_mapping("7 verfügbar").await.unwrap();
+        let (result, llm_called) = svc.get_state_mapping("7 verfügbar").await.unwrap();
         assert_eq!(result.normalized, ProductStateRecord::Available);
         assert_eq!(result.mapping_type, StateMappingType::Regex);
+        assert!(llm_called, "LLM fallback must set llm_called");
     }
 
     // ────────────────────────────────────────────────────────────────────
@@ -1658,5 +1673,6 @@ mod tests {
         // Should succeed — no RawStateTooLong error.
         let result = svc.get_state_mapping(&exactly_max_clone).await;
         assert!(result.is_ok(), "expected Ok, got {result:?}");
+        assert!(result.unwrap().1, "LLM must be called when no DB match");
     }
 }

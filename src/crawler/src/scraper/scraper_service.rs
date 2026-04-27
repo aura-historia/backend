@@ -25,7 +25,7 @@ use tracing::{debug, info, warn};
 use url::Url;
 
 const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
-pub const DEFAULT_SCHEMA_SEED_PAGES: usize = 10;
+pub const DEFAULT_SCHEMA_SEED_PAGES: usize = 4;
 pub const DEFAULT_MAX_LLM_CALLS_PER_SHOP: i64 = 20;
 
 // ---------------------------------------------------------------------------
@@ -357,21 +357,34 @@ impl ScraperServiceImpl {
         shop_id: &ShopId,
         url: &Url,
     ) -> Result<(), ScraperError> {
+        self.consume_llm_budget_n_or_err(shop_id, url, 1).await
+    }
+
+    /// Charge `n` LLM calls against the per-shop budget.  When `n` is zero
+    /// this is a no-op.  When the budget would be exceeded the function returns
+    /// [`ScraperError::LlmBudgetExceeded`] without modifying the counter.
+    async fn consume_llm_budget_n_or_err(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        n: u32,
+    ) -> Result<(), ScraperError> {
+        if n == 0 {
+            return Ok(());
+        }
         let incremented = self
             .candidate_service
-            .try_increment_shop_llm_calls_with_limit(shop_id, 1, self.max_llm_calls_per_shop)
+            .try_increment_shop_llm_calls_with_limit(
+                shop_id,
+                i64::from(n),
+                self.max_llm_calls_per_shop,
+            )
             .await
             .map_err(|err| {
                 ScraperError::SchemaServiceError(ProductSchemaServiceError::DatabaseError(err))
             })?;
 
         if !incremented {
-            warn!(
-                shop_id = %shop_id,
-                url = %url,
-                max_calls = self.max_llm_calls_per_shop,
-                "Skipping schema generation because per-shop LLM budget is exhausted"
-            );
             return Err(ScraperError::LlmBudgetExceeded {
                 shop_id: *shop_id,
                 url: url.clone(),
@@ -580,7 +593,11 @@ impl ScraperServiceImpl {
             )
             .await
         {
-            Ok(product) => Ok(product),
+            Ok((product, norm_llm_calls)) => {
+                self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, norm_llm_calls)
+                    .await?;
+                Ok(product)
+            }
             Err(err) => {
                 let Some(mut last_error) = normalization_error_to_schema_hint(&err) else {
                     return Err(ScraperError::NormalizationError(err));
@@ -624,7 +641,9 @@ impl ScraperServiceImpl {
                         )
                         .await
                     {
-                        Ok(product) => {
+                        Ok((product, norm_llm_calls)) => {
+                            self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, norm_llm_calls)
+                                .await?;
                             let mut persisted_schemas = ctx.existing_schemas.to_vec();
                             persisted_schemas.push(generated_schema);
                             self.schema_service
@@ -1039,7 +1058,7 @@ mod tests {
             .once()
             .returning(move |_, _, _| {
                 let n = expected.clone();
-                Box::pin(async move { Ok(n) })
+                Box::pin(async move { Ok((n, 0u32)) })
             });
 
         let mut cand_svc = MockScraperCandidateService::new();
@@ -1105,7 +1124,7 @@ mod tests {
         let mut norm_svc = MockProductNormalizationService::new();
         norm_svc.expect_normalize().returning(move |_, _, _| {
             let n = norm_clone.clone();
-            Box::pin(async move { Ok(n) })
+            Box::pin(async move { Ok((n, 0u32)) })
         });
 
         let mut cand_svc = MockScraperCandidateService::new();
@@ -1209,7 +1228,7 @@ mod tests {
             .once()
             .returning(move |_, _, _| {
                 let n = expected.clone();
-                Box::pin(async move { Ok(n) })
+                Box::pin(async move { Ok((n, 0u32)) })
             });
 
         let mut cand_svc = MockScraperCandidateService::new();
@@ -1275,7 +1294,7 @@ mod tests {
             .once()
             .returning(move |_, _, _| {
                 let n = expected.clone();
-                Box::pin(async move { Ok(n) })
+                Box::pin(async move { Ok((n, 0u32)) })
             });
 
         let mut cand_svc = MockScraperCandidateService::new();
@@ -1357,7 +1376,7 @@ mod tests {
             .once()
             .returning(move |_, _, _| {
                 let n = expected.clone();
-                Box::pin(async move { Ok(n) })
+                Box::pin(async move { Ok((n, 0u32)) })
             });
 
         let mut cand_svc = MockScraperCandidateService::new();
@@ -1428,7 +1447,7 @@ mod tests {
             .once()
             .returning(move |_, _, _| {
                 let n = expected.clone();
-                Box::pin(async move { Ok(n) })
+                Box::pin(async move { Ok((n, 0u32)) })
             });
 
         let mut cand_svc = MockScraperCandidateService::new();
@@ -1570,7 +1589,7 @@ mod tests {
             .once()
             .returning(move |_, _, _| {
                 let n = expected.clone();
-                Box::pin(async move { Ok(n) })
+                Box::pin(async move { Ok((n, 0u32)) })
             });
 
         // mark_as_scraped is no longer called inside scrape() — it is the
@@ -1721,7 +1740,7 @@ mod tests {
                     if norm_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
                         Err(NormalizationError::TitleEmpty)
                     } else {
-                        Ok(n)
+                        Ok((n, 0u32))
                     }
                 })
             });
@@ -1903,5 +1922,155 @@ mod tests {
                 ..
             } if selector == "non-existent-id"
         ));
+    }
+
+    // -----------------------------------------------------------------------
+    // Normalization LLM budget tracking
+    // -----------------------------------------------------------------------
+
+    /// When `normalize` reports 1 LLM call used (new state string hit the LLM
+    /// fallback), that call must be charged against the per-shop budget in
+    /// addition to the schema-generation call.
+    #[tokio::test]
+    async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_uses_llm() {
+        let id = shop_id();
+        let url = product_url();
+
+        let mut fetcher = MockHtmlFetcher::new();
+        fetcher
+            .expect_fetch()
+            .once()
+            .returning(|_| Box::pin(async { Ok(sample_html()) }));
+
+        let schema = shops_product_schema(id);
+        let schema_for_create = schema.product_schemas.first().cloned().unwrap();
+        let schema_for_save = schema.clone();
+        let mut schema_svc = MockProductSchemaService::new();
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
+        schema_svc
+            .expect_create_product_schemas()
+            .once()
+            .returning(move |_| {
+                let s = vec![schema_for_create.clone()];
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc
+            .expect_save_product_schemas()
+            .once()
+            .returning(move |_, _, _| {
+                let s = schema_for_save.clone();
+                Box::pin(async move { Ok(s) })
+            });
+
+        let expected = normalized_product(url.clone());
+        let mut norm_svc = MockProductNormalizationService::new();
+        norm_svc
+            .expect_normalize()
+            .once()
+            .returning(move |_, _, _| {
+                let n = expected.clone();
+                // Normalization used the LLM for state mapping (1 call).
+                Box::pin(async move { Ok((n, 1u32)) })
+            });
+
+        let mut cand_svc = MockScraperCandidateService::new();
+        // Schema generation = 1 call, state mapping LLM = 1 call → 2 total.
+        expect_budget_increment(&mut cand_svc, 2);
+        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+            3,
+            1,
+            DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        );
+
+        let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+        assert_eq!(result.product.state, ProductState::Available);
+    }
+
+    /// When the state mapping LLM call would push the shop over budget, the
+    /// scrape must return `LlmBudgetExceeded` even though the product was
+    /// successfully normalised.
+    #[tokio::test]
+    async fn should_return_llm_budget_exceeded_when_normalization_llm_call_exceeds_cap() {
+        let id = shop_id();
+        let url = product_url();
+
+        let mut fetcher = MockHtmlFetcher::new();
+        fetcher
+            .expect_fetch()
+            .once()
+            .returning(|_| Box::pin(async { Ok(sample_html()) }));
+
+        let schema = shops_product_schema(id);
+        let schema_for_create = schema.product_schemas.first().cloned().unwrap();
+        let mut schema_svc = MockProductSchemaService::new();
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(|_| Box::pin(async { Ok(None) }));
+        schema_svc
+            .expect_create_product_schemas()
+            .once()
+            .returning(move |_| {
+                let s = vec![schema_for_create.clone()];
+                Box::pin(async move { Ok(s) })
+            });
+        // save_product_schemas must NOT be called — budget is rejected first.
+        schema_svc.expect_save_product_schemas().never();
+
+        let expected = normalized_product(url.clone());
+        let mut norm_svc = MockProductNormalizationService::new();
+        norm_svc
+            .expect_normalize()
+            .once()
+            .returning(move |_, _, _| {
+                let n = expected.clone();
+                // Normalization hit the LLM for state mapping.
+                Box::pin(async move { Ok((n, 1u32)) })
+            });
+
+        let mut cand_svc = MockScraperCandidateService::new();
+        // First call (schema gen) succeeds; second call (normalization LLM)
+        // returns false → budget exhausted.
+        cand_svc
+            .expect_try_increment_shop_llm_calls_with_limit()
+            .times(2)
+            .returning(|_, delta, _| {
+                // delta == 1 for schema gen; delta == 1 for norm LLM call.
+                // First call (delta comes first in mock sequence): succeed.
+                // Second call: report budget exhausted.
+                Box::pin(async move {
+                    // We can't distinguish calls by order in mockall easily,
+                    // so simulate: first returns true, second returns false.
+                    static CALL: std::sync::atomic::AtomicUsize =
+                        std::sync::atomic::AtomicUsize::new(0);
+                    let n = CALL.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Ok(n == 0 && delta == 1)
+                })
+            });
+
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+            3,
+            1,
+            DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        );
+
+        let err = service.scrape(&id, &url, None).await.unwrap_err();
+        assert!(
+            matches!(err, ScraperError::LlmBudgetExceeded { .. }),
+            "expected LlmBudgetExceeded, got {err:?}"
+        );
     }
 }
