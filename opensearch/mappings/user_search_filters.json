@@ -330,51 +330,6 @@
                 "type": "date",
                 "format": "strict_date_time"
             },
-            "structuredAddressAddressline": {
-                "type": "text",
-                "fields": {
-                    "keyword": {
-                        "type": "keyword",
-                        "ignore_above": 256
-                    }
-                }
-            },
-            "structuredAddressAddresslineExtra": {
-                "type": "text",
-                "fields": {
-                    "keyword": {
-                        "type": "keyword",
-                        "ignore_above": 256
-                    }
-                }
-            },
-            "structuredAddressLocality": {
-                "type": "text",
-                "fields": {
-                    "keyword": {
-                        "type": "keyword",
-                        "ignore_above": 256
-                    }
-                }
-            },
-            "structuredAddressRegion": {
-                "type": "text",
-                "fields": {
-                    "keyword": {
-                        "type": "keyword",
-                        "ignore_above": 256
-                    }
-                }
-            },
-            "structuredAddressPostalCode": {
-                "type": "text",
-                "fields": {
-                    "keyword": {
-                        "type": "keyword",
-                        "ignore_above": 256
-                    }
-                }
-            },
             "structuredAddressCountry": {
                 "type": "keyword"
             },
@@ -383,12 +338,6 @@
             },
             "geoAddress": {
                 "type": "geo_point"
-            },
-            "geoAddressLat": {
-                "type": "double"
-            },
-            "geoAddressLon": {
-                "type": "double"
             }
         }
     }

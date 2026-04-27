@@ -8,10 +8,7 @@ use common::{
     stripe_customer_id::StripeCustomerId,
     user_id::UserId,
 };
-use geo::dynamodb::{
-    GeoAddressFlat, StructuredAddressFlat, geo_address_from_flat, geo_address_to_flat,
-    structured_address_from_flat, structured_address_to_flat,
-};
+use geo::dynamodb::{geo_address_from_record, structured_address_from_record};
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
@@ -100,8 +97,8 @@ impl From<User> for UserRecord {
             Some(scid) => (Some(mk_gsi1_pk(scid)), Some(mk_gsi1_sk().to_owned())),
             None => (None, None),
         };
-        let structured_address = structured_address_to_flat(user.structured_address.as_ref());
-        let geo_address = geo_address_to_flat(user.geo_address);
+        let structured_address = user.structured_address;
+        let geo_address = user.geo_address;
         UserRecord {
             pk: mk_pk(&user.user_id),
             sk: mk_sk().to_owned(),
@@ -115,14 +112,22 @@ impl From<User> for UserRecord {
             tier: UserTierRecord::from(user.tier),
             role: UserRoleRecord::from(user.role),
             stripe_customer_id: user.stripe_customer_id,
-            structured_address_addressline: structured_address.addressline,
-            structured_address_addressline_extra: structured_address.addressline_extra,
-            structured_address_locality: structured_address.locality,
-            structured_address_region: structured_address.region,
-            structured_address_postal_code: structured_address.postal_code,
-            structured_address_country: structured_address.country,
-            geo_address_lat: geo_address.lat,
-            geo_address_lon: geo_address.lon,
+            structured_address_addressline: structured_address
+                .as_ref()
+                .and_then(|a| a.addressline.clone()),
+            structured_address_addressline_extra: structured_address
+                .as_ref()
+                .and_then(|a| a.addressline_extra.clone()),
+            structured_address_locality: structured_address
+                .as_ref()
+                .and_then(|a| a.locality.clone()),
+            structured_address_region: structured_address.as_ref().and_then(|a| a.region.clone()),
+            structured_address_postal_code: structured_address
+                .as_ref()
+                .and_then(|a| a.postal_code.clone()),
+            structured_address_country: structured_address.as_ref().and_then(|a| a.country),
+            geo_address_lat: geo_address.map(|address| address.lat),
+            geo_address_lon: geo_address.map(|address| address.lon),
             gsi1_pk,
             gsi1_sk,
             created: user.created,
@@ -144,18 +149,15 @@ impl From<UserRecord> for User {
             tier: record.tier.into(),
             role: record.role.into(),
             stripe_customer_id: record.stripe_customer_id,
-            structured_address: structured_address_from_flat(StructuredAddressFlat {
-                addressline: record.structured_address_addressline,
-                addressline_extra: record.structured_address_addressline_extra,
-                locality: record.structured_address_locality,
-                region: record.structured_address_region,
-                postal_code: record.structured_address_postal_code,
-                country: record.structured_address_country,
-            }),
-            geo_address: geo_address_from_flat(GeoAddressFlat {
-                lat: record.geo_address_lat,
-                lon: record.geo_address_lon,
-            }),
+            structured_address: structured_address_from_record(
+                record.structured_address_addressline,
+                record.structured_address_addressline_extra,
+                record.structured_address_locality,
+                record.structured_address_region,
+                record.structured_address_postal_code,
+                record.structured_address_country,
+            ),
+            geo_address: geo_address_from_record(record.geo_address_lat, record.geo_address_lon),
             created: record.created,
             updated: record.updated,
         }

@@ -122,12 +122,6 @@
             },
             "geoAddress": {
                 "type": "geo_point"
-            },
-            "geoAddressLat": {
-                "type": "double"
-            },
-            "geoAddressLon": {
-                "type": "double"
             }
         }
     }

@@ -550,33 +550,32 @@ pub fn build_filter_clauses(
         }));
     }
 
-    if !search.countries.is_empty() {
+    if !search.country_query.is_empty() {
         filter.push(json!({
             "terms": {
-                ProductDocumentSerdeField::StructuredAddressCountry.as_str(): search.countries.iter().map(|c| c.alpha2()).collect::<Vec<_>>()
+                ProductDocumentSerdeField::StructuredAddressCountry.as_str(): search.country_query.iter().map(|c| c.alpha2()).collect::<Vec<_>>()
             }
         }));
     }
 
-    if !search.continents.is_empty() {
+    if !search.continent_query.is_empty() {
         filter.push(json!({
             "terms": {
-                ProductDocumentSerdeField::StructuredAddressContinent.as_str(): search.continents.iter().map(|c| ContinentDocument::from(*c).as_str()).collect::<Vec<_>>()
+                ProductDocumentSerdeField::StructuredAddressContinent.as_str(): search.continent_query.iter().map(|c| ContinentDocument::from(*c).as_str()).collect::<Vec<_>>()
             }
         }));
     }
 
-    if let Some(min) = search.geo_address_lat_query.and_then(|q| q.min) {
-        filter.push(json!({ "range": { ProductDocumentSerdeField::GeoAddressLat.as_str(): { "gte": min } } }));
-    }
-    if let Some(max) = search.geo_address_lat_query.and_then(|q| q.max) {
-        filter.push(json!({ "range": { ProductDocumentSerdeField::GeoAddressLat.as_str(): { "lte": max } } }));
-    }
-    if let Some(min) = search.geo_address_lon_query.and_then(|q| q.min) {
-        filter.push(json!({ "range": { ProductDocumentSerdeField::GeoAddressLon.as_str(): { "gte": min } } }));
-    }
-    if let Some(max) = search.geo_address_lon_query.and_then(|q| q.max) {
-        filter.push(json!({ "range": { ProductDocumentSerdeField::GeoAddressLon.as_str(): { "lte": max } } }));
+    if let Some(query) = search.geo_address_distance_query {
+        filter.push(json!({
+            "geo_distance": {
+                "distance": query.distance.opensearch_value(),
+                ProductDocumentSerdeField::GeoAddress.as_str(): {
+                    "lat": query.lat,
+                    "lon": query.lon
+                }
+            }
+        }));
     }
 
     // ---------- Origin year (overlap semantics) ----------

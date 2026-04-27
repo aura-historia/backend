@@ -107,10 +107,9 @@ mod tests {
                 shop_type_query: HashSet::from_iter([
                     shop::data::shop_type_data::ShopTypeData::CommercialDealer,
                 ]),
-                countries: HashSet::new(),
-                continents: HashSet::new(),
-                geo_address_lat_query: None,
-                geo_address_lon_query: None,
+                country_query: HashSet::new(),
+                continent_query: HashSet::new(),
+                geo_address_distance_query: None,
                 price_query: Some(RangeQuery {
                     min: Some(37),
                     max: Some(42),
@@ -274,10 +273,9 @@ mod tests {
                 shop_type_query: HashSet::from_iter([
                     shop::data::shop_type_data::ShopTypeData::CommercialDealer,
                 ]),
-                countries: HashSet::new(),
-                continents: HashSet::new(),
-                geo_address_lat_query: None,
-                geo_address_lon_query: None,
+                country_query: HashSet::new(),
+                continent_query: HashSet::new(),
+                geo_address_distance_query: None,
                 price_query: Some(RangeQuery {
                     min: Some(37),
                     max: Some(42),

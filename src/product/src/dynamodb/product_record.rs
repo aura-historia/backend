@@ -26,9 +26,7 @@ use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use common::year::{Year, YearRange};
 use field::field;
-use geo::dynamodb::{
-    GeoAddressFlat, StructuredAddressFlat, geo_address_from_flat, structured_address_from_flat,
-};
+use geo::dynamodb::{geo_address_from_record, structured_address_from_record};
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -558,18 +556,15 @@ impl From<ProductRecord> for Product {
             shop_name: record.shop_name.into(),
             seller_name: record.seller_name.into(),
             shop_type: record.shop_type.into(),
-            structured_address: structured_address_from_flat(StructuredAddressFlat {
-                addressline: record.structured_address_addressline,
-                addressline_extra: record.structured_address_addressline_extra,
-                locality: record.structured_address_locality,
-                region: record.structured_address_region,
-                postal_code: record.structured_address_postal_code,
-                country: record.structured_address_country,
-            }),
-            geo_address: geo_address_from_flat(GeoAddressFlat {
-                lat: record.geo_address_lat,
-                lon: record.geo_address_lon,
-            }),
+            structured_address: structured_address_from_record(
+                record.structured_address_addressline,
+                record.structured_address_addressline_extra,
+                record.structured_address_locality,
+                record.structured_address_region,
+                record.structured_address_postal_code,
+                record.structured_address_country,
+            ),
+            geo_address: geo_address_from_record(record.geo_address_lat, record.geo_address_lon),
             category_id: record.category_id,
             category_name,
             period_id: record.period_id,

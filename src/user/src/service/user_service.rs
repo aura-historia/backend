@@ -17,7 +17,6 @@ use common::{
     stripe_customer_id::StripeCustomerId,
     user_id::UserId,
 };
-use geo::dynamodb::{geo_address_to_flat, structured_address_to_flat};
 use geo::service::geocoding_service::{GeocodingError, GeocodingService, NoopGeocodingService};
 use time::OffsetDateTime;
 use tracing::{error, info, warn};
@@ -312,8 +311,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                 Some(address) => Some(self.geocoding_service.geocode(address).await?),
                 None => None,
             };
-            let structured_address = structured_address_to_flat(cmd.structured_address.as_ref());
-            let geo_address = geo_address_to_flat(geo_address);
+            let structured_address = cmd.structured_address.as_ref();
             let user_record_update = UserRecordUpdate {
                 first_name: cmd.first_name,
                 last_name: cmd.last_name,
@@ -325,14 +323,19 @@ impl<'a> UserService for UserServiceImpl<'a> {
                 stripe_customer_id: cmd.stripe_customer_id,
                 gsi1_pk,
                 gsi1_sk,
-                structured_address_addressline: structured_address.addressline,
-                structured_address_addressline_extra: structured_address.addressline_extra,
-                structured_address_locality: structured_address.locality,
-                structured_address_region: structured_address.region,
-                structured_address_postal_code: structured_address.postal_code,
-                structured_address_country: structured_address.country,
-                geo_address_lat: geo_address.lat,
-                geo_address_lon: geo_address.lon,
+                structured_address_addressline: structured_address
+                    .and_then(|address| address.addressline.clone()),
+                structured_address_addressline_extra: structured_address
+                    .and_then(|address| address.addressline_extra.clone()),
+                structured_address_locality: structured_address
+                    .and_then(|address| address.locality.clone()),
+                structured_address_region: structured_address
+                    .and_then(|address| address.region.clone()),
+                structured_address_postal_code: structured_address
+                    .and_then(|address| address.postal_code.clone()),
+                structured_address_country: structured_address.and_then(|address| address.country),
+                geo_address_lat: geo_address.map(|address| address.lat),
+                geo_address_lon: geo_address.map(|address| address.lon),
                 updated: OffsetDateTime::now_utc(),
             };
             let user = self.repository

@@ -315,6 +315,17 @@ mod tests {
             "shopName": "My shop",
             "sellerName": "My seller",
             "shopType": "AUCTION_HOUSE",
+            "structuredAddress": {
+                "addressline": "Example Street 1",
+                "locality": "Berlin",
+                "postalCode": "10115",
+                "country": "DE",
+                "continent": "EUROPE"
+            },
+            "geoAddress": {
+                "lat": 52.52,
+                "lon": 13.405
+            },
             "categoryId": "musical-instruments",
             "category": {
                 "text": "Musikinstrumente",

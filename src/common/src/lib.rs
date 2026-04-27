@@ -1,4 +1,5 @@
 pub mod currency;
+pub mod distance;
 
 #[cfg(feature = "api")]
 pub mod api;

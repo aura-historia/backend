@@ -10,8 +10,7 @@ use common::{
     stripe_customer_id::StripeCustomerId, user_id::UserId,
 };
 use geo::opensearch::{
-    StructuredAddressDocumentFields, geo_address_from_geo_point, geo_address_to_document_fields,
-    structured_address_from_document_fields, structured_address_to_document_fields,
+    geo_address_from_document, geo_address_to_document, structured_address_from_document,
 };
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
@@ -65,9 +64,7 @@ impl UserDocument {
 
 impl From<User> for UserDocument {
     fn from(user: User) -> Self {
-        let structured_address =
-            structured_address_to_document_fields(user.structured_address.as_ref(), |_| ());
-        let geo_address = geo_address_to_document_fields(user.geo_address);
+        let structured_address = user.structured_address;
         UserDocument {
             user_id: user.user_id,
             email: user.email,
@@ -79,13 +76,25 @@ impl From<User> for UserDocument {
             tier: user.tier.into(),
             role: user.role.into(),
             stripe_customer_id: user.stripe_customer_id,
-            structured_address_addressline: structured_address.addressline,
-            structured_address_addressline_extra: structured_address.addressline_extra,
-            structured_address_locality: structured_address.locality,
-            structured_address_region: structured_address.region,
-            structured_address_postal_code: structured_address.postal_code,
-            structured_address_country: structured_address.country,
-            geo_address: geo_address.geo_point,
+            structured_address_addressline: structured_address
+                .as_ref()
+                .and_then(|address| address.addressline.clone()),
+            structured_address_addressline_extra: structured_address
+                .as_ref()
+                .and_then(|address| address.addressline_extra.clone()),
+            structured_address_locality: structured_address
+                .as_ref()
+                .and_then(|address| address.locality.clone()),
+            structured_address_region: structured_address
+                .as_ref()
+                .and_then(|address| address.region.clone()),
+            structured_address_postal_code: structured_address
+                .as_ref()
+                .and_then(|address| address.postal_code.clone()),
+            structured_address_country: structured_address
+                .as_ref()
+                .and_then(|address| address.country),
+            geo_address: geo_address_to_document(user.geo_address),
             created: user.created,
             updated: user.updated,
         }
@@ -105,18 +114,15 @@ impl From<UserDocument> for User {
             tier: UserTier::from(document.tier),
             role: UserRole::from(document.role),
             stripe_customer_id: document.stripe_customer_id,
-            structured_address: structured_address_from_document_fields(
-                StructuredAddressDocumentFields::<()> {
-                    addressline: document.structured_address_addressline,
-                    addressline_extra: document.structured_address_addressline_extra,
-                    locality: document.structured_address_locality,
-                    region: document.structured_address_region,
-                    postal_code: document.structured_address_postal_code,
-                    country: document.structured_address_country,
-                    continent: None,
-                },
+            structured_address: structured_address_from_document(
+                document.structured_address_addressline,
+                document.structured_address_addressline_extra,
+                document.structured_address_locality,
+                document.structured_address_region,
+                document.structured_address_postal_code,
+                document.structured_address_country,
             ),
-            geo_address: geo_address_from_geo_point(document.geo_address.as_deref()),
+            geo_address: geo_address_from_document(document.geo_address.as_deref()),
             created: document.created,
             updated: document.updated,
         }

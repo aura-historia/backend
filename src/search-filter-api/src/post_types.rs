@@ -31,12 +31,13 @@ mod faker {
 mod tests {
     use crate::post_types::PostUserSearchFilterData;
     use common::category_key::CategoryId;
+    use common::distance::data::{DistanceData, DistanceUnitData};
     use common::period_key::PeriodId;
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
     use product::data::authenticity_data::AuthenticityData;
     use product::data::condition_data::ConditionData;
-    use product::data::product_search_data::ProductSearchData;
+    use product::data::product_search_data::{GeoDistanceQueryData, ProductSearchData};
     use product::data::product_state_data::ProductStateData;
     use product::data::provenance_data::ProvenanceData;
     use product::data::restoration_data::RestorationData;
@@ -57,6 +58,16 @@ mod tests {
                 "periodId": ["baroque"],
                 "shopName": ["Baap"],
                 "excludeShopName": ["baddlebap"],
+                "country": ["DE"],
+                "continent": ["EUROPE"],
+                "geoAddress": {
+                    "lat": 52.52,
+                    "lon": 13.405,
+                    "distance": {
+                        "amount": 100.0,
+                        "unit": "kilometers"
+                    }
+                },
                 "price": {
                     "min": 37,
                     "max": 42
@@ -102,15 +113,17 @@ mod tests {
                 seller_name_query: Default::default(),
                 exclude_seller_name_query: Default::default(),
                 shop_type_query: HashSet::new(),
-                countries: HashSet::from_iter([isocountry::CountryCode::DEU]),
-                continents: HashSet::from_iter([geo::data::continent_data::ContinentData::Europe]),
-                geo_address_lat_query: Some(RangeQuery {
-                    min: Some(47.0),
-                    max: Some(55.0),
-                }),
-                geo_address_lon_query: Some(RangeQuery {
-                    min: Some(5.0),
-                    max: Some(15.0),
+                country_query: HashSet::from_iter([isocountry::CountryCode::DEU]),
+                continent_query: HashSet::from_iter([
+                    geo::data::continent_data::ContinentData::Europe,
+                ]),
+                geo_address_distance_query: Some(GeoDistanceQueryData {
+                    lat: 52.52,
+                    lon: 13.405,
+                    distance: DistanceData {
+                        amount: 100.0,
+                        unit: DistanceUnitData::Kilometers,
+                    },
                 }),
                 price_query: Some(RangeQuery {
                     min: Some(37),
