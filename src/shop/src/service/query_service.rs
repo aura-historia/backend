@@ -172,6 +172,8 @@ mod tests {
             partner_status_query: Default::default(),
             specialities_categories: Default::default(),
             specialities_periods: Default::default(),
+            countries: Default::default(),
+            continents: Default::default(),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
@@ -187,6 +189,8 @@ mod tests {
             partner_status_query: Default::default(),
             specialities_categories: Default::default(),
             specialities_periods: Default::default(),
+            countries: Default::default(),
+            continents: Default::default(),
             updated: None
         },
         Some(Sort { sort: SortShopField::Name, order: SortOrder::Desc }),
@@ -200,6 +204,8 @@ mod tests {
             partner_status_query: Default::default(),
             specialities_categories: Default::default(),
             specialities_periods: Default::default(),
+            countries: Default::default(),
+            continents: Default::default(),
             created: None,
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
@@ -214,6 +220,8 @@ mod tests {
             partner_status_query: Default::default(),
             specialities_categories: Default::default(),
             specialities_periods: Default::default(),
+            countries: Default::default(),
+            continents: Default::default(),
             created: None,
             updated: None
         },
@@ -272,6 +280,8 @@ mod tests {
                     partner_status_query: Default::default(),
                     specialities_categories: Default::default(),
                     specialities_periods: Default::default(),
+                    countries: Default::default(),
+                    continents: Default::default(),
                     updated: None,
                 },
                 &None,
@@ -291,6 +301,8 @@ mod tests {
             partner_status_query: Default::default(),
             specialities_categories: Default::default(),
             specialities_periods: Default::default(),
+            countries: Default::default(),
+            continents: Default::default(),
             created: Some(RangeQuery {
                 min: Some(datetime!(2000 - 01 - 01 0:00 UTC)),
                 max: Some(datetime!(3000 - 01 - 01 0:00 UTC)),
@@ -307,6 +319,8 @@ mod tests {
             partner_status_query: Default::default(),
             specialities_categories: Default::default(),
             specialities_periods: Default::default(),
+            countries: Default::default(),
+            continents: Default::default(),
             updated: None
         },
         Some(Sort { sort: SortShopField::Score, order: SortOrder::Desc }),
@@ -318,6 +332,8 @@ mod tests {
             partner_status_query: Default::default(),
             specialities_categories: Default::default(),
             specialities_periods: Default::default(),
+            countries: Default::default(),
+            continents: Default::default(),
             created: None,
             updated: None,
         },
@@ -351,6 +367,8 @@ mod tests {
             partner_status_query: Default::default(),
             specialities_categories: Default::default(),
             specialities_periods: Default::default(),
+            countries: Default::default(),
+            continents: Default::default(),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
         Sort { sort: SortShopField::Created, order: SortOrder::Asc }
@@ -363,6 +381,8 @@ mod tests {
             partner_status_query: Default::default(),
             specialities_categories: Default::default(),
             specialities_periods: Default::default(),
+            countries: Default::default(),
+            continents: Default::default(),
             updated: None
         },
         Sort { sort: SortShopField::Name, order: SortOrder::Desc }

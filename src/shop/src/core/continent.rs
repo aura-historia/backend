@@ -1,8 +1,6 @@
 use isocountry::CountryCode;
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Continent {
     Africa,
     Antarctica,
