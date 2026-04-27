@@ -67,6 +67,7 @@ use product::{
         provenance_record::ProvenanceRecord,
         repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
         restoration_record::RestorationRecord,
+        utm::append_utm_params,
     },
     service::{
         command_service::{CommandProductService, CommandProductServiceImpl},
@@ -3172,7 +3173,10 @@ async fn should_respond_200_when_anon_and_product_does_exist_for_ids() {
     );
     assert_eq!(record.product_id.to_string(), body["item"]["productId"]);
     assert_eq!(record.event_id.to_string(), body["item"]["eventId"]);
-    assert_eq!(record.url.to_string(), body["item"]["url"]);
+    assert_eq!(
+        append_utm_params(record.url.clone()).to_string(),
+        body["item"]["url"]
+    );
     assert_eq!(
         record.price_gbp.unwrap(),
         body["item"]["price"]["offer"]["amount"]
