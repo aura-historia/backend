@@ -25,18 +25,6 @@ Parameters:
   StripeUltimateProductId:
     Type: String
     Description: "Stripe product-id (prod_…) corresponding to the 'Ultimate' user-tier."
-  StripeProMonthlyPriceId:
-    Type: String
-    Description: "Stripe price-id (price_…) for the monthly 'Pro' subscription."
-  StripeProYearlyPriceId:
-    Type: String
-    Description: "Stripe price-id (price_…) for the yearly 'Pro' subscription."
-  StripeUltimateMonthlyPriceId:
-    Type: String
-    Description: "Stripe price-id (price_…) for the monthly 'Ultimate' subscription."
-  StripeUltimateYearlyPriceId:
-    Type: String
-    Description: "Stripe price-id (price_…) for the yearly 'Ultimate' subscription."
 
 Resources:
   AlarmNotificationTopic:
@@ -1000,10 +988,6 @@ Resources:
           STAGE: "prod"
           DYNAMODB_TABLE_NAME: !Ref TableOne
           STRIPE_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/stripe-api-key}}"
-          STRIPE_PRO_MONTHLY_PRICE_ID: !Ref StripeProMonthlyPriceId
-          STRIPE_PRO_YEARLY_PRICE_ID: !Ref StripeProYearlyPriceId
-          STRIPE_ULTIMATE_MONTHLY_PRICE_ID: !Ref StripeUltimateMonthlyPriceId
-          STRIPE_ULTIMATE_YEARLY_PRICE_ID: !Ref StripeUltimateYearlyPriceId
           STRIPE_CHECKOUT_SUCCESS_URL: "https://aura-historia.com/account"
           STRIPE_CHECKOUT_CANCEL_URL: "https://aura-historia.com"
           STRIPE_PORTAL_RETURN_URL: "https://aura-historia.com/account"

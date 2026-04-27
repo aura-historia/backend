@@ -9,7 +9,6 @@ use common::api::error_code::{
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use url::Url;
 use user::core::tier::UserTier;
 use user::service::command::UpdateUserCommand;
@@ -30,7 +29,6 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     stripe_service: &impl StripeService,
     user_service: &(impl UserService + Sync),
-    price_ids: &HashMap<&'static str, String>,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
@@ -52,11 +50,14 @@ pub async fn handle(
 
     let url = match user.tier {
         UserTier::Free => {
-            let env_var = billing_request.billing_request.price_id_env_var();
-            let price_id = price_ids.get(env_var).ok_or_else(|| {
-                let err_msg = format!("Missing configured price-id for env-var '{env_var}'");
-                ApiError::internal_server_error(INTERNAL_SERVER_ERROR, err_msg.into())
-            })?;
+            let price_info = stripe_service
+                .get_price_by_lookup_key(billing_request.billing_request.lookup_key())
+                .await
+                .map_err(|err| {
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
+                })?;
+
+            let preferred_currency = price_info.select_currency(user.currency.as_ref());
 
             let stripe_customer_id = match user.stripe_customer_id.clone() {
                 Some(stripe_customer_id) => stripe_customer_id,
@@ -88,7 +89,12 @@ pub async fn handle(
             };
 
             stripe_service
-                .create_checkout_session(&user_id, &stripe_customer_id, price_id)
+                .create_checkout_session(
+                    &user_id,
+                    &stripe_customer_id,
+                    &price_info.id,
+                    preferred_currency.as_deref(),
+                )
                 .await
                 .map_err(|err| {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
@@ -119,14 +125,14 @@ pub async fn handle(
 mod tests {
     use super::{ManageBillingRequest, handle};
     use crate::billing::{BillingCycle, BillingPlan, BillingRequest};
-    use crate::service::MockStripeService;
+    use crate::service::{MockStripeService, StripePriceInfo};
     use common::api::error_code::STRIPE_CUSTOMER_DOES_NOT_EXIST;
+    use common::currency::domain::Currency;
     use common::stripe_customer_id::StripeCustomerId;
     use common::user_id::UserId;
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
     use rstest::rstest;
-    use std::collections::HashMap;
     use test_api::ApiGatewayV2httpRequestProxy;
     use url::Url;
     use user::core::{tier::UserTier, user::User};
@@ -138,6 +144,17 @@ mod tests {
         user.stripe_customer_id = stripe_customer_id.map(StripeCustomerId::from);
         user.first_name = Some("Ada".into());
         user.last_name = Some("Lovelace".into());
+        user.currency = None;
+        user
+    }
+
+    fn user_with_tier_and_currency(
+        tier: UserTier,
+        stripe_customer_id: Option<&str>,
+        currency: Currency,
+    ) -> User {
+        let mut user = user_with_tier(tier, stripe_customer_id);
+        user.currency = Some(currency);
         user
     }
 
@@ -147,13 +164,11 @@ mod tests {
         }
     }
 
-    fn price_ids() -> HashMap<&'static str, String> {
-        HashMap::from([
-            ("STRIPE_PRO_MONTHLY_PRICE_ID", "price_pro_m".to_owned()),
-            ("STRIPE_PRO_YEARLY_PRICE_ID", "price_pro_y".to_owned()),
-            ("STRIPE_ULTIMATE_MONTHLY_PRICE_ID", "price_ult_m".to_owned()),
-            ("STRIPE_ULTIMATE_YEARLY_PRICE_ID", "price_ult_y".to_owned()),
-        ])
+    fn price_info(price_id: &str, currencies: &[&str]) -> StripePriceInfo {
+        StripePriceInfo {
+            id: price_id.to_owned(),
+            supported_currencies: currencies.iter().map(|s| s.to_string()).collect(),
+        }
     }
 
     #[tokio::test]
@@ -171,6 +186,10 @@ mod tests {
         let created_customer_id = StripeCustomerId::from("cus_freshly_created");
         let created_customer_id_clone = created_customer_id.clone();
         stripe_service
+            .expect_get_price_by_lookup_key()
+            .withf(|key| key == "pro_monthly")
+            .return_once(|_| Box::pin(async move { Ok(price_info("price_pro_m", &["eur"])) }));
+        stripe_service
             .expect_create_customer()
             .return_once(move |req| {
                 assert_eq!(req.name.as_deref(), Some("Ada Lovelace"));
@@ -178,10 +197,12 @@ mod tests {
             });
         stripe_service
             .expect_create_checkout_session()
-            .withf(|_, customer_id, price_id| {
-                customer_id.as_ref() == "cus_freshly_created" && price_id == "price_pro_m"
+            .withf(|_, customer_id, price_id, currency| {
+                customer_id.as_ref() == "cus_freshly_created"
+                    && price_id == "price_pro_m"
+                    && currency.is_none()
             })
-            .return_once(|_, _, _| {
+            .return_once(|_, _, _, _| {
                 Box::pin(async move {
                     Ok(
                         Url::parse("https://checkout.stripe.com/c/pay/cs_test_manage_free")
@@ -200,7 +221,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &stripe_service, &user_service, &price_ids())
+        let response = handle(lambda_event, &stripe_service, &user_service)
             .await
             .unwrap();
 
@@ -226,11 +247,17 @@ mod tests {
         let mut stripe_service = MockStripeService::default();
         stripe_service.expect_create_customer().never();
         stripe_service
+            .expect_get_price_by_lookup_key()
+            .withf(|key| key == "ultimate_yearly")
+            .return_once(|_| Box::pin(async move { Ok(price_info("price_ult_y", &["eur"])) }));
+        stripe_service
             .expect_create_checkout_session()
-            .withf(|_, customer_id, price_id| {
-                customer_id.as_ref() == "cus_existing" && price_id == "price_ult_y"
+            .withf(|_, customer_id, price_id, currency| {
+                customer_id.as_ref() == "cus_existing"
+                    && price_id == "price_ult_y"
+                    && currency.is_none()
             })
-            .return_once(|_, _, _| {
+            .return_once(|_, _, _, _| {
                 Box::pin(async move {
                     Ok(
                         Url::parse("https://checkout.stripe.com/c/pay/cs_test_manage_existing")
@@ -249,7 +276,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &stripe_service, &user_service, &price_ids())
+        let response = handle(lambda_event, &stripe_service, &user_service)
             .await
             .unwrap();
 
@@ -261,6 +288,53 @@ mod tests {
         assert!(body.contains("checkout.stripe.com"));
         assert!(!body.contains("livemode"));
         assert!(!body.contains("userId"));
+    }
+
+    #[tokio::test]
+    async fn should_201_forwarding_currency_when_free_user_has_matching_currency_for_manage() {
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().return_once(|_| {
+            Box::pin(async move {
+                Ok(user_with_tier_and_currency(
+                    UserTier::Free,
+                    Some("cus_existing"),
+                    Currency::Usd,
+                ))
+            })
+        });
+        user_service.expect_update_user().never();
+
+        let mut stripe_service = MockStripeService::default();
+        stripe_service.expect_create_customer().never();
+        stripe_service
+            .expect_get_price_by_lookup_key()
+            .return_once(|_| {
+                Box::pin(async move { Ok(price_info("price_pro_m", &["eur", "usd"])) })
+            });
+        stripe_service
+            .expect_create_checkout_session()
+            .withf(|_, _, _, currency| currency == &Some("usd"))
+            .return_once(|_, _, _, _| {
+                Box::pin(async move {
+                    Ok(Url::parse("https://checkout.stripe.com/c/pay/cs_test_usd").unwrap())
+                })
+            });
+        stripe_service.expect_create_portal_session().never();
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::POST)
+                .jwt_claim("sub", UserId::new())
+                .body_serde(&body_for(BillingPlan::Pro, BillingCycle::Monthly))
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(lambda_event, &stripe_service, &user_service)
+            .await
+            .unwrap();
+
+        assert_eq!(201, response.status_code);
     }
 
     #[rstest]
@@ -279,6 +353,7 @@ mod tests {
 
         let mut stripe_service = MockStripeService::default();
         stripe_service.expect_create_customer().never();
+        stripe_service.expect_get_price_by_lookup_key().never();
         stripe_service.expect_create_checkout_session().never();
         stripe_service
             .expect_create_portal_session()
@@ -298,14 +373,9 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(
-            lambda_event,
-            &stripe_service,
-            &user_service,
-            &HashMap::new(),
-        )
-        .await
-        .unwrap();
+        let response = handle(lambda_event, &stripe_service, &user_service)
+            .await
+            .unwrap();
 
         assert_eq!(201, response.status_code);
         let body = match response.body.unwrap() {
@@ -331,6 +401,7 @@ mod tests {
 
         let mut stripe_service = MockStripeService::default();
         stripe_service.expect_create_customer().never();
+        stripe_service.expect_get_price_by_lookup_key().never();
         stripe_service.expect_create_checkout_session().never();
         stripe_service.expect_create_portal_session().never();
 
@@ -343,14 +414,9 @@ mod tests {
             context: Default::default(),
         };
 
-        let actual = handle(
-            lambda_event,
-            &stripe_service,
-            &user_service,
-            &HashMap::new(),
-        )
-        .await
-        .unwrap_err();
+        let actual = handle(lambda_event, &stripe_service, &user_service)
+            .await
+            .unwrap_err();
 
         assert_eq!(422, actual.status);
         assert_eq!(STRIPE_CUSTOMER_DOES_NOT_EXIST, actual.error);
@@ -369,7 +435,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let actual = handle(lambda_event, &stripe_service, &user_service, &price_ids())
+        let actual = handle(lambda_event, &stripe_service, &user_service)
             .await
             .unwrap_err();
 
@@ -390,7 +456,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let actual = handle(lambda_event, &stripe_service, &user_service, &price_ids())
+        let actual = handle(lambda_event, &stripe_service, &user_service)
             .await
             .unwrap_err();
 
@@ -402,6 +468,7 @@ mod tests {
         let user_service = MockUserService::default();
         let mut stripe_service = MockStripeService::default();
         stripe_service.expect_create_customer().never();
+        stripe_service.expect_get_price_by_lookup_key().never();
         stripe_service.expect_create_checkout_session().never();
         stripe_service.expect_create_portal_session().never();
 
@@ -413,7 +480,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let actual = handle(lambda_event, &stripe_service, &user_service, &price_ids())
+        let actual = handle(lambda_event, &stripe_service, &user_service)
             .await
             .unwrap_err();
 
@@ -421,7 +488,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_500_when_price_id_env_var_not_configured_for_free_manage() {
+    async fn should_500_when_price_lookup_fails_for_free_manage() {
         let mut user_service = MockUserService::default();
         user_service.expect_find_user().return_once(|_| {
             Box::pin(async move { Ok(user_with_tier(UserTier::Free, Some("cus_existing"))) })
@@ -429,6 +496,16 @@ mod tests {
 
         let mut stripe_service = MockStripeService::default();
         stripe_service.expect_create_customer().never();
+        stripe_service
+            .expect_get_price_by_lookup_key()
+            .return_once(|_| {
+                Box::pin(async move {
+                    Err(crate::service::StripeServiceError::Api {
+                        status: 404,
+                        body: "No price found for lookup key 'ultimate_yearly'".to_owned(),
+                    })
+                })
+            });
         stripe_service.expect_create_checkout_session().never();
         stripe_service.expect_create_portal_session().never();
 
@@ -441,10 +518,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let mut incomplete = price_ids();
-        incomplete.remove("STRIPE_ULTIMATE_YEARLY_PRICE_ID");
-
-        let actual = handle(lambda_event, &stripe_service, &user_service, &incomplete)
+        let actual = handle(lambda_event, &stripe_service, &user_service)
             .await
             .unwrap_err();
 

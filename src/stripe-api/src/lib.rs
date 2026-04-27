@@ -4,7 +4,6 @@ use common::api::{
     error_code::INTERNAL_SERVER_ERROR,
 };
 use lambda_runtime::LambdaEvent;
-use std::collections::HashMap;
 use user::service::user_service::UserService;
 
 use crate::service::StripeService;
@@ -16,7 +15,7 @@ pub mod portal;
 pub mod service;
 
 #[tracing::instrument(
-    skip(event, stripe_service, user_service, price_ids),
+    skip(event, stripe_service, user_service),
     fields(
         requestId = %event.context.request_id,
         method = event.payload.request_context.http.method.as_str(),
@@ -30,9 +29,8 @@ pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     stripe_service: &impl StripeService,
     user_service: &(impl UserService + Sync),
-    price_ids: &HashMap<&'static str, String>,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(event, stripe_service, user_service, price_ids).await {
+    match handle(event, stripe_service, user_service).await {
         Ok(response) => Ok(response),
         Err(err) => {
             log_api_error(&err);
@@ -45,17 +43,16 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     stripe_service: &impl StripeService,
     user_service: &(impl UserService + Sync),
-    price_ids: &HashMap<&'static str, String>,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
         Some("POST /api/v1/me/billing/checkout") => {
-            checkout::handle(event, stripe_service, user_service, price_ids).await
+            checkout::handle(event, stripe_service, user_service).await
         }
         Some("POST /api/v1/me/billing/portal") => {
             portal::handle(event, stripe_service, user_service).await
         }
         Some("POST /api/v1/me/billing/manage") => {
-            manage::handle(event, stripe_service, user_service, price_ids).await
+            manage::handle(event, stripe_service, user_service).await
         }
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,

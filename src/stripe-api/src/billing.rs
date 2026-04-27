@@ -2,7 +2,7 @@
 //!
 //! The frontend always specifies the desired plan and billing-cycle in the
 //! request body; the lambda then maps that combination to the corresponding
-//! Stripe `Price` id via the four `STRIPE_<PLAN>_<CYCLE>_PRICE_ID` env-vars.
+//! Stripe price lookup key and resolves the live `Price` id at runtime.
 
 use serde::{Deserialize, Serialize};
 
@@ -26,16 +26,17 @@ pub struct BillingRequest {
     pub cycle: BillingCycle,
 }
 
-/// Maps `(plan, cycle)` to the matching env-var name carrying the Stripe
-/// `price_…` id. The names are kept in lockstep with the CloudFormation
-/// templates and are stable across all stages.
+/// Maps `(plan, cycle)` to the Stripe price lookup key.
+///
+/// The lookup key format is `[PLAN]_[BILLING]` (all lowercase), matching the
+/// schema pre-configured in the Stripe dashboard.
 impl BillingRequest {
-    pub fn price_id_env_var(&self) -> &'static str {
+    pub fn lookup_key(&self) -> &'static str {
         match (self.plan, self.cycle) {
-            (BillingPlan::Pro, BillingCycle::Monthly) => "STRIPE_PRO_MONTHLY_PRICE_ID",
-            (BillingPlan::Pro, BillingCycle::Yearly) => "STRIPE_PRO_YEARLY_PRICE_ID",
-            (BillingPlan::Ultimate, BillingCycle::Monthly) => "STRIPE_ULTIMATE_MONTHLY_PRICE_ID",
-            (BillingPlan::Ultimate, BillingCycle::Yearly) => "STRIPE_ULTIMATE_YEARLY_PRICE_ID",
+            (BillingPlan::Pro, BillingCycle::Monthly) => "pro_monthly",
+            (BillingPlan::Pro, BillingCycle::Yearly) => "pro_yearly",
+            (BillingPlan::Ultimate, BillingCycle::Monthly) => "ultimate_monthly",
+            (BillingPlan::Ultimate, BillingCycle::Yearly) => "ultimate_yearly",
         }
     }
 }
@@ -46,24 +47,16 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
-    #[case(BillingPlan::Pro, BillingCycle::Monthly, "STRIPE_PRO_MONTHLY_PRICE_ID")]
-    #[case(BillingPlan::Pro, BillingCycle::Yearly, "STRIPE_PRO_YEARLY_PRICE_ID")]
-    #[case(
-        BillingPlan::Ultimate,
-        BillingCycle::Monthly,
-        "STRIPE_ULTIMATE_MONTHLY_PRICE_ID"
-    )]
-    #[case(
-        BillingPlan::Ultimate,
-        BillingCycle::Yearly,
-        "STRIPE_ULTIMATE_YEARLY_PRICE_ID"
-    )]
-    fn should_resolve_env_var_when_plan_and_cycle_given(
+    #[case(BillingPlan::Pro, BillingCycle::Monthly, "pro_monthly")]
+    #[case(BillingPlan::Pro, BillingCycle::Yearly, "pro_yearly")]
+    #[case(BillingPlan::Ultimate, BillingCycle::Monthly, "ultimate_monthly")]
+    #[case(BillingPlan::Ultimate, BillingCycle::Yearly, "ultimate_yearly")]
+    fn should_resolve_lookup_key_when_plan_and_cycle_given(
         #[case] plan: BillingPlan,
         #[case] cycle: BillingCycle,
         #[case] expected: &str,
     ) {
-        assert_eq!(BillingRequest { plan, cycle }.price_id_env_var(), expected);
+        assert_eq!(BillingRequest { plan, cycle }.lookup_key(), expected);
     }
 
     #[rstest]

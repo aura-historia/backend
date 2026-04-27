@@ -1817,13 +1817,6 @@ Resources:
         Variables:
           STAGE: !Ref Stage
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          # Required by the lambda's startup config-loader. The values are
-          # placeholders here because LocalStack-deployments use the
-          # MockStripeService and never reach Stripe.
-          STRIPE_PRO_MONTHLY_PRICE_ID: "price_pro_monthly_mock"
-          STRIPE_PRO_YEARLY_PRICE_ID: "price_pro_yearly_mock"
-          STRIPE_ULTIMATE_MONTHLY_PRICE_ID: "price_ultimate_monthly_mock"
-          STRIPE_ULTIMATE_YEARLY_PRICE_ID: "price_ultimate_yearly_mock"
   StripeApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:

@@ -2,29 +2,10 @@ use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use std::collections::HashMap;
 use stripe_api::handler;
-use stripe_api::service::{MockStripeService, StripeServiceImpl};
+use stripe_api::service::{MockStripeService, StripePriceInfo, StripeServiceImpl};
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::UserServiceImpl;
-
-const PRICE_ID_ENV_VARS: [&str; 4] = [
-    "STRIPE_PRO_MONTHLY_PRICE_ID",
-    "STRIPE_PRO_YEARLY_PRICE_ID",
-    "STRIPE_ULTIMATE_MONTHLY_PRICE_ID",
-    "STRIPE_ULTIMATE_YEARLY_PRICE_ID",
-];
-
-fn load_price_ids() -> HashMap<&'static str, String> {
-    PRICE_ID_ENV_VARS
-        .iter()
-        .map(|name| {
-            let value = std::env::var(name)
-                .unwrap_or_else(|_| panic!("shouldn't fail loading env-var '{name}'"));
-            (*name, value)
-        })
-        .collect()
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -41,8 +22,6 @@ async fn main() -> Result<(), Error> {
     let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let user_service = UserServiceImpl::new(&user_repository);
 
-    let price_ids = load_price_ids();
-
     debug!("Lambda initialized.");
 
     if std::env::var("LOCALSTACK_HOSTNAME").is_ok() {
@@ -57,8 +36,18 @@ async fn main() -> Result<(), Error> {
             ));
             Box::pin(async move { Ok(id) })
         });
+        stripe_service
+            .expect_get_price_by_lookup_key()
+            .returning(|lookup_key| {
+                let price_id = format!("price_mock_{lookup_key}");
+                let info = StripePriceInfo {
+                    id: price_id,
+                    supported_currencies: std::collections::HashSet::new(),
+                };
+                Box::pin(async move { Ok(info) })
+            });
         stripe_service.expect_create_checkout_session().returning(
-            |user_id, _customer_id, price_id| {
+            |user_id, _customer_id, price_id, _currency| {
                 let url = url::Url::parse(&format!(
                     "https://checkout.stripe.com/c/pay/cs_test_{user_id}_{price_id}"
                 ))
@@ -78,7 +67,7 @@ async fn main() -> Result<(), Error> {
 
         run(service_fn(
             |event: LambdaEvent<ApiGatewayV2httpRequest>| async {
-                handler(event, &stripe_service, &user_service, &price_ids).await
+                handler(event, &stripe_service, &user_service).await
             },
         ))
         .await
@@ -100,7 +89,7 @@ async fn main() -> Result<(), Error> {
 
         run(service_fn(
             |event: LambdaEvent<ApiGatewayV2httpRequest>| async {
-                handler(event, &stripe_service, &user_service, &price_ids).await
+                handler(event, &stripe_service, &user_service).await
             },
         ))
         .await
