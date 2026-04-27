@@ -8,6 +8,7 @@ use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
 use crate::dynamodb::provenance_record::ProvenanceRecord;
 use crate::dynamodb::restoration_record::RestorationRecord;
+use crate::dynamodb::utm::append_utm_params;
 use common::category_key::CategoryId;
 use common::currency::domain::Currency;
 use common::error::mapping_error::PersistenceMappingError;
@@ -556,7 +557,7 @@ impl From<ProductRecord> for Product {
             native_price_estimate_max: record.price_estimate_max_native.map(Price::from),
             other_price_estimate_max,
             state: record.state.into(),
-            url: record.url,
+            url: append_utm_params(record.url),
             images: record.images.into_iter().map(ProductImage::from).collect(),
             embedding: record.embedding,
             origin_year: match record.origin_year {
@@ -898,5 +899,34 @@ mod faker {
         fn should_fake_get_product_record() {
             let _ = Faker.fake::<ProductRecord>();
         }
+    }
+}
+
+#[cfg(all(test, feature = "test-data"))]
+mod tests {
+    use super::*;
+    use crate::core::product::Product;
+    use fake::{Fake, Faker};
+
+    #[test]
+    fn should_append_utm_params_when_mapping_product_record_to_product() {
+        let mut record = Faker.fake::<ProductRecord>();
+        record.url = Url::parse("https://example-shop.com/item/42").unwrap();
+
+        let product: Product = record.into();
+
+        let query: Vec<(_, _)> = product.url.query_pairs().collect();
+        assert!(
+            query
+                .iter()
+                .any(|(k, v)| k == "utm_source" && v == "aura_historia"),
+            "utm_source=aura_historia not found in URL query params"
+        );
+        assert!(
+            query
+                .iter()
+                .any(|(k, v)| k == "utm_medium" && v == "referral"),
+            "utm_medium=referral not found in URL query params"
+        );
     }
 }

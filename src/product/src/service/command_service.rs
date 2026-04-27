@@ -2,6 +2,7 @@ use crate::core::product::Product;
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::repository::{ProductDynamoDbRepository, extract_product_key};
+use crate::dynamodb::utm::strip_utm_params;
 use crate::service::heuristics;
 use crate::service::product_command::{
     CreateProductCommand, UpdateProductCommand, UpsertProductCommand,
@@ -450,7 +451,12 @@ fn determine_update_events(
     for record in records {
         let key = record.key();
         if let Some(cmd) = working.remove(&key) {
-            let mut product = record.into();
+            let mut product: Product = record.into();
+            // From<ProductRecord> for Product enriches product.url with UTM params.
+            // Strip them here so URL-equality comparisons are done against the
+            // canonical (raw) URL, and URL-changed events store the raw URL rather
+            // than the already-enriched one.
+            product.url = strip_utm_params(product.url.clone());
             if let Some(price_event) = product.new_price(cmd.native_price, fx_rate) {
                 events.push(ProductDomainEventRecord::from(price_event));
             }
