@@ -196,11 +196,14 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             shop_type: command.shop_type.map(Into::into),
             domains: command.domains.clone(),
             image: command.image.clone(),
-            structured_address_address_lines: command
+            structured_address_addressline: command
                 .structured_address
                 .as_ref()
-                .filter(|address| !address.address_lines.is_empty())
-                .map(|address| address.address_lines.clone()),
+                .and_then(|a| a.addressline.clone()),
+            structured_address_addressline_extra: command
+                .structured_address
+                .as_ref()
+                .and_then(|a| a.addressline_extra.clone()),
             structured_address_locality: command
                 .structured_address
                 .as_ref()
@@ -213,10 +216,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
                 .structured_address
                 .as_ref()
                 .and_then(|address| address.postal_code.clone()),
-            structured_address_country: command
-                .structured_address
-                .as_ref()
-                .and_then(|address| address.country.clone()),
+            structured_address_country: command.structured_address.as_ref().and_then(|a| a.country),
             geo_address_lat: geo_address.as_ref().map(|address| address.lat),
             geo_address_lon: geo_address.as_ref().map(|address| address.lon),
             phone: command.phone.clone(),
@@ -271,7 +271,8 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             shop_type: None,
             domains: None,
             image: None,
-            structured_address_address_lines: None,
+            structured_address_addressline: None,
+            structured_address_addressline_extra: None,
             structured_address_locality: None,
             structured_address_region: None,
             structured_address_postal_code: None,
@@ -305,7 +306,10 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
 mod tests {
     mod create {
         use crate::{
-            core::address::{GeoAddress, StructuredAddress},
+            core::{
+                address::{GeoAddress, StructuredAddress},
+                continent::Continent,
+            },
             dynamodb::repository::MockShopDynamoDbRepository,
             service::{
                 command::CreateShopCommand,
@@ -319,6 +323,7 @@ mod tests {
             operation::put_item::PutItemOutput,
         };
         use fake::{Fake, Faker};
+        use isocountry::CountryCode;
         use std::collections::HashSet;
 
         #[tokio::test]
@@ -379,11 +384,13 @@ mod tests {
         #[tokio::test]
         async fn should_geocode_structured_address_when_creating_shop() {
             let structured_address = StructuredAddress {
-                address_lines: vec!["Pariser Platz 1".to_string()],
+                addressline: Some("Pariser Platz 1".to_string()),
+                addressline_extra: None,
                 locality: Some("Berlin".to_string()),
                 region: None,
                 postal_code: Some("10117".to_string()),
-                country: Some("Germany".to_string()),
+                country: Some(CountryCode::DEU),
+                continent: Some(Continent::Europe),
             };
             let geo_address = GeoAddress {
                 lat: 52.516275,
@@ -503,6 +510,7 @@ mod tests {
         use crate::{
             core::{
                 address::{GeoAddress, StructuredAddress},
+                continent::Continent,
                 shop::Shop,
             },
             dynamodb::{
@@ -521,6 +529,7 @@ mod tests {
         };
         use common::{domain::Domain, shop_id::ShopId};
         use fake::{Fake, Faker};
+        use isocountry::CountryCode;
 
         use url::Url;
 
@@ -702,11 +711,13 @@ mod tests {
             let shop = Faker.fake::<Shop>();
             let shop_record = ShopRecord::from(shop.clone());
             let structured_address = StructuredAddress {
-                address_lines: vec!["1600 Amphitheatre Parkway".to_string()],
+                addressline: Some("1600 Amphitheatre Parkway".to_string()),
+                addressline_extra: None,
                 locality: Some("Mountain View".to_string()),
                 region: Some("CA".to_string()),
                 postal_code: None,
-                country: Some("USA".to_string()),
+                country: Some(CountryCode::USA),
+                continent: Some(Continent::NorthAmerica),
             };
             let geo_address = GeoAddress {
                 lat: 37.422,
@@ -731,8 +742,8 @@ mod tests {
                     assert_eq!(Some(37.422), update.geo_address_lat);
                     assert_eq!(Some(-122.084), update.geo_address_lon);
                     assert_eq!(
-                        Some(vec!["1600 Amphitheatre Parkway".to_string()]),
-                        update.structured_address_address_lines
+                        Some("1600 Amphitheatre Parkway".to_string()),
+                        update.structured_address_addressline
                     );
                     Box::pin(async move { Ok(Some(updated_record)) })
                 },

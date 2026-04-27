@@ -4,6 +4,7 @@ use common::{
     category_key::CategoryId, domain::Domain, dynamodb_update::DynamoDbUpdate,
     period_key::PeriodId, shop_name::ShopName,
 };
+use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use serde_fields::SerdeField;
@@ -33,7 +34,9 @@ pub struct PartnerShopApplicationRecordUpdate {
     pub shop_image: Option<Url>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shop_structured_address_address_lines: Option<Vec<String>>,
+    pub shop_structured_address_addressline: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_structured_address_addressline_extra: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_structured_address_locality: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -41,7 +44,7 @@ pub struct PartnerShopApplicationRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_structured_address_postal_code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shop_structured_address_country: Option<String>,
+    pub shop_structured_address_country: Option<CountryCode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_phone: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -74,7 +77,8 @@ mod tests {
             shop_type: None,
             shop_domains: None,
             shop_image: None,
-            shop_structured_address_address_lines: None,
+            shop_structured_address_addressline: None,
+            shop_structured_address_addressline_extra: None,
             shop_structured_address_locality: None,
             shop_structured_address_region: None,
             shop_structured_address_postal_code: None,
@@ -102,7 +106,8 @@ mod tests {
             shop_type: None,
             shop_domains: None,
             shop_image: None,
-            shop_structured_address_address_lines: None,
+            shop_structured_address_addressline: None,
+            shop_structured_address_addressline_extra: None,
             shop_structured_address_locality: None,
             shop_structured_address_region: None,
             shop_structured_address_postal_code: None,
@@ -130,7 +135,8 @@ mod tests {
             shop_type: None,
             shop_domains: None,
             shop_image: None,
-            shop_structured_address_address_lines: None,
+            shop_structured_address_addressline: None,
+            shop_structured_address_addressline_extra: None,
             shop_structured_address_locality: None,
             shop_structured_address_region: None,
             shop_structured_address_postal_code: None,
@@ -158,7 +164,8 @@ mod tests {
             shop_type: Some(ShopTypeRecord::Marketplace),
             shop_domains: Some(HashSet::new()),
             shop_image: Some(Url::parse("https://example.com/image.png").unwrap()),
-            shop_structured_address_address_lines: None,
+            shop_structured_address_addressline: None,
+            shop_structured_address_addressline_extra: None,
             shop_structured_address_locality: None,
             shop_structured_address_region: None,
             shop_structured_address_postal_code: None,

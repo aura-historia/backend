@@ -1,8 +1,10 @@
+use crate::core::continent::Continent;
 use crate::core::partner_status::ShopPartnerStatus;
 use crate::core::shop_type::ShopType;
 use common::category_key::CategoryId;
 use common::period_key::PeriodId;
 use common::query::{any_of_query::AnyOfQuery, range_query::RangeQuery, text_query::TextQuery};
+use isocountry::CountryCode;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -12,6 +14,8 @@ pub struct ShopSearch {
     pub partner_status_query: AnyOfQuery<ShopPartnerStatus>,
     pub specialities_categories: Vec<CategoryId>,
     pub specialities_periods: Vec<PeriodId>,
+    pub countries: AnyOfQuery<CountryCode>,
+    pub continents: AnyOfQuery<Continent>,
     pub created: Option<RangeQuery<OffsetDateTime>>,
     pub updated: Option<RangeQuery<OffsetDateTime>>,
 }

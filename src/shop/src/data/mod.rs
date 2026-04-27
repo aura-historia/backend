@@ -1,4 +1,5 @@
 pub mod address_data;
+pub mod continent_data;
 pub mod get_shop_data;
 pub mod partner_status_data;
 pub mod patch_shop_data;

@@ -35,7 +35,10 @@
             "image": {
                 "type": "keyword"
             },
-            "structuredAddressAddressLines": {
+            "structuredAddressAddressline": {
+                "type": "text"
+            },
+            "structuredAddressAddresslineExtra": {
                 "type": "text"
             },
             "structuredAddressLocality": {
@@ -50,8 +53,10 @@
                 "type": "keyword"
             },
             "structuredAddressCountry": {
-                "type": "keyword",
-                "normalizer": "lowercase_normalizer"
+                "type": "keyword"
+            },
+            "structuredAddressContinent": {
+                "type": "keyword"
             },
             "geoAddress": {
                 "type": "geo_point"

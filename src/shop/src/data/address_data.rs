@@ -1,12 +1,18 @@
-use crate::core::address::{GeoAddress, StructuredAddress};
+use crate::core::{
+    address::{GeoAddress, StructuredAddress},
+    continent::Continent,
+};
+use crate::data::continent_data::ContinentData;
+use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StructuredAddressData {
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub address_lines: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub addressline: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub addressline_extra: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub locality: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -14,29 +20,39 @@ pub struct StructuredAddressData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub postal_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub country: Option<String>,
+    pub country: Option<CountryCode>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub continent: Option<ContinentData>,
 }
 
 impl From<StructuredAddress> for StructuredAddressData {
     fn from(address: StructuredAddress) -> Self {
         Self {
-            address_lines: address.address_lines,
+            addressline: address.addressline,
+            addressline_extra: address.addressline_extra,
             locality: address.locality,
             region: address.region,
             postal_code: address.postal_code,
             country: address.country,
+            continent: address.continent.map(ContinentData::from),
         }
     }
 }
 
 impl From<StructuredAddressData> for StructuredAddress {
     fn from(address: StructuredAddressData) -> Self {
+        let continent = address
+            .continent
+            .map(Continent::from)
+            .or_else(|| address.country.map(Continent::from));
         Self {
-            address_lines: address.address_lines,
+            addressline: address.addressline,
+            addressline_extra: address.addressline_extra,
             locality: address.locality,
             region: address.region,
             postal_code: address.postal_code,
             country: address.country,
+            continent,
         }
     }
 }
@@ -63,6 +79,30 @@ impl From<GeoAddressData> for GeoAddress {
         Self {
             lat: address.lat,
             lon: address.lon,
+        }
+    }
+}
+
+#[cfg(feature = "test-data")]
+mod faker {
+    use super::{ContinentData, CountryCode, StructuredAddressData};
+    use crate::core::continent::Continent;
+    use fake::{Dummy, Fake, Faker, RngExt};
+
+    impl Dummy<Faker> for StructuredAddressData {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            let codes: Vec<CountryCode> = CountryCode::iter().copied().collect();
+            let country = Some(codes[rng.random_range(0..codes.len())]);
+            let continent = country.map(|c| ContinentData::from(Continent::from(c)));
+            StructuredAddressData {
+                addressline: config.fake_with_rng(rng),
+                addressline_extra: config.fake_with_rng(rng),
+                locality: config.fake_with_rng(rng),
+                region: config.fake_with_rng(rng),
+                postal_code: config.fake_with_rng(rng),
+                country,
+                continent,
+            }
         }
     }
 }

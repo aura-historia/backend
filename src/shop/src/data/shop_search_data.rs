@@ -1,11 +1,14 @@
+use crate::core::continent::Continent;
 use crate::core::partner_status::ShopPartnerStatus;
 use crate::core::shop_search::ShopSearch;
 use crate::core::shop_type::ShopType;
+use crate::data::continent_data::ContinentData;
 use crate::data::partner_status_data::ShopPartnerStatusData;
 use crate::data::shop_type_data::ShopTypeData;
 use common::category_key::CategoryId;
 use common::period_key::PeriodId;
 use common::query::{range_query::RangeQuery, text_query::TextQuery};
+use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -35,6 +38,12 @@ pub struct ShopSearchData {
 
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub specialities_periods: Vec<PeriodId>,
+
+    #[serde(skip_serializing_if = "HashSet::is_empty", default)]
+    pub countries: HashSet<CountryCode>,
+
+    #[serde(skip_serializing_if = "HashSet::is_empty", default)]
+    pub continents: HashSet<ContinentData>,
 
     #[serde(
         with = "common::query::range_query::range_rfc3339::option",
@@ -67,6 +76,12 @@ impl From<ShopSearch> for ShopSearchData {
                 .collect(),
             specialities_categories: search.specialities_categories,
             specialities_periods: search.specialities_periods,
+            countries: search.countries.into_iter().collect(),
+            continents: search
+                .continents
+                .into_iter()
+                .map(ContinentData::from)
+                .collect(),
             created: search.created,
             updated: search.updated,
         }
@@ -89,6 +104,8 @@ impl From<ShopSearchData> for ShopSearch {
                 .collect(),
             specialities_categories: data.specialities_categories,
             specialities_periods: data.specialities_periods,
+            countries: data.countries.into_iter().collect(),
+            continents: data.continents.into_iter().map(Continent::from).collect(),
             created: data.created,
             updated: data.updated,
         }
@@ -102,12 +119,19 @@ mod faker {
 
     impl Dummy<Faker> for ShopSearchData {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            let all_codes: Vec<CountryCode> = CountryCode::iter().copied().collect();
+            let n_countries = rng.random_range(0..=3usize);
+            let countries: HashSet<CountryCode> = (0..n_countries)
+                .map(|_| all_codes[rng.random_range(0..all_codes.len())])
+                .collect();
             ShopSearchData {
                 shop_name_query: Faker.fake(),
                 shop_type_query: config.fake_with_rng(rng),
                 partner_status_query: config.fake_with_rng(rng),
                 specialities_categories: config.fake_with_rng(rng),
                 specialities_periods: config.fake_with_rng(rng),
+                countries,
+                continents: config.fake_with_rng(rng),
                 created: fake_range_query_datetime(config, rng),
                 updated: fake_range_query_datetime(config, rng),
             }
@@ -149,11 +173,13 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
+    use crate::data::continent_data::ContinentData;
     use crate::data::shop_search_data::ShopSearchData;
     use crate::data::shop_type_data::ShopTypeData;
     use common::category_key::CategoryId;
     use common::period_key::PeriodId;
     use common::query::range_query::RangeQuery;
+    use isocountry::CountryCode;
     use serde_json::json;
     use std::collections::HashSet;
     use time::macros::datetime;
@@ -178,6 +204,8 @@ mod tests {
             partner_status_query: Default::default(),
             specialities_categories: vec![],
             specialities_periods: vec![],
+            countries: Default::default(),
+            continents: Default::default(),
             created: Some(RangeQuery {
                 min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                 max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
@@ -204,6 +232,8 @@ mod tests {
             partner_status_query: Default::default(),
             specialities_categories: vec![],
             specialities_periods: vec![],
+            countries: Default::default(),
+            continents: Default::default(),
             created: None,
             updated: None,
         };
@@ -222,6 +252,8 @@ mod tests {
             partner_status_query: Default::default(),
             specialities_categories: vec![],
             specialities_periods: vec![],
+            countries: Default::default(),
+            continents: Default::default(),
             created: None,
             updated: None,
         };
@@ -248,5 +280,33 @@ mod tests {
             HashSet::from_iter([CategoryId::raw("medals"), CategoryId::raw("coins")]),
         );
         assert_eq!(actual.specialities_periods, vec![PeriodId::raw("ww2")],);
+    }
+
+    #[test]
+    fn should_deserialize_when_countries_filter_provided() {
+        let json = json!({
+            "countries": ["DE", "US"],
+        });
+
+        let actual: ShopSearchData = serde_json::from_value(json).unwrap();
+
+        assert_eq!(
+            actual.countries,
+            HashSet::from_iter([CountryCode::DEU, CountryCode::USA]),
+        );
+    }
+
+    #[test]
+    fn should_deserialize_when_continents_filter_provided() {
+        let json = json!({
+            "continents": ["EUROPE", "NORTH_AMERICA"],
+        });
+
+        let actual: ShopSearchData = serde_json::from_value(json).unwrap();
+
+        assert_eq!(
+            actual.continents,
+            HashSet::from_iter([ContinentData::Europe, ContinentData::NorthAmerica]),
+        );
     }
 }
