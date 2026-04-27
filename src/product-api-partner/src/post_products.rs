@@ -132,6 +132,8 @@ fn to_create_command(
         shops_product_id: data.shops_product_id,
         shop_name: partner_shop.name.clone(),
         shop_type: partner_shop.shop_type,
+        structured_address: data.structured_address.map(Into::into),
+        geo_address: data.geo_address.map(Into::into),
         native_title,
         other_title: HashMap::new(),
         native_description: Some(native_description),

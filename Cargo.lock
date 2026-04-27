@@ -212,6 +212,7 @@ dependencies = [
  "common",
  "fxrate",
  "fxrate-lambda",
+ "geo",
  "newsletter-api",
  "notification",
  "notification-api",
@@ -2804,6 +2805,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "geo"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "fake",
+ "geo",
+ "isocountry",
+ "mockall",
+ "reqwest 0.12.28",
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "getopts"
 version = "0.2.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4878,6 +4893,7 @@ dependencies = [
  "aws-sdk-sfn",
  "common",
  "fake",
+ "geo",
  "isocountry",
  "mockall",
  "partner-shop-application",
@@ -4933,6 +4949,7 @@ dependencies = [
  "aws-sdk-sesv2",
  "common",
  "fake",
+ "geo",
  "lambda_runtime",
  "notification",
  "partner-shop-application",
@@ -5405,7 +5422,9 @@ dependencies = [
  "common",
  "fake",
  "field",
+ "geo",
  "html-escape",
+ "isocountry",
  "itertools 0.14.0",
  "mockall",
  "once_cell",
@@ -5472,6 +5491,7 @@ dependencies = [
  "aws_lambda_events",
  "common",
  "fake",
+ "geo",
  "http 1.4.0",
  "lambda_runtime",
  "llm",
@@ -7392,6 +7412,7 @@ dependencies = [
  "common",
  "fake",
  "field",
+ "geo",
  "http 1.4.0",
  "isocountry",
  "llm",
@@ -8971,6 +8992,8 @@ dependencies = [
  "aws-sdk-dynamodb",
  "common",
  "fake",
+ "geo",
+ "isocountry",
  "mockall",
  "opensearch",
  "rstest",
@@ -9000,6 +9023,7 @@ dependencies = [
  "aws_lambda_events",
  "common",
  "fake",
+ "geo",
  "http 1.4.0",
  "lambda_runtime",
  "mockall",

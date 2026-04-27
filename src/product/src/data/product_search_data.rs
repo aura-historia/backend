@@ -1,6 +1,6 @@
 use crate::core::authenticity::Authenticity;
 use crate::core::condition::Condition;
-use crate::core::product_search::ProductSearch;
+use crate::core::product_search::{GeoCoordinateQuery, ProductSearch};
 use crate::core::provenance::Provenance;
 use crate::core::restoration::Restoration;
 use crate::data::authenticity_data::AuthenticityData;
@@ -19,6 +19,9 @@ use common::{
     currency::data::CurrencyData, language::data::LanguageData, price::domain::MonetaryAmount,
     product_state::domain::ProductState,
 };
+use geo::core::continent::Continent;
+use geo::data::continent_data::ContinentData;
+use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use shop::core::shop_type::ShopType;
 use shop::data::shop_type_data::ShopTypeData;
@@ -103,6 +106,26 @@ pub struct ProductSearchData {
         default
     )]
     pub shop_type_query: HashSet<ShopTypeData>,
+    #[serde(rename = "country", skip_serializing_if = "HashSet::is_empty", default)]
+    pub countries: HashSet<CountryCode>,
+    #[serde(
+        rename = "continent",
+        skip_serializing_if = "HashSet::is_empty",
+        default
+    )]
+    pub continents: HashSet<ContinentData>,
+    #[serde(
+        rename = "geoAddressLat",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub geo_address_lat_query: Option<GeoCoordinateQuery>,
+    #[serde(
+        rename = "geoAddressLon",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub geo_address_lon_query: Option<GeoCoordinateQuery>,
     #[serde(rename = "price", skip_serializing_if = "Option::is_none", default)]
     pub price_query: Option<RangeQuery<u64>>,
     #[serde(rename = "state", skip_serializing_if = "HashSet::is_empty", default)]
@@ -193,6 +216,14 @@ impl From<ProductSearch> for ProductSearchData {
                 .into_iter()
                 .map(ShopTypeData::from)
                 .collect(),
+            countries: search_filter.countries.into(),
+            continents: search_filter
+                .continents
+                .into_iter()
+                .map(ContinentData::from)
+                .collect(),
+            geo_address_lat_query: search_filter.geo_address_lat_query,
+            geo_address_lon_query: search_filter.geo_address_lon_query,
             price_query: search_filter
                 .price_query
                 .map(|price_query| price_query.map(u64::from)),
@@ -251,6 +282,10 @@ impl From<ProductSearchData> for ProductSearch {
                 .into_iter()
                 .map(ShopType::from)
                 .collect(),
+            countries: data.countries.into(),
+            continents: data.continents.into_iter().map(Continent::from).collect(),
+            geo_address_lat_query: data.geo_address_lat_query,
+            geo_address_lon_query: data.geo_address_lon_query,
             price_query: data
                 .price_query
                 .map(|query| query.map(MonetaryAmount::from)),
@@ -311,6 +346,10 @@ mod faker {
                 seller_slug_id_query: config.fake_with_rng(rng),
                 exclude_seller_slug_id_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
+                countries: Default::default(),
+                continents: config.fake_with_rng(rng),
+                geo_address_lat_query: None,
+                geo_address_lon_query: None,
                 price_query: config
                     .fake_with_rng::<Option<RangeQuery<u32>>, R>(rng) // otherwise get Out-Of-Range-Err often from OpenSearch
                     .map(|query| query.map(u64::from)),

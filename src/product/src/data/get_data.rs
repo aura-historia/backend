@@ -17,6 +17,7 @@ use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
+use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use serde::{Deserialize, Serialize};
 use shop::data::shop_type_data::ShopTypeData;
 use time::OffsetDateTime;
@@ -34,6 +35,10 @@ pub struct GetProductData {
     pub shop_name: String,
     pub seller_name: String,
     pub shop_type: ShopTypeData,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address: Option<StructuredAddressData>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub geo_address: Option<GeoAddressData>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub category_id: Option<CategoryId>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -126,6 +131,10 @@ impl GetProductData {
             shop_name: product_view.shop_name.into(),
             seller_name: product_view.seller_name.into(),
             shop_type: product_view.shop_type.into(),
+            structured_address: product_view
+                .structured_address
+                .map(StructuredAddressData::from),
+            geo_address: product_view.geo_address.map(GeoAddressData::from),
             category_id: product_view.category_id,
             category: product_view.category_name.map(LocalizedTextData::from),
             period_id: product_view.period_id,

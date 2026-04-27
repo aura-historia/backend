@@ -154,6 +154,10 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                     .into_iter()
                     .map(ShopType::from)
                     .collect(),
+                countries: Default::default(),
+                continents: Default::default(),
+                geo_address_lat_query: None,
+                geo_address_lon_query: None,
                 price_query: record
                     .price_query
                     .map(|range_query| range_query.map(MonetaryAmount::from)),

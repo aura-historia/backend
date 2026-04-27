@@ -20,6 +20,7 @@ async fn create_admin_user(user_service: &impl UserService) -> UserId {
     let cmd = CreateUserCommand {
         id: user_id,
         email: format!("admin-{}@test.com", user_id).try_into().unwrap(),
+        structured_address: None,
     };
     user_service.create_user(cmd).await.unwrap();
 

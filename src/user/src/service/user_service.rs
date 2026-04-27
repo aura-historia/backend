@@ -17,6 +17,7 @@ use common::{
     stripe_customer_id::StripeCustomerId,
     user_id::UserId,
 };
+use geo::service::geocoding_service::{GeocodingError, GeocodingService, NoopGeocodingService};
 use time::OffsetDateTime;
 use tracing::{error, info, warn};
 
@@ -63,6 +64,9 @@ pub enum UserServiceError {
     #[error("Cognito admin service not configured")]
     CognitoAdminServiceNotConfigured,
 
+    #[error("Geocoding error: {0}")]
+    GeocodingError(#[from] GeocodingError),
+
     #[cfg(feature = "opensearch")]
     #[error("OpenSearchError: {0}")]
     OpenSearchError(#[from] opensearch::Error),
@@ -104,6 +108,9 @@ pub mod api {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
                 UserServiceError::CognitoAdminServiceNotConfigured => {
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
+                }
+                UserServiceError::GeocodingError(_) => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
                 #[cfg(feature = "opensearch")]
@@ -150,6 +157,7 @@ pub trait UserService {
 
 pub struct UserServiceImpl<'a> {
     repository: &'a (dyn UserDynamoDbRepository + Sync),
+    geocoding_service: &'a (dyn GeocodingService + Sync),
     cognito_admin_service: Option<&'a (dyn CognitoAdminService + Sync)>,
     #[cfg(feature = "opensearch")]
     opensearch_repository: Option<&'a (dyn UserOpenSearchRepository + Sync)>,
@@ -159,6 +167,7 @@ impl<'a> UserServiceImpl<'a> {
     pub fn new(repository: &'a (dyn UserDynamoDbRepository + Sync)) -> Self {
         Self {
             repository,
+            geocoding_service: &NoopGeocodingService,
             cognito_admin_service: None,
             #[cfg(feature = "opensearch")]
             opensearch_repository: None,
@@ -171,6 +180,7 @@ impl<'a> UserServiceImpl<'a> {
     ) -> Self {
         Self {
             repository,
+            geocoding_service: &NoopGeocodingService,
             cognito_admin_service: Some(cognito_admin_service),
             #[cfg(feature = "opensearch")]
             opensearch_repository: None,
@@ -185,6 +195,35 @@ impl<'a> UserServiceImpl<'a> {
     ) -> Self {
         Self {
             repository,
+            geocoding_service: &NoopGeocodingService,
+            cognito_admin_service: Some(cognito_admin_service),
+            opensearch_repository: Some(opensearch_repository),
+        }
+    }
+
+    pub fn with_geocoding(
+        repository: &'a (dyn UserDynamoDbRepository + Sync),
+        geocoding_service: &'a (dyn GeocodingService + Sync),
+    ) -> Self {
+        Self {
+            repository,
+            geocoding_service,
+            cognito_admin_service: None,
+            #[cfg(feature = "opensearch")]
+            opensearch_repository: None,
+        }
+    }
+
+    #[cfg(feature = "opensearch")]
+    pub fn with_cognito_opensearch_and_geocoding(
+        repository: &'a (dyn UserDynamoDbRepository + Sync),
+        cognito_admin_service: &'a (dyn CognitoAdminService + Sync),
+        opensearch_repository: &'a (dyn UserOpenSearchRepository + Sync),
+        geocoding_service: &'a (dyn GeocodingService + Sync),
+    ) -> Self {
+        Self {
+            repository,
+            geocoding_service,
             cognito_admin_service: Some(cognito_admin_service),
             opensearch_repository: Some(opensearch_repository),
         }
@@ -230,6 +269,10 @@ impl<'a> UserService for UserServiceImpl<'a> {
             Some(_) => Err(UserServiceError::UserExistsAlready(cmd.id)),
             None => {
                 let now = OffsetDateTime::now_utc();
+                let geo_address = match cmd.structured_address.as_ref() {
+                    Some(address) => Some(self.geocoding_service.geocode(address).await?),
+                    None => None,
+                };
                 let user = User {
                     user_id: cmd.id,
                     email: cmd.email,
@@ -241,6 +284,8 @@ impl<'a> UserService for UserServiceImpl<'a> {
                     tier: UserTier::Free,
                     role: UserRole::User,
                     stripe_customer_id: None,
+                    structured_address: cmd.structured_address,
+                    geo_address,
                     created: now,
                     updated: now,
                 };
@@ -266,6 +311,10 @@ impl<'a> UserService for UserServiceImpl<'a> {
                 Some(scid) => (Some(mk_gsi1_pk(scid)), Some(mk_gsi1_sk().to_owned())),
                 None => (None, None),
             };
+            let geo_address = match cmd.structured_address.as_ref() {
+                Some(address) => Some(self.geocoding_service.geocode(address).await?),
+                None => None,
+            };
             let user_record_update = UserRecordUpdate {
                 first_name: cmd.first_name,
                 last_name: cmd.last_name,
@@ -277,6 +326,29 @@ impl<'a> UserService for UserServiceImpl<'a> {
                 stripe_customer_id: cmd.stripe_customer_id,
                 gsi1_pk,
                 gsi1_sk,
+                structured_address_addressline: cmd
+                    .structured_address
+                    .as_ref()
+                    .and_then(|a| a.addressline.clone()),
+                structured_address_addressline_extra: cmd
+                    .structured_address
+                    .as_ref()
+                    .and_then(|a| a.addressline_extra.clone()),
+                structured_address_locality: cmd
+                    .structured_address
+                    .as_ref()
+                    .and_then(|a| a.locality.clone()),
+                structured_address_region: cmd
+                    .structured_address
+                    .as_ref()
+                    .and_then(|a| a.region.clone()),
+                structured_address_postal_code: cmd
+                    .structured_address
+                    .as_ref()
+                    .and_then(|a| a.postal_code.clone()),
+                structured_address_country: cmd.structured_address.as_ref().and_then(|a| a.country),
+                geo_address_lat: geo_address.map(|address| address.lat),
+                geo_address_lon: geo_address.map(|address| address.lon),
                 updated: OffsetDateTime::now_utc(),
             };
             let user = self.repository

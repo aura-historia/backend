@@ -3,12 +3,14 @@ use common::{
     currency::domain::Currency, language::domain::Language, stripe_customer_id::StripeCustomerId,
     user_id::UserId,
 };
+use geo::core::address::StructuredAddress;
 use serde_email::Email;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateUserCommand {
     pub id: UserId,
     pub email: Email,
+    pub structured_address: Option<StructuredAddress>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -21,6 +23,7 @@ pub struct UpdateUserCommand {
     pub tier: Option<UserTier>,
     pub role: Option<UserRole>,
     pub stripe_customer_id: Option<StripeCustomerId>,
+    pub structured_address: Option<StructuredAddress>,
 }
 
 impl UpdateUserCommand {
@@ -33,6 +36,7 @@ impl UpdateUserCommand {
             && self.tier.is_none()
             && self.role.is_none()
             && self.stripe_customer_id.is_none()
+            && self.structured_address.is_none()
     }
 }
 
@@ -50,6 +54,7 @@ mod fake {
             CreateUserCommand {
                 id: config.fake_with_rng(rng),
                 email: email_str.try_into().unwrap(),
+                structured_address: None,
             }
         }
     }
@@ -68,6 +73,7 @@ mod fake {
                 tier: config.fake_with_rng(rng),
                 role: config.fake_with_rng(rng),
                 stripe_customer_id: config.fake_with_rng(rng),
+                structured_address: None,
             }
         }
     }

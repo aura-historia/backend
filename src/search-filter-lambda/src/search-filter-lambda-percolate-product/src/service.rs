@@ -150,6 +150,8 @@ impl<'a> ProductMatcherServiceImpl<'a> {
                 shop_name: created_payload.shop_name,
                 seller_name: created_payload.seller_name,
                 shop_type: created_payload.shop_type,
+                structured_address: created_payload.structured_address,
+                geo_address: created_payload.geo_address,
                 category_id: None,
                 category_name: Default::default(),
                 period_id: None,

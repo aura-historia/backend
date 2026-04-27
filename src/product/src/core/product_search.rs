@@ -14,11 +14,30 @@ use common::query::text_query::TextQuery;
 use common::shop_name::ShopName;
 use common::slug_id::SlugId;
 use common::year::Year;
+use geo::core::continent::Continent;
+use isocountry::CountryCode;
 use serde_fields::SerdeField;
 use shop::core::shop_type::ShopType;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, SerdeField)]
+#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+pub struct GeoCoordinateQuery {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub min: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub max: Option<f64>,
+}
+
+impl PartialEq for GeoCoordinateQuery {
+    fn eq(&self, other: &Self) -> bool {
+        self.min.map(f64::to_bits) == other.min.map(f64::to_bits)
+            && self.max.map(f64::to_bits) == other.max.map(f64::to_bits)
+    }
+}
+
+impl Eq for GeoCoordinateQuery {}
+
+#[derive(Debug, Clone, PartialEq, Default, SerdeField)]
 pub struct ProductSearch {
     pub language: Language,
     pub currency: Currency,
@@ -34,6 +53,10 @@ pub struct ProductSearch {
     pub seller_slug_id_query: AnyOfQuery<SlugId<0>>,
     pub exclude_seller_slug_id_query: AnyOfQuery<SlugId<0>>,
     pub shop_type_query: AnyOfQuery<ShopType>,
+    pub countries: AnyOfQuery<CountryCode>,
+    pub continents: AnyOfQuery<Continent>,
+    pub geo_address_lat_query: Option<GeoCoordinateQuery>,
+    pub geo_address_lon_query: Option<GeoCoordinateQuery>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
     pub state_query: AnyOfQuery<ProductState>,
     pub origin_year_query: Option<RangeQuery<Year>>,
@@ -64,6 +87,10 @@ impl ProductSearch {
             seller_slug_id_query: AnyOfQuery::default(),
             exclude_seller_slug_id_query: AnyOfQuery::default(),
             shop_type_query: AnyOfQuery::default(),
+            countries: AnyOfQuery::default(),
+            continents: AnyOfQuery::default(),
+            geo_address_lat_query: None,
+            geo_address_lon_query: None,
             price_query: None,
             state_query: AnyOfQuery::default(),
             origin_year_query: None,
@@ -153,6 +180,26 @@ impl ProductSearch {
         self
     }
 
+    pub fn with_countries(mut self, countries: AnyOfQuery<CountryCode>) -> Self {
+        self.countries = countries;
+        self
+    }
+
+    pub fn with_continents(mut self, continents: AnyOfQuery<Continent>) -> Self {
+        self.continents = continents;
+        self
+    }
+
+    pub fn with_geo_address_lat_query(mut self, geo_address_lat_query: GeoCoordinateQuery) -> Self {
+        self.geo_address_lat_query = Some(geo_address_lat_query);
+        self
+    }
+
+    pub fn with_geo_address_lon_query(mut self, geo_address_lon_query: GeoCoordinateQuery) -> Self {
+        self.geo_address_lon_query = Some(geo_address_lon_query);
+        self
+    }
+
     pub fn with_price_query(mut self, price_query: RangeQuery<MonetaryAmount>) -> Self {
         self.price_query = Some(price_query);
         self
@@ -234,6 +281,10 @@ pub mod faker {
                 seller_slug_id_query: config.fake_with_rng(rng),
                 exclude_seller_slug_id_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
+                countries: Default::default(),
+                continents: config.fake_with_rng(rng),
+                geo_address_lat_query: None,
+                geo_address_lon_query: None,
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
                 origin_year_query: config.fake_with_rng(rng),

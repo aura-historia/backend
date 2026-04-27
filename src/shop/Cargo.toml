@@ -5,6 +5,7 @@ edition = "2024"
 
 ## core
 [dependencies]
+geo = { workspace = true }
 common = { workspace = true }
 isocountry = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
@@ -44,11 +45,11 @@ tokio = { workspace = true, features = ["macros", "time"] }
 [features]
 default = []
 api = ["data", "aws_lambda_events", "http"]
-data = ["common/api"]
+data = ["common/api", "geo/data"]
 dynamodb = ["common/dynamodb", "field", "aws-sdk-dynamodb", "serde_dynamo", "tracing", "strum"]
 opensearch = ["common/opensearch", "dep:opensearch", "tracing", "strum", "strum_macros"]
-service = ["tokio", "tokio/time", "reqwest"]
-test-data = ["fake", "common/test-data"]
+service = ["tokio", "tokio/time", "reqwest", "geo/service"]
+test-data = ["fake", "common/test-data", "geo/test-data"]
 llm = ["dep:llm", "llm/google"]
 seller = ["dynamodb", "opensearch", "service", "llm"]
 full = ["api", "data", "dynamodb", "opensearch", "service", "test-data", "seller"]

@@ -26,6 +26,11 @@ use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use common::year::{Year, YearRange};
 use field::field;
+use geo::core::{
+    address::{GeoAddress, StructuredAddress},
+    continent::Continent,
+};
+use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
@@ -52,6 +57,24 @@ pub struct ProductRecord {
     pub shop_name: String,
     pub seller_name: String,
     pub shop_type: ShopTypeRecord,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_addressline: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_addressline_extra: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_locality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_region: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_postal_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_country: Option<CountryCode>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub geo_address_lat: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub geo_address_lon: Option<f64>,
+
     pub category_id: Option<CategoryId>,
     pub period_id: Option<PeriodId>,
 
@@ -536,6 +559,15 @@ impl From<ProductRecord> for Product {
             shop_name: record.shop_name.into(),
             seller_name: record.seller_name.into(),
             shop_type: record.shop_type.into(),
+            structured_address: structured_address_from_flat(
+                record.structured_address_addressline,
+                record.structured_address_addressline_extra,
+                record.structured_address_locality,
+                record.structured_address_region,
+                record.structured_address_postal_code,
+                record.structured_address_country,
+            ),
+            geo_address: geo_address_from_flat(record.geo_address_lat, record.geo_address_lon),
             category_id: record.category_id,
             category_name,
             period_id: record.period_id,
@@ -613,6 +645,14 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
             shop_type: event_record.shop_type.ok_or_else(|| {
                 MissingPersistenceField::new(field!(shop_type@ProductDomainEventRecord))
             })?,
+            structured_address_addressline: event_record.structured_address_addressline,
+            structured_address_addressline_extra: event_record.structured_address_addressline_extra,
+            structured_address_locality: event_record.structured_address_locality,
+            structured_address_region: event_record.structured_address_region,
+            structured_address_postal_code: event_record.structured_address_postal_code,
+            structured_address_country: event_record.structured_address_country,
+            geo_address_lat: event_record.geo_address_lat,
+            geo_address_lon: event_record.geo_address_lon,
             category_id: None,
             period_id: None,
             category_name_de: None,
@@ -721,6 +761,33 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
     }
 }
 
+fn structured_address_from_flat(
+    addressline: Option<String>,
+    addressline_extra: Option<String>,
+    locality: Option<String>,
+    region: Option<String>,
+    postal_code: Option<String>,
+    country: Option<CountryCode>,
+) -> Option<StructuredAddress> {
+    let structured_address = StructuredAddress {
+        addressline,
+        addressline_extra,
+        locality,
+        region,
+        postal_code,
+        country,
+        continent: country.map(Continent::from),
+    };
+    (!structured_address.is_empty()).then_some(structured_address)
+}
+
+fn geo_address_from_flat(lat: Option<f64>, lon: Option<f64>) -> Option<GeoAddress> {
+    Some(GeoAddress {
+        lat: lat?,
+        lon: lon?,
+    })
+}
+
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
@@ -770,6 +837,14 @@ mod faker {
                 shop_name,
                 seller_name,
                 shop_type: config.fake_with_rng(rng),
+                structured_address_addressline: config.fake_with_rng(rng),
+                structured_address_addressline_extra: config.fake_with_rng(rng),
+                structured_address_locality: config.fake_with_rng(rng),
+                structured_address_region: config.fake_with_rng(rng),
+                structured_address_postal_code: config.fake_with_rng(rng),
+                structured_address_country: None,
+                geo_address_lat: config.fake_with_rng(rng),
+                geo_address_lon: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
                 period_id: config.fake_with_rng(rng),
                 category_name_de: config.fake_with_rng(rng),

@@ -30,7 +30,11 @@ pub async fn handler(
         .try_into()
         .expect("shouldn't fail parsing user-attribute 'email' as valid E-Mail because Cognito forces validity on sign-up");
 
-    let create_cmd = CreateUserCommand { id, email };
+    let create_cmd = CreateUserCommand {
+        id,
+        email,
+        structured_address: None,
+    };
     let _ = service.create_user(create_cmd).await?;
 
     Ok(event.payload)

@@ -140,6 +140,7 @@ pub async fn create_test_user(email: &str) -> TestUser {
     let create_user_command = CreateUserCommand {
         id: sub.into(),
         email: email.try_into().unwrap(),
+        structured_address: None,
     };
     let _ = user_service.create_user(create_user_command).await.unwrap();
 

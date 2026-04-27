@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+geo = { workspace = true }
 common = { workspace = true, features = ["api", "opensearch"] }
 product = { workspace = true, features = ["data", "service", "dynamodb"] }
 shop = { workspace = true, features = ["dynamodb", "api", "service", "seller"] }

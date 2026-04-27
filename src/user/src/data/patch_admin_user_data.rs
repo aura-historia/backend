@@ -4,6 +4,7 @@ use common::{
     currency::data::CurrencyData, language::data::LanguageData,
     stripe_customer_id::StripeCustomerId,
 };
+use geo::data::address_data::StructuredAddressData;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -25,6 +26,8 @@ pub struct PatchAdminUserData {
     pub role: Option<UserRoleData>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stripe_customer_id: Option<StripeCustomerId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address: Option<StructuredAddressData>,
 }
 
 #[cfg(feature = "test-data")]
@@ -46,6 +49,7 @@ mod fake {
                 tier: config.fake_with_rng(rng),
                 role: config.fake_with_rng(rng),
                 stripe_customer_id: config.fake_with_rng(rng),
+                structured_address: config.fake_with_rng(rng),
             }
         }
     }

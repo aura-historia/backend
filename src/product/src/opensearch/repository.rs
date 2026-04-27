@@ -23,7 +23,9 @@ use opensearch::http::request::JsonBody;
 use opensearch::{BulkOperation, BulkOperations, BulkParts, GetParts, SearchParts};
 use serde::ser::Error;
 use serde_json::json;
-use shop::opensearch::shop_type_document::ShopTypeDocument;
+use shop::opensearch::{
+    continent_document::ContinentDocument, shop_type_document::ShopTypeDocument,
+};
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::ops::Deref;
@@ -546,6 +548,35 @@ pub fn build_filter_clauses(
                 ProductDocumentSerdeField::PeriodId.as_str(): search.period_id.iter().collect::<Vec<_>>()
             }
         }));
+    }
+
+    if !search.countries.is_empty() {
+        filter.push(json!({
+            "terms": {
+                ProductDocumentSerdeField::StructuredAddressCountry.as_str(): search.countries.iter().map(|c| c.alpha2()).collect::<Vec<_>>()
+            }
+        }));
+    }
+
+    if !search.continents.is_empty() {
+        filter.push(json!({
+            "terms": {
+                ProductDocumentSerdeField::StructuredAddressContinent.as_str(): search.continents.iter().map(|c| ContinentDocument::from(*c).as_str()).collect::<Vec<_>>()
+            }
+        }));
+    }
+
+    if let Some(min) = search.geo_address_lat_query.and_then(|q| q.min) {
+        filter.push(json!({ "range": { ProductDocumentSerdeField::GeoAddressLat.as_str(): { "gte": min } } }));
+    }
+    if let Some(max) = search.geo_address_lat_query.and_then(|q| q.max) {
+        filter.push(json!({ "range": { ProductDocumentSerdeField::GeoAddressLat.as_str(): { "lte": max } } }));
+    }
+    if let Some(min) = search.geo_address_lon_query.and_then(|q| q.min) {
+        filter.push(json!({ "range": { ProductDocumentSerdeField::GeoAddressLon.as_str(): { "gte": min } } }));
+    }
+    if let Some(max) = search.geo_address_lon_query.and_then(|q| q.max) {
+        filter.push(json!({ "range": { ProductDocumentSerdeField::GeoAddressLon.as_str(): { "lte": max } } }));
     }
 
     // ---------- Origin year (overlap semantics) ----------

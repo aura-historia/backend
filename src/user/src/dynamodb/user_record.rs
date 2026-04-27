@@ -8,6 +8,11 @@ use common::{
     stripe_customer_id::StripeCustomerId,
     user_id::UserId,
 };
+use geo::core::{
+    address::{GeoAddress, StructuredAddress},
+    continent::Continent,
+};
+use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use serde_fields::SerdeField;
@@ -42,6 +47,24 @@ pub struct UserRecord {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stripe_customer_id: Option<StripeCustomerId>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_addressline: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_addressline_extra: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_locality: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_region: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_postal_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_country: Option<CountryCode>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geo_address_lat: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geo_address_lon: Option<f64>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gsi1_pk: Option<String>,
@@ -90,6 +113,29 @@ impl From<User> for UserRecord {
             tier: UserTierRecord::from(user.tier),
             role: UserRoleRecord::from(user.role),
             stripe_customer_id: user.stripe_customer_id,
+            structured_address_addressline: user
+                .structured_address
+                .as_ref()
+                .and_then(|a| a.addressline.clone()),
+            structured_address_addressline_extra: user
+                .structured_address
+                .as_ref()
+                .and_then(|a| a.addressline_extra.clone()),
+            structured_address_locality: user
+                .structured_address
+                .as_ref()
+                .and_then(|a| a.locality.clone()),
+            structured_address_region: user
+                .structured_address
+                .as_ref()
+                .and_then(|a| a.region.clone()),
+            structured_address_postal_code: user
+                .structured_address
+                .as_ref()
+                .and_then(|a| a.postal_code.clone()),
+            structured_address_country: user.structured_address.as_ref().and_then(|a| a.country),
+            geo_address_lat: user.geo_address.map(|address| address.lat),
+            geo_address_lon: user.geo_address.map(|address| address.lon),
             gsi1_pk,
             gsi1_sk,
             created: user.created,
@@ -111,10 +157,47 @@ impl From<UserRecord> for User {
             tier: record.tier.into(),
             role: record.role.into(),
             stripe_customer_id: record.stripe_customer_id,
+            structured_address: structured_address_from_flat(
+                record.structured_address_addressline,
+                record.structured_address_addressline_extra,
+                record.structured_address_locality,
+                record.structured_address_region,
+                record.structured_address_postal_code,
+                record.structured_address_country,
+            ),
+            geo_address: geo_address_from_flat(record.geo_address_lat, record.geo_address_lon),
             created: record.created,
             updated: record.updated,
         }
     }
+}
+
+fn structured_address_from_flat(
+    addressline: Option<String>,
+    addressline_extra: Option<String>,
+    locality: Option<String>,
+    region: Option<String>,
+    postal_code: Option<String>,
+    country: Option<CountryCode>,
+) -> Option<StructuredAddress> {
+    let continent = country.map(Continent::from);
+    let structured_address = StructuredAddress {
+        addressline,
+        addressline_extra,
+        locality,
+        region,
+        postal_code,
+        country,
+        continent,
+    };
+    (!structured_address.is_empty()).then_some(structured_address)
+}
+
+fn geo_address_from_flat(lat: Option<f64>, lon: Option<f64>) -> Option<GeoAddress> {
+    Some(GeoAddress {
+        lat: lat?,
+        lon: lon?,
+    })
 }
 
 #[cfg(feature = "test-data")]

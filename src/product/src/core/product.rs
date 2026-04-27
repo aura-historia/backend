@@ -44,6 +44,7 @@ use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use common::string_newtype;
 use common::year::YearRange;
+use geo::core::address::{GeoAddress, StructuredAddress};
 use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
 use time::OffsetDateTime;
@@ -66,6 +67,8 @@ pub struct Product {
     pub shop_name: ShopName,
     pub seller_name: ShopName,
     pub shop_type: ShopType,
+    pub structured_address: Option<StructuredAddress>,
+    pub geo_address: Option<GeoAddress>,
     pub category_id: Option<CategoryId>,
     pub category_name: HashMap<Language, ProductCategory>,
     pub period_id: Option<PeriodId>,
@@ -104,6 +107,8 @@ impl Product {
         shop_name: ShopName,
         seller_name: ShopName,
         shop_type: ShopType,
+        structured_address: Option<StructuredAddress>,
+        geo_address: Option<GeoAddress>,
         native_title: Localized<Language, Title>,
         native_description: Option<Localized<Language, Description>>,
         native_price: Option<Price>,
@@ -128,6 +133,8 @@ impl Product {
             shop_name,
             seller_name,
             shop_type,
+            structured_address,
+            geo_address,
             native_title,
             native_description,
             native_price,
@@ -871,6 +878,8 @@ impl Product {
             shop_name: self.shop_name,
             seller_name: self.seller_name,
             shop_type: self.shop_type,
+            structured_address: self.structured_address,
+            geo_address: self.geo_address,
             category_id: self.category_id,
             category_name: Language::resolve(preferred_languages, self.category_name),
             period_id: self.period_id,
@@ -938,6 +947,8 @@ pub struct LocalizedProductView {
     pub shop_name: ShopName,
     pub seller_name: ShopName,
     pub shop_type: ShopType,
+    pub structured_address: Option<StructuredAddress>,
+    pub geo_address: Option<GeoAddress>,
     pub category_id: Option<CategoryId>,
     pub category_name: Option<Localized<Language, ProductCategory>>,
     pub period_id: Option<PeriodId>,
@@ -1006,6 +1017,8 @@ mod faker {
                 shop_name,
                 seller_name,
                 shop_type: config.fake_with_rng(rng),
+                structured_address: config.fake_with_rng(rng),
+                geo_address: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
                 category_name: config.fake_with_rng(rng),
                 period_id: config.fake_with_rng(rng),
@@ -1066,6 +1079,8 @@ mod faker {
                 shop_name,
                 seller_name,
                 shop_type: config.fake_with_rng(rng),
+                structured_address: config.fake_with_rng(rng),
+                geo_address: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
                 category_name: config.fake_with_rng(rng),
                 period_id: config.fake_with_rng(rng),
