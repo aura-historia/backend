@@ -264,7 +264,7 @@ On schema cache miss, scraper schema generation can include multiple seed pages 
 
 ```
 [append-on-miss flow]
- ├── ProductSchemaService::append_single_schema(shop_id, domain, html, failed_schema?, last_error?)
+ ├── ProductSchemaService::append_single_schema(domain, html, failed_schema?, last_error?)
  │    ├── attempt 1: LLM generates a single schema from HTML only
  │    ├── attempt 2+: LLM receives previous failed generated schema + extraction error and proposes a targeted fix
  │    │        Prompt emphasizes: "single schema for one page, for append/retry"

@@ -85,7 +85,7 @@ The crawler uses three distinct LLM instances, each with its own system prompt, 
 ```
 for attempt in 1..=max_schema_fix_attempts:
   increment shops.llm_calls_count
-  candidate = append_single_schema(shop_id, domain, html, failed_schema?, last_error?)
+  candidate = append_single_schema(domain, html, failed_schema?, last_error?)
     // attempt 1: failed_schema/last_error are None (fresh generation)
     // attempt 2+: failed_schema/last_error come from previous failed generated schema
   re-apply only schemas not already known to fail in this loop:

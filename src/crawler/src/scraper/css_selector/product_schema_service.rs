@@ -43,12 +43,11 @@ pub trait ProductSchemaService {
     /// dynamically expand the schema set without full regeneration.
     async fn append_single_schema(
         &self,
-        shop_id: &ShopId,
         _domain: &str,
         html: &str,
         failed_schema: Option<&ProductCssSelectorSchema>,
         last_error: Option<&ApplySchemaError>,
-    ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
+    ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError>;
 
     async fn find_product_schema(
         &self,
@@ -165,19 +164,11 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
 
     async fn append_single_schema(
         &self,
-        shop_id: &ShopId,
         _domain: &str,
         html: &str,
         failed_schema: Option<&ProductCssSelectorSchema>,
         last_error: Option<&ApplySchemaError>,
-    ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
-        // Load existing schemas
-        let mut existing = self.find_product_schema(shop_id).await?.ok_or_else(|| {
-            ProductSchemaServiceError::NoTextResponse(
-                "No existing schemas found to append to".to_string(),
-            )
-        })?;
-
+    ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError> {
         // Generate single schema for this HTML page
         let instruction = build_append_schema_instruction(html, failed_schema, last_error);
         let message = ChatMessage::user().content(instruction).build();
@@ -197,17 +188,14 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
             ));
         }
 
-        // Append new schema(s) in-memory. The caller persists only after
-        // verifying at least one schema applies successfully.
-        existing.product_schemas.extend(new_schemas.clone());
+        let schema = new_schemas.first().cloned().ok_or_else(|| {
+            ProductSchemaServiceError::NoTextResponse(
+                "LLM produced zero schemas when appending".to_string(),
+            )
+        })?;
 
-        debug!(
-            total_schemas = existing.product_schemas.len(),
-            appended = new_schemas.len(),
-            "Appended schema to existing set"
-        );
-
-        Ok(existing)
+        debug!("Generated single schema for append-and-retry");
+        Ok(schema)
     }
 
     async fn find_product_schema(

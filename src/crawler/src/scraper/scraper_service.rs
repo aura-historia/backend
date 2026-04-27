@@ -494,89 +494,35 @@ impl ScraperServiceImpl {
         }))
     }
 
-    fn dedupe_schemas_with_serialized_keys(
-        schemas_with_keys: Vec<(ProductCssSelectorSchema, Option<String>)>,
-    ) -> Vec<ProductCssSelectorSchema> {
-        let mut seen = std::collections::HashSet::new();
-        let mut deduped = Vec::with_capacity(schemas_with_keys.len());
-
-        for (schema, key) in schemas_with_keys {
-            match key {
-                Some(key) => {
-                    if seen.insert(key) {
-                        deduped.push(schema);
-                    }
-                }
-                None => deduped.push(schema),
-            }
-        }
-
-        deduped
-    }
-
     async fn append_and_reapply_with_retry(
         &self,
         shop_id: &ShopId,
         domain: &str,
         url: &Url,
         html: &str,
-        known_failed_schemas: &[ProductCssSelectorSchema],
+        existing_schemas: &[ProductCssSelectorSchema],
     ) -> Result<(ProductCssSelectorSchema, RawExtractedProduct), ScraperError> {
         let attempts = self.max_schema_fix_attempts.max(1);
         let mut last_error: Option<ApplySchemaError> = None;
-        let mut known_keys: HashSet<String> = known_failed_schemas
-            .iter()
-            .filter_map(|schema| serde_json::to_string(schema).ok())
-            .collect();
-        let mut failed_schema_for_next_attempt: Option<ProductCssSelectorSchema> = None;
+        let mut last_generated_schema: Option<ProductCssSelectorSchema> = None;
 
         for attempt in 1..=attempts {
             self.consume_llm_budget_or_err(shop_id, url).await?;
 
-            let candidate = self
+            let generated_schema = self
                 .schema_service
                 .append_single_schema(
-                    shop_id,
                     domain,
                     html,
-                    failed_schema_for_next_attempt.as_ref(),
+                    last_generated_schema.as_ref(),
                     last_error.as_ref(),
                 )
                 .await?;
 
-            let candidate_schemas_with_keys: Vec<(ProductCssSelectorSchema, Option<String>)> =
-                candidate
-                    .product_schemas
-                    .into_iter()
-                    .map(|schema| {
-                        let key = serde_json::to_string(&schema).ok();
-                        (schema, key)
-                    })
-                    .collect();
-
-            let mut candidate_new_schemas: Vec<&ProductCssSelectorSchema> = Vec::new();
-            let mut attempted_new_keys: Vec<String> = Vec::new();
-
-            for (schema, key) in &candidate_schemas_with_keys {
-                match key {
-                    Some(key) => {
-                        if !known_keys.contains(key) {
-                            attempted_new_keys.push(key.clone());
-                            candidate_new_schemas.push(schema);
-                        }
-                    }
-                    None => candidate_new_schemas.push(schema),
-                }
-            }
-
-            let first_attempted_schema = candidate_new_schemas
-                .first()
-                .map(|schema| (*schema).clone());
-
-            match Self::try_apply_schemas(candidate_new_schemas.into_iter(), html) {
+            match Self::try_apply_schemas(std::iter::once(&generated_schema), html) {
                 Ok((selected_schema, raw)) => {
-                    let persisted_schemas =
-                        Self::dedupe_schemas_with_serialized_keys(candidate_schemas_with_keys);
+                    let mut persisted_schemas = existing_schemas.to_vec();
+                    persisted_schemas.push(generated_schema);
                     self.schema_service
                         .save_product_schemas(shop_id, domain, persisted_schemas)
                         .await?;
@@ -584,10 +530,7 @@ impl ScraperServiceImpl {
                     return Ok((selected_schema, raw));
                 }
                 Err(err) => {
-                    failed_schema_for_next_attempt = first_attempted_schema;
-                    for key in attempted_new_keys {
-                        known_keys.insert(key);
-                    }
+                    last_generated_schema = Some(generated_schema);
                     warn!(
                         domain,
                         url = %url,
@@ -1093,15 +1036,7 @@ mod tests {
         };
 
         let schema = shops_product_schema(id);
-        let final_schema_for_append = ShopsProductSchema {
-            shop_id: id,
-            product_schemas: vec![
-                initial_schema.clone(),
-                schema.product_schemas.first().cloned().unwrap(),
-            ],
-            created: OffsetDateTime::now_utc(),
-            updated: OffsetDateTime::now_utc(),
-        };
+        let final_schema_for_append = schema.product_schemas.first().cloned().unwrap();
 
         let mut schema_svc = MockProductSchemaService::new();
         let initial_schema_for_find = initial_schema.clone();
@@ -1120,7 +1055,7 @@ mod tests {
         schema_svc
             .expect_append_single_schema()
             .once()
-            .returning(move |_, _, _, _, _| {
+            .returning(move |_, _, _, _| {
                 let s = final_schema_for_append.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -1584,7 +1519,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_exclude_previously_failed_appended_schema_on_next_retry_attempt() {
+    async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
         let id = shop_id();
         let url = product_url();
 
@@ -1638,19 +1573,33 @@ mod tests {
                 Box::pin(async move { Ok(Some(s)) })
             });
 
-        let candidate_after_append = ShopsProductSchema {
-            shop_id: id,
-            product_schemas: vec![bad_existing.clone(), bad_appended.clone()],
-            created: OffsetDateTime::now_utc(),
-            updated: OffsetDateTime::now_utc(),
-        };
-        schema_svc
-            .expect_append_single_schema()
-            .times(2)
-            .returning(move |_, _, _, _, _| {
-                let s = candidate_after_append.clone();
-                Box::pin(async move { Ok(s) })
-            });
+        let append_call_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        schema_svc.expect_append_single_schema().times(2).returning(
+            move |_, _, failed_schema, last_error| {
+                let append_call_count = append_call_count.clone();
+                let failed_schema = failed_schema.cloned();
+                let last_error = last_error.cloned();
+                let expected_bad_appended = bad_appended.clone();
+                Box::pin(async move {
+                    let call =
+                        append_call_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+
+                    match call {
+                        1 => {
+                            assert!(failed_schema.is_none());
+                            assert!(last_error.is_none());
+                        }
+                        2 => {
+                            assert_eq!(failed_schema, Some(expected_bad_appended.clone()));
+                            assert!(last_error.is_some());
+                        }
+                        _ => panic!("unexpected append attempt count: {call}"),
+                    }
+
+                    Ok(expected_bad_appended)
+                })
+            },
+        );
         schema_svc.expect_save_product_schemas().never();
 
         let norm_svc = MockProductNormalizationService::new();
@@ -1672,9 +1621,9 @@ mod tests {
             err,
             ScraperError::SchemaRegenerationExhausted {
                 attempts: 2,
-                last_error: ApplySchemaError::Title(ExtractionError::NoElementMatched { ref selector }),
+                last_error: ApplySchemaError::ShopsProductId(ExtractionError::NoElementMatched { ref selector }),
                 ..
-            } if selector == "title"
+            } if selector == "non-existent-id"
         ));
     }
 }
