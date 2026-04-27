@@ -234,9 +234,10 @@ scrape(shop_id, url, last_scraped_hash)
  │    ├── first applicable variant → RawExtractedProduct
  │    └── none applies → [append-and-retry loop]
  │         ├── repeat up to N attempts (`max_schema_fix_attempts` config slot)
- │         │    ├── LLM generates ONE schema for current page
+ │         │    ├── attempt 1: LLM generates ONE schema from current page HTML only
+ │         │    ├── attempt 2+: LLM gets previous failed generated schema + extraction error as repair context
  │         │    ├── in-memory candidate = existing schemas + generated schema
- │         │    ├── re-apply all variants
+ │         │    ├── re-apply only schemas not already known to fail in this loop
  │         │    ├── if one applies → dedupe schema set, persist, continue
  │         │    └── if none apply → discard generated schema and retry
  │         └── if attempts exhausted → return SchemaRegenerationExhausted
@@ -263,13 +264,14 @@ On schema cache miss, scraper schema generation can include multiple seed pages 
 
 ```
 [append-on-miss flow]
- ├── ProductSchemaService::append_single_schema(shop_id, domain, html)
- │    ├── LLM: generate single schema for this HTML page only (not array)
+ ├── ProductSchemaService::append_single_schema(shop_id, domain, html, failed_schema?, last_error?)
+ │    ├── attempt 1: LLM generates a single schema from HTML only
+ │    ├── attempt 2+: LLM receives previous failed generated schema + extraction error and proposes a targeted fix
  │    │        Prompt emphasizes: "single schema for one page, for append/retry"
  │    ├── append to existing variant set in memory
  │    └── return expanded ShopsProductSchema candidate
  │
- ├── retry all variants (including new one) against HTML
+ ├── retry only newly appended schemas (exclude known failed by content)
  │    ├── matches now? → persist expanded set and continue
  │    └── still no match → discard generated schema and retry generation (up to N)
 ```

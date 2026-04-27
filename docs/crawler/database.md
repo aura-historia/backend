@@ -204,8 +204,10 @@ Returns a row only if the lock was successfully acquired; 0 rows = already locke
 SELECT s.shop_id, sd.shop_domain
 FROM   shops s
 JOIN   shop_domains sd ON sd.shop_id = s.shop_id
-WHERE  sd.last_crawled IS NULL
-   OR  sd.last_crawled < NOW() - INTERVAL '7 days'
+WHERE  s.active = TRUE
+  AND  (sd.last_crawled IS NULL OR sd.last_crawled < NOW() - INTERVAL '7 days')
+  AND  (sd.next_crawl_at IS NULL OR sd.next_crawl_at <= NOW())
+ORDER BY sd.last_crawled NULLS FIRST
 LIMIT  $1
 ```
 

@@ -470,10 +470,13 @@ impl ScraperServiceImpl {
         schema.apply(&parsed_html)
     }
 
-    fn try_apply_schemas(
-        schemas: &[ProductCssSelectorSchema],
+    fn try_apply_schemas<'a, I>(
+        schemas: I,
         html: &str,
-    ) -> Result<(ProductCssSelectorSchema, RawExtractedProduct), ApplySchemaError> {
+    ) -> Result<(ProductCssSelectorSchema, RawExtractedProduct), ApplySchemaError>
+    where
+        I: IntoIterator<Item = &'a ProductCssSelectorSchema>,
+    {
         let mut last_error: Option<ApplySchemaError> = None;
         for schema in schemas {
             match Self::apply_schema(schema, html) {
@@ -491,34 +494,89 @@ impl ScraperServiceImpl {
         }))
     }
 
+    fn dedupe_schemas_with_serialized_keys(
+        schemas_with_keys: Vec<(ProductCssSelectorSchema, Option<String>)>,
+    ) -> Vec<ProductCssSelectorSchema> {
+        let mut seen = std::collections::HashSet::new();
+        let mut deduped = Vec::with_capacity(schemas_with_keys.len());
+
+        for (schema, key) in schemas_with_keys {
+            match key {
+                Some(key) => {
+                    if seen.insert(key) {
+                        deduped.push(schema);
+                    }
+                }
+                None => deduped.push(schema),
+            }
+        }
+
+        deduped
+    }
+
     async fn append_and_reapply_with_retry(
         &self,
         shop_id: &ShopId,
         domain: &str,
         url: &Url,
         html: &str,
-        known_failed_schemas: usize,
+        known_failed_schemas: &[ProductCssSelectorSchema],
     ) -> Result<(ProductCssSelectorSchema, RawExtractedProduct), ScraperError> {
         let attempts = self.max_schema_fix_attempts.max(1);
         let mut last_error: Option<ApplySchemaError> = None;
+        let mut known_keys: HashSet<String> = known_failed_schemas
+            .iter()
+            .filter_map(|schema| serde_json::to_string(schema).ok())
+            .collect();
+        let mut failed_schema_for_next_attempt: Option<ProductCssSelectorSchema> = None;
 
         for attempt in 1..=attempts {
             self.consume_llm_budget_or_err(shop_id, url).await?;
 
             let candidate = self
                 .schema_service
-                .append_single_schema(shop_id, domain, html)
+                .append_single_schema(
+                    shop_id,
+                    domain,
+                    html,
+                    failed_schema_for_next_attempt.as_ref(),
+                    last_error.as_ref(),
+                )
                 .await?;
 
-            let candidate_new_schemas = if candidate.product_schemas.len() > known_failed_schemas {
-                &candidate.product_schemas[known_failed_schemas..]
-            } else {
-                &[]
-            };
+            let candidate_schemas_with_keys: Vec<(ProductCssSelectorSchema, Option<String>)> =
+                candidate
+                    .product_schemas
+                    .into_iter()
+                    .map(|schema| {
+                        let key = serde_json::to_string(&schema).ok();
+                        (schema, key)
+                    })
+                    .collect();
 
-            match Self::try_apply_schemas(candidate_new_schemas, html) {
+            let mut candidate_new_schemas: Vec<&ProductCssSelectorSchema> = Vec::new();
+            let mut attempted_new_keys: Vec<String> = Vec::new();
+
+            for (schema, key) in &candidate_schemas_with_keys {
+                match key {
+                    Some(key) => {
+                        if !known_keys.contains(key) {
+                            attempted_new_keys.push(key.clone());
+                            candidate_new_schemas.push(schema);
+                        }
+                    }
+                    None => candidate_new_schemas.push(schema),
+                }
+            }
+
+            let first_attempted_schema = candidate_new_schemas
+                .first()
+                .map(|schema| (*schema).clone());
+
+            match Self::try_apply_schemas(candidate_new_schemas.into_iter(), html) {
                 Ok((selected_schema, raw)) => {
-                    let persisted_schemas = Self::dedupe_schemas(candidate.product_schemas);
+                    let persisted_schemas =
+                        Self::dedupe_schemas_with_serialized_keys(candidate_schemas_with_keys);
                     self.schema_service
                         .save_product_schemas(shop_id, domain, persisted_schemas)
                         .await?;
@@ -526,7 +584,10 @@ impl ScraperServiceImpl {
                     return Ok((selected_schema, raw));
                 }
                 Err(err) => {
-                    last_error = Some(err.clone());
+                    failed_schema_for_next_attempt = first_attempted_schema;
+                    for key in attempted_new_keys {
+                        known_keys.insert(key);
+                    }
                     warn!(
                         domain,
                         url = %url,
@@ -535,6 +596,7 @@ impl ScraperServiceImpl {
                         error = %err,
                         "Generated schema did not apply; discarding and retrying"
                     );
+                    last_error = Some(err);
                 }
             }
         }
@@ -549,26 +611,6 @@ impl ScraperServiceImpl {
             }),
         })
     }
-
-    fn dedupe_schemas(schemas: Vec<ProductCssSelectorSchema>) -> Vec<ProductCssSelectorSchema> {
-        let mut seen = std::collections::HashSet::new();
-        let mut deduped = Vec::with_capacity(schemas.len());
-
-        for schema in schemas {
-            let key = match serde_json::to_string(&schema) {
-                Ok(serialized) => serialized,
-                Err(_) => {
-                    deduped.push(schema);
-                    continue;
-                }
-            };
-            if seen.insert(key) {
-                deduped.push(schema);
-            }
-        }
-
-        deduped
-    }
 }
 
 #[async_trait::async_trait]
@@ -582,22 +624,6 @@ impl ScraperService for ScraperServiceImpl {
         let domain = url
             .host_str()
             .ok_or_else(|| ScraperError::NoHost { url: url.clone() })?;
-
-        let exhausted = self
-            .candidate_service
-            .is_shop_llm_budget_exhausted(shop_id, self.max_llm_calls_per_shop)
-            .await
-            .map_err(|err| {
-                ScraperError::SchemaServiceError(ProductSchemaServiceError::DatabaseError(err))
-            })?;
-
-        if exhausted {
-            return Err(ScraperError::LlmBudgetExceeded {
-                shop_id: *shop_id,
-                url: url.clone(),
-                max_calls: self.max_llm_calls_per_shop,
-            });
-        }
 
         // 1. Fetch HTML --------------------------------------------------
         debug!(domain, url = %url, "Fetching product page HTML");
@@ -642,7 +668,7 @@ impl ScraperService for ScraperServiceImpl {
 
         // 3. Apply one schema that fits this page -------------------------
         let (selected_schema, raw) =
-            match Self::try_apply_schemas(&shops_product_schema.product_schemas, &html) {
+            match Self::try_apply_schemas(shops_product_schema.product_schemas.iter(), &html) {
                 Ok(result) => result,
                 Err(err) => {
                     warn!(
@@ -657,7 +683,7 @@ impl ScraperService for ScraperServiceImpl {
                         domain,
                         url,
                         &html,
-                        shops_product_schema.product_schemas.len(),
+                        &shops_product_schema.product_schemas,
                     )
                     .await?
                 }
@@ -884,13 +910,6 @@ mod tests {
         // called by the cron pipeline after a successful push.
     }
 
-    fn expect_budget_available(cand_svc: &mut MockScraperCandidateService) {
-        cand_svc
-            .expect_is_shop_llm_budget_exhausted()
-            .once()
-            .returning(|_, _| Box::pin(async { Ok(false) }));
-    }
-
     fn expect_budget_increment(cand_svc: &mut MockScraperCandidateService, times: usize) {
         cand_svc
             .expect_try_increment_shop_llm_calls_with_limit()
@@ -947,7 +966,6 @@ mod tests {
             });
 
         let mut cand_svc = MockScraperCandidateService::new();
-        expect_budget_available(&mut cand_svc);
         expect_budget_increment(&mut cand_svc, 1);
         expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
@@ -1014,7 +1032,6 @@ mod tests {
         });
 
         let mut cand_svc = MockScraperCandidateService::new();
-        expect_budget_available(&mut cand_svc);
         expect_budget_increment(&mut cand_svc, 1);
         expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
@@ -1103,7 +1120,7 @@ mod tests {
         schema_svc
             .expect_append_single_schema()
             .once()
-            .returning(move |_, _, _| {
+            .returning(move |_, _, _, _, _| {
                 let s = final_schema_for_append.clone();
                 Box::pin(async move { Ok(s) })
             });
@@ -1127,7 +1144,6 @@ mod tests {
             });
 
         let mut cand_svc = MockScraperCandidateService::new();
-        expect_budget_available(&mut cand_svc);
         expect_budget_increment(&mut cand_svc, 1);
         expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
@@ -1194,7 +1210,6 @@ mod tests {
             });
 
         let mut cand_svc = MockScraperCandidateService::new();
-        expect_budget_available(&mut cand_svc);
         expect_budget_increment(&mut cand_svc, 1);
         cand_svc
             .expect_get_random_product_urls_for_schema_seed()
@@ -1277,7 +1292,6 @@ mod tests {
             });
 
         let mut cand_svc = MockScraperCandidateService::new();
-        expect_budget_available(&mut cand_svc);
         expect_budget_increment(&mut cand_svc, 1);
         let sample_seed_url_clone = sample_seed_url.clone();
         cand_svc
@@ -1349,7 +1363,6 @@ mod tests {
             });
 
         let mut cand_svc = MockScraperCandidateService::new();
-        expect_budget_available(&mut cand_svc);
         expect_budget_increment(&mut cand_svc, 1);
         expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
@@ -1384,7 +1397,6 @@ mod tests {
         let schema_svc = MockProductSchemaService::new();
         let norm_svc = MockProductNormalizationService::new();
         let mut cand_svc = MockScraperCandidateService::new();
-        expect_budget_available(&mut cand_svc);
         cand_svc
             .expect_touch_scraped()
             .once()
@@ -1495,7 +1507,6 @@ mod tests {
         // mark_as_scraped is no longer called inside scrape() — it is the
         // caller's responsibility (cron flush_batch) after push succeeds.
         let mut cand_svc = MockScraperCandidateService::new();
-        expect_budget_available(&mut cand_svc);
         expect_budget_increment(&mut cand_svc, 1);
         let url_for_set_state = url.clone();
         cand_svc
@@ -1527,43 +1538,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_llm_budget_exceeded_when_shop_budget_is_already_exhausted() {
-        let id = shop_id();
-        let url = product_url();
-
-        let mut fetcher = MockHtmlFetcher::new();
-        fetcher.expect_fetch().never();
-
-        let schema_svc = MockProductSchemaService::new();
-        let norm_svc = MockProductNormalizationService::new();
-        let mut cand_svc = MockScraperCandidateService::new();
-        cand_svc
-            .expect_is_shop_llm_budget_exhausted()
-            .once()
-            .returning(|_, _| Box::pin(async { Ok(true) }));
-
-        let service = ScraperServiceImpl::new_with_schema_seed_pages(
-            Box::new(fetcher),
-            Box::new(schema_svc),
-            Box::new(norm_svc),
-            Arc::new(cand_svc),
-            3,
-            1,
-            DEFAULT_MAX_LLM_CALLS_PER_SHOP,
-        );
-
-        let err = service.scrape(&id, &url, None).await.unwrap_err();
-        assert!(matches!(
-            err,
-            ScraperError::LlmBudgetExceeded {
-                shop_id,
-                max_calls,
-                ..
-            } if shop_id == id && max_calls == DEFAULT_MAX_LLM_CALLS_PER_SHOP
-        ));
-    }
-
-    #[tokio::test]
     async fn should_return_llm_budget_exceeded_when_increment_is_rejected_on_schema_generation() {
         let id = shop_id();
         let url = product_url();
@@ -1583,7 +1557,6 @@ mod tests {
 
         let norm_svc = MockProductNormalizationService::new();
         let mut cand_svc = MockScraperCandidateService::new();
-        expect_budget_available(&mut cand_svc);
         cand_svc
             .expect_try_increment_shop_llm_calls_with_limit()
             .once()
@@ -1607,6 +1580,101 @@ mod tests {
                 max_calls,
                 ..
             } if shop_id == id && max_calls == DEFAULT_MAX_LLM_CALLS_PER_SHOP
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_exclude_previously_failed_appended_schema_on_next_retry_attempt() {
+        let id = shop_id();
+        let url = product_url();
+
+        let mut fetcher = MockHtmlFetcher::new();
+        fetcher
+            .expect_fetch()
+            .once()
+            .returning(|_| Box::pin(async { Ok(sample_html()) }));
+
+        let text_rule = |selector: &str| ExtractionRule {
+            selector: CssSelector::from(selector),
+            additional_selectors: vec![],
+            extract: ExtractionKind::Text,
+            cardinality: ExtractionCardinality::First,
+        };
+        let attr_rule_all = |selector: &str, attr: &str| ExtractionRule {
+            selector: CssSelector::from(selector),
+            additional_selectors: vec![],
+            extract: ExtractionKind::Attribute { name: attr.into() },
+            cardinality: ExtractionCardinality::All,
+        };
+        let make_bad_schema = |title_selector: &str| ProductCssSelectorSchema {
+            shops_product_id: text_rule("non-existent-id"),
+            title: text_rule(title_selector),
+            description: None,
+            price: None,
+            price_estimate_min: None,
+            price_estimate_max: None,
+            state: text_rule("non-existent-state"),
+            images: attr_rule_all("img", "src"),
+            auction_start: None,
+            auction_end: None,
+            default_currency: None,
+        };
+
+        let bad_existing = make_bad_schema("non-existent-title-1");
+        let bad_appended = make_bad_schema("non-existent-title-2");
+
+        let mut schema_svc = MockProductSchemaService::new();
+        let existing = ShopsProductSchema {
+            shop_id: id,
+            product_schemas: vec![bad_existing.clone()],
+            created: OffsetDateTime::now_utc(),
+            updated: OffsetDateTime::now_utc(),
+        };
+        schema_svc
+            .expect_find_product_schema()
+            .once()
+            .returning(move |_| {
+                let s = existing.clone();
+                Box::pin(async move { Ok(Some(s)) })
+            });
+
+        let candidate_after_append = ShopsProductSchema {
+            shop_id: id,
+            product_schemas: vec![bad_existing.clone(), bad_appended.clone()],
+            created: OffsetDateTime::now_utc(),
+            updated: OffsetDateTime::now_utc(),
+        };
+        schema_svc
+            .expect_append_single_schema()
+            .times(2)
+            .returning(move |_, _, _, _, _| {
+                let s = candidate_after_append.clone();
+                Box::pin(async move { Ok(s) })
+            });
+        schema_svc.expect_save_product_schemas().never();
+
+        let norm_svc = MockProductNormalizationService::new();
+        let mut cand_svc = MockScraperCandidateService::new();
+        expect_budget_increment(&mut cand_svc, 2);
+
+        let service = ScraperServiceImpl::new_with_schema_seed_pages(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Box::new(norm_svc),
+            Arc::new(cand_svc),
+            2,
+            1,
+            DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        );
+
+        let err = service.scrape(&id, &url, None).await.unwrap_err();
+        assert!(matches!(
+            err,
+            ScraperError::SchemaRegenerationExhausted {
+                attempts: 2,
+                last_error: ApplySchemaError::Title(ExtractionError::NoElementMatched { ref selector }),
+                ..
+            } if selector == "title"
         ));
     }
 }

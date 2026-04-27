@@ -1,4 +1,6 @@
-use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
+use crate::scraper::css_selector::product_schema::{
+    ApplySchemaError, ProductCssSelectorSchema, ShopsProductSchema,
+};
 use crate::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepository;
 use common::shop_id::ShopId;
 use kuchiki::traits::*;
@@ -44,6 +46,8 @@ pub trait ProductSchemaService {
         shop_id: &ShopId,
         _domain: &str,
         html: &str,
+        failed_schema: Option<&ProductCssSelectorSchema>,
+        last_error: Option<&ApplySchemaError>,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
 
     async fn find_product_schema(
@@ -164,6 +168,8 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         shop_id: &ShopId,
         _domain: &str,
         html: &str,
+        failed_schema: Option<&ProductCssSelectorSchema>,
+        last_error: Option<&ApplySchemaError>,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
         // Load existing schemas
         let mut existing = self.find_product_schema(shop_id).await?.ok_or_else(|| {
@@ -173,7 +179,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         })?;
 
         // Generate single schema for this HTML page
-        let instruction = build_append_schema_instruction(html);
+        let instruction = build_append_schema_instruction(html, failed_schema, last_error);
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
 
@@ -319,16 +325,34 @@ fn build_create_schemas_instruction(html_pages: &[String]) -> String {
     )
 }
 
-fn build_append_schema_instruction(html: &str) -> String {
+fn build_append_schema_instruction(
+    html: &str,
+    failed_schema: Option<&ProductCssSelectorSchema>,
+    last_error: Option<&ApplySchemaError>,
+) -> String {
     let cleaned = clean_html_for_schema_generation(html);
+    let failure_context = match (failed_schema, last_error) {
+        (Some(schema), Some(error)) => {
+            let schema_json = serde_json::to_string_pretty(schema)
+                .unwrap_or_else(|_| "<failed to serialize previous schema>".to_string());
+            format!(
+                "\nPrevious attempt failed. Here is the schema that just failed:\n{schema_json}\n\
+                 Extraction failure observed:\n{error}\n\
+                 Improve/fix the failed schema for this page instead of repeating the same selectors."
+            )
+        }
+        _ => String::new(),
+    };
+
     format!(
         "Generate a single robust Extraction-Schema for the following product page HTML.\n\
-         This schema will be appended to a set of existing schemas from the same shop.\n\
-         Focus on this specific layout and make the selectors resilient.\n\
-         Return ONLY JSON as a single ProductCssSelectorSchema object (not an array).\n\
-         Optional fields may remain null if not confidently present.\n\
-         Here is the cleaned HTML:\n\
-         {cleaned}"
+          This schema will be appended to a set of existing schemas from the same shop.\n\
+          Focus on this specific layout and make the selectors resilient.\n\
+          Return ONLY JSON as a single ProductCssSelectorSchema object (not an array).\n\
+          Optional fields may remain null if not confidently present.\n\
+          {failure_context}\n\
+          Here is the cleaned HTML:\n\
+          {cleaned}"
     )
 }
 

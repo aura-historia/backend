@@ -4,7 +4,7 @@
 
 ## URL Classification
 
-Every URL discovered during a spider run is classified before being stored. Classification is purely heuristic — no LLM involved.
+Every URL discovered during a spider run is classified before being stored. Per-URL classification itself does not call the LLM directly; it uses the persisted product-pattern regex (LLM-generated earlier) plus deterministic path heuristics.
 
 ### Blacklist (filtered out entirely)
 URLs containing any of these substrings are dropped before classification:
@@ -48,7 +48,7 @@ UNKNOWN
 - Initial state when a URL is first inserted by the spider: `UNKNOWN`.
 - After a successful scrape, the crawler writes the normalized availability back into `shop_urls.last_scraped_state`. This can become `AVAILABLE`, `RESERVED`, `SOLD`, `LISTED`, `REMOVED`, or remain `UNKNOWN`.
 - The same normalized product state is also propagated separately into the product backend via the product upsert command path.
-- `REMOVED`: set when the HTTP fetch returns a non-200 / page no longer exists.
+- `REMOVED`: set when the HTTP fetch returns `404` or `410` (page gone).
 - Scraper re-visits URLs in states `UNKNOWN`, `LISTED`, `AVAILABLE`, `RESERVED` and excludes terminal states `SOLD` / `REMOVED`.
 
 ---
@@ -79,7 +79,7 @@ Normalization errors are not used to trigger schema regeneration. Schema regener
 
 ### Price
 - Multi-locale currency parsing: handles formats like `1.200,50 €`, `$1,200.50`, `1 200 CHF`.
-- **Soft handling for "price on request" markers**: values like `"Price on Request"` / `"Preis auf Anfrage"` are treated as intentionally non-numeric and normalized to `None` (with a warning log) instead of failing the scrape.
+- **Soft handling for "price on request" markers**: values like `"Price on Request"` / `"Preis auf Anfrage"` are treated as intentionally non-numeric and normalized to `None` (debug log) instead of failing the scrape.
 - **Fallback currency from schema**: if the extracted price string contains no currency symbol or ISO code (e.g. bare `"18,00"` or `"1590"`), `normalize()` checks `default_currency` — a field the LLM sets on the `ProductCssSelectorSchema` when it can determine the shop's currency from full-page context. If `default_currency` is present it is used as the currency; otherwise `PriceUnknownCurrency` is returned.
 - `PriceUnknownCurrency` is returned as a normalization error when no currency marker is present and `default_currency` is missing.
 - Extracts both `price_value` (numeric) and `price_currency` (ISO 4217 code).

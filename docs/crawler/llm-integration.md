@@ -43,8 +43,9 @@ The crawler uses three distinct LLM instances, each with its own system prompt, 
     - **`description`**, **`images`**, **`shops_product_id`**: Similar guidance with HTML/attribute examples and semantic cues.
 - On runtime schema miss (append-on-miss flow, issue #801): if no cached schema variant applies during scrape, calls `append_single_schema()` to generate and append a single new schema for that page to the existing set, then retries. This enables heterogeneous shops to accumulate schema variants dynamically without triggering full regeneration.
 - On runtime schema miss, regeneration uses an attempt loop (`max_schema_fix_attempts` config slot):
-  - each attempt generates one schema from the current page,
-  - appends in-memory to cached schemas and re-applies only newly appended candidates for that attempt,
+  - attempt 1 generates from the current page HTML only,
+  - attempts 2..N include the previously failed generated schema and its extraction error as repair context,
+  - appends in-memory to cached schemas and re-applies only candidates not already known to fail in the current retry loop,
   - persists only when at least one schema applies (deduplicated),
   - discards non-applicable generated schemas and retries.
   - on exhaustion, scraping returns `SchemaRegenerationExhausted`; cron records the error and sets a retry cooldown.
@@ -84,8 +85,10 @@ The crawler uses three distinct LLM instances, each with its own system prompt, 
 ```
 for attempt in 1..=max_schema_fix_attempts:
   increment shops.llm_calls_count
-  candidate = append_single_schema(shop_id, html)   // in-memory append
-  re-apply only newly appended schema candidates:
+  candidate = append_single_schema(shop_id, domain, html, failed_schema?, last_error?)
+    // attempt 1: failed_schema/last_error are None (fresh generation)
+    // attempt 2+: failed_schema/last_error come from previous failed generated schema
+  re-apply only schemas not already known to fail in this loop:
     ok -> dedupe, persist candidate set, continue pipeline
     fail -> discard generated schema and retry
 if exhausted -> return SchemaRegenerationExhausted
@@ -118,7 +121,7 @@ The `REGEX` variant is used when the LLM determines the raw value follows a patt
 
 **LLM config:** `resilient=3`, `reasoning=true`, `timeout=60s`
 
-**Persistence:** Written to `product_state_mapping` with `mapping_type` of `EXACT` or `REGEX`.
+**Persistence:** Written to `product_state_mapping` with `mapping_type` of `VALUE` or `REGEX`.
 
 ---
 
