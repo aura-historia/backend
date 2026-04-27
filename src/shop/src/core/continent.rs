@@ -302,3 +302,17 @@ mod faker {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use isocountry::CountryCode;
+
+    use super::Continent;
+
+    #[test]
+    fn should_map_all_country_codes_to_a_continent() {
+        for code in CountryCode::iter().copied() {
+            let _ = Continent::from(code);
+        }
+    }
+}
