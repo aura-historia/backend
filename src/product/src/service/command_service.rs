@@ -2,6 +2,7 @@ use crate::core::product::Product;
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::repository::{ProductDynamoDbRepository, extract_product_key};
+use crate::dynamodb::utm::append_utm_params;
 use crate::service::heuristics;
 use crate::service::product_command::{
     CreateProductCommand, UpdateProductCommand, UpsertProductCommand,
@@ -467,7 +468,7 @@ fn determine_update_events(
                 events.push(ProductDomainEventRecord::from(event));
             }
             if let Some(url) = cmd.url
-                && let Some(event) = product.change_url(url)
+                && let Some(event) = product.change_url(append_utm_params(url))
             {
                 events.push(ProductDomainEventRecord::from(event));
             }
