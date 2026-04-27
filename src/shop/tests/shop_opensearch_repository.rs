@@ -423,8 +423,7 @@ async fn should_search_shop_documents_when_countries_are_given(
         let continent = shop::core::continent::Continent::from(*country);
         let mut doc = Faker.fake::<ShopDocument>();
         doc.structured_address_country = Some(*country);
-        doc.structured_address_continent =
-            Some(ContinentDocument::from(continent));
+        doc.structured_address_continent = Some(ContinentDocument::from(continent));
         repository.index_shop_document(doc).await.unwrap();
     }
     // insert civilians with a country not in the filter

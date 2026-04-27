@@ -181,11 +181,7 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
 
         // Add country filter
         if !search.countries.is_empty() {
-            let countries: Vec<&str> = search
-                .countries
-                .iter()
-                .map(|c| c.alpha2())
-                .collect();
+            let countries: Vec<&str> = search.countries.iter().map(|c| c.alpha2()).collect();
             filter.push(json!({
                 "terms": {
                     ShopDocumentSerdeField::StructuredAddressCountry.as_str(): countries

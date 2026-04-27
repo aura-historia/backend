@@ -105,11 +105,7 @@ impl From<ShopSearchData> for ShopSearch {
             specialities_categories: data.specialities_categories,
             specialities_periods: data.specialities_periods,
             countries: data.countries.into_iter().collect(),
-            continents: data
-                .continents
-                .into_iter()
-                .map(Continent::from)
-                .collect(),
+            continents: data.continents.into_iter().map(Continent::from).collect(),
             created: data.created,
             updated: data.updated,
         }
