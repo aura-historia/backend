@@ -1,15 +1,34 @@
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
-pub struct RangeQuery<T: Ord> {
+#[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
+pub struct RangeQuery<T> {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub min: Option<T>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub max: Option<T>,
 }
 
-impl<T: Ord> Default for RangeQuery<T> {
+impl<T: Eq> Eq for RangeQuery<T> {}
+
+impl<T: PartialOrd> PartialOrd for RangeQuery<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match self.min.partial_cmp(&other.min) {
+            Some(std::cmp::Ordering::Equal) => self.max.partial_cmp(&other.max),
+            ordering => ordering,
+        }
+    }
+}
+
+impl<T: Ord> Ord for RangeQuery<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.min
+            .cmp(&other.min)
+            .then_with(|| self.max.cmp(&other.max))
+    }
+}
+
+impl<T> Default for RangeQuery<T> {
     fn default() -> Self {
         Self {
             min: None,
@@ -18,10 +37,9 @@ impl<T: Ord> Default for RangeQuery<T> {
     }
 }
 
-impl<T: Ord> RangeQuery<T> {
+impl<T> RangeQuery<T> {
     pub fn map<U, F>(self, mut f: F) -> RangeQuery<U>
     where
-        U: Ord,
         F: FnMut(T) -> U,
     {
         RangeQuery {
