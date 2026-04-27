@@ -2,6 +2,7 @@ use crate::core::{
     address::{GeoAddress, StructuredAddress},
     continent::Continent,
 };
+use crate::data::continent_data::ContinentData;
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 
@@ -21,7 +22,7 @@ pub struct StructuredAddressData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub country: Option<CountryCode>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub continent: Option<Continent>,
+    pub continent: Option<ContinentData>,
 }
 
 impl From<StructuredAddress> for StructuredAddressData {
@@ -33,7 +34,7 @@ impl From<StructuredAddress> for StructuredAddressData {
             region: address.region,
             postal_code: address.postal_code,
             country: address.country,
-            continent: address.continent,
+            continent: address.continent.map(ContinentData::from),
         }
     }
 }
@@ -42,6 +43,7 @@ impl From<StructuredAddressData> for StructuredAddress {
     fn from(address: StructuredAddressData) -> Self {
         let continent = address
             .continent
+            .map(Continent::from)
             .or_else(|| address.country.map(Continent::from));
         Self {
             addressline: address.addressline,
@@ -83,14 +85,15 @@ impl From<GeoAddressData> for GeoAddress {
 
 #[cfg(feature = "test-data")]
 mod faker {
-    use super::{Continent, CountryCode, StructuredAddressData};
+    use super::{ContinentData, CountryCode, StructuredAddressData};
+    use crate::core::continent::Continent;
     use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for StructuredAddressData {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let codes: Vec<CountryCode> = CountryCode::iter().copied().collect();
             let country = Some(codes[rng.random_range(0..codes.len())]);
-            let continent = country.map(Continent::from);
+            let continent = country.map(|c| ContinentData::from(Continent::from(c)));
             StructuredAddressData {
                 addressline: config.fake_with_rng(rng),
                 addressline_extra: config.fake_with_rng(rng),

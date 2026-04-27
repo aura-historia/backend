@@ -276,8 +276,11 @@ impl From<CountryCode> for Continent {
             | CountryCode::FLK
             | CountryCode::GUF => Continent::SouthAmerica,
 
-            // Default for unclassified territories
-            _ => Continent::Asia,
+            // North America (remaining)
+            CountryCode::BRB | CountryCode::GRL => Continent::NorthAmerica,
+
+            // Oceania (remaining)
+            CountryCode::UMI => Continent::Oceania,
         }
     }
 }
