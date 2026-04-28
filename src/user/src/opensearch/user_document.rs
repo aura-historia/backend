@@ -9,6 +9,8 @@ use common::{
     currency::record::CurrencyRecord, language::record::LanguageRecord,
     stripe_customer_id::StripeCustomerId, user_id::UserId,
 };
+use geo::core::continent::Continent;
+use geo::data::continent_data::ContinentData;
 use geo::opensearch::{
     geo_address_from_document, geo_address_to_document, structured_address_from_document,
 };
@@ -48,6 +50,8 @@ pub struct UserDocument {
     pub structured_address_postal_code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub structured_address_country: Option<CountryCode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_continent: Option<ContinentData>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub geo_address: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
@@ -94,6 +98,10 @@ impl From<User> for UserDocument {
             structured_address_country: structured_address
                 .as_ref()
                 .and_then(|address| address.country),
+            structured_address_continent: structured_address
+                .as_ref()
+                .and_then(|address| address.country)
+                .map(|country| ContinentData::from(Continent::from(country))),
             geo_address: geo_address_to_document(user.geo_address),
             created: user.created,
             updated: user.updated,

@@ -1,5 +1,6 @@
 use common::category_key::CategoryId;
 use common::currency::domain::Currency;
+use common::distance::domain::{Distance, DistanceUnit, GeoDistanceQuery};
 use common::event_id::EventId;
 use common::language::document::{LanguageDocument, TextDocument};
 use common::language::domain::Language;
@@ -15,6 +16,7 @@ use common::slug_id::SlugId;
 use common::sort::{Sort, SortOrder};
 use common::year::Year;
 use fake::{Fake, Faker, rand};
+use geo::core::continent::Continent;
 use opensearch::http::Url;
 use product::core::authenticity::Authenticity;
 use product::core::condition::Condition;
@@ -31,6 +33,7 @@ use product::opensearch::repository::{
 };
 use serde_json::json;
 use shop::core::shop_type::ShopType;
+use shop::opensearch::continent_document::ContinentDocument;
 use shop::opensearch::shop_type_document::ShopTypeDocument;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -1560,6 +1563,135 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
         .collect::<Vec<_>>();
 
     assert_eq!(expected_products, actual_items);
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_country_query_is_given() {
+    let repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let expected_country = isocountry::CountryCode::DEU;
+    let other_country = isocountry::CountryCode::FRA;
+    let mut expected = Faker.fake::<ProductDocument>();
+    expected.structured_address_country = Some(expected_country);
+    expected.structured_address_continent =
+        Some(ContinentDocument::from(Continent::from(expected_country)));
+    let mut other = Faker.fake::<ProductDocument>();
+    other.structured_address_country = Some(other_country);
+    other.structured_address_continent =
+        Some(ContinentDocument::from(Continent::from(other_country)));
+    let create_res = repository
+        .create_product_documents(vec![expected.clone(), other])
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let search_filter = ProductSearch::new(Language::En, Currency::Eur)
+        .with_country_query(HashSet::from_iter([expected_country]).into());
+
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let hits = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source.product_id)
+        .collect::<HashSet<_>>();
+    assert_eq!(HashSet::from_iter([expected.product_id]), hits);
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_continent_query_is_given() {
+    let repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let mut expected = Faker.fake::<ProductDocument>();
+    expected.structured_address_country = Some(isocountry::CountryCode::DEU);
+    expected.structured_address_continent = Some(ContinentDocument::Europe);
+    let mut other = Faker.fake::<ProductDocument>();
+    other.structured_address_country = Some(isocountry::CountryCode::JPN);
+    other.structured_address_continent = Some(ContinentDocument::Asia);
+    let create_res = repository
+        .create_product_documents(vec![expected.clone(), other])
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let search_filter = ProductSearch::new(Language::En, Currency::Eur)
+        .with_continent_query(HashSet::from_iter([Continent::Europe]).into());
+
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let hits = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source.product_id)
+        .collect::<HashSet<_>>();
+    assert_eq!(HashSet::from_iter([expected.product_id]), hits);
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_geo_address_distance_query_is_given() {
+    let repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let mut expected = Faker.fake::<ProductDocument>();
+    expected.geo_address = Some("52.5200,13.4050".to_string());
+    let mut other = Faker.fake::<ProductDocument>();
+    other.geo_address = Some("40.7128,-74.0060".to_string());
+    let create_res = repository
+        .create_product_documents(vec![expected.clone(), other])
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let search_filter = ProductSearch::new(Language::En, Currency::Eur)
+        .with_geo_address_distance_query(GeoDistanceQuery {
+            lat: 52.5200,
+            lon: 13.4050,
+            distance: Distance {
+                amount: 50.0,
+                unit: DistanceUnit::Kilometers,
+            },
+        });
+
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let hits = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source.product_id)
+        .collect::<HashSet<_>>();
+    assert_eq!(HashSet::from_iter([expected.product_id]), hits);
 }
 
 #[localstack_test(services = [OpenSearch()])]

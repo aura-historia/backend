@@ -1,6 +1,6 @@
 use crate::core::authenticity::Authenticity;
 use crate::core::condition::Condition;
-use crate::core::product_search::{GeoDistanceQuery, ProductSearch};
+use crate::core::product_search::ProductSearch;
 use crate::core::provenance::Provenance;
 use crate::core::restoration::Restoration;
 use crate::data::authenticity_data::AuthenticityData;
@@ -9,8 +9,7 @@ use crate::data::product_state_data::ProductStateData;
 use crate::data::provenance_data::ProvenanceData;
 use crate::data::restoration_data::RestorationData;
 use common::category_key::CategoryId;
-use common::distance::data::DistanceData;
-use common::distance::domain::Distance;
+use common::distance::data::GeoDistanceQueryData;
 use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
@@ -29,33 +28,6 @@ use shop::core::shop_type::ShopType;
 use shop::data::shop_type_data::ShopTypeData;
 use std::collections::HashSet;
 use time::OffsetDateTime;
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct GeoDistanceQueryData {
-    pub lat: f64,
-    pub lon: f64,
-    pub distance: DistanceData,
-}
-
-impl From<GeoDistanceQuery> for GeoDistanceQueryData {
-    fn from(query: GeoDistanceQuery) -> Self {
-        Self {
-            lat: query.lat,
-            lon: query.lon,
-            distance: query.distance.into(),
-        }
-    }
-}
-
-impl From<GeoDistanceQueryData> for GeoDistanceQuery {
-    fn from(data: GeoDistanceQueryData) -> Self {
-        Self {
-            lat: data.lat,
-            lon: data.lon,
-            distance: Distance::from(data.distance),
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProductSearchData {

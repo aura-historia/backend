@@ -8,6 +8,7 @@ use common::opensearch::index_response::IndexResponse;
 use common::opensearch::search_response::SearchResponse;
 use common::pagination::cursor::Cursor;
 use common::sort::{Sort, SortOrder};
+use geo::data::continent_data::ContinentData;
 use opensearch::{IndexParts, SearchParts};
 use serde::ser::Error;
 use serde_json::json;
@@ -110,6 +111,37 @@ impl<'a> UserOpenSearchRepository for UserOpenSearchRepositoryImpl<'a> {
                 .map(UserRoleDocument::from)
                 .collect();
             filter.push(json!({ "terms": { UserDocumentSerdeField::Role.as_str(): roles } }));
+        }
+        if !search.country_query.is_empty() {
+            filter.push(json!({
+                "terms": {
+                    UserDocumentSerdeField::StructuredAddressCountry.as_str(): search.country_query.iter().map(|c| c.alpha2()).collect::<Vec<_>>()
+                }
+            }));
+        }
+        if !search.continent_query.is_empty() {
+            let continents: Vec<ContinentData> = search
+                .continent_query
+                .iter()
+                .copied()
+                .map(ContinentData::from)
+                .collect();
+            filter.push(json!({
+                "terms": {
+                    UserDocumentSerdeField::StructuredAddressContinent.as_str(): continents
+                }
+            }));
+        }
+        if let Some(query) = search.geo_address_distance_query {
+            filter.push(json!({
+                "geo_distance": {
+                    "distance": query.distance.opensearch_value(),
+                    UserDocumentSerdeField::GeoAddress.as_str(): {
+                        "lat": query.lat,
+                        "lon": query.lon
+                    }
+                }
+            }));
         }
 
         if let Some(min) = search.created.and_then(|created| created.min) {

@@ -1,6 +1,7 @@
 use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
 use common::category_key::CategoryId;
 use common::currency::data::CurrencyData;
+use common::distance::data::{DistanceData, DistanceUnitData, GeoDistanceQueryData};
 use common::language::data::LanguageData;
 use common::language::document::{LanguageDocument, TextDocument};
 use common::language::domain::Language;
@@ -29,6 +30,7 @@ use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use search_filter::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
 use shop::data::shop_type_data::ShopTypeData;
+use shop::opensearch::continent_document::ContinentDocument;
 use std::collections::HashSet;
 use std::time::Duration;
 use test_api::*;
@@ -83,6 +85,104 @@ async fn should_200_when_no_hits() {
     > = serde_json::from_value(json).unwrap();
     assert!(response_data.items.is_empty());
     assert_eq!(0, response_data.total.unwrap());
+}
+
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_200_filter_products_when_geo_filters_are_given() {
+    let ddb_client = get_dynamodb_client().await;
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository);
+    let notification_service = MockNotificationService::default();
+    let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+        &search_filter_repository,
+    );
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .returning(|_| Box::pin(async { Ok(None) }));
+    let mut expected = Faker.fake::<ProductDocument>();
+    expected.structured_address_country = Some(isocountry::CountryCode::DEU);
+    expected.structured_address_continent = Some(ContinentDocument::Europe);
+    expected.geo_address = Some("52.5200,13.4050".to_string());
+    let mut other = Faker.fake::<ProductDocument>();
+    other.structured_address_country = Some(isocountry::CountryCode::USA);
+    other.structured_address_continent = Some(ContinentDocument::NorthAmerica);
+    other.geo_address = Some("40.7128,-74.0060".to_string());
+    let create_res = opensearch_repository
+        .create_product_documents(vec![expected.clone(), other])
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let search = ProductSearchData {
+        language: LanguageData::En,
+        currency: CurrencyData::Eur,
+        product_query: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
+        shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
+        shop_type_query: Default::default(),
+        country_query: HashSet::from_iter([isocountry::CountryCode::DEU]),
+        continent_query: HashSet::from_iter([geo::data::continent_data::ContinentData::Europe]),
+        geo_address_distance_query: Some(GeoDistanceQueryData {
+            lat: 52.5200,
+            lon: 13.4050,
+            distance: DistanceData {
+                amount: 50.0,
+                unit: DistanceUnitData::Kilometers,
+            },
+        }),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
+    };
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handle(
+        lambda_event,
+        &query_service,
+        None,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(200, response.status_code);
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
+    assert_eq!(Some(1), response_data.total);
+    assert_eq!(expected.product_id, response_data.items[0].item.product_id);
 }
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]

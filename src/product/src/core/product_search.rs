@@ -4,7 +4,7 @@ use crate::core::provenance::Provenance;
 use crate::core::restoration::Restoration;
 use common::category_key::CategoryId;
 use common::currency::domain::Currency;
-use common::distance::domain::Distance;
+use common::distance::domain::GeoDistanceQuery;
 use common::language::domain::Language;
 use common::period_key::PeriodId;
 use common::price::domain::MonetaryAmount;
@@ -20,13 +20,6 @@ use isocountry::CountryCode;
 use serde_fields::SerdeField;
 use shop::core::shop_type::ShopType;
 use time::OffsetDateTime;
-
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct GeoDistanceQuery {
-    pub lat: f64,
-    pub lon: f64,
-    pub distance: Distance,
-}
 
 #[derive(Debug, Clone, PartialEq, Default, SerdeField)]
 pub struct ProductSearch {

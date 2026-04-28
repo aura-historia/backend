@@ -28,7 +28,7 @@ serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 user = { workspace = true, features = ["full"] }
-test-api = { workspace = true, features = ["dynamodb"] }
+test-api = { workspace = true, features = ["dynamodb", "opensearch"] }
 serial_test = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }

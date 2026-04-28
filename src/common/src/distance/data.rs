@@ -8,8 +8,16 @@ pub struct DistanceData {
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct GeoDistanceQueryData {
+    pub lat: f64,
+    pub lon: f64,
+    pub distance: DistanceData,
+}
+
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DistanceUnitData {
     Miles,
     Yards,

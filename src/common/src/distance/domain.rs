@@ -1,10 +1,9 @@
 use std::fmt;
 
-use crate::distance::data::{DistanceData, DistanceUnitData};
-use serde::{Deserialize, Serialize};
+use crate::distance::data::{DistanceData, DistanceUnitData, GeoDistanceQueryData};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Distance {
     pub amount: f64,
     pub unit: DistanceUnit,
@@ -17,8 +16,15 @@ impl Distance {
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GeoDistanceQuery {
+    pub lat: f64,
+    pub lon: f64,
+    pub distance: Distance,
+}
+
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DistanceUnit {
     Miles,
     Yards,
@@ -67,6 +73,26 @@ impl From<Distance> for DistanceData {
         Self {
             amount: domain.amount,
             unit: domain.unit.into(),
+        }
+    }
+}
+
+impl From<GeoDistanceQueryData> for GeoDistanceQuery {
+    fn from(data: GeoDistanceQueryData) -> Self {
+        Self {
+            lat: data.lat,
+            lon: data.lon,
+            distance: data.distance.into(),
+        }
+    }
+}
+
+impl From<GeoDistanceQuery> for GeoDistanceQueryData {
+    fn from(domain: GeoDistanceQuery) -> Self {
+        Self {
+            lat: domain.lat,
+            lon: domain.lon,
+            distance: domain.distance.into(),
         }
     }
 }

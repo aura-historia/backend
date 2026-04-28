@@ -35,3 +35,4 @@ serial_test = { workspace = true }
 fake = { workspace = true }
 user = { workspace = true, features = ["test-data"] }
 common = { workspace = true, features = ["test-data"] }
+isocountry = { workspace = true }

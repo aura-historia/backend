@@ -31,13 +31,14 @@ mod faker {
 mod tests {
     use crate::post_types::PostUserSearchFilterData;
     use common::category_key::CategoryId;
+    use common::distance::data::GeoDistanceQueryData;
     use common::distance::data::{DistanceData, DistanceUnitData};
     use common::period_key::PeriodId;
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
     use product::data::authenticity_data::AuthenticityData;
     use product::data::condition_data::ConditionData;
-    use product::data::product_search_data::{GeoDistanceQueryData, ProductSearchData};
+    use product::data::product_search_data::ProductSearchData;
     use product::data::product_state_data::ProductStateData;
     use product::data::provenance_data::ProvenanceData;
     use product::data::restoration_data::RestorationData;
@@ -65,7 +66,7 @@ mod tests {
                     "lon": 13.405,
                     "distance": {
                         "amount": 100.0,
-                        "unit": "kilometers"
+                        "unit": "KILOMETERS"
                     }
                 },
                 "price": {

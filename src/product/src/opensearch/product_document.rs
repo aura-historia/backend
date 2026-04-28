@@ -40,10 +40,6 @@ use strum::EnumCount;
 use time::OffsetDateTime;
 use url::Url;
 
-fn continent_document_from_country(country: CountryCode) -> ContinentDocument {
-    ContinentDocument::from(Continent::from(country))
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductDocument {
@@ -341,7 +337,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDocument {
             structured_address_country: event_product_document.structured_address_country,
             structured_address_continent: event_product_document
                 .structured_address_country
-                .map(continent_document_from_country),
+                .map(|country| ContinentDocument::from(Continent::from(country))),
             geo_address: event_product_document
                 .geo_address_lat
                 .zip(event_product_document.geo_address_lon)
@@ -478,7 +474,7 @@ impl From<ProductRecord> for ProductDocument {
             structured_address_country: product_document.structured_address_country,
             structured_address_continent: product_document
                 .structured_address_country
-                .map(continent_document_from_country),
+                .map(|country| ContinentDocument::from(Continent::from(country))),
             geo_address: product_document
                 .geo_address_lat
                 .zip(product_document.geo_address_lon)
@@ -700,7 +696,7 @@ impl From<Product> for ProductDocument {
                 .structured_address
                 .as_ref()
                 .and_then(|address| address.country)
-                .map(continent_document_from_country),
+                .map(|country| ContinentDocument::from(Continent::from(country))),
             geo_address: geo_address_to_document(product.geo_address),
             category_id: product.category_id,
             period_id: product.period_id,

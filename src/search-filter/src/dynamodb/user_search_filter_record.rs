@@ -1,6 +1,7 @@
 use crate::core::user_search_filter::UserSearchFilter;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use common::category_key::CategoryId;
+use common::distance::data::GeoDistanceQueryData;
 use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
@@ -16,7 +17,7 @@ use geo::{core::continent::Continent, data::continent_data::ContinentData};
 use isocountry::CountryCode;
 use product::core::authenticity::Authenticity;
 use product::core::condition::Condition;
-use product::core::product_search::{GeoDistanceQuery, ProductSearch};
+use product::core::product_search::ProductSearch;
 use product::core::provenance::Provenance;
 use product::core::restoration::Restoration;
 use product::dynamodb::authenticity_record::AuthenticityRecord;
@@ -72,7 +73,7 @@ pub struct UserSearchFilterRecord {
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub continent_query: HashSet<ContinentData>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub geo_address_distance_query: Option<GeoDistanceQuery>,
+    pub geo_address_distance_query: Option<GeoDistanceQueryData>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price_query: Option<RangeQuery<u64>>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
@@ -168,7 +169,7 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                     .into_iter()
                     .map(Continent::from)
                     .collect(),
-                geo_address_distance_query: record.geo_address_distance_query,
+                geo_address_distance_query: record.geo_address_distance_query.map(Into::into),
                 price_query: record
                     .price_query
                     .map(|range_query| range_query.map(MonetaryAmount::from)),
@@ -248,7 +249,10 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
                 .into_iter()
                 .map(ContinentData::from)
                 .collect(),
-            geo_address_distance_query: user_search_filter.search.geo_address_distance_query,
+            geo_address_distance_query: user_search_filter
+                .search
+                .geo_address_distance_query
+                .map(Into::into),
             price_query: user_search_filter
                 .search
                 .price_query
