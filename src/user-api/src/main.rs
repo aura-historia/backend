@@ -1,7 +1,9 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
 use aws_sdk_dynamodb::Client;
-use geo::service::geocoding_service::{GeocodingService, GoogleGeocodingService};
+use geo::service::geocoding_service::{
+    GeocodingService, GoogleGeocodingService, NoopGeocodingService,
+};
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
@@ -31,7 +33,10 @@ async fn main() -> Result<(), Error> {
     let cognito_admin_service = CognitoAdminServiceImpl::new(&cognito_client, &user_pool_id);
     let opensearch_repository = UserOpenSearchRepositoryImpl::new(&opensearch_client);
     let geocoding_service: Box<dyn GeocodingService + Sync> =
-        Box::new(GoogleGeocodingService::from_env()?);
+        match std::env::var("LOCALSTACK_HOSTNAME") {
+            Ok(_) => Box::new(NoopGeocodingService),
+            Err(_) => Box::new(GoogleGeocodingService::from_env()?),
+        };
     let service = UserServiceImpl::with_cognito_opensearch_and_geocoding(
         &repository,
         &cognito_admin_service,
