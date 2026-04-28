@@ -2,7 +2,7 @@ use product::data::product_search_data::ProductSearchData;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PostUserSearchFilterData {
     pub name: UserSearchFilterName,
@@ -31,6 +31,8 @@ mod faker {
 mod tests {
     use crate::post_types::PostUserSearchFilterData;
     use common::category_key::CategoryId;
+    use common::distance::data::GeoDistanceQueryData;
+    use common::distance::data::{DistanceData, DistanceUnitData};
     use common::period_key::PeriodId;
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
@@ -57,6 +59,16 @@ mod tests {
                 "periodId": ["baroque"],
                 "shopName": ["Baap"],
                 "excludeShopName": ["baddlebap"],
+                "country": ["DE"],
+                "continent": ["EUROPE"],
+                "geoAddress": {
+                    "lat": 52.52,
+                    "lon": 13.405,
+                    "distance": {
+                        "amount": 100.0,
+                        "unit": "KILOMETERS"
+                    }
+                },
                 "price": {
                     "min": 37,
                     "max": 42
@@ -102,6 +114,18 @@ mod tests {
                 seller_name_query: Default::default(),
                 exclude_seller_name_query: Default::default(),
                 shop_type_query: HashSet::new(),
+                country_query: HashSet::from_iter([isocountry::CountryCode::DEU]),
+                continent_query: HashSet::from_iter([
+                    geo::data::continent_data::ContinentData::Europe,
+                ]),
+                geo_address_distance_query: Some(GeoDistanceQueryData {
+                    lat: 52.52,
+                    lon: 13.405,
+                    distance: DistanceData {
+                        amount: 100.0,
+                        unit: DistanceUnitData::Kilometers,
+                    },
+                }),
                 price_query: Some(RangeQuery {
                     min: Some(37),
                     max: Some(42),

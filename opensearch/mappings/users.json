@@ -4,14 +4,18 @@
             "normalizer": {
                 "lowercase_normalizer": {
                     "type": "custom",
-                    "filter": ["lowercase"]
+                    "filter": [
+                        "lowercase"
+                    ]
                 }
             }
         }
     },
     "mappings": {
         "properties": {
-            "userId": { "type": "keyword" },
+            "userId": {
+                "type": "keyword"
+            },
             "email": {
                 "type": "text",
                 "fields": {
@@ -39,14 +43,86 @@
                     }
                 }
             },
-            "language": { "type": "keyword" },
-            "currency": { "type": "keyword" },
-            "prohibitedContentConsent": { "type": "boolean" },
-            "tier": { "type": "keyword" },
-            "role": { "type": "keyword" },
-            "stripeCustomerId": { "type": "keyword" },
-            "created": { "type": "date", "format": "strict_date_time" },
-            "updated": { "type": "date", "format": "strict_date_time" }
+            "language": {
+                "type": "keyword"
+            },
+            "currency": {
+                "type": "keyword"
+            },
+            "prohibitedContentConsent": {
+                "type": "boolean"
+            },
+            "tier": {
+                "type": "keyword"
+            },
+            "role": {
+                "type": "keyword"
+            },
+            "stripeCustomerId": {
+                "type": "keyword"
+            },
+            "created": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "updated": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "structuredAddressAddressline": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressAddresslineExtra": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressLocality": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressRegion": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressPostalCode": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressCountry": {
+                "type": "keyword"
+            },
+            "structuredAddressContinent": {
+                "type": "keyword"
+            },
+            "geoAddress": {
+                "type": "geo_point"
+            }
         }
     }
 }

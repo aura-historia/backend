@@ -6,6 +6,7 @@ use common::{
     currency::data::CurrencyData, language::data::LanguageData,
     stripe_customer_id::StripeCustomerId, user_id::UserId,
 };
+use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use time::OffsetDateTime;
@@ -37,6 +38,12 @@ pub struct GetUserAccountData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stripe_customer_id: Option<StripeCustomerId>,
 
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address: Option<StructuredAddressData>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geo_address: Option<GeoAddressData>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -56,6 +63,8 @@ impl From<User> for GetUserAccountData {
             tier: UserTierData::from(user.tier),
             role: UserRoleData::from(user.role),
             stripe_customer_id: user.stripe_customer_id,
+            structured_address: user.structured_address.map(StructuredAddressData::from),
+            geo_address: user.geo_address.map(GeoAddressData::from),
             created: user.created,
             updated: user.updated,
         }

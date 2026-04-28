@@ -9,6 +9,7 @@ use crate::data::product_state_data::ProductStateData;
 use crate::data::provenance_data::ProvenanceData;
 use crate::data::restoration_data::RestorationData;
 use common::category_key::CategoryId;
+use common::distance::data::GeoDistanceQueryData;
 use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
@@ -19,13 +20,16 @@ use common::{
     currency::data::CurrencyData, language::data::LanguageData, price::domain::MonetaryAmount,
     product_state::domain::ProductState,
 };
+use geo::core::continent::Continent;
+use geo::data::continent_data::ContinentData;
+use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use shop::core::shop_type::ShopType;
 use shop::data::shop_type_data::ShopTypeData;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProductSearchData {
     #[serde(default)]
     pub language: LanguageData,
@@ -103,6 +107,20 @@ pub struct ProductSearchData {
         default
     )]
     pub shop_type_query: HashSet<ShopTypeData>,
+    #[serde(rename = "country", skip_serializing_if = "HashSet::is_empty", default)]
+    pub country_query: HashSet<CountryCode>,
+    #[serde(
+        rename = "continent",
+        skip_serializing_if = "HashSet::is_empty",
+        default
+    )]
+    pub continent_query: HashSet<ContinentData>,
+    #[serde(
+        rename = "geoAddress",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub geo_address_distance_query: Option<GeoDistanceQueryData>,
     #[serde(rename = "price", skip_serializing_if = "Option::is_none", default)]
     pub price_query: Option<RangeQuery<u64>>,
     #[serde(rename = "state", skip_serializing_if = "HashSet::is_empty", default)]
@@ -193,6 +211,13 @@ impl From<ProductSearch> for ProductSearchData {
                 .into_iter()
                 .map(ShopTypeData::from)
                 .collect(),
+            country_query: search_filter.country_query.into(),
+            continent_query: search_filter
+                .continent_query
+                .into_iter()
+                .map(ContinentData::from)
+                .collect(),
+            geo_address_distance_query: search_filter.geo_address_distance_query.map(Into::into),
             price_query: search_filter
                 .price_query
                 .map(|price_query| price_query.map(u64::from)),
@@ -251,6 +276,13 @@ impl From<ProductSearchData> for ProductSearch {
                 .into_iter()
                 .map(ShopType::from)
                 .collect(),
+            country_query: data.country_query.into(),
+            continent_query: data
+                .continent_query
+                .into_iter()
+                .map(Continent::from)
+                .collect(),
+            geo_address_distance_query: data.geo_address_distance_query.map(Into::into),
             price_query: data
                 .price_query
                 .map(|query| query.map(MonetaryAmount::from)),
@@ -311,6 +343,9 @@ mod faker {
                 seller_slug_id_query: config.fake_with_rng(rng),
                 exclude_seller_slug_id_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
+                country_query: Default::default(),
+                continent_query: config.fake_with_rng(rng),
+                geo_address_distance_query: None,
                 price_query: config
                     .fake_with_rng::<Option<RangeQuery<u32>>, R>(rng) // otherwise get Out-Of-Range-Err often from OpenSearch
                     .map(|query| query.map(u64::from)),
@@ -359,6 +394,9 @@ mod tests {
             seller_name_query: Default::default(),
             exclude_seller_name_query: Default::default(),
             shop_type_query: HashSet::from_iter([ShopTypeData::CommercialDealer]),
+            country_query: Default::default(),
+            continent_query: Default::default(),
+            geo_address_distance_query: None,
             price_query: Some(RangeQuery {
                 min: Some(37),
                 max: Some(42),
@@ -468,6 +506,9 @@ mod tests {
             seller_name_query: Default::default(),
             exclude_seller_name_query: Default::default(),
             shop_type_query: HashSet::from_iter([ShopTypeData::CommercialDealer]),
+            country_query: Default::default(),
+            continent_query: Default::default(),
+            geo_address_distance_query: None,
             price_query: Some(RangeQuery {
                 min: Some(37),
                 max: Some(42),
@@ -540,6 +581,9 @@ mod tests {
             seller_name_query: Default::default(),
             exclude_seller_name_query: Default::default(),
             shop_type_query: Default::default(),
+            country_query: Default::default(),
+            continent_query: Default::default(),
+            geo_address_distance_query: None,
             price_query: None,
             state_query: Default::default(),
             origin_year_query: None,
@@ -585,6 +629,9 @@ mod tests {
             seller_name_query: Default::default(),
             exclude_seller_name_query: Default::default(),
             shop_type_query: Default::default(),
+            country_query: Default::default(),
+            continent_query: Default::default(),
+            geo_address_distance_query: None,
             price_query: None,
             state_query: Default::default(),
             origin_year_query: None,
@@ -623,6 +670,9 @@ mod tests {
             seller_name_query: Default::default(),
             exclude_seller_name_query: Default::default(),
             shop_type_query: Default::default(),
+            country_query: Default::default(),
+            continent_query: Default::default(),
+            geo_address_distance_query: None,
             price_query: None,
             state_query: Default::default(),
             origin_year_query: None,

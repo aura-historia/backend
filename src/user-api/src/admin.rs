@@ -135,6 +135,7 @@ pub async fn patch(
         tier: patch_data.tier.map(Into::into),
         role: patch_data.role.map(Into::into),
         stripe_customer_id: patch_data.stripe_customer_id,
+        structured_address: patch_data.structured_address.map(Into::into),
     };
     let updated_user_data: GetUserAccountData = service.update_user(&user_id, cmd).await?.into();
 

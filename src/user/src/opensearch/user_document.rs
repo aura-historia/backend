@@ -9,6 +9,12 @@ use common::{
     currency::record::CurrencyRecord, language::record::LanguageRecord,
     stripe_customer_id::StripeCustomerId, user_id::UserId,
 };
+use geo::core::continent::Continent;
+use geo::data::continent_data::ContinentData;
+use geo::opensearch::{
+    geo_address_from_document, geo_address_to_document, structured_address_from_document,
+};
+use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use serde_fields::SerdeField;
@@ -32,6 +38,22 @@ pub struct UserDocument {
     pub role: UserRoleDocument,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stripe_customer_id: Option<StripeCustomerId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_addressline: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_addressline_extra: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_locality: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_region: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_postal_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_country: Option<CountryCode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_continent: Option<ContinentData>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geo_address: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -46,6 +68,7 @@ impl UserDocument {
 
 impl From<User> for UserDocument {
     fn from(user: User) -> Self {
+        let structured_address = user.structured_address;
         UserDocument {
             user_id: user.user_id,
             email: user.email,
@@ -57,6 +80,29 @@ impl From<User> for UserDocument {
             tier: user.tier.into(),
             role: user.role.into(),
             stripe_customer_id: user.stripe_customer_id,
+            structured_address_addressline: structured_address
+                .as_ref()
+                .and_then(|address| address.addressline.clone()),
+            structured_address_addressline_extra: structured_address
+                .as_ref()
+                .and_then(|address| address.addressline_extra.clone()),
+            structured_address_locality: structured_address
+                .as_ref()
+                .and_then(|address| address.locality.clone()),
+            structured_address_region: structured_address
+                .as_ref()
+                .and_then(|address| address.region.clone()),
+            structured_address_postal_code: structured_address
+                .as_ref()
+                .and_then(|address| address.postal_code.clone()),
+            structured_address_country: structured_address
+                .as_ref()
+                .and_then(|address| address.country),
+            structured_address_continent: structured_address
+                .as_ref()
+                .and_then(|address| address.country)
+                .map(|country| ContinentData::from(Continent::from(country))),
+            geo_address: geo_address_to_document(user.geo_address),
             created: user.created,
             updated: user.updated,
         }
@@ -76,6 +122,15 @@ impl From<UserDocument> for User {
             tier: UserTier::from(document.tier),
             role: UserRole::from(document.role),
             stripe_customer_id: document.stripe_customer_id,
+            structured_address: structured_address_from_document(
+                document.structured_address_addressline,
+                document.structured_address_addressline_extra,
+                document.structured_address_locality,
+                document.structured_address_region,
+                document.structured_address_postal_code,
+                document.structured_address_country,
+            ),
+            geo_address: geo_address_from_document(document.geo_address.as_deref()),
             created: document.created,
             updated: document.updated,
         }

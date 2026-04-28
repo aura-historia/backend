@@ -1,5 +1,6 @@
 use common::category_key::CategoryId;
 use common::currency::domain::Currency;
+use common::distance::domain::{Distance, DistanceUnit, GeoDistanceQuery};
 use common::event_id::EventId;
 use common::language::document::{LanguageDocument, TextDocument};
 use common::language::domain::Language;
@@ -15,6 +16,7 @@ use common::slug_id::SlugId;
 use common::sort::{Sort, SortOrder};
 use common::year::Year;
 use fake::{Fake, Faker, rand};
+use geo::core::continent::Continent;
 use opensearch::http::Url;
 use product::core::authenticity::Authenticity;
 use product::core::condition::Condition;
@@ -31,6 +33,7 @@ use product::opensearch::repository::{
 };
 use serde_json::json;
 use shop::core::shop_type::ShopType;
+use shop::opensearch::continent_document::ContinentDocument;
 use shop::opensearch::shop_type_document::ShopTypeDocument;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -55,6 +58,14 @@ async fn should_create_product_document() {
         shop_name: "Foo".to_string(),
         seller_name: "Bar".to_string(),
         shop_type: ShopTypeDocument::CommercialDealer,
+        structured_address_addressline: None,
+        structured_address_addressline_extra: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        structured_address_continent: None,
+        geo_address: None,
         category_id: Faker.fake(),
         category_name_de: Faker.fake(),
         category_name_en: Faker.fake(),
@@ -179,6 +190,14 @@ async fn should_create_product_documents() {
         shop_name: "Foo".to_string(),
         seller_name: "Bar".to_string(),
         shop_type: ShopTypeDocument::CommercialDealer,
+        structured_address_addressline: None,
+        structured_address_addressline_extra: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        structured_address_continent: None,
+        geo_address: None,
         category_id: Faker.fake(),
         category_name_de: Faker.fake(),
         category_name_en: Faker.fake(),
@@ -288,6 +307,14 @@ async fn should_create_product_documents() {
         shop_name: "Foo".to_string(),
         seller_name: "Bar".to_string(),
         shop_type: ShopTypeDocument::CommercialDealer,
+        structured_address_addressline: None,
+        structured_address_addressline_extra: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        structured_address_continent: None,
+        geo_address: None,
         category_id: Faker.fake(),
         category_name_de: Faker.fake(),
         category_name_en: Faker.fake(),
@@ -414,6 +441,14 @@ async fn should_update_product_document() {
         shop_name: "Foo".to_string(),
         seller_name: "Bar".to_string(),
         shop_type: ShopTypeDocument::CommercialDealer,
+        structured_address_addressline: None,
+        structured_address_addressline_extra: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        structured_address_continent: None,
+        geo_address: None,
         category_id: Faker.fake(),
         category_name_de: Faker.fake(),
         category_name_en: Faker.fake(),
@@ -646,6 +681,14 @@ async fn should_search_product_documents() {
         shop_name: "Foo".to_string(),
         seller_name: "Bar".to_string(),
         shop_type: ShopTypeDocument::CommercialDealer,
+        structured_address_addressline: None,
+        structured_address_addressline_extra: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        structured_address_continent: None,
+        geo_address: None,
         category_id: Faker.fake(),
         category_name_de: Faker.fake(),
         category_name_en: Faker.fake(),
@@ -764,6 +807,9 @@ async fn should_search_product_documents() {
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -817,6 +863,14 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
         shop_name: "Foo".to_string(),
         seller_name: "Bar".to_string(),
         shop_type: ShopTypeDocument::CommercialDealer,
+        structured_address_addressline: None,
+        structured_address_addressline_extra: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        structured_address_continent: None,
+        geo_address: None,
         category_id: Faker.fake(),
         category_name_de: Faker.fake(),
         category_name_en: Faker.fake(),
@@ -935,6 +989,9 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -1004,6 +1061,9 @@ async fn should_search_product_documents_when_all_arguments_are_given() {
         exclude_shop_name_query: HashSet::from_iter(["Berlin GmbH".into()]).into(),
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: Some(RangeQuery {
             min: Some(100u64.into()),
             max: Some(999999u64.into()),
@@ -1092,6 +1152,9 @@ async fn should_search_product_documents_when_states_are_given(#[case] states: &
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: AnyOfQuery::from(HashSet::from_iter(states.iter().copied())),
         origin_year_query: None,
@@ -1160,6 +1223,9 @@ async fn should_search_product_documents_when_no_states_are_given() {
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: AnyOfQuery::from(HashSet::new()),
         origin_year_query: None,
@@ -1250,6 +1316,9 @@ async fn should_search_product_documents_when_price_range_is_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: Some(price_query),
         state_query: Default::default(),
         origin_year_query: None,
@@ -1344,6 +1413,9 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -1442,6 +1514,9 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -1491,6 +1566,135 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
 }
 
 #[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_country_query_is_given() {
+    let repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let expected_country = isocountry::CountryCode::DEU;
+    let other_country = isocountry::CountryCode::FRA;
+    let mut expected = Faker.fake::<ProductDocument>();
+    expected.structured_address_country = Some(expected_country);
+    expected.structured_address_continent =
+        Some(ContinentDocument::from(Continent::from(expected_country)));
+    let mut other = Faker.fake::<ProductDocument>();
+    other.structured_address_country = Some(other_country);
+    other.structured_address_continent =
+        Some(ContinentDocument::from(Continent::from(other_country)));
+    let create_res = repository
+        .create_product_documents(vec![expected.clone(), other])
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let search_filter = ProductSearch::new(Language::En, Currency::Eur)
+        .with_country_query(HashSet::from_iter([expected_country]).into());
+
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let hits = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source.product_id)
+        .collect::<HashSet<_>>();
+    assert_eq!(HashSet::from_iter([expected.product_id]), hits);
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_continent_query_is_given() {
+    let repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let mut expected = Faker.fake::<ProductDocument>();
+    expected.structured_address_country = Some(isocountry::CountryCode::DEU);
+    expected.structured_address_continent = Some(ContinentDocument::Europe);
+    let mut other = Faker.fake::<ProductDocument>();
+    other.structured_address_country = Some(isocountry::CountryCode::JPN);
+    other.structured_address_continent = Some(ContinentDocument::Asia);
+    let create_res = repository
+        .create_product_documents(vec![expected.clone(), other])
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let search_filter = ProductSearch::new(Language::En, Currency::Eur)
+        .with_continent_query(HashSet::from_iter([Continent::Europe]).into());
+
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let hits = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source.product_id)
+        .collect::<HashSet<_>>();
+    assert_eq!(HashSet::from_iter([expected.product_id]), hits);
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_geo_address_distance_query_is_given() {
+    let repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let mut expected = Faker.fake::<ProductDocument>();
+    expected.geo_address = Some("52.5200,13.4050".to_string());
+    let mut other = Faker.fake::<ProductDocument>();
+    other.geo_address = Some("40.7128,-74.0060".to_string());
+    let create_res = repository
+        .create_product_documents(vec![expected.clone(), other])
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let search_filter = ProductSearch::new(Language::En, Currency::Eur)
+        .with_geo_address_distance_query(GeoDistanceQuery {
+            lat: 52.5200,
+            lon: 13.4050,
+            distance: Distance {
+                amount: 50.0,
+                unit: DistanceUnit::Kilometers,
+            },
+        });
+
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let hits = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source.product_id)
+        .collect::<HashSet<_>>();
+    assert_eq!(HashSet::from_iter([expected.product_id]), hits);
+}
+
+#[localstack_test(services = [OpenSearch()])]
 async fn should_get_product_document() {
     let product_id = ProductId::new();
     let expected = ProductDocument {
@@ -1505,6 +1709,14 @@ async fn should_get_product_document() {
         shop_name: "Foo".to_string(),
         seller_name: "Bar".to_string(),
         shop_type: ShopTypeDocument::CommercialDealer,
+        structured_address_addressline: None,
+        structured_address_addressline_extra: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        structured_address_continent: None,
+        geo_address: None,
         category_id: Faker.fake(),
         category_name_de: Faker.fake(),
         category_name_en: Faker.fake(),
@@ -2467,6 +2679,9 @@ async fn should_search_product_documents_when_exact_year_is_given_for_stored_exa
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: Some(RangeQuery {
@@ -2571,6 +2786,9 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: Some(RangeQuery {
@@ -2675,6 +2893,9 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: Some(RangeQuery {
@@ -2779,6 +3000,9 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: Some(RangeQuery {
@@ -2885,6 +3109,9 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: Some(RangeQuery {
@@ -2989,6 +3216,9 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: Some(RangeQuery {
@@ -3093,6 +3323,9 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: Some(RangeQuery {
@@ -3179,6 +3412,9 @@ async fn should_search_product_documents_when_authenticity_filter_is_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -3254,6 +3490,9 @@ async fn should_search_product_documents_when_condition_filter_is_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -3329,6 +3568,9 @@ async fn should_search_product_documents_when_provenance_filter_is_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -3404,6 +3646,9 @@ async fn should_search_product_documents_when_restoration_filter_is_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -3479,6 +3724,9 @@ async fn should_search_product_documents_when_shop_types_are_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: AnyOfQuery::from(HashSet::from_iter(shop_types.iter().copied())),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -3562,6 +3810,9 @@ async fn should_search_product_documents_when_category_id_is_given() {
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -3648,6 +3899,9 @@ async fn should_search_product_documents_when_period_id_is_given() {
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -3742,6 +3996,9 @@ async fn should_search_product_documents_when_shop_names_are_given_for_keyword_f
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -3836,6 +4093,9 @@ async fn should_search_product_documents_when_excluded_shop_names_are_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -3928,6 +4188,9 @@ async fn should_search_product_documents_when_seller_names_are_given_for_keyword
         )),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -4026,6 +4289,9 @@ async fn should_search_product_documents_when_excluded_seller_names_are_given(
                 .map(|name| name.to_string().into()),
         )),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -4126,6 +4392,9 @@ async fn should_search_product_documents_when_shop_slug_ids_are_given(
         seller_slug_id_query: Default::default(),
         exclude_seller_slug_id_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -4226,6 +4495,9 @@ async fn should_search_product_documents_when_excluded_shop_slug_ids_are_given(
         seller_slug_id_query: Default::default(),
         exclude_seller_slug_id_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -4323,6 +4595,9 @@ async fn should_search_product_documents_when_seller_slug_ids_are_given(
         )),
         exclude_seller_slug_id_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -4425,6 +4700,9 @@ async fn should_search_product_documents_when_excluded_seller_slug_ids_are_given
                 .map(|slug| SlugId::from(*slug)),
         )),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -4535,6 +4813,9 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -4676,6 +4957,9 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -4817,6 +5101,9 @@ async fn should_search_product_documents_when_query_is_empty(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -4926,6 +5213,9 @@ fn search_with_query(query: &str) -> ProductSearch {
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,

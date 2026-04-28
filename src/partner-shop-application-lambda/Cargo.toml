@@ -8,6 +8,7 @@ name = "partner-shop-application-lambda"
 path = "src/main.rs"
 
 [dependencies]
+geo = { workspace = true }
 common = { workspace = true }
 partner-shop-application = { workspace = true, features = ["service"] }
 notification = { workspace = true, features = ["service"] }

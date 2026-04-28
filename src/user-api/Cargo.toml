@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+geo = { workspace = true }
 common = { workspace = true, features = ["api", "opensearch"] }
 user = { workspace = true, features = ["dynamodb", "service", "data", "cognito", "opensearch"] }
 serde = { workspace = true }
@@ -34,3 +35,4 @@ serial_test = { workspace = true }
 fake = { workspace = true }
 user = { workspace = true, features = ["test-data"] }
 common = { workspace = true, features = ["test-data"] }
+isocountry = { workspace = true }

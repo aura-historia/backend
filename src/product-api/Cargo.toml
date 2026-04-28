@@ -36,3 +36,5 @@ test-api = { workspace = true, features = ["api-gateway", "dynamodb", "opensearc
 serial_test = { workspace = true }
 rstest = { workspace = true }
 fake = { workspace = true }
+isocountry = { workspace = true }
+geo = { workspace = true }

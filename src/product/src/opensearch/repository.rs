@@ -23,7 +23,9 @@ use opensearch::http::request::JsonBody;
 use opensearch::{BulkOperation, BulkOperations, BulkParts, GetParts, SearchParts};
 use serde::ser::Error;
 use serde_json::json;
-use shop::opensearch::shop_type_document::ShopTypeDocument;
+use shop::opensearch::{
+    continent_document::ContinentDocument, shop_type_document::ShopTypeDocument,
+};
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::ops::Deref;
@@ -544,6 +546,34 @@ pub fn build_filter_clauses(
         filter.push(json!({
             "terms": {
                 ProductDocumentSerdeField::PeriodId.as_str(): search.period_id.iter().collect::<Vec<_>>()
+            }
+        }));
+    }
+
+    if !search.country_query.is_empty() {
+        filter.push(json!({
+            "terms": {
+                ProductDocumentSerdeField::StructuredAddressCountry.as_str(): search.country_query.iter().map(|c| c.alpha2()).collect::<Vec<_>>()
+            }
+        }));
+    }
+
+    if !search.continent_query.is_empty() {
+        filter.push(json!({
+            "terms": {
+                ProductDocumentSerdeField::StructuredAddressContinent.as_str(): search.continent_query.iter().map(|c| ContinentDocument::from(*c).as_str()).collect::<Vec<_>>()
+            }
+        }));
+    }
+
+    if let Some(query) = search.geo_address_distance_query {
+        filter.push(json!({
+            "geo_distance": {
+                "distance": query.distance.opensearch_value(),
+                ProductDocumentSerdeField::GeoAddress.as_str(): {
+                    "lat": query.lat,
+                    "lon": query.lon
+                }
             }
         }));
     }
