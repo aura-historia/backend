@@ -1,11 +1,7 @@
 use crate::IntegrationTestService;
-use crate::localstack::{LOCALSTACK_CONTAINER_PORT, get_aws_config, get_endpoint_url};
+use crate::localstack::get_aws_config;
 use async_trait::async_trait;
-use aws_sdk_opensearch::config::http::HttpResponse;
-use aws_sdk_opensearch::error::SdkError;
-use aws_sdk_opensearch::operation::create_domain::{CreateDomainError, CreateDomainOutput};
-use aws_sdk_opensearch::operation::describe_domain::DescribeDomainError;
-use aws_sdk_opensearch::types::DomainEndpointOptions;
+use opensearch::cluster::ClusterHealthParts;
 use opensearch::http::headers::HeaderMap;
 use opensearch::http::request::JsonBody;
 use opensearch::http::response::Response;
@@ -14,7 +10,10 @@ use opensearch::http::{Method, StatusCode, Url};
 use opensearch::indices::{IndicesExistsParts, IndicesRefreshParts};
 use opensearch::{DeleteByQueryParts, Error, GetParts, OpenSearch as Client};
 use serde::de::DeserializeOwned;
+use serde::ser::Error as SerdeError;
 use serde_json::json;
+use std::error::Error as StdError;
+use std::process::Command;
 use std::time::Duration;
 use tokio::sync::OnceCell;
 use tokio::time::sleep;
@@ -34,62 +33,62 @@ pub const TEST_DOMAIN_NAME: &str = "test-domain";
 /// This `OnceCell` ensures that the client is only created once during the test lifecycle,
 /// using the shared [`SdkConfig`] provided by [`get_aws_config()`].
 static OPENSEARCH_CLIENT: OnceCell<Client> = OnceCell::const_new();
+static OPENSEARCH_ENDPOINT_URL: OnceCell<String> = OnceCell::const_new();
 
-/// Returns a shared `opensearch::OpenSearch`-Client for interacting with LocalStack.
+type TestResult<T> = Result<T, Box<dyn StdError + Send + Sync>>;
+
+/// Returns a shared `opensearch::OpenSearch` client for the Floci-managed real
+/// OpenSearch container.
 ///
-/// The client is initialized only once using a global `OnceCell`, and internally depends on
-/// [`get_aws_config()`] for configuration (test credentials, region, LocalStack endpoint).
-///
-/// # Returns
-///
-/// A reference to a lazily-initialized `Client` instance.
+/// Floci only emulates the AWS OpenSearch *management* API on port 4566. In real mode it
+/// starts a dedicated OpenSearch container per domain and exposes that container on a host
+/// port. Data-plane calls (`/_search`, index creation, pipelines, ... ) must therefore go
+/// to the domain endpoint instead of the Floci management endpoint.
 pub async fn get_opensearch_client() -> &'static Client {
     let client = OPENSEARCH_CLIENT
         .get_or_init(|| async {
-            let endpoint_url = Url::parse(&format!("{}/{TEST_DOMAIN_NAME}", get_endpoint_url()))
-                .expect("shouldn't fail parsing OpenSearch endpoint URL");
-            let transport = TransportBuilder::new(SingleNodeConnectionPool::new(endpoint_url))
-                .auth(
-                    get_aws_config()
-                        .await
-                        .clone()
-                        .try_into()
-                        .expect("shouldn't fail extracting AWS-Config for OpenSearch"),
-                )
-                .service_name("es")
-                .build()
-                .expect("shouldn't fail creating OpenSearch-Transport");
-            opensearch::OpenSearch::new(transport)
+            let endpoint_url = get_opensearch_endpoint_url().await;
+            build_opensearch_client(endpoint_url)
         })
         .await;
     debug!("Successfully initialized OpenSearch-Client.");
     client
 }
 
-/// Marker type representing the OpenSearch service in LocalStack-based tests.
-///
-/// Implements the `IntegrationTestService` trait to support lifecycle management
-/// when used with the `#[localstack_test]` macro.
-///
-/// ### Dependencies
-///
-/// LocalStack requires **S3** to be activated when using OpenSearch.
-/// You need to supply S3 manually with `#[localstack_test(services = [OpenSearch, S3])]`
+async fn get_opensearch_endpoint_url() -> &'static str {
+    OPENSEARCH_ENDPOINT_URL
+        .get_or_init(|| async {
+            wait_until_domain_ready(TEST_DOMAIN_NAME)
+                .await
+                .expect("shouldn't fail waiting for OpenSearch domain to become ready")
+        })
+        .await
+        .as_str()
+}
+
+fn build_opensearch_client(endpoint_url: &str) -> Client {
+    let endpoint_url = Url::parse(endpoint_url).unwrap_or_else(|_| {
+        panic!("shouldn't fail parsing OpenSearch endpoint URL '{endpoint_url}'")
+    });
+    let transport = TransportBuilder::new(SingleNodeConnectionPool::new(endpoint_url))
+        .build()
+        .expect("shouldn't fail creating OpenSearch-Transport");
+    opensearch::OpenSearch::new(transport)
+}
+
+/// Marker type representing the OpenSearch service in Floci-backed tests.
 pub struct OpenSearch();
 
 #[async_trait]
 impl IntegrationTestService for OpenSearch {
     fn service_names(&self) -> &'static [&'static str] {
-        &["opensearch", "s3"]
+        &["opensearch"]
     }
 
     async fn set_up(&self) {
         set_up_domain()
             .await
             .expect("shouldn't fail creating OpenSearch-Domain");
-        wait_until_domain_processed(TEST_DOMAIN_NAME)
-            .await
-            .expect("shouldn't fail waiting for domain  to complete processing");
         set_up_indices()
             .await
             .expect("shouldn't fail setting up indices");
@@ -100,10 +99,8 @@ impl IntegrationTestService for OpenSearch {
     }
 }
 
-async fn set_up_domain() -> Result<CreateDomainOutput, SdkError<CreateDomainError>> {
+async fn set_up_domain() -> TestResult<()> {
     let client = aws_sdk_opensearch::Client::new(get_aws_config().await);
-    let custom_endpoint =
-        format!("http://localhost:{LOCALSTACK_CONTAINER_PORT}/{TEST_DOMAIN_NAME}");
 
     match client
         .describe_domain()
@@ -111,99 +108,132 @@ async fn set_up_domain() -> Result<CreateDomainOutput, SdkError<CreateDomainErro
         .send()
         .await
     {
-        Ok(_response) => {
-            // Domain already exists — it may have been created by CloudFormation without
-            // path-based routing registered. Call update_domain_config to ensure the
-            // custom endpoint is set so LocalStack routes /test-domain/* correctly.
-            debug!(
-                "OpenSearch domain '{}' already exists; updating custom endpoint to '{}'",
-                TEST_DOMAIN_NAME, custom_endpoint
-            );
-            let update_result = client
-                .update_domain_config()
-                .domain_name(TEST_DOMAIN_NAME)
-                .domain_endpoint_options(
-                    DomainEndpointOptions::builder()
-                        .custom_endpoint(&custom_endpoint)
-                        .custom_endpoint_enabled(true)
-                        .build(),
-                )
-                .send()
-                .await;
-            match update_result {
-                Ok(_) => debug!(
-                    "Custom endpoint for '{}' updated successfully.",
-                    TEST_DOMAIN_NAME
-                ),
-                Err(e) => debug!(
-                    "Could not update custom endpoint for '{}' (may already be set): {e}",
-                    TEST_DOMAIN_NAME
-                ),
-            }
-            return Ok(CreateDomainOutput::builder().build());
+        Ok(_) => {
+            debug!("OpenSearch domain '{TEST_DOMAIN_NAME}' already exists");
+            Ok(())
         }
         Err(_) => {
-            debug!(
-                "OpenSearch domain '{}' does not exist, creating it",
-                TEST_DOMAIN_NAME
-            );
+            debug!("OpenSearch domain '{TEST_DOMAIN_NAME}' does not exist, creating it");
+            client
+                .create_domain()
+                .domain_name(TEST_DOMAIN_NAME)
+                .send()
+                .await?;
+            Ok(())
         }
     }
-
-    client
-        .create_domain()
-        .domain_name(TEST_DOMAIN_NAME)
-        .domain_endpoint_options(
-            DomainEndpointOptions::builder()
-                // Must use the container-internal port (not the host-mapped port) so that
-                // LocalStack can resolve this URL from inside the container when registering
-                // the domain. The OpenSearch client uses get_endpoint_url() for host access.
-                .custom_endpoint(custom_endpoint)
-                .custom_endpoint_enabled(true)
-                .build(),
-        )
-        .send()
-        .await
 }
 
-async fn wait_until_domain_processed(
-    domain: &'static str,
-) -> Result<(), SdkError<DescribeDomainError, HttpResponse>> {
+async fn wait_until_domain_ready(domain: &'static str) -> TestResult<String> {
     let mut retries = 500;
-    let mut processing = true;
-    while processing {
-        let res = aws_sdk_opensearch::Client::new(get_aws_config().await)
-            .describe_domain()
-            .domain_name(domain)
-            .send()
-            .await?;
-        if res
-            .clone()
-            .domain_status
-            .expect("shouldn't miss 'domain_status'")
-            .processing
-            .expect("shouldn't miss 'domain_status.processing'")
+    loop {
+        if let Some(endpoint_url) = host_reachable_domain_endpoint(domain).await
+            && cluster_health_is_ready(&endpoint_url).await
         {
-            retries -= 1;
             debug!(
-                remaining_retries = retries,
                 domain = domain,
-                "Domain is still being processed..."
+                endpoint = endpoint_url,
+                "OpenSearch domain is ready"
             );
-            if retries < 0 {
-                return Err(SdkError::timeout_error("Domain took too long to process"));
-            }
-            sleep(Duration::from_millis(500)).await;
-        } else {
-            debug!(
-                remaining_retries = retries,
-                domain = domain,
-                "Domain finished processing."
+            return Ok(endpoint_url);
+        }
+
+        retries -= 1;
+        if retries < 0 {
+            return Err(
+                format!("OpenSearch domain '{domain}' took too long to become ready").into(),
             );
-            processing = false;
+        }
+
+        debug!(
+            remaining_retries = retries,
+            domain = domain,
+            "OpenSearch domain is not ready yet..."
+        );
+        sleep(Duration::from_millis(500)).await;
+    }
+}
+
+async fn host_reachable_domain_endpoint(domain: &str) -> Option<String> {
+    let endpoint = aws_sdk_opensearch::Client::new(get_aws_config().await)
+        .describe_domain()
+        .domain_name(domain)
+        .send()
+        .await
+        .ok()
+        .and_then(|response| response.domain_status)
+        .and_then(|status| status.endpoint)
+        .filter(|endpoint| !endpoint.is_empty())
+        .map(|endpoint| normalize_endpoint_url(&endpoint));
+
+    if endpoint.as_deref().is_some_and(is_localhost_endpoint) {
+        return endpoint;
+    }
+
+    docker_mapped_opensearch_endpoint(domain).or(endpoint)
+}
+
+fn normalize_endpoint_url(endpoint: &str) -> String {
+    if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
+        endpoint.to_owned()
+    } else {
+        format!("http://{endpoint}")
+    }
+}
+
+fn is_localhost_endpoint(endpoint: &str) -> bool {
+    Url::parse(endpoint)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_owned))
+        .is_some_and(|host| matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1"))
+}
+
+fn docker_mapped_opensearch_endpoint(domain: &str) -> Option<String> {
+    let container_name = format!("floci-opensearch-{domain}");
+    let output = Command::new("docker")
+        .args(["port", &container_name, "9200/tcp"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let port = stdout
+        .lines()
+        .filter_map(|line| line.rsplit(':').next())
+        .filter_map(|port| port.trim().parse::<u16>().ok())
+        .next()?;
+
+    Some(format!("http://localhost:{port}"))
+}
+
+async fn cluster_health_is_ready(endpoint_url: &str) -> bool {
+    let client = build_opensearch_client(endpoint_url);
+    match client
+        .cluster()
+        .health(ClusterHealthParts::None)
+        .request_timeout(Duration::from_secs(2))
+        .send()
+        .await
+    {
+        Ok(response) if response.status_code().is_success() => {
+            let body = response
+                .json::<serde_json::Value>()
+                .await
+                .unwrap_or_default();
+            matches!(body["status"].as_str(), Some("green" | "yellow"))
+        }
+        Ok(response) => {
+            debug!(status = %response.status_code(), "OpenSearch cluster health returned non-success");
+            false
+        }
+        Err(error) => {
+            debug!(error = %error, "OpenSearch cluster health check failed");
+            false
         }
     }
-    Ok(())
 }
 
 static PRODUCTS_INDEX_MAPPING_STR: &str = include_str!(concat!(
@@ -279,6 +309,18 @@ fn mapping_with_inline_synonyms(mapping: &'static str) -> serde_json::Value {
         }
     }
 
+    // OpenSearch 3 requires an explicit `bits` setting for the scalar-quantization
+    // encoder. Production mappings are kept as-is; tests patch the mapping in-memory so
+    // the same repository tests can run against Floci's OpenSearch 3 image.
+    if let Some(encoder_parameters) =
+        mapping.pointer_mut("/mappings/properties/embedding/method/parameters/encoder/parameters")
+        && let Some(obj) = encoder_parameters.as_object_mut()
+        && obj.get("type").and_then(|value| value.as_str()) == Some("fp16")
+        && !obj.contains_key("bits")
+    {
+        obj.insert("bits".to_owned(), json!(16));
+    }
+
     mapping
 }
 
@@ -317,14 +359,11 @@ fn check_status_allow_not_found(response: &Response) -> Result<(), Error> {
 /// [`product::opensearch::repository::hybrid_search_product_documents`] references via the
 /// `search_pipeline` query parameter.
 ///
-/// Attempts to register a `score-ranker-processor` pipeline using Reciprocal Rank Fusion
-/// (RRF, `rank_constant = 60`) — the same technique used in production (OpenSearch 2.11+).
-/// If the cluster does not support `score-ranker-processor` (e.g. an older LocalStack
-/// image), the function falls back to a `normalization-processor` pipeline with `min_max`
-/// normalisation and `arithmetic_mean` combination, which is available since OpenSearch 2.9.
+/// Registers a `score-ranker-processor` pipeline using Reciprocal Rank Fusion (RRF),
+/// matching the OpenSearch 3 image used by Floci in integration tests.
 ///
-/// Panics if neither pipeline variant can be registered, so hybrid tests fail fast with a
-/// meaningful message rather than surfacing a confusing "pipeline not defined" 400 error.
+/// Panics if the pipeline cannot be registered, so hybrid tests fail fast with a meaningful
+/// message rather than surfacing a confusing "pipeline not defined" 400 error.
 async fn register_hybrid_search_pipeline(client: &Client) {
     // The pipeline name constant contains only alphanumeric characters and hyphens, which
     // are safe to embed in a URL path without encoding.
@@ -388,149 +427,74 @@ async fn register_hybrid_search_pipeline(client: &Client) {
     };
 }
 
-async fn set_up_indices() -> Result<Response, Error> {
+async fn set_up_indices() -> Result<(), Error> {
     let client = get_opensearch_client().await;
 
-    // Register hybrid search pipeline (idempotent PUT; errors are logged but do not abort
-    // test setup so that non-hybrid tests are unaffected even on engines without pipeline
-    // support).
     register_hybrid_search_pipeline(client).await;
 
-    // Index 'products'
+    create_index_if_missing(
+        client,
+        "products",
+        mapping_with_inline_synonyms(PRODUCTS_INDEX_MAPPING_STR),
+    )
+    .await?;
+    create_index_if_missing(client, "shops", parse_mapping(SHOPS_INDEX_MAPPING_STR)).await?;
+    create_index_if_missing(
+        client,
+        "categories",
+        parse_mapping(CATEGORIES_INDEX_MAPPING_STR),
+    )
+    .await?;
+    create_index_if_missing(
+        client,
+        "user_search_filters",
+        mapping_with_inline_synonyms(USER_SEARCH_FILTER_INDEX_MAPPING_STR),
+    )
+    .await?;
+    create_index_if_missing(client, "users", parse_mapping(USERS_INDEX_MAPPING_STR)).await?;
+
+    Ok(())
+}
+
+fn parse_mapping(mapping: &'static str) -> serde_json::Value {
+    serde_json::from_str::<serde_json::Value>(mapping)
+        .unwrap_or_else(|_| panic!("shouldn't fail parsing {mapping} as serde_json::Value"))
+}
+
+async fn create_index_if_missing(
+    client: &Client,
+    index: &'static str,
+    mapping: serde_json::Value,
+) -> Result<(), Error> {
     let exists_response = client
         .indices()
-        .exists(IndicesExistsParts::Index(&["products"]))
+        .exists(IndicesExistsParts::Index(&[index]))
         .send()
         .await?;
     check_status_allow_not_found(&exists_response)?;
 
     if exists_response.status_code().is_success() {
-        debug!("OpenSearch index 'products' already exists, skipping creation");
-        // Return a mock response since index exists
-        return Ok(exists_response);
+        debug!("OpenSearch index '{index}' already exists, skipping creation");
+        return Ok(());
     }
 
-    debug!("OpenSearch index 'products' does not exist, creating it");
-
-    get_opensearch_client()
-        .await
+    debug!("OpenSearch index '{index}' does not exist, creating it");
+    let response = client
         .indices()
-        .create(opensearch::indices::IndicesCreateParts::Index("products"))
-        .body(mapping_with_inline_synonyms(PRODUCTS_INDEX_MAPPING_STR))
-        .send()
-        .await?
-        .error_for_status_code()?;
-
-    // Index 'shops'
-    let exists_response = client
-        .indices()
-        .exists(IndicesExistsParts::Index(&["shops"]))
+        .create(opensearch::indices::IndicesCreateParts::Index(index))
+        .body(mapping)
         .send()
         .await?;
-    check_status_allow_not_found(&exists_response)?;
-
-    if exists_response.status_code().is_success() {
-        debug!("OpenSearch index 'shops' already exists, skipping creation");
-        // Return a mock response since index exists
-        return Ok(exists_response);
-    }
-
-    debug!("OpenSearch index 'shops' does not exist, creating it");
-
-    get_opensearch_client()
-        .await
-        .indices()
-        .create(opensearch::indices::IndicesCreateParts::Index("shops"))
-        .body(
-            serde_json::from_str::<serde_json::Value>(SHOPS_INDEX_MAPPING_STR)
-                .expect("shouldn't fail parsing SHOPS_INDEX_MAPPING_STR as serde_json::Value"),
-        )
-        .send()
-        .await?
-        .error_for_status_code()?;
-
-    // Index 'categories'
-    let exists_response = client
-        .indices()
-        .exists(IndicesExistsParts::Index(&["categories"]))
-        .send()
-        .await?;
-    check_status_allow_not_found(&exists_response)?;
-
-    if exists_response.status_code().is_success() {
-        debug!("OpenSearch index 'categories' already exists, skipping creation");
-        // Return a mock response since index exists
-        return Ok(exists_response);
-    }
-
-    debug!("OpenSearch index 'categories' does not exist, creating it");
-
-    get_opensearch_client()
-        .await
-        .indices()
-        .create(opensearch::indices::IndicesCreateParts::Index("categories"))
-        .body(
-            serde_json::from_str::<serde_json::Value>(CATEGORIES_INDEX_MAPPING_STR)
-                .expect("shouldn't fail parsing CATEGORIES_INDEX_MAPPING_STR as serde_json::Value"),
-        )
-        .send()
-        .await?
-        .error_for_status_code()?;
-
-    // Index 'user_search_filter'
-    let exists_response = client
-        .indices()
-        .exists(IndicesExistsParts::Index(&["user_search_filters"]))
-        .send()
-        .await?;
-    check_status_allow_not_found(&exists_response)?;
-
-    if exists_response.status_code().is_success() {
-        debug!("OpenSearch index 'user_search_filter' already exists, skipping creation");
-        return Ok(exists_response);
-    }
-
-    debug!("OpenSearch index 'user_search_filter' does not exist, creating it");
-
-    get_opensearch_client()
-        .await
-        .indices()
-        .create(opensearch::indices::IndicesCreateParts::Index(
-            "user_search_filters",
+    let status = response.status_code();
+    let payload = response.text().await?;
+    if !status.is_success() {
+        return Err(<serde_json::Error as SerdeError>::custom(format!(
+            "failed creating OpenSearch index '{index}' with HTTP {status}: {payload}"
         ))
-        .body(mapping_with_inline_synonyms(
-            USER_SEARCH_FILTER_INDEX_MAPPING_STR,
-        ))
-        .send()
-        .await?
-        .error_for_status_code()?;
-
-    // Index 'users'
-    let exists_response = client
-        .indices()
-        .exists(IndicesExistsParts::Index(&["users"]))
-        .send()
-        .await?;
-    check_status_allow_not_found(&exists_response)?;
-
-    if exists_response.status_code().is_success() {
-        debug!("OpenSearch index 'users' already exists, skipping creation");
-        return Ok(exists_response);
+        .into());
     }
 
-    debug!("OpenSearch index 'users' does not exist, creating it");
-
-    get_opensearch_client()
-        .await
-        .indices()
-        .create(opensearch::indices::IndicesCreateParts::Index("users"))
-        .body(
-            serde_json::from_str::<serde_json::Value>(USERS_INDEX_MAPPING_STR)
-                .expect("shouldn't fail parsing USERS_INDEX_MAPPING_STR as serde_json::Value"),
-        )
-        .send()
-        .await?
-        .error_for_status_code()
+    Ok(())
 }
 
 /// Clears all documents from every standard index to ensure test isolation.

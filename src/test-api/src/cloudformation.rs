@@ -340,7 +340,7 @@ async fn package_and_upload_lambdas() {
             .body(zip_bytes.into())
             .send()
             .await
-            .unwrap_or_else(|e| panic!("shouldn't fail uploading '{s3_key}' to S3: {e}"));
+            .unwrap_or_else(|e| panic!("shouldn't fail uploading '{s3_key}' to S3: {e:?}"));
         debug!("Uploaded Lambda ZIP '{s3_key}' to S3.");
     }))
     .buffer_unordered(MAX_CONCURRENT_UPLOADS)

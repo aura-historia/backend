@@ -2,7 +2,9 @@ use crate::IntegrationTestService;
 use crate::localstack::get_aws_config;
 use async_trait::async_trait;
 use aws_sdk_sqs::Client;
-use aws_sdk_sqs::types::{DeleteMessageBatchRequestEntry, QueueAttributeName};
+#[cfg(feature = "cloudformation")]
+use aws_sdk_sqs::types::DeleteMessageBatchRequestEntry;
+use aws_sdk_sqs::types::QueueAttributeName;
 use derive_builder::Builder;
 use tokio::sync::OnceCell;
 use tracing::debug;
@@ -145,6 +147,7 @@ impl IntegrationTestService for Sqs {
 ///
 /// Prefer [`Sqs::tear_down`] for test teardown when full isolation including
 /// invisible messages is required.
+#[cfg(feature = "cloudformation")]
 pub(crate) async fn drain_queues(queue_urls: Vec<String>) {
     for queue_url in queue_urls {
         drain_queue(&queue_url).await;
@@ -152,6 +155,7 @@ pub(crate) async fn drain_queues(queue_urls: Vec<String>) {
 }
 
 /// Receives and deletes all currently **visible** messages from a single SQS queue.
+#[cfg(feature = "cloudformation")]
 async fn drain_queue(queue_url: &str) {
     let client = get_sqs_client().await;
     loop {

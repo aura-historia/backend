@@ -5,10 +5,24 @@ use std::process::Command;
 use std::sync::OnceLock;
 use testcontainers::core::{IntoContainerPort, Mount};
 use testcontainers::runners::AsyncRunner;
-use testcontainers::{ContainerAsync, ImageExt};
-use testcontainers_modules::localstack::LocalStackPro;
+use testcontainers::{ContainerAsync, Image, ImageExt};
 use tokio::sync::OnceCell;
 use tracing::{debug, error};
+
+pub struct Floci;
+impl Image for Floci {
+    fn name(&self) -> &str {
+        "floci/floci"
+    }
+
+    fn tag(&self) -> &str {
+        "latest"
+    }
+
+    fn ready_conditions(&self) -> Vec<testcontainers::core::WaitFor> {
+        vec![]
+    }
+}
 
 const LOCALSTACK_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-localstack-test";
 
@@ -79,12 +93,12 @@ pub async fn get_aws_config() -> &'static SdkConfig {
     cfg
 }
 
-static LOCALSTACK: OnceCell<ContainerAsync<LocalStackPro>> = OnceCell::const_new();
+static LOCALSTACK: OnceCell<ContainerAsync<Floci>> = OnceCell::const_new();
 
 pub async fn get_localstack(
     services: &[&str],
     extra_env_vars: &[(&str, &str)],
-) -> &'static ContainerAsync<LocalStackPro> {
+) -> &'static ContainerAsync<Floci> {
     LOCALSTACK
         .get_or_init(|| async {
             install_cleanup();
@@ -105,13 +119,20 @@ extern "C" fn cleanup() {
     let name = localstack_container_name();
     let _ = Command::new("docker").args(["rm", "-f", &name]).status();
 
-    // remove ephemeral containers spawned by localstack
-    if let Ok(out) = Command::new("docker")
-        .args(["ps", "-aq", "--filter", &format!("name=^/{name}")])
-        .output()
-    {
-        for id in String::from_utf8_lossy(&out.stdout).lines() {
-            let _ = Command::new("docker").args(["rm", "-f", id]).status();
+    // Remove ephemeral sibling containers spawned by the emulator. OpenSearch domains run
+    // as `floci-opensearch-*` containers and are not removed automatically when we
+    // force-remove the emulator.
+    for name_filter in [
+        format!("name=^/{name}"),
+        "name=^/floci-opensearch-test-domain$".to_owned(),
+    ] {
+        if let Ok(out) = Command::new("docker")
+            .args(["ps", "-aq", "--filter", &name_filter])
+            .output()
+        {
+            for id in String::from_utf8_lossy(&out.stdout).lines() {
+                let _ = Command::new("docker").args(["rm", "-f", id]).status();
+            }
         }
     }
 }
@@ -154,15 +175,13 @@ fn find_free_port() -> u16 {
 ///
 /// # Returns
 ///
-/// A tuple of the running [`ContainerAsync<LocalStackPro>`] instance and the host port it
+/// A tuple of the running [`ContainerAsync<Floci>`] instance and the host port it
 /// is bound to, ready for AWS SDK interactions.
 ///
 /// # Panics
 ///
 /// Panics if the container fails to start.
-pub async fn spin_up_localstack(
-    env_vars: HashMap<&str, String>,
-) -> (ContainerAsync<LocalStackPro>, u16) {
+pub async fn spin_up_localstack(env_vars: HashMap<&str, String>) -> (ContainerAsync<Floci>, u16) {
     let _ = tracing_subscriber::fmt()
         .json()
         .with_max_level(tracing::Level::INFO)
@@ -173,14 +192,10 @@ pub async fn spin_up_localstack(
 
     let port = find_free_port();
 
-    let auth_token = std::env::var("LOCALSTACK_AUTH_TOKEN")
-        .or_else(|_| std::env::var("LOCALSTACK_API_KEY"))
-        .ok();
-
     let request = env_vars
         .iter()
         .fold(
-            LocalStackPro::with_auth_token(auth_token)
+            Floci
                 .with_container_name(localstack_container_name())
                 .with_tag("latest"),
             |ls, (k, v)| ls.with_env_var(*k, v.as_str()),
@@ -214,12 +229,12 @@ pub async fn spin_up_localstack(
 ///
 /// # Returns
 ///
-/// A tuple of the running [`ContainerAsync<LocalStackPro>`] with only the requested services
+/// A tuple of the running [`ContainerAsync<Floci>`] with only the requested services
 /// enabled, and the host port it is bound to.
 pub async fn spin_up_localstack_with_services(
     services: &[&str],
     extra_env_vars: &[(&str, &str)],
-) -> (ContainerAsync<LocalStackPro>, u16) {
+) -> (ContainerAsync<Floci>, u16) {
     let mut env_vars = HashMap::from([
         ("SERVICES", services.join(",")),
         (
@@ -227,6 +242,11 @@ pub async fn spin_up_localstack_with_services(
             "--add-host=host.docker.internal:host-gateway".to_owned(),
         ),
         ("ENFORCE_IAM", "1".to_owned()),
+        ("FLOCI_STORAGE_SERVICES_S3_CACHE_SIZE_MB", "1000".to_owned()),
+        (
+            "FLOCI_SERVICES_OPENSEARCH_DEFAULT_IMAGE",
+            "opensearchproject/opensearch:3".to_owned(),
+        ),
     ]);
     for (k, v) in extra_env_vars {
         env_vars.insert(k, v.to_string());
