@@ -1,0 +1,80 @@
+use super::*;
+use crate::scraper::scraper_service::util::hash::{hash_html, hash_main_fragment};
+use sha2::{Digest, Sha256};
+
+#[tokio::test]
+async fn should_skip_fetching_and_return_none_when_hashes_match() {
+    let id = shop_id();
+    let url = product_url();
+    let html = sample_html();
+    let matching_hash = hash_main_fragment(&html).unwrap_or_else(|| hash_html(&html));
+
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher.expect_fetch().once().returning(move |_| {
+        let html = html.clone();
+        Box::pin(async move { Ok(html) })
+    });
+
+    let schema_svc = MockProductSchemaService::new();
+    let norm_svc = MockProductNormalizationService::new();
+    let mut cand_svc = MockScraperCandidateService::new();
+    cand_svc
+        .expect_touch_scraped()
+        .once()
+        .returning(|_, _, _| Box::pin(async { Ok(()) }));
+
+    let service = ScraperServiceImpl::new_with_schema_seed_pages(
+        Box::new(fetcher),
+        Box::new(schema_svc),
+        Box::new(norm_svc),
+        Arc::new(cand_svc),
+        3,
+        1,
+        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+    );
+
+    let result = service
+        .scrape(&id, &url, Some(&matching_hash))
+        .await
+        .unwrap();
+
+    assert!(result.is_none());
+}
+
+#[test]
+fn should_hash_main_fragment_when_main_tag_exists() {
+    let html = "<html><body><main><h1>Hello</h1></main></body></html>";
+    let hash = hash_main_fragment(html).expect("should find <main> tag");
+
+    let mut hasher = Sha256::new();
+    hasher.update("<h1>Hello</h1>".as_bytes());
+    let expected: String = hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+
+    assert_eq!(hash, expected);
+}
+
+#[test]
+fn should_return_none_from_hash_main_fragment_when_main_tag_missing() {
+    let html = "<html><body><section>No main</section></body></html>";
+    assert!(hash_main_fragment(html).is_none());
+}
+
+#[test]
+fn should_hash_full_html_when_main_tag_missing() {
+    let html = "<html><body><section>No main</section></body></html>";
+    let hash = hash_html(html);
+
+    let mut hasher = Sha256::new();
+    hasher.update(html.as_bytes());
+    let expected: String = hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+
+    assert_eq!(hash, expected);
+}

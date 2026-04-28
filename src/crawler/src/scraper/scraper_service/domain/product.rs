@@ -1,0 +1,39 @@
+use crate::scraper::candidate_service::ProductSnapshot;
+use crate::scraper::normalization::product::NormalizedProduct;
+use crate::scraper::scraper_service::domain::errors::ScraperError;
+use common::shop_id::ShopId;
+use url::Url;
+
+/// Result of a successful scrape — the normalized product together with the
+/// metadata needed to mark the URL as scraped *after* the push has been
+/// confirmed.
+#[derive(Debug)]
+pub struct ScrapedProduct {
+    pub product: NormalizedProduct,
+    /// SHA-256 of the page's `<main>` fragment (or full HTML) that was used to
+    /// detect whether the page had changed.
+    pub hash: String,
+    /// Snapshot of the normalized product's tracked fields, serialized to the
+    /// same TEXT representation used in the database.
+    pub snapshot: ProductSnapshot,
+}
+
+// ---------------------------------------------------------------------------
+// ScraperService trait
+// ---------------------------------------------------------------------------
+
+#[async_trait::async_trait]
+#[mockall::automock]
+pub trait ScraperService: Send + Sync {
+    /// Fetch the product page at `url`, extract structured data using the CSS
+    /// selector schema for `shop_id`, normalise the raw data, and return a
+    /// [`ScrapedProduct`].  The caller is responsible for calling
+    /// [`crate::scraper::candidate_service::ScraperCandidateService::mark_as_scraped`]
+    /// once the product has been successfully pushed to the backend.
+    async fn scrape(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        last_scraped_hash: Option<&str>,
+    ) -> Result<Option<ScrapedProduct>, ScraperError>;
+}

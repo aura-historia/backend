@@ -514,6 +514,7 @@ async fn scrape_candidate(
                 let error_kind = scraper_error_kind(&e);
                 match &e {
                     ScraperError::SchemaRegenerationExhausted { .. }
+                    | ScraperError::NormalizationFixExhausted { .. }
                     | ScraperError::LlmBudgetExceeded { .. } => {
                         let cooldown = std::time::Duration::from_secs(30 * 60);
                         let next_retry_at = time::OffsetDateTime::now_utc()
@@ -533,7 +534,7 @@ async fn scrape_candidate(
                             warn!(
                                 error = %mark_err,
                                 url = %candidate.url,
-                                "Failed to persist schema-regeneration/LLM-budget cooldown metadata"
+                                "Failed to persist schema-regeneration/normalization-fix/LLM-budget cooldown metadata"
                             );
                         }
                     }
@@ -604,6 +605,7 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::NoHost { .. } => "NoHost",
         ScraperError::SchemaServiceError(_) => "SchemaServiceError",
         ScraperError::SchemaRegenerationExhausted { .. } => "SchemaRegenerationExhausted",
+        ScraperError::NormalizationFixExhausted { .. } => "NormalizationFixExhausted",
         ScraperError::LlmBudgetExceeded { .. } => "LlmBudgetExceeded",
         ScraperError::NormalizationError(_) => "NormalizationError",
     }
@@ -1137,6 +1139,63 @@ mod tests {
                         shop_id,
                         url,
                         max_calls: 5,
+                    })
+                })
+            });
+
+        let mut push_service = MockProductPushService::new();
+        push_service.expect_push().times(0);
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_shop_registration(),
+            Box::new(push_service),
+        );
+
+        job.run_scraper_once().await;
+    }
+
+    /// `NormalizationFixExhausted` must be handled identically to
+    /// `SchemaRegenerationExhausted`: write a cooldown via `mark_fetch_failure`
+    /// so the URL is held back until the backoff window expires.
+    #[tokio::test]
+    async fn should_mark_fetch_failure_for_normalization_fix_exhausted_error() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+        let spider_service = MockSpiderService::new();
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates.expect_get_candidates().returning(|_| {
+            Box::pin(async {
+                Ok(vec![scraper_candidate(
+                    "Test Shop",
+                    ShopType::CommercialDealer,
+                    url::Url::parse("https://example.com/product/1").unwrap(),
+                )])
+            })
+        });
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .once()
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .returning(|_, url, _| {
+                let url = url.clone();
+                Box::pin(async move {
+                    Err(ScraperError::NormalizationFixExhausted {
+                        url,
+                        attempts: 3,
+                        last_norm_error: crate::scraper::normalization::product_normalization_service::NormalizationError::TitleEmpty,
                     })
                 })
             });
