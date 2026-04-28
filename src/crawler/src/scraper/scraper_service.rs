@@ -2023,8 +2023,16 @@ mod tests {
                 let s = vec![schema_for_create.clone()];
                 Box::pin(async move { Ok(s) })
             });
-        // save_product_schemas must NOT be called — budget is rejected first.
-        schema_svc.expect_save_product_schemas().never();
+        // save_product_schemas IS called once during obtain_schemas (cache-miss
+        // path), before normalization runs and the budget is rejected.
+        let schema_for_save2 = schema.clone();
+        schema_svc
+            .expect_save_product_schemas()
+            .once()
+            .returning(move |_, _, _| {
+                let s = schema_for_save2.clone();
+                Box::pin(async move { Ok(s) })
+            });
 
         let expected = normalized_product(url.clone());
         let mut norm_svc = MockProductNormalizationService::new();
@@ -2040,19 +2048,14 @@ mod tests {
         let mut cand_svc = MockScraperCandidateService::new();
         // First call (schema gen) succeeds; second call (normalization LLM)
         // returns false → budget exhausted.
+        let call_counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         cand_svc
             .expect_try_increment_shop_llm_calls_with_limit()
             .times(2)
-            .returning(|_, delta, _| {
-                // delta == 1 for schema gen; delta == 1 for norm LLM call.
-                // First call (delta comes first in mock sequence): succeed.
-                // Second call: report budget exhausted.
+            .returning(move |_, delta, _| {
+                let counter = call_counter.clone();
                 Box::pin(async move {
-                    // We can't distinguish calls by order in mockall easily,
-                    // so simulate: first returns true, second returns false.
-                    static CALL: std::sync::atomic::AtomicUsize =
-                        std::sync::atomic::AtomicUsize::new(0);
-                    let n = CALL.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let n = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     Ok(n == 0 && delta == 1)
                 })
             });
