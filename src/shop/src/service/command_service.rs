@@ -12,6 +12,8 @@ use common::{shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::Use
 use time::OffsetDateTime;
 use tracing::info;
 
+use super::geocoding_service::{GeocodingError, GeocodingService};
+
 #[derive(Debug, thiserror::Error)]
 #[allow(clippy::large_enum_variant)]
 pub enum CommandShopError {
@@ -48,6 +50,9 @@ pub enum CommandShopError {
 
     #[error("Encountered DynamoDB SdkError for UpdateItem: {0:?}")]
     SdkUpdateItemError(#[from] SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError>),
+
+    #[error("Failed to geocode shop address: {0}")]
+    GeocodingError(#[from] GeocodingError),
 }
 
 #[cfg(feature = "data")]
@@ -81,6 +86,9 @@ pub mod api {
                 CommandShopError::SdkQueryError(err) => err.into(),
                 CommandShopError::SdkPutItemError(err) => err.into(),
                 CommandShopError::SdkUpdateItemError(err) => err.into(),
+                CommandShopError::GeocodingError(err) => {
+                    ApiError::bad_request(common::api::error_code::BAD_BODY_VALUE, Box::new(err))
+                }
             }
         }
     }
@@ -104,11 +112,18 @@ pub trait CommandShopService {
 
 pub struct CommandShopServiceImpl<'a> {
     repository: &'a (dyn ShopDynamoDbRepository + Sync),
+    geocoding_service: &'a (dyn GeocodingService + Sync),
 }
 
 impl<'a> CommandShopServiceImpl<'a> {
-    pub fn new(repository: &'a (dyn ShopDynamoDbRepository + Sync)) -> Self {
-        Self { repository }
+    pub fn new(
+        repository: &'a (dyn ShopDynamoDbRepository + Sync),
+        geocoding_service: &'a (dyn GeocodingService + Sync),
+    ) -> Self {
+        Self {
+            repository,
+            geocoding_service,
+        }
     }
 }
 
@@ -124,6 +139,11 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             ));
         }
 
+        let geo_address = match command.structured_address.as_ref() {
+            Some(address) => Some(self.geocoding_service.geocode(address).await?),
+            None => None,
+        };
+
         let shop = Shop {
             shop_id: ShopId::new(),
             shop_slug_id: SlugId::from(command.name.as_ref()),
@@ -131,6 +151,12 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             shop_type: command.shop_type,
             domains: command.domains,
             image: command.image,
+            structured_address: command.structured_address,
+            geo_address,
+            phone: command.phone,
+            email: command.email,
+            specialities_categories: command.specialities_categories,
+            specialities_periods: command.specialities_periods,
             partner_status: ShopPartnerStatus::default(),
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
@@ -158,6 +184,11 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             return Ok(shop_record.into());
         }
 
+        let geo_address = match command.structured_address.as_ref() {
+            Some(address) => Some(self.geocoding_service.geocode(address).await?),
+            None => None,
+        };
+
         let update = ShopRecordUpdate {
             partner_user_id: None,
             gsi1_pk: None,
@@ -165,6 +196,33 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             shop_type: command.shop_type.map(Into::into),
             domains: command.domains.clone(),
             image: command.image.clone(),
+            structured_address_addressline: command
+                .structured_address
+                .as_ref()
+                .and_then(|a| a.addressline.clone()),
+            structured_address_addressline_extra: command
+                .structured_address
+                .as_ref()
+                .and_then(|a| a.addressline_extra.clone()),
+            structured_address_locality: command
+                .structured_address
+                .as_ref()
+                .and_then(|address| address.locality.clone()),
+            structured_address_region: command
+                .structured_address
+                .as_ref()
+                .and_then(|address| address.region.clone()),
+            structured_address_postal_code: command
+                .structured_address
+                .as_ref()
+                .and_then(|address| address.postal_code.clone()),
+            structured_address_country: command.structured_address.as_ref().and_then(|a| a.country),
+            geo_address_lat: geo_address.as_ref().map(|address| address.lat),
+            geo_address_lon: geo_address.as_ref().map(|address| address.lon),
+            phone: command.phone.clone(),
+            email: command.email.clone(),
+            specialities_categories: command.specialities_categories.clone(),
+            specialities_periods: command.specialities_periods.clone(),
             partner_api_key_short: None,
             partner_api_key_long_hash: None,
             updated: OffsetDateTime::now_utc(),
@@ -213,6 +271,18 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             shop_type: None,
             domains: None,
             image: None,
+            structured_address_addressline: None,
+            structured_address_addressline_extra: None,
+            structured_address_locality: None,
+            structured_address_region: None,
+            structured_address_postal_code: None,
+            structured_address_country: None,
+            geo_address_lat: None,
+            geo_address_lon: None,
+            phone: None,
+            email: None,
+            specialities_categories: None,
+            specialities_periods: None,
             partner_api_key_short: Some(hashed.short_token().to_string()),
             partner_api_key_long_hash: Some(hashed.long_token_hash().to_string()),
             updated: OffsetDateTime::now_utc(),
@@ -236,10 +306,15 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
 mod tests {
     mod create {
         use crate::{
+            core::{
+                address::{GeoAddress, StructuredAddress},
+                continent::Continent,
+            },
             dynamodb::repository::MockShopDynamoDbRepository,
             service::{
                 command::CreateShopCommand,
                 command_service::{CommandShopError, CommandShopService, CommandShopServiceImpl},
+                geocoding_service::MockGeocodingService,
             },
         };
         use aws_sdk_dynamodb::{
@@ -248,6 +323,7 @@ mod tests {
             operation::put_item::PutItemOutput,
         };
         use fake::{Fake, Faker};
+        use isocountry::CountryCode;
         use std::collections::HashSet;
 
         #[tokio::test]
@@ -256,13 +332,21 @@ mod tests {
             shop_repository
                 .expect_query_shop_id()
                 .return_once(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
-            let service = CommandShopServiceImpl::new(&shop_repository);
+            let service = CommandShopServiceImpl::new(
+                &shop_repository,
+                &crate::service::geocoding_service::NoopGeocodingService,
+            );
 
             let cmd = CreateShopCommand {
                 name: Faker.fake(),
                 shop_type: Faker.fake(),
                 domains: HashSet::new(),
                 image: None,
+                structured_address: None,
+                phone: None,
+                email: None,
+                specialities_categories: Vec::new(),
+                specialities_periods: Vec::new(),
             };
             let actual = service.create(cmd).await.unwrap_err();
             match actual {
@@ -283,7 +367,10 @@ mod tests {
                 .expect_put_shop_record()
                 .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
 
-            let service = CommandShopServiceImpl::new(&shop_repository);
+            let service = CommandShopServiceImpl::new(
+                &shop_repository,
+                &crate::service::geocoding_service::NoopGeocodingService,
+            );
 
             let create_cmd: CreateShopCommand = Faker.fake();
             let actual = service.create(create_cmd.clone()).await.unwrap();
@@ -292,6 +379,57 @@ mod tests {
             assert_eq!(create_cmd.shop_type, actual.shop_type);
             assert_eq!(create_cmd.image, actual.image);
             assert_eq!(create_cmd.domains, actual.domains);
+        }
+
+        #[tokio::test]
+        async fn should_geocode_structured_address_when_creating_shop() {
+            let structured_address = StructuredAddress {
+                addressline: Some("Pariser Platz 1".to_string()),
+                addressline_extra: None,
+                locality: Some("Berlin".to_string()),
+                region: None,
+                postal_code: Some("10117".to_string()),
+                country: Some(CountryCode::DEU),
+                continent: Some(Continent::Europe),
+            };
+            let geo_address = GeoAddress {
+                lat: 52.516275,
+                lon: 13.377704,
+            };
+            let mut geocoding_service = MockGeocodingService::default();
+            geocoding_service
+                .expect_geocode()
+                .withf(|address| address.locality.as_deref() == Some("Berlin"))
+                .return_once(move |_| Box::pin(async move { Ok(geo_address) }));
+
+            let mut shop_repository = MockShopDynamoDbRepository::default();
+            shop_repository
+                .expect_query_shop_id()
+                .return_once(|_| Box::pin(async { Ok(None) }));
+            shop_repository
+                .expect_put_shop_record()
+                .return_once(|record| {
+                    assert_eq!(Some(52.516275), record.geo_address_lat);
+                    assert_eq!(Some(13.377704), record.geo_address_lon);
+                    Box::pin(async { Ok(PutItemOutput::builder().build()) })
+                });
+
+            let service = CommandShopServiceImpl::new(&shop_repository, &geocoding_service);
+            let cmd = CreateShopCommand {
+                name: Faker.fake(),
+                shop_type: Faker.fake(),
+                domains: HashSet::new(),
+                image: None,
+                structured_address: Some(structured_address),
+                phone: None,
+                email: None,
+                specialities_categories: Vec::new(),
+                specialities_periods: Vec::new(),
+            };
+
+            let actual = service.create(cmd).await.unwrap();
+
+            assert_eq!(Some(geo_address), actual.geo_address);
         }
 
         #[tokio::test]
@@ -315,7 +453,10 @@ mod tests {
             shop_repository
                 .expect_query_shop_id()
                 .return_once(|_| Box::pin(async { Err(expected) }));
-            let service = CommandShopServiceImpl::new(&shop_repository);
+            let service = CommandShopServiceImpl::new(
+                &shop_repository,
+                &crate::service::geocoding_service::NoopGeocodingService,
+            );
 
             let actual = service.create(Faker.fake()).await;
 
@@ -350,7 +491,10 @@ mod tests {
             shop_repository
                 .expect_put_shop_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
-            let service = CommandShopServiceImpl::new(&shop_repository);
+            let service = CommandShopServiceImpl::new(
+                &shop_repository,
+                &crate::service::geocoding_service::NoopGeocodingService,
+            );
 
             let actual = service.create(Faker.fake()).await;
 
@@ -364,7 +508,11 @@ mod tests {
 
     mod update {
         use crate::{
-            core::shop::Shop,
+            core::{
+                address::{GeoAddress, StructuredAddress},
+                continent::Continent,
+                shop::Shop,
+            },
             dynamodb::{
                 repository::MockShopDynamoDbRepository, shop_record::ShopRecord,
                 shop_record_update::ShopRecordUpdate,
@@ -372,6 +520,7 @@ mod tests {
             service::{
                 command::UpdateShopCommand,
                 command_service::{CommandShopError, CommandShopService, CommandShopServiceImpl},
+                geocoding_service::MockGeocodingService,
             },
         };
         use aws_sdk_dynamodb::{
@@ -380,6 +529,7 @@ mod tests {
         };
         use common::{domain::Domain, shop_id::ShopId};
         use fake::{Fake, Faker};
+        use isocountry::CountryCode;
 
         use url::Url;
 
@@ -389,7 +539,10 @@ mod tests {
             shop_repository
                 .expect_get_shop_record()
                 .return_once(|_| Box::pin(async { Ok(None) }));
-            let service = CommandShopServiceImpl::new(&shop_repository);
+            let service = CommandShopServiceImpl::new(
+                &shop_repository,
+                &crate::service::geocoding_service::NoopGeocodingService,
+            );
 
             let actual = service.update(&ShopId::new(), Default::default()).await;
 
@@ -402,8 +555,9 @@ mod tests {
 
         #[tokio::test]
         async fn should_no_op_when_command_is_empty() {
-            let expected = Faker.fake::<Shop>();
-            let shop_record = ShopRecord::from(expected.clone());
+            let shop = Faker.fake::<Shop>();
+            let shop_record = ShopRecord::from(shop);
+            let expected = Shop::from(shop_record.clone());
 
             let mut shop_repository = MockShopDynamoDbRepository::default();
             shop_repository
@@ -411,7 +565,10 @@ mod tests {
                 .return_once(move |_| Box::pin(async move { Ok(Some(shop_record)) }));
             shop_repository.expect_update_shop_record().never();
 
-            let service = CommandShopServiceImpl::new(&shop_repository);
+            let service = CommandShopServiceImpl::new(
+                &shop_repository,
+                &crate::service::geocoding_service::NoopGeocodingService,
+            );
             let actual = service
                 .update(&expected.shop_id, Default::default())
                 .await
@@ -445,11 +602,15 @@ mod tests {
                 },
             );
 
-            let service = CommandShopServiceImpl::new(&shop_repository);
+            let service = CommandShopServiceImpl::new(
+                &shop_repository,
+                &crate::service::geocoding_service::NoopGeocodingService,
+            );
             let cmd = UpdateShopCommand {
                 shop_type: None,
                 domains: None,
                 image: Some(new_image_url),
+                ..Default::default()
             };
             let actual = service.update(&shop.shop_id, cmd).await.unwrap();
 
@@ -488,8 +649,12 @@ mod tests {
                 shop_type: None,
                 domains: Some(new_domains.clone()),
                 image: None,
+                ..Default::default()
             };
-            let service = CommandShopServiceImpl::new(&shop_repository);
+            let service = CommandShopServiceImpl::new(
+                &shop_repository,
+                &crate::service::geocoding_service::NoopGeocodingService,
+            );
             let actual = service.update(&shop.shop_id, cmd).await.unwrap();
 
             assert_eq!(new_domains, actual.domains);
@@ -530,11 +695,73 @@ mod tests {
                 shop_type: None,
                 domains: Some(reduced_domains.clone()),
                 image: None,
+                ..Default::default()
             };
-            let service = CommandShopServiceImpl::new(&shop_repository);
+            let service = CommandShopServiceImpl::new(
+                &shop_repository,
+                &crate::service::geocoding_service::NoopGeocodingService,
+            );
             let actual = service.update(&shop.shop_id, cmd).await.unwrap();
 
             assert_eq!(reduced_domains, actual.domains);
+        }
+
+        #[tokio::test]
+        async fn should_geocode_structured_address_when_updating_shop() {
+            let shop = Faker.fake::<Shop>();
+            let shop_record = ShopRecord::from(shop.clone());
+            let structured_address = StructuredAddress {
+                addressline: Some("1600 Amphitheatre Parkway".to_string()),
+                addressline_extra: None,
+                locality: Some("Mountain View".to_string()),
+                region: Some("CA".to_string()),
+                postal_code: None,
+                country: Some(CountryCode::USA),
+                continent: Some(Continent::NorthAmerica),
+            };
+            let geo_address = GeoAddress {
+                lat: 37.422,
+                lon: -122.084,
+            };
+            let mut updated_shop = shop.clone();
+            updated_shop.structured_address = Some(structured_address.clone());
+            updated_shop.geo_address = Some(geo_address);
+            let updated_record = ShopRecord::from(updated_shop);
+
+            let mut geocoding_service = MockGeocodingService::default();
+            geocoding_service
+                .expect_geocode()
+                .return_once(move |_| Box::pin(async move { Ok(geo_address) }));
+
+            let mut shop_repository = MockShopDynamoDbRepository::default();
+            shop_repository
+                .expect_get_shop_record()
+                .return_once(move |_| Box::pin(async move { Ok(Some(shop_record)) }));
+            shop_repository.expect_update_shop_record().return_once(
+                move |_, update: ShopRecordUpdate| {
+                    assert_eq!(Some(37.422), update.geo_address_lat);
+                    assert_eq!(Some(-122.084), update.geo_address_lon);
+                    assert_eq!(
+                        Some("1600 Amphitheatre Parkway".to_string()),
+                        update.structured_address_addressline
+                    );
+                    Box::pin(async move { Ok(Some(updated_record)) })
+                },
+            );
+
+            let service = CommandShopServiceImpl::new(&shop_repository, &geocoding_service);
+            let actual = service
+                .update(
+                    &shop.shop_id,
+                    UpdateShopCommand {
+                        structured_address: Some(structured_address),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(Some(geo_address), actual.geo_address);
         }
 
         #[tokio::test]
@@ -558,7 +785,10 @@ mod tests {
             shop_repository
                 .expect_get_shop_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
-            let service = CommandShopServiceImpl::new(&shop_repository);
+            let service = CommandShopServiceImpl::new(
+                &shop_repository,
+                &crate::service::geocoding_service::NoopGeocodingService,
+            );
 
             let actual = service.update(&ShopId::new(), Default::default()).await;
 
@@ -593,12 +823,16 @@ mod tests {
             shop_repository
                 .expect_update_shop_record()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
-            let service = CommandShopServiceImpl::new(&shop_repository);
+            let service = CommandShopServiceImpl::new(
+                &shop_repository,
+                &crate::service::geocoding_service::NoopGeocodingService,
+            );
 
             let cmd = UpdateShopCommand {
                 shop_type: None,
                 domains: None,
                 image: Some(Url::parse("https://example.com/img").unwrap()),
+                ..Default::default()
             };
             let actual = service.update(&ShopId::new(), cmd).await;
 
@@ -635,7 +869,10 @@ mod tests {
                 .expect_update_shop_record()
                 .return_once(|_, _| Box::pin(async { Ok(None) }));
 
-            let service = CommandShopServiceImpl::new(&shop_repository);
+            let service = CommandShopServiceImpl::new(
+                &shop_repository,
+                &crate::service::geocoding_service::NoopGeocodingService,
+            );
             let api_key = service.create_api_key(&user_id, &shop_id).await;
             assert!(api_key.is_ok());
         }
@@ -650,7 +887,10 @@ mod tests {
                 .expect_get_shop_record()
                 .return_once(move |_| Box::pin(async { Ok(None) }));
 
-            let service = CommandShopServiceImpl::new(&shop_repository);
+            let service = CommandShopServiceImpl::new(
+                &shop_repository,
+                &crate::service::geocoding_service::NoopGeocodingService,
+            );
             let result = service.create_api_key(&user_id, &shop_id).await;
             assert!(matches!(
                 result.unwrap_err(),
@@ -670,7 +910,10 @@ mod tests {
                 .expect_get_shop_record()
                 .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
 
-            let service = CommandShopServiceImpl::new(&shop_repository);
+            let service = CommandShopServiceImpl::new(
+                &shop_repository,
+                &crate::service::geocoding_service::NoopGeocodingService,
+            );
             let result = service.create_api_key(&user_id, &shop_id).await;
             assert!(matches!(
                 result.unwrap_err(),
@@ -691,7 +934,10 @@ mod tests {
                 .expect_get_shop_record()
                 .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
 
-            let service = CommandShopServiceImpl::new(&shop_repository);
+            let service = CommandShopServiceImpl::new(
+                &shop_repository,
+                &crate::service::geocoding_service::NoopGeocodingService,
+            );
             let result = service.create_api_key(&user_id, &shop_id).await;
             assert!(matches!(
                 result.unwrap_err(),

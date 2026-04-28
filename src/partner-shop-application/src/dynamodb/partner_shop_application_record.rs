@@ -9,9 +9,16 @@ use crate::dynamodb::{
     partner_shop_application_state_record::PartnerShopApplicationStateRecord,
 };
 use common::execution_state::record::ExecutionStateRecord;
-use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, user_id::UserId};
+use common::{
+    category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_id::ShopId,
+    shop_name::ShopName, user_id::UserId,
+};
+use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
+use serde_email::Email;
 use serde_fields::SerdeField;
+use shop::core::address::StructuredAddress;
+use shop::core::continent::Continent;
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -45,6 +52,27 @@ pub struct PartnerShopApplicationRecord {
     pub shop_image: Option<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shop_structured_address_addressline: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shop_structured_address_addressline_extra: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shop_structured_address_locality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shop_structured_address_region: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shop_structured_address_postal_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shop_structured_address_country: Option<CountryCode>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shop_phone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shop_email: Option<Email>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub shop_specialities_categories: Vec<CategoryId>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub shop_specialities_periods: Vec<PeriodId>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub task_token: Option<String>,
 
     #[serde(with = "time::serde::rfc3339")]
@@ -71,25 +99,71 @@ pub fn mk_gsi1_sk(id: &PartnerShopApplicationId) -> String {
 
 impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
     fn from(application: PartnerShopApplication) -> Self {
-        let (payload_type, existing_shop_id, shop_name, shop_type, shop_domains, shop_image) =
-            match application.payload {
-                PartnerShopApplicationPayload::Existing(shop_id) => (
-                    PartnerShopApplicationPayloadTypeRecord::Existing,
-                    Some(shop_id),
-                    None,
-                    None,
-                    None,
-                    None,
-                ),
-                PartnerShopApplicationPayload::New(cmd) => (
-                    PartnerShopApplicationPayloadTypeRecord::New,
-                    None,
-                    Some(cmd.name),
-                    Some(cmd.shop_type.into()),
-                    Some(cmd.domains),
-                    cmd.image,
-                ),
-            };
+        let (
+            payload_type,
+            existing_shop_id,
+            shop_name,
+            shop_type,
+            shop_domains,
+            shop_image,
+            shop_structured_address_addressline,
+            shop_structured_address_addressline_extra,
+            shop_structured_address_locality,
+            shop_structured_address_region,
+            shop_structured_address_postal_code,
+            shop_structured_address_country,
+            shop_phone,
+            shop_email,
+            shop_specialities_categories,
+            shop_specialities_periods,
+        ) = match application.payload {
+            PartnerShopApplicationPayload::Existing(shop_id) => (
+                PartnerShopApplicationPayloadTypeRecord::Existing,
+                Some(shop_id),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Vec::new(),
+                Vec::new(),
+            ),
+            PartnerShopApplicationPayload::New(cmd) => (
+                PartnerShopApplicationPayloadTypeRecord::New,
+                None,
+                Some(cmd.name),
+                Some(cmd.shop_type.into()),
+                Some(cmd.domains),
+                cmd.image,
+                cmd.structured_address
+                    .as_ref()
+                    .and_then(|a| a.addressline.clone()),
+                cmd.structured_address
+                    .as_ref()
+                    .and_then(|a| a.addressline_extra.clone()),
+                cmd.structured_address
+                    .as_ref()
+                    .and_then(|address| address.locality.clone()),
+                cmd.structured_address
+                    .as_ref()
+                    .and_then(|address| address.region.clone()),
+                cmd.structured_address
+                    .as_ref()
+                    .and_then(|address| address.postal_code.clone()),
+                cmd.structured_address.as_ref().and_then(|a| a.country),
+                cmd.phone,
+                cmd.email,
+                cmd.specialities_categories,
+                cmd.specialities_periods,
+            ),
+        };
 
         PartnerShopApplicationRecord {
             pk: mk_pk(&application.applicant_user_id),
@@ -106,6 +180,16 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
             shop_type,
             shop_domains,
             shop_image,
+            shop_structured_address_addressline,
+            shop_structured_address_addressline_extra,
+            shop_structured_address_locality,
+            shop_structured_address_region,
+            shop_structured_address_postal_code,
+            shop_structured_address_country,
+            shop_phone,
+            shop_email,
+            shop_specialities_categories,
+            shop_specialities_periods,
             task_token: None,
             created: application.created,
             updated: application.updated,
@@ -139,6 +223,18 @@ impl TryFrom<PartnerShopApplicationRecord> for PartnerShopApplication {
                     shop_type: shop_type_record.into(),
                     domains,
                     image,
+                    structured_address: structured_address_from_flat(
+                        record.shop_structured_address_addressline,
+                        record.shop_structured_address_addressline_extra,
+                        record.shop_structured_address_locality,
+                        record.shop_structured_address_region,
+                        record.shop_structured_address_postal_code,
+                        record.shop_structured_address_country,
+                    ),
+                    phone: record.shop_phone,
+                    email: record.shop_email,
+                    specialities_categories: record.shop_specialities_categories,
+                    specialities_periods: record.shop_specialities_periods,
                 })
             }
         };
@@ -153,6 +249,27 @@ impl TryFrom<PartnerShopApplicationRecord> for PartnerShopApplication {
             updated: record.updated,
         })
     }
+}
+
+fn structured_address_from_flat(
+    addressline: Option<String>,
+    addressline_extra: Option<String>,
+    locality: Option<String>,
+    region: Option<String>,
+    postal_code: Option<String>,
+    country: Option<CountryCode>,
+) -> Option<StructuredAddress> {
+    let continent = country.map(Continent::from);
+    let structured_address = StructuredAddress {
+        addressline,
+        addressline_extra,
+        locality,
+        region,
+        postal_code,
+        country,
+        continent,
+    };
+    (!structured_address.is_empty()).then_some(structured_address)
 }
 
 #[cfg(feature = "test-data")]
@@ -210,6 +327,11 @@ mod faker {
                 shop_type: ShopType::CommercialDealer,
                 domains: [Domain::try_from("https://www.test.com/".to_string()).unwrap()].into(),
                 image: None,
+                structured_address: None,
+                phone: None,
+                email: None,
+                specialities_categories: Vec::new(),
+                specialities_periods: Vec::new(),
             };
 
             let application = PartnerShopApplication {

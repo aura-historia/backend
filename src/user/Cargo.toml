@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+geo = { workspace = true }
+isocountry = { workspace = true }
 common = { workspace = true }
 serde = { workspace = true }
 serde-email = { workspace = true }
@@ -21,19 +23,22 @@ aws-sdk-dynamodb = { workspace = true, optional = true }
 aws-sdk-cognitoidentityprovider = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["time"], optional = true }
 fake = { workspace = true, optional = true }
+opensearch = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 user = { workspace = true, features = ["full"] }
-test-api = { workspace = true, features = ["dynamodb"] }
+test-api = { workspace = true, features = ["dynamodb", "opensearch"] }
 serial_test = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 
 [features]
 default = []
-data = ["common/api"]
+data = ["common/api", "geo/data"]
 dynamodb = ["aws-sdk-dynamodb", "serde_dynamo", "serde_dynamo/aws-sdk-dynamodb+1", "tracing", "common/dynamodb"]
+opensearch = ["common/opensearch", "dep:opensearch", "serde_json", "tracing", "dynamodb", "tokio", "time/formatting"]
 cognito = ["aws-sdk-cognitoidentityprovider"]
-service = ["dynamodb", "tokio"]
-test-data = ["fake", "common/test-data"]
-full = ["data", "test-data", "dynamodb", "service", "cognito"]
+service = ["dynamodb", "tokio", "geo/service"]
+test-data = ["fake", "common/test-data", "geo/test-data"]
+full = ["data", "test-data", "dynamodb", "opensearch", "service", "cognito"]

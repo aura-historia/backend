@@ -7,6 +7,7 @@ use crate::data::restoration_data::RestorationData;
 use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
 use common::shops_product_id::ShopsProductId;
+use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use url::Url;
@@ -60,6 +61,12 @@ pub struct PutProductData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub seller_name: Option<String>,
 
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address: Option<StructuredAddressData>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub geo_address: Option<GeoAddressData>,
+
     #[serde(default)]
     pub authenticity: AuthenticityData,
 
@@ -97,6 +104,8 @@ mod faker {
                 auction_end: None,
                 origin_year: None,
                 seller_name: None,
+                structured_address: config.fake_with_rng(rng),
+                geo_address: config.fake_with_rng(rng),
                 authenticity: Default::default(),
                 condition: Default::default(),
                 provenance: Default::default(),
@@ -140,6 +149,8 @@ mod tests {
             auction_end: None,
             origin_year: None,
             seller_name: None,
+            structured_address: None,
+            geo_address: None,
             authenticity: AuthenticityData::Unknown,
             condition: ConditionData::Unknown,
             provenance: ProvenanceData::Unknown,
@@ -202,6 +213,8 @@ mod tests {
                 max: Some(1900.into()),
             }),
             seller_name: None,
+            structured_address: None,
+            geo_address: None,
             authenticity: AuthenticityData::Original,
             condition: ConditionData::Good,
             provenance: ProvenanceData::Complete,
@@ -230,6 +243,8 @@ mod tests {
             auction_end: None,
             origin_year: None,
             seller_name: None,
+            structured_address: None,
+            geo_address: None,
             authenticity: AuthenticityData::Unknown,
             condition: ConditionData::Unknown,
             provenance: ProvenanceData::Unknown,

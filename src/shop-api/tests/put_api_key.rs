@@ -19,7 +19,10 @@ use user::service::user_service::MockUserService;
 async fn should_200_respond_api_key_when_partner_creates_api_key() {
     let repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let get_service = GetShopServiceImpl::new(&repository);
-    let command_service = CommandShopServiceImpl::new(&repository);
+    let command_service = CommandShopServiceImpl::new(
+        &repository,
+        &shop::service::geocoding_service::NoopGeocodingService,
+    );
 
     let user_id = UserId::new();
 
@@ -37,6 +40,18 @@ async fn should_200_respond_api_key_when_partner_creates_api_key() {
                 shop_type: None,
                 domains: None,
                 image: None,
+                structured_address_addressline: None,
+                structured_address_addressline_extra: None,
+                structured_address_locality: None,
+                structured_address_region: None,
+                structured_address_postal_code: None,
+                structured_address_country: None,
+                geo_address_lat: None,
+                geo_address_lon: None,
+                phone: None,
+                email: None,
+                specialities_categories: None,
+                specialities_periods: None,
                 partner_api_key_short: None,
                 partner_api_key_long_hash: None,
                 updated: OffsetDateTime::now_utc(),
@@ -84,7 +99,10 @@ async fn should_200_respond_api_key_when_partner_creates_api_key() {
 async fn should_200_respond_api_key_when_admin_creates_api_key() {
     let repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let get_service = GetShopServiceImpl::new(&repository);
-    let command_service = CommandShopServiceImpl::new(&repository);
+    let command_service = CommandShopServiceImpl::new(
+        &repository,
+        &shop::service::geocoding_service::NoopGeocodingService,
+    );
 
     let admin_user_id = UserId::new();
     let partner_user_id = UserId::new();
@@ -103,6 +121,18 @@ async fn should_200_respond_api_key_when_admin_creates_api_key() {
                 shop_type: None,
                 domains: None,
                 image: None,
+                structured_address_addressline: None,
+                structured_address_addressline_extra: None,
+                structured_address_locality: None,
+                structured_address_region: None,
+                structured_address_postal_code: None,
+                structured_address_country: None,
+                geo_address_lat: None,
+                geo_address_lon: None,
+                phone: None,
+                email: None,
+                specialities_categories: None,
+                specialities_periods: None,
                 partner_api_key_short: None,
                 partner_api_key_long_hash: None,
                 updated: OffsetDateTime::now_utc(),

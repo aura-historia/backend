@@ -212,6 +212,7 @@ dependencies = [
  "common",
  "fxrate",
  "fxrate-lambda",
+ "geo",
  "newsletter-api",
  "notification",
  "notification-api",
@@ -241,6 +242,7 @@ dependencies = [
  "test-api",
  "user",
  "user-api",
+ "user-lambda",
 ]
 
 [[package]]
@@ -537,9 +539,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-opensearch"
-version = "1.125.0"
+version = "1.126.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7071f1d1706fe949e8edf3bc96bcb63b42aa370f207a46a5e956c719eff19d81"
+checksum = "39900e01bf4ba0f089dfffdbe96e67e3be08067363390096623084a8e8ed049b"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -2803,6 +2805,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "geo"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "fake",
+ "geo",
+ "isocountry",
+ "mockall",
+ "reqwest 0.12.28",
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "getopts"
 version = "0.2.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3617,6 +3633,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "isocountry"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ea1dc4bf0fb4904ba83ffdb98af3d9c325274e92e6e295e4151e86c96363e04"
+dependencies = [
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4318,9 +4344,9 @@ dependencies = [
 
 [[package]]
 name = "mrml"
-version = "6.0.0"
+version = "6.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a117348b480944b0de34666b23cb64c5a63f5de691826bdb8a0657bb43a57ff"
+checksum = "3a92ff9ad398a7d556481a607b912370999bc6441537c90a979c16d73c91a832"
 dependencies = [
  "enum-as-inner",
  "htmlparser",
@@ -4867,10 +4893,13 @@ dependencies = [
  "aws-sdk-sfn",
  "common",
  "fake",
+ "geo",
+ "isocountry",
  "mockall",
  "partner-shop-application",
  "rstest",
  "serde",
+ "serde-email",
  "serde_dynamo",
  "serde_fields",
  "serde_json",
@@ -4920,6 +4949,7 @@ dependencies = [
  "aws-sdk-sesv2",
  "common",
  "fake",
+ "geo",
  "lambda_runtime",
  "notification",
  "partner-shop-application",
@@ -5392,7 +5422,9 @@ dependencies = [
  "common",
  "fake",
  "field",
+ "geo",
  "html-escape",
+ "isocountry",
  "itertools 0.14.0",
  "mockall",
  "once_cell",
@@ -5428,11 +5460,14 @@ dependencies = [
  "cognito",
  "common",
  "fake",
+ "geo",
  "http 1.4.0",
+ "isocountry",
  "lambda_runtime",
  "notification",
  "product",
  "product-personalization",
+ "product-pipeline-embed-text",
  "product-watchlist",
  "rstest",
  "search-filter",
@@ -5458,6 +5493,7 @@ dependencies = [
  "aws_lambda_events",
  "common",
  "fake",
+ "geo",
  "http 1.4.0",
  "lambda_runtime",
  "llm",
@@ -5741,6 +5777,7 @@ dependencies = [
  "common",
  "fake",
  "lambda_runtime",
+ "lru",
  "mockall",
  "product",
  "reqwest 0.12.28",
@@ -6768,6 +6805,8 @@ dependencies = [
  "common",
  "fake",
  "field",
+ "geo",
+ "isocountry",
  "llm",
  "mockall",
  "opensearch",
@@ -6799,7 +6838,9 @@ dependencies = [
  "aws_lambda_events",
  "common",
  "fake",
+ "geo",
  "http 1.4.0",
+ "isocountry",
  "lambda_runtime",
  "notification",
  "product",
@@ -7377,13 +7418,17 @@ dependencies = [
  "common",
  "fake",
  "field",
+ "geo",
  "http 1.4.0",
+ "isocountry",
  "llm",
  "mockall",
  "opensearch",
  "prefixed-api-key",
+ "reqwest 0.12.28",
  "rstest",
  "serde",
+ "serde-email",
  "serde_dynamo",
  "serde_fields",
  "serde_json",
@@ -8953,12 +8998,16 @@ dependencies = [
  "aws-sdk-dynamodb",
  "common",
  "fake",
+ "geo",
+ "isocountry",
  "mockall",
+ "opensearch",
  "rstest",
  "serde",
  "serde-email",
  "serde_dynamo",
  "serde_fields",
+ "serde_json",
  "serial_test",
  "test-api",
  "thiserror 2.0.18",
@@ -8980,14 +9029,18 @@ dependencies = [
  "aws_lambda_events",
  "common",
  "fake",
+ "geo",
  "http 1.4.0",
+ "isocountry",
  "lambda_runtime",
  "mockall",
+ "opensearch",
  "serde",
  "serde-email",
  "serde_dynamo",
  "serde_fields",
  "serde_json",
+ "serde_qs",
  "serial_test",
  "test-api",
  "thiserror 2.0.18",
@@ -8995,7 +9048,37 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
  "user",
+]
+
+[[package]]
+name = "user-lambda"
+version = "0.1.0"
+dependencies = [
+ "user-lambda-index-opensearch",
+]
+
+[[package]]
+name = "user-lambda-index-opensearch"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "lambda_runtime",
+ "opensearch",
+ "serde_dynamo",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "user",
+ "uuid",
 ]
 
 [[package]]
@@ -9993,9 +10076,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "8.5.1"
+version = "8.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcab981e19633ebcf0b001ddd37dd802996098bc1864f90b7c5d970ce76c1d59"
+checksum = "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b"
 dependencies = [
  "crc32fast",
  "flate2",

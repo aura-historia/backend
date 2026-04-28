@@ -72,6 +72,11 @@ async fn should_200_when_admin_updates_application_shop_name() {
         shop_type: None,
         shop_domains: None,
         shop_image: None,
+        shop_structured_address: None,
+        shop_phone: None,
+        shop_email: None,
+        shop_specialities_categories: None,
+        shop_specialities_periods: None,
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -133,6 +138,16 @@ async fn should_200_when_admin_submits_approve_decision() {
             shop_type: None,
             shop_domains: None,
             shop_image: None,
+            shop_structured_address_addressline: None,
+            shop_structured_address_addressline_extra: None,
+            shop_structured_address_locality: None,
+            shop_structured_address_region: None,
+            shop_structured_address_postal_code: None,
+            shop_structured_address_country: None,
+            shop_phone: None,
+            shop_email: None,
+            shop_specialities_categories: None,
+            shop_specialities_periods: None,
             updated: time::OffsetDateTime::now_utc(),
         };
     repository
@@ -211,6 +226,16 @@ async fn should_200_when_admin_submits_reject_decision() {
             shop_type: None,
             shop_domains: None,
             shop_image: None,
+            shop_structured_address_addressline: None,
+            shop_structured_address_addressline_extra: None,
+            shop_structured_address_locality: None,
+            shop_structured_address_region: None,
+            shop_structured_address_postal_code: None,
+            shop_structured_address_country: None,
+            shop_phone: None,
+            shop_email: None,
+            shop_specialities_categories: None,
+            shop_specialities_periods: None,
             updated: time::OffsetDateTime::now_utc(),
         };
     repository

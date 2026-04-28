@@ -9,6 +9,7 @@ acceptance-tests = { workspace = true }
 cognito = { workspace = true }
 cognito-post-confirmation = { workspace = true }
 common = { workspace = true }
+geo = { workspace = true }
 search-filter = { workspace = true }
 search-filter-api = { workspace = true }
 search-filter-lambda = { workspace = true }
@@ -29,6 +30,7 @@ product-lambda = { workspace = true }
 test-api = { workspace = true }
 user = { workspace = true }
 user-api = { workspace = true }
+user-lambda = { workspace = true }
 notification-send = { workspace = true }
 notification = { workspace = true }
 newsletter-api = { workspace = true }
@@ -48,6 +50,7 @@ members = [
     "src/cognito",
     "src/cognito-post-confirmation",
     "src/common",
+    "src/geo",
     "src/search-filter",
     "src/search-filter-api",
     "src/search-filter-lambda",
@@ -68,6 +71,7 @@ members = [
     "src/stripe-api",
     "src/user",
     "src/user-api",
+    "src/user-lambda",
     "src/notification-send",
     "src/notification",
     "src/notification-api",
@@ -94,7 +98,7 @@ aws-sdk-cloudformation = "1.111.0"
 aws-sdk-dynamodb = "1.111.0"
 aws-sdk-eventbridge = "1.105.0"
 aws-sdk-lambda = "1.100.0"
-aws-sdk-opensearch = "1.125.0"
+aws-sdk-opensearch = "1.126.0"
 aws-sdk-sqs = "1.98.0"
 aws-sdk-sesv2 = "1.118.0"
 aws-sdk-s3 = "1.131.0"
@@ -102,6 +106,7 @@ aws-sdk-sfn = "1.103.0"
 aws-sdk-cloudwatch = "1.110.0"
 aws_lambda_events = { version = "1.1.3", default-features = false }
 common = { path = "src/common" }
+geo = { path = "src/geo" }
 derive_builder = "0.20.2"
 fake = { version = "5.1.0", features = ["derive", "time", "uuid", "url"] }
 field = "0.1.0"
@@ -144,12 +149,13 @@ product-pipeline-asg-scale-control = { path = "src/product-pipeline/src/product-
 product-lambda-materialize-dynamodb = { path = "src/product-lambda/src/product-lambda-materialize-dynamodb" }
 product-lambda-materialize-opensearch = { path = "src/product-lambda/src/product-lambda-materialize-opensearch" }
 product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lambda-update-notify-user" }
+isocountry = "0.3.2"
 itertools = "0.14.0"
 lambda_runtime = "1.1.3"
 libc = "0.2.186"
 ctrlc = { version = "3.5.2", features = ["termination"] }
 mockall = "0.14.0"
-mrml = { version = "6.0.0", default-features = false, features = ["parse", "render"] }
+mrml = { version = "6.0.1", default-features = false, features = ["parse", "render"] }
 opensearch = { version = "2.4.0", default-features = false, features = [
     "aws-auth",
     "rustls-tls",
@@ -188,13 +194,15 @@ typed-builder = "0.23.2"
 url = "2.5.8"
 uuid = "1.23.1"
 walkdir = "2.5.0"
-zip = { version = "8.5.1", default-features = false, features = ["deflate"] }
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 futures-util = "0.3.32"
 proc-macro2 = "1.0.106"
 smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tests-macros" }
 staging-tests-macros = { path = "src/aws-tests/src/staging-tests/src/staging-tests-macros" }
 user = { path = "src/user" }
 user-api = { path = "src/user-api" }
+user-lambda = { path = "src/user-lambda" }
+user-lambda-index-opensearch = { path = "src/user-lambda/src/user-lambda-index-opensearch" }
 cognito = { path = "src/cognito" }
 cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 serde-email = "3.2.0"

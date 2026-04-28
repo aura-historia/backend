@@ -9,7 +9,7 @@ product = { workspace = true, features = ["dynamodb", "service"] }
 product-watchlist = { workspace = true, features = ["data", "dynamodb", "service"] }
 notification = { workspace = true, features = ["service"] }
 search-filter = { workspace = true, features = ["dynamodb"] }
-user = { workspace = true, features = ["dynamodb", "service"] }
+user = { workspace = true, features = ["dynamodb", "service", "data"] }
 async-trait = { workspace = true }
 futures = { workspace = true }
 mockall = { workspace = true }

@@ -410,6 +410,7 @@ Resources:
         - !Ref ProductMaterializeDynamoDbQ
         - !Ref ProductMaterializeOpenSearchQ
         - !Ref ShopOpenSearchIndexQ
+        - !Ref UserOpenSearchIndexQ
         - !Ref SearchFilterOpenSearchSyncQ
         - !Ref ProductUpdateNotifyUserQ
         - !Ref SearchFilterPercolateProductQ
@@ -429,6 +430,7 @@ Resources:
               - !GetAtt ProductMaterializeDynamoDbQ.Arn
               - !GetAtt ProductMaterializeOpenSearchQ.Arn
               - !GetAtt ShopOpenSearchIndexQ.Arn
+              - !GetAtt UserOpenSearchIndexQ.Arn
               - !GetAtt SearchFilterOpenSearchSyncQ.Arn
               - !GetAtt ProductUpdateNotifyUserQ.Arn
               - !GetAtt SearchFilterPercolateProductQ.Arn
@@ -574,6 +576,7 @@ Resources:
           USER_POOL_ID: !Ref PrimaryUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
           USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
+          GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/dev/gemini-api-key}}"
   ProductApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -982,6 +985,38 @@ Resources:
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiAdminSearchUsersRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/users"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiAdminGetUserRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/users/{userId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiAdminPatchUserRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PATCH /api/v1/users/{userId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiAdminDeleteUserRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "DELETE /api/v1/users/{userId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
   UserApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
@@ -1012,7 +1047,10 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:UpdateItem
                   - dynamodb:DeleteItem
-                Resource: !GetAtt TableOne.Arn
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
         - PolicyName: CognitoAdminAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -1040,6 +1078,9 @@ Resources:
           STAGE: "dev"
           DYNAMODB_TABLE_NAME: !Ref TableOne
           COGNITO_USER_POOL_ID: !Ref PrimaryUserPool
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
   UserApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1400,6 +1441,7 @@ Resources:
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
           STAGE_NAME: "dev"
           COMMIT_SHA: !Sub "${CommitSHA}"
+          GOOGLE_GEOCODING_API_KEY: !Sub "{{resolve:ssm:/secrets/dev/google-geocoding-api-key}}"
   PartnerShopApplicationStateMachineExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -1527,6 +1569,14 @@ Resources:
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${ShopApiLambdaIntegration}"
+  ShopApiPostShopRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/shops"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
   ShopApiPutApiKeyRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -1595,6 +1645,7 @@ Resources:
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
           OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
           OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
+          GOOGLE_GEOCODING_API_KEY: !Sub "{{resolve:ssm:/secrets/dev/google-geocoding-api-key}}"
   ShopApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -2126,6 +2177,75 @@ Resources:
       BatchSize: 1
       MaximumBatchingWindowInSeconds: 0
 
+  UserOpenSearchIndexDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: "user-index-opensearch-dlq-dev"
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+  UserOpenSearchIndexQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: "user-index-opensearch-queue-dev"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt UserOpenSearchIndexDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+      SqsManagedSseEnabled: true
+  UserOpenSearchIndexRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "user-index-opensearch-role-dev"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SqsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt UserOpenSearchIndexQ.Arn
+  UserOpenSearchIndexLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "user-index-opensearch-dev"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt UserOpenSearchIndexRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "user-lambda-index-opensearch-dev-${CommitSHA}.zip"
+      MemorySize: 256
+      Timeout: 30
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
+          STAGE: "dev"
+  UserOpenSearchIndexMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref UserOpenSearchIndexLambda
+      EventSourceArn: !GetAtt UserOpenSearchIndexQ.Arn
+      Enabled: true
+      BatchSize: 1
+      MaximumBatchingWindowInSeconds: 0
+
   SearchFilterOpenSearchSyncDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -2508,6 +2628,29 @@ Resources:
       Targets:
         - Id: ShopOpenSearchIndexQ
           Arn: !GetAtt ShopOpenSearchIndexQ.Arn
+
+  DynamoDbUserIndexEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "ddb-user-index-dev"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - INSERT
+            - MODIFY
+          dynamodb:
+            NewImage:
+              sk:
+                S:
+                  - "user#details"
+      Targets:
+        - Id: UserOpenSearchIndexQ
+          Arn: !GetAtt UserOpenSearchIndexQ.Arn
 
   DynamoDbSearchFilterSyncEventRule:
     Type: AWS::Events::Rule
@@ -3565,6 +3708,10 @@ Outputs:
     Value: !Ref ShopOpenSearchIndexQ
   ShopOpensearchIndexDeadLetterQueueUrl:
     Value: !Ref ShopOpenSearchIndexDlq
+  UserOpensearchIndexQueueUrl:
+    Value: !Ref UserOpenSearchIndexQ
+  UserOpensearchIndexDeadLetterQueueUrl:
+    Value: !Ref UserOpenSearchIndexDlq
 
   SearchFilterOpenSearchSyncQueueUrl:
     Value: !Ref SearchFilterOpenSearchSyncQ

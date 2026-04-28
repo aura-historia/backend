@@ -8,6 +8,7 @@ use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
 use crate::dynamodb::provenance_record::ProvenanceRecord;
 use crate::dynamodb::restoration_record::RestorationRecord;
+use crate::dynamodb::utm::append_utm_params;
 use common::category_key::CategoryId;
 use common::currency::domain::Currency;
 use common::error::mapping_error::PersistenceMappingError;
@@ -26,6 +27,8 @@ use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use common::year::{Year, YearRange};
 use field::field;
+use geo::dynamodb::{geo_address_from_record, structured_address_from_record};
+use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
@@ -52,6 +55,24 @@ pub struct ProductRecord {
     pub shop_name: String,
     pub seller_name: String,
     pub shop_type: ShopTypeRecord,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_addressline: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_addressline_extra: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_locality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_region: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_postal_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_country: Option<CountryCode>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub geo_address_lat: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub geo_address_lon: Option<f64>,
+
     pub category_id: Option<CategoryId>,
     pub period_id: Option<PeriodId>,
 
@@ -536,6 +557,15 @@ impl From<ProductRecord> for Product {
             shop_name: record.shop_name.into(),
             seller_name: record.seller_name.into(),
             shop_type: record.shop_type.into(),
+            structured_address: structured_address_from_record(
+                record.structured_address_addressline,
+                record.structured_address_addressline_extra,
+                record.structured_address_locality,
+                record.structured_address_region,
+                record.structured_address_postal_code,
+                record.structured_address_country,
+            ),
+            geo_address: geo_address_from_record(record.geo_address_lat, record.geo_address_lon),
             category_id: record.category_id,
             category_name,
             period_id: record.period_id,
@@ -556,7 +586,7 @@ impl From<ProductRecord> for Product {
             native_price_estimate_max: record.price_estimate_max_native.map(Price::from),
             other_price_estimate_max,
             state: record.state.into(),
-            url: record.url,
+            url: append_utm_params(record.url),
             images: record.images.into_iter().map(ProductImage::from).collect(),
             embedding: record.embedding,
             origin_year: match record.origin_year {
@@ -613,6 +643,14 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
             shop_type: event_record.shop_type.ok_or_else(|| {
                 MissingPersistenceField::new(field!(shop_type@ProductDomainEventRecord))
             })?,
+            structured_address_addressline: event_record.structured_address_addressline,
+            structured_address_addressline_extra: event_record.structured_address_addressline_extra,
+            structured_address_locality: event_record.structured_address_locality,
+            structured_address_region: event_record.structured_address_region,
+            structured_address_postal_code: event_record.structured_address_postal_code,
+            structured_address_country: event_record.structured_address_country,
+            geo_address_lat: event_record.geo_address_lat,
+            geo_address_lon: event_record.geo_address_lon,
             category_id: None,
             period_id: None,
             category_name_de: None,
@@ -770,6 +808,14 @@ mod faker {
                 shop_name,
                 seller_name,
                 shop_type: config.fake_with_rng(rng),
+                structured_address_addressline: config.fake_with_rng(rng),
+                structured_address_addressline_extra: config.fake_with_rng(rng),
+                structured_address_locality: config.fake_with_rng(rng),
+                structured_address_region: config.fake_with_rng(rng),
+                structured_address_postal_code: config.fake_with_rng(rng),
+                structured_address_country: None,
+                geo_address_lat: config.fake_with_rng(rng),
+                geo_address_lon: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
                 period_id: config.fake_with_rng(rng),
                 category_name_de: config.fake_with_rng(rng),
@@ -898,5 +944,34 @@ mod faker {
         fn should_fake_get_product_record() {
             let _ = Faker.fake::<ProductRecord>();
         }
+    }
+}
+
+#[cfg(all(test, feature = "test-data"))]
+mod tests {
+    use super::*;
+    use crate::core::product::Product;
+    use fake::{Fake, Faker};
+
+    #[test]
+    fn should_append_utm_params_when_mapping_product_record_to_product() {
+        let mut record = Faker.fake::<ProductRecord>();
+        record.url = Url::parse("https://example-shop.com/item/42").unwrap();
+
+        let product: Product = record.into();
+
+        let query: Vec<(_, _)> = product.url.query_pairs().collect();
+        assert!(
+            query
+                .iter()
+                .any(|(k, v)| k == "utm_source" && v == "aura_historia"),
+            "utm_source=aura_historia not found in URL query params"
+        );
+        assert!(
+            query
+                .iter()
+                .any(|(k, v)| k == "utm_medium" && v == "referral"),
+            "utm_medium=referral not found in URL query params"
+        );
     }
 }

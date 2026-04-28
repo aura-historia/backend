@@ -20,6 +20,8 @@ pub struct CloudFormationOutput {
     pub product_materialize_opensearch_dead_letter_queue_url: String,
     pub shop_opensearch_index_queue_url: String,
     pub shop_opensearch_index_dead_letter_queue_url: String,
+    pub user_opensearch_index_queue_url: String,
+    pub user_opensearch_index_dead_letter_queue_url: String,
     pub search_filter_open_search_sync_queue_url: String,
     pub search_filter_open_search_sync_dead_letter_queue_url: String,
     pub product_update_notify_user_queue_url: String,

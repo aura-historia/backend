@@ -461,6 +461,82 @@ Resources:
         maxReceiveCount: 5
       VisibilityTimeout: 360
 
+  UserOpenSearchIndexDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "user-index-opensearch-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+  UserOpenSearchIndexQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "user-index-opensearch-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt UserOpenSearchIndexDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+      SqsManagedSseEnabled: true
+  UserOpenSearchIndexRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "user-index-opensearch-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:*
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/test-domain/*"
+        - PolicyName: SqsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt UserOpenSearchIndexQ.Arn
+  UserOpenSearchIndexLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "user-index-opensearch-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt UserOpenSearchIndexRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "user-lambda-index-opensearch-${StageName}-${CommitSHA}.zip"
+      MemorySize: 256
+      Timeout: 30
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          LOCALSTACK_MAPPED_PORT: !Ref LocalStackMappedPort
+          STAGE: "ephemeral"
+  UserOpenSearchIndexMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref UserOpenSearchIndexLambda
+      EventSourceArn: !GetAtt UserOpenSearchIndexQ.Arn
+      Enabled: true
+      BatchSize: 1
+      MaximumBatchingWindowInSeconds: 0
+
   SearchFilterOpenSearchSyncDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -709,6 +785,7 @@ Resources:
         - !Ref ProductMaterializeDynamoDbQ
         - !Ref ProductMaterializeOpenSearchQ
         - !Ref ShopOpenSearchIndexQ
+        - !Ref UserOpenSearchIndexQ
         - !Ref SearchFilterOpenSearchSyncQ
         - !Ref ProductUpdateNotifyUserQ
         - !Ref SearchFilterPercolateProductQ
@@ -728,6 +805,7 @@ Resources:
               - !GetAtt ProductMaterializeDynamoDbQ.Arn
               - !GetAtt ProductMaterializeOpenSearchQ.Arn
               - !GetAtt ShopOpenSearchIndexQ.Arn
+              - !GetAtt UserOpenSearchIndexQ.Arn
               - !GetAtt SearchFilterOpenSearchSyncQ.Arn
               - !GetAtt ProductUpdateNotifyUserQ.Arn
               - !GetAtt SearchFilterPercolateProductQ.Arn
@@ -852,6 +930,29 @@ Resources:
       Targets:
         - Id: ShopOpenSearchIndexQ
           Arn: !GetAtt ShopOpenSearchIndexQ.Arn
+  DynamoDbUserIndexEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "ddb-user-index-${StageName}"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - INSERT
+            - MODIFY
+          dynamodb:
+            NewImage:
+              sk:
+                S:
+                  - "user#details"
+      Targets:
+        - Id: UserOpenSearchIndexQ
+          Arn: !GetAtt UserOpenSearchIndexQ.Arn
+
   DynamoDbSearchFilterSyncEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -1252,6 +1353,38 @@ Resources:
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiAdminSearchUsersRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/users"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiAdminGetUserRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/users/{userId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiAdminPatchUserRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PATCH /api/v1/users/{userId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiAdminDeleteUserRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "DELETE /api/v1/users/{userId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
   UserApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
@@ -1296,6 +1429,14 @@ Resources:
     Properties:
       ApiId: !Ref Api
       RouteKey: "PATCH /api/v1/shops/{shopId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
+  ShopApiPostShopRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/shops"
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${ShopApiLambdaIntegration}"
@@ -1489,6 +1630,7 @@ Resources:
           USER_POOL_ID: !Ref PrimaryUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
           USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
+          GEMINI_API_KEY: "test-key"
   ProductApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1769,7 +1911,10 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:UpdateItem
                   - dynamodb:DeleteItem
-                Resource: !GetAtt TableOne.Arn
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
         - PolicyName: CognitoAdminAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -1778,6 +1923,18 @@ Resources:
                 Action:
                   - cognito-idp:AdminDeleteUser
                 Resource: !GetAtt PrimaryUserPool.Arn
+        - PolicyName: OpenSearchReadOnly
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:Describe*
+                  - es:List*
+                  - es:ESHttpGet
+                  - es:ESHttpHead
+                  - es:ESHttpPost
+                Resource: !Sub "${OpenSearchDomain.Arn}/*"
   UserApiLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -1797,6 +1954,8 @@ Resources:
           STAGE: !Ref Stage
           DYNAMODB_TABLE_NAME: !Ref TableOne
           COGNITO_USER_POOL_ID: !Ref PrimaryUserPool
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          LOCALSTACK_MAPPED_PORT: !Ref LocalStackMappedPort
   UserApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -2159,6 +2318,7 @@ Resources:
           S3_BUCKET_NAME_TEMPLATES: "aura-historia-mail-templates-eu-central-1"
           STAGE_NAME: !Sub "${StageName}"
           COMMIT_SHA: !Sub "${CommitSHA}"
+          GOOGLE_GEOCODING_API_KEY: "test-key"
   PartnerShopApplicationStateMachineExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -2313,6 +2473,7 @@ Resources:
           DYNAMODB_TABLE_NAME: !Ref TableOne
           OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
           LOCALSTACK_MAPPED_PORT: !Ref LocalStackMappedPort
+          GOOGLE_GEOCODING_API_KEY: "test-key"
   ShopApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -3090,6 +3251,10 @@ Outputs:
     Value: !Ref ShopOpenSearchIndexQ
   ShopOpensearchIndexDeadLetterQueueUrl:
     Value: !Ref ShopOpenSearchIndexDlq
+  UserOpensearchIndexQueueUrl:
+    Value: !Ref UserOpenSearchIndexQ
+  UserOpensearchIndexDeadLetterQueueUrl:
+    Value: !Ref UserOpenSearchIndexDlq
 
   SearchFilterOpenSearchSyncQueueUrl:
     Value: !Ref SearchFilterOpenSearchSyncQ

@@ -44,6 +44,11 @@ async fn should_200_when_updating_application() {
         shop_type: None,
         shop_domains: None,
         shop_image: None,
+        shop_structured_address: None,
+        shop_phone: None,
+        shop_email: None,
+        shop_specialities_categories: None,
+        shop_specialities_periods: None,
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()

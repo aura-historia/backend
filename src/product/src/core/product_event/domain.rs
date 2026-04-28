@@ -17,6 +17,7 @@ use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
+use geo::core::address::{GeoAddress, StructuredAddress};
 use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
 use time::OffsetDateTime;
@@ -333,6 +334,8 @@ pub struct ProductCreatedDomainEventPayload {
     pub shop_name: ShopName,
     pub seller_name: ShopName,
     pub shop_type: ShopType,
+    pub structured_address: Option<StructuredAddress>,
+    pub geo_address: Option<GeoAddress>,
     pub native_title: Localized<Language, Title>,
     pub native_description: Option<Localized<Language, Description>>,
     pub native_price: Option<Price>,
@@ -798,6 +801,8 @@ mod faker {
                 shop_name,
                 seller_name,
                 shop_type: config.fake_with_rng(rng),
+                structured_address: config.fake_with_rng(rng),
+                geo_address: config.fake_with_rng(rng),
                 native_title,
                 native_description: config.fake_with_rng(rng),
                 native_price,

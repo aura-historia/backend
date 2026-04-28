@@ -67,6 +67,7 @@ use product::{
         provenance_record::ProvenanceRecord,
         repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
         restoration_record::RestorationRecord,
+        utm::append_utm_params,
     },
     service::{
         command_service::{CommandProductService, CommandProductServiceImpl},
@@ -94,6 +95,7 @@ use serde::de::DeserializeOwned;
 use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
 use shop::data::get_shop_data::GetShopData;
 use shop::data::patch_shop_data::PatchShopData;
+use shop::data::post_shop_data::PostShopData;
 use shop::dynamodb::repository::ShopDynamoDbRepository;
 use shop::dynamodb::shop_record::ShopRecord;
 use shop::{core::shop::Shop, dynamodb::repository::ShopDynamoDbRepositoryImpl};
@@ -103,6 +105,9 @@ use test_api::*;
 use time::OffsetDateTime;
 use user::core::role::UserRole;
 use user::core::tier::UserTier;
+use user::data::patch_admin_user_data::PatchAdminUserData;
+use user::data::role_data::UserRoleData;
+use user::data::tier_data::UserTierData;
 use user::dynamodb::tier_record::UserTierRecord;
 use user::service::command::UpdateUserCommand;
 use user::service::user_service::UserService;
@@ -2492,6 +2497,7 @@ async fn should_get_and_patch_user_account() {
         language: Some(LanguageData::Fr),
         currency: Some(CurrencyData::Nzd),
         prohibited_content_consent: None,
+        structured_address: None,
     };
     let patch_response = reqwest::Client::new()
         .patch(url.clone())
@@ -2646,6 +2652,14 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
                 tier: Some(UserTierRecord::Free),
                 role: None,
                 stripe_customer_id: None,
+                structured_address_addressline: None,
+                structured_address_addressline_extra: None,
+                structured_address_locality: None,
+                structured_address_region: None,
+                structured_address_postal_code: None,
+                structured_address_country: None,
+                geo_address_lat: None,
+                geo_address_lon: None,
                 gsi1_pk: None,
                 gsi1_sk: None,
                 updated: OffsetDateTime::now_utc(),
@@ -3168,7 +3182,10 @@ async fn should_respond_200_when_anon_and_product_does_exist_for_ids() {
     );
     assert_eq!(record.product_id.to_string(), body["item"]["productId"]);
     assert_eq!(record.event_id.to_string(), body["item"]["eventId"]);
-    assert_eq!(record.url.to_string(), body["item"]["url"]);
+    assert_eq!(
+        append_utm_params(record.url.clone()).to_string(),
+        body["item"]["url"]
+    );
     assert_eq!(
         record.price_gbp.unwrap(),
         body["item"]["price"]["offer"]["amount"]
@@ -4601,6 +4618,11 @@ async fn should_respond_200_for_shop_patch_by_partner() {
         shop_type: None,
         domains: None,
         image: Some(url::Url::parse("https://new-image.example.com/logo.png").unwrap()),
+        structured_address: None,
+        phone: None,
+        email: None,
+        specialities_categories: None,
+        specialities_periods: None,
     };
 
     let url = format!(
@@ -4615,6 +4637,24 @@ async fn should_respond_200_for_shop_patch_by_partner() {
         .await
         .unwrap();
     assert_eq!(200, response.status());
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_201_for_shop_post_by_admin() {
+    let admin = create_admin_test_user().await;
+    let stack = get_cfn_output();
+
+    let post_data: PostShopData = Faker.fake();
+
+    let url = format!("{}/api/v1/shops", stack.api_gateway_endpoint_url,);
+    let response = reqwest::Client::new()
+        .post(&url)
+        .bearer_auth(&admin.access_token)
+        .json(&post_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(201, response.status());
 }
 
 #[localstack_test(services = [Cloudformation()])]
@@ -5071,6 +5111,11 @@ async fn should_respond_200_for_partner_application_patch() {
         shop_type: None,
         shop_domains: None,
         shop_image: None,
+        shop_structured_address: None,
+        shop_phone: None,
+        shop_email: None,
+        shop_specialities_categories: None,
+        shop_specialities_periods: None,
     };
     let patch_response = reqwest::Client::new()
         .patch(&patch_url)
@@ -5285,6 +5330,11 @@ async fn should_respond_200_for_admin_partner_application_patch() {
         shop_type: None,
         shop_domains: None,
         shop_image: None,
+        shop_structured_address: None,
+        shop_phone: None,
+        shop_email: None,
+        shop_specialities_categories: None,
+        shop_specialities_periods: None,
     };
     let response = reqwest::Client::new()
         .patch(&admin_url)
@@ -5319,6 +5369,11 @@ async fn should_respond_200_for_admin_decision_approve() {
         shop_type: shop::data::shop_type_data::ShopTypeData::CommercialDealer,
         shop_domains: std::collections::HashSet::new(),
         shop_image: None,
+        shop_structured_address: None,
+        shop_phone: None,
+        shop_email: None,
+        shop_specialities_categories: Vec::new(),
+        shop_specialities_periods: Vec::new(),
     };
     let create_response = reqwest::Client::new()
         .post(&user_url)
@@ -6481,3 +6536,186 @@ async fn should_201_for_billing_manage_with_checkout_for_free_and_portal_for_pai
     assert!(body.get("livemode").is_none(), "got {body:?}");
     assert!(body.get("userId").is_none(), "got {body:?}");
 }
+
+// ---------------------------------------------------------------------------
+// API: Admin User Management
+// Verifies API Gateway routing and Lambda execution for the admin user
+// management endpoints with Cognito JWT authentication and admin role check.
+// ---------------------------------------------------------------------------
+/*
+async fn wait_until_user_document_exists(user_id: impl Into<String>) -> UserDocument {
+    let user_id = user_id.into();
+    for _ in 0..24 {
+        refresh_index("users").await;
+        if let Some(document) = try_read_by_id::<UserDocument>("users", &user_id).await {
+            return document;
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+    panic!(
+        "Expected user document '{}' to exist in OpenSearch, but it did not appear in time.",
+        user_id
+    );
+}
+ */
+
+/*
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_admin_user_search() {
+    let admin = create_admin_test_user().await;
+
+    let url = format!("{}/api/v1/users", get_cfn_output().api_gateway_endpoint_url,);
+    let response = reqwest::Client::new()
+        .get(&url)
+        .bearer_auth(&admin.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+}
+*/
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_admin_user_get() {
+    let admin = create_admin_test_user().await;
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let url = format!(
+        "{}/api/v1/users/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        user_id,
+    );
+    let response = reqwest::Client::new()
+        .get(&url)
+        .bearer_auth(&admin.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let body = response.json::<GetUserAccountData>().await.unwrap();
+    assert_eq!(user_id, body.user_id);
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_admin_user_patch() {
+    let admin = create_admin_test_user().await;
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let patch_data = PatchAdminUserData {
+        role: Some(UserRoleData::Admin),
+        tier: Some(UserTierData::Pro),
+        first_name: None,
+        last_name: None,
+        language: None,
+        currency: None,
+        prohibited_content_consent: None,
+        stripe_customer_id: None,
+        structured_address: None,
+    };
+
+    let url = format!(
+        "{}/api/v1/users/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        user_id,
+    );
+    let response = reqwest::Client::new()
+        .patch(&url)
+        .bearer_auth(&admin.access_token)
+        .json(&patch_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let body = response.json::<GetUserAccountData>().await.unwrap();
+    assert_eq!(user_id, body.user_id);
+    assert_eq!(UserRoleData::Admin, body.role);
+    assert_eq!(UserTierData::Pro, body.tier);
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_204_for_admin_user_delete() {
+    let admin = create_admin_test_user().await;
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let url = format!(
+        "{}/api/v1/users/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        user_id,
+    );
+    let response = reqwest::Client::new()
+        .delete(&url)
+        .bearer_auth(&admin.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(204, response.status());
+
+    // Verify the user is gone
+    let get_response = reqwest::Client::new()
+        .get(&url)
+        .bearer_auth(&admin.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(404, get_response.status());
+}
+
+// ---------------------------------------------------------------------------
+// User → OpenSearch sync
+// Verifies DynamoDB Streams → EventBridge → SQS → Lambda → OpenSearch routing.
+// ---------------------------------------------------------------------------
+
+/*
+#[localstack_test(services = [Cloudformation()])]
+async fn should_index_user_to_opensearch_on_create() {
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let document = wait_until_user_document_exists(user_id.to_string()).await;
+    assert_eq!(user_id, document.user_id);
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_update_user_document_in_opensearch_on_patch() {
+    let admin = create_admin_test_user().await;
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let initial_document = wait_until_user_document_exists(user_id.to_string()).await;
+
+    let patch_data = PatchAdminUserData {
+        tier: Some(UserTierData::Pro),
+        role: None,
+        first_name: None,
+        last_name: None,
+        language: None,
+        currency: None,
+        prohibited_content_consent: None,
+        stripe_customer_id: None,
+        structured_address: None,
+    };
+    let patch_url = format!(
+        "{}/api/v1/users/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        user_id,
+    );
+    let patch_response = reqwest::Client::new()
+        .patch(&patch_url)
+        .bearer_auth(&admin.access_token)
+        .json(&patch_data)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, patch_response.status());
+
+    tokio::time::sleep(Duration::from_secs(30)).await;
+    let updated_document = wait_until_user_document_exists(user_id.to_string()).await;
+    assert_eq!(user_id, updated_document.user_id);
+    assert_ne!(initial_document.tier, updated_document.tier);
+}
+*/

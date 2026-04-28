@@ -35,6 +35,45 @@
             "image": {
                 "type": "keyword"
             },
+            "structuredAddressAddressline": {
+                "type": "text"
+            },
+            "structuredAddressAddresslineExtra": {
+                "type": "text"
+            },
+            "structuredAddressLocality": {
+                "type": "keyword",
+                "normalizer": "lowercase_normalizer"
+            },
+            "structuredAddressRegion": {
+                "type": "keyword",
+                "normalizer": "lowercase_normalizer"
+            },
+            "structuredAddressPostalCode": {
+                "type": "keyword"
+            },
+            "structuredAddressCountry": {
+                "type": "keyword"
+            },
+            "structuredAddressContinent": {
+                "type": "keyword"
+            },
+            "geoAddress": {
+                "type": "geo_point"
+            },
+            "phone": {
+                "type": "keyword"
+            },
+            "email": {
+                "type": "keyword",
+                "normalizer": "lowercase_normalizer"
+            },
+            "specialitiesCategories": {
+                "type": "keyword"
+            },
+            "specialitiesPeriods": {
+                "type": "keyword"
+            },
             "partnerStatus": {
                 "type": "keyword"
             },

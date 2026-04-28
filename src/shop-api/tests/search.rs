@@ -133,6 +133,10 @@ async fn should_200_when_shop_type_query(
         shop_name_query: None,
         shop_type_query: query.clone(),
         partner_status_query: Default::default(),
+        specialities_categories: Default::default(),
+        specialities_periods: Default::default(),
+        countries: Default::default(),
+        continents: Default::default(),
         created: None,
         updated: None,
     };
@@ -194,6 +198,10 @@ async fn should_200_when_partner_status_query_via_post(
         shop_name_query: None,
         shop_type_query: Default::default(),
         partner_status_query: query.clone(),
+        specialities_categories: Default::default(),
+        specialities_periods: Default::default(),
+        countries: Default::default(),
+        continents: Default::default(),
         created: None,
         updated: None,
     };

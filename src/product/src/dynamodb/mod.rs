@@ -10,3 +10,4 @@ pub mod prohibited_content_record;
 pub mod provenance_record;
 pub mod repository;
 pub mod restoration_record;
+pub mod utm;

@@ -1,0 +1,23 @@
+[package]
+name = "geo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+isocountry = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+async-trait = { workspace = true, optional = true }
+mockall = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true, features = ["json"] }
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+geo = { workspace = true, features = ["full"] }
+
+[features]
+default = []
+data = []
+service = ["async-trait", "mockall", "thiserror", "reqwest"]
+test-data = ["fake"]
+full = ["data", "service", "test-data"]

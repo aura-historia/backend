@@ -41,11 +41,21 @@ pub async fn handle(
             shop_type,
             shop_domains,
             shop_image,
+            shop_structured_address,
+            shop_phone,
+            shop_email,
+            shop_specialities_categories,
+            shop_specialities_periods,
         } => PartnerShopApplicationPayload::New(CreateShopCommand {
             name: shop_name,
             shop_type: shop_type.into(),
             domains: shop_domains,
             image: shop_image,
+            structured_address: shop_structured_address.map(Into::into),
+            phone: shop_phone,
+            email: shop_email,
+            specialities_categories: shop_specialities_categories,
+            specialities_periods: shop_specialities_periods,
         }),
     };
 

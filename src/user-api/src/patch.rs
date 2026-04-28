@@ -40,6 +40,7 @@ pub async fn handle(
         tier: None,
         role: None,
         stripe_customer_id: None,
+        structured_address: patch_user_account_data.structured_address.map(Into::into),
     };
     let updated_user_account_data: GetUserAccountData = service
         .update_user(&user_id, update_user_command)

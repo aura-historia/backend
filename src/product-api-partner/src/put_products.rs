@@ -133,6 +133,8 @@ fn to_upsert_command(
         shops_product_id: data.shops_product_id,
         shop_name: partner_shop.name.clone(),
         shop_type: partner_shop.shop_type,
+        structured_address: data.structured_address.map(Into::into),
+        geo_address: data.geo_address.map(Into::into),
         native_title,
         native_description,
         native_price,
@@ -285,6 +287,8 @@ mod tests {
                 provenance: Default::default(),
                 restoration: Default::default(),
                 seller_name: None,
+                structured_address: None,
+                geo_address: None,
             },
             &partner_shop,
             partner_shop.shop_id,
@@ -586,6 +590,8 @@ mod tests {
             provenance: Default::default(),
             restoration: Default::default(),
             seller_name: None,
+            structured_address: None,
+            geo_address: None,
         };
 
         let cmd = to_upsert_command(data, &partner_shop, seller_id, seller_name.clone());
@@ -639,6 +645,8 @@ mod tests {
             provenance: Default::default(),
             restoration: Default::default(),
             seller_name: Some("Full Seller".to_string()),
+            structured_address: None,
+            geo_address: None,
         };
 
         let cmd = to_upsert_command(data, &partner_shop, seller_id, seller_name.clone());

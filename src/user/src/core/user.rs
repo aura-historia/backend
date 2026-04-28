@@ -5,6 +5,7 @@ use common::{
     currency::domain::Currency, language::domain::Language, stripe_customer_id::StripeCustomerId,
     user_id::UserId,
 };
+use geo::core::address::{GeoAddress, StructuredAddress};
 use serde_email::Email;
 use time::OffsetDateTime;
 
@@ -20,6 +21,8 @@ pub struct User {
     pub tier: UserTier,
     pub role: UserRole,
     pub stripe_customer_id: Option<StripeCustomerId>,
+    pub structured_address: Option<StructuredAddress>,
+    pub geo_address: Option<GeoAddress>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -64,6 +67,8 @@ mod fake {
                 tier: crate::core::tier::UserTier::Ultimate,
                 role: config.fake_with_rng(rng),
                 stripe_customer_id: config.fake_with_rng(rng),
+                structured_address: config.fake_with_rng(rng),
+                geo_address: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
