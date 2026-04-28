@@ -13,7 +13,7 @@ time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
 async-trait = { workspace = true }
 mockall = { workspace = true }
 thiserror = { workspace = true }
-user = { workspace = true, features = ["service"] }
+user = { workspace = true, features = ["service", "data"] }
 
 # Optional
 tracing = { workspace = true, optional = true }

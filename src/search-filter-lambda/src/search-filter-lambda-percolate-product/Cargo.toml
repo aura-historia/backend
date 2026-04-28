@@ -12,7 +12,7 @@ common = { workspace = true, features = ["dynamodb", "event_bridge", "opensearch
 search-filter = { workspace = true, features = ["dynamodb", "opensearch", "service"] }
 product = { workspace = true, features = ["dynamodb", "opensearch", "service"] }
 notification = { workspace = true, features = ["dynamodb", "service"] }
-user = { workspace = true, features = ["dynamodb", "service"] }
+user = { workspace = true, features = ["dynamodb", "service", "data"] }
 aws-sdk-sesv2 = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 serde-email = { workspace = true }

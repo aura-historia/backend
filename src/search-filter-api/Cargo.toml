@@ -13,7 +13,7 @@ isocountry = { workspace = true }
 product-watchlist = { workspace = true, features = ["data", "service", "dynamodb"] }
 product-personalization = { workspace = true }
 notification = { workspace = true, features = ["service"] }
-user = { workspace = true, features = ["dynamodb", "service"] }
+user = { workspace = true, features = ["dynamodb", "service", "data"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["macros"] }

@@ -14,7 +14,7 @@ serde_fields = { workspace = true }
 uuid = { workspace = true, features = ["v7"] }
 mockall = { workspace = true }
 async-trait = { workspace = true }
-user = { workspace = true, features = ["dynamodb", "service"] }
+user = { workspace = true, features = ["dynamodb", "service", "data"] }
 serde_dynamo = { workspace = true, features = [ "aws-sdk-dynamodb+1" ] }
 
 # Optional
