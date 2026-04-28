@@ -6,6 +6,8 @@ use aws_sdk_sqs::Client;
 use aws_sdk_sqs::types::DeleteMessageBatchRequestEntry;
 use aws_sdk_sqs::types::QueueAttributeName;
 use derive_builder::Builder;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 use tokio::sync::OnceCell;
 use tracing::debug;
 
@@ -14,6 +16,9 @@ use tracing::debug;
 /// This `OnceCell` ensures that the client is only created once during the test lifecycle,
 /// using the shared [`SdkConfig`] provided by [`get_aws_config()`].
 static SQS_CLIENT: OnceCell<Client> = OnceCell::const_new();
+// Queue URLs are emulator-specific. Cache the exact URLs returned by `CreateQueue`
+// so test code can reuse them without assuming a LocalStack-only hostname format.
+static QUEUE_URLS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
 
 /// Returns a shared `aws_sdk_sqs::Client` for interacting with LocalStack.
 ///
@@ -42,18 +47,38 @@ pub struct Sqs {
 
 impl Sqs {
     pub fn queue_url(&self) -> String {
-        format!(
-            "http://sqs.eu-central-1.localhost.localstack.cloud:4566/000000000000/{}",
-            self.name
-        )
+        get_registered_queue_url(self.name).unwrap_or_else(|| fallback_queue_url(self.name))
     }
 
     pub fn dead_letter_queue_url(&self) -> String {
-        format!(
-            "http://sqs.eu-central-1.localhost.localstack.cloud:4566/000000000000/dead-letter-{}",
-            self.name
-        )
+        let dead_letter_queue_name = format!("dead-letter-{}", self.name);
+        get_registered_queue_url(&dead_letter_queue_name)
+            .unwrap_or_else(|| fallback_queue_url(&dead_letter_queue_name))
     }
+}
+
+fn queue_urls() -> &'static Mutex<HashMap<String, String>> {
+    QUEUE_URLS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn register_queue_url(queue_name: &str, queue_url: &str) {
+    queue_urls()
+        .lock()
+        .expect("shouldn't fail locking registered SQS queue URLs")
+        .insert(queue_name.to_owned(), queue_url.to_owned());
+}
+
+fn get_registered_queue_url(queue_name: &str) -> Option<String> {
+    queue_urls()
+        .lock()
+        .expect("shouldn't fail locking registered SQS queue URLs")
+        .get(queue_name)
+        .cloned()
+}
+
+fn fallback_queue_url(queue_name: &str) -> String {
+    // Floci returns queue URLs using the canonical emulator endpoint on port 4566.
+    format!("http://localhost:4566/000000000000/{queue_name}")
 }
 
 #[async_trait]
@@ -65,15 +90,17 @@ impl IntegrationTestService for Sqs {
     async fn set_up(&self) {
         let sqs_client = get_sqs_client().await;
 
+        let dead_letter_queue_name = format!("dead-letter-{}", self.name);
         let dead_letter_queue_url = sqs_client
             .create_queue()
-            .queue_name(format!("dead-letter-{}", self.name))
+            .queue_name(&dead_letter_queue_name)
             .send()
             .await
             .unwrap_or_else(|e| panic!("Failed creating DLQ '{}': {e}", self.name))
             .queue_url()
             .expect("Dead-letter queue URL not returned")
             .to_string();
+        register_queue_url(&dead_letter_queue_name, &dead_letter_queue_url);
 
         let dead_letter_queue_arn = sqs_client
             .get_queue_attributes()
@@ -104,19 +131,18 @@ impl IntegrationTestService for Sqs {
             .queue_url()
             .expect("Queue URL not returned")
             .to_string();
+        register_queue_url(self.name, &queue_url);
 
-        assert_eq!(
-            self.queue_url(),
-            queue_url,
-            "Expected Queue-URL '{}' and actual differ '{queue_url}'.",
-            self.queue_url()
+        assert!(
+            queue_url.ends_with(&format!("/000000000000/{}", self.name)),
+            "Expected Queue-URL to end with '/000000000000/{}' but got '{queue_url}'.",
+            self.name
         );
 
-        assert_eq!(
-            self.dead_letter_queue_url(),
-            dead_letter_queue_url,
-            "Expected Dead-Letter-Queue-URL '{}' and actual differ '{dead_letter_queue_url}'.",
-            self.dead_letter_queue_url()
+        assert!(
+            dead_letter_queue_url.ends_with(&format!("/000000000000/dead-letter-{}", self.name)),
+            "Expected Dead-Letter-Queue-URL to end with '/000000000000/dead-letter-{}' but got '{dead_letter_queue_url}'.",
+            self.name
         );
     }
 
