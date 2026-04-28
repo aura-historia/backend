@@ -1254,6 +1254,7 @@ Resources:
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
           OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/prod/username}}"
           OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/prod/password}}"
+          GOOGLE_GEOCODING_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/google-geocoding-api-key}}"
   UserApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
