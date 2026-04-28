@@ -996,6 +996,8 @@ mod tests {
             tier: user::core::tier::UserTier::Free,
             role: user::core::role::UserRole::User,
             stripe_customer_id: None,
+            structured_address: None,
+            geo_address: None,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }

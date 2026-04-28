@@ -1,5 +1,6 @@
 use crate::core::shop_search::ShopSearch;
 use crate::core::sort_shop_field::SortShopField;
+use crate::opensearch::continent_document::ContinentDocument;
 use crate::opensearch::partner_status_document::ShopPartnerStatusDocument;
 use crate::opensearch::shop_document::ShopDocument;
 use crate::opensearch::shop_document::ShopDocumentSerdeField;
@@ -146,6 +147,58 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
             filter.push(json!({
                 "terms": {
                     ShopDocumentSerdeField::PartnerStatus.as_str(): partner_statuses
+                }
+            }));
+        }
+
+        // Add specialities_categories filter
+        if !search.specialities_categories.is_empty() {
+            let categories: Vec<String> = search
+                .specialities_categories
+                .iter()
+                .map(|c| c.to_string())
+                .collect();
+            filter.push(json!({
+                "terms": {
+                    ShopDocumentSerdeField::SpecialitiesCategories.as_str(): categories
+                }
+            }));
+        }
+
+        // Add specialities_periods filter
+        if !search.specialities_periods.is_empty() {
+            let periods: Vec<String> = search
+                .specialities_periods
+                .iter()
+                .map(|p| p.to_string())
+                .collect();
+            filter.push(json!({
+                "terms": {
+                    ShopDocumentSerdeField::SpecialitiesPeriods.as_str(): periods
+                }
+            }));
+        }
+
+        // Add country filter
+        if !search.countries.is_empty() {
+            let countries: Vec<&str> = search.countries.iter().map(|c| c.alpha2()).collect();
+            filter.push(json!({
+                "terms": {
+                    ShopDocumentSerdeField::StructuredAddressCountry.as_str(): countries
+                }
+            }));
+        }
+
+        // Add continent filter
+        if !search.continents.is_empty() {
+            let continents: Vec<&str> = search
+                .continents
+                .iter()
+                .map(|c| ContinentDocument::from(*c).as_str())
+                .collect();
+            filter.push(json!({
+                "terms": {
+                    ShopDocumentSerdeField::StructuredAddressContinent.as_str(): continents
                 }
             }));
         }

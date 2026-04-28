@@ -1,5 +1,6 @@
 pub mod authenticity_document;
 pub mod condition_document;
+pub mod intent;
 pub mod product_document;
 pub mod product_image_document;
 pub mod product_state_document;

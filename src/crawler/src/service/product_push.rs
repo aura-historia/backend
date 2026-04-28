@@ -289,6 +289,8 @@ pub fn normalize_to_upsert(
         shop_name,
         seller_name,
         shop_type: candidate.shop_type,
+        structured_address: None,
+        geo_address: None,
         native_title: Some(product.title),
         native_description: product.description,
         native_price: product.price,

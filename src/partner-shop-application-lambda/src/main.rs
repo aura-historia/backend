@@ -8,6 +8,9 @@ use partner_shop_application::dynamodb::repository::PartnerShopApplicationDynamo
 use partner_shop_application_lambda::handler;
 use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
 use shop::service::command_service::CommandShopServiceImpl;
+use shop::service::geocoding_service::{
+    GeocodingService, GoogleGeocodingService, NoopGeocodingService,
+};
 use tracing::debug;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::UserServiceImpl;
@@ -37,7 +40,12 @@ async fn main() -> Result<(), Error> {
         PartnerShopApplicationDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
 
     let shop_repository = ShopDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
-    let shop_service = CommandShopServiceImpl::new(&shop_repository);
+    let geocoding_service: Box<dyn GeocodingService + Sync> =
+        match std::env::var("LOCALSTACK_HOSTNAME") {
+            Ok(_) => Box::new(NoopGeocodingService),
+            Err(_) => Box::new(GoogleGeocodingService::from_env()?),
+        };
+    let shop_service = CommandShopServiceImpl::new(&shop_repository, geocoding_service.as_ref());
 
     let notification_repository =
         NotificationDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);

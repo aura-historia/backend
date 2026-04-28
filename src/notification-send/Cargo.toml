@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 common = { workspace = true, features = ["dynamodb", "event_bridge"] }
 notification = { workspace = true, features = ["service"] }
-user = { workspace = true, features = ["dynamodb", "service"] }
+user = { workspace = true, features = ["dynamodb", "service", "data"] }
 lambda_runtime = { workspace = true }
 aws-config = { workspace = true }
 aws_lambda_events = { workspace = true, features = ["sqs", "dynamodb", "eventbridge"] }

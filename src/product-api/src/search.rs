@@ -13,20 +13,21 @@ use common::{
     sort::api::extract_sort_query,
 };
 use lambda_runtime::LambdaEvent;
+use product::core::sort_product_field::SortProductField;
 use product::data::sort_product_field_data::SortProductFieldData;
-use product::service::query_service::QueryProductService;
-use product::{
-    core::sort_product_field::SortProductField,
-    data::{
-        get_summary_data::GetProductSummaryData, product_search_data::ProductSearchData,
-        user_state_data::ProductUserStateData,
-    },
+use product::data::{
+    get_summary_data::GetProductSummaryData, product_search_data::ProductSearchData,
+    user_state_data::ProductUserStateData,
 };
+use product::service::query_service::QueryProductService;
 use product_personalization::service::ProductPersonalizationService;
+use product_pipeline_embed_text::service::MultimodalEmbeddingService;
+use tracing::warn;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl QueryProductService,
+    embedding_service: Option<&(dyn MultimodalEmbeddingService + Sync + Send)>,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
     product_personalization_service: &impl ProductPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
@@ -74,10 +75,56 @@ pub async fn handle(
             })?
         };
 
-    let product_search = product_search_data.into();
-    let search_result = service
-        .search_products(&product_search, &sort, &Some(cursor))
-        .await?;
+    let product_search: product::core::product_search::ProductSearch = product_search_data.into();
+
+    // Adaptive hybrid retrieval is only chosen when:
+    //   * an embedding service is configured (Lambda has GEMINI_API_KEY), AND
+    //   * the request carries a non-empty textual `product_query`, AND
+    //   * the user did not request a non-score sort (e.g. price/created/updated).
+    // Otherwise we fall back to the existing pure-BM25 path.
+    let use_hybrid = embedding_service.is_some()
+        && product_search
+            .product_query
+            .as_ref()
+            .map(|q| !q.as_ref().trim().is_empty())
+            .unwrap_or(false)
+        && matches!(
+            sort.as_ref().map(|s| s.sort),
+            None | Some(SortProductField::Score)
+        );
+
+    let search_result = if use_hybrid {
+        let es = embedding_service.expect("guarded above");
+        let query_text = product_search
+            .product_query
+            .as_ref()
+            .map(|q| q.as_ref().to_string())
+            .unwrap_or_default();
+        match es.embed_query(&query_text).await {
+            Ok(embedding) => {
+                service
+                    .search_products_with_dynamic_semantics(
+                        &product_search,
+                        &embedding,
+                        &Some(cursor),
+                    )
+                    .await?
+            }
+            Err(err) => {
+                // Fail-open: log and fall back to BM25 so we never break the search path
+                // because of an embedding-service hiccup.
+                warn!(error = %err, "embed_query failed; falling back to BM25 path");
+                service
+                    .search_products(&product_search, &sort, &Some(cursor))
+                    .await?
+            }
+        }
+    } else {
+        service
+            .search_products(&product_search, &sort, &Some(cursor))
+            .await?
+    };
+
     let cursored_result = match user_id_opt {
         Some(user_id) => {
             let personalized_products = product_personalization_service
@@ -189,6 +236,7 @@ mod tests {
         let response = handle(
             lambda_event,
             &query_product_service,
+            None,
             &access_token_verifier_service,
             &product_personalization_service,
         )
@@ -216,6 +264,9 @@ mod tests {
             seller_slug_id_query: Default::default(),
             exclude_seller_slug_id_query: Default::default(),
             shop_type_query: Default::default(),
+            country_query: Default::default(),
+            continent_query: Default::default(),
+            geo_address_distance_query: None,
             price_query: None,
             state_query: Default::default(),
             origin_year_query: None,
@@ -262,6 +313,7 @@ mod tests {
         let response = handle(
             lambda_event,
             &query_product_service,
+            None,
             &access_token_verifier_service,
             &product_personalization_service,
         )

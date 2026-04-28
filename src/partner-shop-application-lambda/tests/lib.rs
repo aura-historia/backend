@@ -69,7 +69,10 @@ async fn should_set_state_to_in_review_and_store_task_token_for_wait_for_review(
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let shop_service = CommandShopServiceImpl::new(&shop_repo);
+    let shop_service = CommandShopServiceImpl::new(
+        &shop_repo,
+        &shop::service::geocoding_service::NoopGeocodingService,
+    );
     let mock_notification = MockNotificationService::new();
 
     let mut record: PartnerShopApplicationRecord = Faker.fake();
@@ -124,7 +127,10 @@ async fn should_create_shop_and_approve_for_new_application() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let shop_service = CommandShopServiceImpl::new(&shop_repo);
+    let shop_service = CommandShopServiceImpl::new(
+        &shop_repo,
+        &shop::service::geocoding_service::NoopGeocodingService,
+    );
     let mock_notification = mock_notification_service();
 
     let mut record: PartnerShopApplicationRecord = Faker.fake();
@@ -175,7 +181,10 @@ async fn should_link_existing_shop_and_approve_for_existing_application() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let shop_service = CommandShopServiceImpl::new(&shop_repo);
+    let shop_service = CommandShopServiceImpl::new(
+        &shop_repo,
+        &shop::service::geocoding_service::NoopGeocodingService,
+    );
     let mock_notification = mock_notification_service();
 
     let existing_shop: ShopRecord = Faker.fake();
@@ -244,7 +253,10 @@ async fn should_set_state_to_rejected_for_reject() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let shop_service = CommandShopServiceImpl::new(&shop_repo);
+    let shop_service = CommandShopServiceImpl::new(
+        &shop_repo,
+        &shop::service::geocoding_service::NoopGeocodingService,
+    );
     let mock_notification = mock_notification_service();
 
     let mut record: PartnerShopApplicationRecord = Faker.fake();
@@ -294,7 +306,10 @@ async fn should_return_error_when_application_not_found_for_approve() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let shop_service = CommandShopServiceImpl::new(&shop_repo);
+    let shop_service = CommandShopServiceImpl::new(
+        &shop_repo,
+        &shop::service::geocoding_service::NoopGeocodingService,
+    );
     let mock_notification = MockNotificationService::new();
 
     let payload = serde_json::json!({
@@ -321,7 +336,10 @@ async fn should_return_error_when_application_not_found_for_reject() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let shop_service = CommandShopServiceImpl::new(&shop_repo);
+    let shop_service = CommandShopServiceImpl::new(
+        &shop_repo,
+        &shop::service::geocoding_service::NoopGeocodingService,
+    );
     let mock_notification = MockNotificationService::new();
 
     let payload = serde_json::json!({
@@ -348,7 +366,10 @@ async fn should_return_error_when_task_token_missing_for_wait_for_review() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let shop_service = CommandShopServiceImpl::new(&shop_repo);
+    let shop_service = CommandShopServiceImpl::new(
+        &shop_repo,
+        &shop::service::geocoding_service::NoopGeocodingService,
+    );
     let mock_notification = MockNotificationService::new();
 
     let payload = serde_json::json!({

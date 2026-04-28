@@ -5,11 +5,14 @@ edition = "2024"
 
 ## core
 [dependencies]
+geo = { workspace = true }
 common = { workspace = true }
+isocountry = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
 url = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde-email = { workspace = true }
 serde_fields = { workspace = true }
 async-trait = { workspace = true }
 mockall = { workspace = true }
@@ -29,6 +32,7 @@ tokio = { workspace = true, optional = true }
 strum = { workspace = true, optional = true }
 strum_macros = { workspace = true, optional = true }
 llm = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true, features = ["json"] }
 
 [dev-dependencies]
 shop = { workspace = true, features = ["full", "seller"] }
@@ -41,11 +45,11 @@ tokio = { workspace = true, features = ["macros", "time"] }
 [features]
 default = []
 api = ["data", "aws_lambda_events", "http"]
-data = ["common/api"]
+data = ["common/api", "geo/data"]
 dynamodb = ["common/dynamodb", "field", "aws-sdk-dynamodb", "serde_dynamo", "tracing", "strum"]
 opensearch = ["common/opensearch", "dep:opensearch", "tracing", "strum", "strum_macros"]
-service = ["tokio", "tokio/time"]
-test-data = ["fake", "common/test-data"]
+service = ["tokio", "tokio/time", "reqwest", "geo/service"]
+test-data = ["fake", "common/test-data", "geo/test-data"]
 llm = ["dep:llm", "llm/google"]
 seller = ["dynamodb", "opensearch", "service", "llm"]
 full = ["api", "data", "dynamodb", "opensearch", "service", "test-data", "seller"]

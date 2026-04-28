@@ -4,6 +4,7 @@ use common::api::error_code::INTERNAL_SERVER_ERROR;
 use lambda_runtime::LambdaEvent;
 use user::service::user_service::UserService;
 
+mod admin;
 mod delete;
 mod get;
 mod patch;
@@ -23,7 +24,7 @@ mod patch;
 )]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl UserService,
+    service: &(impl UserService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(event, service).await {
         Ok(response) => Ok(response),
@@ -36,9 +37,13 @@ pub async fn handler(
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl UserService,
+    service: &(impl UserService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
+        Some("GET /api/v1/users") => admin::search(event, service).await,
+        Some("GET /api/v1/users/{userId}") => admin::get(event, service).await,
+        Some("PATCH /api/v1/users/{userId}") => admin::patch(event, service).await,
+        Some("DELETE /api/v1/users/{userId}") => admin::delete(event, service).await,
         Some("GET /api/v1/me/account") => get::handle(event, service).await,
         Some("PATCH /api/v1/me/account") => patch::handle(event, service).await,
         Some("DELETE /api/v1/me") => delete::handle(event, service).await,

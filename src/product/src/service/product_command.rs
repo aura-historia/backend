@@ -18,6 +18,7 @@ use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
+use geo::core::address::{GeoAddress, StructuredAddress};
 use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
 use time::OffsetDateTime;
@@ -31,6 +32,8 @@ pub struct CreateProductCommand {
     pub shop_name: ShopName,
     pub seller_name: ShopName,
     pub shop_type: ShopType,
+    pub structured_address: Option<StructuredAddress>,
+    pub geo_address: Option<GeoAddress>,
     pub native_title: Localized<Language, Title>,
     pub other_title: HashMap<Language, Title>,
     pub native_description: Option<Localized<Language, Description>>,
@@ -91,6 +94,8 @@ pub struct UpsertProductCommand {
     pub shop_name: ShopName,
     pub seller_name: ShopName,
     pub shop_type: ShopType,
+    pub structured_address: Option<StructuredAddress>,
+    pub geo_address: Option<GeoAddress>,
     pub native_title: Option<Localized<Language, Title>>,
     pub native_description: Option<Localized<Language, Description>>,
     pub native_price: Option<Price>,
@@ -128,6 +133,8 @@ impl From<UpsertProductCommand> for CreateProductCommand {
             shop_name: cmd.shop_name,
             seller_name: cmd.seller_name,
             shop_type: cmd.shop_type,
+            structured_address: cmd.structured_address,
+            geo_address: cmd.geo_address,
             native_title: cmd
                 .native_title
                 .unwrap_or_else(|| Localized::new(Language::En, Title::from(""))),
@@ -214,6 +221,8 @@ mod faker {
                 shop_name: config.fake_with_rng(rng),
                 seller_name: config.fake_with_rng(rng),
                 shop_type: config.fake_with_rng(rng),
+                structured_address: config.fake_with_rng(rng),
+                geo_address: config.fake_with_rng(rng),
                 native_title: config.fake_with_rng(rng),
                 other_title: config.fake_with_rng(rng),
                 native_description: config.fake_with_rng(rng),
@@ -285,6 +294,8 @@ mod faker {
                 shop_name: config.fake_with_rng(rng),
                 seller_name: config.fake_with_rng(rng),
                 shop_type: config.fake_with_rng(rng),
+                structured_address: config.fake_with_rng(rng),
+                geo_address: config.fake_with_rng(rng),
                 native_title: Some(config.fake_with_rng(rng)),
                 native_description: config.fake_with_rng(rng),
                 native_price: config.fake_with_rng(rng),

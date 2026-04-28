@@ -25,11 +25,29 @@ pub trait MultimodalEmbeddingService {
         description: Option<&Description>,
         image: Option<&Url>,
     ) -> Result<Vec<f32>, MultimodalEmbeddingError>;
+
+    /// Embed a free-text product search query.
+    ///
+    /// Uses the Gemini `RETRIEVAL_QUERY` task type as recommended in
+    /// <https://ai.google.dev/gemini-api/docs/embeddings#task-types-embeddings-2>
+    /// so the resulting vector lives in the same space as documents embedded with
+    /// `RETRIEVAL_DOCUMENT` (or its multimodal equivalent used in [`Self::embed`]).
+    async fn embed_query(&self, query: &str) -> Result<Vec<f32>, MultimodalEmbeddingError>;
 }
+
+/// Maximum number of cached `embed_query` results held in memory by an
+/// [`MultimodalEmbeddingServiceImpl`]. 4096 entries × 768 f32 ≈ 12 MB worst case —
+/// bounded so the warm Lambda stays lightweight while still amortising query embedding
+/// cost across paged calls and warm invocations.
+const QUERY_EMBEDDING_CACHE_CAPACITY: usize = 4096;
 
 pub struct MultimodalEmbeddingServiceImpl {
     api_key: String,
     client: reqwest::Client,
+    /// LRU cache of `embed_query` results, keyed by raw query string. Only `embed_query`
+    /// uses this cache — `embed` (multimodal product ingestion) is one-shot per product
+    /// event and deduplication should happen upstream.
+    query_cache: tokio::sync::Mutex<lru::LruCache<String, Vec<f32>>>,
 }
 
 impl MultimodalEmbeddingServiceImpl {
@@ -37,6 +55,10 @@ impl MultimodalEmbeddingServiceImpl {
         Self {
             api_key: api_key.to_string(),
             client: reqwest::Client::new(),
+            query_cache: tokio::sync::Mutex::new(lru::LruCache::new(
+                std::num::NonZeroUsize::new(QUERY_EMBEDDING_CACHE_CAPACITY)
+                    .expect("QUERY_EMBEDDING_CACHE_CAPACITY must be non-zero"),
+            )),
         }
     }
 
@@ -120,6 +142,7 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
         let request = EmbedContentRequest {
             model: "models/gemini-embedding-2-preview-03-25",
             content: Content { parts },
+            task_type: None,
         };
 
         debug!("Requesting multimodal embedding from Gemini API.");
@@ -151,12 +174,66 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
 
         Ok(values)
     }
+
+    async fn embed_query(&self, query: &str) -> Result<Vec<f32>, MultimodalEmbeddingError> {
+        // Cache hit: serve from the in-memory LRU. The cache is mutated on `get` (LRU
+        // promotion) so we need a `&mut` lock here; the lock is held only for the lookup.
+        if let Some(hit) = self.query_cache.lock().await.get(query).cloned() {
+            return Ok(hit);
+        }
+
+        let request = EmbedContentRequest {
+            model: "models/gemini-embedding-2-preview-03-25",
+            content: Content {
+                parts: vec![ContentPart::Text {
+                    text: query.to_string(),
+                }],
+            },
+            task_type: Some("RETRIEVAL_QUERY"),
+        };
+
+        debug!("Requesting query embedding from Gemini API.");
+
+        let response = self
+            .client
+            .post("https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2-preview:embedContent")
+            .header("x-goog-api-key", &self.api_key)
+            .query(&[("output_dimensionality", "768")])
+            .json(&request)
+            .send()
+            .await?
+            .error_for_status()
+            .map_err(MultimodalEmbeddingError::RequestFailed)?;
+
+        let body: EmbedContentResponse = response.json().await?;
+        let mut values = body.embedding.values;
+        if values.is_empty() {
+            return Err(MultimodalEmbeddingError::EmptyResponse);
+        }
+        let norm = values.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm == 0.0 {
+            return Err(MultimodalEmbeddingError::EmptyResponse);
+        }
+        for v in &mut values {
+            *v /= norm;
+        }
+
+        // Populate the cache with the freshly computed embedding for subsequent calls.
+        self.query_cache
+            .lock()
+            .await
+            .put(query.to_string(), values.clone());
+
+        Ok(values)
+    }
 }
 
 #[derive(Debug, Serialize)]
 struct EmbedContentRequest<'a> {
     model: &'a str,
     content: Content,
+    #[serde(rename = "taskType", skip_serializing_if = "Option::is_none")]
+    task_type: Option<&'a str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1075,6 +1152,7 @@ mod tests {
                     text: "Test title".to_string(),
                 }],
             },
+            task_type: None,
         };
         let json = serde_json::to_value(&request).unwrap();
         assert_eq!(
@@ -1128,5 +1206,57 @@ mod tests {
             "Expected normalized 768-dim vector to have L2 norm of 1.0, got {}",
             normalized_norm
         );
+    }
+
+    // -------- Query embedding cache --------
+
+    #[tokio::test]
+    async fn should_construct_query_cache_with_configured_capacity_for_warm_lambda() {
+        // The LRU cache is a private implementation detail of `MultimodalEmbeddingServiceImpl`;
+        // we cannot exercise the network path in a unit test, but we can verify the cache
+        // is wired with the expected capacity bound so warm Lambda invocations can hit it.
+        let svc = MultimodalEmbeddingServiceImpl::new("test-key");
+        let cache = svc.query_cache.lock().await;
+        assert_eq!(cache.cap().get(), QUERY_EMBEDDING_CACHE_CAPACITY);
+        assert_eq!(cache.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn should_serve_query_embedding_from_cache_when_repeated_for_paged_calls() {
+        // Manually pre-populate the cache to simulate a previous successful call, then
+        // verify that the cached value is returned without exercising the HTTP client.
+        let svc = MultimodalEmbeddingServiceImpl::new("test-key");
+        let expected = vec![0.1_f32, 0.2, 0.3];
+        svc.query_cache
+            .lock()
+            .await
+            .put("hello".to_string(), expected.clone());
+
+        let actual = svc.embed_query("hello").await.unwrap();
+        assert_eq!(expected, actual);
+    }
+
+    #[tokio::test]
+    async fn should_evict_least_recently_used_entry_when_capacity_exceeded() {
+        // Drive the cache directly past capacity to assert LRU semantics.
+        let svc = MultimodalEmbeddingServiceImpl::new("test-key");
+        {
+            let mut cache = svc.query_cache.lock().await;
+            for i in 0..QUERY_EMBEDDING_CACHE_CAPACITY {
+                cache.put(format!("q-{i}"), vec![i as f32]);
+            }
+            // Touch the oldest key to promote it to MRU, then insert a new entry which
+            // should evict the *next* oldest (q-1) instead.
+            assert!(cache.get("q-0").is_some());
+            cache.put("q-new".to_string(), vec![-1.0]);
+        }
+        let cache = svc.query_cache.lock().await;
+        assert_eq!(cache.len(), QUERY_EMBEDDING_CACHE_CAPACITY);
+        assert!(cache.peek("q-0").is_some(), "promoted entry must survive");
+        assert!(
+            cache.peek("q-1").is_none(),
+            "least-recently-used must be evicted"
+        );
+        assert!(cache.peek("q-new").is_some());
     }
 }

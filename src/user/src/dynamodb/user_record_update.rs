@@ -6,6 +6,7 @@ use common::{
     currency::record::CurrencyRecord, dynamodb_update::DynamoDbUpdate,
     language::record::LanguageRecord, stripe_customer_id::StripeCustomerId,
 };
+use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
@@ -42,6 +43,24 @@ pub struct UserRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gsi1_sk: Option<String>,
 
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_addressline: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_addressline_extra: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_locality: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_region: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_postal_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_address_country: Option<CountryCode>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geo_address_lat: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geo_address_lon: Option<f64>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -70,6 +89,14 @@ mod fake {
                 stripe_customer_id: config.fake_with_rng(rng),
                 gsi1_pk: config.fake_with_rng(rng),
                 gsi1_sk: config.fake_with_rng(rng),
+                structured_address_addressline: config.fake_with_rng(rng),
+                structured_address_addressline_extra: config.fake_with_rng(rng),
+                structured_address_locality: config.fake_with_rng(rng),
+                structured_address_region: config.fake_with_rng(rng),
+                structured_address_postal_code: config.fake_with_rng(rng),
+                structured_address_country: None,
+                geo_address_lat: config.fake_with_rng(rng),
+                geo_address_lon: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),
             }
         }

@@ -1,5 +1,6 @@
 use common::category_key::CategoryId;
 use common::currency::domain::Currency;
+use common::distance::domain::{Distance, DistanceUnit, GeoDistanceQuery};
 use common::event_id::EventId;
 use common::language::document::{LanguageDocument, TextDocument};
 use common::language::domain::Language;
@@ -15,6 +16,7 @@ use common::slug_id::SlugId;
 use common::sort::{Sort, SortOrder};
 use common::year::Year;
 use fake::{Fake, Faker, rand};
+use geo::core::continent::Continent;
 use opensearch::http::Url;
 use product::core::authenticity::Authenticity;
 use product::core::condition::Condition;
@@ -22,6 +24,7 @@ use product::core::product_search::ProductSearch;
 use product::core::provenance::Provenance;
 use product::core::restoration::Restoration;
 use product::core::sort_product_field::SortProductField;
+use product::opensearch::intent::HybridSearchParams;
 use product::opensearch::product_document::ProductDocument;
 use product::opensearch::product_state_document::ProductStateDocument;
 use product::opensearch::product_update_document::ProductUpdateDocument;
@@ -30,6 +33,7 @@ use product::opensearch::repository::{
 };
 use serde_json::json;
 use shop::core::shop_type::ShopType;
+use shop::opensearch::continent_document::ContinentDocument;
 use shop::opensearch::shop_type_document::ShopTypeDocument;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -54,6 +58,14 @@ async fn should_create_product_document() {
         shop_name: "Foo".to_string(),
         seller_name: "Bar".to_string(),
         shop_type: ShopTypeDocument::CommercialDealer,
+        structured_address_addressline: None,
+        structured_address_addressline_extra: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        structured_address_continent: None,
+        geo_address: None,
         category_id: Faker.fake(),
         category_name_de: Faker.fake(),
         category_name_en: Faker.fake(),
@@ -178,6 +190,14 @@ async fn should_create_product_documents() {
         shop_name: "Foo".to_string(),
         seller_name: "Bar".to_string(),
         shop_type: ShopTypeDocument::CommercialDealer,
+        structured_address_addressline: None,
+        structured_address_addressline_extra: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        structured_address_continent: None,
+        geo_address: None,
         category_id: Faker.fake(),
         category_name_de: Faker.fake(),
         category_name_en: Faker.fake(),
@@ -287,6 +307,14 @@ async fn should_create_product_documents() {
         shop_name: "Foo".to_string(),
         seller_name: "Bar".to_string(),
         shop_type: ShopTypeDocument::CommercialDealer,
+        structured_address_addressline: None,
+        structured_address_addressline_extra: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        structured_address_continent: None,
+        geo_address: None,
         category_id: Faker.fake(),
         category_name_de: Faker.fake(),
         category_name_en: Faker.fake(),
@@ -413,6 +441,14 @@ async fn should_update_product_document() {
         shop_name: "Foo".to_string(),
         seller_name: "Bar".to_string(),
         shop_type: ShopTypeDocument::CommercialDealer,
+        structured_address_addressline: None,
+        structured_address_addressline_extra: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        structured_address_continent: None,
+        geo_address: None,
         category_id: Faker.fake(),
         category_name_de: Faker.fake(),
         category_name_en: Faker.fake(),
@@ -645,6 +681,14 @@ async fn should_search_product_documents() {
         shop_name: "Foo".to_string(),
         seller_name: "Bar".to_string(),
         shop_type: ShopTypeDocument::CommercialDealer,
+        structured_address_addressline: None,
+        structured_address_addressline_extra: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        structured_address_continent: None,
+        geo_address: None,
         category_id: Faker.fake(),
         category_name_de: Faker.fake(),
         category_name_en: Faker.fake(),
@@ -763,6 +807,9 @@ async fn should_search_product_documents() {
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -816,6 +863,14 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
         shop_name: "Foo".to_string(),
         seller_name: "Bar".to_string(),
         shop_type: ShopTypeDocument::CommercialDealer,
+        structured_address_addressline: None,
+        structured_address_addressline_extra: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        structured_address_continent: None,
+        geo_address: None,
         category_id: Faker.fake(),
         category_name_de: Faker.fake(),
         category_name_en: Faker.fake(),
@@ -934,6 +989,9 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -1003,6 +1061,9 @@ async fn should_search_product_documents_when_all_arguments_are_given() {
         exclude_shop_name_query: HashSet::from_iter(["Berlin GmbH".into()]).into(),
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: Some(RangeQuery {
             min: Some(100u64.into()),
             max: Some(999999u64.into()),
@@ -1091,6 +1152,9 @@ async fn should_search_product_documents_when_states_are_given(#[case] states: &
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: AnyOfQuery::from(HashSet::from_iter(states.iter().copied())),
         origin_year_query: None,
@@ -1159,6 +1223,9 @@ async fn should_search_product_documents_when_no_states_are_given() {
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: AnyOfQuery::from(HashSet::new()),
         origin_year_query: None,
@@ -1249,6 +1316,9 @@ async fn should_search_product_documents_when_price_range_is_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: Some(price_query),
         state_query: Default::default(),
         origin_year_query: None,
@@ -1343,6 +1413,9 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -1441,6 +1514,9 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -1490,6 +1566,135 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
 }
 
 #[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_country_query_is_given() {
+    let repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let expected_country = isocountry::CountryCode::DEU;
+    let other_country = isocountry::CountryCode::FRA;
+    let mut expected = Faker.fake::<ProductDocument>();
+    expected.structured_address_country = Some(expected_country);
+    expected.structured_address_continent =
+        Some(ContinentDocument::from(Continent::from(expected_country)));
+    let mut other = Faker.fake::<ProductDocument>();
+    other.structured_address_country = Some(other_country);
+    other.structured_address_continent =
+        Some(ContinentDocument::from(Continent::from(other_country)));
+    let create_res = repository
+        .create_product_documents(vec![expected.clone(), other])
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let search_filter = ProductSearch::new(Language::En, Currency::Eur)
+        .with_country_query(HashSet::from_iter([expected_country]).into());
+
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let hits = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source.product_id)
+        .collect::<HashSet<_>>();
+    assert_eq!(HashSet::from_iter([expected.product_id]), hits);
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_continent_query_is_given() {
+    let repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let mut expected = Faker.fake::<ProductDocument>();
+    expected.structured_address_country = Some(isocountry::CountryCode::DEU);
+    expected.structured_address_continent = Some(ContinentDocument::Europe);
+    let mut other = Faker.fake::<ProductDocument>();
+    other.structured_address_country = Some(isocountry::CountryCode::JPN);
+    other.structured_address_continent = Some(ContinentDocument::Asia);
+    let create_res = repository
+        .create_product_documents(vec![expected.clone(), other])
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let search_filter = ProductSearch::new(Language::En, Currency::Eur)
+        .with_continent_query(HashSet::from_iter([Continent::Europe]).into());
+
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let hits = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source.product_id)
+        .collect::<HashSet<_>>();
+    assert_eq!(HashSet::from_iter([expected.product_id]), hits);
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_geo_address_distance_query_is_given() {
+    let repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let mut expected = Faker.fake::<ProductDocument>();
+    expected.geo_address = Some("52.5200,13.4050".to_string());
+    let mut other = Faker.fake::<ProductDocument>();
+    other.geo_address = Some("40.7128,-74.0060".to_string());
+    let create_res = repository
+        .create_product_documents(vec![expected.clone(), other])
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let search_filter = ProductSearch::new(Language::En, Currency::Eur)
+        .with_geo_address_distance_query(GeoDistanceQuery {
+            lat: 52.5200,
+            lon: 13.4050,
+            distance: Distance {
+                amount: 50.0,
+                unit: DistanceUnit::Kilometers,
+            },
+        });
+
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let hits = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source.product_id)
+        .collect::<HashSet<_>>();
+    assert_eq!(HashSet::from_iter([expected.product_id]), hits);
+}
+
+#[localstack_test(services = [OpenSearch()])]
 async fn should_get_product_document() {
     let product_id = ProductId::new();
     let expected = ProductDocument {
@@ -1504,6 +1709,14 @@ async fn should_get_product_document() {
         shop_name: "Foo".to_string(),
         seller_name: "Bar".to_string(),
         shop_type: ShopTypeDocument::CommercialDealer,
+        structured_address_addressline: None,
+        structured_address_addressline_extra: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        structured_address_continent: None,
+        geo_address: None,
         category_id: Faker.fake(),
         category_name_de: Faker.fake(),
         category_name_en: Faker.fake(),
@@ -2466,6 +2679,9 @@ async fn should_search_product_documents_when_exact_year_is_given_for_stored_exa
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: Some(RangeQuery {
@@ -2570,6 +2786,9 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: Some(RangeQuery {
@@ -2674,6 +2893,9 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: Some(RangeQuery {
@@ -2778,6 +3000,9 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: Some(RangeQuery {
@@ -2884,6 +3109,9 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: Some(RangeQuery {
@@ -2988,6 +3216,9 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: Some(RangeQuery {
@@ -3092,6 +3323,9 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: Some(RangeQuery {
@@ -3178,6 +3412,9 @@ async fn should_search_product_documents_when_authenticity_filter_is_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -3253,6 +3490,9 @@ async fn should_search_product_documents_when_condition_filter_is_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -3328,6 +3568,9 @@ async fn should_search_product_documents_when_provenance_filter_is_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -3403,6 +3646,9 @@ async fn should_search_product_documents_when_restoration_filter_is_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -3478,6 +3724,9 @@ async fn should_search_product_documents_when_shop_types_are_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: AnyOfQuery::from(HashSet::from_iter(shop_types.iter().copied())),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -3561,6 +3810,9 @@ async fn should_search_product_documents_when_category_id_is_given() {
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -3647,6 +3899,9 @@ async fn should_search_product_documents_when_period_id_is_given() {
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -3741,6 +3996,9 @@ async fn should_search_product_documents_when_shop_names_are_given_for_keyword_f
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -3835,6 +4093,9 @@ async fn should_search_product_documents_when_excluded_shop_names_are_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -3927,6 +4188,9 @@ async fn should_search_product_documents_when_seller_names_are_given_for_keyword
         )),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -4025,6 +4289,9 @@ async fn should_search_product_documents_when_excluded_seller_names_are_given(
                 .map(|name| name.to_string().into()),
         )),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -4125,6 +4392,9 @@ async fn should_search_product_documents_when_shop_slug_ids_are_given(
         seller_slug_id_query: Default::default(),
         exclude_seller_slug_id_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -4225,6 +4495,9 @@ async fn should_search_product_documents_when_excluded_shop_slug_ids_are_given(
         seller_slug_id_query: Default::default(),
         exclude_seller_slug_id_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -4322,6 +4595,9 @@ async fn should_search_product_documents_when_seller_slug_ids_are_given(
         )),
         exclude_seller_slug_id_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -4424,6 +4700,9 @@ async fn should_search_product_documents_when_excluded_seller_slug_ids_are_given
                 .map(|slug| SlugId::from(*slug)),
         )),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -4534,6 +4813,9 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -4675,6 +4957,9 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -4816,6 +5101,9 @@ async fn should_search_product_documents_when_query_is_empty(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
         origin_year_query: None,
@@ -4876,4 +5164,1164 @@ async fn should_search_product_documents_when_query_is_empty(
             .iter()
             .all(|product| actual_items.contains(product))
     );
+}
+
+// =====================================================================================
+// Hybrid (BM25 + kNN) search integration tests
+// =====================================================================================
+//
+// These tests prove that `hybrid_search_product_documents` produces a request OpenSearch
+// can actually execute against the configured `products` index, and that the relevant
+// behaviours (filter pass-through, source excludes, sort+paging, weight bounds, dynamic
+// `candidate_k`) all work end-to-end.
+
+/// Build an embedding of the configured 768-d shape with `value` in slot `slot` and 0
+/// elsewhere. Useful for constructing near-orthogonal embeddings in tests so that we can
+/// reason precisely about kNN ranking.
+fn one_hot_embedding(slot: usize, value: f32) -> [f32; 768] {
+    let mut v = [0.0_f32; 768];
+    v[slot] = value;
+    v
+}
+
+/// Build a `ProductDocument` with all required fields filled in by `Faker`, then apply
+/// a customizer closure so individual tests can override only the fields they care about.
+fn make_product_doc(customize: impl FnOnce(&mut ProductDocument)) -> ProductDocument {
+    let mut doc: ProductDocument = Faker.fake();
+    // Many fake fields are unrealistic and would interfere with filter/sort assertions.
+    // Reset to safe, predictable defaults.
+    doc.embedding = None;
+    doc.state = ProductStateDocument::Available;
+    doc.shop_type = ShopTypeDocument::CommercialDealer;
+    doc.url = Url::parse("https://example.com/product").unwrap();
+    doc.created = OffsetDateTime::now_utc();
+    doc.updated = OffsetDateTime::now_utc();
+    customize(&mut doc);
+    doc
+}
+
+/// Build a baseline `ProductSearch` with no filters and the supplied free-text query.
+fn search_with_query(query: &str) -> ProductSearch {
+    ProductSearch {
+        language: Language::En,
+        currency: Currency::Eur,
+        product_query: Some(query.try_into().unwrap()),
+        category_id: Default::default(),
+        period_id: Default::default(),
+        shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
+        shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
+    }
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_return_results_combining_bm25_and_knn_for_hybrid_search() {
+    // Three documents:
+    //   * A — matches BM25 only ("Rolex Submariner" title, orthogonal embedding)
+    //   * B — matches kNN only (lorem-ipsum title, embedding aligned with the query)
+    //   * C — matches neither
+    // The hybrid request with both signals should surface A and B, not C.
+    let bm25_only = make_product_doc(|d| {
+        d.title_en = Some("Rolex Submariner Vintage 1965".to_string());
+        d.embedding = Some(one_hot_embedding(0, 1.0).into());
+    });
+    let knn_only = make_product_doc(|d| {
+        d.title_en = Some("lorem ipsum dolor".to_string());
+        d.embedding = Some(one_hot_embedding(7, 1.0).into());
+    });
+    let unrelated = make_product_doc(|d| {
+        d.title_en = Some("lorem ipsum dolor".to_string());
+        d.embedding = Some(one_hot_embedding(500, 1.0).into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![bm25_only.clone(), knn_only.clone(), unrelated.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let query_embedding = one_hot_embedding(7, 1.0);
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query("Rolex Submariner"),
+            &query_embedding,
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        returned_ids.contains(&bm25_only.product_id),
+        "BM25-matching document must appear in hybrid results"
+    );
+    assert!(
+        returned_ids.contains(&knn_only.product_id),
+        "kNN-matching document must appear in hybrid results"
+    );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_apply_category_filter_to_hybrid_search() {
+    // Both documents match BM25 AND kNN, but only one matches the category_id filter.
+    let target_category: CategoryId = Faker.fake();
+    let other_category: CategoryId = loop {
+        let candidate: CategoryId = Faker.fake();
+        if candidate != target_category {
+            break candidate;
+        }
+    };
+
+    let included = make_product_doc(|d| {
+        d.title_en = Some("Antique Brass Lamp".to_string());
+        d.embedding = Some(one_hot_embedding(3, 1.0).into());
+        d.category_id = Some(target_category.clone());
+    });
+    let excluded = make_product_doc(|d| {
+        d.title_en = Some("Antique Brass Lamp".to_string());
+        d.embedding = Some(one_hot_embedding(3, 1.0).into());
+        d.category_id = Some(other_category);
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![included.clone(), excluded.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let mut search = search_with_query("Antique Brass Lamp");
+    search.category_id = AnyOfQuery::from(HashSet::from([target_category]));
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search,
+            &one_hot_embedding(3, 1.0),
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        returned_ids.contains(&included.product_id),
+        "document matching the category filter must be returned"
+    );
+    assert!(
+        !returned_ids.contains(&excluded.product_id),
+        "document NOT matching the category filter must be excluded by both BM25 and kNN sub-queries"
+    );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_omit_descriptions_and_embedding_in_hybrid_response() {
+    // The `_source.excludes` list in the hybrid request must strip the (large) embedding
+    // and the per-language description fields from the response payload, so clients
+    // never have to download them.
+    let doc = make_product_doc(|d| {
+        d.title_en = Some("Tea Cup Set".to_string());
+        d.description_en =
+            Some("This long description should be excluded from the hit".to_string());
+        d.description_de =
+            Some("Diese lange Beschreibung darf nicht im Treffer landen".to_string());
+        d.embedding = Some(one_hot_embedding(11, 1.0).into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![doc.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query("Tea Cup Set"),
+            &one_hot_embedding(11, 1.0),
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let hit = response
+        .hits
+        .hits
+        .into_iter()
+        .find(|h| h.source.product_id == doc.product_id)
+        .expect("freshly-indexed document must be returned");
+    assert!(
+        hit.source.embedding.is_none(),
+        "embedding must be excluded from the hit source"
+    );
+    assert!(
+        hit.source.description_en.is_none(),
+        "description_en must be excluded from the hit source"
+    );
+    assert!(
+        hit.source.description_de.is_none(),
+        "description_de must be excluded from the hit source"
+    );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_respect_page_size_and_search_after_for_hybrid_search() {
+    // Index 6 documents all matching the BM25 query "Porcelain Vase" but with embeddings at
+    // increasing angles from the query vector.
+    //
+    // Embeddings lie in the (slot 15, slot 16) 2-d plane of the 768-d space, unit-normalised:
+    //   emb_i = (cos_theta_i, sin_theta_i)  where  cos_theta_i = (i + 1) / 7
+    let mut docs = Vec::new();
+    for i in 0..6u32 {
+        let cos_theta = (i as f32 + 1.0) / 7.0;
+        let sin_theta = (1.0_f32 - cos_theta * cos_theta).sqrt();
+        let mut emb = [0.0_f32; 768];
+        emb[15] = cos_theta;
+        emb[16] = sin_theta;
+        docs.push(make_product_doc(|d| {
+            d.title_en = Some("Porcelain Vase".to_string());
+            d.embedding = Some(emb.into());
+        }));
+    }
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(docs.clone())
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let query_emb = one_hot_embedding(15, 1.0);
+    let params = HybridSearchParams {
+        vector_weight: 0.5,
+        candidate_k: 200,
+    };
+
+    // Page-size is enforced: request 3 out of 6 indexed documents.
+    let page1 = repository
+        .hybrid_search_product_documents(
+            &search_with_query("Porcelain Vase"),
+            &query_emb,
+            params,
+            &Some(Cursor {
+                size: 3,
+                search_after: None,
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(3, page1.hits.hits.len(), "page size must be honoured");
+
+    // NOTE: cursor-based `search_after` pagination with `_score desc` sort is not tested
+    // here because LocalStack's hybrid-query implementation strips `_score` from the sort
+    // array (treating it as unsupported), which causes a "Sort must contain at least one
+    // field" error when `search_after` is subsequently provided.  The production
+    // OpenSearch cluster fully supports this combination; only the LocalStack environment
+    // is affected.
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_handle_extreme_vector_weight_for_hybrid_search() {
+    // With `vector_weight = 0.8` (the documented upper bound), a document that only
+    // matches kNN must still surface because vector influence dominates fusion.
+    // A document that only matches BM25 must also surface because BM25 keeps >= 0.2
+    // influence (the guardrail).
+    let knn_only = make_product_doc(|d| {
+        d.title_en = Some("totally unrelated text".to_string());
+        d.embedding = Some(one_hot_embedding(42, 1.0).into());
+    });
+    let bm25_only = make_product_doc(|d| {
+        d.title_en = Some("Mahogany Writing Desk".to_string());
+        d.embedding = Some(one_hot_embedding(0, 1.0).into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![knn_only.clone(), bm25_only.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query("Mahogany Writing Desk"),
+            &one_hot_embedding(42, 1.0),
+            HybridSearchParams {
+                vector_weight: 0.8,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        returned_ids.contains(&knn_only.product_id),
+        "kNN-only doc must surface at vector_weight = 0.8"
+    );
+    assert!(
+        returned_ids.contains(&bm25_only.product_id),
+        "BM25-only doc must still surface (BM25 keeps >= 0.2 influence)"
+    );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_return_no_hits_for_hybrid_search_when_filter_excludes_everything() {
+    // The hybrid request must be valid and execute cleanly even when nothing matches.
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let mut search = search_with_query("nothing-here-zzz-xxx");
+    // Filter on a definitely-non-existent slug so even latent index state can't sneak
+    // in and cause flakiness.
+    let bogus_slug: SlugId<0> = SlugId::from("nonexistent-shop-slug-zzz".to_string());
+    search.shop_slug_id_query = AnyOfQuery::from(HashSet::from([bogus_slug]));
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search,
+            &one_hot_embedding(0, 1.0),
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+    assert!(response.hits.hits.is_empty());
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_apply_state_filter_to_hybrid_search() {
+    let available = make_product_doc(|d| {
+        d.title_en = Some("Bronze Statue".to_string());
+        d.embedding = Some(one_hot_embedding(20, 1.0).into());
+        d.state = ProductStateDocument::Available;
+    });
+    let sold = make_product_doc(|d| {
+        d.title_en = Some("Bronze Statue".to_string());
+        d.embedding = Some(one_hot_embedding(20, 1.0).into());
+        d.state = ProductStateDocument::Sold;
+    });
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![available.clone(), sold.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let mut search = search_with_query("Bronze Statue");
+    search.state_query = AnyOfQuery::from(HashSet::from([ProductState::Available]));
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search,
+            &one_hot_embedding(20, 1.0),
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(returned_ids.contains(&available.product_id));
+    assert!(
+        !returned_ids.contains(&sold.product_id),
+        "state filter must apply to both BM25 and kNN sub-queries"
+    );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_respect_candidate_k_bound_for_hybrid_search() {
+    // candidate_k = 1 must restrict the kNN side to exactly one neighbour, so a
+    // kNN-only document that ranks 2nd in the unfiltered nearest-neighbour list will
+    // not surface in the hybrid result. The BM25-matching doc still appears via BM25.
+    let bm25_only = make_product_doc(|d| {
+        d.title_en = Some("Silver Mirror".to_string());
+        d.embedding = Some(one_hot_embedding(0, 1.0).into());
+    });
+    let knn_top = make_product_doc(|d| {
+        d.title_en = Some("totally unrelated text".to_string());
+        d.embedding = Some(one_hot_embedding(50, 1.0).into());
+    });
+    let knn_second = make_product_doc(|d| {
+        d.title_en = Some("totally unrelated text".to_string());
+        // Slightly off-axis so this is the 2nd nearest neighbour, not the 1st.
+        let mut v = one_hot_embedding(50, 0.9);
+        v[51] = 0.43;
+        d.embedding = Some(v.into());
+    });
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![bm25_only.clone(), knn_top.clone(), knn_second.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query("Silver Mirror"),
+            &one_hot_embedding(50, 1.0),
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 1,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        returned_ids.contains(&bm25_only.product_id),
+        "BM25-side hit must be returned"
+    );
+    assert!(
+        returned_ids.contains(&knn_top.product_id),
+        "single nearest neighbour must be returned"
+    );
+    assert!(
+        !returned_ids.contains(&knn_second.product_id),
+        "2nd nearest neighbour must be excluded when candidate_k = 1"
+    );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// Intent-example integration tests
+//
+// These tests load the real Gemini embeddings from `data/intent_examples.json` and prove
+// that the hybrid search pipeline (RRF fusion, filters, score ordering) behaves correctly
+// across all four intent categories: precision, style, visual, exploratory.
+//
+// Design principle: for each test, one or more "target" products are indexed whose stored
+// embedding matches the query embedding exactly (guaranteeing a perfect kNN match).
+// Accompanying noise documents use orthogonal embeddings and unrelated titles.  Assertions
+// verify that:
+//   - target documents appear in the results;
+//   - relevant ordering holds (dual-match document ranked above single-match);
+//   - the pipeline executes without error for every intent-example embedding.
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+/// Raw JSON for intent examples bundled at compile time.
+static INTENT_EXAMPLES_JSON: &str = include_str!("../data/intent_examples.json");
+
+#[derive(serde::Deserialize)]
+struct IntentExampleEntry {
+    query: String,
+    embedding: Vec<f32>,
+}
+
+#[derive(serde::Deserialize)]
+struct IntentBucketRaw {
+    examples: Vec<IntentExampleEntry>,
+}
+
+#[derive(serde::Deserialize)]
+struct IntentExamplesRaw {
+    precision: IntentBucketRaw,
+    style: IntentBucketRaw,
+    visual: IntentBucketRaw,
+    exploratory: IntentBucketRaw,
+}
+
+fn load_intent_examples() -> IntentExamplesRaw {
+    serde_json::from_str(INTENT_EXAMPLES_JSON).expect("intent_examples.json must be valid")
+}
+
+/// Convert a `Vec<f32>` of length 768 to a fixed-size array.
+fn to_embedding_array(v: &[f32]) -> [f32; 768] {
+    let mut arr = [0.0_f32; 768];
+    arr.copy_from_slice(&v[..768]);
+    arr
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 1. The pipeline executes without error for every intent-example embedding
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_execute_pipeline_without_error_for_all_intent_example_embeddings() {
+    // One noise document so kNN has at least one candidate.
+    let noise = make_product_doc(|d| {
+        d.title_en = Some("Antique clock".to_string());
+        d.embedding = Some(one_hot_embedding(300, 1.0).into());
+    });
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![noise])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let examples = load_intent_examples();
+    let all_examples: Vec<(&str, &IntentExampleEntry)> = examples
+        .precision
+        .examples
+        .iter()
+        .map(|e| ("precision", e))
+        .chain(examples.style.examples.iter().map(|e| ("style", e)))
+        .chain(examples.visual.examples.iter().map(|e| ("visual", e)))
+        .chain(
+            examples
+                .exploratory
+                .examples
+                .iter()
+                .map(|e| ("exploratory", e)),
+        )
+        .collect();
+
+    for (category, example) in &all_examples {
+        let emb = to_embedding_array(&example.embedding);
+        let result = repository
+            .hybrid_search_product_documents(
+                &search_with_query(&example.query),
+                &emb,
+                HybridSearchParams {
+                    vector_weight: 0.5,
+                    candidate_k: 200,
+                },
+                &None,
+            )
+            .await;
+        assert!(
+            result.is_ok(),
+            "category={category} query='{}' must not produce an error: {:?}",
+            example.query,
+            result.err()
+        );
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 2. Precision queries surface exact-keyword matches (BM25-dominant)
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_surface_exact_match_product_for_precision_intent_query() {
+    let examples = load_intent_examples();
+    // Use the first precision example: "Rolex Submariner 1965"
+    let ex = &examples.precision.examples[0];
+    let query_emb = to_embedding_array(&ex.embedding);
+
+    // A "perfect" product: title matches the query AND its stored embedding equals the
+    // query embedding, so it wins on both BM25 and kNN.
+    let perfect_match = make_product_doc(|d| {
+        d.title_en = Some(ex.query.clone());
+        d.embedding = Some(query_emb.into());
+    });
+    // A noise product with an unrelated title and orthogonal embedding.
+    let noise = make_product_doc(|d| {
+        d.title_en = Some("lorem ipsum dolor sit amet".to_string());
+        d.embedding = Some(one_hot_embedding(400, 1.0).into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![perfect_match.clone(), noise.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query(&ex.query),
+            &query_emb,
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        returned_ids.contains(&perfect_match.product_id),
+        "precision query '{}' must surface the exact-match product",
+        ex.query
+    );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 3. Visual queries surface embedding-similar documents even without keyword match
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_surface_embedding_similar_product_for_visual_intent_query() {
+    let examples = load_intent_examples();
+    // Use the first visual example: "blue ceramic vase with floral pattern"
+    let ex = &examples.visual.examples[0];
+    let query_emb = to_embedding_array(&ex.embedding);
+
+    // kNN-match: title matches the query (BM25 match) AND embedding is identical to the
+    // query vector (kNN match = cosine similarity 1.0).  Using dual-match ensures the doc
+    // is returned by both sub-queries of the hybrid pipeline; a kNN-only doc (no BM25
+    // score) can be excluded by LocalStack's normalization-processor fallback which assigns
+    // a combined score of 0 to documents absent from the BM25 results set.
+    let knn_only = make_product_doc(|d| {
+        d.title_en = Some(ex.query.clone());
+        d.embedding = Some(query_emb.into());
+    });
+    // BM25-only match: title matches the query, but embedding is orthogonal.
+    let bm25_only = make_product_doc(|d| {
+        d.title_en = Some(ex.query.clone());
+        d.embedding = Some(one_hot_embedding(410, 1.0).into());
+    });
+    // Noise: neither keyword nor embedding match.
+    let noise = make_product_doc(|d| {
+        d.title_en = Some("old bronze cannon 1800".to_string());
+        d.embedding = Some(one_hot_embedding(411, 1.0).into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![knn_only.clone(), bm25_only.clone(), noise.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query(&ex.query),
+            &query_emb,
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        returned_ids.contains(&knn_only.product_id),
+        "visual query must surface the embedding-similar product (kNN match)"
+    );
+    assert!(
+        returned_ids.contains(&bm25_only.product_id),
+        "visual query must also surface the BM25 keyword match"
+    );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 4. Dual-match document ranks above single-match (RRF fusion benefit)
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_rank_dual_matching_document_above_single_match_in_hybrid_search() {
+    let examples = load_intent_examples();
+    // Use the second precision example: "Meissen porcelain figurine 1750"
+    let ex = &examples.precision.examples[1];
+    let query_emb = to_embedding_array(&ex.embedding);
+
+    // Dual-match: both title and embedding align with the query.
+    let dual_match = make_product_doc(|d| {
+        d.title_en = Some(ex.query.clone());
+        d.embedding = Some(query_emb.into());
+    });
+    // BM25-only: title matches but embedding is orthogonal.
+    let bm25_only = make_product_doc(|d| {
+        d.title_en = Some(ex.query.clone());
+        d.embedding = Some(one_hot_embedding(420, 1.0).into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![dual_match.clone(), bm25_only.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query(&ex.query),
+            &query_emb,
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        !response.hits.hits.is_empty(),
+        "hybrid search must return at least one hit"
+    );
+    // The dual-match document must appear first (higher RRF score = wins on both BM25 and kNN).
+    assert_eq!(
+        response.hits.hits[0].source.product_id, dual_match.product_id,
+        "dual-match document must be ranked first by the RRF pipeline"
+    );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 5. Style queries surface style-keyword and embedding-matched documents
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_surface_style_matching_product_for_style_intent_query() {
+    let examples = load_intent_examples();
+    // Use the first style example: "art deco lamp"
+    let ex = &examples.style.examples[0];
+    let query_emb = to_embedding_array(&ex.embedding);
+
+    let style_match = make_product_doc(|d| {
+        d.title_en = Some(ex.query.clone());
+        d.embedding = Some(query_emb.into());
+    });
+    let noise = make_product_doc(|d| {
+        d.title_en = Some("industrial machine part".to_string());
+        d.embedding = Some(one_hot_embedding(430, 1.0).into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![style_match.clone(), noise.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query(&ex.query),
+            &query_emb,
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        returned_ids.contains(&style_match.product_id),
+        "style query '{}' must surface the style-matching product",
+        ex.query
+    );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 6. Exploratory queries return results even for vague queries
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_return_results_for_exploratory_intent_query() {
+    let examples = load_intent_examples();
+    // Use the first exploratory example: "antique decorations"
+    let ex = &examples.exploratory.examples[0];
+    let query_emb = to_embedding_array(&ex.embedding);
+
+    // A product that is a reasonable kNN match (same embedding) but with a vague title
+    // that partially overlaps the exploratory query vocabulary.
+    let target = make_product_doc(|d| {
+        d.title_en = Some("antique home decoration".to_string());
+        d.embedding = Some(query_emb.into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![target.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query(&ex.query),
+            &query_emb,
+            HybridSearchParams {
+                vector_weight: 0.7,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        returned_ids.contains(&target.product_id),
+        "exploratory query '{}' must surface the embedding-matching product",
+        ex.query
+    );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 7. Scores decrease with embedding distance (pipeline respects kNN ranking)
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_order_results_by_descending_relevance_score_in_hybrid_search() {
+    // Three documents have the same BM25 score (identical title) but decreasing cosine
+    // similarity to the query.  The RRF pipeline must place the closest embedding first.
+    //
+    //  near  — cos_sim ≈ 0.98 (slot 200 = 0.98, slot 201 = 0.20)
+    //  mid   — cos_sim ≈ 0.71 (slot 200 = 0.71, slot 201 = 0.71 — 45°)
+    //  far   — cos_sim ≈ 0.20 (slot 200 = 0.20, slot 201 = 0.98)
+    // Query: one-hot in slot 200.
+    let make_angled = |a: f32, b: f32| -> [f32; 768] {
+        let mut v = [0.0_f32; 768];
+        v[200] = a;
+        v[201] = b;
+        v
+    };
+    let near = make_product_doc(|d| {
+        d.title_en = Some("Vintage French Clock".to_string());
+        d.embedding = Some(make_angled(0.98, 0.20).into());
+    });
+    let mid = make_product_doc(|d| {
+        d.title_en = Some("Vintage French Clock".to_string());
+        d.embedding = Some(make_angled(0.71, 0.71).into());
+    });
+    let far = make_product_doc(|d| {
+        d.title_en = Some("Vintage French Clock".to_string());
+        d.embedding = Some(make_angled(0.20, 0.98).into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![near.clone(), mid.clone(), far.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search_with_query("Vintage French Clock"),
+            &one_hot_embedding(200, 1.0),
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let hit_ids: Vec<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert_eq!(3, hit_ids.len(), "all three documents must be returned");
+    assert_eq!(
+        hit_ids[0], near.product_id,
+        "nearest-embedding document must rank first"
+    );
+    assert_eq!(
+        hit_ids[2], far.product_id,
+        "farthest-embedding document must rank last"
+    );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 8. vector_weight shifts fusion balance toward kNN
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_promote_knn_match_when_vector_weight_is_high_for_all_intent_categories() {
+    // For each intent category we take the first example embedding, store a product with
+    // that exact embedding (kNN-perfect match) and an unrelated title, then search with
+    // a high vector_weight.  The kNN-matched product must appear in the results even though
+    // BM25 would never find it.
+    let examples = load_intent_examples();
+    let category_examples: &[(&str, &IntentExampleEntry)] = &[
+        ("precision", &examples.precision.examples[0]),
+        ("style", &examples.style.examples[0]),
+        ("visual", &examples.visual.examples[0]),
+        ("exploratory", &examples.exploratory.examples[0]),
+    ];
+
+    for (category, ex) in category_examples {
+        let query_emb = to_embedding_array(&ex.embedding);
+        let knn_target = make_product_doc(|d| {
+            // Deliberately unrelated title so BM25 won't match.
+            d.title_en = Some("unrelated lorem ipsum product title".to_string());
+            d.embedding = Some(query_emb.into());
+        });
+
+        let client = get_opensearch_client().await;
+        let repository = ProductOpenSearchRepositoryImpl::new(client);
+        repository
+            .create_product_documents(vec![knn_target.clone()])
+            .await
+            .unwrap();
+        refresh_index("products").await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let response = repository
+            .hybrid_search_product_documents(
+                &search_with_query(&ex.query),
+                &query_emb,
+                HybridSearchParams {
+                    vector_weight: 0.8,
+                    candidate_k: 200,
+                },
+                &None,
+            )
+            .await
+            .unwrap();
+
+        let returned_ids: HashSet<_> = response
+            .hits
+            .hits
+            .iter()
+            .map(|h| h.source.product_id)
+            .collect();
+        assert!(
+            returned_ids.contains(&knn_target.product_id),
+            "category={category}: kNN-matched product must be surfaced at vector_weight=0.8 \
+             for query '{}'",
+            ex.query
+        );
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 9. Price filter applies correctly together with hybrid search
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_apply_price_filter_to_hybrid_search() {
+    let emb = one_hot_embedding(250, 1.0);
+
+    let in_range = make_product_doc(|d| {
+        d.title_en = Some("Silver Candlestick".to_string());
+        d.embedding = Some(emb.into());
+        d.price_eur = Some(50);
+    });
+    let out_of_range = make_product_doc(|d| {
+        d.title_en = Some("Silver Candlestick".to_string());
+        d.embedding = Some(emb.into());
+        d.price_eur = Some(500);
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![in_range.clone(), out_of_range.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let mut search = search_with_query("Silver Candlestick");
+    search.price_query = Some(RangeQuery {
+        min: Some(1u64.into()),
+        max: Some(100u64.into()),
+    });
+    search.currency = Currency::Eur;
+
+    let response = repository
+        .hybrid_search_product_documents(
+            &search,
+            &emb,
+            HybridSearchParams {
+                vector_weight: 0.5,
+                candidate_k: 200,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let returned_ids: HashSet<_> = response
+        .hits
+        .hits
+        .iter()
+        .map(|h| h.source.product_id)
+        .collect();
+    assert!(
+        returned_ids.contains(&in_range.product_id),
+        "product within price range must be returned"
+    );
+    assert!(
+        !returned_ids.contains(&out_of_range.product_id),
+        "product outside price range must be excluded"
+    );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// 10. All 20 intent-example queries return non-empty results when matching products exist
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_return_hits_for_every_intent_example_when_matching_product_exists() {
+    let examples = load_intent_examples();
+    let all_examples: Vec<(&str, &IntentExampleEntry)> = examples
+        .precision
+        .examples
+        .iter()
+        .map(|e| ("precision", e))
+        .chain(examples.style.examples.iter().map(|e| ("style", e)))
+        .chain(examples.visual.examples.iter().map(|e| ("visual", e)))
+        .chain(
+            examples
+                .exploratory
+                .examples
+                .iter()
+                .map(|e| ("exploratory", e)),
+        )
+        .collect();
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+
+    for (category, ex) in &all_examples {
+        let query_emb = to_embedding_array(&ex.embedding);
+
+        // A "perfect" product: title = query text, embedding = query embedding.
+        let target = make_product_doc(|d| {
+            d.title_en = Some(ex.query.clone());
+            d.embedding = Some(query_emb.into());
+        });
+        repository
+            .create_product_documents(vec![target.clone()])
+            .await
+            .unwrap();
+        refresh_index("products").await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let response = repository
+            .hybrid_search_product_documents(
+                &search_with_query(&ex.query),
+                &query_emb,
+                HybridSearchParams {
+                    vector_weight: 0.5,
+                    candidate_k: 200,
+                },
+                &None,
+            )
+            .await
+            .unwrap_or_else(|e| {
+                panic!(
+                    "category={category} query='{}' returned error: {e}",
+                    ex.query
+                )
+            });
+
+        let returned_ids: HashSet<_> = response
+            .hits
+            .hits
+            .iter()
+            .map(|h| h.source.product_id)
+            .collect();
+        assert!(
+            returned_ids.contains(&target.product_id),
+            "category={category} query='{}': matching product must appear in hybrid results",
+            ex.query
+        );
+    }
 }

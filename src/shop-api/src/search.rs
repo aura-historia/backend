@@ -76,6 +76,14 @@ pub async fn handle(
             .into_iter()
             .map(Into::into)
             .collect(),
+        specialities_categories: search_data.specialities_categories,
+        specialities_periods: search_data.specialities_periods,
+        countries: search_data.countries.into_iter().collect(),
+        continents: search_data
+            .continents
+            .into_iter()
+            .map(shop::core::continent::Continent::from)
+            .collect(),
         created: search_data.created,
         updated: search_data.updated,
     };

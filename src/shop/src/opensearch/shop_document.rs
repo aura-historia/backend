@@ -1,12 +1,22 @@
 use crate::{
-    core::shop::Shop,
+    core::{
+        address::{GeoAddress, StructuredAddress},
+        continent::Continent,
+        shop::Shop,
+    },
     dynamodb::shop_record::ShopRecord,
     opensearch::{
-        partner_status_document::ShopPartnerStatusDocument, shop_type_document::ShopTypeDocument,
+        continent_document::ContinentDocument, partner_status_document::ShopPartnerStatusDocument,
+        shop_type_document::ShopTypeDocument,
     },
 };
-use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
+use common::{
+    category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_id::ShopId,
+    shop_name::ShopName, slug_id::SlugId,
+};
+use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
+use serde_email::Email;
 use serde_fields::SerdeField;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -23,6 +33,33 @@ pub struct ShopDocument {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_addressline: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_addressline_extra: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_locality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_region: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_postal_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_country: Option<CountryCode>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub structured_address_continent: Option<ContinentDocument>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub geo_address: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub phone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub email: Option<Email>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub specialities_categories: Vec<CategoryId>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub specialities_periods: Vec<PeriodId>,
 
     pub partner_status: ShopPartnerStatusDocument,
 
@@ -48,6 +85,37 @@ impl From<Shop> for ShopDocument {
             shop_type: shop.shop_type.into(),
             domains: shop.domains,
             image: shop.image,
+            structured_address_addressline: shop
+                .structured_address
+                .as_ref()
+                .and_then(|a| a.addressline.clone()),
+            structured_address_addressline_extra: shop
+                .structured_address
+                .as_ref()
+                .and_then(|a| a.addressline_extra.clone()),
+            structured_address_locality: shop
+                .structured_address
+                .as_ref()
+                .and_then(|address| address.locality.clone()),
+            structured_address_region: shop
+                .structured_address
+                .as_ref()
+                .and_then(|address| address.region.clone()),
+            structured_address_postal_code: shop
+                .structured_address
+                .as_ref()
+                .and_then(|address| address.postal_code.clone()),
+            structured_address_country: shop.structured_address.as_ref().and_then(|a| a.country),
+            structured_address_continent: shop
+                .structured_address
+                .as_ref()
+                .and_then(|a| a.continent)
+                .map(ContinentDocument::from),
+            geo_address: shop.geo_address.map(GeoAddress::to_opensearch_geo_point),
+            phone: shop.phone,
+            email: shop.email,
+            specialities_categories: shop.specialities_categories,
+            specialities_periods: shop.specialities_periods,
             partner_status: shop.partner_status.into(),
             created: shop.created,
             updated: shop.updated,
@@ -64,6 +132,22 @@ impl From<ShopDocument> for Shop {
             shop_type: document.shop_type.into(),
             domains: document.domains,
             image: document.image,
+            structured_address: structured_address_from_flat(
+                document.structured_address_addressline,
+                document.structured_address_addressline_extra,
+                document.structured_address_locality,
+                document.structured_address_region,
+                document.structured_address_postal_code,
+                document.structured_address_country,
+            ),
+            geo_address: document
+                .geo_address
+                .as_deref()
+                .and_then(GeoAddress::from_opensearch_geo_point),
+            phone: document.phone,
+            email: document.email,
+            specialities_categories: document.specialities_categories,
+            specialities_periods: document.specialities_periods,
             partner_status: document.partner_status.into(),
             created: document.created,
             updated: document.updated,
@@ -80,6 +164,23 @@ impl From<ShopRecord> for ShopDocument {
             shop_type: record.shop_type.into(),
             domains: record.domains,
             image: record.image,
+            structured_address_addressline: record.structured_address_addressline,
+            structured_address_addressline_extra: record.structured_address_addressline_extra,
+            structured_address_locality: record.structured_address_locality,
+            structured_address_region: record.structured_address_region,
+            structured_address_postal_code: record.structured_address_postal_code,
+            structured_address_country: record.structured_address_country,
+            structured_address_continent: record
+                .structured_address_country
+                .map(|c| ContinentDocument::from(Continent::from(c))),
+            geo_address: record
+                .geo_address_lat
+                .zip(record.geo_address_lon)
+                .map(|(lat, lon)| GeoAddress { lat, lon }.to_opensearch_geo_point()),
+            phone: record.phone,
+            email: record.email,
+            specialities_categories: record.specialities_categories,
+            specialities_periods: record.specialities_periods,
             partner_status: if record.partner_user_id.is_some() {
                 ShopPartnerStatusDocument::Partnered
             } else {
@@ -89,6 +190,27 @@ impl From<ShopRecord> for ShopDocument {
             updated: record.updated,
         }
     }
+}
+
+fn structured_address_from_flat(
+    addressline: Option<String>,
+    addressline_extra: Option<String>,
+    locality: Option<String>,
+    region: Option<String>,
+    postal_code: Option<String>,
+    country: Option<CountryCode>,
+) -> Option<StructuredAddress> {
+    let continent = country.map(Continent::from);
+    let structured_address = StructuredAddress {
+        addressline,
+        addressline_extra,
+        locality,
+        region,
+        postal_code,
+        country,
+        continent,
+    };
+    (!structured_address.is_empty()).then_some(structured_address)
 }
 
 #[cfg(feature = "test-data")]

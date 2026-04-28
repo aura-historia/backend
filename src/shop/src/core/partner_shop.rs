@@ -1,7 +1,13 @@
-use crate::core::{partner_shop_api_key::HashedPartnerShopApiKey, shop_type::ShopType};
-use common::{
-    domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::UserId,
+use crate::core::{
+    address::{GeoAddress, StructuredAddress},
+    partner_shop_api_key::HashedPartnerShopApiKey,
+    shop_type::ShopType,
 };
+use common::{
+    category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_id::ShopId,
+    shop_name::ShopName, slug_id::SlugId, user_id::UserId,
+};
+use serde_email::Email;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
@@ -15,6 +21,12 @@ pub struct PartnerShop {
     pub shop_type: ShopType,
     pub domains: HashSet<Domain>,
     pub image: Option<Url>,
+    pub structured_address: Option<StructuredAddress>,
+    pub geo_address: Option<GeoAddress>,
+    pub phone: Option<String>,
+    pub email: Option<Email>,
+    pub specialities_categories: Vec<CategoryId>,
+    pub specialities_periods: Vec<PeriodId>,
     pub partner_user_id: UserId,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -36,6 +48,12 @@ mod faker {
                 shop_type: config.fake_with_rng(rng),
                 domains: [Faker.fake()].into(),
                 image: config.fake_with_rng(rng),
+                structured_address: None,
+                geo_address: None,
+                phone: None,
+                email: None,
+                specialities_categories: Vec::new(),
+                specialities_periods: Vec::new(),
                 partner_user_id: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),

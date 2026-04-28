@@ -63,6 +63,10 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
         shop_name_query: Some(expected.name.to_string().try_into().unwrap()),
         shop_type_query: Default::default(),
         partner_status_query: Default::default(),
+        specialities_categories: Default::default(),
+        specialities_periods: Default::default(),
+        countries: Default::default(),
+        continents: Default::default(),
         created: None,
         updated: None,
     };
@@ -91,6 +95,10 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
             shop_type_query: Default::default(),
             partner_status_query: Default::default(),
+            specialities_categories: Default::default(),
+            specialities_periods: Default::default(),
+            countries: Default::default(),
+            continents: Default::default(),
         },
     Sort {
         sort: SortShopField::Score,
@@ -104,6 +112,10 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             updated: None,
             shop_type_query: Default::default(),
             partner_status_query: Default::default(),
+            specialities_categories: Default::default(),
+            specialities_periods: Default::default(),
+            countries: Default::default(),
+            continents: Default::default(),
         },
     Sort {
         sort: SortShopField::Score,
@@ -117,6 +129,10 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             updated: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             shop_type_query: Default::default(),
             partner_status_query: Default::default(),
+            specialities_categories: Default::default(),
+            specialities_periods: Default::default(),
+            countries: Default::default(),
+            continents: Default::default(),
         },
     Sort {
         sort: SortShopField::Score,
@@ -182,6 +198,18 @@ async fn should_update_shop_document_for_index() {
             Domain::try_from("hansi-hans.com").unwrap(),
         ]),
         image: Some(Url::parse("https://hansi-hanseatic.es/foo.png").unwrap()),
+        structured_address_addressline: None,
+        structured_address_addressline_extra: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        structured_address_continent: None,
+        geo_address: None,
+        phone: None,
+        email: None,
+        specialities_categories: Vec::new(),
+        specialities_periods: Vec::new(),
         partner_status:
             shop::opensearch::partner_status_document::ShopPartnerStatusDocument::Scraped,
         created: created.created,
@@ -295,6 +323,10 @@ async fn should_search_shop_documents_when_shop_types_are_given(
         shop_name_query: None,
         shop_type_query: AnyOfQuery::from(HashSet::from_iter(shop_types.iter().copied())),
         partner_status_query: Default::default(),
+        specialities_categories: Default::default(),
+        specialities_periods: Default::default(),
+        countries: Default::default(),
+        continents: Default::default(),
         created: None,
         updated: None,
     };
@@ -345,6 +377,10 @@ async fn should_search_shop_documents_when_partner_status_is_given(
         partner_status_query: AnyOfQuery::from(HashSet::from_iter(
             partner_statuses.iter().copied(),
         )),
+        specialities_categories: Default::default(),
+        specialities_periods: Default::default(),
+        countries: Default::default(),
+        continents: Default::default(),
         created: None,
         updated: None,
     };
@@ -365,5 +401,133 @@ async fn should_search_shop_documents_when_partner_status_is_given(
         partner_statuses.contains(&shop::core::partner_status::ShopPartnerStatus::from(
             hit.source.partner_status,
         ))
+    }));
+}
+
+#[rstest::rstest]
+#[trace]
+#[test_attr(apply(test))]
+#[case(&[isocountry::CountryCode::DEU])]
+#[case(&[isocountry::CountryCode::DEU, isocountry::CountryCode::USA])]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_shop_documents_when_countries_are_given(
+    #[case] countries: &[isocountry::CountryCode],
+) {
+    use common::query::any_of_query::AnyOfQuery;
+    use shop::opensearch::continent_document::ContinentDocument;
+    use std::collections::HashSet;
+
+    let repository = get_repository().await;
+
+    for country in countries {
+        let continent = shop::core::continent::Continent::from(*country);
+        let mut doc = Faker.fake::<ShopDocument>();
+        doc.structured_address_country = Some(*country);
+        doc.structured_address_continent = Some(ContinentDocument::from(continent));
+        repository.index_shop_document(doc).await.unwrap();
+    }
+    // insert civilians with a country not in the filter
+    for _ in 0..20 {
+        let mut doc = Faker.fake::<ShopDocument>();
+        doc.structured_address_country = Some(isocountry::CountryCode::FRA);
+        doc.structured_address_continent = Some(ContinentDocument::Europe);
+        repository.index_shop_document(doc).await.unwrap();
+    }
+    refresh_index("shops").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let search = ShopSearch {
+        shop_name_query: None,
+        shop_type_query: Default::default(),
+        partner_status_query: Default::default(),
+        specialities_categories: Default::default(),
+        specialities_periods: Default::default(),
+        countries: AnyOfQuery::from(HashSet::from_iter(countries.iter().copied())),
+        continents: Default::default(),
+        created: None,
+        updated: None,
+    };
+    let response = repository
+        .search_shop_documents(
+            &search,
+            &Sort {
+                sort: SortShopField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    assert!(response.hits.total.value > 0);
+    assert!(response.hits.hits.iter().all(|hit| {
+        countries.contains(
+            &hit.source
+                .structured_address_country
+                .expect("country must be set"),
+        )
+    }));
+}
+
+#[rstest::rstest]
+#[trace]
+#[test_attr(apply(test))]
+#[case(&[shop::core::continent::Continent::Europe])]
+#[case(&[shop::core::continent::Continent::Europe, shop::core::continent::Continent::NorthAmerica])]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_shop_documents_when_continents_are_given(
+    #[case] continents: &[shop::core::continent::Continent],
+) {
+    use common::query::any_of_query::AnyOfQuery;
+    use shop::opensearch::continent_document::ContinentDocument;
+    use std::collections::HashSet;
+
+    let repository = get_repository().await;
+
+    // Insert one document per continent variant requested
+    for continent in continents {
+        let mut doc = Faker.fake::<ShopDocument>();
+        doc.structured_address_continent = Some(ContinentDocument::from(*continent));
+        repository.index_shop_document(doc).await.unwrap();
+    }
+    // Insert civilians with a continent not in the filter (Asia)
+    for _ in 0..20 {
+        let mut doc = Faker.fake::<ShopDocument>();
+        doc.structured_address_continent = Some(ContinentDocument::Asia);
+        repository.index_shop_document(doc).await.unwrap();
+    }
+    refresh_index("shops").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let search = ShopSearch {
+        shop_name_query: None,
+        shop_type_query: Default::default(),
+        partner_status_query: Default::default(),
+        specialities_categories: Default::default(),
+        specialities_periods: Default::default(),
+        countries: Default::default(),
+        continents: AnyOfQuery::from(HashSet::from_iter(continents.iter().copied())),
+        created: None,
+        updated: None,
+    };
+    let response = repository
+        .search_shop_documents(
+            &search,
+            &Sort {
+                sort: SortShopField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    assert!(response.hits.total.value > 0);
+    assert!(response.hits.hits.iter().all(|hit| {
+        let doc_continent = hit
+            .source
+            .structured_address_continent
+            .expect("continent must be set");
+        continents.contains(&shop::core::continent::Continent::from(doc_continent))
     }));
 }

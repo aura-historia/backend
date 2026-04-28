@@ -7,7 +7,7 @@ use product::data::product_search_data::ProductSearchData;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserSearchFilterData {
     pub user_id: UserId,
@@ -107,6 +107,9 @@ mod tests {
                 shop_type_query: HashSet::from_iter([
                     shop::data::shop_type_data::ShopTypeData::CommercialDealer,
                 ]),
+                country_query: HashSet::new(),
+                continent_query: HashSet::new(),
+                geo_address_distance_query: None,
                 price_query: Some(RangeQuery {
                     min: Some(37),
                     max: Some(42),
@@ -270,6 +273,9 @@ mod tests {
                 shop_type_query: HashSet::from_iter([
                     shop::data::shop_type_data::ShopTypeData::CommercialDealer,
                 ]),
+                country_query: HashSet::new(),
+                continent_query: HashSet::new(),
+                geo_address_distance_query: None,
                 price_query: Some(RangeQuery {
                     min: Some(37),
                     max: Some(42),

@@ -4,9 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+geo = { workspace = true }
 common = { workspace = true }
 shop = { workspace = true, features = ["service", "dynamodb"] }
+isocountry = { workspace = true }
 serde = { workspace = true }
+serde-email = { workspace = true }
 serde_fields = { workspace = true }
 time = { workspace = true }
 async-trait = { workspace = true }

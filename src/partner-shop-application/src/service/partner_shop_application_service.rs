@@ -259,6 +259,34 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             shop_type: update.shop_type.map(Into::into),
             shop_domains: update.shop_domains,
             shop_image: update.shop_image,
+            shop_structured_address_addressline: update
+                .shop_structured_address
+                .as_ref()
+                .and_then(|a| a.addressline.clone()),
+            shop_structured_address_addressline_extra: update
+                .shop_structured_address
+                .as_ref()
+                .and_then(|a| a.addressline_extra.clone()),
+            shop_structured_address_locality: update
+                .shop_structured_address
+                .as_ref()
+                .and_then(|address| address.locality.clone()),
+            shop_structured_address_region: update
+                .shop_structured_address
+                .as_ref()
+                .and_then(|address| address.region.clone()),
+            shop_structured_address_postal_code: update
+                .shop_structured_address
+                .as_ref()
+                .and_then(|address| address.postal_code.clone()),
+            shop_structured_address_country: update
+                .shop_structured_address
+                .as_ref()
+                .and_then(|a| a.country),
+            shop_phone: update.shop_phone,
+            shop_email: update.shop_email,
+            shop_specialities_categories: update.shop_specialities_categories,
+            shop_specialities_periods: update.shop_specialities_periods,
             task_token: None,
             updated: OffsetDateTime::now_utc(),
         };
@@ -358,6 +386,34 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             shop_type: update.shop_type.map(Into::into),
             shop_domains: update.shop_domains,
             shop_image: update.shop_image,
+            shop_structured_address_addressline: update
+                .shop_structured_address
+                .as_ref()
+                .and_then(|a| a.addressline.clone()),
+            shop_structured_address_addressline_extra: update
+                .shop_structured_address
+                .as_ref()
+                .and_then(|a| a.addressline_extra.clone()),
+            shop_structured_address_locality: update
+                .shop_structured_address
+                .as_ref()
+                .and_then(|address| address.locality.clone()),
+            shop_structured_address_region: update
+                .shop_structured_address
+                .as_ref()
+                .and_then(|address| address.region.clone()),
+            shop_structured_address_postal_code: update
+                .shop_structured_address
+                .as_ref()
+                .and_then(|address| address.postal_code.clone()),
+            shop_structured_address_country: update
+                .shop_structured_address
+                .as_ref()
+                .and_then(|a| a.country),
+            shop_phone: update.shop_phone,
+            shop_email: update.shop_email,
+            shop_specialities_categories: update.shop_specialities_categories,
+            shop_specialities_periods: update.shop_specialities_periods,
             task_token: None,
             updated: OffsetDateTime::now_utc(),
         };
@@ -474,6 +530,16 @@ impl<'a> PartnerShopApplicationServiceImpl<'a> {
             shop_type: None,
             shop_domains: None,
             shop_image: None,
+            shop_structured_address_addressline: None,
+            shop_structured_address_addressline_extra: None,
+            shop_structured_address_locality: None,
+            shop_structured_address_region: None,
+            shop_structured_address_postal_code: None,
+            shop_structured_address_country: None,
+            shop_phone: None,
+            shop_email: None,
+            shop_specialities_categories: None,
+            shop_specialities_periods: None,
             task_token: None,
             updated: OffsetDateTime::now_utc(),
         };
