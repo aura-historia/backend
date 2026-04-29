@@ -225,7 +225,7 @@ fn split_decimal(s: &str) -> Option<(&str, &str)> {
 
 fn is_price_on_request_marker(raw: &str) -> bool {
     // Keywords that, when present anywhere in the price string, indicate that
-    // the seller intentionally has not set a price and it must be requested.
+    // the seller intentionally has not set a price, and it must be requested.
     // Covers: EN, DE, FR, IT, ES, PT, NL, PL, RU, ZH, JA, AR
     const KEYWORDS: &[&str] = &[
         // English
@@ -235,6 +235,7 @@ fn is_price_on_request_marker(raw: &str) -> bool {
         "contact us",
         "call for price",
         "ask for price",
+        "poa",
         // German
         "anfrage", // "auf Anfrage", "Preis auf Anfrage"
         // French
@@ -458,6 +459,7 @@ mod tests {
     #[rstest]
     // English
     #[case("Price on Request", true)]
+    #[case("POA", true)]
     #[case("price available on request", true)]
     #[case("Please enquire", true)]
     #[case("Call for price", true)]
