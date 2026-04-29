@@ -1,12 +1,10 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::{BAD_BODY_VALUE, INTERNAL_SERVER_ERROR, INVALID_JSON};
+use common::api::error_code::{BAD_BODY_VALUE, INVALID_JSON};
 use common::localized::Localized;
 use common::price::domain::Price;
-use common::shop_id::ShopId;
 use common::shop_id::api::extract_shop_id_path;
-use common::shop_name::ShopName;
 use lambda_runtime::LambdaEvent;
 use product::core::product_image::ProductImage;
 use product::core::prohibited_content::ProhibitedContent;
@@ -16,16 +14,13 @@ use product::service::product_command::CreateProductCommand;
 use serde::Serialize;
 use shop::core::partner_shop::PartnerShop;
 use shop::core::partner_shop_api_key::api::extract_api_key;
-use shop::core::shop_type::ShopType;
 use shop::service::get_service::GetShopService;
-use shop::service::seller_service::{SellerService, SellerServiceError};
 use std::collections::HashMap;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_shop_service: &(impl GetShopService + Sync),
     command_product_service: &(impl CommandProductService + Sync),
-    seller_service: &dyn SellerService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
     let api_key = extract_api_key(&event.payload)?;
@@ -36,19 +31,10 @@ pub async fn handle(
 
     let products: Vec<PostProductData> = extract_body(&event.payload)?;
 
-    let mut commands = Vec::with_capacity(products.len());
-    for data in products {
-        let (seller_id, seller_name) =
-            resolve_seller(&partner_shop, &data, seller_service)
-                .await
-                .map_err(|e| ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(e)))?;
-        commands.push(to_create_command(
-            data,
-            &partner_shop,
-            seller_id,
-            seller_name,
-        ));
-    }
+    let commands = products
+        .into_iter()
+        .map(|data| to_create_command(data, &partner_shop))
+        .collect();
 
     let failures = command_product_service.create(commands).await;
 
@@ -85,30 +71,7 @@ fn extract_body(request: &ApiGatewayV2httpRequest) -> Result<Vec<PostProductData
     })
 }
 
-async fn resolve_seller(
-    partner_shop: &PartnerShop,
-    data: &PostProductData,
-    seller_service: &dyn SellerService,
-) -> Result<(ShopId, ShopName), SellerServiceError> {
-    match partner_shop.shop_type {
-        ShopType::AuctionPlatform | ShopType::Marketplace => {
-            if let Some(ref raw_name) = data.seller_name {
-                let shop_name = ShopName::from(raw_name.as_str());
-                let (id, _, name) = seller_service.get_seller_shop_details(&shop_name).await?;
-                return Ok((id, name));
-            }
-            Ok((partner_shop.shop_id, partner_shop.name.clone()))
-        }
-        _ => Ok((partner_shop.shop_id, partner_shop.name.clone())),
-    }
-}
-
-fn to_create_command(
-    data: PostProductData,
-    partner_shop: &PartnerShop,
-    seller_id: ShopId,
-    seller_name: ShopName,
-) -> CreateProductCommand {
+fn to_create_command(data: PostProductData, partner_shop: &PartnerShop) -> CreateProductCommand {
     let native_title: Localized<_, _> = data.title.into();
     let native_description: Localized<_, _> = data.description.into();
 
@@ -130,8 +93,7 @@ fn to_create_command(
     CreateProductCommand {
         shop_id: partner_shop.shop_id,
         shops_product_id: data.shops_product_id,
-        shop_name: partner_shop.name.clone(),
-        shop_type: partner_shop.shop_type,
+        seller_name_raw: data.seller_name,
         structured_address: data.structured_address.map(Into::into),
         geo_address: data.geo_address.map(Into::into),
         native_title,
@@ -156,8 +118,6 @@ fn to_create_command(
         restoration: data.restoration.into(),
         category_id: None,
         period_id: None,
-        seller_id,
-        seller_name,
     }
 }
 
@@ -173,7 +133,6 @@ pub struct PostProductsResponse {
 mod tests {
     use super::*;
     use common::language::data::{LanguageData, LocalizedTextData};
-    use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
     use fake::{Fake, Faker};
     use http::HeaderMap;
@@ -182,8 +141,8 @@ mod tests {
     use product::service::command_service::MockCommandProductService;
     use shop::core::partner_shop::PartnerShop;
     use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
+    use shop::core::shop_type::ShopType;
     use shop::service::get_service::MockGetShopService;
-    use shop::service::seller_service::MockSellerService;
 
     fn make_event_with_body_and_key(
         shop_id: &common::shop_id::ShopId,
@@ -240,9 +199,7 @@ mod tests {
             .expect_create()
             .return_once(|_| Box::pin(async { vec![] }));
 
-        let seller_service = MockSellerService::default();
-
-        let result = handle(event, &shop_service, &command_service, &seller_service).await;
+        let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_ok());
         let response = result.unwrap();
         assert_eq!(response.status_code, 200);
@@ -303,8 +260,6 @@ mod tests {
                 geo_address: None,
             },
             &partner_shop,
-            partner_shop.shop_id,
-            partner_shop.name.clone(),
         );
 
         let mut command_service = MockCommandProductService::default();
@@ -312,9 +267,7 @@ mod tests {
             .expect_create()
             .return_once(move |_| Box::pin(async move { vec![expected_cmd] }));
 
-        let seller_service = MockSellerService::default();
-
-        let result = handle(event, &shop_service, &command_service, &seller_service).await;
+        let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_ok());
         let response = result.unwrap();
         assert_eq!(response.status_code, 200);
@@ -348,9 +301,7 @@ mod tests {
                 Box::pin(async move { Ok(partner) })
             });
         let command_service = MockCommandProductService::default();
-        let seller_service = MockSellerService::default();
-
-        let result = handle(event, &shop_service, &command_service, &seller_service).await;
+        let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status, 400);
     }
@@ -370,69 +321,15 @@ mod tests {
                 Box::pin(async move { Ok(partner) })
             });
         let command_service = MockCommandProductService::default();
-        let seller_service = MockSellerService::default();
-
-        let result = handle(event, &shop_service, &command_service, &seller_service).await;
+        let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status, 400);
     }
 
     #[tokio::test]
-    async fn should_resolve_seller_via_service_when_auction_platform_and_seller_name_provided() {
-        let (api_key, partner_shop) = make_partner_shop_with_type(ShopType::AuctionPlatform);
-        let shop_id = partner_shop.shop_id;
-        let resolved_seller_id = ShopId::new();
-        let resolved_seller_name = ShopName::from("Resolved Seller");
-
-        let body = serde_json::to_string(&vec![serde_json::json!({
-            "shopsProductId": "test-product-1",
-            "title": { "text": "Test Product", "language": "en" },
-            "description": { "text": "A test product", "language": "en" },
-            "state": "AVAILABLE",
-            "url": "https://example.com/product/1",
-            "images": [],
-            "sellerName": "raw seller name"
-        })])
-        .unwrap();
-
-        let event = make_event_with_body_and_key(&shop_id, &api_key, Some(body));
-
-        let expected_partner = partner_shop.clone();
-        let mut shop_service = MockGetShopService::default();
-        shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| Box::pin(async move { Ok(expected_partner) }));
-
-        let expected_id = resolved_seller_id;
-        let expected_name = resolved_seller_name.clone();
-        let dummy_slug = common::slug_id::SlugId::from("resolved-seller");
-        let mut seller_service = MockSellerService::default();
-        seller_service
-            .expect_get_seller_shop_details()
-            .return_once(move |_| {
-                Box::pin(async move { Ok((expected_id, dummy_slug, expected_name)) })
-            });
-
-        let mut command_service = MockCommandProductService::default();
-        command_service.expect_create().return_once(move |cmds| {
-            Box::pin(async move {
-                assert_eq!(cmds[0].seller_id, resolved_seller_id);
-                assert_eq!(cmds[0].seller_name, resolved_seller_name);
-                vec![]
-            })
-        });
-
-        let result = handle(event, &shop_service, &command_service, &seller_service).await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().status_code, 200);
-    }
-
-    #[tokio::test]
-    async fn should_resolve_seller_via_service_when_marketplace_and_seller_name_provided() {
+    async fn should_pass_seller_name_raw_to_command_when_seller_name_provided() {
         let (api_key, partner_shop) = make_partner_shop_with_type(ShopType::Marketplace);
         let shop_id = partner_shop.shop_id;
-        let resolved_seller_id = ShopId::new();
-        let resolved_seller_name = ShopName::from("Marketplace Seller");
 
         let body = serde_json::to_string(&vec![serde_json::json!({
             "shopsProductId": "test-product-2",
@@ -453,156 +350,25 @@ mod tests {
             .expect_verify_partner_shop()
             .return_once(move |_, _| Box::pin(async move { Ok(expected_partner) }));
 
-        let expected_id = resolved_seller_id;
-        let expected_name = resolved_seller_name.clone();
-        let dummy_slug = common::slug_id::SlugId::from("marketplace-seller");
-        let mut seller_service = MockSellerService::default();
-        seller_service
-            .expect_get_seller_shop_details()
-            .return_once(move |_| {
-                Box::pin(async move { Ok((expected_id, dummy_slug, expected_name)) })
-            });
-
         let mut command_service = MockCommandProductService::default();
         command_service.expect_create().return_once(move |cmds| {
             Box::pin(async move {
-                assert_eq!(cmds[0].seller_id, resolved_seller_id);
-                assert_eq!(cmds[0].seller_name, resolved_seller_name);
+                assert_eq!(
+                    cmds[0].seller_name_raw.as_deref(),
+                    Some("marketplace seller raw")
+                );
                 vec![]
             })
         });
 
-        let result = handle(event, &shop_service, &command_service, &seller_service).await;
+        let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().status_code, 200);
-    }
-
-    #[tokio::test]
-    async fn should_use_partner_shop_as_seller_when_auction_platform_without_seller_name() {
-        let (api_key, partner_shop) = make_partner_shop_with_type(ShopType::AuctionPlatform);
-        let shop_id = partner_shop.shop_id;
-        let expected_seller_id = partner_shop.shop_id;
-        let expected_seller_name = partner_shop.name.clone();
-
-        let body = serde_json::to_string(&vec![serde_json::json!({
-            "shopsProductId": "test-no-seller",
-            "title": { "text": "No Seller Product", "language": "en" },
-            "description": { "text": "Product without seller", "language": "en" },
-            "state": "AVAILABLE",
-            "url": "https://example.com/product/3",
-            "images": []
-        })])
-        .unwrap();
-
-        let event = make_event_with_body_and_key(&shop_id, &api_key, Some(body));
-
-        let expected_partner = partner_shop.clone();
-        let mut shop_service = MockGetShopService::default();
-        shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| Box::pin(async move { Ok(expected_partner) }));
-
-        // Seller service must NOT be called when seller_name is absent
-        let seller_service = MockSellerService::default();
-
-        let mut command_service = MockCommandProductService::default();
-        command_service.expect_create().return_once(move |cmds| {
-            Box::pin(async move {
-                assert_eq!(cmds[0].seller_id, expected_seller_id);
-                assert_eq!(cmds[0].seller_name, expected_seller_name);
-                vec![]
-            })
-        });
-
-        let result = handle(event, &shop_service, &command_service, &seller_service).await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().status_code, 200);
-    }
-
-    #[tokio::test]
-    async fn should_use_partner_shop_as_seller_when_non_platform_shop_type() {
-        let (api_key, partner_shop) = make_partner_shop_with_type(ShopType::CommercialDealer);
-        let shop_id = partner_shop.shop_id;
-        let expected_seller_id = partner_shop.shop_id;
-        let expected_seller_name = partner_shop.name.clone();
-
-        let body = serde_json::to_string(&vec![serde_json::json!({
-            "shopsProductId": "test-dealer",
-            "title": { "text": "Dealer Product", "language": "en" },
-            "description": { "text": "A dealer product", "language": "en" },
-            "state": "AVAILABLE",
-            "url": "https://example.com/product/4",
-            "images": [],
-            "sellerName": "ignored seller"
-        })])
-        .unwrap();
-
-        let event = make_event_with_body_and_key(&shop_id, &api_key, Some(body));
-
-        let expected_partner = partner_shop.clone();
-        let mut shop_service = MockGetShopService::default();
-        shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| Box::pin(async move { Ok(expected_partner) }));
-
-        // Seller service must NOT be called for non-platform shop types
-        let seller_service = MockSellerService::default();
-
-        let mut command_service = MockCommandProductService::default();
-        command_service.expect_create().return_once(move |cmds| {
-            Box::pin(async move {
-                assert_eq!(cmds[0].seller_id, expected_seller_id);
-                assert_eq!(cmds[0].seller_name, expected_seller_name);
-                vec![]
-            })
-        });
-
-        let result = handle(event, &shop_service, &command_service, &seller_service).await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().status_code, 200);
-    }
-
-    #[tokio::test]
-    async fn should_return_500_when_seller_service_returns_error() {
-        let (api_key, partner_shop) = make_partner_shop_with_type(ShopType::AuctionPlatform);
-        let shop_id = partner_shop.shop_id;
-
-        let body = serde_json::to_string(&vec![serde_json::json!({
-            "shopsProductId": "test-error",
-            "title": { "text": "Error Product", "language": "en" },
-            "description": { "text": "A product that causes error", "language": "en" },
-            "state": "AVAILABLE",
-            "url": "https://example.com/product/5",
-            "images": [],
-            "sellerName": "error seller"
-        })])
-        .unwrap();
-
-        let event = make_event_with_body_and_key(&shop_id, &api_key, Some(body));
-
-        let expected_partner = partner_shop.clone();
-        let mut shop_service = MockGetShopService::default();
-        shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| Box::pin(async move { Ok(expected_partner) }));
-
-        let mut seller_service = MockSellerService::default();
-        seller_service
-            .expect_get_seller_shop_details()
-            .return_once(|_| Box::pin(async { Err(SellerServiceError::UnexpectedNone) }));
-
-        let command_service = MockCommandProductService::default();
-
-        let result = handle(event, &shop_service, &command_service, &seller_service).await;
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().status, 500);
     }
 
     #[test]
     fn should_convert_post_product_data_to_create_command_for_mapping() {
         let partner_shop: PartnerShop = Faker.fake();
-        let seller_id = ShopId::new();
-        let seller_name = ShopName::from("Test Seller");
         let data = PostProductData {
             shops_product_id: ShopsProductId::from("test-id".to_string()),
             title: LocalizedTextData::new("Test Title", LanguageData::De),
@@ -620,16 +386,14 @@ mod tests {
             condition: Default::default(),
             provenance: Default::default(),
             restoration: Default::default(),
-            seller_name: None,
+            seller_name: Some("Test Seller".to_string()),
             structured_address: None,
             geo_address: None,
         };
 
-        let cmd = to_create_command(data, &partner_shop, seller_id, seller_name.clone());
+        let cmd = to_create_command(data, &partner_shop);
 
         assert_eq!(cmd.shop_id, partner_shop.shop_id);
-        assert_eq!(cmd.shop_name, partner_shop.name);
-        assert_eq!(cmd.shop_type, partner_shop.shop_type);
         assert_eq!(
             cmd.shops_product_id,
             ShopsProductId::from("test-id".to_string())
@@ -638,7 +402,6 @@ mod tests {
         assert!(cmd.native_price.is_none());
         assert!(cmd.category_id.is_none());
         assert!(cmd.period_id.is_none());
-        assert_eq!(cmd.seller_id, seller_id);
-        assert_eq!(cmd.seller_name, seller_name);
+        assert_eq!(cmd.seller_name_raw.as_deref(), Some("Test Seller"));
     }
 }

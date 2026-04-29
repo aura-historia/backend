@@ -14,8 +14,13 @@ use common::has_key::HasKey;
 use common::period_key::PeriodId;
 use common::price::domain::FxRate;
 use common::product_id::ProductKey;
+use common::shop_id::ShopId;
+use common::shop_name::ShopName;
 use product_classification::category::service::CategoryService;
 use product_classification::period::service::PeriodService;
+use shop::core::shop_type::ShopType;
+use shop::service::get_service::GetShopService;
+use shop::service::seller_service::SellerService;
 use std::collections::HashMap;
 use tokio::sync::OnceCell;
 use tracing::{error, warn};
@@ -36,6 +41,8 @@ pub struct CommandProductServiceImpl<'a, T: FxRate + Sync> {
     fx_rate: &'a T,
     period_service: &'a (dyn PeriodService + Sync),
     category_service: &'a (dyn CategoryService + Sync),
+    get_shop_service: &'a (dyn GetShopService + Sync),
+    seller_service: &'a (dyn SellerService + Sync),
     classification_cache: OnceCell<ClassificationCache>,
 }
 
@@ -44,18 +51,29 @@ struct ClassificationCache {
     category_keywords: Vec<(String, CategoryId)>,
 }
 
+struct ResolvedShopInformation {
+    seller_id: ShopId,
+    seller_name: ShopName,
+    shop_name: ShopName,
+    shop_type: ShopType,
+}
+
 impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
     pub fn new(
         dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
         fx_rate: &'a T,
         period_service: &'a (dyn PeriodService + Sync),
         category_service: &'a (dyn CategoryService + Sync),
+        get_shop_service: &'a (dyn GetShopService + Sync),
+        seller_service: &'a (dyn SellerService + Sync),
     ) -> Self {
         Self {
             dynamodb_repository,
             fx_rate,
             period_service,
             category_service,
+            get_shop_service,
+            seller_service,
             classification_cache: OnceCell::new(),
         }
     }
@@ -146,6 +164,64 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
         }
     }
 
+    async fn enrich_shop_information(
+        &self,
+        cmd: &mut CreateProductCommand,
+    ) -> Option<ResolvedShopInformation> {
+        let shop = match self.get_shop_service.find_shop(&cmd.shop_id).await {
+            Ok(shop) => shop,
+            Err(err) => {
+                error!(
+                    error = ?err,
+                    shopId = %cmd.shop_id,
+                    shopsProductId = %cmd.shops_product_id,
+                    "Failed resolving shop information for product command."
+                );
+                return None;
+            }
+        };
+
+        if cmd.structured_address.is_none() && cmd.geo_address.is_none() {
+            cmd.structured_address = shop.structured_address.clone();
+            cmd.geo_address = shop.geo_address;
+        }
+
+        let (seller_id, seller_name) = match shop.shop_type {
+            ShopType::AuctionPlatform | ShopType::Marketplace => {
+                if let Some(raw_name) = cmd.seller_name_raw.as_deref() {
+                    let shop_name = ShopName::from(raw_name);
+                    match self
+                        .seller_service
+                        .get_seller_shop_details(&shop_name)
+                        .await
+                    {
+                        Ok((id, _, name)) => (id, name),
+                        Err(err) => {
+                            error!(
+                                error = ?err,
+                                shopId = %cmd.shop_id,
+                                shopsProductId = %cmd.shops_product_id,
+                                sellerNameRaw = raw_name,
+                                "Failed resolving seller information for product command."
+                            );
+                            return None;
+                        }
+                    }
+                } else {
+                    (shop.shop_id, shop.name.clone())
+                }
+            }
+            _ => (shop.shop_id, shop.name.clone()),
+        };
+
+        Some(ResolvedShopInformation {
+            seller_id,
+            seller_name,
+            shop_name: shop.name,
+            shop_type: shop.shop_type,
+        })
+    }
+
     async fn persist_events<C>(
         &self,
         events: Vec<ProductEventRecord>,
@@ -232,9 +308,9 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                         }
                     }
 
-                    let events: Vec<ProductEventRecord> = working
-                        .into_values()
-                        .map(|mut cmd| {
+                    let mut events: Vec<ProductEventRecord> = Vec::with_capacity(working.len());
+                    for mut cmd in working.into_values() {
+                        if let Some(resolved) = self.enrich_shop_information(&mut cmd).await {
                             self.enrich_price(&mut cmd);
                             heuristics::classify_images(&mut cmd);
                             heuristics::enrich_origin_year(&mut cmd);
@@ -244,14 +320,14 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                             heuristics::enrich_restoration(&mut cmd);
                             heuristics::classify_period(&mut cmd, &cache.period_keywords);
                             heuristics::classify_category(&mut cmd, &cache.category_keywords);
-                            ProductEventRecord::Domain(ProductDomainEventRecord::from(
-                                Product::create(
+                            events.push(ProductEventRecord::Domain(
+                                ProductDomainEventRecord::from(Product::create(
                                     cmd.shop_id,
-                                    cmd.seller_id,
+                                    resolved.seller_id,
                                     cmd.shops_product_id,
-                                    cmd.shop_name,
-                                    cmd.seller_name,
-                                    cmd.shop_type,
+                                    resolved.shop_name,
+                                    resolved.seller_name,
+                                    resolved.shop_type,
                                     cmd.structured_address,
                                     cmd.geo_address,
                                     cmd.native_title,
@@ -267,10 +343,13 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                                     cmd.images,
                                     cmd.auction_start,
                                     cmd.auction_end,
-                                ),
-                            ))
-                        })
-                        .collect();
+                                )),
+                            ));
+                        } else {
+                            key_cmds.remove(&cmd.key());
+                            failures.push(cmd);
+                        }
+                    }
 
                     let persist_failures = self.persist_events(events, &mut key_cmds).await;
                     failures.extend(persist_failures.into_iter().map(|(_, cmd)| cmd));
@@ -381,10 +460,12 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                         determine_update_events(&mut update_cmds, records.items, self.fx_rate);
 
                     // Remaining items in `working` are products not found in DynamoDB → create
-                    let create_events: Vec<ProductEventRecord> = working
-                        .into_values()
-                        .map(|cmd| {
-                            let mut create_cmd = CreateProductCommand::from(cmd);
+                    let mut create_events: Vec<ProductEventRecord> =
+                        Vec::with_capacity(working.len());
+                    for cmd in working.into_values() {
+                        let mut create_cmd = CreateProductCommand::from(cmd.clone());
+                        if let Some(resolved) = self.enrich_shop_information(&mut create_cmd).await
+                        {
                             self.enrich_price(&mut create_cmd);
                             heuristics::classify_images(&mut create_cmd);
                             heuristics::enrich_origin_year(&mut create_cmd);
@@ -397,14 +478,14 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                                 &mut create_cmd,
                                 &cache.category_keywords,
                             );
-                            ProductEventRecord::Domain(ProductDomainEventRecord::from(
-                                Product::create(
+                            create_events.push(ProductEventRecord::Domain(
+                                ProductDomainEventRecord::from(Product::create(
                                     create_cmd.shop_id,
-                                    create_cmd.seller_id,
+                                    resolved.seller_id,
                                     create_cmd.shops_product_id,
-                                    create_cmd.shop_name,
-                                    create_cmd.seller_name,
-                                    create_cmd.shop_type,
+                                    resolved.shop_name,
+                                    resolved.seller_name,
+                                    resolved.shop_type,
                                     create_cmd.structured_address,
                                     create_cmd.geo_address,
                                     create_cmd.native_title,
@@ -420,10 +501,13 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                                     create_cmd.images,
                                     create_cmd.auction_start,
                                     create_cmd.auction_end,
-                                ),
-                            ))
-                        })
-                        .collect();
+                                )),
+                            ));
+                        } else {
+                            key_cmds.remove(&cmd.key());
+                            failures.push(cmd);
+                        }
+                    }
 
                     let all_events: Vec<ProductEventRecord> = update_events
                         .into_iter()
@@ -535,6 +619,10 @@ mod tests {
     use product_classification::category::service::MockCategoryService;
     use product_classification::period::service::MockPeriodService;
     use rstest;
+    use shop::core::shop::Shop;
+    use shop::core::shop_type::ShopType;
+    use shop::service::get_service::MockGetShopService;
+    use shop::service::seller_service::MockSellerService;
 
     fn empty_period_service() -> MockPeriodService {
         let mut service = MockPeriodService::default();
@@ -550,6 +638,39 @@ mod tests {
             .expect_find_categories()
             .returning(|| Box::pin(async { Ok(vec![]) }));
         service
+    }
+
+    fn default_shop_service() -> MockGetShopService {
+        let mut service = MockGetShopService::default();
+        service.expect_find_shop().returning(|shop_id| {
+            let mut shop: Shop = Faker.fake();
+            shop.shop_id = *shop_id;
+            shop.shop_type = ShopType::AuctionHouse;
+            Box::pin(async move { Ok(shop) })
+        });
+        service
+    }
+
+    fn default_seller_service() -> MockSellerService {
+        MockSellerService::default()
+    }
+
+    fn make_command_product_service<'a, T: FxRate + Sync>(
+        repository: &'a (dyn ProductDynamoDbRepository + Sync),
+        fx_rate: &'a T,
+        period_service: &'a (dyn PeriodService + Sync),
+        category_service: &'a (dyn CategoryService + Sync),
+    ) -> CommandProductServiceImpl<'a, T> {
+        let get_shop_service = Box::leak(Box::new(default_shop_service()));
+        let seller_service = Box::leak(Box::new(default_seller_service()));
+        CommandProductServiceImpl::new(
+            repository,
+            fx_rate,
+            period_service,
+            category_service,
+            get_shop_service,
+            seller_service,
+        )
     }
 
     mod determine_update_events {
@@ -1087,6 +1208,157 @@ mod tests {
         use super::*;
         use crate::dynamodb::product_record::ProductRecord;
         use common::batch::dynamodb::BatchGetItemResult;
+        use common::slug_id::SlugId;
+
+        fn service_for_shop_information<'a>(
+            repository: &'a (dyn ProductDynamoDbRepository + Sync),
+            period_service: &'a (dyn PeriodService + Sync),
+            category_service: &'a (dyn CategoryService + Sync),
+            get_shop_service: &'a (dyn GetShopService + Sync),
+            seller_service: &'a (dyn SellerService + Sync),
+        ) -> CommandProductServiceImpl<'a, FixedFxRate> {
+            let fx_rate = Box::leak(Box::new(FixedFxRate()));
+            CommandProductServiceImpl::new(
+                repository,
+                fx_rate,
+                period_service,
+                category_service,
+                get_shop_service,
+                seller_service,
+            )
+        }
+
+        #[tokio::test]
+        async fn should_resolve_seller_from_raw_name_when_platform_for_shop_information() {
+            let mut cmd = Faker.fake::<CreateProductCommand>();
+            cmd.seller_name_raw = Some("Raw Seller".to_string());
+
+            let mut shop: Shop = Faker.fake();
+            shop.shop_id = cmd.shop_id;
+            shop.shop_type = ShopType::Marketplace;
+
+            let resolved_seller_id = ShopId::new();
+            let resolved_seller_name = ShopName::from("Resolved Seller");
+            let mut get_shop_service = MockGetShopService::default();
+            get_shop_service
+                .expect_find_shop()
+                .return_once(move |_| Box::pin(async move { Ok(shop) }));
+            let mut seller_service = MockSellerService::default();
+            let expected_seller_name = resolved_seller_name.clone();
+            seller_service
+                .expect_get_seller_shop_details()
+                .return_once(move |raw_name| {
+                    assert_eq!(raw_name.as_ref(), "Raw Seller");
+                    Box::pin(async move {
+                        Ok((
+                            resolved_seller_id,
+                            SlugId::from("resolved-seller"),
+                            expected_seller_name,
+                        ))
+                    })
+                });
+
+            let repository = MockProductDynamoDbRepository::default();
+            let period_service = empty_period_service();
+            let category_service = empty_category_service();
+            let service = service_for_shop_information(
+                &repository,
+                &period_service,
+                &category_service,
+                &get_shop_service,
+                &seller_service,
+            );
+
+            let resolved = service
+                .enrich_shop_information(&mut cmd)
+                .await
+                .expect("shop information should resolve");
+
+            assert_eq!(resolved.seller_id, resolved_seller_id);
+            assert_eq!(resolved.seller_name, resolved_seller_name);
+        }
+
+        #[tokio::test]
+        async fn should_use_shop_addresses_when_product_addresses_missing_for_shop_information() {
+            let mut cmd = Faker.fake::<CreateProductCommand>();
+            cmd.seller_name_raw = None;
+            cmd.structured_address = None;
+            cmd.geo_address = None;
+
+            let mut shop: Shop = Faker.fake();
+            shop.shop_id = cmd.shop_id;
+            shop.shop_type = ShopType::AuctionHouse;
+            shop.structured_address = Some(Faker.fake());
+            shop.geo_address = Some(Faker.fake());
+            let expected_structured_address = shop.structured_address.clone();
+            let expected_geo_address = shop.geo_address;
+
+            let mut get_shop_service = MockGetShopService::default();
+            get_shop_service
+                .expect_find_shop()
+                .return_once(move |_| Box::pin(async move { Ok(shop) }));
+
+            let repository = MockProductDynamoDbRepository::default();
+            let period_service = empty_period_service();
+            let category_service = empty_category_service();
+            let seller_service = MockSellerService::default();
+            let service = service_for_shop_information(
+                &repository,
+                &period_service,
+                &category_service,
+                &get_shop_service,
+                &seller_service,
+            );
+
+            service
+                .enrich_shop_information(&mut cmd)
+                .await
+                .expect("shop information should resolve");
+
+            assert_eq!(cmd.structured_address, expected_structured_address);
+            assert_eq!(cmd.geo_address, expected_geo_address);
+        }
+
+        #[tokio::test]
+        async fn should_keep_product_addresses_when_either_product_address_exists_for_shop_information()
+         {
+            let mut cmd = Faker.fake::<CreateProductCommand>();
+            cmd.seller_name_raw = None;
+            cmd.structured_address = Some(Faker.fake());
+            cmd.geo_address = None;
+            let expected_structured_address = cmd.structured_address.clone();
+
+            let mut shop: Shop = Faker.fake();
+            shop.shop_id = cmd.shop_id;
+            shop.shop_type = ShopType::AuctionHouse;
+            shop.structured_address = Some(Faker.fake());
+            shop.geo_address = Some(Faker.fake());
+
+            let mut get_shop_service = MockGetShopService::default();
+            get_shop_service
+                .expect_find_shop()
+                .return_once(move |_| Box::pin(async move { Ok(shop) }));
+
+            let repository = MockProductDynamoDbRepository::default();
+            let period_service = empty_period_service();
+            let category_service = empty_category_service();
+            let seller_service = MockSellerService::default();
+            let service = service_for_shop_information(
+                &repository,
+                &period_service,
+                &category_service,
+                &get_shop_service,
+                &seller_service,
+            );
+
+            service
+                .enrich_shop_information(&mut cmd)
+                .await
+                .expect("shop information should resolve");
+
+            assert_eq!(cmd.structured_address, expected_structured_address);
+            assert_eq!(cmd.geo_address, None);
+        }
 
         #[tokio::test]
         #[rstest::rstest]
@@ -1115,7 +1387,7 @@ mod tests {
 
             let period_service = empty_period_service();
             let category_service = empty_category_service();
-            let service = CommandProductServiceImpl::new(
+            let service = make_command_product_service(
                 &repository,
                 &FixedFxRate(),
                 &period_service,
@@ -1152,7 +1424,7 @@ mod tests {
 
             let period_service = empty_period_service();
             let category_service = empty_category_service();
-            let service = CommandProductServiceImpl::new(
+            let service = make_command_product_service(
                 &repository,
                 &FixedFxRate(),
                 &period_service,
@@ -1193,7 +1465,7 @@ mod tests {
 
             let period_service = empty_period_service();
             let category_service = empty_category_service();
-            let service = CommandProductServiceImpl::new(
+            let service = make_command_product_service(
                 &repository,
                 &FixedFxRate(),
                 &period_service,
@@ -1225,7 +1497,7 @@ mod tests {
 
             let period_service = empty_period_service();
             let category_service = empty_category_service();
-            let service = CommandProductServiceImpl::new(
+            let service = make_command_product_service(
                 &repository,
                 &FixedFxRate(),
                 &period_service,
@@ -1273,7 +1545,7 @@ mod tests {
 
             let period_service = empty_period_service();
             let category_service = empty_category_service();
-            let service = CommandProductServiceImpl::new(
+            let service = make_command_product_service(
                 &repository,
                 &FixedFxRate(),
                 &period_service,
@@ -1324,7 +1596,7 @@ mod tests {
 
             let period_service = empty_period_service();
             let category_service = empty_category_service();
-            let service = CommandProductServiceImpl::new(
+            let service = make_command_product_service(
                 &repository,
                 &FixedFxRate(),
                 &period_service,
@@ -1393,7 +1665,7 @@ mod tests {
 
             let period_service = empty_period_service();
             let category_service = empty_category_service();
-            let service = CommandProductServiceImpl::new(
+            let service = make_command_product_service(
                 &repository,
                 &FixedFxRate(),
                 &period_service,
@@ -1418,7 +1690,7 @@ mod tests {
 
             let period_service = empty_period_service();
             let category_service = empty_category_service();
-            let service = CommandProductServiceImpl::new(
+            let service = make_command_product_service(
                 &repository,
                 &FixedFxRate(),
                 &period_service,
@@ -1462,7 +1734,7 @@ mod tests {
 
             let period_service = empty_period_service();
             let category_service = empty_category_service();
-            let service = CommandProductServiceImpl::new(
+            let service = make_command_product_service(
                 &repository,
                 &FixedFxRate(),
                 &period_service,
@@ -1513,7 +1785,7 @@ mod tests {
 
             let period_service = empty_period_service();
             let category_service = empty_category_service();
-            let service = CommandProductServiceImpl::new(
+            let service = make_command_product_service(
                 &repository,
                 &FixedFxRate(),
                 &period_service,

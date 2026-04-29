@@ -17,7 +17,6 @@
 use async_trait::async_trait;
 use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
-use common::shop_name::ShopName;
 use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
 use product::service::command_service::CommandProductService;
@@ -124,11 +123,8 @@ impl FileProductPushService {
 #[derive(serde::Serialize, serde::Deserialize)]
 struct UpsertCommandSnapshot {
     shop_id: String,
-    seller_id: String,
     shops_product_id: String,
-    shop_name: String,
-    seller_name: String,
-    shop_type: String,
+    seller_name_raw: Option<String>,
     url: Option<String>,
     state: Option<ProductStateData>,
     title: Option<LocalizedTextData>,
@@ -180,14 +176,10 @@ where
 impl From<&UpsertProductCommand> for UpsertCommandSnapshot {
     fn from(cmd: &UpsertProductCommand) -> Self {
         let shop_id_uuid: uuid::Uuid = cmd.shop_id.into();
-        let seller_id_uuid: uuid::Uuid = cmd.seller_id.into();
         Self {
             shop_id: shop_id_uuid.to_string(),
-            seller_id: seller_id_uuid.to_string(),
             shops_product_id: cmd.shops_product_id.to_string(),
-            shop_name: cmd.shop_name.as_ref().to_string(),
-            seller_name: cmd.seller_name.as_ref().to_string(),
-            shop_type: format!("{:?}", cmd.shop_type),
+            seller_name_raw: cmd.seller_name_raw.clone(),
             url: cmd.url.as_ref().map(|u| u.to_string()),
             state: cmd.state.as_ref().map(|s| ProductStateData::from(*s)),
             title: cmd.native_title.as_ref().map(|t| t.clone().into()),
@@ -256,11 +248,6 @@ impl ProductPushService for FileProductPushService {
 /// Maps a [`NormalizedProduct`] together with metadata from its [`ScraperCandidate`] into
 /// an [`UpsertProductCommand`].
 ///
-/// # Seller resolution
-///
-/// For [`ShopType::CommercialDealer`] shops `seller_id == shop_id` and
-/// `seller_name == shop_name`. Marketplace / auction-platform seller resolution is out of scope
-/// for this implementation.
 pub fn normalize_to_upsert(
     product: NormalizedProduct,
     candidate: &ScraperCandidate,
@@ -278,17 +265,10 @@ pub fn normalize_to_upsert(
         }
     }
 
-    let shop_name: ShopName = ShopName::from(candidate.shop_name.as_str());
-    let seller_name = shop_name.clone();
-    let seller_id = candidate.shop_id;
-
     Some(UpsertProductCommand {
         shop_id: candidate.shop_id,
-        seller_id,
         shops_product_id: product.shops_product_id,
-        shop_name,
-        seller_name,
-        shop_type: candidate.shop_type,
+        seller_name_raw: None,
         structured_address: None,
         geo_address: None,
         native_title: Some(product.title),
@@ -367,10 +347,7 @@ mod tests {
             .expect("should produce a command for CommercialDealer");
 
         assert_eq!(cmd.shop_id, candidate.shop_id);
-        assert_eq!(cmd.seller_id, candidate.shop_id); // seller_id == shop_id
-        assert_eq!(cmd.shop_name.as_ref(), "Test Shop");
-        assert_eq!(cmd.seller_name.as_ref(), "Test Shop"); // seller_name == shop_name
-        assert_eq!(cmd.shop_type, ShopType::CommercialDealer);
+        assert_eq!(cmd.seller_name_raw, None);
         assert_eq!(cmd.state, Some(ProductState::Available));
         assert_eq!(
             cmd.url.as_ref().map(|u| u.as_str()),
@@ -387,7 +364,7 @@ mod tests {
             .expect("should produce a command for AuctionHouse");
 
         assert_eq!(cmd.shop_id, candidate.shop_id);
-        assert_eq!(cmd.shop_type, ShopType::AuctionHouse);
+        assert_eq!(cmd.seller_name_raw, None);
     }
 
     #[test]
@@ -430,8 +407,8 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&content).unwrap();
         assert_eq!(parsed.len(), 1);
-        // Identity fields
-        assert_eq!(parsed[0]["shop_name"], "Test Shop");
+        // Derived identity fields are intentionally omitted from the command snapshot.
+        assert!(parsed[0].get("seller_name_raw").is_some());
         assert_eq!(parsed[0]["state"], "AVAILABLE");
         // Rich product fields are present in the output
         assert!(

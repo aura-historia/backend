@@ -55,7 +55,7 @@ async fn main() -> Result<(), Error> {
         CommandShopServiceImpl::new(&shop_dynamodb_repository, geocoding_service.as_ref());
     let query_shop_service = QueryShopServiceImpl::new(&shop_opensearch_repository);
 
-    let seller_service: Box<dyn SellerService> = match std::env::var("LOCALSTACK_HOSTNAME") {
+    let seller_service: Box<dyn SellerService + Sync> = match std::env::var("LOCALSTACK_HOSTNAME") {
         Ok(_) => {
             let mut mock = MockSellerService::default();
             mock.expect_get_seller_shop_details().returning(|_| {
@@ -104,19 +104,15 @@ async fn main() -> Result<(), Error> {
         &fx_rate,
         &period_service,
         &category_service,
+        &get_shop_service,
+        seller_service.as_ref(),
     );
 
     debug!("Lambda initialized.");
 
     run(service_fn(
         |event: LambdaEvent<ApiGatewayV2httpRequest>| async {
-            handler(
-                event,
-                &get_shop_service,
-                &command_product_service,
-                seller_service.as_ref(),
-            )
-            .await
+            handler(event, &get_shop_service, &command_product_service).await
         },
     ))
     .await

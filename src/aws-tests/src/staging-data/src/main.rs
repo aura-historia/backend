@@ -45,10 +45,13 @@ use product_classification::period::{
     service::{PeriodService, PeriodServiceImpl},
 };
 use shop::{
-    core::shop_type::ShopType,
     data::get_shop_data::GetShopData,
     dynamodb::repository::ShopDynamoDbRepositoryImpl,
-    service::command_service::{CommandShopService, CommandShopServiceImpl},
+    service::{
+        command_service::{CommandShopService, CommandShopServiceImpl},
+        get_service::GetShopServiceImpl,
+        seller_service::MockSellerService,
+    },
 };
 use staging_tests::get_dynamodb_client;
 use std::{collections::HashMap, time::Duration};
@@ -70,6 +73,10 @@ async fn create_products(commands: Vec<CreateProductCommand>) {
     let dynamodb_client = get_dynamodb_client().await;
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let shop_repository =
+        ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let get_shop_service = GetShopServiceImpl::new(&shop_repository);
+    let seller_service = MockSellerService::default();
     let period_dynamodb_repository =
         PeriodDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
     let period_opensearch_repository =
@@ -90,6 +97,8 @@ async fn create_products(commands: Vec<CreateProductCommand>) {
         &fx_rate,
         &period_service,
         &category_service,
+        &get_shop_service,
+        &seller_service,
     );
 
     let result = command_service.create(commands).await;
@@ -101,6 +110,10 @@ async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
     let dynamodb_client = get_dynamodb_client().await;
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let shop_repository =
+        ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let get_shop_service = GetShopServiceImpl::new(&shop_repository);
+    let seller_service = MockSellerService::default();
     let period_dynamodb_repository =
         PeriodDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
     let period_opensearch_repository =
@@ -121,6 +134,8 @@ async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
         &fx_rate,
         &period_service,
         &category_service,
+        &get_shop_service,
+        &seller_service,
     );
 
     let result = command_service.update(commands).await;
@@ -130,8 +145,6 @@ async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
 async fn populate_products(shops: Vec<GetShopData>) {
     println!("Populating products...");
 
-    let shop_names: Vec<_> = shops.iter().map(|s| s.name.clone()).collect();
-    let shop_types: Vec<_> = shops.iter().map(|s| ShopType::from(s.shop_type)).collect();
     let shop_ids: Vec<_> = shops.iter().map(|s| s.shop_id).collect();
 
     // create products
@@ -139,8 +152,6 @@ async fn populate_products(shops: Vec<GetShopData>) {
     for product in &mut products {
         let idx = rand::random_range(0..shop_ids.len());
         product.shop_id = shop_ids[idx];
-        product.shop_name = shop_names[idx].clone();
-        product.shop_type = shop_types[idx];
     }
 
     create_products(products.clone()).await;
