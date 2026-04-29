@@ -8,9 +8,12 @@ use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::core::user_search_filter_update::UserSearchFilterUpdate;
 use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
 use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
+use crate::dynamodb::user_search_filter_match_record_update::UserSearchFilterMatchRecordUpdate;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::batch::Batch;
 use common::pagination::cursor::{Cursor, CursoredResult};
+use common::shop_id::ShopId;
+use common::shops_product_id::ShopsProductId;
 use common::sort::Sort;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::{sort::SortOrder, user_id::UserId};
@@ -25,6 +28,11 @@ use user::service::user_service::{UserService, UserServiceError};
 pub enum UserSearchFilterError {
     #[error("UserSearchFilter with UserId '{0}' and SearchFilterId '{1}' not found.")]
     UserSearchFilterNotFound(UserId, UserSearchFilterId),
+
+    #[error(
+        "UserSearchFilterMatch with UserId '{0}', SearchFilterId '{1}', ShopId '{2}', and ShopsProductId '{3}' not found."
+    )]
+    UserSearchFilterMatchNotFound(UserId, UserSearchFilterId, ShopId, ShopsProductId),
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(
@@ -88,7 +96,8 @@ pub mod api {
     impl From<UserSearchFilterError> for ApiError {
         fn from(err: UserSearchFilterError) -> Self {
             match err {
-                UserSearchFilterError::UserSearchFilterNotFound(_, _) => {
+                UserSearchFilterError::UserSearchFilterNotFound(_, _)
+                | UserSearchFilterError::UserSearchFilterMatchNotFound(_, _, _, _) => {
                     ApiError::not_found(SEARCH_FILTER_NOT_FOUND, Box::new(err))
                 }
                 UserSearchFilterError::SdkGetItemError(err) => err.into(),
@@ -195,6 +204,15 @@ pub trait UserSearchFilterService {
         product_match: SearchFilterProductMatch,
     ) -> Result<SearchFilterProductMatch, UserSearchFilterError>;
 
+    async fn update_search_filter_product_match(
+        &self,
+        user_id: UserId,
+        search_filter_id: UserSearchFilterId,
+        shop_id: ShopId,
+        shops_product_id: ShopsProductId,
+        update: UpdateUserSearchFilterMatchCommand,
+    ) -> Result<SearchFilterProductMatch, UserSearchFilterError>;
+
     async fn create_search_filter_product_matches(
         &self,
         product_matches: Vec<SearchFilterProductMatch>,
@@ -210,6 +228,17 @@ pub trait UserSearchFilterService {
 pub struct CreateSearchFilterProductMatchesResult {
     pub processed: Vec<SearchFilterProductMatch>,
     pub unprocessed: Vec<SearchFilterProductMatch>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct UpdateUserSearchFilterMatchCommand {
+    pub matches_feedback: Option<bool>,
+}
+
+impl UpdateUserSearchFilterMatchCommand {
+    pub fn is_empty(&self) -> bool {
+        self.matches_feedback.is_none()
+    }
 }
 
 pub struct UserSearchFilterServiceImpl<'a> {
@@ -550,6 +579,57 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             "Created SearchFilterProductMatch."
         );
         Ok(product_match)
+    }
+
+    async fn update_search_filter_product_match(
+        &self,
+        user_id: UserId,
+        search_filter_id: UserSearchFilterId,
+        shop_id: ShopId,
+        shops_product_id: ShopsProductId,
+        update: UpdateUserSearchFilterMatchCommand,
+    ) -> Result<SearchFilterProductMatch, UserSearchFilterError> {
+        let existing = self
+            .repository
+            .get_user_search_filter_match_record(
+                &user_id,
+                &search_filter_id,
+                &shop_id,
+                &shops_product_id,
+            )
+            .await?
+            .ok_or_else(|| {
+                UserSearchFilterError::UserSearchFilterMatchNotFound(
+                    user_id,
+                    search_filter_id,
+                    shop_id,
+                    shops_product_id.clone(),
+                )
+            })?;
+
+        if update.is_empty() {
+            return Ok(existing.into());
+        }
+
+        let updated = self
+            .repository
+            .update_user_search_filter_match_record(
+                &user_id,
+                &search_filter_id,
+                &shop_id,
+                &shops_product_id,
+                UserSearchFilterMatchRecordUpdate::from(update),
+            )
+            .await?
+            .ok_or_else(|| {
+                UserSearchFilterError::SdkUpdateItemError(SdkError::construction_failure(
+                    "Failed parsing DynamoDB UpdateItem Response-Payload",
+                ))
+            })?;
+
+        info!(userId = %user_id, searchFilterId = %search_filter_id, shopId = %shop_id, shopsProductId = %shops_product_id, "Updated SearchFilterProductMatch.");
+
+        Ok(updated.into())
     }
 
     async fn create_search_filter_product_matches(
@@ -2269,6 +2349,152 @@ mod tests {
             let actual = service
                 .create_search_filter_product_match(product_match)
                 .await;
+            assert!(actual.is_err());
+        }
+    }
+
+    mod update_search_filter_product_match {
+        use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
+        use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
+        use crate::service::user_search_filter_service::{
+            UpdateUserSearchFilterMatchCommand, UserSearchFilterError, UserSearchFilterService,
+            UserSearchFilterServiceImpl,
+        };
+        use common::shop_id::ShopId;
+        use common::shops_product_id::ShopsProductId;
+        use common::user_id::UserId;
+        use common::user_search_filter_id::UserSearchFilterId;
+        use fake::{Fake, Faker};
+
+        #[tokio::test]
+        async fn should_update_feedback_when_match_exists() {
+            let user_id = UserId::new();
+            let search_filter_id = UserSearchFilterId::new();
+            let shop_id = ShopId::new();
+            let shops_product_id = ShopsProductId::new();
+            let mut updated_record = Faker.fake::<UserSearchFilterMatchRecord>();
+            updated_record.matches_feedback = Some(false);
+
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_get_user_search_filter_match_record()
+                .return_once(|_, _, _, _| {
+                    Box::pin(async { Ok(Some(Faker.fake::<UserSearchFilterMatchRecord>())) })
+                });
+            repository
+                .expect_update_user_search_filter_match_record()
+                .return_once(move |_, _, _, _, update| {
+                    assert_eq!(Some(false), update.matches_feedback);
+                    Box::pin(async move { Ok(Some(updated_record)) })
+                });
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
+
+            let actual = service
+                .update_search_filter_product_match(
+                    user_id,
+                    search_filter_id,
+                    shop_id,
+                    shops_product_id,
+                    UpdateUserSearchFilterMatchCommand {
+                        matches_feedback: Some(false),
+                    },
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(Some(false), actual.matches_feedback);
+        }
+
+        #[tokio::test]
+        async fn should_return_existing_match_when_update_is_empty() {
+            let existing_record = Faker.fake::<UserSearchFilterMatchRecord>();
+            let expected: crate::core::search_filter_product_match::SearchFilterProductMatch =
+                existing_record.clone().into();
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_get_user_search_filter_match_record()
+                .return_once(move |_, _, _, _| Box::pin(async move { Ok(Some(existing_record)) }));
+            repository
+                .expect_update_user_search_filter_match_record()
+                .never();
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
+
+            let actual = service
+                .update_search_filter_product_match(
+                    UserId::new(),
+                    UserSearchFilterId::new(),
+                    ShopId::new(),
+                    ShopsProductId::new(),
+                    UpdateUserSearchFilterMatchCommand::default(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(expected, actual);
+        }
+
+        #[tokio::test]
+        async fn should_return_not_found_when_match_missing() {
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_get_user_search_filter_match_record()
+                .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+            repository
+                .expect_update_user_search_filter_match_record()
+                .never();
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
+
+            let actual = service
+                .update_search_filter_product_match(
+                    UserId::new(),
+                    UserSearchFilterId::new(),
+                    ShopId::new(),
+                    ShopsProductId::new(),
+                    UpdateUserSearchFilterMatchCommand {
+                        matches_feedback: Some(true),
+                    },
+                )
+                .await;
+
+            assert!(matches!(
+                actual,
+                Err(UserSearchFilterError::UserSearchFilterMatchNotFound(
+                    _,
+                    _,
+                    _,
+                    _
+                ))
+            ));
+        }
+
+        #[tokio::test]
+        async fn should_propagate_sdk_error() {
+            use aws_sdk_dynamodb::error::SdkError;
+
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_get_user_search_filter_match_record()
+                .return_once(|_, _, _, _| {
+                    Box::pin(async { Err(SdkError::construction_failure("test error")) })
+                });
+            let user_service = user::service::user_service::MockUserService::default();
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
+
+            let actual = service
+                .update_search_filter_product_match(
+                    UserId::new(),
+                    UserSearchFilterId::new(),
+                    ShopId::new(),
+                    ShopsProductId::new(),
+                    UpdateUserSearchFilterMatchCommand {
+                        matches_feedback: Some(true),
+                    },
+                )
+                .await;
+
             assert!(actual.is_err());
         }
     }

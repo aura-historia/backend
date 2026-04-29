@@ -375,6 +375,7 @@ impl<'a> ProductMatcherService for ProductMatcherServiceImpl<'a> {
                 product_id: product.product_id,
                 origin_event_id: event_id,
                 enhanced_match_reason: m.enhanced_match_reason.clone(),
+                matches_feedback: None,
                 created: now,
                 updated: now,
             })

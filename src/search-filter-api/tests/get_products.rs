@@ -126,6 +126,7 @@ async fn seed_match_records(
             product_id: product_record.product_id,
             origin_event_id: Faker.fake(),
             enhanced_match_reason: None,
+            matches_feedback: None,
             created,
             updated: created,
         };

@@ -88,6 +88,7 @@ use search_filter::{
     service::user_search_filter_service::{UserSearchFilterService, UserSearchFilterServiceImpl},
 };
 use search_filter_api::{
+    patch_product_match::PatchUserSearchFilterMatchData,
     patch_types::{PatchProductSearchData, PatchUserSearchFilterData},
     post_types::PostUserSearchFilterData,
 };
@@ -4511,6 +4512,66 @@ async fn should_get_search_filter_products_when_authorized() {
         .unwrap();
     assert_eq!(0, actual.total.unwrap());
     assert!(actual.items.is_empty());
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_patch_search_filter_product_match_feedback_when_authorized() {
+    use search_filter::dynamodb::repository::{
+        UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
+    };
+    use search_filter::dynamodb::user_search_filter_match_record::{
+        UserSearchFilterMatchRecord, mk_lsi1_sk, mk_pk, mk_sk,
+    };
+
+    let cfn = get_cfn_output();
+    let repository = UserSearchFilterDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &cfn.dynamodb_table_1_name,
+    );
+    let user = create_random_test_user().await;
+    let user_id: UserId = user.sub.into();
+    let filter_id = common::user_search_filter_id::UserSearchFilterId::new();
+    let shop_id = common::shop_id::ShopId::new();
+    let shops_product_id = common::shops_product_id::ShopsProductId::new();
+    let created = OffsetDateTime::now_utc();
+    let mut record = Faker.fake::<UserSearchFilterMatchRecord>();
+    record.pk = mk_pk(&user_id);
+    record.sk = mk_sk(&filter_id, &shop_id, &shops_product_id);
+    record.lsi1_sk = mk_lsi1_sk(&created);
+    record.user_id = user_id;
+    record.user_search_filter_id = filter_id;
+    record.shop_id = shop_id;
+    record.shops_product_id = shops_product_id.clone();
+    record.matches_feedback = None;
+    record.created = created;
+    record.updated = created;
+    repository
+        .put_user_search_filter_match_record(record)
+        .await
+        .unwrap();
+
+    let patch = PatchUserSearchFilterMatchData {
+        matches_feedback: Some(true),
+    };
+    let url = format!(
+        "{}/api/v1/me/search-filters/{}/products/{}/{}",
+        cfn.api_gateway_endpoint_url, filter_id, shop_id, shops_product_id,
+    );
+    let response = reqwest::Client::new()
+        .patch(url)
+        .json(&patch)
+        .bearer_auth(user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let actual = repository
+        .get_user_search_filter_match_record(&user_id, &filter_id, &shop_id, &shops_product_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(Some(true), actual.matches_feedback);
 }
 
 // ---------------------------------------------------------------------------

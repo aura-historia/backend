@@ -1991,6 +1991,14 @@ Resources:
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${SearchFilterApiLambdaIntegration}"
+  SearchFilterApiPatchSearchFilterProductRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PATCH /api/v1/me/search-filters/{userSearchFilterId}/products/{shopId}/{shopsProductId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${SearchFilterApiLambdaIntegration}"
   SearchFilterApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:

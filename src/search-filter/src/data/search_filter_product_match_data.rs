@@ -1,26 +1,44 @@
-use common::enhanced_match_reason::EnhancedMatchReason;
-use common::event_id::EventId;
+use crate::core::search_filter_product_match::SearchFilterProductMatch;
 use common::product_id::ProductId;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct SearchFilterProductMatch {
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchFilterProductMatchData {
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
-    pub user_search_filter_name: Option<UserSearchFilterName>,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub product_id: ProductId,
-    pub origin_event_id: EventId,
-    pub enhanced_match_reason: Option<EnhancedMatchReason>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub matches_feedback: Option<bool>,
+
+    #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
+
+    #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
+}
+
+impl From<SearchFilterProductMatch> for SearchFilterProductMatchData {
+    fn from(product_match: SearchFilterProductMatch) -> Self {
+        SearchFilterProductMatchData {
+            user_id: product_match.user_id,
+            user_search_filter_id: product_match.user_search_filter_id,
+            shop_id: product_match.shop_id,
+            shops_product_id: product_match.shops_product_id,
+            product_id: product_match.product_id,
+            matches_feedback: product_match.matches_feedback,
+            created: product_match.created,
+            updated: product_match.updated,
+        }
+    }
 }
 
 #[cfg(feature = "test-data")]
@@ -28,17 +46,14 @@ mod faker {
     use super::*;
     use fake::{Dummy, Fake, Faker, RngExt};
 
-    impl Dummy<Faker> for SearchFilterProductMatch {
+    impl Dummy<Faker> for SearchFilterProductMatchData {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            SearchFilterProductMatch {
+            SearchFilterProductMatchData {
                 user_id: config.fake_with_rng(rng),
                 user_search_filter_id: config.fake_with_rng(rng),
-                user_search_filter_name: config.fake_with_rng(rng),
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 product_id: config.fake_with_rng(rng),
-                origin_event_id: config.fake_with_rng(rng),
-                enhanced_match_reason: config.fake_with_rng(rng),
                 matches_feedback: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
