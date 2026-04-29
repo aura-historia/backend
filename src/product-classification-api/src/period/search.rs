@@ -81,7 +81,7 @@ pub async fn handle(
 
     let response_builder = ApiGatewayV2HttpResponseBuilder::json(200);
     let response_builder = if event.payload.route_key.as_deref() == Some("GET /api/v1/periods") {
-        response_builder.cache_control("public", Some(86400), Some(604800))
+        response_builder.cache_control("public", Some(600), Some(3600))
     } else {
         response_builder
     };

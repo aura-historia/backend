@@ -41,7 +41,7 @@ pub async fn handle(
     }
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .cache_control("public", Some(86400), Some(604800))
+        .cache_control("public", Some(600), Some(3600))
         .body_serde(categories_data)?
         .build())
 }
