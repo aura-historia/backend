@@ -921,7 +921,10 @@ async fn create_products(commands: Vec<CreateProductCommand>) {
     let shop_repository =
         ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let seller_service = MockSellerService::default();
+    let mut seller_service = MockSellerService::default();
+    seller_service
+        .expect_get_seller_shop_details()
+        .returning(|_| Box::pin(async { Ok((Faker.fake(), "foo".into(), "Foo".into())) }));
     let fx_rate = FixedFxRate();
     let mut period_service = MockPeriodService::default();
     period_service
