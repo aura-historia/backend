@@ -41,6 +41,7 @@ pub async fn handle(
         name: post_data.name,
         shop_type: post_data.shop_type.into(),
         domains: post_data.domains,
+        url: post_data.url,
         image: post_data.image,
         structured_address: post_data.structured_address.map(Into::into),
         phone: post_data.phone,

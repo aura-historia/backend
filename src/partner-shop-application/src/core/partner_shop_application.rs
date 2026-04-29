@@ -37,6 +37,7 @@ pub struct PartnerShopApplicationPayloadInfo {
     pub shop_name: Option<ShopName>,
     pub shop_type: Option<ShopType>,
     pub shop_domains: Option<HashSet<Domain>>,
+    pub shop_url: Option<Url>,
     pub shop_image: Option<Url>,
     pub shop_structured_address: Option<StructuredAddress>,
     pub shop_phone: Option<String>,

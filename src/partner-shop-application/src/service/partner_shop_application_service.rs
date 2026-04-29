@@ -258,6 +258,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             shop_name: update.shop_name,
             shop_type: update.shop_type.map(Into::into),
             shop_domains: update.shop_domains,
+            shop_url: update.shop_url,
             shop_image: update.shop_image,
             shop_structured_address_addressline: update
                 .shop_structured_address
@@ -385,6 +386,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             shop_name: update.shop_name,
             shop_type: update.shop_type.map(Into::into),
             shop_domains: update.shop_domains,
+            shop_url: update.shop_url,
             shop_image: update.shop_image,
             shop_structured_address_addressline: update
                 .shop_structured_address
@@ -529,6 +531,7 @@ impl<'a> PartnerShopApplicationServiceImpl<'a> {
             shop_name: None,
             shop_type: None,
             shop_domains: None,
+            shop_url: None,
             shop_image: None,
             shop_structured_address_addressline: None,
             shop_structured_address_addressline_extra: None,

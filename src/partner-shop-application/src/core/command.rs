@@ -21,6 +21,7 @@ pub struct UpdatePartnerShopApplicationCommand {
     pub shop_name: Option<ShopName>,
     pub shop_type: Option<ShopType>,
     pub shop_domains: Option<HashSet<Domain>>,
+    pub shop_url: Option<Url>,
     pub shop_image: Option<Url>,
     pub shop_structured_address: Option<StructuredAddress>,
     pub shop_phone: Option<String>,
@@ -34,6 +35,7 @@ impl UpdatePartnerShopApplicationCommand {
         self.shop_name.is_none()
             && self.shop_type.is_none()
             && self.shop_domains.is_none()
+            && self.shop_url.is_none()
             && self.shop_image.is_none()
             && self.shop_structured_address.is_none()
             && self.shop_phone.is_none()
@@ -46,6 +48,7 @@ impl UpdatePartnerShopApplicationCommand {
         self.shop_name.is_some()
             || self.shop_type.is_some()
             || self.shop_domains.is_some()
+            || self.shop_url.is_some()
             || self.shop_image.is_some()
             || self.shop_structured_address.is_some()
             || self.shop_phone.is_some()
@@ -62,6 +65,7 @@ impl UpdatePartnerShopApplicationCommand {
             shop_name: self.shop_name,
             shop_type: self.shop_type,
             shop_domains: self.shop_domains,
+            shop_url: self.shop_url,
             shop_image: self.shop_image,
             shop_structured_address: self.shop_structured_address,
             shop_phone: self.shop_phone,
@@ -98,6 +102,7 @@ mod faker {
                 shop_name: config.fake_with_rng(rng),
                 shop_type: config.fake_with_rng(rng),
                 shop_domains: config.fake_with_rng(rng),
+                shop_url: config.fake_with_rng(rng),
                 shop_image: config.fake_with_rng(rng),
                 shop_structured_address: None,
                 shop_phone: None,

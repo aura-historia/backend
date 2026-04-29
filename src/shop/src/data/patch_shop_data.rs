@@ -14,6 +14,8 @@ pub struct PatchShopData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub domains: Option<HashSet<Domain>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub url: Option<Url>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub structured_address: Option<StructuredAddressData>,
@@ -37,6 +39,7 @@ mod faker {
             PatchShopData {
                 shop_type: config.fake_with_rng(rng),
                 domains: config.fake_with_rng(rng),
+                url: config.fake_with_rng(rng),
                 image: config.fake_with_rng(rng),
                 structured_address: None,
                 phone: None,

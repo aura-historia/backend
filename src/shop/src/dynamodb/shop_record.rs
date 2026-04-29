@@ -6,6 +6,7 @@ use crate::core::{
     shop::Shop,
 };
 use crate::dynamodb::shop_type_record::ShopTypeRecord;
+use crate::dynamodb::utm::append_utm_params;
 use common::error::missing_field::MissingPersistenceField;
 use common::{
     category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_id::ShopId,
@@ -33,6 +34,9 @@ pub struct ShopRecord {
 
     #[serde(skip_serializing_if = "HashSet::is_empty", default)]
     pub domains: HashSet<Domain>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub url: Option<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
@@ -120,6 +124,7 @@ impl From<Shop> for ShopRecord {
             name: shop.name,
             shop_type: shop.shop_type.into(),
             domains: shop.domains,
+            url: shop.url,
             image: shop.image,
             structured_address_addressline: shop
                 .structured_address
@@ -167,6 +172,7 @@ impl From<ShopRecord> for Shop {
             name: record.name,
             shop_type: record.shop_type.into(),
             domains: record.domains,
+            url: record.url.map(append_utm_params),
             image: record.image,
             structured_address: structured_address_from_flat(
                 record.structured_address_addressline,
@@ -211,6 +217,7 @@ impl TryFrom<ShopRecord> for PartnerShop {
             name: value.name,
             shop_type: value.shop_type.into(),
             domains: value.domains,
+            url: value.url.map(append_utm_params),
             image: value.image,
             structured_address: structured_address_from_flat(
                 value.structured_address_addressline,
@@ -284,6 +291,46 @@ mod faker {
                 let _ = Faker.fake::<ShopRecord>();
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "test-data"))]
+mod utm_tests {
+    use super::*;
+    use crate::core::shop::Shop;
+    use fake::{Fake, Faker};
+
+    #[test]
+    fn should_append_utm_params_when_mapping_shop_record_to_shop() {
+        let mut record = Faker.fake::<ShopRecord>();
+        record.url = Some(Url::parse("https://example-shop.com").unwrap());
+
+        let shop: Shop = record.into();
+
+        let url = shop.url.unwrap();
+        let query: Vec<(_, _)> = url.query_pairs().collect();
+        assert!(
+            query
+                .iter()
+                .any(|(k, v)| k == "utm_source" && v == "aura_historia"),
+            "utm_source=aura_historia not found in URL query params"
+        );
+        assert!(
+            query
+                .iter()
+                .any(|(k, v)| k == "utm_medium" && v == "referral"),
+            "utm_medium=referral not found in URL query params"
+        );
+    }
+
+    #[test]
+    fn should_return_none_url_when_shop_record_has_no_url() {
+        let mut record = Faker.fake::<ShopRecord>();
+        record.url = None;
+
+        let shop: Shop = record.into();
+
+        assert!(shop.url.is_none());
     }
 }
 

@@ -197,6 +197,7 @@ async fn should_update_shop_document_for_index() {
             Domain::try_from("hansi-hans.de").unwrap(),
             Domain::try_from("hansi-hans.com").unwrap(),
         ]),
+        url: None,
         image: Some(Url::parse("https://hansi-hanseatic.es/foo.png").unwrap()),
         structured_address_addressline: None,
         structured_address_addressline_extra: None,
@@ -249,6 +250,7 @@ async fn should_update_shop_document_for_update() {
             Domain::try_from("hansi-hans.de").unwrap(),
             Domain::try_from("hansi-hans.com").unwrap(),
         ])),
+        url: None,
         image: Some(Url::parse("https://hansi-hanseatic.es/foo.png").unwrap()),
         updated: OffsetDateTime::now_utc(),
     };

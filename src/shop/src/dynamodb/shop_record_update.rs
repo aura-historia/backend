@@ -28,6 +28,9 @@ pub struct ShopRecordUpdate {
     pub domains: Option<HashSet<Domain>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub url: Option<Url>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]

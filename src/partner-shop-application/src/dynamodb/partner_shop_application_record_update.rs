@@ -31,6 +31,9 @@ pub struct PartnerShopApplicationRecordUpdate {
     pub shop_domains: Option<HashSet<Domain>>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_url: Option<Url>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_image: Option<Url>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -76,6 +79,7 @@ mod tests {
             shop_name: None,
             shop_type: None,
             shop_domains: None,
+            shop_url: None,
             shop_image: None,
             shop_structured_address_addressline: None,
             shop_structured_address_addressline_extra: None,
@@ -105,6 +109,7 @@ mod tests {
             shop_name: None,
             shop_type: None,
             shop_domains: None,
+            shop_url: None,
             shop_image: None,
             shop_structured_address_addressline: None,
             shop_structured_address_addressline_extra: None,
@@ -134,6 +139,7 @@ mod tests {
             shop_name: Some(ShopName::from("Updated Shop".to_string())),
             shop_type: None,
             shop_domains: None,
+            shop_url: None,
             shop_image: None,
             shop_structured_address_addressline: None,
             shop_structured_address_addressline_extra: None,
@@ -163,6 +169,7 @@ mod tests {
             shop_name: Some(ShopName::from("Updated".to_string())),
             shop_type: Some(ShopTypeRecord::Marketplace),
             shop_domains: Some(HashSet::new()),
+            shop_url: Some(Url::parse("https://example.com").unwrap()),
             shop_image: Some(Url::parse("https://example.com/image.png").unwrap()),
             shop_structured_address_addressline: None,
             shop_structured_address_addressline_extra: None,
@@ -185,6 +192,7 @@ mod tests {
         assert!(expr.expr_attr_names.contains_key("#shop_name"));
         assert!(expr.expr_attr_names.contains_key("#shop_type"));
         assert!(expr.expr_attr_names.contains_key("#shop_domains"));
+        assert!(expr.expr_attr_names.contains_key("#shop_url"));
         assert!(expr.expr_attr_names.contains_key("#shop_image"));
         assert!(expr.expr_attr_names.contains_key("#updated"));
     }

@@ -49,6 +49,8 @@ pub enum GetPartnerShopApplicationPayloadData {
         shop_type: ShopTypeData,
         shop_domains: HashSet<Domain>,
         #[serde(skip_serializing_if = "Option::is_none", default)]
+        shop_url: Option<Url>,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
         shop_image: Option<Url>,
         #[serde(skip_serializing_if = "Option::is_none", default)]
         shop_structured_address: Option<StructuredAddressData>,
@@ -73,6 +75,7 @@ impl From<PartnerShopApplication> for GetPartnerShopApplicationData {
                 shop_name: cmd.name,
                 shop_type: cmd.shop_type.into(),
                 shop_domains: cmd.domains,
+                shop_url: cmd.url,
                 shop_image: cmd.image,
                 shop_structured_address: cmd.structured_address.map(Into::into),
                 shop_phone: cmd.phone,
