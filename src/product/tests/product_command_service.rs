@@ -22,8 +22,8 @@ use product_classification::category::service::MockCategoryService;
 use product_classification::period::service::MockPeriodService;
 use shop::core::shop::Shop;
 use shop::core::shop_type::ShopType;
-use shop::service::get_service::{GetShopService, MockGetShopService};
-use shop::service::seller_service::{MockSellerService, SellerService};
+use shop::service::get_service::MockGetShopService;
+use shop::service::seller_service::MockSellerService;
 use std::collections::HashMap;
 use test_api::*;
 

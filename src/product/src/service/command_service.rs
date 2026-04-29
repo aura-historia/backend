@@ -1281,11 +1281,13 @@ mod tests {
         #[tokio::test]
         async fn should_use_shop_addresses_when_product_addresses_missing_for_shop_information() {
             let mut cmd = Faker.fake::<CreateProductCommand>();
+            cmd.seller_name_raw = None;
             cmd.structured_address = None;
             cmd.geo_address = None;
 
             let mut shop: Shop = Faker.fake();
             shop.shop_id = cmd.shop_id;
+            shop.shop_type = ShopType::AuctionHouse;
             shop.structured_address = Some(Faker.fake());
             shop.geo_address = Some(Faker.fake());
             let expected_structured_address = shop.structured_address.clone();
@@ -1321,12 +1323,14 @@ mod tests {
         async fn should_keep_product_addresses_when_either_product_address_exists_for_shop_information()
          {
             let mut cmd = Faker.fake::<CreateProductCommand>();
+            cmd.seller_name_raw = None;
             cmd.structured_address = Some(Faker.fake());
             cmd.geo_address = None;
             let expected_structured_address = cmd.structured_address.clone();
 
             let mut shop: Shop = Faker.fake();
             shop.shop_id = cmd.shop_id;
+            shop.shop_type = ShopType::AuctionHouse;
             shop.structured_address = Some(Faker.fake());
             shop.geo_address = Some(Faker.fake());
 
