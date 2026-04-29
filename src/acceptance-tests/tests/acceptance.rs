@@ -1,6 +1,7 @@
 use aws_tests_common::get_cfn_output;
 use common::execution_state::data::ExecutionStateData;
 use common::personalized::api::PersonalizedData;
+use common::utm::append_utm_params;
 use common::{
     batch::Batch,
     currency::{data::CurrencyData, domain::Currency},
@@ -67,7 +68,6 @@ use product::{
         provenance_record::ProvenanceRecord,
         repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
         restoration_record::RestorationRecord,
-        utm::append_utm_params,
     },
     service::{
         command_service::{CommandProductService, CommandProductServiceImpl},

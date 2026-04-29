@@ -47,5 +47,6 @@ pub mod stripe_customer_id;
 pub mod user_id;
 pub mod user_search_filter_id;
 pub mod user_search_filter_name;
+pub mod utm;
 pub mod uuid_newtype;
 pub mod year;

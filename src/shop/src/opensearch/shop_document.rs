@@ -5,6 +5,7 @@ use crate::{
         shop::Shop,
     },
     dynamodb::shop_record::ShopRecord,
+    dynamodb::utm::append_utm_params,
     opensearch::{
         continent_document::ContinentDocument, partner_status_document::ShopPartnerStatusDocument,
         shop_type_document::ShopTypeDocument,
@@ -135,7 +136,7 @@ impl From<ShopDocument> for Shop {
             name: document.name,
             shop_type: document.shop_type.into(),
             domains: document.domains,
-            url: document.url,
+            url: document.url.map(append_utm_params),
             image: document.image,
             structured_address: structured_address_from_flat(
                 document.structured_address_addressline,
