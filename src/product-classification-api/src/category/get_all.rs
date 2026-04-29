@@ -164,7 +164,7 @@ mod tests {
 
         assert_eq!(200, response.status_code);
         assert_eq!(
-            "public, max-age=86400, s-maxage=604800",
+            "public, max-age=600, s-maxage=3600",
             response
                 .headers
                 .get(CACHE_CONTROL)
