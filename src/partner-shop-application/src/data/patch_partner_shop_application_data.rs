@@ -19,6 +19,9 @@ pub struct PatchPartnerShopApplicationData {
     pub shop_domains: Option<HashSet<Domain>>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_url: Option<Url>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_image: Option<Url>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_structured_address: Option<StructuredAddressData>,
@@ -43,6 +46,7 @@ mod faker {
                 shop_name: config.fake_with_rng(rng),
                 shop_type: config.fake_with_rng(rng),
                 shop_domains: config.fake_with_rng(rng),
+                shop_url: config.fake_with_rng(rng),
                 shop_image: config.fake_with_rng(rng),
                 shop_structured_address: None,
                 shop_phone: None,

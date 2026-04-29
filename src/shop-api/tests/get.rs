@@ -4,6 +4,7 @@ use shop::{
     data::get_shop_data::GetShopData,
     dynamodb::repository::ShopDynamoDbRepositoryImpl,
     service::{
+        command::CreateShopCommand,
         command_service::{CommandShopService, CommandShopServiceImpl},
         get_service::GetShopServiceImpl,
         query_service::MockQueryShopService,
@@ -22,7 +23,8 @@ async fn should_200_respond_shop() {
         &shop::service::geocoding_service::NoopGeocodingService,
     );
 
-    let create_cmd = Faker.fake();
+    let mut create_cmd: CreateShopCommand = Faker.fake();
+    create_cmd.url = None;
     let expected = command_service.create(create_cmd).await.unwrap();
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -56,7 +58,8 @@ async fn should_200_respond_shop_for_slug() {
         &shop::service::geocoding_service::NoopGeocodingService,
     );
 
-    let create_cmd = Faker.fake();
+    let mut create_cmd: CreateShopCommand = Faker.fake();
+    create_cmd.url = None;
     let expected = command_service.create(create_cmd).await.unwrap();
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()

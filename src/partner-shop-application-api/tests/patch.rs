@@ -43,6 +43,7 @@ async fn should_200_when_updating_application() {
         shop_name: Some(new_shop_name),
         shop_type: None,
         shop_domains: None,
+        shop_url: None,
         shop_image: None,
         shop_structured_address: None,
         shop_phone: None,

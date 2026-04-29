@@ -1,6 +1,7 @@
 use aws_tests_common::get_cfn_output;
 use common::execution_state::data::ExecutionStateData;
 use common::personalized::api::PersonalizedData;
+use common::utm::append_utm_params;
 use common::{
     batch::Batch,
     currency::{data::CurrencyData, domain::Currency},
@@ -67,7 +68,6 @@ use product::{
         provenance_record::ProvenanceRecord,
         repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
         restoration_record::RestorationRecord,
-        utm::append_utm_params,
     },
     service::{
         command_service::{CommandProductService, CommandProductServiceImpl},
@@ -921,7 +921,10 @@ async fn create_products(commands: Vec<CreateProductCommand>) {
     let shop_repository =
         ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let seller_service = MockSellerService::default();
+    let mut seller_service = MockSellerService::default();
+    seller_service
+        .expect_get_seller_shop_details()
+        .returning(|_| Box::pin(async { Ok((Faker.fake(), "foo".into(), "Foo".into())) }));
     let fx_rate = FixedFxRate();
     let mut period_service = MockPeriodService::default();
     period_service
@@ -4629,6 +4632,7 @@ async fn should_respond_200_for_shop_patch_by_partner() {
     let patch_data = PatchShopData {
         shop_type: None,
         domains: None,
+        url: None,
         image: Some(url::Url::parse("https://new-image.example.com/logo.png").unwrap()),
         structured_address: None,
         phone: None,
@@ -5122,6 +5126,7 @@ async fn should_respond_200_for_partner_application_patch() {
         shop_name: Some("Updated Shop".into()),
         shop_type: None,
         shop_domains: None,
+        shop_url: None,
         shop_image: None,
         shop_structured_address: None,
         shop_phone: None,
@@ -5341,6 +5346,7 @@ async fn should_respond_200_for_admin_partner_application_patch() {
         )),
         shop_type: None,
         shop_domains: None,
+        shop_url: None,
         shop_image: None,
         shop_structured_address: None,
         shop_phone: None,
@@ -5380,6 +5386,7 @@ async fn should_respond_200_for_admin_decision_approve() {
         shop_name: common::shop_name::ShopName::from("Accept Test Shop".to_string()),
         shop_type: shop::data::shop_type_data::ShopTypeData::CommercialDealer,
         shop_domains: std::collections::HashSet::new(),
+        shop_url: None,
         shop_image: None,
         shop_structured_address: None,
         shop_phone: None,

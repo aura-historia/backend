@@ -25,6 +25,8 @@ pub enum PostPartnerShopApplicationPayloadData {
         shop_type: ShopTypeData,
         shop_domains: HashSet<Domain>,
         #[serde(skip_serializing_if = "Option::is_none", default)]
+        shop_url: Option<Url>,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
         shop_image: Option<Url>,
         #[serde(skip_serializing_if = "Option::is_none", default)]
         shop_structured_address: Option<StructuredAddressData>,
@@ -55,6 +57,7 @@ mod faker {
                     shop_name: config.fake_with_rng(rng),
                     shop_type: config.fake_with_rng(rng),
                     shop_domains: config.fake_with_rng(rng),
+                    shop_url: None,
                     shop_image: config.fake_with_rng(rng),
                     shop_structured_address: None,
                     shop_phone: None,

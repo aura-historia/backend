@@ -23,6 +23,7 @@ use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
+use common::utm::append_utm_params;
 use common::year::{Year, YearRange};
 use common::{event_id::EventId, has_key::HasKey};
 use field::field;
@@ -1290,7 +1291,7 @@ impl From<ProductDocument> for Product {
             native_price_estimate_max: None,
             other_price_estimate_max,
             state: product_document.state.into(),
-            url: product_document.url,
+            url: append_utm_params(product_document.url),
             images: product_document
                 .images
                 .into_iter()

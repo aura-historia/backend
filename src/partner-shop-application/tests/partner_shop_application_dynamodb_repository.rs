@@ -70,6 +70,7 @@ fn should_update_partner_shop_application_record_state() {
                 shop_name: None,
                 shop_type: None,
                 shop_domains: None,
+                shop_url: None,
                 shop_image: None,
                 shop_structured_address_addressline: None,
                 shop_structured_address_addressline_extra: None,

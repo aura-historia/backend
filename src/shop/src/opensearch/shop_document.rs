@@ -5,6 +5,7 @@ use crate::{
         shop::Shop,
     },
     dynamodb::shop_record::ShopRecord,
+    dynamodb::utm::append_utm_params,
     opensearch::{
         continent_document::ContinentDocument, partner_status_document::ShopPartnerStatusDocument,
         shop_type_document::ShopTypeDocument,
@@ -30,6 +31,9 @@ pub struct ShopDocument {
     pub name: ShopName,
     pub shop_type: ShopTypeDocument,
     pub domains: HashSet<Domain>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub url: Option<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
@@ -84,6 +88,7 @@ impl From<Shop> for ShopDocument {
             name: shop.name,
             shop_type: shop.shop_type.into(),
             domains: shop.domains,
+            url: shop.url,
             image: shop.image,
             structured_address_addressline: shop
                 .structured_address
@@ -131,6 +136,7 @@ impl From<ShopDocument> for Shop {
             name: document.name,
             shop_type: document.shop_type.into(),
             domains: document.domains,
+            url: document.url.map(append_utm_params),
             image: document.image,
             structured_address: structured_address_from_flat(
                 document.structured_address_addressline,
@@ -163,6 +169,7 @@ impl From<ShopRecord> for ShopDocument {
             name: record.name,
             shop_type: record.shop_type.into(),
             domains: record.domains,
+            url: record.url,
             image: record.image,
             structured_address_addressline: record.structured_address_addressline,
             structured_address_addressline_extra: record.structured_address_addressline_extra,

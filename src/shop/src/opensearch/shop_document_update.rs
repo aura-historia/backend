@@ -12,6 +12,9 @@ pub struct ShopDocumentUpdate {
     pub domains: Option<HashSet<Domain>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub url: Option<Url>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
 
     #[serde(with = "time::serde::rfc3339")]
@@ -27,6 +30,7 @@ mod faker {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             ShopDocumentUpdate {
                 domains: config.fake_with_rng(rng),
+                url: config.fake_with_rng(rng),
                 image: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),
             }

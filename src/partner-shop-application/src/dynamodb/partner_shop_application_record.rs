@@ -49,6 +49,9 @@ pub struct PartnerShopApplicationRecord {
     pub shop_domains: Option<HashSet<Domain>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shop_url: Option<Url>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shop_image: Option<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -105,6 +108,7 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
             shop_name,
             shop_type,
             shop_domains,
+            shop_url,
             shop_image,
             shop_structured_address_addressline,
             shop_structured_address_addressline_extra,
@@ -132,6 +136,7 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
                 None,
                 None,
                 None,
+                None,
                 Vec::new(),
                 Vec::new(),
             ),
@@ -141,6 +146,7 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
                 Some(cmd.name),
                 Some(cmd.shop_type.into()),
                 Some(cmd.domains),
+                cmd.url,
                 cmd.image,
                 cmd.structured_address
                     .as_ref()
@@ -179,6 +185,7 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
             shop_name,
             shop_type,
             shop_domains,
+            shop_url,
             shop_image,
             shop_structured_address_addressline,
             shop_structured_address_addressline_extra,
@@ -222,6 +229,7 @@ impl TryFrom<PartnerShopApplicationRecord> for PartnerShopApplication {
                     name,
                     shop_type: shop_type_record.into(),
                     domains,
+                    url: record.shop_url,
                     image,
                     structured_address: structured_address_from_flat(
                         record.shop_structured_address_addressline,
@@ -326,6 +334,7 @@ mod faker {
                 name: ShopName::from("Test Shop".to_string()),
                 shop_type: ShopType::CommercialDealer,
                 domains: [Domain::try_from("https://www.test.com/".to_string()).unwrap()].into(),
+                url: None,
                 image: None,
                 structured_address: None,
                 phone: None,
