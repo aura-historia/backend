@@ -54,8 +54,8 @@ impl ProductStateMappingService for FixedStateMappingService {
     async fn get_state_mapping(
         &self,
         _raw: &str,
-    ) -> Result<ProductStateMappingRecord, StateMappingServiceError> {
-        Ok(self.0.clone())
+    ) -> Result<(ProductStateMappingRecord, bool), StateMappingServiceError> {
+        Ok((self.0.clone(), false))
     }
 }
 
@@ -125,7 +125,7 @@ pub async fn assert_normalized(
 
     let product_url = Url::parse(url).expect("test URL must be valid");
     let default_currency = schema.default_currency.map(Currency::from);
-    let result = norm_svc
+    let (result, _) = norm_svc
         .normalize(raw, product_url, default_currency)
         .await
         .unwrap_or_else(|e| panic!("normalization failed: {e}"));

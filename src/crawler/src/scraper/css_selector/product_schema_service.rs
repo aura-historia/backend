@@ -8,7 +8,7 @@ use kuchiki::{NodeRef, parse_html};
 use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
 use schemars::schema_for;
 use time::OffsetDateTime;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductSchemaServiceError {
@@ -30,14 +30,23 @@ pub enum ProductSchemaServiceError {
 pub trait ProductSchemaService {
     async fn create_product_schema(
         &self,
-        html: &str,
+        html_pages: &[String],
     ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError>;
 
-    async fn fix_product_schema(
+    async fn create_product_schemas(
         &self,
-        schema: &ProductCssSelectorSchema,
-        err: &ApplySchemaError,
+        html_pages: &[String],
+    ) -> Result<Vec<ProductCssSelectorSchema>, ProductSchemaServiceError>;
+
+    /// Generate a single schema from a single HTML page and append it to the
+    /// cached schema set. Used when a runtime schema-variant match fails to
+    /// dynamically expand the schema set without full regeneration.
+    async fn append_single_schema(
+        &self,
+        _domain: &str,
         html: &str,
+        failed_schema: Option<&ProductCssSelectorSchema>,
+        last_error: Option<&ApplySchemaError>,
     ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError>;
 
     async fn find_product_schema(
@@ -48,15 +57,22 @@ pub trait ProductSchemaService {
     async fn save_product_schema(
         &self,
         shop_id: &ShopId,
-        domain: &str,
+        _domain: &str,
         product_schema: ProductCssSelectorSchema,
+    ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
+
+    async fn save_product_schemas(
+        &self,
+        shop_id: &ShopId,
+        _domain: &str,
+        product_schemas: Vec<ProductCssSelectorSchema>,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
 
     async fn get_product_schema(
         &self,
         shop_id: &ShopId,
-        domain: &str,
-        html: &str,
+        _domain: &str,
+        html_pages: &[String],
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
 }
 
@@ -74,7 +90,10 @@ impl ProductSchemaServiceImpl {
             .unwrap_or_else(|_| "Failed to generate schema".to_string());
         let system_prompt = format!(
             "You are an e-commerce scraper-assistant for antiques creating extraction-schemas for HTML given product-pages.
-            Only answer with JSON for the following schema: \n\n {schema}",
+            Return only JSON. The output may be either:
+            - a single object matching this schema, or
+            - an array of such objects.
+            Schema:\n\n {schema}",
         );
         let llm = llm
             .resilient(true)
@@ -84,7 +103,7 @@ impl ProductSchemaServiceImpl {
             .reasoning(true)
             .timeout_seconds(180)
             .validator(|res| {
-                serde_json::from_str::<ProductCssSelectorSchema>(strip_markdown_json_embedding(res))
+                parse_product_schemas_response(strip_markdown_json_embedding(res))
                     .map(|_| ())
                     .map_err(|err| err.to_string())
             })
@@ -94,16 +113,32 @@ impl ProductSchemaServiceImpl {
     }
 }
 
+fn parse_product_schemas_response(
+    raw: &str,
+) -> Result<Vec<ProductCssSelectorSchema>, serde_json::Error> {
+    match serde_json::from_str::<Vec<ProductCssSelectorSchema>>(raw) {
+        Ok(list) => Ok(list),
+        Err(_) => serde_json::from_str::<ProductCssSelectorSchema>(raw).map(|single| vec![single]),
+    }
+}
+
 #[async_trait::async_trait]
 impl ProductSchemaService for ProductSchemaServiceImpl {
     async fn create_product_schema(
         &self,
-        html: &str,
+        html_pages: &[String],
     ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError> {
-        let instruction = format!(
-            "Generate a robust Extraction-Schema for given HTML. Here is the HTML: \n\n {}",
-            clean_html_for_schema_generation(html),
-        );
+        let schemas = self.create_product_schemas(html_pages).await?;
+        schemas.first().cloned().ok_or_else(|| {
+            ProductSchemaServiceError::NoTextResponse("LLM produced zero schemas".to_string())
+        })
+    }
+
+    async fn create_product_schemas(
+        &self,
+        html_pages: &[String],
+    ) -> Result<Vec<ProductCssSelectorSchema>, ProductSchemaServiceError> {
+        let instruction = build_create_schemas_instruction(html_pages);
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
 
@@ -111,129 +146,56 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
             ProductSchemaServiceError::NoTextResponse("Expected text response".to_string())
         })?;
 
-        let schema: ProductCssSelectorSchema =
-            serde_json::from_str(strip_markdown_json_embedding(&res))
-                .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?;
-        info!(
-            shops_product_id_selector = %schema.shops_product_id.selector,
-            title_selector = %schema.title.selector,
-            state_selector = %schema.state.selector,
-            images_selector = %schema.images.selector,
-            has_price = schema.price.is_some(),
-            has_price_estimate_min = schema.price_estimate_min.is_some(),
-            has_price_estimate_max = schema.price_estimate_max.is_some(),
-            has_auction_start = schema.auction_start.is_some(),
-            has_auction_end = schema.auction_end.is_some(),
-            default_currency = ?schema.default_currency,
-            "LLM created new product CSS selector schema"
-        );
-        Ok(schema)
-    }
-
-    async fn fix_product_schema(
-        &self,
-        schema: &ProductCssSelectorSchema,
-        err: &ApplySchemaError,
-        html: &str,
-    ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError> {
-        const MAX_RETRIES: u32 = 3;
-
-        let current_schema_json =
-            serde_json::to_string_pretty(schema).unwrap_or_else(|_| "<serialization error>".into());
-
-        let instruction = format!(
-            "The following CSS-selector extraction schema failed to extract data from the given HTML page.\n\
-             \n\
-             Error: {err}\n\
-             \n\
-             Current schema:\n\
-             ```json\n\
-             {current_schema_json}\n\
-             ```\n\
-             \n\
-             HTML:\n\
-             {cleaned_html}\n\
-             \n\
-             Instructions:\n\
-             1. PREFER fixing only the failing rule by adding one or more entries to its \
-                `additional_selectors` array so that the correct element is still found.\n\
-             2. Only rewrite the entire schema if the page structure makes a targeted fix impossible.\n\
-             3. Return the corrected schema as JSON and nothing else.",
-            err = err,
-            current_schema_json = current_schema_json,
-            cleaned_html = clean_html_for_schema_generation(html),
-        );
-
-        let mut last_err: Option<ProductSchemaServiceError> = None;
-
-        for attempt in 1..=MAX_RETRIES {
-            debug!(
-                attempt,
-                max_retries = MAX_RETRIES,
-                "Attempting to fix product schema via LLM"
-            );
-
-            let message = ChatMessage::user().content(instruction.clone()).build();
-            let res = match self.llm.chat(&[message]).await {
-                Ok(response) => response,
-                Err(e) => {
-                    warn!(attempt, error = %e, "LLM call failed while fixing product schema");
-                    last_err = Some(ProductSchemaServiceError::LLMError(e));
-                    continue;
-                }
-            };
-
-            let text = match res.text() {
-                Some(t) => t,
-                None => {
-                    warn!(attempt, "LLM returned no text while fixing product schema");
-                    last_err = Some(ProductSchemaServiceError::NoTextResponse(
-                        "Expected text response while fixing schema".to_string(),
-                    ));
-                    continue;
-                }
-            };
-
-            match serde_json::from_str::<ProductCssSelectorSchema>(strip_markdown_json_embedding(
-                &text,
-            )) {
-                Ok(fixed_schema) => {
-                    info!(
-                        attempt,
-                        shops_product_id_selector = %fixed_schema.shops_product_id.selector,
-                        title_selector = %fixed_schema.title.selector,
-                        state_selector = %fixed_schema.state.selector,
-                        images_selector = %fixed_schema.images.selector,
-                        has_price = fixed_schema.price.is_some(),
-                        has_price_estimate_min = fixed_schema.price_estimate_min.is_some(),
-                        has_price_estimate_max = fixed_schema.price_estimate_max.is_some(),
-                        default_currency = ?fixed_schema.default_currency,
-                        "LLM successfully produced a fixed product schema"
-                    );
-                    return Ok(fixed_schema);
-                }
-                Err(parse_err) => {
-                    warn!(
-                        attempt,
-                        error = %parse_err,
-                        "LLM returned unparseable schema while fixing product schema"
-                    );
-                    last_err = Some(ProductSchemaServiceError::JsonParsingTargetSchemaError(
-                        parse_err,
-                    ));
-                }
-            }
+        let parsed = strip_markdown_json_embedding(&res);
+        let schemas = parse_product_schemas_response(parsed)
+            .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?;
+        if schemas.is_empty() {
+            return Err(ProductSchemaServiceError::NoTextResponse(
+                "LLM produced zero schemas".to_string(),
+            ));
         }
 
-        warn!(
-            max_retries = MAX_RETRIES,
-            "Exhausted all retries fixing product schema, giving up"
+        debug!(
+            schemas_count = schemas.len(),
+            "LLM created product CSS selector schemas"
         );
-        Err(last_err.unwrap_or_else(|| {
+        Ok(schemas)
+    }
+
+    async fn append_single_schema(
+        &self,
+        _domain: &str,
+        html: &str,
+        failed_schema: Option<&ProductCssSelectorSchema>,
+        last_error: Option<&ApplySchemaError>,
+    ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError> {
+        // Generate single schema for this HTML page
+        let instruction = build_append_schema_instruction(html, failed_schema, last_error);
+        let message = ChatMessage::user().content(instruction).build();
+        let messages = vec![message];
+
+        let res = self.llm.chat(&messages).await?.text().ok_or_else(|| {
+            ProductSchemaServiceError::NoTextResponse("Expected text response".to_string())
+        })?;
+
+        let parsed = strip_markdown_json_embedding(&res);
+        let new_schemas = parse_product_schemas_response(parsed)
+            .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?;
+
+        if new_schemas.is_empty() {
+            return Err(ProductSchemaServiceError::NoTextResponse(
+                "LLM produced zero schemas when appending".to_string(),
+            ));
+        }
+
+        let schema = new_schemas.first().cloned().ok_or_else(|| {
             ProductSchemaServiceError::NoTextResponse(
-                "Exhausted all retries fixing schema without a usable response".to_string(),
+                "LLM produced zero schemas when appending".to_string(),
             )
-        }))
+        })?;
+
+        debug!("Generated single schema for append-and-retry");
+        Ok(schema)
     }
 
     async fn find_product_schema(
@@ -252,13 +214,29 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         domain: &str,
         product_schema: ProductCssSelectorSchema,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
+        self.save_product_schemas(shop_id, domain, vec![product_schema])
+            .await
+    }
+
+    async fn save_product_schemas(
+        &self,
+        shop_id: &ShopId,
+        domain: &str,
+        product_schemas: Vec<ProductCssSelectorSchema>,
+    ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
+        if product_schemas.is_empty() {
+            return Err(ProductSchemaServiceError::NoTextResponse(
+                "LLM produced zero schemas".to_string(),
+            ));
+        }
+
         let existing = self.repository.find_product_schema(shop_id).await?;
 
         match existing {
             Some(_) => {
                 info!(domain = %domain, "Updating existing product schema");
                 self.repository
-                    .update_product_schema(shop_id, &product_schema)
+                    .update_product_schema(shop_id, &product_schemas)
                     .await
                     .map_err(ProductSchemaServiceError::DatabaseError)
             }
@@ -267,7 +245,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
                 let now = OffsetDateTime::now_utc();
                 let schema = ShopsProductSchema {
                     shop_id: *shop_id,
-                    product_schema,
+                    product_schemas,
                     created: now,
                     updated: now,
                 };
@@ -283,7 +261,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         &self,
         shop_id: &ShopId,
         domain: &str,
-        html: &str,
+        html_pages: &[String],
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
         if let Some(existing) = self.find_product_schema(shop_id).await? {
             debug!(domain = %domain, "Found existing product schema");
@@ -291,10 +269,79 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         }
 
         info!(domain = %domain, "No product schema found for shop, creating via LLM");
-        let product_schema = self.create_product_schema(html).await?;
-        self.save_product_schema(shop_id, domain, product_schema)
+        let product_schemas = self.create_product_schemas(html_pages).await?;
+        self.save_product_schemas(shop_id, domain, product_schemas)
             .await
     }
+}
+
+fn build_create_schemas_instruction(html_pages: &[String]) -> String {
+    let cleaned_pages: Vec<String> = if html_pages.is_empty() {
+        Vec::new()
+    } else {
+        html_pages
+            .iter()
+            .map(|html| clean_html_for_schema_generation(html))
+            .collect()
+    };
+
+    if cleaned_pages.is_empty() {
+        return String::from(
+            "Generate one or more robust Extraction-Schemas for the given HTML product pages.",
+        );
+    }
+
+    let mut samples = String::new();
+    for (idx, cleaned) in cleaned_pages.iter().enumerate() {
+        let _ = std::fmt::Write::write_fmt(
+            &mut samples,
+            format_args!(
+                "\n--- SAMPLE {sample_idx} ---\n{html}\n",
+                sample_idx = idx + 1,
+                html = cleaned
+            ),
+        );
+    }
+
+    format!(
+        "Generate one or more robust Extraction-Schemas that together cover these product page HTML samples from the same shop.\n\
+         Shops may have multiple templates/layouts. If a single schema cannot generalize to all samples, return multiple schemas where each schema works for a subset of samples.\n\
+         Prefer high-precision selectors that represent semantic fields rather than layout wrappers.\n\
+         Return ONLY JSON as an array of ProductCssSelectorSchema objects.\n\
+         Optional fields may remain null if not confidently present.\n\
+         Here are the cleaned HTML samples:{samples}"
+    )
+}
+
+fn build_append_schema_instruction(
+    html: &str,
+    failed_schema: Option<&ProductCssSelectorSchema>,
+    last_error: Option<&ApplySchemaError>,
+) -> String {
+    let cleaned = clean_html_for_schema_generation(html);
+    let failure_context = match (failed_schema, last_error) {
+        (Some(schema), Some(error)) => {
+            let schema_json = serde_json::to_string_pretty(schema)
+                .unwrap_or_else(|_| "<failed to serialize previous schema>".to_string());
+            format!(
+                "\nPrevious attempt failed. Here is the schema that just failed:\n{schema_json}\n\
+                 Extraction failure observed:\n{error}\n\
+                 Improve/fix the failed schema for this page instead of repeating the same selectors."
+            )
+        }
+        _ => String::new(),
+    };
+
+    format!(
+        "Generate a single robust Extraction-Schema for the following product page HTML.\n\
+          This schema will be appended to a set of existing schemas from the same shop.\n\
+          Focus on this specific layout and make the selectors resilient.\n\
+          Return ONLY JSON as a single ProductCssSelectorSchema object (not an array).\n\
+          Optional fields may remain null if not confidently present.\n\
+          {failure_context}\n\
+          Here is the cleaned HTML:\n\
+          {cleaned}"
+    )
 }
 
 pub fn strip_markdown_json_embedding(s: &str) -> &str {
@@ -425,7 +472,7 @@ mod tests {
         let now = OffsetDateTime::now_utc();
         ShopsProductSchema {
             shop_id,
-            product_schema: sample_css_schema(),
+            product_schemas: vec![sample_css_schema()],
             created: now,
             updated: now,
         }
@@ -456,7 +503,7 @@ mod tests {
         assert!(result.is_some());
         let result = result.unwrap();
         assert_eq!(result.shop_id, expected.shop_id);
-        assert_eq!(result.product_schema, expected.product_schema);
+        assert_eq!(result.product_schemas, expected.product_schemas);
     }
 
     #[tokio::test]
@@ -529,7 +576,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result.shop_id, expected.shop_id);
-        assert_eq!(result.product_schema, expected.product_schema);
+        assert_eq!(result.product_schemas, expected.product_schemas);
     }
 
     #[tokio::test]
@@ -638,12 +685,13 @@ mod tests {
             repository: Box::new(repository),
         };
 
+        let html_pages = vec!["<html></html>".to_string()];
         let result = service
-            .get_product_schema(&shop_id, "example.com", "<html></html>")
+            .get_product_schema(&shop_id, "example.com", &html_pages)
             .await
             .unwrap();
         assert_eq!(result.shop_id, existing.shop_id);
-        assert_eq!(result.product_schema, existing.product_schema);
+        assert_eq!(result.product_schemas, existing.product_schemas);
     }
 
     #[tokio::test]
@@ -676,8 +724,9 @@ mod tests {
             repository: Box::new(repository),
         };
 
+        let html_pages = vec!["<html></html>".to_string()];
         let result = service
-            .get_product_schema(&shop_id, "example.com", "<html></html>")
+            .get_product_schema(&shop_id, "example.com", &html_pages)
             .await
             .unwrap();
         assert_eq!(result.shop_id, saved.shop_id);
@@ -697,8 +746,9 @@ mod tests {
             repository: Box::new(repository),
         };
 
+        let html_pages = vec!["<html></html>".to_string()];
         let result = service
-            .get_product_schema(&shop_id, "example.com", "<html></html>")
+            .get_product_schema(&shop_id, "example.com", &html_pages)
             .await;
         assert!(result.is_err());
         assert!(matches!(
@@ -707,314 +757,36 @@ mod tests {
         ));
     }
 
-    // -----------------------------------------------------------------------
-    // fix_product_schema
-    // -----------------------------------------------------------------------
-
-    fn apply_schema_error_title() -> ApplySchemaError {
-        use crate::scraper::css_selector::rule::ExtractionError;
-        ApplySchemaError::Title(ExtractionError::NoElementMatched {
-            selector: "h1.title".to_string(),
-        })
+    #[test]
+    fn should_include_all_html_samples_in_create_instruction() {
+        let html_pages = vec![
+            "<html><body><h1>A</h1></body></html>".to_string(),
+            "<html><body><h1>B</h1></body></html>".to_string(),
+        ];
+        let instruction = build_create_schemas_instruction(&html_pages);
+        assert!(instruction.contains("--- SAMPLE 1 ---"));
+        assert!(instruction.contains("--- SAMPLE 2 ---"));
+        assert!(
+            instruction.contains(
+                "return multiple schemas where each schema works for a subset of samples"
+            )
+        );
     }
 
-    #[tokio::test]
-    async fn should_return_fixed_schema_on_first_attempt_for_fix() {
-        let fixed_schema = sample_css_schema();
-        let fixed_clone = fixed_schema.clone();
-
-        let service = ProductSchemaServiceImpl {
-            llm: Box::new(MockLlmProviderReturning(fixed_clone)),
-            repository: Box::new(MockShopsProductSchemaRepository::new()),
-        };
-
-        let original = sample_css_schema();
-        let err = apply_schema_error_title();
-        let result = service
-            .fix_product_schema(&original, &err, "<html><body></body></html>")
-            .await
-            .unwrap();
-
-        assert_eq!(result, fixed_schema);
+    #[test]
+    fn should_parse_array_of_schemas_response() {
+        let payload = format!("[{}]", serde_json::to_string(&sample_css_schema()).unwrap());
+        let parsed = parse_product_schemas_response(&payload).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0], sample_css_schema());
     }
 
-    #[tokio::test]
-    async fn should_return_fixed_schema_after_multiple_attempts_for_fix() {
-        // The static counter must be reset between test runs when tests are
-        // executed sequentially in the same process. We use a dedicated atomic
-        // per-test by inlining the provider here.
-        use std::sync::atomic::{AtomicU32, Ordering};
-
-        static CALL_COUNT: AtomicU32 = AtomicU32::new(0);
-        // Reset in case a previous test run left it dirty.
-        CALL_COUNT.store(0, Ordering::SeqCst);
-
-        let fixed_schema = sample_css_schema();
-        let fixed_json = serde_json::to_string(&fixed_schema).unwrap();
-
-        struct TwoFailsThenSucceed(String);
-
-        #[async_trait::async_trait]
-        impl llm::chat::ChatProvider for TwoFailsThenSucceed {
-            async fn chat_with_tools(
-                &self,
-                _messages: &[ChatMessage],
-                _tools: Option<&[llm::chat::Tool]>,
-            ) -> Result<Box<dyn llm::chat::ChatResponse>, LLMError> {
-                use std::sync::atomic::{AtomicU32, Ordering};
-                static COUNT: AtomicU32 = AtomicU32::new(0);
-                let n = COUNT.fetch_add(1, Ordering::SeqCst);
-                let text = if n < 2 {
-                    "not valid json".to_string()
-                } else {
-                    self.0.clone()
-                };
-                Ok(Box::new(FakeChatResponse(Some(text))))
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl llm::completion::CompletionProvider for TwoFailsThenSucceed {
-            async fn complete(
-                &self,
-                _req: &llm::completion::CompletionRequest,
-            ) -> Result<llm::completion::CompletionResponse, LLMError> {
-                unimplemented!()
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl llm::embedding::EmbeddingProvider for TwoFailsThenSucceed {
-            async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
-                unimplemented!()
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl llm::stt::SpeechToTextProvider for TwoFailsThenSucceed {
-            async fn transcribe(&self, _audio: Vec<u8>) -> Result<String, LLMError> {
-                unimplemented!()
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl llm::tts::TextToSpeechProvider for TwoFailsThenSucceed {}
-
-        #[async_trait::async_trait]
-        impl llm::models::ModelsProvider for TwoFailsThenSucceed {}
-
-        impl LLMProvider for TwoFailsThenSucceed {}
-
-        let service = ProductSchemaServiceImpl {
-            llm: Box::new(TwoFailsThenSucceed(fixed_json)),
-            repository: Box::new(MockShopsProductSchemaRepository::new()),
-        };
-
-        let original = sample_css_schema();
-        let err = apply_schema_error_title();
-        let result = service
-            .fix_product_schema(&original, &err, "<html><body></body></html>")
-            .await
-            .unwrap();
-
-        assert_eq!(result, fixed_schema);
-    }
-
-    #[tokio::test]
-    async fn should_return_json_parsing_error_when_all_attempts_return_invalid_json_for_fix() {
-        struct AlwaysInvalidJson;
-
-        #[async_trait::async_trait]
-        impl llm::chat::ChatProvider for AlwaysInvalidJson {
-            async fn chat_with_tools(
-                &self,
-                _messages: &[ChatMessage],
-                _tools: Option<&[llm::chat::Tool]>,
-            ) -> Result<Box<dyn llm::chat::ChatResponse>, LLMError> {
-                Ok(Box::new(FakeChatResponse(Some(
-                    "not valid json at all".to_string(),
-                ))))
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl llm::completion::CompletionProvider for AlwaysInvalidJson {
-            async fn complete(
-                &self,
-                _req: &llm::completion::CompletionRequest,
-            ) -> Result<llm::completion::CompletionResponse, LLMError> {
-                unimplemented!()
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl llm::embedding::EmbeddingProvider for AlwaysInvalidJson {
-            async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
-                unimplemented!()
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl llm::stt::SpeechToTextProvider for AlwaysInvalidJson {
-            async fn transcribe(&self, _audio: Vec<u8>) -> Result<String, LLMError> {
-                unimplemented!()
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl llm::tts::TextToSpeechProvider for AlwaysInvalidJson {}
-
-        #[async_trait::async_trait]
-        impl llm::models::ModelsProvider for AlwaysInvalidJson {}
-
-        impl LLMProvider for AlwaysInvalidJson {}
-
-        let service = ProductSchemaServiceImpl {
-            llm: Box::new(AlwaysInvalidJson),
-            repository: Box::new(MockShopsProductSchemaRepository::new()),
-        };
-
-        let original = sample_css_schema();
-        let err = apply_schema_error_title();
-        let result = service
-            .fix_product_schema(&original, &err, "<html><body></body></html>")
-            .await;
-
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            ProductSchemaServiceError::JsonParsingTargetSchemaError(_)
-        ));
-    }
-
-    #[tokio::test]
-    async fn should_return_no_text_response_error_when_all_attempts_return_no_text_for_fix() {
-        struct AlwaysNoText;
-
-        #[async_trait::async_trait]
-        impl llm::chat::ChatProvider for AlwaysNoText {
-            async fn chat_with_tools(
-                &self,
-                _messages: &[ChatMessage],
-                _tools: Option<&[llm::chat::Tool]>,
-            ) -> Result<Box<dyn llm::chat::ChatResponse>, LLMError> {
-                Ok(Box::new(FakeChatResponse(None)))
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl llm::completion::CompletionProvider for AlwaysNoText {
-            async fn complete(
-                &self,
-                _req: &llm::completion::CompletionRequest,
-            ) -> Result<llm::completion::CompletionResponse, LLMError> {
-                unimplemented!()
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl llm::embedding::EmbeddingProvider for AlwaysNoText {
-            async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
-                unimplemented!()
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl llm::stt::SpeechToTextProvider for AlwaysNoText {
-            async fn transcribe(&self, _audio: Vec<u8>) -> Result<String, LLMError> {
-                unimplemented!()
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl llm::tts::TextToSpeechProvider for AlwaysNoText {}
-
-        #[async_trait::async_trait]
-        impl llm::models::ModelsProvider for AlwaysNoText {}
-
-        impl LLMProvider for AlwaysNoText {}
-
-        let service = ProductSchemaServiceImpl {
-            llm: Box::new(AlwaysNoText),
-            repository: Box::new(MockShopsProductSchemaRepository::new()),
-        };
-
-        let original = sample_css_schema();
-        let err = apply_schema_error_title();
-        let result = service
-            .fix_product_schema(&original, &err, "<html><body></body></html>")
-            .await;
-
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            ProductSchemaServiceError::NoTextResponse(_)
-        ));
-    }
-
-    #[tokio::test]
-    async fn should_propagate_llm_error_when_all_attempts_fail_for_fix() {
-        struct AlwaysLlmError;
-
-        #[async_trait::async_trait]
-        impl llm::chat::ChatProvider for AlwaysLlmError {
-            async fn chat_with_tools(
-                &self,
-                _messages: &[ChatMessage],
-                _tools: Option<&[llm::chat::Tool]>,
-            ) -> Result<Box<dyn llm::chat::ChatResponse>, LLMError> {
-                Err(LLMError::ProviderError("simulated LLM failure".to_string()))
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl llm::completion::CompletionProvider for AlwaysLlmError {
-            async fn complete(
-                &self,
-                _req: &llm::completion::CompletionRequest,
-            ) -> Result<llm::completion::CompletionResponse, LLMError> {
-                unimplemented!()
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl llm::embedding::EmbeddingProvider for AlwaysLlmError {
-            async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
-                unimplemented!()
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl llm::stt::SpeechToTextProvider for AlwaysLlmError {
-            async fn transcribe(&self, _audio: Vec<u8>) -> Result<String, LLMError> {
-                unimplemented!()
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl llm::tts::TextToSpeechProvider for AlwaysLlmError {}
-
-        #[async_trait::async_trait]
-        impl llm::models::ModelsProvider for AlwaysLlmError {}
-
-        impl LLMProvider for AlwaysLlmError {}
-
-        let service = ProductSchemaServiceImpl {
-            llm: Box::new(AlwaysLlmError),
-            repository: Box::new(MockShopsProductSchemaRepository::new()),
-        };
-
-        let original = sample_css_schema();
-        let err = apply_schema_error_title();
-        let result = service
-            .fix_product_schema(&original, &err, "<html><body></body></html>")
-            .await;
-
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            ProductSchemaServiceError::LLMError(_)
-        ));
+    #[test]
+    fn should_parse_single_schema_response_as_singleton_vec() {
+        let payload = serde_json::to_string(&sample_css_schema()).unwrap();
+        let parsed = parse_product_schemas_response(&payload).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0], sample_css_schema());
     }
 
     // -----------------------------------------------------------------------

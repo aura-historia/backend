@@ -14,6 +14,7 @@ use time::OffsetDateTime;
 use url::Url;
 
 use crate::scraper::normalization::product::NormalizedProduct;
+use crate::scraper::scraper_service::DEFAULT_MAX_LLM_CALLS_PER_SHOP;
 use crate::service::shop_registration::shop_type_from_db;
 use crate::spider::classification::url_metadata::UrlState;
 
@@ -47,6 +48,13 @@ pub struct ScraperCandidate {
     pub last_scraped_auction_end: Option<String>,
     /// Normalized product state from the last scrape (e.g. `"AVAILABLE"`).
     pub last_scraped_state: Option<String>,
+}
+
+/// Per-shop LLM usage snapshot for operational logging.
+pub struct ShopLlmUsage {
+    pub shop_id: ShopId,
+    pub shop_name: String,
+    pub llm_calls_count: i64,
 }
 
 // ---------------------------------------------------------------------------
@@ -165,6 +173,18 @@ pub fn has_product_changed(candidate: &ScraperCandidate, product: &NormalizedPro
 #[mockall::automock]
 pub trait ScraperCandidateService: Send + Sync {
     async fn get_candidates(&self, limit: i64) -> Result<Vec<ScraperCandidate>, sqlx::Error>;
+    /// Returns a random sample of product URLs for a shop (excluding the current
+    /// URL) to seed first-time schema generation with additional page layouts.
+    ///
+    /// This query intentionally uses `ORDER BY RANDOM()` because the path is
+    /// only used on schema cache misses, which are rare (typically one-time per
+    /// shop unless schema rows are reset).
+    async fn get_random_product_urls_for_schema_seed(
+        &self,
+        shop_id: &ShopId,
+        exclude_url: &Url,
+        limit: i64,
+    ) -> Result<Vec<Url>, sqlx::Error>;
     async fn mark_as_scraped(
         &self,
         shop_id: &ShopId,
@@ -209,6 +229,36 @@ pub trait ScraperCandidateService: Send + Sync {
         error_kind: &str,
         error_message: &str,
     ) -> Result<(), sqlx::Error>;
+
+    /// Increment per-shop LLM call counter used by schema generation flows.
+    async fn increment_shop_llm_calls(
+        &self,
+        shop_id: &ShopId,
+        delta: i64,
+    ) -> Result<(), sqlx::Error>;
+
+    /// Try to increment per-shop LLM call counter if the configured max would
+    /// not be exceeded. Returns `true` when incremented, `false` when blocked
+    /// by the limit.
+    async fn try_increment_shop_llm_calls_with_limit(
+        &self,
+        shop_id: &ShopId,
+        delta: i64,
+        max_calls: i64,
+    ) -> Result<bool, sqlx::Error>;
+
+    /// Returns whether the per-shop LLM-call budget is already exhausted.
+    async fn is_shop_llm_budget_exhausted(
+        &self,
+        shop_id: &ShopId,
+        max_calls: i64,
+    ) -> Result<bool, sqlx::Error>;
+
+    /// Returns per-shop LLM call counts for the provided shop IDs.
+    async fn get_shop_llm_usage(
+        &self,
+        shop_ids: Vec<ShopId>,
+    ) -> Result<Vec<ShopLlmUsage>, sqlx::Error>;
 }
 
 // ---------------------------------------------------------------------------
@@ -217,11 +267,19 @@ pub trait ScraperCandidateService: Send + Sync {
 
 pub struct ScraperCandidateServiceImpl {
     pool: PgPool,
+    max_llm_calls_per_shop: i64,
 }
 
 impl ScraperCandidateServiceImpl {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self::new_with_max_llm_calls_per_shop(pool, DEFAULT_MAX_LLM_CALLS_PER_SHOP)
+    }
+
+    pub fn new_with_max_llm_calls_per_shop(pool: PgPool, max_llm_calls_per_shop: i64) -> Self {
+        Self {
+            pool,
+            max_llm_calls_per_shop,
+        }
     }
 }
 
@@ -261,6 +319,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             FROM shop_urls su
             JOIN shops s ON s.shop_id = su.shop_id
             WHERE s.active = TRUE
+              AND s.llm_calls_count < $2
               AND su.url_class = 'product'
               AND su.last_scraped_state IN ('AVAILABLE', 'UNKNOWN', 'LISTED', 'RESERVED')
               AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
@@ -270,6 +329,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             "#,
         )
         .bind(limit)
+        .bind(self.max_llm_calls_per_shop)
         .fetch_all(&self.pool)
         .await?;
 
@@ -299,6 +359,42 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         }
 
         Ok(candidates)
+    }
+
+    async fn get_random_product_urls_for_schema_seed(
+        &self,
+        shop_id: &ShopId,
+        exclude_url: &Url,
+        limit: i64,
+    ) -> Result<Vec<Url>, sqlx::Error> {
+        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+        let rows: Vec<(String,)> = sqlx::query_as(
+            r#"
+            SELECT su.url
+            FROM shop_urls su
+            JOIN shops s ON s.shop_id = su.shop_id
+            WHERE s.active = TRUE
+              AND su.shop_id = $1
+              AND su.url_class = 'product'
+              AND su.last_scraped_state IN ('AVAILABLE', 'UNKNOWN', 'LISTED', 'RESERVED')
+              AND su.url <> $2
+            -- Intentional: schema seeding runs on a rare path (typically once per
+            -- shop), so ORDER BY RANDOM() keeps this simple. If rows per shop grow
+            -- to millions, switch to TABLESAMPLE BERNOULLI or keyset-random.
+            ORDER BY RANDOM()
+            LIMIT $3
+            "#,
+        )
+        .bind(shop_id_uuid)
+        .bind(exclude_url.to_string())
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|(raw_url,)| Url::parse(&raw_url).ok())
+            .collect())
     }
 
     async fn mark_as_scraped(
@@ -463,6 +559,94 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .await?;
 
         Ok(())
+    }
+
+    async fn increment_shop_llm_calls(
+        &self,
+        shop_id: &ShopId,
+        delta: i64,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE shops
+             SET llm_calls_count = llm_calls_count + $2,
+                 updated = NOW()
+             WHERE shop_id = $1",
+        )
+        .bind(uuid::Uuid::from(*shop_id))
+        .bind(delta)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn try_increment_shop_llm_calls_with_limit(
+        &self,
+        shop_id: &ShopId,
+        delta: i64,
+        max_calls: i64,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            "UPDATE shops
+             SET llm_calls_count = llm_calls_count + $2,
+                 updated = NOW()
+             WHERE shop_id = $1
+               AND llm_calls_count + $2 <= $3",
+        )
+        .bind(uuid::Uuid::from(*shop_id))
+        .bind(delta)
+        .bind(max_calls)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn is_shop_llm_budget_exhausted(
+        &self,
+        shop_id: &ShopId,
+        max_calls: i64,
+    ) -> Result<bool, sqlx::Error> {
+        let exhausted = sqlx::query_scalar::<_, bool>(
+            "SELECT llm_calls_count >= $2
+             FROM shops
+             WHERE shop_id = $1",
+        )
+        .bind(uuid::Uuid::from(*shop_id))
+        .bind(max_calls)
+        .fetch_optional(&self.pool)
+        .await?
+        .unwrap_or(false);
+
+        Ok(exhausted)
+    }
+
+    async fn get_shop_llm_usage(
+        &self,
+        shop_ids: Vec<ShopId>,
+    ) -> Result<Vec<ShopLlmUsage>, sqlx::Error> {
+        if shop_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let ids: Vec<uuid::Uuid> = shop_ids.into_iter().map(uuid::Uuid::from).collect();
+        let rows: Vec<(uuid::Uuid, Option<String>, i64)> = sqlx::query_as(
+            "SELECT shop_id, shop_name, llm_calls_count
+             FROM shops
+             WHERE shop_id = ANY($1::uuid[])",
+        )
+        .bind(ids)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(id, name, llm_calls_count)| ShopLlmUsage {
+                shop_id: id.into(),
+                shop_name: name.unwrap_or_else(|| id.to_string()),
+                llm_calls_count,
+            })
+            .collect())
     }
 }
 

@@ -127,7 +127,7 @@ fn make_shops_product_schema(
     let now = OffsetDateTime::now_utc();
     ShopsProductSchema {
         shop_id,
-        product_schema: schema,
+        product_schemas: vec![schema],
         created: now,
         updated: now,
     }
@@ -169,7 +169,7 @@ async fn should_return_schema_when_exists_for_find() {
         .unwrap();
 
     assert_eq!(result.shop_id, shop_id);
-    assert_eq!(result.product_schema, minimal_css_schema());
+    assert_eq!(result.product_schemas[0], minimal_css_schema());
 }
 
 #[localstack_test(services = [RDS])]
@@ -210,7 +210,7 @@ async fn should_persist_and_return_schema_when_inserting_minimal_schema_for_inse
         .unwrap();
 
     assert_eq!(returned.shop_id, shop_id);
-    assert_eq!(returned.product_schema, minimal_css_schema());
+    assert_eq!(returned.product_schemas[0], minimal_css_schema());
 }
 
 #[localstack_test(services = [RDS])]
@@ -226,7 +226,7 @@ async fn should_persist_and_return_schema_when_inserting_full_schema_for_insert(
         .unwrap();
 
     assert_eq!(returned.shop_id, shop_id);
-    assert_eq!(returned.product_schema, full_css_schema());
+    assert_eq!(returned.product_schemas[0], full_css_schema());
 }
 
 #[localstack_test(services = [RDS])]
@@ -289,8 +289,8 @@ async fn should_allow_inserting_schemas_for_different_shop_ids_for_insert() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(result_a.product_schema, minimal_css_schema());
-    assert_eq!(result_b.product_schema, full_css_schema());
+    assert_eq!(result_a.product_schemas[0], minimal_css_schema());
+    assert_eq!(result_b.product_schemas[0], full_css_schema());
 }
 
 #[localstack_test(services = [RDS])]
@@ -351,12 +351,12 @@ async fn should_replace_schema_and_refresh_updated_timestamp_for_update() {
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
 
     let returned = repository
-        .update_product_schema(&shop_id, &full_css_schema())
+        .update_product_schema(&shop_id, &[full_css_schema()])
         .await
         .unwrap();
 
     assert_eq!(returned.shop_id, shop_id);
-    assert_eq!(returned.product_schema, full_css_schema());
+    assert_eq!(returned.product_schemas[0], full_css_schema());
     assert_ne!(returned.updated, inserted.updated);
     // created must remain unchanged
     assert!(
@@ -380,7 +380,7 @@ async fn should_persist_updated_schema_so_find_returns_new_value_for_update() {
         .unwrap();
 
     repository
-        .update_product_schema(&shop_id, &full_css_schema())
+        .update_product_schema(&shop_id, &[full_css_schema()])
         .await
         .unwrap();
 
@@ -390,7 +390,7 @@ async fn should_persist_updated_schema_so_find_returns_new_value_for_update() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(found.product_schema, full_css_schema());
+    assert_eq!(found.product_schemas[0], full_css_schema());
 }
 
 #[localstack_test(services = [RDS])]
@@ -399,7 +399,7 @@ async fn should_return_row_not_found_when_updating_non_existent_shop_id_for_upda
     let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
 
     let err = repository
-        .update_product_schema(&ShopId::new(), &minimal_css_schema())
+        .update_product_schema(&ShopId::new(), &[minimal_css_schema()])
         .await
         .unwrap_err();
 
@@ -433,7 +433,7 @@ async fn should_only_update_targeted_shop_id_and_leave_others_intact_for_update(
         .unwrap();
 
     repository
-        .update_product_schema(&shop_id_a, &full_css_schema())
+        .update_product_schema(&shop_id_a, &[full_css_schema()])
         .await
         .unwrap();
 
@@ -448,8 +448,8 @@ async fn should_only_update_targeted_shop_id_and_leave_others_intact_for_update(
         .unwrap()
         .unwrap();
 
-    assert_eq!(result_a.product_schema, full_css_schema());
-    assert_eq!(result_b.product_schema, minimal_css_schema());
+    assert_eq!(result_a.product_schemas[0], full_css_schema());
+    assert_eq!(result_b.product_schemas[0], minimal_css_schema());
 }
 
 // ---------------------------------------------------------------------------
@@ -473,7 +473,7 @@ async fn should_preserve_all_fields_across_full_round_trip_for_repository() {
         .unwrap();
 
     assert_eq!(inserted.shop_id, shop_id);
-    assert_eq!(inserted.product_schema, full_css_schema());
+    assert_eq!(inserted.product_schemas[0], full_css_schema());
 
     // 2. find after insert
     let found_after_insert = repository
@@ -483,17 +483,17 @@ async fn should_preserve_all_fields_across_full_round_trip_for_repository() {
         .unwrap();
 
     assert_eq!(found_after_insert.shop_id, shop_id);
-    assert_eq!(found_after_insert.product_schema, full_css_schema());
+    assert_eq!(found_after_insert.product_schemas[0], full_css_schema());
 
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // 3. update
     let updated = repository
-        .update_product_schema(&shop_id, &minimal_css_schema())
+        .update_product_schema(&shop_id, &[minimal_css_schema()])
         .await
         .unwrap();
 
-    assert_eq!(updated.product_schema, minimal_css_schema());
+    assert_eq!(updated.product_schemas[0], minimal_css_schema());
     assert_ne!(updated.updated, inserted.updated);
 
     // 4. find after update
@@ -503,6 +503,6 @@ async fn should_preserve_all_fields_across_full_round_trip_for_repository() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(found_after_update.product_schema, minimal_css_schema());
+    assert_eq!(found_after_update.product_schemas[0], minimal_css_schema());
     assert_eq!(found_after_update.created, found_after_insert.created);
 }

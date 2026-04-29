@@ -1,23 +1,39 @@
 use crate::scraper::candidate_service::{
     ProductSnapshot, ScraperCandidate, ScraperCandidateService,
 };
-use crate::scraper::scraper_service::{ScraperError, ScraperService};
+use crate::scraper::scraper_service::{
+    DEFAULT_MAX_LLM_CALLS_PER_SHOP, DEFAULT_SCHEMA_SEED_PAGES, ScraperError, ScraperService,
+};
 use crate::service::product_push::{ProductPushService, normalize_to_upsert};
 use crate::service::shop_registration::ShopRegistrationService;
 use crate::spider::advisory_lock::{DomainLock, LocalLockManager, UrlLock};
 use crate::spider::candidate_service::SpiderCandidateService;
 use crate::spider::service::SpiderService;
 use crate::{network::policy::NetworkErrorKind, network::policy::retry_cooldown_for};
+use common::shop_id::ShopId;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use tokio::sync::Semaphore;
 use tokio::sync::mpsc;
+use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
+
+/// Context for scraping a domain's candidates.
+struct ScrapeDomainContext {
+    scraper: Arc<dyn ScraperService>,
+    scraper_candidates: Arc<dyn ScraperCandidateService>,
+    lock_manager: Arc<LocalLockManager>,
+    domain_delay: Duration,
+    command_tx: mpsc::UnboundedSender<(
+        product::service::product_command::UpsertProductCommand,
+        CandidateMeta,
+    )>,
+    budget_exhausted_shops: Arc<Mutex<HashSet<ShopId>>>,
+}
 
 #[derive(Clone)]
 pub struct CrawlerCronConfig {
@@ -31,8 +47,14 @@ pub struct CrawlerCronConfig {
     pub spider_concurrency: usize,
     pub scraper_concurrency: usize,
     pub spider_classify_threshold: usize,
+    /// Number of pages used to seed first-time schema generation per shop.
+    /// `1` means current page only; higher values fetch additional random
+    /// product pages on schema cache miss.
+    pub scraper_schema_seed_pages: usize,
     /// Delay between consecutive scraper requests for the same domain.
     pub scraper_domain_delay: Duration,
+    /// Hard per-shop budget for schema-generation LLM calls.
+    pub scraper_max_llm_calls_per_shop: i64,
     /// Maximum Postgres connections for crawler queries.
     pub db_max_connections: Option<u32>,
 }
@@ -49,7 +71,9 @@ impl Default for CrawlerCronConfig {
             spider_concurrency: 3,
             scraper_concurrency: 10,
             spider_classify_threshold: 200,
+            scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
             scraper_domain_delay: Duration::from_secs(1),
+            scraper_max_llm_calls_per_shop: DEFAULT_MAX_LLM_CALLS_PER_SHOP,
             db_max_connections: None,
         }
     }
@@ -161,9 +185,15 @@ impl CrawlerCronJob {
     pub async fn run_loop(self) {
         info!("Starting crawler cron job loop");
 
+        self.run_shop_sync_once().await;
+
         let spider_job = self.clone();
         let sync_job = self.clone();
         let scraper_job = self;
+
+        let sync_handle = tokio::spawn(async move {
+            sync_job.shop_sync_loop().await;
+        });
 
         let spider_handle = tokio::spawn(async move {
             spider_job.spider_loop().await;
@@ -171,10 +201,6 @@ impl CrawlerCronJob {
 
         let scraper_handle = tokio::spawn(async move {
             scraper_job.scraper_loop().await;
-        });
-
-        let sync_handle = tokio::spawn(async move {
-            sync_job.shop_sync_loop().await;
         });
 
         let _ = tokio::join!(spider_handle, scraper_handle, sync_handle);
@@ -196,18 +222,14 @@ impl CrawlerCronJob {
 
     async fn shop_sync_loop(&self) {
         loop {
-            self.run_shop_sync_once().await;
             tokio::time::sleep(self.config.shop_sync_interval).await;
+            self.run_shop_sync_once().await;
         }
     }
 
     async fn run_shop_sync_once(&self) {
         match self.shop_registration.sync().await {
-            Ok(count) => {
-                if count > 0 {
-                    info!(count, "Shop sync tick complete");
-                }
-            }
+            Ok(_) => {}
             Err(e) => error!(error = %e, "Shop sync failed"),
         }
     }
@@ -399,13 +421,28 @@ async fn flush_batch(
 }
 
 async fn scrape_candidate(
-    scraper: Arc<dyn ScraperService>,
-    scraper_candidates: Arc<dyn ScraperCandidateService>,
-    lock_manager: Arc<LocalLockManager>,
     candidate: ScraperCandidate,
     domain: String,
+    ctx: &ScrapeDomainContext,
 ) -> ScrapeCandidateOutcome {
-    let Some(_lock) = UrlLock::try_acquire(&lock_manager, &candidate.url) else {
+    // Skip URLs from shops with already-exhausted budgets
+    {
+        let exhausted = ctx.budget_exhausted_shops.lock().await;
+        if exhausted.contains(&candidate.shop_id) {
+            debug!(
+                shop_id = %candidate.shop_id,
+                url = %candidate.url,
+                "Skipping URL — shop LLM budget already exhausted in this batch"
+            );
+            return ScrapeCandidateOutcome {
+                command: None,
+                errored: false,
+                skipped: true,
+            };
+        }
+    }
+
+    let Some(_lock) = UrlLock::try_acquire(&ctx.lock_manager, &candidate.url) else {
         warn!(url = %candidate.url, "Skipping URL — lock held by another worker");
         return ScrapeCandidateOutcome {
             command: None,
@@ -414,7 +451,8 @@ async fn scrape_candidate(
         };
     };
 
-    match scraper
+    match ctx
+        .scraper
         .scrape(
             &candidate.shop_id,
             &candidate.url,
@@ -442,6 +480,8 @@ async fn scrape_candidate(
         },
         Err(e) => {
             let error_message = e.to_string();
+            let is_llm_budget_exceeded = matches!(&e, ScraperError::LlmBudgetExceeded { .. });
+
             if let ScraperError::HttpError { kind, .. } = &e {
                 let cooldown = retry_cooldown_for(*kind);
                 let next_retry_at = time::OffsetDateTime::now_utc()
@@ -450,7 +490,8 @@ async fn scrape_candidate(
                     NetworkErrorKind::HttpStatus(code) => Some(*code as i32),
                     _ => None,
                 };
-                if let Err(mark_err) = scraper_candidates
+                if let Err(mark_err) = ctx
+                    .scraper_candidates
                     .mark_fetch_failure(
                         &candidate.shop_id,
                         &candidate.url,
@@ -471,29 +512,77 @@ async fn scrape_candidate(
                 // Non-HTTP errors: schema failures, normalization errors, etc.
                 // These do not affect retry scheduling but are persisted for observability.
                 let error_kind = scraper_error_kind(&e);
-                if let Err(mark_err) = scraper_candidates
-                    .mark_scraper_failure(
-                        &candidate.shop_id,
-                        &candidate.url,
-                        error_kind,
-                        &error_message,
-                    )
-                    .await
-                {
-                    warn!(
-                        error = %mark_err,
-                        url = %candidate.url,
-                        "Failed to persist scraper failure metadata"
-                    );
+                match &e {
+                    ScraperError::SchemaRegenerationExhausted { .. }
+                    | ScraperError::NormalizationFixExhausted { .. }
+                    | ScraperError::LlmBudgetExceeded { .. } => {
+                        let cooldown = std::time::Duration::from_secs(30 * 60);
+                        let next_retry_at = time::OffsetDateTime::now_utc()
+                            + time::Duration::seconds(cooldown.as_secs() as i64);
+                        if let Err(mark_err) = ctx
+                            .scraper_candidates
+                            .mark_fetch_failure(
+                                &candidate.shop_id,
+                                &candidate.url,
+                                error_kind,
+                                &error_message,
+                                None,
+                                next_retry_at,
+                            )
+                            .await
+                        {
+                            warn!(
+                                error = %mark_err,
+                                url = %candidate.url,
+                                "Failed to persist schema-regeneration/normalization-fix/LLM-budget cooldown metadata"
+                            );
+                        }
+                    }
+                    _ => {
+                        if let Err(mark_err) = ctx
+                            .scraper_candidates
+                            .mark_scraper_failure(
+                                &candidate.shop_id,
+                                &candidate.url,
+                                error_kind,
+                                &error_message,
+                            )
+                            .await
+                        {
+                            warn!(
+                                error = %mark_err,
+                                url = %candidate.url,
+                                "Failed to persist scraper failure metadata"
+                            );
+                        }
+                    }
                 }
             }
 
-            error!(
-                domain = %domain,
-                url = %candidate.url,
-                error = %e,
-                "Scraper run failed"
-            );
+            // Log LLM budget exhaustion at INFO level only once per shop per batch
+            if is_llm_budget_exceeded {
+                if let ScraperError::LlmBudgetExceeded {
+                    shop_id, max_calls, ..
+                } = &e
+                {
+                    let mut exhausted = ctx.budget_exhausted_shops.lock().await;
+                    if exhausted.insert(*shop_id) {
+                        info!(
+                            shop_id = %shop_id,
+                            max_calls,
+                            "LLM call budget exhausted for shop; skipping remaining URLs in batch"
+                        );
+                    }
+                }
+            } else {
+                error!(
+                    domain = %domain,
+                    url = %candidate.url,
+                    error = %e,
+                    "Scraper run failed"
+                );
+            }
+
             ScrapeCandidateOutcome {
                 command: None,
                 errored: true,
@@ -515,24 +604,17 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::ProductRemoved { .. } => "ProductRemoved",
         ScraperError::NoHost { .. } => "NoHost",
         ScraperError::SchemaServiceError(_) => "SchemaServiceError",
-        ScraperError::SchemaFixFailed { .. } => "SchemaFixFailed",
-        ScraperError::SchemaFixApplyFailed { .. } => "SchemaFixApplyFailed",
-        ScraperError::SchemaFixAttemptsExhausted { .. } => "SchemaFixAttemptsExhausted",
+        ScraperError::SchemaRegenerationExhausted { .. } => "SchemaRegenerationExhausted",
+        ScraperError::NormalizationFixExhausted { .. } => "NormalizationFixExhausted",
+        ScraperError::LlmBudgetExceeded { .. } => "LlmBudgetExceeded",
         ScraperError::NormalizationError(_) => "NormalizationError",
     }
 }
 
 async fn scrape_domain_candidates(
-    scraper: Arc<dyn ScraperService>,
-    scraper_candidates: Arc<dyn ScraperCandidateService>,
-    lock_manager: Arc<LocalLockManager>,
     domain: String,
     candidates: Vec<ScraperCandidate>,
-    domain_delay: Duration,
-    command_tx: mpsc::UnboundedSender<(
-        product::service::product_command::UpsertProductCommand,
-        CandidateMeta,
-    )>,
+    ctx: ScrapeDomainContext,
 ) -> ScrapeDomainOutcome {
     let mut outcome = ScrapeDomainOutcome {
         succeeded: 0,
@@ -542,20 +624,13 @@ async fn scrape_domain_candidates(
 
     let len = candidates.len();
     for (idx, candidate) in candidates.into_iter().enumerate() {
-        let candidate_outcome = scrape_candidate(
-            Arc::clone(&scraper),
-            Arc::clone(&scraper_candidates),
-            Arc::clone(&lock_manager),
-            candidate,
-            domain.clone(),
-        )
-        .await;
+        let candidate_outcome = scrape_candidate(candidate, domain.clone(), &ctx).await;
 
         if candidate_outcome.errored {
             outcome.failed += 1;
         } else if let Some(pair) = candidate_outcome.command {
             outcome.succeeded += 1;
-            if command_tx.send(pair).is_err() {
+            if ctx.command_tx.send(pair).is_err() {
                 error!("Command channel closed while scraper worker is running");
                 outcome.failed += 1;
                 outcome.succeeded = outcome.succeeded.saturating_sub(1);
@@ -566,8 +641,8 @@ async fn scrape_domain_candidates(
             outcome.succeeded += 1;
         }
 
-        if idx + 1 < len && !domain_delay.is_zero() {
-            tokio::time::sleep(domain_delay).await;
+        if idx + 1 < len && !ctx.domain_delay.is_zero() {
+            tokio::time::sleep(ctx.domain_delay).await;
         }
     }
 
@@ -592,6 +667,10 @@ impl CrawlerCronJob {
         }
 
         let total = all_candidates.len();
+        let mut unique_shop_ids = std::collections::HashSet::new();
+        for candidate in &all_candidates {
+            unique_shop_ids.insert(candidate.shop_id);
+        }
         let batch_start = tokio::time::Instant::now();
         let scraper_concurrency = self.config.scraper_concurrency;
         if scraper_concurrency == 0 {
@@ -620,6 +699,9 @@ impl CrawlerCronJob {
             product::service::product_command::UpsertProductCommand,
             CandidateMeta,
         )>();
+
+        // Track shops with exhausted LLM budgets to avoid repeated logging
+        let budget_exhausted_shops = Arc::new(Mutex::new(HashSet::new()));
 
         let mut succeeded = 0usize;
         let mut failed = 0usize;
@@ -653,6 +735,7 @@ impl CrawlerCronJob {
             let lock_manager = Arc::clone(&self.lock_manager);
             let permit_pool = Arc::clone(&semaphore);
             let domain_tx = command_tx.clone();
+            let budget_exhausted_shops = Arc::clone(&budget_exhausted_shops);
 
             join_set.spawn(async move {
                 let Ok(_permit) = permit_pool.acquire_owned().await else {
@@ -664,16 +747,16 @@ impl CrawlerCronJob {
                     };
                 };
 
-                scrape_domain_candidates(
+                let ctx = ScrapeDomainContext {
                     scraper,
                     scraper_candidates,
                     lock_manager,
-                    domain,
-                    candidates,
                     domain_delay,
-                    domain_tx,
-                )
-                .await
+                    command_tx: domain_tx,
+                    budget_exhausted_shops,
+                };
+
+                scrape_domain_candidates(domain, candidates, ctx).await
             });
         }
         drop(command_tx);
@@ -704,6 +787,30 @@ impl CrawlerCronJob {
             total,
             succeeded, failed, skipped, duration_ms, "Scraper batch complete"
         );
+
+        #[cfg(not(test))]
+        {
+            match self
+                .scraper_candidates
+                .get_shop_llm_usage(unique_shop_ids.into_iter().collect())
+                .await
+            {
+                Ok(usages) => {
+                    for usage in usages {
+                        info!(
+                            shop_name = %usage.shop_name,
+                            llm_calls_count = usage.llm_calls_count,
+                            llm_calls_cap = self.config.scraper_max_llm_calls_per_shop,
+                            llm_budget_exhausted = usage.llm_calls_count >= self.config.scraper_max_llm_calls_per_shop,
+                            "Shop LLM usage summary"
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to load per-shop LLM usage summary");
+                }
+            }
+        }
 
         self.scraper_perf.record(total as u64, duration_ms);
     }
@@ -980,6 +1087,118 @@ mod tests {
                 })
             })
         });
+
+        let mut push_service = MockProductPushService::new();
+        push_service.expect_push().times(0);
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_shop_registration(),
+            Box::new(push_service),
+        );
+
+        job.run_scraper_once().await;
+    }
+
+    #[tokio::test]
+    async fn should_mark_fetch_failure_for_llm_budget_exceeded_error() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+        let spider_service = MockSpiderService::new();
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates.expect_get_candidates().returning(|_| {
+            Box::pin(async {
+                Ok(vec![scraper_candidate(
+                    "Test Shop",
+                    ShopType::CommercialDealer,
+                    url::Url::parse("https://example.com/product/1").unwrap(),
+                )])
+            })
+        });
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .once()
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .returning(|shop_id, url, _| {
+                let url = url.clone();
+                let shop_id = *shop_id;
+                Box::pin(async move {
+                    Err(ScraperError::LlmBudgetExceeded {
+                        shop_id,
+                        url,
+                        max_calls: 5,
+                    })
+                })
+            });
+
+        let mut push_service = MockProductPushService::new();
+        push_service.expect_push().times(0);
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_shop_registration(),
+            Box::new(push_service),
+        );
+
+        job.run_scraper_once().await;
+    }
+
+    /// `NormalizationFixExhausted` must be handled identically to
+    /// `SchemaRegenerationExhausted`: write a cooldown via `mark_fetch_failure`
+    /// so the URL is held back until the backoff window expires.
+    #[tokio::test]
+    async fn should_mark_fetch_failure_for_normalization_fix_exhausted_error() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+        let spider_service = MockSpiderService::new();
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates.expect_get_candidates().returning(|_| {
+            Box::pin(async {
+                Ok(vec![scraper_candidate(
+                    "Test Shop",
+                    ShopType::CommercialDealer,
+                    url::Url::parse("https://example.com/product/1").unwrap(),
+                )])
+            })
+        });
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .once()
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .returning(|_, url, _| {
+                let url = url.clone();
+                Box::pin(async move {
+                    Err(ScraperError::NormalizationFixExhausted {
+                        url,
+                        attempts: 3,
+                        last_norm_error: crate::scraper::normalization::product_normalization_service::NormalizationError::TitleEmpty,
+                    })
+                })
+            });
 
         let mut push_service = MockProductPushService::new();
         push_service.expect_push().times(0);

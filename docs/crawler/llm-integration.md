@@ -28,50 +28,75 @@ The crawler uses three distinct LLM instances, each with its own system prompt, 
 
 ## 2. Product Schema Generation — `ProductSchemaServiceImpl`
 
-**Purpose:** Given a cleaned HTML page from a product URL, produce a `ProductCssSelectorSchema` — a set of CSS selectors for extracting title, price, state, images, and dates.
+**Purpose:** Given cleaned HTML pages from product URLs, produce one or more `ProductCssSelectorSchema` variants that together cover heterogeneous templates in the same shop.
 
 **When called:**
 - On first scrape of a product URL for a given shop (cache miss in `shops_product_schema`).
-- On schema failure: if applying the schema throws an error (e.g. selector no longer valid), `fix_product_schema` is called with the broken schema + error message. The dispatcher (`cron.rs`) guarantees at most one in-flight scrape per domain at a time, so no per-domain mutex is required.
-- On normalization failure: if `ProductNormalizationService::normalize` returns a schema-fixable error (e.g. `StateTextTooLong`, `PriceParseError`, `TitleEmpty`), the same `fix_product_schema` path is triggered via `normalize_with_retry` using a synthetic `ApplySchemaError` hint derived from the normalization error.
-  - Note: `PriceUnknownCurrency` **is** treated as schema-fixable. When a raw price string contains no currency marker `normalize()` first checks `schema.default_currency`. If absent, normalization returns `PriceUnknownCurrency`, which the scraper routes into `normalize_with_retry` with a synthetic hint asking the LLM to inspect the page for currency context and populate `default_currency` on the schema. Up to two fix attempts are made; if both fail the price is left unparseable for that product.
-  - Exception: explicit non-numeric markers like `"Price on Request"` / `"Preis auf Anfrage"` are treated as valid "no public price" values and normalized to `price=None` (warn-logged) rather than returning `PriceUnknownCurrency`.
-  - Note: `ShopsProductIdEmpty` is **not** treated as schema-fixable. The normalization layer applies a full-URL fallback when the extracted product ID is blank, so this error is never produced by the main pipeline. Even if it were, changing the CSS selector cannot guarantee a non-empty ID — the URL fallback is the correct recovery strategy.
-- Fix attempts are tracked per domain across batches via `schema_fix_attempts: HashMap<String, u32>`. The counter counts *consecutive* failed LLM-fix attempts (where the LLM returned a schema that still failed to apply). Once a domain reaches `max_schema_fix_attempts` consecutive failed attempts the domain is skipped with `SchemaFixAttemptsExhausted` — no further LLM calls are made. The counter resets after **every** successful scrape for that domain (with or without a fix), so it represents failures since the last clean scrape, not total lifetime failures. This prevents premature budget exhaustion on domains whose pages have heterogeneous layouts.
+  - Schema seeding uses multiple pages (`scraper_schema_seed_pages`, default `3`): current page + up to `N-1` additional random same-shop product pages.
+  - The seed set is sent in a **single** LLM call. The model may return multiple schemas, where each schema can target a subset of page layouts.
+  - Extra seed-page fetches are best-effort and never block schema creation when only the current page is available.
+  - This path runs only on schema cache miss, so first scrape can be slower while later scrapes reuse the cached schema.
+  - The LLM is guided by detailed field descriptions in the `ProductCssSelectorSchema` struct that flow into the JSON schema sent to the model:
+    - **`state`**: Explicitly instructs the LLM to look for semantic availability indicators (schema.org markup, class/text encoding availability, button presence) and **never use price or layout elements** as state selectors. This prevents anti-patterns like extracting CSS class names instead of actual availability values (see issue #867).
+    - **`price`**: Guides toward text-content extraction from price-labeled elements, not attributes.
+    - **`title`**: Directs to h1/h2 and meta tag elements.
+    - **`description`**, **`images`**, **`shops_product_id`**: Similar guidance with HTML/attribute examples and semantic cues.
+- On runtime schema miss (append-on-miss flow, issue #801): if no cached schema variant applies during scrape, calls `append_single_schema()` to generate and append a single new schema for that page to the existing set, then retries. This enables heterogeneous shops to accumulate schema variants dynamically without triggering full regeneration.
+- On runtime schema miss, regeneration uses an attempt loop (`max_schema_fix_attempts` config slot):
+  - attempt 1 generates from the current page HTML only,
+  - attempts 2..N include the previously failed generated schema and its extraction error as repair context,
+  - appends in-memory to cached schemas and re-applies only candidates not already known to fail in the current retry loop,
+  - persists only when at least one schema applies (deduplicated),
+  - discards non-applicable generated schemas and retries.
+  - on exhaustion, scraping returns `SchemaRegenerationExhausted`; cron records the error and sets a retry cooldown.
+- Normalization can trigger schema regeneration only for schema-fixable errors (title empty/unknown language, price parse/currency issues, `StateTextTooLong`).
+  - Non-fixable normalization errors (e.g. state mapping DB failures, invalid image URL, datetime parse issues) are propagated directly.
+- Every shop-scoped LLM call increments `shops.llm_calls_count` for per-shop observability:
+  - URL pattern classification (spider)
+  - schema generation/retry (scraper)
+  - state-mapping LLM fallback (scraper normalization)
+- Hard budget guardrail: **all three LLM call types share a single combined cap** `scraper_max_llm_calls_per_shop` (default `20`).
+  - Candidate selection enforces a hard stop for that shop once the cap is reached (`shops.llm_calls_count < cap`).
+  - If the cap is reached during an in-flight scrape, scraper returns `LlmBudgetExceeded` and cron writes cooldown metadata (`next_retry_at`) for observability.
 
 **HTML pre-processing (before sending to LLM):**
 - `<script>`, `<style>`, `<nav>`, `<footer>`, `<header>`, `<form>` elements stripped.
 - Noisy attributes (`class`, `id`, `style`, `data-*`, `aria-*`) removed via `kuchiki`.
 - This dramatically reduces token usage.
 
-**Output (JSON):** A `ProductCssSelectorSchema` struct, serialized:
+**Output (JSON):** An array of `ProductCssSelectorSchema` objects:
 ```json
-{
-  "title": "h1.product-title",
-  "price": "span.price",
-  "state": "div.availability",
-  "images": ["img.product-image"],
-  "date_listed": "time.listed",
-  "date_sold": null,
-  "default_currency": "EUR"
-}
+[
+  {
+    "title": "h1.product-title",
+    "price": "span.price",
+    "state": "div.availability",
+    "images": ["img.product-image"],
+    "date_listed": "time.listed",
+    "date_sold": null,
+    "default_currency": "EUR"
+  }
+]
 ```
 
 `default_currency` is an optional ISO 4217 code the LLM sets when it can determine the shop's currency from full-page context (e.g. a currency shown in the page header or footer). It is `null` when no currency context is visible. The field is used as a fallback by `normalize()` when the extracted price string contains no currency marker.
 
 **LLM config:** `resilient=3`, `reasoning=true`, `timeout=180s`
 
-**Fix flow (straight to LLM — no re-fetch, no per-domain mutex):**
+**Append-and-retry flow (runtime apply miss):**
 ```
-is_fix_budget_exhausted(domain)?  → bail with SchemaFixAttemptsExhausted
-increment_fix_attempts(domain)
-llm.fix_product_schema(failed_schema, apply_error, html)
-re-apply fixed schema:
-  ok → persist (save_product_schema) and return (raw, schema_was_fixed=true)
-  still fails → return SchemaFixApplyFailed (not persisted)
+for attempt in 1..=max_schema_fix_attempts:
+  increment shops.llm_calls_count
+  candidate = append_single_schema(domain, html, failed_schema?, last_error?)
+    // attempt 1: failed_schema/last_error are None (fresh generation)
+    // attempt 2+: failed_schema/last_error come from previous failed generated schema
+  re-apply only schemas not already known to fail in this loop:
+    ok -> dedupe, persist candidate set, continue pipeline
+    fail -> discard generated schema and retry
+if exhausted -> return SchemaRegenerationExhausted
 ```
 
-**Persistence:** Schema stored in `shops_product_schema` (keyed by `shop_id`). Shared across all product URLs of the same shop.
+**Persistence:** Schema set stored in `shops_product_schema` (keyed by `shop_id`) as a JSON array. During scrape, variants are tried in order until one applies.
 
 ---
 
@@ -98,7 +123,9 @@ The `REGEX` variant is used when the LLM determines the raw value follows a patt
 
 **LLM config:** `resilient=3`, `reasoning=true`, `timeout=60s`
 
-**Persistence:** Written to `product_state_mapping` with `mapping_type` of `EXACT` or `REGEX`.
+**Return contract:** `get_state_mapping()` returns `(ProductStateMappingRecord, bool)` where the `bool` is `true` only when the LLM fallback (step 3) was invoked. The caller (`normalize()` in `product_normalization_service.rs`) propagates this as the `u32` component of its own `(NormalizedProduct, u32)` return value. `scraper_service.rs` charges `consume_llm_budget_n_or_err(shop_id, url, n)` post-hoc with that count; `n = 0` is a no-op so DB-hit paths incur zero budget overhead.
+
+**Persistence:** Written to `product_state_mapping` with `mapping_type` of `VALUE` or `REGEX`.
 
 ---
 
@@ -107,7 +134,7 @@ The `REGEX` variant is used when the LLM determines the raw value follows a patt
 ```
 0. Length guard: len(trim+lowercase(raw)) > MAX_STATE_RAW_LEN (512 bytes)?
      └── warn + return RawStateTooLong → NormalizationError::StateTextTooLong
-         → triggers schema-fix flow B in ScraperServiceImpl (state selector is wrong)
+         → propagated as normalization failure (no schema regeneration)
 1. Exact match on product_state_mapping.raw
 2. Regex scan: iterate all REGEX rows, test pattern against raw value
 3. LLM call → persist result → return
@@ -121,8 +148,8 @@ This means the LLM is only invoked once per novel raw state string (or pattern).
 
 ## Summary Table
 
-| Instance | Trigger | Output format | Timeout | Cached in |
-|---|---|---|---|---|
-| URL Classification | Spider: at threshold / end of stream / zero-product reclassify | JSON `{pattern}` | 180s | `shops.url_pattern` |
-| Product Schema | Scraper: first scrape per shop / schema-apply failure / normalization-triggered fix | JSON CSS selectors | 180s | `shops_product_schema` |
-| State Mapping | Scraper: novel raw state string (after length guard passes) | Plain text `STATE:` or `REGEX:` | 60s | `product_state_mapping` |
+| Instance | Trigger | Output format | Timeout | Cached in | Budget-tracked |
+|---|---|---|---|---|---|
+| URL Classification | Spider: at threshold / end of stream / zero-product reclassify | JSON `{pattern}` | 180s | `shops.url_pattern` | Yes |
+| Product Schema | Scraper: first scrape per shop / runtime apply miss (append-and-retry) | JSON CSS selectors | 180s | `shops_product_schema` | Yes |
+| State Mapping | Scraper: novel raw state string (after length guard passes) | Plain text `STATE:` or `REGEX:` | 60s | `product_state_mapping` | Yes (via `normalize` return count) |

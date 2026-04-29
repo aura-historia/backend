@@ -13,8 +13,7 @@ pub enum NormalizationError {
     /// which substitutes a SHA-256 hash of the product page URL when the
     /// extracted ID is blank.
     /// This variant is retained so that unit tests can exercise the strict
-    /// variant and so that the `normalization_error_to_schema_hint` mapping
-    /// (and its own tests) remain valid.
+    /// variant.
     #[error("failed to normalize `shops_product_id`: value is empty after trimming")]
     ShopsProductIdEmpty,
 

@@ -5,7 +5,8 @@ use common::{
 };
 use once_cell::sync::OnceCell;
 use regex::Regex;
-use tracing::warn;
+use tracing::debug;
+use url::Url;
 
 // ---------------------------------------------------------------------------
 // Internal error type
@@ -27,7 +28,7 @@ pub(super) enum PriceError {
 
 /// Detects the currency from a raw price string.
 ///
-/// Returns `None` if no recognised currency symbol or ISO code is present.
+/// Returns `None` if no recognized currency symbol or ISO code is present.
 /// Multi-character symbols (`NZD`, `AUD`, `CAD`) are checked before the plain
 /// `$` to avoid false matches.
 pub(super) fn detect_currency(raw: &str) -> Option<Currency> {
@@ -131,6 +132,8 @@ pub(super) fn parse_price(
 /// [`ProductCssSelectorSchema`] and set by the LLM during schema creation.
 pub(super) fn normalize_price_field(
     raw: Option<String>,
+    field_name: &'static str,
+    context_url: &Url,
     fallback_currency: Option<Currency>,
     make_currency_err: impl Fn(String) -> NormalizationError,
     make_parse_err: impl Fn(String) -> NormalizationError,
@@ -143,7 +146,9 @@ pub(super) fn normalize_price_field(
     }
 
     if is_price_on_request_marker(&trimmed) {
-        warn!(
+        debug!(
+            url = %context_url,
+            field = field_name,
             raw_price = %trimmed,
             "Price text indicates 'price on request'; defaulting normalized price to None"
         );

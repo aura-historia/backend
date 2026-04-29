@@ -62,6 +62,7 @@ The top-level entity. One row per shop.
 | `shop_slug` | TEXT (nullable) | URL-friendly slug identifier, synced from the upstream shop service |
 | `active` | BOOLEAN NOT NULL DEFAULT TRUE | Soft-delete flag managed by shop sync. `TRUE` shops are crawl/scrape eligible; `FALSE` shops are ignored by candidate selection. |
 | `url_pattern` | TEXT (nullable) | LLM-discovered regex that matches product page URLs. `NULL` until the spider classifies the shop for the first time. |
+| `llm_calls_count` | BIGINT NOT NULL DEFAULT 0 | Total number of shop-scoped LLM calls for this shop (URL pattern classification + schema generation/retries). |
 | `created` | TIMESTAMPTZ | |
 | `updated` | TIMESTAMPTZ | Set to `NOW()` on every shop registration sync |
 
@@ -70,6 +71,8 @@ The top-level entity. One row per shop.
 `active` enables soft-deactivation when a shop no longer exists upstream. Deactivated shops are retained for history but excluded from future spider/scraper candidate queries.
 
 `url_pattern` is the handoff from the URL classification LLM to the spider's per-URL classification logic. Once set, it is reused on subsequent crawls and only refreshed if it matches zero products.
+
+`llm_calls_count` is used by the scraper hard-budget guardrail (`scraper_max_llm_calls_per_shop`, default `20`). Scraper candidate selection requires `shops.llm_calls_count < cap`, so once a shop reaches the cap, subsequent scraper runs no longer pick its URLs. If the cap is hit mid-scrape, the scrape fails with `LlmBudgetExceeded` and cooldown metadata is recorded.
 
 ---
 
@@ -129,15 +132,15 @@ Every URL the spider has ever seen. Shared between the spider (writes) and the s
 
 ### `shops_product_schema`
 
-Caches the LLM-generated CSS selector schema for each shop. One row per shop.
+Caches the LLM-generated CSS selector schemas for each shop. One row per shop.
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `shop_id` | UUID PK | |
-| `product_schema` | JSONB | Serialized `ProductCssSelectorSchema` |
+| `product_schema` | JSONB | Serialized array of `ProductCssSelectorSchema` variants (legacy single-object payloads are still readable) |
 | `created` / `updated` | TIMESTAMPTZ | |
 
-If a schema fails to apply to a product page, the LLM is asked to fix it and the repaired schema overwrites this row.
+If no cached schema variant applies to a product page, the scraper enters append-and-retry mode: each attempt generates one schema for the current page, re-applies only newly appended candidate schemas for that attempt, and persists only when one applies. Non-applicable generated schemas are discarded. Existing schema variants are never fully replaced. Persisted sets are deduplicated.
 
 ---
 
@@ -201,8 +204,10 @@ Returns a row only if the lock was successfully acquired; 0 rows = already locke
 SELECT s.shop_id, sd.shop_domain
 FROM   shops s
 JOIN   shop_domains sd ON sd.shop_id = s.shop_id
-WHERE  sd.last_crawled IS NULL
-   OR  sd.last_crawled < NOW() - INTERVAL '7 days'
+WHERE  s.active = TRUE
+  AND  (sd.last_crawled IS NULL OR sd.last_crawled < NOW() - INTERVAL '7 days')
+  AND  (sd.next_crawl_at IS NULL OR sd.next_crawl_at <= NOW())
+ORDER BY sd.last_crawled NULLS FIRST
 LIMIT  $1
 ```
 
@@ -213,6 +218,7 @@ SELECT su.shop_id, su.url, su.last_scraped_hash
 FROM   shop_urls su
 JOIN   shops s ON s.shop_id = su.shop_id
 WHERE  su.url_class = 'product'
+  AND  s.llm_calls_count < $2
   AND  su.last_scraped_state IN ('UNKNOWN', 'LISTED', 'AVAILABLE', 'RESERVED')
   AND  (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
   AND  (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')

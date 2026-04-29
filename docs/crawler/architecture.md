@@ -188,6 +188,7 @@ SELECT su.shop_id, su.url, su.last_scraped_hash
 FROM   shop_urls su
 JOIN   shops s ON s.shop_id = su.shop_id
 WHERE  su.url_class  = 'product'
+  AND  s.llm_calls_count < $2
   AND  su.last_scraped_state IN ('UNKNOWN', 'LISTED', 'AVAILABLE', 'RESERVED')
   AND  (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
   AND  (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
@@ -196,7 +197,11 @@ ORDER BY su.last_scraped NULLS FIRST
 LIMIT  $1
 ```
 
-Only product URLs for **active** shops that haven't been scraped today, are in an active state, and whose retry cooldown has elapsed are eligible.
+Only product URLs for **active** shops that haven't been scraped today, are in an active state, whose retry cooldown has elapsed, and whose shop-level LLM-call budget (combined across URL classification, schema generation, and state-mapping LLM fallback) is still below cap are eligible.
+
+**Schema seeding on schema-cache miss:** The same service also samples random same-shop product URLs using `ORDER BY RANDOM() LIMIT ...` while excluding the current URL. This is intentional because schema cache misses are rare (typically one-time per shop unless schema rows are reset), so this query is not in the hot path. Up to `scraper_schema_seed_pages - 1` (default 2) additional pages are fetched best-effort; if fetches fail the current page alone is used to seed the initial schema generation.
+
+**Append-on-miss (runtime schema miss):** When a cached schema variant fails to apply at scrape-time, `append_single_schema()` generates a single new schema from the current page only — no additional random sampling is needed. This keeps the append path fast and focused.
 
 ### Retry metadata and cooldowns
 
@@ -207,7 +212,8 @@ The scraper now persists network-failure metadata on each URL row:
 - `last_status_code` — HTTP status when available.
 - `next_retry_at` — earliest timestamp when the URL is eligible again.
 
-On each successful scrape (`mark_as_scraped`) these fields are reset. On retryable HTTP failures, the cron worker records a cooldown (`mark_fetch_failure`) so the URL is skipped until `next_retry_at`.
+On each successful scrape (`mark_as_scraped`) these fields are reset. On retryable HTTP failures, the cron worker records a cooldown (`mark_fetch_failure`) so the URL is skipped until `next_retry_at`. The same cooldown path is used for `SchemaRegenerationExhausted` to prevent repeated LLM-call bursts on a single problematic URL.
+The same cooldown path is also used for `LlmBudgetExceeded`: when the per-shop schema-generation budget is exhausted during an in-flight scrape, a retry cooldown is written for observability. In steady state, hard-stop is enforced earlier by candidate selection (`shops.llm_calls_count < cap`).
 
 ### Scrape execution — `ScraperServiceImpl`
 
@@ -218,67 +224,69 @@ scrape(shop_id, url, last_scraped_hash)
  ├── HtmlFetcher::fetch(url)                  — download raw HTML
  ├── current_hash = SHA-256(<main> fragment) if present, else SHA-256(full HTML)
  ├── if <main> present AND current_hash == last_scraped_hash
- │    └── mark_as_scraped(current_hash) and return None   — page unchanged, skip extraction
- ├── ProductSchemaService::get_product_schema(shop_id, html)
- │    ├── DB hit  → return cached CSS selector schema
- │    └── DB miss → LLM generates schema → persist → return
- ├── schema.apply(Html::parse_document(&html))  → RawExtractedProduct
- │    └── fails → [schema-fix flow A] (see below)
+ │    └── touch_scraped(current_hash) and return None      — page unchanged, skip extraction
+ ├── ProductSchemaService::obtain_schemas(shop_id, html)
+ │    ├── DB hit  → return cached CSS selector schema set (Vec of variants)
+ │    └── DB miss → seed pages (current + up to N-1 random same-shop)
+ │         └── LLM generates schema set (single call, may return multiple)
+ │              → persist → return
+ ├── try cached schema variants in order
+ │    ├── first applicable variant → RawExtractedProduct
+ │    └── none applies → [append-and-retry loop]
+ │         ├── repeat up to N attempts (`max_schema_fix_attempts` config slot)
+ │         │    ├── attempt 1: LLM generates ONE schema from current page HTML only
+ │         │    ├── attempt 2+: LLM gets previous failed generated schema + extraction error as repair context
+ │         │    ├── in-memory candidate = existing schemas + generated schema
+ │         │    ├── re-apply only schemas not already known to fail in this loop
+ │         │    ├── if one applies → dedupe schema set, persist, continue
+ │         │    └── if none apply → discard generated schema and retry
+ │         └── if attempts exhausted → return SchemaRegenerationExhausted
  ├── ProductNormalizationService::normalize(raw, url)
  │    ├── state: ProductStateMappingService::get_state_mapping(raw.state)
  │    │    ├── [guard] len > MAX_STATE_RAW_LEN (512 bytes)?
- │    │    │    └── warn + return StateTextTooLong → triggers schema-fix flow B
+ │    │    │    └── warn + return StateTextTooLong
  │    │    ├── exact DB lookup   (e.g. "sold" → SOLD)
  │    │    ├── regex DB scan     (e.g. "3 left" matches \b[1-9]...\bleft\b → AVAILABLE)
  │    │    └── LLM fallback → persist result for future lookups
-    │    ├── shops_product_id: if extracted value is blank, falls back to the full URL (infallible)
-    │    ├── title: detect language (lingua), wrap in Localized<Title>
-    │    ├── price: parse currency + amount (multi-locale)
-    │    ├── images: resolve relative URLs against page URL
-    │    └── dates: parse ISO 8601 / RFC 3339
-    │    └── other normalization error (price/title bad) → [schema-fix flow B]
+      │    ├── shops_product_id: if extracted value is blank, falls back to the full URL (infallible)
+      │    ├── title: detect language (lingua), wrap in Localized<Title>
+      │    ├── price: parse currency + amount (multi-locale)
+      │    ├── images: resolve relative URLs against page URL
+      │    └── dates: parse ISO 8601 / RFC 3339
+      │    └── normalization error
+      │         ├── fixable selector-type errors (title/price/state-text-too-long) → append-and-retry schema regeneration (budget-guarded)
+      │         └── all other errors → propagate as normalization failure
  ├── set_state(shop_id, url, normalized_state) → updates shop_urls.last_scraped_state
- ├── mark_as_scraped(shop_id, url, current_hash) → updates hash/timestamp bookkeeping
- └── if schema was fixed this run → reset_fix_attempts(domain)
+ └── mark_as_scraped is done by caller after successful product push
 ```
 
-**Schema-fix flow A** — triggered when `schema.apply()` fails:
+On schema cache miss, scraper schema generation can include multiple seed pages (current page + up to `N-1` additional same-shop product pages, best-effort). These seed pages are sent in one LLM call that may return multiple schema variants for heterogeneous templates. This improves first schema quality, but first scrape latency can increase due to additional fetches on that one-time path.
+
+**Append-on-miss flow** — triggered when no cached schema variant applies during scrape:
 
 ```
-[schema-fix flow A]
- ├── is_fix_budget_exhausted(domain)?  → bail with SchemaFixAttemptsExhausted
- ├── increment_fix_attempts(domain)
- ├── LLM: fix_product_schema(failed_schema, apply_error, html)
- ├── re-apply fixed schema
- │    ├── ok → persist fixed schema → save_product_schema()
- │    │        schema_was_fixed = true
- │    └── fails → return SchemaFixApplyFailed (not persisted)
-```
-
-The dispatcher (`cron.rs`) guarantees at most one in-flight scrape per domain at a time, so no per-domain mutex is needed inside the fix path.
-
-**Schema-fix flow B** — triggered when normalization returns a schema-fixable error (bad state selector text, price parse failure, empty title, etc.).  `ShopsProductIdEmpty` is **not** schema-fixable and is propagated directly as `ScraperError::NormalizationError` without calling the LLM. `PriceUnknownCurrency` **is** schema-fixable for genuinely unknown currency-bearing price text — the synthetic hint asks the LLM to add a `default_currency` to the schema. Explicit non-numeric markers like `"Price on Request"` are normalized to `price=None` and do not enter the fix loop:
-
-```
-[schema-fix flow B — normalize_with_retry]
- ├── normalization_error_to_schema_hint(err) → Option<ApplySchemaError>
- │    None  → propagate NormalizationError (image URL errors, etc.)
- │    Some  → proceed with hint_error as synthetic apply error
+[append-on-miss flow]
+ ├── ProductSchemaService::append_single_schema(domain, html, failed_schema?, last_error?)
+ │    ├── attempt 1: LLM generates a single schema from HTML only
+ │    ├── attempt 2+: LLM receives previous failed generated schema + extraction error and proposes a targeted fix
+ │    │        Prompt emphasizes: "single schema for one page, for append/retry"
+ │    ├── append to existing variant set in memory
+ │    └── return expanded ShopsProductSchema candidate
  │
- │   Fix attempt 1: fix_and_apply_schema(schema, hint_error, html)
- │    ├── schema_was_fixed = true if LLM fix applied
- │    └── normalize(fixed_raw)
- │         ├── ok → done
- │         └── fails →
- │              Fix attempt 2: fix_and_apply_schema(schema, hint_error, html)
- │               └── normalize(final_raw)
- │                    ├── ok → done
- │                    └── fails → propagate NormalizationError
+ ├── retry only newly appended schemas (exclude known failed by content)
+ │    ├── matches now? → persist expanded set and continue
+ │    └── still no match → discard generated schema and retry generation (up to N)
 ```
+
+This enables heterogeneous shops (with multiple page layouts) to dynamically accumulate schema variants without full regeneration. Only applicable generated schemas are persisted; non-applicable candidates are discarded. Before persistence, schemas are deduplicated.
 
 **`scraper::Html` is `!Send`**: the parsed HTML object cannot be held across an `.await`. `apply_schema()` is a synchronous helper that parses the HTML, applies the schema, and returns — ensuring no `Html` value is live when any `.await` point is reached.
 
-**Per-domain fix-attempt tracking**: `schema_fix_attempts: Arc<Mutex<HashMap<String, u32>>>` records how many *consecutive* LLM-fix attempts have failed end-to-end for each domain. Once the count reaches `max_schema_fix_attempts` the domain returns `SchemaFixAttemptsExhausted` without calling the LLM, preventing infinite fix loops. The counter is reset to zero after **every** successful scrape for the domain (with or without a fix), so it measures failures since the last clean scrape rather than total lifetime failures. This prevents premature budget exhaustion on domains whose pages have heterogeneous layouts.
+**Attempt budget and observability**: `max_schema_fix_attempts` is reused as the regeneration-attempt budget for the append-and-retry loop. When exhausted, scraping returns `SchemaRegenerationExhausted`, cron persists the failure and writes a cooldown (`next_retry_at`) so the URL is skipped for a backoff window. Every schema-generation LLM call increments `shops.llm_calls_count`.
+
+**Hard LLM budget stop**: shop-scoped LLM calls are tracked in `shops.llm_calls_count` (URL pattern classification + schema generation + state-mapping LLM fallback). All three LLM call types share a single combined cap (`scraper_max_llm_calls_per_shop`, default `20`). Once the cap is reached, scraper candidate selection excludes that shop entirely (`shops.llm_calls_count < cap`), preventing subsequent scrape loops. If a scrape hits the cap mid-run, scraper returns `LlmBudgetExceeded`; cron records cooldown metadata via `mark_fetch_failure`.
+
+State-mapping LLM calls are charged post-hoc: `normalize()` returns `(NormalizedProduct, u32)` where the `u32` is the number of LLM calls used (0 when the state was resolved via DB lookup, 1 when the LLM fallback was invoked). The caller (`normalize_with_schema_fix_retry` in `scraper_service.rs`) charges `consume_llm_budget_n_or_err(shop_id, url, n)` after each normalize call; the function is a no-op when `n == 0`.
 
 ---
 
