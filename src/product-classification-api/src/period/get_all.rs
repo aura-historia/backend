@@ -41,7 +41,7 @@ pub async fn handle(
     }
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .cache_control("public", Some(86400), Some(604800))
+        .cache_control("public", Some(600), Some(3600))
         .body_serde(periods_data)?
         .build())
 }
@@ -164,7 +164,7 @@ mod tests {
 
         assert_eq!(200, response.status_code);
         assert_eq!(
-            "public, max-age=86400, s-maxage=604800",
+            "public, max-age=600, s-maxage=3600",
             response
                 .headers
                 .get(CACHE_CONTROL)

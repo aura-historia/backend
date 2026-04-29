@@ -81,7 +81,7 @@ pub async fn handle(
 
     let response_builder = ApiGatewayV2HttpResponseBuilder::json(200);
     let response_builder = if event.payload.route_key.as_deref() == Some("GET /api/v1/categories") {
-        response_builder.cache_control("public", Some(86400), Some(604800))
+        response_builder.cache_control("public", Some(600), Some(3600))
     } else {
         response_builder
     };
@@ -190,7 +190,7 @@ mod tests {
 
         assert_eq!(200, response.status_code);
         assert_eq!(
-            "public, max-age=86400, s-maxage=604800",
+            "public, max-age=600, s-maxage=3600",
             response
                 .headers
                 .get(http::header::CACHE_CONTROL)
