@@ -60,8 +60,11 @@ use product_classification::period::dynamodb_repository::PeriodDynamoDbRepositor
 use product_classification::period::opensearch_repository::PeriodOpenSearchRepositoryImpl;
 use product_classification::period::service::PeriodServiceImpl;
 use shop::core::shop_search::ShopSearch;
+use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
 use shop::opensearch::repository::ShopOpenSearchRepositoryImpl;
+use shop::service::get_service::GetShopServiceImpl;
 use shop::service::query_service::{QueryShopService, QueryShopServiceImpl};
+use shop::service::seller_service::MockSellerService;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
@@ -264,6 +267,12 @@ async fn main() {
         Box::leak(Box::new(dynamodb.clone())),
         table_name.clone(),
     )));
+    let shop_dynamodb_repo = Box::leak(Box::new(ShopDynamoDbRepositoryImpl::new(
+        Box::leak(Box::new(dynamodb.clone())),
+        table_name.clone(),
+    )));
+    let get_shop_service = Box::leak(Box::new(GetShopServiceImpl::new(shop_dynamodb_repo)));
+    let seller_service = Box::leak(Box::new(MockSellerService::default()));
     let fx_rate = Box::leak(Box::new(FixedFxRate()));
 
     let period_dynamodb_repo = Box::leak(Box::new(PeriodDynamoDbRepositoryImpl::new(
@@ -297,6 +306,8 @@ async fn main() {
         fx_rate,
         period_svc,
         category_svc,
+        get_shop_service,
+        seller_service,
     ));
     let product_push = Box::new(ProductPushServiceImpl::new(command_product_service));
 

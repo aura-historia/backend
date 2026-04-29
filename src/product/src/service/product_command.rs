@@ -16,10 +16,8 @@ use common::price::domain::{MonetaryAmount, Price};
 use common::product_id::ProductKey;
 use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
-use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
 use geo::core::address::{GeoAddress, StructuredAddress};
-use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 use url::Url;
@@ -27,11 +25,8 @@ use url::Url;
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateProductCommand {
     pub shop_id: ShopId,
-    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
-    pub shop_name: ShopName,
-    pub seller_name: ShopName,
-    pub shop_type: ShopType,
+    pub seller_name_raw: Option<String>,
     pub structured_address: Option<StructuredAddress>,
     pub geo_address: Option<GeoAddress>,
     pub native_title: Localized<Language, Title>,
@@ -89,11 +84,8 @@ pub struct UpdateProductCommand {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpsertProductCommand {
     pub shop_id: ShopId,
-    pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
-    pub shop_name: ShopName,
-    pub seller_name: ShopName,
-    pub shop_type: ShopType,
+    pub seller_name_raw: Option<String>,
     pub structured_address: Option<StructuredAddress>,
     pub geo_address: Option<GeoAddress>,
     pub native_title: Option<Localized<Language, Title>>,
@@ -128,11 +120,8 @@ impl From<UpsertProductCommand> for CreateProductCommand {
     fn from(cmd: UpsertProductCommand) -> Self {
         CreateProductCommand {
             shop_id: cmd.shop_id,
-            seller_id: cmd.seller_id,
             shops_product_id: cmd.shops_product_id,
-            shop_name: cmd.shop_name,
-            seller_name: cmd.seller_name,
-            shop_type: cmd.shop_type,
+            seller_name_raw: cmd.seller_name_raw,
             structured_address: cmd.structured_address,
             geo_address: cmd.geo_address,
             native_title: cmd
@@ -216,11 +205,8 @@ mod faker {
 
             CreateProductCommand {
                 shop_id: config.fake_with_rng(rng),
-                seller_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
-                shop_name: config.fake_with_rng(rng),
-                seller_name: config.fake_with_rng(rng),
-                shop_type: config.fake_with_rng(rng),
+                seller_name_raw: config.fake_with_rng(rng),
                 structured_address: config.fake_with_rng(rng),
                 geo_address: config.fake_with_rng(rng),
                 native_title: config.fake_with_rng(rng),
@@ -289,11 +275,8 @@ mod faker {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             UpsertProductCommand {
                 shop_id: config.fake_with_rng(rng),
-                seller_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
-                shop_name: config.fake_with_rng(rng),
-                seller_name: config.fake_with_rng(rng),
-                shop_type: config.fake_with_rng(rng),
+                seller_name_raw: config.fake_with_rng(rng),
                 structured_address: config.fake_with_rng(rng),
                 geo_address: config.fake_with_rng(rng),
                 native_title: Some(config.fake_with_rng(rng)),

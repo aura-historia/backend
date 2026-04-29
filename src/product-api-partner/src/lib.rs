@@ -6,14 +6,13 @@ use common::api::{
 use lambda_runtime::LambdaEvent;
 use product::service::command_service::CommandProductService;
 use shop::service::get_service::GetShopService;
-use shop::service::seller_service::SellerService;
 
 pub mod patch_products;
 pub mod post_products;
 pub mod put_products;
 
 #[tracing::instrument(
-    skip(event, get_shop_service, command_product_service, seller_service),
+    skip(event, get_shop_service, command_product_service),
     fields(
         requestId = %event.context.request_id,
         method = event.payload.request_context.http.method.as_str(),
@@ -27,16 +26,8 @@ pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_shop_service: &(impl GetShopService + Sync),
     command_product_service: &(impl CommandProductService + Sync),
-    seller_service: &dyn SellerService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(
-        event,
-        get_shop_service,
-        command_product_service,
-        seller_service,
-    )
-    .await
-    {
+    match handle(event, get_shop_service, command_product_service).await {
         Ok(response) => Ok(response),
         Err(err) => {
             log_api_error(&err);
@@ -49,29 +40,16 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_shop_service: &(impl GetShopService + Sync),
     command_product_service: &(impl CommandProductService + Sync),
-    seller_service: &dyn SellerService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
         Some("POST /api/v1/shops/{shopId}/products") => {
-            post_products::handle(
-                event,
-                get_shop_service,
-                command_product_service,
-                seller_service,
-            )
-            .await
+            post_products::handle(event, get_shop_service, command_product_service).await
         }
         Some("PATCH /api/v1/shops/{shopId}/products") => {
             patch_products::handle(event, get_shop_service, command_product_service).await
         }
         Some("PUT /api/v1/shops/{shopId}/products") => {
-            put_products::handle(
-                event,
-                get_shop_service,
-                command_product_service,
-                seller_service,
-            )
-            .await
+            put_products::handle(event, get_shop_service, command_product_service).await
         }
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,
@@ -91,7 +69,6 @@ mod tests {
     use lambda_runtime::LambdaEvent;
     use product::service::command_service::MockCommandProductService;
     use shop::service::get_service::MockGetShopService;
-    use shop::service::seller_service::MockSellerService;
 
     fn make_event(route_key: Option<&str>) -> LambdaEvent<ApiGatewayV2httpRequest> {
         let mut request = ApiGatewayV2httpRequest::default();
@@ -104,9 +81,8 @@ mod tests {
         let event = make_event(Some("GET /unknown"));
         let shop_service = MockGetShopService::default();
         let command_service = MockCommandProductService::default();
-        let seller_service = MockSellerService::default();
 
-        let result = handle(event, &shop_service, &command_service, &seller_service).await;
+        let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.status, 500);
@@ -117,9 +93,8 @@ mod tests {
         let event = make_event(None);
         let shop_service = MockGetShopService::default();
         let command_service = MockCommandProductService::default();
-        let seller_service = MockSellerService::default();
 
-        let result = handle(event, &shop_service, &command_service, &seller_service).await;
+        let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.status, 500);

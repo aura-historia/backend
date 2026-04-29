@@ -98,7 +98,11 @@ use shop::data::patch_shop_data::PatchShopData;
 use shop::data::post_shop_data::PostShopData;
 use shop::dynamodb::repository::ShopDynamoDbRepository;
 use shop::dynamodb::shop_record::ShopRecord;
-use shop::{core::shop::Shop, dynamodb::repository::ShopDynamoDbRepositoryImpl};
+use shop::{
+    core::shop::Shop,
+    dynamodb::repository::ShopDynamoDbRepositoryImpl,
+    service::{get_service::GetShopServiceImpl, seller_service::MockSellerService},
+};
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 use test_api::*;
@@ -914,6 +918,10 @@ async fn create_products(commands: Vec<CreateProductCommand>) {
     let dynamodb_client = get_dynamodb_client().await;
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let shop_repository =
+        ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let get_shop_service = GetShopServiceImpl::new(&shop_repository);
+    let seller_service = MockSellerService::default();
     let fx_rate = FixedFxRate();
     let mut period_service = MockPeriodService::default();
     period_service
@@ -928,6 +936,8 @@ async fn create_products(commands: Vec<CreateProductCommand>) {
         &fx_rate,
         &period_service,
         &category_service,
+        &get_shop_service,
+        &seller_service,
     );
 
     let result = command_service.create(commands).await;
@@ -939,6 +949,10 @@ async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
     let dynamodb_client = get_dynamodb_client().await;
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let shop_repository =
+        ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let get_shop_service = GetShopServiceImpl::new(&shop_repository);
+    let seller_service = MockSellerService::default();
     let fx_rate = FixedFxRate();
     let mut period_service = MockPeriodService::default();
     period_service
@@ -953,6 +967,8 @@ async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
         &fx_rate,
         &period_service,
         &category_service,
+        &get_shop_service,
+        &seller_service,
     );
 
     let result = command_service.update(commands).await;
@@ -1047,8 +1063,6 @@ async fn should_materialize_product_in_dynamodb_when_put_new_item() {
     let shop = prepare_test_shop().await;
     let mut create_cmd: CreateProductCommand = Faker.fake();
     create_cmd.shop_id = shop.shop_id;
-    create_cmd.shop_name = shop.name.clone();
-    create_cmd.shop_type = shop.shop_type;
 
     create_products(vec![create_cmd.clone()]).await;
 
@@ -2611,8 +2625,6 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     // Create product
     let mut create_cmd: CreateProductCommand = Faker.fake();
     create_cmd.shop_id = shop.shop_id;
-    create_cmd.shop_name = shop.name.clone();
-    create_cmd.shop_type = shop.shop_type;
     create_products(vec![create_cmd.clone()]).await;
     tokio::time::sleep(Duration::from_secs(45)).await;
 
@@ -5671,8 +5683,6 @@ async fn should_embed_product_when_domain_created_event_triggers_pipeline() {
     // 1. Create product via command service (triggers DOMAIN_CREATED event)
     let mut create_cmd: CreateProductCommand = Faker.fake();
     create_cmd.shop_id = shop.shop_id;
-    create_cmd.shop_name = shop.name.clone();
-    create_cmd.shop_type = shop.shop_type;
 
     create_products(vec![create_cmd.clone()]).await;
 
@@ -5742,8 +5752,6 @@ async fn should_classify_product_when_embedded_text_event_triggers_pipeline() {
     // 1. Create product via command service (triggers DOMAIN_CREATED event)
     let mut create_cmd: CreateProductCommand = Faker.fake();
     create_cmd.shop_id = shop.shop_id;
-    create_cmd.shop_name = shop.name.clone();
-    create_cmd.shop_type = shop.shop_type;
 
     create_products(vec![create_cmd.clone()]).await;
 

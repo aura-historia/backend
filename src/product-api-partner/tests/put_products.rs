@@ -42,11 +42,14 @@ async fn should_return_200_with_empty_errors_when_upserting_new_product() {
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
     let fx_rate = FixedFxRate();
     let (period_service, category_service) = make_mocked_services();
+    let seller_service = MockSellerService::default();
     let command_product_service = CommandProductServiceImpl::new(
         &product_repository,
         &fx_rate,
         &period_service,
         &category_service,
+        &get_shop_service,
+        &seller_service,
     );
 
     let api_key = PartnerShopApiKey::new();
@@ -73,14 +76,10 @@ async fn should_return_200_with_empty_errors_when_upserting_new_product() {
         context: Default::default(),
     };
 
-    let response = product_api_partner::handle(
-        lambda_event,
-        &get_shop_service,
-        &command_product_service,
-        &MockSellerService::default(),
-    )
-    .await
-    .unwrap();
+    let response =
+        product_api_partner::handle(lambda_event, &get_shop_service, &command_product_service)
+            .await
+            .unwrap();
     assert_eq!(200, response.status_code);
 
     let body: serde_json::Value = serde_json::from_str(
@@ -105,11 +104,14 @@ async fn should_return_200_with_empty_errors_when_upserting_existing_product() {
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
     let fx_rate = FixedFxRate();
     let (period_service, category_service) = make_mocked_services();
+    let seller_service = MockSellerService::default();
     let command_product_service = CommandProductServiceImpl::new(
         &product_repository,
         &fx_rate,
         &period_service,
         &category_service,
+        &get_shop_service,
+        &seller_service,
     );
 
     let api_key = PartnerShopApiKey::new();
@@ -144,14 +146,10 @@ async fn should_return_200_with_empty_errors_when_upserting_existing_product() {
         context: Default::default(),
     };
 
-    let response = product_api_partner::handle(
-        lambda_event,
-        &get_shop_service,
-        &command_product_service,
-        &MockSellerService::default(),
-    )
-    .await
-    .unwrap();
+    let response =
+        product_api_partner::handle(lambda_event, &get_shop_service, &command_product_service)
+            .await
+            .unwrap();
     assert_eq!(200, response.status_code);
 
     let body: serde_json::Value = serde_json::from_str(
@@ -176,11 +174,14 @@ async fn should_return_401_when_api_key_does_not_match_for_put() {
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
     let fx_rate = FixedFxRate();
     let (period_service, category_service) = make_mocked_services();
+    let seller_service = MockSellerService::default();
     let command_product_service = CommandProductServiceImpl::new(
         &product_repository,
         &fx_rate,
         &period_service,
         &category_service,
+        &get_shop_service,
+        &seller_service,
     );
 
     let correct_key = PartnerShopApiKey::new();
@@ -204,13 +205,9 @@ async fn should_return_401_when_api_key_does_not_match_for_put() {
         context: Default::default(),
     };
 
-    let response = product_api_partner::handle(
-        lambda_event,
-        &get_shop_service,
-        &command_product_service,
-        &MockSellerService::default(),
-    )
-    .await;
+    let response =
+        product_api_partner::handle(lambda_event, &get_shop_service, &command_product_service)
+            .await;
     assert!(response.is_err());
     assert_eq!(401, response.unwrap_err().status);
 }
@@ -223,11 +220,14 @@ async fn should_return_404_when_shop_does_not_exist_for_put() {
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
     let fx_rate = FixedFxRate();
     let (period_service, category_service) = make_mocked_services();
+    let seller_service = MockSellerService::default();
     let command_product_service = CommandProductServiceImpl::new(
         &product_repository,
         &fx_rate,
         &period_service,
         &category_service,
+        &get_shop_service,
+        &seller_service,
     );
 
     let api_key = PartnerShopApiKey::new();
@@ -248,13 +248,9 @@ async fn should_return_404_when_shop_does_not_exist_for_put() {
         context: Default::default(),
     };
 
-    let response = product_api_partner::handle(
-        lambda_event,
-        &get_shop_service,
-        &command_product_service,
-        &MockSellerService::default(),
-    )
-    .await;
+    let response =
+        product_api_partner::handle(lambda_event, &get_shop_service, &command_product_service)
+            .await;
     assert!(response.is_err());
     assert_eq!(404, response.unwrap_err().status);
 }
@@ -267,11 +263,14 @@ async fn should_return_403_when_shop_is_not_a_partner_for_put() {
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
     let fx_rate = FixedFxRate();
     let (period_service, category_service) = make_mocked_services();
+    let seller_service = MockSellerService::default();
     let command_product_service = CommandProductServiceImpl::new(
         &product_repository,
         &fx_rate,
         &period_service,
         &category_service,
+        &get_shop_service,
+        &seller_service,
     );
 
     let api_key = PartnerShopApiKey::new();
@@ -296,13 +295,9 @@ async fn should_return_403_when_shop_is_not_a_partner_for_put() {
         context: Default::default(),
     };
 
-    let response = product_api_partner::handle(
-        lambda_event,
-        &get_shop_service,
-        &command_product_service,
-        &MockSellerService::default(),
-    )
-    .await;
+    let response =
+        product_api_partner::handle(lambda_event, &get_shop_service, &command_product_service)
+            .await;
     assert!(response.is_err());
     assert_eq!(403, response.unwrap_err().status);
 }
