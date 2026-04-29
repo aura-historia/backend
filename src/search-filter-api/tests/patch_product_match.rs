@@ -7,7 +7,7 @@ use product::service::get_service::MockGetProductService;
 use product_personalization::service::MockProductPersonalizationService;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
 use search_filter::service::user_search_filter_service::UserSearchFilterServiceImpl;
-use search_filter_api::handle;
+use search_filter_api::handler;
 use search_filter_api::patch_product_match::PatchUserSearchFilterMatchData;
 use test_api::*;
 use user::service::user_service::UserService;
@@ -41,7 +41,7 @@ async fn should_404_when_search_filter_product_match_not_found() {
         context: Default::default(),
     };
 
-    let response = handle(
+    let response = handler(
         lambda_event,
         &service,
         &get_product_service,
