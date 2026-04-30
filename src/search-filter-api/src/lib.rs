@@ -13,6 +13,7 @@ mod get_all;
 mod get_one;
 pub mod get_products;
 mod patch;
+pub mod patch_product_match;
 pub mod patch_types;
 mod post;
 pub mod post_types;
@@ -69,6 +70,9 @@ pub async fn handle(
         Some("PATCH /api/v1/me/search-filters/{userSearchFilterId}") => {
             patch::handle(event, service).await
         }
+        Some(
+            "PATCH /api/v1/me/search-filters/{userSearchFilterId}/products/{shopId}/{shopsProductId}",
+        ) => patch_product_match::handle(event, service).await,
         Some("DELETE /api/v1/me/search-filters/{userSearchFilterId}") => {
             delete::handle(event, service).await
         }

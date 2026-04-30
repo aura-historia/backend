@@ -516,6 +516,7 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
                             .enhanced_match_reason
                             .as_deref()
                             .map(EnhancedMatchReason::from),
+                        match_feedback: record.feedback,
                     },
                     product,
                 )
@@ -593,6 +594,7 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
                                 .enhanced_match_reason
                                 .as_deref()
                                 .map(EnhancedMatchReason::from),
+                            match_feedback: record.feedback,
                         }
                     }
                     None => SearchFilterUserState::default(),

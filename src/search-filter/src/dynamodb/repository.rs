@@ -1,4 +1,5 @@
 use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
+use crate::dynamodb::user_search_filter_match_record_update::UserSearchFilterMatchRecordUpdate;
 use crate::dynamodb::user_search_filter_record::{UserSearchFilterRecord, mk_pk, mk_sk};
 use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
 use aws_sdk_dynamodb::{
@@ -90,6 +91,15 @@ pub trait UserSearchFilterDynamoDbRepository {
         &self,
         record: UserSearchFilterMatchRecord,
     ) -> Result<PutItemOutput, SdkError<PutItemError, HttpResponse>>;
+
+    async fn update_user_search_filter_match_record(
+        &self,
+        user_id: &UserId,
+        search_filter_id: &UserSearchFilterId,
+        shop_id: &ShopId,
+        shops_product_id: &ShopsProductId,
+        update: UserSearchFilterMatchRecordUpdate,
+    ) -> Result<Option<UserSearchFilterMatchRecord>, SdkError<UpdateItemError, HttpResponse>>;
 
     async fn put_user_search_filter_match_records(
         &self,
@@ -525,6 +535,50 @@ impl<'a> UserSearchFilterDynamoDbRepository for UserSearchFilterDynamoDbReposito
             ))
             .send()
             .await
+    }
+
+    async fn update_user_search_filter_match_record(
+        &self,
+        user_id: &UserId,
+        search_filter_id: &UserSearchFilterId,
+        shop_id: &ShopId,
+        shops_product_id: &ShopsProductId,
+        update: UserSearchFilterMatchRecordUpdate,
+    ) -> Result<Option<UserSearchFilterMatchRecord>, SdkError<UpdateItemError, HttpResponse>> {
+        use crate::dynamodb::user_search_filter_match_record as match_record;
+
+        let update_expr = update.into_update_expr()?;
+
+        self.client
+            .update_item()
+            .table_name(&self.table)
+            .key("pk", AttributeValue::S(match_record::mk_pk(user_id)))
+            .key(
+                "sk",
+                AttributeValue::S(match_record::mk_sk(
+                    search_filter_id,
+                    shop_id,
+                    shops_product_id,
+                )),
+            )
+            .update_expression(update_expr.update_expr)
+            .set_expression_attribute_names(Some(update_expr.expr_attr_names))
+            .set_expression_attribute_values(Some(update_expr.expr_attr_values))
+            .return_values(ReturnValue::AllNew)
+            .send()
+            .await
+            .map(|output| output.attributes)
+            .map(|attr_opt| {
+                attr_opt
+                    .map(serde_dynamo::from_item)
+                    .and_then(|record_res| match record_res {
+                        Ok(match_record) => Some(match_record),
+                        Err(err) => {
+                            error!(error = %err, type = %std::any::type_name::<UserSearchFilterMatchRecord>(), "Failed deserializing UserSearchFilterMatchRecord.");
+                            None
+                        }
+                    })
+            })
     }
 
     async fn put_user_search_filter_match_records(

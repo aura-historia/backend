@@ -9,6 +9,7 @@ use search_filter::dynamodb::repository::{
 use search_filter::dynamodb::user_search_filter_match_record::{
     UserSearchFilterMatchRecord, mk_lsi1_sk, mk_pk, mk_sk,
 };
+use search_filter::dynamodb::user_search_filter_match_record_update::UserSearchFilterMatchRecordUpdate;
 use test_api::*;
 use time::OffsetDateTime;
 
@@ -53,6 +54,38 @@ async fn should_put_and_get_match_record() {
         .unwrap();
 
     assert_eq!(expected, actual);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_update_match_record_feedback() {
+    let repository = get_repository().await;
+    let mut expected = Faker.fake::<UserSearchFilterMatchRecord>();
+    expected.feedback = None;
+    repository
+        .put_user_search_filter_match_record(expected.clone())
+        .await
+        .unwrap();
+
+    let actual = repository
+        .update_user_search_filter_match_record(
+            &expected.user_id,
+            &expected.user_search_filter_id,
+            &expected.shop_id,
+            &expected.shops_product_id,
+            UserSearchFilterMatchRecordUpdate {
+                feedback: Some(true),
+                updated: OffsetDateTime::now_utc(),
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(Some(true), actual.feedback);
+    assert_eq!(expected.user_id, actual.user_id);
+    assert_eq!(expected.user_search_filter_id, actual.user_search_filter_id);
+    assert_eq!(expected.shop_id, actual.shop_id);
+    assert_eq!(expected.shops_product_id, actual.shops_product_id);
 }
 
 #[localstack_test(services = [DynamoDB()])]
