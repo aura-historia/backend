@@ -1,11 +1,13 @@
 use crate::core::role::UserRole;
 use crate::core::tier::UserTier;
 use crate::core::user::User;
+use crate::core::{sort_user_field::SortUserField, user_search::UserSearch};
 use crate::dynamodb::repository::UserDynamoDbRepository;
 use crate::dynamodb::role_record::UserRoleRecord;
 use crate::dynamodb::tier_record::UserTierRecord;
 use crate::dynamodb::user_record::{mk_gsi1_pk, mk_gsi1_sk};
 use crate::dynamodb::user_record_update::UserRecordUpdate;
+use crate::opensearch::repository::UserOpenSearchRepository;
 use crate::service::cognito_admin_service::{CognitoAdminError, CognitoAdminService};
 use crate::service::command::{CreateUserCommand, UpdateUserCommand};
 use aws_sdk_dynamodb::error::SdkError;
@@ -20,12 +22,6 @@ use common::{
 use geo::service::geocoding_service::{GeocodingError, GeocodingService, NoopGeocodingService};
 use time::OffsetDateTime;
 use tracing::{error, info, warn};
-
-#[cfg(feature = "opensearch")]
-use crate::{
-    core::{sort_user_field::SortUserField, user_search::UserSearch},
-    opensearch::repository::UserOpenSearchRepository,
-};
 
 const MAX_DELETE_RETRIES: u32 = 5;
 
@@ -70,11 +66,9 @@ pub enum UserServiceError {
     #[error("Geocoding error: {0}")]
     GeocodingError(#[from] GeocodingError),
 
-    #[cfg(feature = "opensearch")]
     #[error("OpenSearchError: {0}")]
     OpenSearchError(#[from] opensearch::Error),
 
-    #[cfg(feature = "opensearch")]
     #[error("User OpenSearch repository not configured")]
     UserOpenSearchRepositoryNotConfigured,
 }
@@ -116,9 +110,7 @@ pub mod api {
                 UserServiceError::GeocodingError(_) => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
-                #[cfg(feature = "opensearch")]
                 UserServiceError::OpenSearchError(opensearch_err) => opensearch_err.into(),
-                #[cfg(feature = "opensearch")]
                 UserServiceError::UserOpenSearchRepositoryNotConfigured => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
@@ -149,7 +141,6 @@ pub trait UserService {
 
     async fn delete_user(&self, user_id: &UserId) -> Result<(), UserServiceError>;
 
-    #[cfg(feature = "opensearch")]
     async fn search_users(
         &self,
         search: &UserSearch,
@@ -162,7 +153,6 @@ pub struct UserServiceImpl<'a> {
     repository: &'a (dyn UserDynamoDbRepository + Sync),
     geocoding_service: &'a (dyn GeocodingService + Sync),
     cognito_admin_service: Option<&'a (dyn CognitoAdminService + Sync)>,
-    #[cfg(feature = "opensearch")]
     opensearch_repository: Option<&'a (dyn UserOpenSearchRepository + Sync)>,
 }
 
@@ -172,7 +162,6 @@ impl<'a> UserServiceImpl<'a> {
             repository,
             geocoding_service: &NoopGeocodingService,
             cognito_admin_service: None,
-            #[cfg(feature = "opensearch")]
             opensearch_repository: None,
         }
     }
@@ -185,12 +174,10 @@ impl<'a> UserServiceImpl<'a> {
             repository,
             geocoding_service: &NoopGeocodingService,
             cognito_admin_service: Some(cognito_admin_service),
-            #[cfg(feature = "opensearch")]
             opensearch_repository: None,
         }
     }
 
-    #[cfg(feature = "opensearch")]
     pub fn with_cognito_and_opensearch(
         repository: &'a (dyn UserDynamoDbRepository + Sync),
         cognito_admin_service: &'a (dyn CognitoAdminService + Sync),
@@ -212,12 +199,10 @@ impl<'a> UserServiceImpl<'a> {
             repository,
             geocoding_service,
             cognito_admin_service: None,
-            #[cfg(feature = "opensearch")]
             opensearch_repository: None,
         }
     }
 
-    #[cfg(feature = "opensearch")]
     pub fn with_cognito_opensearch_and_geocoding(
         repository: &'a (dyn UserDynamoDbRepository + Sync),
         cognito_admin_service: &'a (dyn CognitoAdminService + Sync),
@@ -399,7 +384,6 @@ impl<'a> UserService for UserServiceImpl<'a> {
             return Err(err.into());
         }
 
-        #[cfg(feature = "opensearch")]
         if let Some(repository) = self.opensearch_repository {
             let mut last_os_err = None;
             for attempt in 1..=MAX_DELETE_RETRIES {
@@ -442,7 +426,6 @@ impl<'a> UserService for UserServiceImpl<'a> {
         Ok(())
     }
 
-    #[cfg(feature = "opensearch")]
     async fn search_users(
         &self,
         search: &UserSearch,
@@ -974,7 +957,6 @@ mod tests {
             );
         }
 
-        #[cfg(feature = "opensearch")]
         mod with_opensearch {
             use crate::{
                 dynamodb::repository::MockUserDynamoDbRepository,
@@ -1247,7 +1229,7 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "opensearch"))]
+#[cfg(test)]
 mod search_users_tests {
     use crate::{
         core::{sort_user_field::SortUserField, user::User, user_search::UserSearch},
