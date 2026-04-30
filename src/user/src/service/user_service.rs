@@ -29,6 +29,9 @@ use crate::{
 
 const MAX_DELETE_RETRIES: u32 = 5;
 
+fn delete_retry_backoff_ms(attempt: u32) -> u64 {
+    100 * 2_u64.saturating_pow(attempt - 1)
+}
 #[derive(thiserror::Error, Debug)]
 pub enum UserServiceError {
     #[error("User with UserId '{0}' not found.")]
@@ -376,7 +379,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                             "Failed deleting user record from DynamoDB, retrying."
                         );
                         tokio::time::sleep(std::time::Duration::from_millis(
-                            100 * 2_u64.saturating_pow(attempt - 1),
+                            delete_retry_backoff_ms(attempt),
                         ))
                         .await;
                     } else {
@@ -415,7 +418,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                                 "Failed deleting user document from OpenSearch, retrying."
                             );
                             tokio::time::sleep(std::time::Duration::from_millis(
-                                100 * 2_u64.saturating_pow(attempt - 1),
+                                delete_retry_backoff_ms(attempt),
                             ))
                             .await;
                         } else {
