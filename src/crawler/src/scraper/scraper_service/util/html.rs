@@ -1,28 +1,21 @@
 use crate::scraper::css_selector::product_schema::ApplySchemaError;
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::normalization::error::NormalizationError;
+use scraper::Selector;
+use std::sync::OnceLock;
 
-/// Byte-level case-insensitive substring search.  Returns the byte offset of
-/// the first occurrence of `search` in `text`, or `None`.
-pub(crate) fn find_case_insensitive(text: &str, search: &str) -> Option<usize> {
-    let search_bytes = search.as_bytes();
-    if search_bytes.is_empty() {
-        return Some(0);
-    }
-    text.as_bytes()
-        .windows(search_bytes.len())
-        .position(|window| window.eq_ignore_ascii_case(search_bytes))
+static MAIN_SEL: OnceLock<Selector> = OnceLock::new();
+
+fn main_selector() -> &'static Selector {
+    MAIN_SEL.get_or_init(|| Selector::parse("main").expect("valid selector"))
 }
 
-/// Extracts the raw string content between `<main …>` and `</main>`, or
-/// `None` if no `<main>` tag is present.
-pub(crate) fn extract_main_fragment(html: &str) -> Option<&str> {
-    let main_start = find_case_insensitive(html, "<main")?;
-    let tag_end_rel = html[main_start..].find('>')?;
-    let content_start = main_start + tag_end_rel + 1;
-    let main_end_rel = find_case_insensitive(&html[content_start..], "</main>")?;
-    let content_end = content_start + main_end_rel;
-    Some(&html[content_start..content_end])
+pub(crate) fn extract_main_fragment(html: &str) -> Option<String> {
+    let document = scraper::Html::parse_document(html);
+    document
+        .select(main_selector())
+        .next()
+        .map(|el| el.inner_html())
 }
 
 /// Maps a [`NormalizationError`] to the [`ApplySchemaError`] hint that should
