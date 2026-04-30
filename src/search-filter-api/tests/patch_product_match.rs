@@ -26,7 +26,7 @@ async fn seed_match_record(
     filter_id: UserSearchFilterId,
     shop_id: ShopId,
     shops_product_id: ShopsProductId,
-    matches_feedback: Option<bool>,
+    feedback: Option<bool>,
 ) {
     let created = OffsetDateTime::now_utc();
     let mut record = Faker.fake::<UserSearchFilterMatchRecord>();
@@ -37,7 +37,7 @@ async fn seed_match_record(
     record.user_search_filter_id = filter_id;
     record.shop_id = shop_id;
     record.shops_product_id = shops_product_id;
-    record.matches_feedback = matches_feedback;
+    record.feedback = feedback;
     record.created = created;
     record.updated = created;
     repository
@@ -104,14 +104,14 @@ async fn patch_existing_match(
         .unwrap()
         .unwrap();
 
-    (status_code, body.matches_feedback, updated.matches_feedback)
+    (status_code, body.feedback, updated.feedback)
 }
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_when_setting_search_filter_product_match_feedback_true() {
     let (status_code, response_feedback, persisted_feedback) = patch_existing_match(
         PatchUserSearchFilterMatchData {
-            matches_feedback: Some(true),
+            feedback: Some(true),
         },
         None,
     )
@@ -126,7 +126,7 @@ async fn should_200_when_setting_search_filter_product_match_feedback_true() {
 async fn should_200_when_setting_search_filter_product_match_feedback_false() {
     let (status_code, response_feedback, persisted_feedback) = patch_existing_match(
         PatchUserSearchFilterMatchData {
-            matches_feedback: Some(false),
+            feedback: Some(false),
         },
         None,
     )
@@ -170,7 +170,7 @@ async fn should_404_when_search_filter_product_match_not_found() {
             .path_parameter("shopId", ShopId::new())
             .path_parameter("shopsProductId", ShopsProductId::new())
             .body_serde(&PatchUserSearchFilterMatchData {
-                matches_feedback: Some(false),
+                feedback: Some(false),
             })
             .build(),
         context: Default::default(),

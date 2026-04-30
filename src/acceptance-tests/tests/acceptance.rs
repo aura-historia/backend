@@ -4542,7 +4542,7 @@ async fn should_patch_search_filter_product_match_feedback_when_authorized() {
     record.user_search_filter_id = filter_id;
     record.shop_id = shop_id;
     record.shops_product_id = shops_product_id.clone();
-    record.matches_feedback = None;
+    record.feedback = None;
     record.created = created;
     record.updated = created;
     repository
@@ -4551,7 +4551,7 @@ async fn should_patch_search_filter_product_match_feedback_when_authorized() {
         .unwrap();
 
     let patch = PatchUserSearchFilterMatchData {
-        matches_feedback: Some(true),
+        feedback: Some(true),
     };
     let url = format!(
         "{}/api/v1/me/search-filters/{}/products/{}/{}",
@@ -4571,7 +4571,7 @@ async fn should_patch_search_filter_product_match_feedback_when_authorized() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(Some(true), actual.matches_feedback);
+    assert_eq!(Some(true), actual.feedback);
 }
 
 // ---------------------------------------------------------------------------

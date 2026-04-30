@@ -2363,7 +2363,7 @@ mod tests {
             let shop_id = ShopId::new();
             let shops_product_id = ShopsProductId::new();
             let mut updated_record = Faker.fake::<UserSearchFilterMatchRecord>();
-            updated_record.matches_feedback = Some(false);
+            updated_record.feedback = Some(false);
 
             let mut repository = MockUserSearchFilterDynamoDbRepository::default();
             repository
@@ -2374,7 +2374,7 @@ mod tests {
             repository
                 .expect_update_user_search_filter_match_record()
                 .return_once(move |_, _, _, _, update| {
-                    assert_eq!(Some(false), update.matches_feedback);
+                    assert_eq!(Some(false), update.feedback);
                     Box::pin(async move { Ok(Some(updated_record)) })
                 });
             let user_service = user::service::user_service::MockUserService::default();
@@ -2387,13 +2387,13 @@ mod tests {
                     shop_id,
                     shops_product_id,
                     UpdateUserSearchFilterMatchCommand {
-                        matches_feedback: Some(false),
+                        feedback: Some(false),
                     },
                 )
                 .await
                 .unwrap();
 
-            assert_eq!(Some(false), actual.matches_feedback);
+            assert_eq!(Some(false), actual.feedback);
         }
 
         #[tokio::test]
@@ -2444,7 +2444,7 @@ mod tests {
                     ShopId::new(),
                     ShopsProductId::new(),
                     UpdateUserSearchFilterMatchCommand {
-                        matches_feedback: Some(true),
+                        feedback: Some(true),
                     },
                 )
                 .await;
@@ -2480,7 +2480,7 @@ mod tests {
                     ShopId::new(),
                     ShopsProductId::new(),
                     UpdateUserSearchFilterMatchCommand {
-                        matches_feedback: Some(true),
+                        feedback: Some(true),
                     },
                 )
                 .await;

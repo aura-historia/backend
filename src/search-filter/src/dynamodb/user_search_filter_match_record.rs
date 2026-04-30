@@ -28,7 +28,7 @@ pub struct UserSearchFilterMatchRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enhanced_match_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub matches_feedback: Option<bool>,
+    pub feedback: Option<bool>,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -94,7 +94,7 @@ impl From<UserSearchFilterMatchRecord> for SearchFilterProductMatch {
             product_id: record.product_id,
             origin_event_id: record.origin_event_id,
             enhanced_match_reason: record.enhanced_match_reason.map(EnhancedMatchReason::from),
-            matches_feedback: record.matches_feedback,
+            feedback: record.feedback,
             created: record.created,
             updated: record.updated,
         }
@@ -116,7 +116,7 @@ impl From<SearchFilterProductMatch> for UserSearchFilterMatchRecord {
             product_id: m.product_id,
             origin_event_id: m.origin_event_id,
             enhanced_match_reason: m.enhanced_match_reason.map(Into::into),
-            matches_feedback: m.matches_feedback,
+            feedback: m.feedback,
             created: m.created,
             updated: m.updated,
         }
@@ -148,7 +148,7 @@ mod faker {
                 product_id: config.fake_with_rng(rng),
                 origin_event_id: config.fake_with_rng(rng),
                 enhanced_match_reason: config.fake_with_rng(rng),
-                matches_feedback: config.fake_with_rng(rng),
+                feedback: config.fake_with_rng(rng),
                 created,
                 updated: OffsetDateTime::now_utc(),
             }

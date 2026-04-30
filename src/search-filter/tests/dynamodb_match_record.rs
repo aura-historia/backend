@@ -60,7 +60,7 @@ async fn should_put_and_get_match_record() {
 async fn should_update_match_record_feedback() {
     let repository = get_repository().await;
     let mut expected = Faker.fake::<UserSearchFilterMatchRecord>();
-    expected.matches_feedback = None;
+    expected.feedback = None;
     repository
         .put_user_search_filter_match_record(expected.clone())
         .await
@@ -73,7 +73,7 @@ async fn should_update_match_record_feedback() {
             &expected.shop_id,
             &expected.shops_product_id,
             UserSearchFilterMatchRecordUpdate {
-                matches_feedback: Some(true),
+                feedback: Some(true),
                 updated: OffsetDateTime::now_utc(),
             },
         )
@@ -81,7 +81,7 @@ async fn should_update_match_record_feedback() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(Some(true), actual.matches_feedback);
+    assert_eq!(Some(true), actual.feedback);
     assert_eq!(expected.user_id, actual.user_id);
     assert_eq!(expected.user_search_filter_id, actual.user_search_filter_id);
     assert_eq!(expected.shop_id, actual.shop_id);

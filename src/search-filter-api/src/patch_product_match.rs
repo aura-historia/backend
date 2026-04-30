@@ -19,13 +19,13 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct PatchUserSearchFilterMatchData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub matches_feedback: Option<bool>,
+    pub feedback: Option<bool>,
 }
 
 impl From<PatchUserSearchFilterMatchData> for UpdateUserSearchFilterMatchCommand {
     fn from(patch: PatchUserSearchFilterMatchData) -> Self {
         UpdateUserSearchFilterMatchCommand {
-            matches_feedback: patch.matches_feedback,
+            feedback: patch.feedback,
         }
     }
 }
@@ -97,7 +97,7 @@ mod tests {
                 .path_parameter("shopId", ShopId::new())
                 .path_parameter("shopsProductId", ShopsProductId::new())
                 .body_serde(&PatchUserSearchFilterMatchData {
-                    matches_feedback: Some(true),
+                    feedback: Some(true),
                 })
                 .jwt_claim("sub", UserId::new())
                 .build(),
@@ -141,7 +141,7 @@ mod tests {
                 .path_parameter("userSearchFilterId", UserSearchFilterId::new())
                 .path_parameter("shopsProductId", ShopsProductId::new())
                 .body_serde(&PatchUserSearchFilterMatchData {
-                    matches_feedback: Some(false),
+                    feedback: Some(false),
                 })
                 .jwt_claim("sub", UserId::new())
                 .build(),
@@ -176,7 +176,7 @@ mod tests {
                 .path_parameter("shopId", ShopId::new())
                 .path_parameter("shopsProductId", ShopsProductId::new())
                 .body_serde(&PatchUserSearchFilterMatchData {
-                    matches_feedback: Some(false),
+                    feedback: Some(false),
                 })
                 .jwt_claim("sub", UserId::new())
                 .build(),

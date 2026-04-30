@@ -18,7 +18,7 @@ pub struct SearchFilterProductMatch {
     pub product_id: ProductId,
     pub origin_event_id: EventId,
     pub enhanced_match_reason: Option<EnhancedMatchReason>,
-    pub matches_feedback: Option<bool>,
+    pub feedback: Option<bool>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -39,7 +39,7 @@ mod faker {
                 product_id: config.fake_with_rng(rng),
                 origin_event_id: config.fake_with_rng(rng),
                 enhanced_match_reason: config.fake_with_rng(rng),
-                matches_feedback: config.fake_with_rng(rng),
+                feedback: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

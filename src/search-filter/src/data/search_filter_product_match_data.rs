@@ -17,7 +17,7 @@ pub struct SearchFilterProductMatchData {
     pub product_id: ProductId,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub matches_feedback: Option<bool>,
+    pub feedback: Option<bool>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -34,7 +34,7 @@ impl From<SearchFilterProductMatch> for SearchFilterProductMatchData {
             shop_id: product_match.shop_id,
             shops_product_id: product_match.shops_product_id,
             product_id: product_match.product_id,
-            matches_feedback: product_match.matches_feedback,
+            feedback: product_match.feedback,
             created: product_match.created,
             updated: product_match.updated,
         }
@@ -54,7 +54,7 @@ mod faker {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 product_id: config.fake_with_rng(rng),
-                matches_feedback: config.fake_with_rng(rng),
+                feedback: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
