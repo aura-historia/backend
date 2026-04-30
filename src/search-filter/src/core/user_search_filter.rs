@@ -1,6 +1,7 @@
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use common::{string_newtype, user_id::UserId, user_search_filter_id::UserSearchFilterId};
 use product::core::product_search::ProductSearch;
+use serde_fields::SerdeField;
 use time::OffsetDateTime;
 
 string_newtype!(EnhancedSearchDescription, max_length(500));
@@ -16,7 +17,7 @@ pub struct UserSearchFilterSummary {
     pub updated: OffsetDateTime,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, SerdeField)]
 pub struct UserSearchFilter {
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
