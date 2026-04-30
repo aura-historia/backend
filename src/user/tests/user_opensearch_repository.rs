@@ -12,6 +12,47 @@ use user::opensearch::repository::{UserOpenSearchRepository, UserOpenSearchRepos
 use user::opensearch::user_document::UserDocument;
 
 #[localstack_test(services = [OpenSearch()])]
+async fn should_delete_user_document_when_exists() {
+    let repository = UserOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let document = Faker.fake::<UserDocument>();
+    repository
+        .index_user_document(document.clone())
+        .await
+        .unwrap();
+    refresh_index("users").await;
+
+    let response = repository
+        .delete_user_document(&document.user_id)
+        .await
+        .unwrap();
+
+    assert_eq!(response.id, document.user_id.to_string());
+    assert_eq!(response.result, "deleted");
+
+    refresh_index("users").await;
+
+    let search = UserSearch::default();
+    let search_response = repository
+        .search_user_documents(
+            &search,
+            &Sort {
+                sort: SortUserField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+    let ids: Vec<_> = search_response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source.user_id)
+        .collect();
+    assert!(!ids.contains(&document.user_id));
+}
+
+#[localstack_test(services = [OpenSearch()])]
 async fn should_search_user_documents_when_country_query_is_given() {
     let repository = UserOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let mut expected = Faker.fake::<UserDocument>();

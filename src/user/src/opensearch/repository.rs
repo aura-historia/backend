@@ -4,12 +4,14 @@ use crate::opensearch::{
     tier_document::UserTierDocument,
     user_document::{UserDocument, UserDocumentSerdeField},
 };
+use common::opensearch::delete_response::DeleteResponse;
 use common::opensearch::index_response::IndexResponse;
 use common::opensearch::search_response::SearchResponse;
 use common::pagination::cursor::Cursor;
 use common::sort::{Sort, SortOrder};
+use common::user_id::UserId;
 use geo::data::continent_data::ContinentData;
-use opensearch::{IndexParts, SearchParts};
+use opensearch::{DeleteParts, IndexParts, SearchParts};
 use serde::ser::Error;
 use serde_json::json;
 use time::format_description::well_known;
@@ -21,6 +23,8 @@ pub trait UserOpenSearchRepository {
         &self,
         document: UserDocument,
     ) -> Result<IndexResponse, opensearch::Error>;
+
+    async fn delete_user_document(&self, id: &UserId) -> Result<DeleteResponse, opensearch::Error>;
 
     async fn search_user_documents(
         &self,
@@ -63,6 +67,25 @@ impl<'a> UserOpenSearchRepository for UserOpenSearchRepositoryImpl<'a> {
         })?;
 
         Ok(index_response)
+    }
+
+    async fn delete_user_document(&self, id: &UserId) -> Result<DeleteResponse, opensearch::Error> {
+        let response = self
+            .client
+            .delete(DeleteParts::IndexId("users", &id.to_string()))
+            .send()
+            .await?
+            .error_for_status_code()?;
+
+        let payload = response.text().await?;
+        let delete_response =
+            serde_json::from_str::<DeleteResponse>(&payload).map_err(|err| {
+                serde_json::Error::custom(format!(
+                    "Failed deserializing 'DeleteResponse' with error '{err}'. Received payload: {payload}"
+                ))
+            })?;
+
+        Ok(delete_response)
     }
 
     async fn search_user_documents(
