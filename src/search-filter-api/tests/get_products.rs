@@ -153,7 +153,7 @@ async fn should_200_when_sort_created_asc() {
 
     let user_id = create_user(client).await;
     let search_filter = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
+        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), None)
         .await
         .unwrap();
 
@@ -226,7 +226,7 @@ async fn should_200_when_sort_created_asc_search_after() {
 
     let user_id = create_user(client).await;
     let search_filter = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
+        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), None)
         .await
         .unwrap();
 
@@ -303,7 +303,7 @@ async fn should_200_when_sort_created_desc() {
 
     let user_id = create_user(client).await;
     let search_filter = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
+        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), None)
         .await
         .unwrap();
 
@@ -377,7 +377,7 @@ async fn should_200_when_sort_created_desc_search_after() {
 
     let user_id = create_user(client).await;
     let search_filter = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
+        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), None)
         .await
         .unwrap();
 
@@ -446,7 +446,7 @@ async fn should_200_empty_when_no_matches() {
 
     let user_id = create_user(client).await;
     let search_filter = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
+        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), None)
         .await
         .unwrap();
 
@@ -499,11 +499,11 @@ async fn should_only_return_matches_for_specific_filter() {
 
     let user_id = create_user(client).await;
     let filter_a = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
+        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), None)
         .await
         .unwrap();
     let filter_b = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
+        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), None)
         .await
         .unwrap();
 
@@ -589,7 +589,7 @@ async fn should_hide_products_when_search_filter_match_quota_exceeded() {
         ..Default::default()
     };
     let search_filter = service
-        .create_user_search_filter(&user_id, Faker.fake(), free_search, Faker.fake())
+        .create_user_search_filter(&user_id, Faker.fake(), free_search, None)
         .await
         .unwrap();
 
