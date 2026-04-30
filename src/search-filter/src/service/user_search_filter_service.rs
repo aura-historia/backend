@@ -81,6 +81,11 @@ pub enum UserSearchFilterError {
     )]
     SearchFilterFeatureForbidden(ProductSearchSerdeField),
 
+    #[error(
+        "Search filter contains forbidden enhanced search description which requires a higher user tier."
+    )]
+    EnhancedSearchDescriptionFeatureForbidden,
+
     #[error("UserServiceError: {0}")]
     UserServiceError(UserServiceError),
 }
@@ -120,6 +125,9 @@ pub mod api {
                     ApiError::unprocessable_entity(SEARCH_FILTER_QUOTA_EXCEEDED, Box::new(err))
                 }
                 UserSearchFilterError::SearchFilterFeatureForbidden(_) => {
+                    ApiError::unprocessable_entity(SEARCH_FILTER_RESTRICTED_FEATURE, Box::new(err))
+                }
+                UserSearchFilterError::EnhancedSearchDescriptionFeatureForbidden => {
                     ApiError::unprocessable_entity(SEARCH_FILTER_RESTRICTED_FEATURE, Box::new(err))
                 }
                 UserSearchFilterError::UserServiceError(_) => {
@@ -332,6 +340,13 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
                 filter_count as u32,
                 limit,
             ));
+        }
+
+        if let Some(enhanced_description) = enhanced_search_description.as_ref() {
+            let () = user
+                .tier
+                .check_enhanced_search_filter_description(enhanced_description)
+                .map_err(|_| UserSearchFilterError::EnhancedSearchDescriptionFeatureForbidden)?;
         }
 
         let user_search_filter = UserSearchFilter {
@@ -937,7 +952,7 @@ mod tests {
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), Faker.fake())
+                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), None)
                 .await;
             assert!(actual.is_ok());
         }
@@ -979,7 +994,7 @@ mod tests {
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), Faker.fake())
+                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), None)
                 .await;
 
             assert!(actual.is_err());
@@ -1013,7 +1028,7 @@ mod tests {
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), Faker.fake())
+                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), None)
                 .await
                 .unwrap_err();
 
@@ -1039,7 +1054,7 @@ mod tests {
             let repository = MockUserSearchFilterDynamoDbRepository::default();
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), Faker.fake())
+                .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), None)
                 .await
                 .unwrap_err();
 
@@ -1091,7 +1106,7 @@ mod tests {
                 .expect("Should generate a search with forbidden features");
 
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), search, Faker.fake())
+                .create_user_search_filter(&UserId::new(), Faker.fake(), search, None)
                 .await
                 .unwrap_err();
 
@@ -1104,16 +1119,21 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn should_allow_pro_tier_to_use_all_features() {
+        #[rstest::rstest]
+        #[case(user::core::tier::UserTier::Pro)]
+        #[case(user::core::tier::UserTier::Ultimate)]
+        async fn should_allow_paid_tier_to_use_all_features(
+            #[case] tier: user::core::tier::UserTier,
+        ) {
             use user::core::user::User;
 
             let mut repository = MockUserSearchFilterDynamoDbRepository::default();
             let mut user_service = MockUserService::default();
 
-            user_service.expect_find_user().return_once(|_| {
-                Box::pin(async {
+            user_service.expect_find_user().return_once(move |_| {
+                Box::pin(async move {
                     let mut user: User = fake::Fake::fake(&fake::Faker);
-                    user.tier = user::core::tier::UserTier::Pro;
+                    user.tier = tier;
                     Ok(user)
                 })
             });
@@ -1129,7 +1149,86 @@ mod tests {
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), Faker.fake())
+                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), None)
+                .await;
+
+            assert!(actual.is_ok());
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case(user::core::tier::UserTier::Pro)]
+        #[case(user::core::tier::UserTier::Free)]
+        async fn should_err_enhanced_search_description_feature_forbidden_when_non_ultimate_tier_creates_with_enhanced_search_description(
+            #[case] tier: user::core::tier::UserTier,
+        ) {
+            use product::core::product_search::ProductSearch;
+            use user::core::user::User;
+
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            let mut user_service = MockUserService::default();
+
+            user_service.expect_find_user().return_once(move |_| {
+                Box::pin(async move {
+                    let mut user: User = fake::Fake::fake(&fake::Faker);
+                    user.tier = tier;
+                    Ok(user)
+                })
+            });
+
+            repository
+                .expect_query_user_search_filter_records()
+                .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
+
+            // Generate searches until we find one with forbidden features for Free tier
+            let search: ProductSearch = Faker.fake();
+            let actual = service
+                .create_user_search_filter(&UserId::new(), Faker.fake(), search, Some(Faker.fake()))
+                .await
+                .unwrap_err();
+
+            match actual {
+                UserSearchFilterError::EnhancedSearchDescriptionFeatureForbidden => {}
+                err => panic!(
+                    "Expected 'UserSearchFilterError::EnhancedSearchDescriptionFeatureForbidden' but got '{err}'"
+                ),
+            }
+        }
+
+        #[tokio::test]
+        async fn should_allow_ultimate_tier_to_use_enhanced_search_description() {
+            use user::core::user::User;
+
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            let mut user_service = MockUserService::default();
+
+            user_service.expect_find_user().return_once(|_| {
+                Box::pin(async {
+                    let mut user: User = fake::Fake::fake(&fake::Faker);
+                    user.tier = user::core::tier::UserTier::Ultimate;
+                    Ok(user)
+                })
+            });
+
+            repository
+                .expect_query_user_search_filter_records()
+                .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+
+            repository
+                .expect_put_user_search_filter_record()
+                .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
+
+            let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
+
+            let actual = service
+                .create_user_search_filter(
+                    &UserId::new(),
+                    Faker.fake(),
+                    Faker.fake(),
+                    Some(Faker.fake()),
+                )
                 .await;
 
             assert!(actual.is_ok());
