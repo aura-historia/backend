@@ -1,3 +1,4 @@
+use crate::core::command::UpdateUserSearchFilterMatchCommand;
 use crate::core::quota::SearchFilterQuota;
 use crate::core::search_filter_product_match::SearchFilterProductMatch;
 use crate::core::sort_search_filter_match_field::SortSearchFilterMatchField;
@@ -9,7 +10,6 @@ use crate::core::user_search_filter_update::UserSearchFilterUpdate;
 use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
 use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
 use crate::dynamodb::user_search_filter_match_record_update::UserSearchFilterMatchRecordUpdate;
-use crate::service::command::UpdateUserSearchFilterMatchCommand;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::batch::Batch;
 use common::pagination::cursor::{Cursor, CursoredResult};
@@ -2344,9 +2344,9 @@ mod tests {
     }
 
     mod update_search_filter_product_match {
+        use crate::core::command::UpdateUserSearchFilterMatchCommand;
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
-        use crate::service::command::UpdateUserSearchFilterMatchCommand;
         use crate::service::user_search_filter_service::{
             UserSearchFilterError, UserSearchFilterService, UserSearchFilterServiceImpl,
         };

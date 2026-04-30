@@ -1,4 +1,4 @@
-use crate::service::command::UpdateUserSearchFilterMatchCommand;
+use crate::core::command::UpdateUserSearchFilterMatchCommand;
 use common::dynamodb_update::DynamoDbUpdate;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;

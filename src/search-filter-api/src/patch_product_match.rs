@@ -10,8 +10,8 @@ use common::{
     user_search_filter_id::api::extract_user_search_filter_id_path,
 };
 use lambda_runtime::LambdaEvent;
+use search_filter::core::command::UpdateUserSearchFilterMatchCommand;
 use search_filter::data::search_filter_product_match_data::SearchFilterProductMatchData;
-use search_filter::service::command::UpdateUserSearchFilterMatchCommand;
 use search_filter::service::user_search_filter_service::UserSearchFilterService;
 use serde::{Deserialize, Serialize};
 
