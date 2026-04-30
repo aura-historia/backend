@@ -88,6 +88,15 @@ fn check_search_filter_features_free(
     if !search.shop_type_query.is_empty() {
         return Err(ProductSearchSerdeField::ShopTypeQuery);
     }
+    if !search.country_query.is_empty() {
+        return Err(ProductSearchSerdeField::CountryQuery);
+    }
+    if !search.continent_query.is_empty() {
+        return Err(ProductSearchSerdeField::ContinentQuery);
+    }
+    if search.geo_address_distance_query.is_some() {
+        return Err(ProductSearchSerdeField::GeoAddressDistanceQuery);
+    }
     if search.origin_year_query.is_some() {
         return Err(ProductSearchSerdeField::OriginYearQuery);
     }
@@ -187,6 +196,7 @@ fn check_search_filter_update_features_free(
 mod tests {
     use super::UserTier;
     use crate::core::quota::SearchFilterQuota;
+    use product::core::product_search::{ProductSearch, ProductSearchSerdeField};
 
     #[test]
     fn should_enforce_search_filter_quota() {
@@ -200,5 +210,58 @@ mod tests {
         assert_eq!(UserTier::Free.search_filter_match_quota(), 10);
         assert_eq!(UserTier::Pro.search_filter_match_quota(), u32::MAX);
         assert_eq!(UserTier::Ultimate.search_filter_match_quota(), u32::MAX);
+    }
+
+    #[test]
+    fn should_forbid_country_query_when_free_tier() {
+        use common::currency::domain::Currency;
+        use common::language::domain::Language;
+        use isocountry::CountryCode;
+
+        let search = ProductSearch::new(Language::En, Currency::Eur)
+            .with_country_query([CountryCode::DEU].into_iter().collect());
+
+        assert_eq!(
+            UserTier::Free.check_search_filter_features(&search),
+            Err(ProductSearchSerdeField::CountryQuery)
+        );
+    }
+
+    #[test]
+    fn should_forbid_continent_query_when_free_tier() {
+        use common::currency::domain::Currency;
+        use common::language::domain::Language;
+        use geo::core::continent::Continent;
+
+        let search = ProductSearch::new(Language::En, Currency::Eur)
+            .with_continent_query([Continent::Europe].into_iter().collect());
+
+        assert_eq!(
+            UserTier::Free.check_search_filter_features(&search),
+            Err(ProductSearchSerdeField::ContinentQuery)
+        );
+    }
+
+    #[test]
+    fn should_forbid_geo_address_distance_query_when_free_tier() {
+        use common::currency::domain::Currency;
+        use common::distance::domain::{Distance, DistanceUnit, GeoDistanceQuery};
+        use common::language::domain::Language;
+
+        let geo_query = GeoDistanceQuery {
+            lat: 52.52,
+            lon: 13.405,
+            distance: Distance {
+                amount: 100.0,
+                unit: DistanceUnit::Kilometers,
+            },
+        };
+        let search = ProductSearch::new(Language::En, Currency::Eur)
+            .with_geo_address_distance_query(geo_query);
+
+        assert_eq!(
+            UserTier::Free.check_search_filter_features(&search),
+            Err(ProductSearchSerdeField::GeoAddressDistanceQuery)
+        );
     }
 }
