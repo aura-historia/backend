@@ -11,9 +11,8 @@ use common::{
 };
 use lambda_runtime::LambdaEvent;
 use search_filter::data::search_filter_product_match_data::SearchFilterProductMatchData;
-use search_filter::service::user_search_filter_service::{
-    UpdateUserSearchFilterMatchCommand, UserSearchFilterService,
-};
+use search_filter::service::command::UpdateUserSearchFilterMatchCommand;
+use search_filter::service::user_search_filter_service::UserSearchFilterService;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]

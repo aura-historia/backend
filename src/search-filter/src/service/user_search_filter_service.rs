@@ -9,6 +9,7 @@ use crate::core::user_search_filter_update::UserSearchFilterUpdate;
 use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
 use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
 use crate::dynamodb::user_search_filter_match_record_update::UserSearchFilterMatchRecordUpdate;
+use crate::service::command::UpdateUserSearchFilterMatchCommand;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::batch::Batch;
 use common::pagination::cursor::{Cursor, CursoredResult};
@@ -228,17 +229,6 @@ pub trait UserSearchFilterService {
 pub struct CreateSearchFilterProductMatchesResult {
     pub processed: Vec<SearchFilterProductMatch>,
     pub unprocessed: Vec<SearchFilterProductMatch>,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct UpdateUserSearchFilterMatchCommand {
-    pub matches_feedback: Option<bool>,
-}
-
-impl UpdateUserSearchFilterMatchCommand {
-    pub fn is_empty(&self) -> bool {
-        self.matches_feedback.is_none()
-    }
 }
 
 pub struct UserSearchFilterServiceImpl<'a> {
@@ -2356,9 +2346,9 @@ mod tests {
     mod update_search_filter_product_match {
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
+        use crate::service::command::UpdateUserSearchFilterMatchCommand;
         use crate::service::user_search_filter_service::{
-            UpdateUserSearchFilterMatchCommand, UserSearchFilterError, UserSearchFilterService,
-            UserSearchFilterServiceImpl,
+            UserSearchFilterError, UserSearchFilterService, UserSearchFilterServiceImpl,
         };
         use common::shop_id::ShopId;
         use common::shops_product_id::ShopsProductId;
