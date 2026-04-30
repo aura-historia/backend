@@ -91,6 +91,8 @@ pub struct SearchFilterUserStateData {
     pub user_search_filter_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub match_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub match_feedback: Option<bool>,
 }
 
 impl From<SearchFilterUserState> for SearchFilterUserStateData {
@@ -101,6 +103,7 @@ impl From<SearchFilterUserState> for SearchFilterUserStateData {
             user_search_filter_id: value.user_search_filter_id,
             user_search_filter_name: value.user_search_filter_name.map(Into::into),
             match_reason: value.match_reason.map(Into::into),
+            match_feedback: value.match_feedback,
         }
     }
 }
@@ -232,6 +235,7 @@ mod tests {
             user_search_filter_id: Some(filter_id),
             user_search_filter_name: Some(UserSearchFilterName::from("Antique Watches")),
             match_reason: Some(reason),
+            match_feedback: Some(true),
         };
         let data: SearchFilterUserStateData = state.into();
         assert!(data.matched);
@@ -255,6 +259,7 @@ mod tests {
             user_search_filter_id: None,
             user_search_filter_name: None,
             match_reason: None,
+            match_feedback: Some(false),
         };
         let data: SearchFilterUserStateData = state.into();
         assert!(data.matched);
@@ -270,6 +275,7 @@ mod tests {
             user_search_filter_id: Some(filter_id),
             user_search_filter_name: Some("My Filter".to_string()),
             match_reason: Some("vintage match".to_string()),
+            match_feedback: Some(true),
         };
         let json = serde_json::to_value(data).unwrap();
         assert_eq!(json["matched"], true);
@@ -290,6 +296,7 @@ mod tests {
             user_search_filter_id: None,
             user_search_filter_name: None,
             match_reason: None,
+            match_feedback: Some(true),
         };
         let json = serde_json::to_value(data).unwrap();
         assert_eq!(json["matched"], false);
@@ -307,6 +314,7 @@ mod tests {
             user_search_filter_id: None,
             user_search_filter_name: None,
             match_reason: None,
+            match_feedback: Some(true),
         };
         let json = serde_json::to_value(data).unwrap();
         assert_eq!(json["matched"], true);

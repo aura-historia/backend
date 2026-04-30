@@ -44,6 +44,7 @@ pub struct SearchFilterUserState {
     pub user_search_filter_id: Option<UserSearchFilterId>,
     pub user_search_filter_name: Option<UserSearchFilterName>,
     pub match_reason: Option<EnhancedMatchReason>,
+    pub match_feedback: Option<bool>,
 }
 
 #[cfg(test)]
