@@ -4,8 +4,9 @@ use super::{
     image::normalize_images,
     price::normalize_price_field,
     text::{
-        normalize_description, normalize_shops_product_id_with_url_sha_fallback,
-        normalize_title_localized,
+        detect_description_language, normalize_description,
+        normalize_shops_product_id_with_url_sha_fallback,
+        normalize_title_localized_with_description_language_fallback,
     },
 };
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
@@ -109,7 +110,11 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
 
         let shops_product_id =
             normalize_shops_product_id_with_url_sha_fallback(&raw.shops_product_id, &url);
-        let title = normalize_title_localized(&raw.title)?;
+        let description_language = detect_description_language(&raw.description);
+        let title = normalize_title_localized_with_description_language_fallback(
+            &raw.title,
+            description_language,
+        )?;
         let description = normalize_description(raw.description)?;
 
         debug!(
@@ -182,6 +187,7 @@ mod tests {
 
     use common::{
         currency::domain::Currency,
+        language::domain::Language,
         price::domain::{MonetaryAmount, Price},
         product_state::domain::ProductState,
     };
@@ -611,6 +617,19 @@ mod tests {
         let (result, _) = svc.normalize(raw, base_url(), None).await.unwrap();
         assert!(result.auction_start.is_none());
         assert!(result.auction_end.is_none());
+    }
+
+    #[tokio::test]
+    async fn should_use_description_language_for_short_mixed_title() {
+        let svc = make_available_service();
+        let mut raw = minimal_raw();
+        raw.title = "La Saintongeoise".into();
+        raw.description = vec![
+            "This vintage French lithographic poster comes from a private English catalogue description with clear provenance.".into(),
+        ];
+
+        let (result, _) = svc.normalize(raw, base_url(), None).await.unwrap();
+        assert_eq!(result.title.localization, Language::En);
     }
 
     // -----------------------------------------------------------------------

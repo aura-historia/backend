@@ -1,6 +1,6 @@
 //! Demo binary - showcases end-to-end usage of [`SpiderService`].
 //!
-//! Requires a running Postgres reachable via `DATABASE_URL`. Start one with:
+//! Uses a hardcoded local Postgres database (`crawler_demo_spider`). Bootstrap with:
 //!
 //! ```powershell
 //! # from src/crawler/
@@ -12,7 +12,7 @@
 //!
 //! | Env var          | Purpose                 | Default                         |
 //! |------------------|-----------------------  |---------------------------------|
-//! | `DATABASE_URL`   | Postgres connection string | *(required)*                 |
+//! | `LOCAL_DB_URL`   | Hardcoded local DB URL | `.../crawler_demo_spider`      |
 //! | `GEMINI_API_KEY` | API key for Gemini      | *(required)*                    |
 //! | `GEMINI_MODEL`   | Model name to use       | `gemini-3.1-flash-lite-preview` |
 //! | `LOG_LEVEL`      | Log level for this demo | `info`                          |
@@ -30,6 +30,7 @@ use std::io::BufWriter;
 use std::sync::Arc;
 
 use common::shop_id::ShopId;
+use crawler::local_db::{DEMO_SPIDER_DB_NAME, bootstrap_local_database, demo_spider_db_url};
 use crawler::spider::SpiderRunResult;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
@@ -87,7 +88,7 @@ async fn main() {
         }
     };
 
-    // Connect to Postgres via DATABASE_URL and apply pending migrations.
+    // Connect to local Postgres and apply pending migrations.
     let pool = match connect_and_migrate().await {
         Ok(p) => p,
         Err(error) => {
@@ -185,14 +186,12 @@ fn build_url_repository(pool: PgPool) -> Arc<UrlMetadataRepositoryImpl> {
     Arc::new(UrlMetadataRepositoryImpl::new(pool))
 }
 
-/// Connects to Postgres via `DATABASE_URL` and applies pending migrations.
+/// Connects to local Postgres and applies pending migrations.
 async fn connect_and_migrate() -> Result<PgPool, DemoError> {
-    let db_url = env::var("DATABASE_URL").map_err(|_| {
-        DemoError::Demo(
-            "DATABASE_URL must be set — start Postgres with .\\db-up.ps1 (from src/crawler/)"
-                .to_string(),
-        )
-    })?;
+    bootstrap_local_database(DEMO_SPIDER_DB_NAME)
+        .await
+        .map_err(DemoError::Demo)?;
+    let db_url = demo_spider_db_url();
 
     let pool = PgPoolOptions::new()
         .max_connections(DEMO_POOL_MAX_CONNECTIONS)

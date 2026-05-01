@@ -1,6 +1,6 @@
 //! Demo binary — showcases end-to-end usage of [`ScraperService`].
 //!
-//! Requires a running Postgres reachable via `DATABASE_URL`. Start one with:
+//! Uses a hardcoded local Postgres database (`crawler_demo_scraper`). Bootstrap with:
 //!
 //! ```powershell
 //! # from src/crawler/
@@ -11,7 +11,7 @@
 //! # What it does
 //!
 //! 1. Initialises structured info logging.
-//! 2. Connects to Postgres via `DATABASE_URL` and applies pending migrations.
+//! 2. Connects to local Postgres and applies pending migrations.
 //! 3. Wires up all real service implementations:
 //!    - [`ProductStateMappingServiceImpl`]
 //!    - [`ProductNormalizationServiceImpl`]
@@ -23,7 +23,7 @@
 //!
 //! | Env var          | Purpose                              | Default                         |
 //! |------------------|--------------------------------------|--------------------|
-//! | `DATABASE_URL`   | Postgres connection string           | *(required)*       |
+//! | `LOCAL_DB_URL`   | Hardcoded local DB URL               | `.../crawler_demo_scraper` |
 //! | `GEMINI_API_KEY` | API key forwarded to the LLM builder | *(required)*       |
 //! | `GEMINI_MODEL`   | Model name to use                    | `gemini-3.1-flash-lite-preview` |
 //! | `LOG_LEVEL`      | Log level for `init_logging`         | `info`             |
@@ -43,6 +43,7 @@ use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
+use crawler::local_db::{DEMO_SCRAPER_DB_NAME, bootstrap_local_database, demo_scraper_db_url};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
@@ -159,7 +160,7 @@ async fn main() {
     unsafe { std::env::set_var("LOG_LEVEL", "info") };
     common::logging::init_logging();
 
-    // 2. Connect to Postgres via DATABASE_URL and apply pending migrations.
+    // 2. Connect to local Postgres and apply pending migrations.
     let pool: &'static PgPool = connect_and_migrate().await;
 
     // 3. Wire services.
@@ -211,14 +212,16 @@ async fn main() {
 // Postgres helpers
 // ---------------------------------------------------------------------------
 
-/// Connects to Postgres via `DATABASE_URL`, applies pending migrations, and
+/// Connects to local Postgres, applies pending migrations, and
 /// returns a `'static` reference to a [`PgPool`].
 ///
 /// The pool is intentionally leaked: the repositories hold `&'static PgPool`
 /// references and must outlive the service, which lives until end of `main`.
 async fn connect_and_migrate() -> &'static PgPool {
-    let db_url = std::env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set — start Postgres with .\\db-up.ps1 (from src/crawler/)");
+    bootstrap_local_database(DEMO_SCRAPER_DB_NAME)
+        .await
+        .expect("Failed to bootstrap local Postgres database");
+    let db_url = demo_scraper_db_url();
 
     let pool = PgPoolOptions::new()
         .max_connections(DEMO_POOL_MAX_CONNECTIONS)

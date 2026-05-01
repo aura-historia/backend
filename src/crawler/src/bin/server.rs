@@ -14,7 +14,7 @@
 //!
 //! | Variable                  | Purpose                                                        |
 //! |---------------------------|----------------------------------------------------------------|
-//! | `DATABASE_URL`            | Postgres connection string                                     |
+//! | `LOCAL_DB_URL`            | Hardcoded local Postgres URL (`crawler_server`)               |
 //! | `GEMINI_API_KEY`          | API key for the Gemini LLM backend                             |
 //! | `GEMINI_MODEL`            | Gemini model name (default: `gemini-3.1-pro-preview`)   |
 //! | `DYNAMODB_TABLE_NAME`     | DynamoDB table for product events                              |
@@ -27,6 +27,7 @@ use aws_config::BehaviorVersion;
 use common::pagination::cursor::Cursor;
 use common::price::domain::FixedFxRate;
 use common::shop_id::ShopId;
+use crawler::local_db::{SERVER_DB_NAME, bootstrap_local_database, server_db_url};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
@@ -118,7 +119,15 @@ impl ShopRegistrationSource for OpenSearchShopSource {
             cursor = Some(result.cursor);
         }
 
-        Ok(all_shops)
+        let filtered: Vec<_> = all_shops
+            .into_iter()
+            .filter(|shop| {
+                shop.domains
+                    .iter()
+                    .any(|domain| ["anticoantico.com"].contains(&domain.as_str()))
+            })
+            .collect();
+        Ok(filtered)
     }
 }
 
@@ -157,7 +166,7 @@ async fn main() {
         scraper_concurrency: 10,
         spider_classify_threshold: 400,
         scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
-        push_batch_size: 200,
+        push_batch_size: 100,
         ..Default::default()
     };
 
@@ -173,8 +182,10 @@ async fn main() {
 
     // 2. Connect to database — pool is sized to spider_concurrency + scraper_concurrency + 10
     //    to keep headroom for concurrent repository queries.
-    let db_url =
-        std::env::var("DATABASE_URL").expect("DATABASE_URL environment variable must be set");
+    bootstrap_local_database(SERVER_DB_NAME)
+        .await
+        .expect("Failed to bootstrap local Postgres database");
+    let db_url = server_db_url();
     let pool = config
         .connect_pool(&db_url)
         .await

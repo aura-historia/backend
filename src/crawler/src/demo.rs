@@ -16,21 +16,20 @@
 //! |------------------|--------------------------------------|--------------------------------------------------|
 //! | `GEMINI_API_KEY` | API key for the Gemini backend       | *(required)*                                     |
 //! | `GEMINI_MODEL`   | Model to use for LLM calls           | `gemini-3.1-pro-preview`                  |
-//! | `DATABASE_URL`   | Override the Postgres connection URL | `postgres://postgres:postgres@localhost:5432/postgres` |
+//! | `LOCAL_DB_URL`   | Hardcoded local DB URL                | `postgres://postgres:postgres@localhost:5432/crawler_demo` |
 //! | `LOG_LEVEL`      | Log level                            | `info`                                           |
 //!
 //! Scraped products are written to `scraped_products.json` instead of being forwarded to DynamoDB.
 
 use std::collections::HashSet;
 use std::env;
-use std::path::Path;
-use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use common::domain::Domain;
 use common::shop_id::ShopId;
+use crawler::local_db::{DEMO_DB_NAME, bootstrap_local_database, demo_db_url};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
@@ -139,10 +138,11 @@ async fn main() {
     // then apply any pending migrations.
     // ------------------------------------------------------------------
 
-    let db_url = env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/postgres".to_string());
-
-    start_db();
+    let db_url = demo_db_url();
+    if let Err(error) = bootstrap_local_database(DEMO_DB_NAME).await {
+        error!(error = %error, "Failed to bootstrap local Postgres database");
+        return;
+    }
 
     info!("Waiting for Postgres to be ready…");
     let pool = match connect_with_retry(&config, &db_url).await {
@@ -276,26 +276,6 @@ async fn main() {
 ///
 /// The compose file path is baked in via `CARGO_MANIFEST_DIR` so this works
 /// regardless of the working directory when `cargo run` is invoked.
-fn start_db() {
-    let crate_dir = env!("CARGO_MANIFEST_DIR");
-    let compose_file = Path::new(crate_dir).join("docker-compose.yml");
-
-    info!(
-        compose = %compose_file.display(),
-        "Starting Postgres via docker compose…"
-    );
-
-    let status = Command::new("docker")
-        .args(["compose", "-f", compose_file.to_str().unwrap(), "up", "-d"])
-        .status();
-
-    match status {
-        Ok(s) if s.success() => info!("docker compose up -d succeeded"),
-        Ok(s) => error!(exit_code = ?s.code(), "docker compose up -d exited with non-zero status"),
-        Err(e) => error!(error = %e, "Failed to run docker compose — is Docker Desktop running?"),
-    }
-}
-
 /// Attempts to connect to Postgres, retrying with exponential back-off.
 /// This handles the window between `docker compose up -d` returning and
 /// Postgres actually accepting connections.
