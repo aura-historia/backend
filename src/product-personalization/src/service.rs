@@ -1869,15 +1869,23 @@ mod tests {
         let old_product_id = ProductId::new();
         let unmatched_product_id = ProductId::new();
 
-        // Match created very early this month — will sort as position 1 (within Free quota of 10)
+        // Anchor all current-month timestamps to the first of the current month.
+        // Using fixed offsets from month_start ensures correct ordering regardless
+        // of when the test runs (avoids crossing month boundaries with large offsets from `now`).
+        let current_month_base = OffsetDateTime::new_utc(
+            time::Date::from_calendar_date(now.year(), now.month(), 1).unwrap(),
+            time::Time::MIDNIGHT,
+        );
+
+        // Match created at start of this month — will sort as position 1 (within Free quota of 10)
         let mut within_match: search_filter::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord = Faker.fake();
         within_match.product_id = within_quota_product_id;
-        within_match.created = now - time::Duration::hours(100);
+        within_match.created = current_month_base;
 
-        // Match created just now — will sort as position 12 (beyond Free quota of 10)
+        // Match created last in this month — will sort as position 12 (beyond Free quota of 10)
         let mut beyond_match: search_filter::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord = Faker.fake();
         beyond_match.product_id = beyond_quota_product_id;
-        beyond_match.created = now;
+        beyond_match.created = current_month_base + time::Duration::hours(11);
 
         // Old match from previous month — never hidden
         let mut old_match: search_filter::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord = Faker.fake();
@@ -1890,9 +1898,9 @@ mod tests {
             .return_once(move |_| {
                 let mut records = Vec::new();
                 // 10 filler matches filling up the quota (created between within_match and beyond_match)
-                for i in 0..10 {
+                for i in 0..10i64 {
                     let mut filler: search_filter::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord = Faker.fake();
-                    filler.created = now - time::Duration::hours(99 - i);
+                    filler.created = current_month_base + time::Duration::hours(i + 1);
                     records.push(filler);
                 }
                 records.push(within_match);
