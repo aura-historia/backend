@@ -71,7 +71,7 @@ impl<'a> PipeFlowIn for PipeFlowInImpl<'a> {
                     let local_messages_count = local_messages.len();
                     messages.append(&mut local_messages);
 
-                    if local_messages_count < 10 || messages.len() as u16 >= batch_in_count {
+                    if local_messages_count == 0 || messages.len() as u16 >= batch_in_count {
                         break;
                     }
                 }
