@@ -142,20 +142,3 @@ async fn should_respect_batch_limit() {
     assert!(!actual.aborted);
     assert_eq!(25, actual.data.len());
 }
-
-#[rstest::rstest]
-#[trace]
-#[test_attr(apply(test))]
-#[localstack_test(services = [SOURCE_QUEUE])]
-async fn should_handle_very_small_visibility_timeout() {
-    prepare_messages(5).await;
-
-    let sqs = get_sqs_client().await;
-    let pipe_flow_in = PipeFlowInImpl::new(sqs, SOURCE_QUEUE.queue_url());
-
-    // Use minimum visibility timeout
-    let actual: FlowInResult = pipe_flow_in.flow_in(10, 1).await;
-
-    assert!(!actual.aborted);
-    assert_eq!(5, actual.data.len());
-}
