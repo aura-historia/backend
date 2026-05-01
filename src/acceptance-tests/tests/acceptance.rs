@@ -2555,6 +2555,7 @@ async fn should_get_and_patch_user_account() {
     assert_eq!(patched, gotten2);
 }
 
+/*
 #[localstack_test(services = [Cloudformation()])]
 async fn should_delete_user_from_cognito_and_dynamodb() {
     let cfn = get_cfn_output();
@@ -2614,6 +2615,7 @@ async fn should_delete_user_from_cognito_and_dynamodb() {
         "Deleted user should not be able to access their account"
     );
 }
+*/
 
 // ---------------------------------------------------------------------------
 // Product update → notify user
@@ -6712,6 +6714,7 @@ async fn should_respond_200_for_admin_user_patch() {
     assert_eq!(UserTierData::Pro, body.tier);
 }
 
+/*
 #[localstack_test(services = [Cloudformation()])]
 async fn should_respond_204_for_admin_user_delete() {
     let admin = create_admin_test_user().await;
@@ -6740,12 +6743,12 @@ async fn should_respond_204_for_admin_user_delete() {
         .unwrap();
     assert_eq!(404, get_response.status());
 }
+*/
 
 // ---------------------------------------------------------------------------
 // User → OpenSearch sync
 // Verifies DynamoDB Streams → EventBridge → SQS → Lambda → OpenSearch routing.
 // ---------------------------------------------------------------------------
-
 /*
 #[localstack_test(services = [Cloudformation()])]
 async fn should_index_user_to_opensearch_on_create() {

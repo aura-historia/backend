@@ -1931,7 +1931,7 @@ Resources:
                 Action:
                   - cognito-idp:AdminDeleteUser
                 Resource: !GetAtt PrimaryUserPool.Arn
-        - PolicyName: OpenSearchReadOnly
+        - PolicyName: OpenSearchAccess
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -1942,6 +1942,7 @@ Resources:
                   - es:ESHttpGet
                   - es:ESHttpHead
                   - es:ESHttpPost
+                  - es:ESHttpDelete
                 Resource: !Sub "${OpenSearchDomain.Arn}/*"
   UserApiLambda:
     Type: AWS::Lambda::Function

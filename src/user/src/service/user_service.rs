@@ -1,11 +1,13 @@
 use crate::core::role::UserRole;
 use crate::core::tier::UserTier;
 use crate::core::user::User;
+use crate::core::{sort_user_field::SortUserField, user_search::UserSearch};
 use crate::dynamodb::repository::UserDynamoDbRepository;
 use crate::dynamodb::role_record::UserRoleRecord;
 use crate::dynamodb::tier_record::UserTierRecord;
 use crate::dynamodb::user_record::{mk_gsi1_pk, mk_gsi1_sk};
 use crate::dynamodb::user_record_update::UserRecordUpdate;
+use crate::opensearch::repository::UserOpenSearchRepository;
 use crate::service::cognito_admin_service::{CognitoAdminError, CognitoAdminService};
 use crate::service::command::{CreateUserCommand, UpdateUserCommand};
 use aws_sdk_dynamodb::error::SdkError;
@@ -21,14 +23,11 @@ use geo::service::geocoding_service::{GeocodingError, GeocodingService, NoopGeoc
 use time::OffsetDateTime;
 use tracing::{error, info, warn};
 
-#[cfg(feature = "opensearch")]
-use crate::{
-    core::{sort_user_field::SortUserField, user_search::UserSearch},
-    opensearch::repository::UserOpenSearchRepository,
-};
-
 const MAX_DELETE_RETRIES: u32 = 5;
 
+fn delete_retry_backoff_ms(attempt: u32) -> u64 {
+    100 * 2_u64.saturating_pow(attempt - 1)
+}
 #[derive(thiserror::Error, Debug)]
 pub enum UserServiceError {
     #[error("User with UserId '{0}' not found.")]
@@ -67,11 +66,9 @@ pub enum UserServiceError {
     #[error("Geocoding error: {0}")]
     GeocodingError(#[from] GeocodingError),
 
-    #[cfg(feature = "opensearch")]
     #[error("OpenSearchError: {0}")]
     OpenSearchError(#[from] opensearch::Error),
 
-    #[cfg(feature = "opensearch")]
     #[error("User OpenSearch repository not configured")]
     UserOpenSearchRepositoryNotConfigured,
 }
@@ -113,9 +110,7 @@ pub mod api {
                 UserServiceError::GeocodingError(_) => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
-                #[cfg(feature = "opensearch")]
                 UserServiceError::OpenSearchError(opensearch_err) => opensearch_err.into(),
-                #[cfg(feature = "opensearch")]
                 UserServiceError::UserOpenSearchRepositoryNotConfigured => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
@@ -146,7 +141,6 @@ pub trait UserService {
 
     async fn delete_user(&self, user_id: &UserId) -> Result<(), UserServiceError>;
 
-    #[cfg(feature = "opensearch")]
     async fn search_users(
         &self,
         search: &UserSearch,
@@ -159,7 +153,6 @@ pub struct UserServiceImpl<'a> {
     repository: &'a (dyn UserDynamoDbRepository + Sync),
     geocoding_service: &'a (dyn GeocodingService + Sync),
     cognito_admin_service: Option<&'a (dyn CognitoAdminService + Sync)>,
-    #[cfg(feature = "opensearch")]
     opensearch_repository: Option<&'a (dyn UserOpenSearchRepository + Sync)>,
 }
 
@@ -169,7 +162,6 @@ impl<'a> UserServiceImpl<'a> {
             repository,
             geocoding_service: &NoopGeocodingService,
             cognito_admin_service: None,
-            #[cfg(feature = "opensearch")]
             opensearch_repository: None,
         }
     }
@@ -182,12 +174,10 @@ impl<'a> UserServiceImpl<'a> {
             repository,
             geocoding_service: &NoopGeocodingService,
             cognito_admin_service: Some(cognito_admin_service),
-            #[cfg(feature = "opensearch")]
             opensearch_repository: None,
         }
     }
 
-    #[cfg(feature = "opensearch")]
     pub fn with_cognito_and_opensearch(
         repository: &'a (dyn UserDynamoDbRepository + Sync),
         cognito_admin_service: &'a (dyn CognitoAdminService + Sync),
@@ -209,12 +199,10 @@ impl<'a> UserServiceImpl<'a> {
             repository,
             geocoding_service,
             cognito_admin_service: None,
-            #[cfg(feature = "opensearch")]
             opensearch_repository: None,
         }
     }
 
-    #[cfg(feature = "opensearch")]
     pub fn with_cognito_opensearch_and_geocoding(
         repository: &'a (dyn UserDynamoDbRepository + Sync),
         cognito_admin_service: &'a (dyn CognitoAdminService + Sync),
@@ -364,7 +352,8 @@ impl<'a> UserService for UserServiceImpl<'a> {
             match self.repository.delete_user_record(user_id).await {
                 Ok(_) => {
                     info!(userId = %user_id, "Deleted User.");
-                    return Ok(());
+                    last_err = None;
+                    break;
                 }
                 Err(err) => {
                     if attempt < MAX_DELETE_RETRIES {
@@ -375,7 +364,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                             "Failed deleting user record from DynamoDB, retrying."
                         );
                         tokio::time::sleep(std::time::Duration::from_millis(
-                            100 * 2_u64.saturating_pow(attempt - 1),
+                            delete_retry_backoff_ms(attempt),
                         ))
                         .await;
                     } else {
@@ -391,10 +380,52 @@ impl<'a> UserService for UserServiceImpl<'a> {
             }
         }
 
-        Err(last_err.unwrap().into())
+        if let Some(err) = last_err {
+            return Err(err.into());
+        }
+
+        if let Some(repository) = self.opensearch_repository {
+            let mut last_os_err = None;
+            for attempt in 1..=MAX_DELETE_RETRIES {
+                match repository.delete_user_document(user_id).await {
+                    Ok(_) => {
+                        info!(userId = %user_id, "Deleted User OpenSearch document.");
+                        last_os_err = None;
+                        break;
+                    }
+                    Err(err) => {
+                        if attempt < MAX_DELETE_RETRIES {
+                            warn!(
+                                userId = %user_id,
+                                attempt,
+                                error = %err,
+                                "Failed deleting user document from OpenSearch, retrying."
+                            );
+                            tokio::time::sleep(std::time::Duration::from_millis(
+                                delete_retry_backoff_ms(attempt),
+                            ))
+                            .await;
+                        } else {
+                            error!(
+                                userId = %user_id,
+                                attempt,
+                                error = %err,
+                                "Failed deleting user document from OpenSearch after max retries."
+                            );
+                        }
+                        last_os_err = Some(err);
+                    }
+                }
+            }
+
+            if let Some(err) = last_os_err {
+                return Err(err.into());
+            }
+        }
+
+        Ok(())
     }
 
-    #[cfg(feature = "opensearch")]
     async fn search_users(
         &self,
         search: &UserSearch,
@@ -925,6 +956,156 @@ mod tests {
                 "should have retried once"
             );
         }
+
+        mod with_opensearch {
+            use crate::{
+                dynamodb::repository::MockUserDynamoDbRepository,
+                opensearch::repository::MockUserOpenSearchRepository,
+                service::{
+                    cognito_admin_service::MockCognitoAdminService,
+                    user_service::{UserService, UserServiceError, UserServiceImpl},
+                },
+            };
+            use aws_sdk_dynamodb::operation::delete_item::DeleteItemOutput;
+            use common::opensearch::delete_response::DeleteResponse;
+            use common::user_id::UserId;
+
+            fn deleted_response(id: &UserId) -> DeleteResponse {
+                DeleteResponse {
+                    index: "users".to_string(),
+                    id: id.to_string(),
+                    version: Some(1),
+                    result: "deleted".to_string(),
+                }
+            }
+
+            #[tokio::test]
+            async fn should_delete_cognito_dynamodb_and_opensearch_document() {
+                let user_id = UserId::new();
+                let mut repository = MockUserDynamoDbRepository::default();
+                repository
+                    .expect_delete_user_record()
+                    .return_once(|_| Box::pin(async { Ok(DeleteItemOutput::builder().build()) }));
+                let mut cognito = MockCognitoAdminService::default();
+                cognito
+                    .expect_admin_delete_user()
+                    .return_once(|_| Box::pin(async { Ok(()) }));
+                let mut opensearch = MockUserOpenSearchRepository::default();
+                let expected_id = user_id;
+                opensearch
+                    .expect_delete_user_document()
+                    .return_once(move |_| {
+                        Box::pin(async move { Ok(deleted_response(&expected_id)) })
+                    });
+                let service = UserServiceImpl::with_cognito_and_opensearch(
+                    &repository,
+                    &cognito,
+                    &opensearch,
+                );
+
+                let actual = service.delete_user(&user_id).await;
+
+                assert!(actual.is_ok());
+            }
+
+            #[tokio::test]
+            async fn should_propagate_opensearch_error_after_retries() {
+                let user_id = UserId::new();
+                let mut repository = MockUserDynamoDbRepository::default();
+                repository
+                    .expect_delete_user_record()
+                    .return_once(|_| Box::pin(async { Ok(DeleteItemOutput::builder().build()) }));
+                let mut cognito = MockCognitoAdminService::default();
+                cognito
+                    .expect_admin_delete_user()
+                    .return_once(|_| Box::pin(async { Ok(()) }));
+                let mut opensearch = MockUserOpenSearchRepository::default();
+                opensearch.expect_delete_user_document().returning(|_| {
+                    Box::pin(async {
+                        Err(opensearch::Error::from(std::io::Error::other(
+                            "OpenSearch unavailable",
+                        )))
+                    })
+                });
+                let service = UserServiceImpl::with_cognito_and_opensearch(
+                    &repository,
+                    &cognito,
+                    &opensearch,
+                );
+
+                let actual = service.delete_user(&user_id).await;
+
+                assert!(actual.is_err());
+                match actual.unwrap_err() {
+                    UserServiceError::OpenSearchError(_) => {}
+                    other => panic!("expected UserServiceError::OpenSearchError, got: {other}"),
+                }
+            }
+
+            #[tokio::test]
+            async fn should_succeed_on_opensearch_retry_after_initial_failure() {
+                let user_id = UserId::new();
+                let call_count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+                let call_count_clone = call_count.clone();
+                let mut repository = MockUserDynamoDbRepository::default();
+                repository
+                    .expect_delete_user_record()
+                    .return_once(|_| Box::pin(async { Ok(DeleteItemOutput::builder().build()) }));
+                let mut cognito = MockCognitoAdminService::default();
+                cognito
+                    .expect_admin_delete_user()
+                    .return_once(|_| Box::pin(async { Ok(()) }));
+                let mut opensearch = MockUserOpenSearchRepository::default();
+                opensearch
+                    .expect_delete_user_document()
+                    .returning(move |id| {
+                        let count =
+                            call_count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        let id = *id;
+                        if count == 0 {
+                            Box::pin(async {
+                                Err(opensearch::Error::from(std::io::Error::other(
+                                    "Transient failure",
+                                )))
+                            })
+                        } else {
+                            Box::pin(async move { Ok(deleted_response(&id)) })
+                        }
+                    });
+                let service = UserServiceImpl::with_cognito_and_opensearch(
+                    &repository,
+                    &cognito,
+                    &opensearch,
+                );
+
+                let actual = service.delete_user(&user_id).await;
+
+                assert!(actual.is_ok());
+                assert_eq!(
+                    2,
+                    call_count.load(std::sync::atomic::Ordering::SeqCst),
+                    "should have retried once"
+                );
+            }
+
+            #[tokio::test]
+            async fn should_skip_opensearch_deletion_when_not_configured() {
+                let user_id = UserId::new();
+                let mut repository = MockUserDynamoDbRepository::default();
+                repository
+                    .expect_delete_user_record()
+                    .return_once(|_| Box::pin(async { Ok(DeleteItemOutput::builder().build()) }));
+                let mut cognito = MockCognitoAdminService::default();
+                cognito
+                    .expect_admin_delete_user()
+                    .return_once(|_| Box::pin(async { Ok(()) }));
+                let service = UserServiceImpl::with_cognito(&repository, &cognito);
+
+                let actual = service.delete_user(&user_id).await;
+
+                assert!(actual.is_ok());
+            }
+        }
     }
 
     mod stripe_subscriptions {
@@ -1048,7 +1229,7 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "opensearch"))]
+#[cfg(test)]
 mod search_users_tests {
     use crate::{
         core::{sort_user_field::SortUserField, user::User, user_search::UserSearch},
