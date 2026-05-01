@@ -1,5 +1,6 @@
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord;
+use crate::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord;
 use crate::opensearch::authenticity_document::AuthenticityDocument;
 use crate::opensearch::condition_document::ConditionDocument;
 use crate::opensearch::product_image_document::ProductImageDocument;
@@ -8,6 +9,7 @@ use crate::opensearch::provenance_document::ProvenanceDocument;
 use crate::opensearch::restoration_document::RestorationDocument;
 use common::category_key::CategoryId;
 use common::event_id::EventId;
+use common::language::record::LanguageRecord;
 use common::period_key::PeriodId;
 use common::year::Year;
 use serde::Serialize;
@@ -423,7 +425,7 @@ impl From<ProductDomainEventRecord> for ProductUpdateDocument {
 
 impl From<ProductEnrichmentEventRecord> for ProductUpdateDocument {
     fn from(event_record: ProductEnrichmentEventRecord) -> Self {
-        ProductUpdateDocument {
+        let mut update = ProductUpdateDocument {
             event_id: Some(event_record.event_id),
             price_eur: None,
             price_usd: None,
@@ -515,7 +517,65 @@ impl From<ProductEnrichmentEventRecord> for ProductUpdateDocument {
             provenance: event_record.provenance.map(Into::into),
             restoration: event_record.restoration.map(Into::into),
             updated: event_record.timestamp,
+        };
+        match (
+            event_record.event_type,
+            event_record.target_language,
+            event_record.target,
+        ) {
+            (
+                ProductEnrichmentEventTypeRecord::EnrichmentTranslatedTitle,
+                Some(LanguageRecord::De),
+                Some(target),
+            ) => update.title_de = Some(target),
+            (
+                ProductEnrichmentEventTypeRecord::EnrichmentTranslatedTitle,
+                Some(LanguageRecord::En),
+                Some(target),
+            ) => update.title_en = Some(target),
+            (
+                ProductEnrichmentEventTypeRecord::EnrichmentTranslatedTitle,
+                Some(LanguageRecord::Fr),
+                Some(target),
+            ) => update.title_fr = Some(target),
+            (
+                ProductEnrichmentEventTypeRecord::EnrichmentTranslatedTitle,
+                Some(LanguageRecord::Es),
+                Some(target),
+            ) => update.title_es = Some(target),
+            (
+                ProductEnrichmentEventTypeRecord::EnrichmentTranslatedTitle,
+                Some(LanguageRecord::It),
+                Some(target),
+            ) => update.title_it = Some(target),
+            (
+                ProductEnrichmentEventTypeRecord::EnrichmentTranslatedDescription,
+                Some(LanguageRecord::De),
+                Some(target),
+            ) => update.description_de = Some(target),
+            (
+                ProductEnrichmentEventTypeRecord::EnrichmentTranslatedDescription,
+                Some(LanguageRecord::En),
+                Some(target),
+            ) => update.description_en = Some(target),
+            (
+                ProductEnrichmentEventTypeRecord::EnrichmentTranslatedDescription,
+                Some(LanguageRecord::Fr),
+                Some(target),
+            ) => update.description_fr = Some(target),
+            (
+                ProductEnrichmentEventTypeRecord::EnrichmentTranslatedDescription,
+                Some(LanguageRecord::Es),
+                Some(target),
+            ) => update.description_es = Some(target),
+            (
+                ProductEnrichmentEventTypeRecord::EnrichmentTranslatedDescription,
+                Some(LanguageRecord::It),
+                Some(target),
+            ) => update.description_it = Some(target),
+            _ => {}
         }
+        update
     }
 }
 
@@ -653,9 +713,19 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
+    use crate::dynamodb::product_event_record::enrichment::{
+        ProductEnrichmentEventRecord, mk_pk, mk_sk,
+    };
+    use crate::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord;
     use crate::opensearch::{
         product_document::ProductDocument, product_update_document::ProductUpdateDocument,
     };
+    use common::event_id::EventId;
+    use common::language::record::LanguageRecord;
+    use common::product_id::ProductId;
+    use common::shop_id::ShopId;
+    use common::shops_product_id::ShopsProductId;
+    use time::OffsetDateTime;
 
     #[test]
     fn should_be_subset_of_product_document() {
@@ -664,5 +734,109 @@ mod tests {
                 .iter()
                 .all(|field| ProductDocument::SERDE_FIELDS.contains(field))
         )
+    }
+
+    fn make_translation_record(
+        event_type: ProductEnrichmentEventTypeRecord,
+        target_language: LanguageRecord,
+        target: &str,
+    ) -> ProductEnrichmentEventRecord {
+        let shop_id = ShopId::new();
+        let shops_product_id = ShopsProductId::new();
+        let event_id = EventId::new();
+        ProductEnrichmentEventRecord {
+            pk: mk_pk(&shop_id, &shops_product_id),
+            sk: mk_sk(&event_id),
+            product_id: ProductId::new(),
+            event_id,
+            event_type,
+            event_type_schema_version: 0,
+            shop_id,
+            seller_id: ShopId::new(),
+            shops_product_id,
+            category_id: None,
+            period_id: None,
+            source_language: Some(LanguageRecord::En),
+            target_language: Some(target_language),
+            target: Some(target.to_string()),
+            embedding: None,
+            native_title: None,
+            origin_year_min: None,
+            origin_year: None,
+            origin_year_max: None,
+            authenticity: None,
+            condition: None,
+            provenance: None,
+            restoration: None,
+            timestamp: OffsetDateTime::now_utc(),
+        }
+    }
+
+    #[rstest::rstest]
+    #[case(LanguageRecord::De, "titleDe")]
+    #[case(LanguageRecord::En, "titleEn")]
+    #[case(LanguageRecord::Fr, "titleFr")]
+    #[case(LanguageRecord::Es, "titleEs")]
+    #[case(LanguageRecord::It, "titleIt")]
+    fn should_set_title_field_when_translated_title_enrichment_event_for_supported_language(
+        #[case] language: LanguageRecord,
+        #[case] expected_field: &str,
+    ) {
+        let record = make_translation_record(
+            ProductEnrichmentEventTypeRecord::EnrichmentTranslatedTitle,
+            language,
+            "translated title",
+        );
+        let update = ProductUpdateDocument::from(record);
+        let json = serde_json::to_value(&update).unwrap();
+        assert_eq!(
+            json[expected_field].as_str(),
+            Some("translated title"),
+            "Expected field '{expected_field}' to contain the translated title"
+        );
+        let title_fields = ["titleDe", "titleEn", "titleFr", "titleEs", "titleIt"];
+        for field in title_fields.iter().filter(|&&f| f != expected_field) {
+            assert!(
+                json.get(field).is_none(),
+                "Expected field '{field}' to be absent but it was present"
+            );
+        }
+    }
+
+    #[rstest::rstest]
+    #[case(LanguageRecord::De, "descriptionDe")]
+    #[case(LanguageRecord::En, "descriptionEn")]
+    #[case(LanguageRecord::Fr, "descriptionFr")]
+    #[case(LanguageRecord::Es, "descriptionEs")]
+    #[case(LanguageRecord::It, "descriptionIt")]
+    fn should_set_description_field_when_translated_description_enrichment_event_for_supported_language(
+        #[case] language: LanguageRecord,
+        #[case] expected_field: &str,
+    ) {
+        let record = make_translation_record(
+            ProductEnrichmentEventTypeRecord::EnrichmentTranslatedDescription,
+            language,
+            "translated description",
+        );
+        let update = ProductUpdateDocument::from(record);
+        let json = serde_json::to_value(&update).unwrap();
+        assert_eq!(
+            json[expected_field].as_str(),
+            Some("translated description"),
+            "Expected field '{expected_field}' to contain the translated description"
+        );
+        let description_fields = [
+            "descriptionDe",
+            "descriptionEn",
+            "descriptionFr",
+            "descriptionEs",
+            "descriptionIt",
+        ];
+        for field in description_fields.iter().filter(|&&f| f != expected_field) {
+            assert!(
+                json.get(field).is_none(),
+                "Expected field '{field}' to be absent but it was present"
+            );
+        }
     }
 }

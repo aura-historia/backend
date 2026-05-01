@@ -6041,11 +6041,15 @@ async fn should_count_search_filter_matches_for_current_month_for_quota_enforcem
     let filter_id = common::user_search_filter_id::UserSearchFilterId::new();
     let now = OffsetDateTime::now_utc();
 
-    // Insert exactly `free_quota` match records dated within the current month
+    // Insert exactly `free_quota` match records dated within the current month.
+    // Timestamps are spread over the last `free_quota` seconds before now so they
+    // are always in the past (counted by the service's `to = now` bound) and
+    // always in the current month (a ~10 second window never crosses a month boundary
+    // in any realistic environment).
     for i in 0..free_quota {
         let shop_id = common::shop_id::ShopId::new();
         let shops_product_id = common::shops_product_id::ShopsProductId::new();
-        let created = now - time::Duration::hours(i as i64);
+        let created = now - time::Duration::seconds((free_quota - i) as i64);
         let mut record = Faker.fake::<UserSearchFilterMatchRecord>();
         record.pk = mk_pk(&user_id);
         record.sk = mk_sk(&filter_id, &shop_id, &shops_product_id);
