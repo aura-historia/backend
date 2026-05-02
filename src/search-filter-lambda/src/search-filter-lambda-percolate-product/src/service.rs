@@ -191,11 +191,10 @@ impl<'a> ProductMatcherServiceImpl<'a> {
         };
 
         let product_document = ProductDocument::from(product.clone());
-        let matched_filters = self
+        let matched_filters: Vec<_> = self
             .user_search_filter_service
             .match_user_search_filters(&product_document)
-            .await?;
-        let matched_filters: Vec<_> = matched_filters
+            .await?
             .into_iter()
             .filter(|filter| filter.state.is_active())
             .collect();

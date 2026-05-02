@@ -22,7 +22,7 @@ use time::OffsetDateTime;
 use tracing::{error, info};
 use user::dynamodb::user_record::UserRecord;
 
-const LATEST_FIRST: bool = false;
+const ASCENDING_KEYS: bool = true;
 
 #[tracing::instrument(skip(event, watchlist_repository, search_filter_repository), fields(requestId = %event.context.request_id))]
 pub async fn handler(
@@ -53,8 +53,9 @@ pub async fn enforce_tier(
     let tier: user::core::tier::UserTier = user.tier.into();
 
     let mut watchlist_records = watchlist_repository
-        .query_watchlist_records_all(&user_id, LATEST_FIRST)
+        .query_watchlist_records_all(&user_id, ASCENDING_KEYS)
         .await?;
+    watchlist_records.sort_by_key(|record| std::cmp::Reverse(record.created));
     let watchlist_quota = tier.watchlist_quota() as usize;
     let mut active_watchlist_count = 0usize;
     for record in watchlist_records.drain(..) {
@@ -73,8 +74,9 @@ pub async fn enforce_tier(
     }
 
     let mut search_filter_records = search_filter_repository
-        .query_user_search_filter_records(&user_id, LATEST_FIRST)
+        .query_user_search_filter_records(&user_id, ASCENDING_KEYS)
         .await?;
+    search_filter_records.sort_by_key(|record| std::cmp::Reverse(record.created));
     let search_filter_quota = tier.search_filter_quota() as usize;
     let mut active_search_filter_count = 0usize;
     for record in search_filter_records.drain(..) {
@@ -206,5 +208,172 @@ fn search_filter_state_update(state: UserSearchFilterStateRecord) -> UserSearchF
         language: None,
         currency: None,
         updated: OffsetDateTime::now_utc(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aws_sdk_dynamodb::error::SdkError;
+    use common::{currency::domain::Currency, language::domain::Language};
+    use fake::{Fake, Faker};
+    use product_watchlist::dynamodb::repository::MockWatchlistProductDynamoDbRepository;
+    use search_filter::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
+    use user::{core::tier::UserTier, dynamodb::tier_record::UserTierRecord};
+
+    fn user_record(tier: UserTier) -> UserRecord {
+        let mut user = Faker.fake::<UserRecord>();
+        user.tier = UserTierRecord::from(tier);
+        user
+    }
+
+    fn watchlist_record(
+        user: &UserRecord,
+        state: WatchlistProductStateRecord,
+    ) -> WatchlistProductRecord {
+        let mut record = Faker.fake::<WatchlistProductRecord>();
+        record.user_id = user.user_id;
+        record.pk = product_watchlist::dynamodb::record::mk_pk(&user.user_id);
+        record.state = state;
+        record
+    }
+
+    fn search_filter_record(
+        user: &UserRecord,
+        state: UserSearchFilterStateRecord,
+    ) -> UserSearchFilterRecord {
+        let filter = search_filter::core::user_search_filter::UserSearchFilter {
+            user_id: user.user_id,
+            user_search_filter_id: Faker.fake(),
+            name: Faker.fake(),
+            notifications: true,
+            state: state.into(),
+            search: product::core::product_search::ProductSearch::new(Language::En, Currency::Eur),
+            enhanced_search_description: None,
+            created: OffsetDateTime::now_utc(),
+            updated: OffsetDateTime::now_utc(),
+        };
+        filter.into()
+    }
+
+    #[tokio::test]
+    async fn should_deactivate_oldest_watchlist_products_when_active_quota_is_reduced() {
+        let user = user_record(UserTier::Free);
+        let records = (0..=UserTier::Free.watchlist_quota())
+            .map(|_| watchlist_record(&user, WatchlistProductStateRecord::Active))
+            .collect::<Vec<_>>();
+        let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::new();
+        watchlist_repository
+            .expect_query_watchlist_records_all()
+            .withf({
+                let user_id = user.user_id;
+                move |actual_user_id, ascending_keys| *actual_user_id == user_id && *ascending_keys
+            })
+            .return_once(move |_, _| Box::pin(async move { Ok(records) }));
+        watchlist_repository
+            .expect_update_watchlist_record()
+            .times(1)
+            .withf(|_, _, _, update| {
+                update.state == Some(WatchlistProductStateRecord::InactiveByRestrictedPlan)
+            })
+            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
+
+        let mut search_filter_repository = MockUserSearchFilterDynamoDbRepository::new();
+        search_filter_repository
+            .expect_query_user_search_filter_records()
+            .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+
+        enforce_tier(&watchlist_repository, &search_filter_repository, user)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn should_deactivate_oldest_search_filters_when_active_quota_is_reduced() {
+        let user = user_record(UserTier::Free);
+        let records = vec![
+            search_filter_record(&user, UserSearchFilterStateRecord::Active),
+            search_filter_record(&user, UserSearchFilterStateRecord::Active),
+        ];
+        let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::new();
+        watchlist_repository
+            .expect_query_watchlist_records_all()
+            .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+
+        let mut search_filter_repository = MockUserSearchFilterDynamoDbRepository::new();
+        search_filter_repository
+            .expect_query_user_search_filter_records()
+            .withf({
+                let user_id = user.user_id;
+                move |actual_user_id, ascending_keys| *actual_user_id == user_id && *ascending_keys
+            })
+            .return_once(move |_, _| Box::pin(async move { Ok(records) }));
+        search_filter_repository
+            .expect_update_user_search_filter_record()
+            .times(1)
+            .withf(|_, _, update| {
+                update.state == Some(UserSearchFilterStateRecord::InactiveByRestrictedPlan)
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(None) }));
+
+        enforce_tier(&watchlist_repository, &search_filter_repository, user)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn should_reactivate_plan_restricted_resources_when_tier_allows_them() {
+        let user = user_record(UserTier::Ultimate);
+        let watchlist_records = vec![
+            watchlist_record(&user, WatchlistProductStateRecord::InactiveByRestrictedPlan),
+            watchlist_record(&user, WatchlistProductStateRecord::InactiveByUser),
+        ];
+        let search_filter_records = vec![
+            search_filter_record(&user, UserSearchFilterStateRecord::InactiveByRestrictedPlan),
+            search_filter_record(&user, UserSearchFilterStateRecord::InactiveByUser),
+        ];
+        let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::new();
+        watchlist_repository
+            .expect_query_watchlist_records_all()
+            .return_once(move |_, _| Box::pin(async move { Ok(watchlist_records) }));
+        watchlist_repository
+            .expect_update_watchlist_record()
+            .times(1)
+            .withf(|_, _, _, update| update.state == Some(WatchlistProductStateRecord::Active))
+            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
+
+        let mut search_filter_repository = MockUserSearchFilterDynamoDbRepository::new();
+        search_filter_repository
+            .expect_query_user_search_filter_records()
+            .return_once(move |_, _| Box::pin(async move { Ok(search_filter_records) }));
+        search_filter_repository
+            .expect_update_user_search_filter_record()
+            .times(1)
+            .withf(|_, _, update| update.state == Some(UserSearchFilterStateRecord::Active))
+            .returning(|_, _, _| Box::pin(async { Ok(None) }));
+
+        enforce_tier(&watchlist_repository, &search_filter_repository, user)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn should_return_error_when_watchlist_query_fails() {
+        let user = user_record(UserTier::Free);
+        let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::new();
+        watchlist_repository
+            .expect_query_watchlist_records_all()
+            .return_once(|_, _| {
+                Box::pin(async {
+                    Err(SdkError::construction_failure(
+                        "failed querying watchlist records",
+                    ))
+                })
+            });
+        let search_filter_repository = MockUserSearchFilterDynamoDbRepository::new();
+
+        let actual = enforce_tier(&watchlist_repository, &search_filter_repository, user).await;
+
+        assert!(actual.is_err());
     }
 }

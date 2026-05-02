@@ -78,6 +78,7 @@ mod tests {
                     name: Some("foo".into()),
                     enhanced_search_description: Some("bar".into()),
                     notifications: None,
+                    state: None,
                     search: None,
                 })
                 .jwt_claim("sub", UserId::new())

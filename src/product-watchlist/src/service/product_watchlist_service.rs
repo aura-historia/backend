@@ -200,6 +200,19 @@ impl<'a> ProductWatchListServiceImpl<'a> {
             user_service,
         }
     }
+
+    async fn count_active_watchlist_records(
+        &self,
+        user_id: &UserId,
+    ) -> Result<u64, WatchProductError> {
+        Ok(self
+            .watchlist_repository
+            .query_watchlist_records_all(user_id, true)
+            .await?
+            .into_iter()
+            .filter(|record| record.state.is_active())
+            .count() as u64)
+    }
 }
 
 #[async_trait::async_trait]
@@ -250,10 +263,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
         let now = OffsetDateTime::now_utc();
 
         let limit = user.tier.watchlist_quota();
-        let watchlist_count = self
-            .watchlist_repository
-            .count_watchlist_records(user_id, &Default::default(), true)
-            .await?;
+        let watchlist_count = self.count_active_watchlist_records(user_id).await?;
         if watchlist_count >= limit as u64 {
             return Err(WatchProductError::WatchlistEntryCountExceeded(
                 watchlist_count as u32,
@@ -323,6 +333,27 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
                 *shop_id,
                 shops_product_id.clone(),
             ))?;
+
+        if matches!(update.state, Some(WatchlistProductState::Active))
+            && !watchlist_record.state.is_active()
+        {
+            let user = self
+                .user_service
+                .find_user(user_id)
+                .await
+                .map_err(|e| match e {
+                    UserServiceError::UserNotFound(id) => WatchProductError::UserNotFound(id),
+                    other => WatchProductError::UserServiceError(other),
+                })?;
+            let limit = user.tier.watchlist_quota();
+            let watchlist_count = self.count_active_watchlist_records(user_id).await?;
+            if watchlist_count >= limit as u64 {
+                return Err(WatchProductError::WatchlistEntryCountExceeded(
+                    watchlist_count as u32,
+                    limit,
+                ));
+            }
+        }
 
         if update.is_empty() {
             Ok(watchlist_record.into())
@@ -503,6 +534,7 @@ mod tests {
     mod create_watchlist_product {
         use crate::{
             core::quota::WatchlistQuota,
+            dynamodb::record::WatchlistProductRecord,
             dynamodb::repository::MockWatchlistProductDynamoDbRepository,
             service::product_watchlist_service::{
                 ProductWatchListService, ProductWatchListServiceImpl, WatchProductError,
@@ -532,12 +564,8 @@ mod tests {
 
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
             watchlist_repository
-                .expect_count_watchlist_records()
-                .return_once(|_, _, _| {
-                    Box::pin(async {
-                        Ok(user::core::tier::UserTier::Free.watchlist_quota() as u64 - 1)
-                    })
-                });
+                .expect_query_watchlist_records_all()
+                .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
             watchlist_repository
                 .expect_put_watchlist_record()
                 .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
@@ -639,10 +667,16 @@ mod tests {
 
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
             watchlist_repository
-                .expect_count_watchlist_records()
-                .return_once(|_, _, _| {
+                .expect_query_watchlist_records_all()
+                .return_once(|_, _| {
                     Box::pin(async {
-                        Ok(user::core::tier::UserTier::Free.watchlist_quota() as u64)
+                        Ok((0..user::core::tier::UserTier::Free.watchlist_quota())
+                            .map(|_| {
+                                let mut record = Faker.fake::<WatchlistProductRecord>();
+                                record.state = crate::dynamodb::watchlist_product_state_record::WatchlistProductStateRecord::Active;
+                                record
+                            })
+                            .collect())
                     })
                 });
 
@@ -756,14 +790,8 @@ mod tests {
 
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
             watchlist_repository
-                .expect_count_watchlist_records()
-                .return_once(|_, _, _| {
-                    Box::pin(async {
-                        Ok(fake::rand::random_range(
-                            0..user::core::tier::UserTier::Free.watchlist_quota() as u64,
-                        ))
-                    })
-                });
+                .expect_query_watchlist_records_all()
+                .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
             watchlist_repository
                 .expect_put_watchlist_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));

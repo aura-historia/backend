@@ -124,6 +124,7 @@ async fn should_respond_with_patched_notifications(
             .query_string_parameter("currency", "EUR")
             .body_serde(&WatchlistProductPatch {
                 notifications: Some(new_notifications),
+                state: None,
             })
             .jwt_claim("sub", user_record.user_id)
             .build(),

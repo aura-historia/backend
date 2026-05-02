@@ -54,6 +54,7 @@ async fn should_update_search_filter() {
         name: Some("thorbens filter".into()),
         enhanced_search_description: None,
         notifications: None,
+        state: None,
         search: Some(PatchProductSearchData {
             language: None,
             currency: None,

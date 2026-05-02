@@ -13,6 +13,7 @@ use product::data::get_data::GetProductData;
 use product::data::user_state_data::ProductUserStateData;
 use product::service::get_service::GetProductService;
 use product_personalization::service::ProductPersonalizationService;
+use product_watchlist::core::watchlist_product_state::WatchlistProductState;
 use product_watchlist::service::{
     command::UpdateWatchlistProductCommand, product_watchlist_service::ProductWatchListService,
 };
@@ -23,13 +24,32 @@ use serde::{Deserialize, Serialize};
 pub struct WatchlistProductPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notifications: Option<bool>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<WatchlistProductPatchState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum WatchlistProductPatchState {
+    Active,
+    UserInactive,
+}
+
+impl From<WatchlistProductPatchState> for WatchlistProductState {
+    fn from(state: WatchlistProductPatchState) -> Self {
+        match state {
+            WatchlistProductPatchState::Active => WatchlistProductState::Active,
+            WatchlistProductPatchState::UserInactive => WatchlistProductState::InactiveByUser,
+        }
+    }
 }
 
 impl From<WatchlistProductPatch> for UpdateWatchlistProductCommand {
     fn from(patch: WatchlistProductPatch) -> Self {
         UpdateWatchlistProductCommand {
             notifications: patch.notifications,
-            state: None,
+            state: patch.state.map(WatchlistProductState::from),
         }
     }
 }
@@ -147,6 +167,7 @@ mod tests {
                 .query_string_parameter("currency", "EUR")
                 .body_serde(&WatchlistProductPatch {
                     notifications: Some(true),
+                    state: None,
                 })
                 .jwt_claim("sub", UserId::new())
                 .build(),
@@ -182,6 +203,7 @@ mod tests {
                 )
                 .body_serde(&WatchlistProductPatch {
                     notifications: Faker.fake(),
+                    state: None,
                 })
                 .jwt_claim("sub", UserId::new())
                 .build(),
@@ -216,6 +238,7 @@ mod tests {
                 )
                 .body_serde(&WatchlistProductPatch {
                     notifications: Faker.fake(),
+                    state: None,
                 })
                 .jwt_claim("sub", UserId::new())
                 .build(),
@@ -316,6 +339,7 @@ mod tests {
                 )
                 .body_serde(&WatchlistProductPatch {
                     notifications: Faker.fake(),
+                    state: None,
                 })
                 .build(),
             context: Default::default(),

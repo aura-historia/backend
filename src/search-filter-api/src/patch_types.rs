@@ -21,6 +21,7 @@ use product::data::product_state_data::ProductStateData;
 use product::data::provenance_data::ProvenanceData;
 use product::data::restoration_data::RestorationData;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
+use search_filter::core::user_search_filter_state::UserSearchFilterState;
 use search_filter::core::user_search_filter_update::UserSearchFilterUpdate;
 use serde::{Deserialize, Serialize};
 use shop::core::shop_type::ShopType;
@@ -42,7 +43,27 @@ pub struct PatchUserSearchFilterData {
     pub notifications: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub state: Option<UserSearchFilterPatchState>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub search: Option<PatchProductSearchData>,
+}
+
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum UserSearchFilterPatchState {
+    Active,
+    UserInactive,
+}
+
+impl From<UserSearchFilterPatchState> for UserSearchFilterState {
+    fn from(state: UserSearchFilterPatchState) -> Self {
+        match state {
+            UserSearchFilterPatchState::Active => UserSearchFilterState::Active,
+            UserSearchFilterPatchState::UserInactive => UserSearchFilterState::InactiveByUser,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -196,7 +217,7 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
             name: patch.name,
             enhanced_search_description: patch.enhanced_search_description.map(Into::into),
             notifications: patch.notifications,
-            state: None,
+            state: patch.state.map(UserSearchFilterState::from),
             language: patch
                 .search
                 .as_ref()
@@ -486,6 +507,7 @@ mod tests {
             name: Some("hugos filter for peppino".into()),
             enhanced_search_description: Some("I want foo".into()),
             notifications: None,
+            state: None,
             search: Some(PatchProductSearchData {
                 language: Some(LanguageData::De),
                 currency: Some(CurrencyData::Eur),
