@@ -6799,3 +6799,431 @@ async fn should_update_user_document_in_opensearch_on_patch() {
     assert_ne!(initial_document.tier, updated_document.tier);
 }
 */
+
+// ---------------------------------------------------------------------------
+// Tier enforcement: user-lambda-tier-update
+// Verifies that when a user's tier changes the tier-update Lambda deactivates
+// resources exceeding the new quota and reactivates them on upgrade.
+// Triggered via DynamoDB Streams → EventBridge → UserTierUpdateQ → Lambda.
+// ---------------------------------------------------------------------------
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_deactivate_over_quota_search_filters_when_tier_is_downgraded() {
+    use search_filter::{
+        core::quota::SearchFilterQuota,
+        dynamodb::{
+            repository::UserSearchFilterDynamoDbRepository,
+            user_search_filter_record::{
+                UserSearchFilterRecord, mk_pk as sf_mk_pk, mk_sk as sf_mk_sk,
+            },
+            user_search_filter_state_record::UserSearchFilterStateRecord,
+        },
+    };
+
+    let stack = get_cfn_output();
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+
+    user_service
+        .update_user(
+            &user_id,
+            UpdateUserCommand {
+                tier: Some(UserTier::Ultimate),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let sf_repository = UserSearchFilterDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &stack.dynamodb_table_1_name,
+    );
+
+    let free_quota = UserTier::Free.search_filter_quota() as usize;
+    let filter_count = free_quota + 2;
+
+    for i in 0..filter_count {
+        let filter_id = common::user_search_filter_id::UserSearchFilterId::new();
+        let created = OffsetDateTime::now_utc() + time::Duration::seconds(i as i64);
+        let mut record = Faker.fake::<UserSearchFilterRecord>();
+        record.pk = sf_mk_pk(&user_id);
+        record.sk = sf_mk_sk(&filter_id);
+        record.user_id = user_id;
+        record.user_search_filter_id = filter_id;
+        record.state = UserSearchFilterStateRecord::Active;
+        record.enhanced_search_description = None;
+        record.created = created;
+        record.updated = created;
+        // Clear Pro/Ultimate-only fields so state is governed only by quota
+        record.shop_name_query = Default::default();
+        record.exclude_shop_name_query = Default::default();
+        record.seller_name_query = Default::default();
+        record.exclude_seller_name_query = Default::default();
+        record.shop_slug_id_query = Default::default();
+        record.exclude_shop_slug_id_query = Default::default();
+        record.seller_slug_id_query = Default::default();
+        record.exclude_seller_slug_id_query = Default::default();
+        record.shop_type_query = Default::default();
+        record.country_query = Default::default();
+        record.continent_query = Default::default();
+        record.geo_address_distance_query = None;
+        record.origin_year_query = None;
+        record.authenticity_query = Default::default();
+        record.condition_query = Default::default();
+        record.provenance_query = Default::default();
+        record.restoration_query = Default::default();
+        record.created_query = None;
+        record.updated_query = None;
+        record.auction_start_query = None;
+        record.auction_end_query = None;
+        sf_repository
+            .put_user_search_filter_record(record)
+            .await
+            .unwrap();
+    }
+
+    // Downgrade triggers DynamoDB stream → EventBridge → UserTierUpdateQ → Lambda
+    user_service
+        .update_user(
+            &user_id,
+            UpdateUserCommand {
+                tier: Some(UserTier::Free),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let records = sf_repository
+            .query_user_search_filter_records(&user_id, false)
+            .await
+            .unwrap();
+
+        let inactive_count = records
+            .iter()
+            .filter(|r| r.state == UserSearchFilterStateRecord::InactiveByRestrictedPlan)
+            .count();
+
+        if inactive_count == filter_count - free_quota {
+            let active_count = records
+                .iter()
+                .filter(|r| r.state == UserSearchFilterStateRecord::Active)
+                .count();
+            assert_eq!(active_count, free_quota);
+            break;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: expected {} inactive search filters after downgrade to Free, got {} inactive (states: {:?})",
+                filter_count - free_quota,
+                inactive_count,
+                records.iter().map(|r| r.state).collect::<Vec<_>>()
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_reactivate_plan_restricted_search_filters_when_tier_is_upgraded() {
+    use search_filter::dynamodb::{
+        repository::UserSearchFilterDynamoDbRepository,
+        user_search_filter_record::{UserSearchFilterRecord, mk_pk as sf_mk_pk, mk_sk as sf_mk_sk},
+        user_search_filter_state_record::UserSearchFilterStateRecord,
+    };
+
+    let stack = get_cfn_output();
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+
+    let sf_repository = UserSearchFilterDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &stack.dynamodb_table_1_name,
+    );
+
+    let filter_count = 3usize;
+
+    for i in 0..filter_count {
+        let filter_id = common::user_search_filter_id::UserSearchFilterId::new();
+        let created = OffsetDateTime::now_utc() + time::Duration::seconds(i as i64);
+        let mut record = Faker.fake::<UserSearchFilterRecord>();
+        record.pk = sf_mk_pk(&user_id);
+        record.sk = sf_mk_sk(&filter_id);
+        record.user_id = user_id;
+        record.user_search_filter_id = filter_id;
+        record.state = UserSearchFilterStateRecord::InactiveByRestrictedPlan;
+        record.enhanced_search_description = None;
+        record.created = created;
+        record.updated = created;
+        record.shop_name_query = Default::default();
+        record.exclude_shop_name_query = Default::default();
+        record.seller_name_query = Default::default();
+        record.exclude_seller_name_query = Default::default();
+        record.shop_slug_id_query = Default::default();
+        record.exclude_shop_slug_id_query = Default::default();
+        record.seller_slug_id_query = Default::default();
+        record.exclude_seller_slug_id_query = Default::default();
+        record.shop_type_query = Default::default();
+        record.country_query = Default::default();
+        record.continent_query = Default::default();
+        record.geo_address_distance_query = None;
+        record.origin_year_query = None;
+        record.authenticity_query = Default::default();
+        record.condition_query = Default::default();
+        record.provenance_query = Default::default();
+        record.restoration_query = Default::default();
+        record.created_query = None;
+        record.updated_query = None;
+        record.auction_start_query = None;
+        record.auction_end_query = None;
+        sf_repository
+            .put_user_search_filter_record(record)
+            .await
+            .unwrap();
+    }
+
+    // Upgrade triggers DynamoDB stream → Lambda reactivates all filters
+    user_service
+        .update_user(
+            &user_id,
+            UpdateUserCommand {
+                tier: Some(UserTier::Ultimate),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let records = sf_repository
+            .query_user_search_filter_records(&user_id, false)
+            .await
+            .unwrap();
+
+        let active_count = records
+            .iter()
+            .filter(|r| r.state == UserSearchFilterStateRecord::Active)
+            .count();
+
+        if active_count == filter_count {
+            break;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: expected {} active search filters after upgrade to Ultimate, got {}",
+                filter_count, active_count
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_deactivate_over_quota_watchlist_entries_when_tier_is_downgraded() {
+    use common::{product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId};
+    use product_watchlist::{
+        core::quota::WatchlistQuota,
+        dynamodb::{
+            record::{
+                WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk,
+                mk_pk as watchlist_mk_pk, mk_sk as watchlist_mk_sk,
+            },
+            repository::WatchlistProductDynamoDbRepository,
+            watchlist_product_state_record::WatchlistProductStateRecord,
+        },
+    };
+
+    let stack = get_cfn_output();
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+
+    user_service
+        .update_user(
+            &user_id,
+            UpdateUserCommand {
+                tier: Some(UserTier::Ultimate),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let watchlist_repo = WatchlistProductDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &stack.dynamodb_table_1_name,
+    );
+
+    let free_quota = UserTier::Free.watchlist_quota() as usize;
+    let entry_count = free_quota + 1;
+
+    for i in 0..entry_count {
+        let shop_id = ShopId::new();
+        let shops_product_id = ShopsProductId::new();
+        let product_id = ProductId::new();
+        let created = OffsetDateTime::now_utc() + time::Duration::seconds(i as i64);
+        let record = WatchlistProductRecord {
+            pk: watchlist_mk_pk(&user_id),
+            sk: watchlist_mk_sk(&shop_id, &shops_product_id),
+            lsi1_sk: mk_lsi1_sk(&created),
+            gsi1_pk: mk_gsi1_pk(&product_id),
+            gsi1_sk: mk_gsi1_sk(&user_id),
+            user_id,
+            product_id,
+            shop_id,
+            shops_product_id,
+            notifications: true,
+            state: WatchlistProductStateRecord::Active,
+            created,
+            updated: created,
+        };
+        watchlist_repo.put_watchlist_record(record).await.unwrap();
+    }
+
+    user_service
+        .update_user(
+            &user_id,
+            UpdateUserCommand {
+                tier: Some(UserTier::Free),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let records = watchlist_repo
+            .query_watchlist_records_all(&user_id, false)
+            .await
+            .unwrap();
+
+        let inactive_count = records
+            .iter()
+            .filter(|r| r.state == WatchlistProductStateRecord::InactiveByRestrictedPlan)
+            .count();
+
+        if inactive_count == entry_count - free_quota {
+            let active_count = records
+                .iter()
+                .filter(|r| r.state == WatchlistProductStateRecord::Active)
+                .count();
+            assert_eq!(active_count, free_quota);
+            break;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: expected {} inactive watchlist entries after downgrade to Free, got {}",
+                entry_count - free_quota,
+                inactive_count
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_reactivate_plan_restricted_watchlist_entries_when_tier_is_upgraded() {
+    use common::{product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId};
+    use product_watchlist::dynamodb::{
+        record::{
+            WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk as watchlist_mk_pk,
+            mk_sk as watchlist_mk_sk,
+        },
+        repository::WatchlistProductDynamoDbRepository,
+        watchlist_product_state_record::WatchlistProductStateRecord,
+    };
+
+    let stack = get_cfn_output();
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+
+    let watchlist_repo = WatchlistProductDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &stack.dynamodb_table_1_name,
+    );
+
+    let entry_count = 3usize;
+
+    for i in 0..entry_count {
+        let shop_id = ShopId::new();
+        let shops_product_id = ShopsProductId::new();
+        let product_id = ProductId::new();
+        let created = OffsetDateTime::now_utc() + time::Duration::seconds(i as i64);
+        let record = WatchlistProductRecord {
+            pk: watchlist_mk_pk(&user_id),
+            sk: watchlist_mk_sk(&shop_id, &shops_product_id),
+            lsi1_sk: mk_lsi1_sk(&created),
+            gsi1_pk: mk_gsi1_pk(&product_id),
+            gsi1_sk: mk_gsi1_sk(&user_id),
+            user_id,
+            product_id,
+            shop_id,
+            shops_product_id,
+            notifications: true,
+            state: WatchlistProductStateRecord::InactiveByRestrictedPlan,
+            created,
+            updated: created,
+        };
+        watchlist_repo.put_watchlist_record(record).await.unwrap();
+    }
+
+    // Upgrade triggers DynamoDB stream → Lambda reactivates all entries
+    user_service
+        .update_user(
+            &user_id,
+            UpdateUserCommand {
+                tier: Some(UserTier::Ultimate),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let records = watchlist_repo
+            .query_watchlist_records_all(&user_id, false)
+            .await
+            .unwrap();
+
+        let active_count = records
+            .iter()
+            .filter(|r| r.state == WatchlistProductStateRecord::Active)
+            .count();
+
+        if active_count == entry_count {
+            break;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: expected {} active watchlist entries after upgrade to Ultimate, got {}",
+                entry_count, active_count
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+}
