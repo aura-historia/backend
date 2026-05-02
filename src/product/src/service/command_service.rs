@@ -9,21 +9,16 @@ use crate::service::product_command::{
 };
 use async_trait::async_trait;
 use common::batch::Batch;
-use common::category_key::CategoryId;
 use common::has_key::HasKey;
-use common::period_key::PeriodId;
 use common::price::domain::FxRate;
 use common::product_id::ProductKey;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
-use product_classification::category::service::CategoryService;
-use product_classification::period::service::PeriodService;
 use shop::core::shop_type::ShopType;
 use shop::service::get_service::GetShopService;
 use shop::service::seller_service::SellerService;
 use std::collections::HashMap;
-use tokio::sync::OnceCell;
-use tracing::{error, warn};
+use tracing::error;
 
 #[async_trait]
 #[mockall::automock]
@@ -39,16 +34,8 @@ pub trait CommandProductService {
 pub struct CommandProductServiceImpl<'a, T: FxRate + Sync> {
     dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
     fx_rate: &'a T,
-    period_service: &'a (dyn PeriodService + Sync),
-    category_service: &'a (dyn CategoryService + Sync),
     get_shop_service: &'a (dyn GetShopService + Sync),
     seller_service: &'a (dyn SellerService + Sync),
-    classification_cache: OnceCell<ClassificationCache>,
-}
-
-struct ClassificationCache {
-    period_keywords: Vec<(String, PeriodId)>,
-    category_keywords: Vec<(String, CategoryId)>,
 }
 
 struct ResolvedShopInformation {
@@ -62,70 +49,15 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
     pub fn new(
         dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
         fx_rate: &'a T,
-        period_service: &'a (dyn PeriodService + Sync),
-        category_service: &'a (dyn CategoryService + Sync),
         get_shop_service: &'a (dyn GetShopService + Sync),
         seller_service: &'a (dyn SellerService + Sync),
     ) -> Self {
         Self {
             dynamodb_repository,
             fx_rate,
-            period_service,
-            category_service,
             get_shop_service,
             seller_service,
-            classification_cache: OnceCell::new(),
         }
-    }
-
-    async fn classification_cache(&self) -> &ClassificationCache {
-        self.classification_cache
-            .get_or_init(|| async {
-                let mut period_keywords: Vec<(String, PeriodId)> =
-                    match self.period_service.find_periods().await {
-                        Ok(periods) => periods
-                            .into_iter()
-                            .flat_map(|p| {
-                                let id = p.period_id;
-                                p.meta_keywords
-                                    .into_iter()
-                                    .map(move |kw| (kw.as_ref().to_lowercase(), id.clone()))
-                            })
-                            .collect(),
-                        Err(err) => {
-                            warn!(error = ?err, "Failed to load periods for classification cache. Period classification will be skipped.");
-                            Vec::new()
-                        }
-                    };
-                period_keywords.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
-
-                let mut category_keywords: Vec<(String, CategoryId)> = match self
-                    .category_service
-                    .find_categories()
-                    .await
-                {
-                    Ok(categories) => categories
-                        .into_iter()
-                        .flat_map(|c| {
-                            let id = c.category_id;
-                            c.meta_keywords
-                                .into_iter()
-                                .map(move |kw| (kw.as_ref().to_lowercase(), id.clone()))
-                        })
-                        .collect(),
-                    Err(err) => {
-                        warn!(error = ?err, "Failed to load categories for classification cache. Category classification will be skipped.");
-                        Vec::new()
-                    }
-                };
-                category_keywords.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
-
-                ClassificationCache {
-                    period_keywords,
-                    category_keywords,
-                }
-            })
-            .await
     }
 
     fn enrich_price(&self, cmd: &mut CreateProductCommand) {
@@ -274,7 +206,6 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
 impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T> {
     async fn create(&self, cmds: Vec<CreateProductCommand>) -> Vec<CreateProductCommand> {
         let mut failures = Vec::new();
-        let cache = self.classification_cache().await;
 
         for chunk in Batch::<CreateProductCommand, 100>::chunked_from(cmds.into_iter()) {
             let mut key_cmds: HashMap<ProductKey, CreateProductCommand> =
@@ -318,8 +249,6 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                             heuristics::enrich_condition(&mut cmd);
                             heuristics::enrich_provenance(&mut cmd);
                             heuristics::enrich_restoration(&mut cmd);
-                            heuristics::classify_period(&mut cmd, &cache.period_keywords);
-                            heuristics::classify_category(&mut cmd, &cache.category_keywords);
                             events.push(ProductEventRecord::Domain(
                                 ProductDomainEventRecord::from(Product::create(
                                     cmd.shop_id,
@@ -423,7 +352,6 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
 
     async fn upsert(&self, cmds: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand> {
         let mut failures = Vec::new();
-        let cache = self.classification_cache().await;
 
         for chunk in Batch::<UpsertProductCommand, 100>::chunked_from(cmds.into_iter()) {
             let mut key_cmds: HashMap<ProductKey, UpsertProductCommand> =
@@ -473,11 +401,6 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                             heuristics::enrich_condition(&mut create_cmd);
                             heuristics::enrich_provenance(&mut create_cmd);
                             heuristics::enrich_restoration(&mut create_cmd);
-                            heuristics::classify_period(&mut create_cmd, &cache.period_keywords);
-                            heuristics::classify_category(
-                                &mut create_cmd,
-                                &cache.category_keywords,
-                            );
                             create_events.push(ProductEventRecord::Domain(
                                 ProductDomainEventRecord::from(Product::create(
                                     create_cmd.shop_id,
@@ -616,29 +539,11 @@ mod tests {
     use common::has_key::HasKey;
     use common::{price::domain::FixedFxRate, product_state::domain::ProductState};
     use fake::{Fake, Faker};
-    use product_classification::category::service::MockCategoryService;
-    use product_classification::period::service::MockPeriodService;
     use rstest;
     use shop::core::shop::Shop;
     use shop::core::shop_type::ShopType;
     use shop::service::get_service::MockGetShopService;
     use shop::service::seller_service::MockSellerService;
-
-    fn empty_period_service() -> MockPeriodService {
-        let mut service = MockPeriodService::default();
-        service
-            .expect_find_periods()
-            .returning(|| Box::pin(async { Ok(vec![]) }));
-        service
-    }
-
-    fn empty_category_service() -> MockCategoryService {
-        let mut service = MockCategoryService::default();
-        service
-            .expect_find_categories()
-            .returning(|| Box::pin(async { Ok(vec![]) }));
-        service
-    }
 
     fn default_shop_service() -> MockGetShopService {
         let mut service = MockGetShopService::default();
@@ -658,19 +563,10 @@ mod tests {
     fn make_command_product_service<'a, T: FxRate + Sync>(
         repository: &'a (dyn ProductDynamoDbRepository + Sync),
         fx_rate: &'a T,
-        period_service: &'a (dyn PeriodService + Sync),
-        category_service: &'a (dyn CategoryService + Sync),
     ) -> CommandProductServiceImpl<'a, T> {
         let get_shop_service = Box::leak(Box::new(default_shop_service()));
         let seller_service = Box::leak(Box::new(default_seller_service()));
-        CommandProductServiceImpl::new(
-            repository,
-            fx_rate,
-            period_service,
-            category_service,
-            get_shop_service,
-            seller_service,
-        )
+        CommandProductServiceImpl::new(repository, fx_rate, get_shop_service, seller_service)
     }
 
     mod determine_update_events {
@@ -1212,20 +1108,11 @@ mod tests {
 
         fn service_for_shop_information<'a>(
             repository: &'a (dyn ProductDynamoDbRepository + Sync),
-            period_service: &'a (dyn PeriodService + Sync),
-            category_service: &'a (dyn CategoryService + Sync),
             get_shop_service: &'a (dyn GetShopService + Sync),
             seller_service: &'a (dyn SellerService + Sync),
         ) -> CommandProductServiceImpl<'a, FixedFxRate> {
             let fx_rate = Box::leak(Box::new(FixedFxRate()));
-            CommandProductServiceImpl::new(
-                repository,
-                fx_rate,
-                period_service,
-                category_service,
-                get_shop_service,
-                seller_service,
-            )
+            CommandProductServiceImpl::new(repository, fx_rate, get_shop_service, seller_service)
         }
 
         #[tokio::test]
@@ -1259,15 +1146,8 @@ mod tests {
                 });
 
             let repository = MockProductDynamoDbRepository::default();
-            let period_service = empty_period_service();
-            let category_service = empty_category_service();
-            let service = service_for_shop_information(
-                &repository,
-                &period_service,
-                &category_service,
-                &get_shop_service,
-                &seller_service,
-            );
+            let service =
+                service_for_shop_information(&repository, &get_shop_service, &seller_service);
 
             let resolved = service
                 .enrich_shop_information(&mut cmd)
@@ -1299,16 +1179,9 @@ mod tests {
                 .return_once(move |_| Box::pin(async move { Ok(shop) }));
 
             let repository = MockProductDynamoDbRepository::default();
-            let period_service = empty_period_service();
-            let category_service = empty_category_service();
             let seller_service = MockSellerService::default();
-            let service = service_for_shop_information(
-                &repository,
-                &period_service,
-                &category_service,
-                &get_shop_service,
-                &seller_service,
-            );
+            let service =
+                service_for_shop_information(&repository, &get_shop_service, &seller_service);
 
             service
                 .enrich_shop_information(&mut cmd)
@@ -1340,16 +1213,9 @@ mod tests {
                 .return_once(move |_| Box::pin(async move { Ok(shop) }));
 
             let repository = MockProductDynamoDbRepository::default();
-            let period_service = empty_period_service();
-            let category_service = empty_category_service();
             let seller_service = MockSellerService::default();
-            let service = service_for_shop_information(
-                &repository,
-                &period_service,
-                &category_service,
-                &get_shop_service,
-                &seller_service,
-            );
+            let service =
+                service_for_shop_information(&repository, &get_shop_service, &seller_service);
 
             service
                 .enrich_shop_information(&mut cmd)
@@ -1385,14 +1251,7 @@ mod tests {
                 .expect_get_product_records()
                 .return_once(|_| Box::pin(async { Err(expected) }));
 
-            let period_service = empty_period_service();
-            let category_service = empty_category_service();
-            let service = make_command_product_service(
-                &repository,
-                &FixedFxRate(),
-                &period_service,
-                &category_service,
-            );
+            let service = make_command_product_service(&repository, &FixedFxRate());
 
             let mut expected = fake::vec![CreateProductCommand; 89];
             let mut actual = service.create(expected.clone()).await;
@@ -1422,14 +1281,7 @@ mod tests {
                     })
                 });
 
-            let period_service = empty_period_service();
-            let category_service = empty_category_service();
-            let service = make_command_product_service(
-                &repository,
-                &FixedFxRate(),
-                &period_service,
-                &category_service,
-            );
+            let service = make_command_product_service(&repository, &FixedFxRate());
             let cmds = fake::vec![CreateProductCommand; 5];
             let failures = service.create(cmds).await;
 
@@ -1463,14 +1315,7 @@ mod tests {
                     })
                 });
 
-            let period_service = empty_period_service();
-            let category_service = empty_category_service();
-            let service = make_command_product_service(
-                &repository,
-                &FixedFxRate(),
-                &period_service,
-                &category_service,
-            );
+            let service = make_command_product_service(&repository, &FixedFxRate());
 
             let mut cmds = fake::vec![CreateProductCommand; 3];
             cmds.push(existing_cmd);
@@ -1495,14 +1340,7 @@ mod tests {
                 })
             });
 
-            let period_service = empty_period_service();
-            let category_service = empty_category_service();
-            let service = make_command_product_service(
-                &repository,
-                &FixedFxRate(),
-                &period_service,
-                &category_service,
-            );
+            let service = make_command_product_service(&repository, &FixedFxRate());
 
             let mut expected = cmds.clone();
             let mut actual = service.create(cmds).await;
@@ -1543,14 +1381,7 @@ mod tests {
                     })
                 });
 
-            let period_service = empty_period_service();
-            let category_service = empty_category_service();
-            let service = make_command_product_service(
-                &repository,
-                &FixedFxRate(),
-                &period_service,
-                &category_service,
-            );
+            let service = make_command_product_service(&repository, &FixedFxRate());
 
             // Verify enrich_price directly
             let mut test_cmd = cmd.clone();
@@ -1594,14 +1425,7 @@ mod tests {
                 .expect_get_product_records()
                 .return_once(|_| Box::pin(async { Err(expected) }));
 
-            let period_service = empty_period_service();
-            let category_service = empty_category_service();
-            let service = make_command_product_service(
-                &repository,
-                &FixedFxRate(),
-                &period_service,
-                &category_service,
-            );
+            let service = make_command_product_service(&repository, &FixedFxRate());
 
             let cmds: HashMap<ProductKey, UpdateProductCommand> = (0..5)
                 .map(|_| {
@@ -1663,14 +1487,7 @@ mod tests {
                     })
                 });
 
-            let period_service = empty_period_service();
-            let category_service = empty_category_service();
-            let service = make_command_product_service(
-                &repository,
-                &FixedFxRate(),
-                &period_service,
-                &category_service,
-            );
+            let service = make_command_product_service(&repository, &FixedFxRate());
             let failures = service.update(HashMap::from([(key, cmd)])).await;
 
             assert!(failures.is_empty());
@@ -1688,14 +1505,7 @@ mod tests {
                 })
             });
 
-            let period_service = empty_period_service();
-            let category_service = empty_category_service();
-            let service = make_command_product_service(
-                &repository,
-                &FixedFxRate(),
-                &period_service,
-                &category_service,
-            );
+            let service = make_command_product_service(&repository, &FixedFxRate());
 
             let cmds: HashMap<ProductKey, UpdateProductCommand> = (0..3)
                 .map(|_| {
@@ -1732,14 +1542,7 @@ mod tests {
                 })
             });
 
-            let period_service = empty_period_service();
-            let category_service = empty_category_service();
-            let service = make_command_product_service(
-                &repository,
-                &FixedFxRate(),
-                &period_service,
-                &category_service,
-            );
+            let service = make_command_product_service(&repository, &FixedFxRate());
 
             let actual = service
                 .update(HashMap::from([(key.clone(), cmd.clone())]))
@@ -1783,14 +1586,7 @@ mod tests {
             // put_product_event_records should NOT be called since there are no events
             repository.expect_put_product_event_records().never();
 
-            let period_service = empty_period_service();
-            let category_service = empty_category_service();
-            let service = make_command_product_service(
-                &repository,
-                &FixedFxRate(),
-                &period_service,
-                &category_service,
-            );
+            let service = make_command_product_service(&repository, &FixedFxRate());
             let failures = service.update(HashMap::from([(key, cmd)])).await;
 
             assert!(failures.is_empty());

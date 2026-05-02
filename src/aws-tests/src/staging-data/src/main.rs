@@ -77,26 +77,10 @@ async fn create_products(commands: Vec<CreateProductCommand>) {
         ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
     let seller_service = MockSellerService::default();
-    let period_dynamodb_repository =
-        PeriodDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
-    let period_opensearch_repository =
-        PeriodOpenSearchRepositoryImpl::new(staging_tests::get_opensearch_client().await);
-    let period_service =
-        PeriodServiceImpl::new(&period_dynamodb_repository, &period_opensearch_repository);
-    let category_dynamodb_repository =
-        CategoryDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
-    let category_opensearch_repository =
-        CategoryOpenSearchRepositoryImpl::new(staging_tests::get_opensearch_client().await);
-    let category_service = CategoryServiceImpl::new(
-        &category_dynamodb_repository,
-        &category_opensearch_repository,
-    );
     let fx_rate = FixedFxRate();
     let command_service = CommandProductServiceImpl::new(
         &product_repository,
         &fx_rate,
-        &period_service,
-        &category_service,
         &get_shop_service,
         &seller_service,
     );
@@ -114,26 +98,10 @@ async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
         ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
     let seller_service = MockSellerService::default();
-    let period_dynamodb_repository =
-        PeriodDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
-    let period_opensearch_repository =
-        PeriodOpenSearchRepositoryImpl::new(staging_tests::get_opensearch_client().await);
-    let period_service =
-        PeriodServiceImpl::new(&period_dynamodb_repository, &period_opensearch_repository);
-    let category_dynamodb_repository =
-        CategoryDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
-    let category_opensearch_repository =
-        CategoryOpenSearchRepositoryImpl::new(staging_tests::get_opensearch_client().await);
-    let category_service = CategoryServiceImpl::new(
-        &category_dynamodb_repository,
-        &category_opensearch_repository,
-    );
     let fx_rate = FixedFxRate();
     let command_service = CommandProductServiceImpl::new(
         &product_repository,
         &fx_rate,
-        &period_service,
-        &category_service,
         &get_shop_service,
         &seller_service,
     );

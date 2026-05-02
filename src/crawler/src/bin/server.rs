@@ -55,12 +55,6 @@ use opensearch::auth::Credentials;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::command_service::CommandProductServiceImpl;
-use product_classification::category::dynamodb_repository::CategoryDynamoDbRepositoryImpl;
-use product_classification::category::opensearch_repository::CategoryOpenSearchRepositoryImpl;
-use product_classification::category::service::CategoryServiceImpl;
-use product_classification::period::dynamodb_repository::PeriodDynamoDbRepositoryImpl;
-use product_classification::period::opensearch_repository::PeriodOpenSearchRepositoryImpl;
-use product_classification::period::service::PeriodServiceImpl;
 use shop::core::shop_search::ShopSearch;
 use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
 use shop::opensearch::repository::ShopOpenSearchRepositoryImpl;
@@ -299,37 +293,9 @@ async fn main() {
     let seller_service = Box::leak(Box::new(MockSellerService::default()));
     let fx_rate = Box::leak(Box::new(FixedFxRate()));
 
-    let period_dynamodb_repo = Box::leak(Box::new(PeriodDynamoDbRepositoryImpl::new(
-        Box::leak(Box::new(dynamodb.clone())),
-        table_name.clone(),
-    )));
-    let category_dynamodb_repo = Box::leak(Box::new(CategoryDynamoDbRepositoryImpl::new(
-        Box::leak(Box::new(dynamodb.clone())),
-        table_name.clone(),
-    )));
-
-    let opensearch_for_classification = build_opensearch_client();
-    let period_opensearch_repo = Box::leak(Box::new(PeriodOpenSearchRepositoryImpl::new(
-        Box::leak(Box::new(opensearch_for_classification)),
-    )));
-    let category_opensearch_repo = Box::leak(Box::new(CategoryOpenSearchRepositoryImpl::new(
-        Box::leak(Box::new(build_opensearch_client())),
-    )));
-
-    let period_svc = Box::leak(Box::new(PeriodServiceImpl::new(
-        period_dynamodb_repo,
-        period_opensearch_repo,
-    )));
-    let category_svc = Box::leak(Box::new(CategoryServiceImpl::new(
-        category_dynamodb_repo,
-        category_opensearch_repo,
-    )));
-
     let command_product_service = Box::new(CommandProductServiceImpl::new(
         product_dynamodb_repo,
         fx_rate,
-        period_svc,
-        category_svc,
         get_shop_service,
         seller_service,
     ));

@@ -15,6 +15,7 @@ use common::{
     period_key::PeriodId,
     sort::{Sort, SortOrder},
 };
+use product::core::title::Title;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PeriodServiceError {
@@ -78,6 +79,12 @@ pub trait PeriodService {
         &self,
         embedding: &[f32],
         k: u16,
+    ) -> Result<Vec<(Period, f64)>, opensearch::Error>;
+
+    async fn find_period_candidates(
+        &self,
+        product_title: &Title,
+        product_embedding: &[f32],
     ) -> Result<Vec<(Period, f64)>, opensearch::Error>;
 
     async fn search_periods(
@@ -155,6 +162,25 @@ impl<'a> PeriodService for PeriodServiceImpl<'a> {
             .collect();
 
         Ok(similar)
+    }
+
+    async fn find_period_candidates(
+        &self,
+        product_title: &Title,
+        product_embedding: &[f32],
+    ) -> Result<Vec<(Period, f64)>, opensearch::Error> {
+        let search_res = self
+            .opensearch_search
+            .hybrid_search(product_title, product_embedding, 8)
+            .await?;
+        let candidates = search_res
+            .hits
+            .hits
+            .into_iter()
+            .map(|hit| (hit.source.into(), hit.score.unwrap_or(0.0)))
+            .collect();
+
+        Ok(candidates)
     }
 
     async fn search_periods(
@@ -566,6 +592,62 @@ mod tests {
                 actual.unwrap_err(),
                 PeriodServiceError::PeriodNotExists(err_id) if err_id == period_id
             ));
+        }
+    }
+
+    mod find_period_candidates {
+        use super::*;
+        use product::core::title::Title;
+
+        #[tokio::test]
+        async fn should_return_candidates_when_hybrid_search_succeeds_for_period_service() {
+            let period: Period = Faker.fake();
+            let period_id = period.period_id.clone();
+            let period_document: PeriodDocument = period.try_into().unwrap();
+            let mut opensearch_repository = MockPeriodOpenSearchRepository::default();
+            opensearch_repository
+                .expect_hybrid_search()
+                .once()
+                .return_once(move |_, _, _| {
+                    Box::pin(async move {
+                        Ok(SearchResponse {
+                            took: 12,
+                            timed_out: false,
+                            shards: ShardStats {
+                                total: 1,
+                                successful: 1,
+                                skipped: 0,
+                                failed: 0,
+                            },
+                            hits: HitsMetadata {
+                                total: TotalHits {
+                                    value: 1,
+                                    relation: "eq".to_string(),
+                                },
+                                max_score: Some(6.5),
+                                hits: vec![SearchHit {
+                                    index: "periods".to_string(),
+                                    id: period_document.period_id.to_string(),
+                                    score: Some(6.5),
+                                    source: period_document,
+                                    sort: None,
+                                }],
+                            },
+                        })
+                    })
+                });
+
+            let dynamodb_repository = MockPeriodDynamoDbRepository::default();
+            let service = PeriodServiceImpl::new(&dynamodb_repository, &opensearch_repository);
+
+            let actual = service
+                .find_period_candidates(&Title::from("baroque table"), &[0.1, 0.2])
+                .await
+                .unwrap();
+
+            assert_eq!(actual.len(), 1);
+            assert_eq!(actual[0].0.period_id, period_id);
+            assert_eq!(actual[0].1, 6.5);
         }
     }
 

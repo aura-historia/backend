@@ -12,13 +12,31 @@
                 "type": "keyword"
             },
             "metaName": {
-                "type": "keyword"
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
             },
             "metaDescription": {
-                "type": "keyword"
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 1024
+                    }
+                }
             },
             "metaKeywords": {
-                "type": "keyword"
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
             },
             "embedding": {
                 "type": "knn_vector",

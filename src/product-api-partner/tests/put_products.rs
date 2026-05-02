@@ -4,8 +4,6 @@ use lambda_runtime::LambdaEvent;
 use product::dynamodb::product_record::{self, ProductRecord};
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::service::command_service::CommandProductServiceImpl;
-use product_classification::category::service::MockCategoryService;
-use product_classification::period::service::MockPeriodService;
 use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
 use shop::dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl};
 use shop::dynamodb::shop_record::ShopRecord;
@@ -22,18 +20,6 @@ fn make_partner_shop_record(api_key: &PartnerShopApiKey) -> ShopRecord {
     record
 }
 
-fn make_mocked_services() -> (MockPeriodService, MockCategoryService) {
-    let mut period_service = MockPeriodService::default();
-    period_service
-        .expect_find_periods()
-        .returning(|| Box::pin(async { Ok(vec![]) }));
-    let mut category_service = MockCategoryService::default();
-    category_service
-        .expect_find_categories()
-        .returning(|| Box::pin(async { Ok(vec![]) }));
-    (period_service, category_service)
-}
-
 #[localstack_test(services = [DynamoDB()])]
 async fn should_return_200_with_empty_errors_when_upserting_new_product() {
     let ddb_client = get_dynamodb_client().await;
@@ -41,13 +27,10 @@ async fn should_return_200_with_empty_errors_when_upserting_new_product() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
     let fx_rate = FixedFxRate();
-    let (period_service, category_service) = make_mocked_services();
     let seller_service = MockSellerService::default();
     let command_product_service = CommandProductServiceImpl::new(
         &product_repository,
         &fx_rate,
-        &period_service,
-        &category_service,
         &get_shop_service,
         &seller_service,
     );
@@ -103,13 +86,10 @@ async fn should_return_200_with_empty_errors_when_upserting_existing_product() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
     let fx_rate = FixedFxRate();
-    let (period_service, category_service) = make_mocked_services();
     let seller_service = MockSellerService::default();
     let command_product_service = CommandProductServiceImpl::new(
         &product_repository,
         &fx_rate,
-        &period_service,
-        &category_service,
         &get_shop_service,
         &seller_service,
     );
@@ -173,13 +153,10 @@ async fn should_return_401_when_api_key_does_not_match_for_put() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
     let fx_rate = FixedFxRate();
-    let (period_service, category_service) = make_mocked_services();
     let seller_service = MockSellerService::default();
     let command_product_service = CommandProductServiceImpl::new(
         &product_repository,
         &fx_rate,
-        &period_service,
-        &category_service,
         &get_shop_service,
         &seller_service,
     );
@@ -219,13 +196,10 @@ async fn should_return_404_when_shop_does_not_exist_for_put() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
     let fx_rate = FixedFxRate();
-    let (period_service, category_service) = make_mocked_services();
     let seller_service = MockSellerService::default();
     let command_product_service = CommandProductServiceImpl::new(
         &product_repository,
         &fx_rate,
-        &period_service,
-        &category_service,
         &get_shop_service,
         &seller_service,
     );
@@ -262,13 +236,10 @@ async fn should_return_403_when_shop_is_not_a_partner_for_put() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
     let fx_rate = FixedFxRate();
-    let (period_service, category_service) = make_mocked_services();
     let seller_service = MockSellerService::default();
     let command_product_service = CommandProductServiceImpl::new(
         &product_repository,
         &fx_rate,
-        &period_service,
-        &category_service,
         &get_shop_service,
         &seller_service,
     );

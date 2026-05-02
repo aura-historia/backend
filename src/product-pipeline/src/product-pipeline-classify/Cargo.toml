@@ -17,6 +17,7 @@ lambda_runtime = { workspace = true }
 aws_lambda_events = { workspace = true, features = ["sqs", "dynamodb", "eventbridge"] }
 serde_dynamo = { workspace = true }
 llm = { workspace = true, features = ["google", "rustls-tls"] }
+opensearch = { workspace = true }
 thiserror = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
@@ -31,4 +32,3 @@ fake = { workspace = true }
 rstest = { workspace = true }
 uuid = { workspace = true }
 time = { workspace = true }
-opensearch = { workspace = true }

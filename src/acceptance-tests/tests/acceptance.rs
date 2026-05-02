@@ -938,8 +938,6 @@ async fn create_products(commands: Vec<CreateProductCommand>) {
     let command_service = CommandProductServiceImpl::new(
         &product_repository,
         &fx_rate,
-        &period_service,
-        &category_service,
         &get_shop_service,
         &seller_service,
     );
@@ -969,8 +967,6 @@ async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
     let command_service = CommandProductServiceImpl::new(
         &product_repository,
         &fx_rate,
-        &period_service,
-        &category_service,
         &get_shop_service,
         &seller_service,
     );
