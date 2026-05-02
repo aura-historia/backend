@@ -3,11 +3,9 @@ pub mod service;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use common::{
     batch::{Batch, dynamodb::handle_dynamodb_batch_write_put_product_output},
-    category_key::CategoryId,
     dynamodb_stream::extract_from_dynamodb_stream,
     event_id::EventId,
     has_key::HasKey,
-    period_key::PeriodId,
     product_id::ProductKey,
 };
 use lambda_runtime::LambdaEvent;
@@ -24,21 +22,18 @@ use product::{
     },
     dynamodb::{product_event_record::ProductEventRecord, repository::ProductDynamoDbRepository},
 };
-use product_classification::{category::service::CategoryService, period::service::PeriodService};
 use service::ClassificationService;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 use tracing::{error, info, warn};
 
 #[tracing::instrument(
-    skip(classification_service, product_repository, category_service, period_service, event),
+    skip(classification_service, product_repository, event),
     fields(requestId = %event.context.request_id)
 )]
 pub async fn handler(
     classification_service: &(impl ClassificationService + Sync),
     product_repository: &(impl ProductDynamoDbRepository + Sync),
-    category_service: &(impl CategoryService + Sync),
-    period_service: &(impl PeriodService + Sync),
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let count = event.payload.records.len();
@@ -113,90 +108,22 @@ pub async fn handler(
 
         let title = Title::from(title.as_str());
 
-        let (similar_categories_res, similar_periods_res) = tokio::join!(
-            category_service.find_similar(embedding, 5),
-            period_service.find_similar(embedding, 5),
-        );
-
-        let category_ids: Vec<CategoryId> = match similar_categories_res {
-            Ok(categories) => {
-                if categories.is_empty() {
+        let (chosen_category, chosen_period) =
+            match classification_service.classify(&title, embedding).await {
+                Ok(result) => result,
+                Err(err) => {
                     error!(
+                        error = %err,
                         messageId = message_id,
                         shopId = %enrichment_record.shop_id,
                         shopsProductId = %enrichment_record.shops_product_id,
                         eventId = %enrichment_record.event_id,
-                        "No similar categories found."
+                        "Failed classifying product."
                     );
                     failed_message_ids.push(message_id);
                     continue;
                 }
-                categories
-                    .iter()
-                    .map(|(c, _)| c.category_id.clone())
-                    .collect()
-            }
-            Err(err) => {
-                error!(
-                    error = ?err,
-                    messageId = message_id,
-                    shopId = %enrichment_record.shop_id,
-                    shopsProductId = %enrichment_record.shops_product_id,
-                    eventId = %enrichment_record.event_id,
-                    "Failed finding similar categories."
-                );
-                failed_message_ids.push(message_id);
-                continue;
-            }
-        };
-
-        let period_ids: Vec<PeriodId> = match similar_periods_res {
-            Ok(periods) => {
-                if periods.is_empty() {
-                    error!(
-                        messageId = message_id,
-                        shopId = %enrichment_record.shop_id,
-                        shopsProductId = %enrichment_record.shops_product_id,
-                        eventId = %enrichment_record.event_id,
-                        "No similar periods found."
-                    );
-                    failed_message_ids.push(message_id);
-                    continue;
-                }
-                periods.iter().map(|(p, _)| p.period_id.clone()).collect()
-            }
-            Err(err) => {
-                error!(
-                    error = ?err,
-                    messageId = message_id,
-                    shopId = %enrichment_record.shop_id,
-                    shopsProductId = %enrichment_record.shops_product_id,
-                    eventId = %enrichment_record.event_id,
-                    "Failed finding similar periods."
-                );
-                failed_message_ids.push(message_id);
-                continue;
-            }
-        };
-
-        let (chosen_category, chosen_period) = match classification_service
-            .classify(&title, &category_ids, &period_ids)
-            .await
-        {
-            Ok(result) => result,
-            Err(err) => {
-                error!(
-                    error = %err,
-                    messageId = message_id,
-                    shopId = %enrichment_record.shop_id,
-                    shopsProductId = %enrichment_record.shops_product_id,
-                    eventId = %enrichment_record.event_id,
-                    "Failed classifying product."
-                );
-                failed_message_ids.push(message_id);
-                continue;
-            }
-        };
+            };
 
         let now = OffsetDateTime::now_utc();
         let product_id = enrichment_record.product_id;
@@ -310,8 +237,10 @@ mod tests {
     use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
     use aws_lambda_events::eventbridge::EventBridgeEvent;
     use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
+    use common::category_key::CategoryId;
     use common::event::Event;
     use common::event_id::EventId;
+    use common::period_key::PeriodId;
     use common::product_id::ProductId;
     use fake::{Fake, Faker};
     use lambda_runtime::{Context, LambdaEvent};
@@ -322,10 +251,6 @@ mod tests {
     use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
     use product::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord;
     use product::dynamodb::repository::MockProductDynamoDbRepository;
-    use product_classification::category::core::Category;
-    use product_classification::category::service::MockCategoryService;
-    use product_classification::period::core::Period;
-    use product_classification::period::service::MockPeriodService;
     use std::time::SystemTime;
     use time::OffsetDateTime;
     use uuid::Uuid;
@@ -393,30 +318,10 @@ mod tests {
         event.into()
     }
 
-    fn mk_category_service_returning_categories() -> MockCategoryService {
-        let mut mock = MockCategoryService::default();
-        mock.expect_find_similar().returning(|_, _| {
-            let category: Category = Faker.fake();
-            Box::pin(async move { Ok(vec![(category, 0.95)]) })
-        });
-        mock
-    }
-
-    fn mk_period_service_returning_periods() -> MockPeriodService {
-        let mut mock = MockPeriodService::default();
-        mock.expect_find_similar().returning(|_, _| {
-            let period: Period = Faker.fake();
-            Box::pin(async move { Ok(vec![(period, 0.9)]) })
-        });
-        mock
-    }
-
     fn mk_classification_service_returning_first() -> MockClassificationService {
         let mut mock = MockClassificationService::default();
-        mock.expect_classify().returning(|_, categories, periods| {
-            let cat = categories[0].clone();
-            let per = periods[0].clone();
-            Box::pin(async move { Ok((cat, per)) })
+        mock.expect_classify().returning(|_, _| {
+            Box::pin(async move { Ok((CategoryId::from("furniture"), PeriodId::from("baroque"))) })
         });
         mock
     }
@@ -440,19 +345,11 @@ mod tests {
     async fn should_return_no_failures_when_batch_is_empty() {
         let mock_classification_service = MockClassificationService::default();
         let mock_repository = MockProductDynamoDbRepository::default();
-        let mock_category_service = MockCategoryService::default();
-        let mock_period_service = MockPeriodService::default();
         let event = mk_lambda_event(vec![]);
 
-        let result = handler(
-            &mock_classification_service,
-            &mock_repository,
-            &mock_category_service,
-            &mock_period_service,
-            event,
-        )
-        .await
-        .unwrap();
+        let result = handler(&mock_classification_service, &mock_repository, event)
+            .await
+            .unwrap();
 
         assert!(result.batch_item_failures.is_empty());
     }
@@ -464,19 +361,11 @@ mod tests {
 
         let mock_classification_service = mk_classification_service_returning_first();
         let mock_repository = mk_write_repository();
-        let mock_category_service = mk_category_service_returning_categories();
-        let mock_period_service = mk_period_service_returning_periods();
 
         let event = mk_lambda_event(vec![mk_sqs_message(&event_record)]);
-        let result = handler(
-            &mock_classification_service,
-            &mock_repository,
-            &mock_category_service,
-            &mock_period_service,
-            event,
-        )
-        .await
-        .unwrap();
+        let result = handler(&mock_classification_service, &mock_repository, event)
+            .await
+            .unwrap();
 
         assert!(result.batch_item_failures.is_empty());
     }
@@ -491,7 +380,7 @@ mod tests {
         mock_classification_service
             .expect_classify()
             .times(1)
-            .returning(|_, _, _| {
+            .returning(|_, _| {
                 Box::pin(async {
                     Err(ClassificationError::InvalidResponse(
                         "bad response".to_string(),
@@ -500,22 +389,14 @@ mod tests {
             });
 
         let mock_repository = MockProductDynamoDbRepository::default();
-        let mock_category_service = mk_category_service_returning_categories();
-        let mock_period_service = mk_period_service_returning_periods();
 
         let event = mk_lambda_event(vec![mk_sqs_message_with_id(
             &event_record,
             message_id.clone(),
         )]);
-        let result = handler(
-            &mock_classification_service,
-            &mock_repository,
-            &mock_category_service,
-            &mock_period_service,
-            event,
-        )
-        .await
-        .unwrap();
+        let result = handler(&mock_classification_service, &mock_repository, event)
+            .await
+            .unwrap();
 
         assert_eq!(1, result.batch_item_failures.len());
         assert_eq!(message_id, result.batch_item_failures[0].item_identifier);
@@ -530,22 +411,14 @@ mod tests {
 
         let mock_classification_service = MockClassificationService::default();
         let mock_repository = MockProductDynamoDbRepository::default();
-        let mock_category_service = MockCategoryService::default();
-        let mock_period_service = MockPeriodService::default();
 
         let event = mk_lambda_event(vec![mk_sqs_message_with_id(
             &event_record,
             message_id.clone(),
         )]);
-        let result = handler(
-            &mock_classification_service,
-            &mock_repository,
-            &mock_category_service,
-            &mock_period_service,
-            event,
-        )
-        .await
-        .unwrap();
+        let result = handler(&mock_classification_service, &mock_repository, event)
+            .await
+            .unwrap();
 
         assert!(result.batch_item_failures.is_empty());
     }
@@ -559,22 +432,14 @@ mod tests {
 
         let mock_classification_service = MockClassificationService::default();
         let mock_repository = MockProductDynamoDbRepository::default();
-        let mock_category_service = MockCategoryService::default();
-        let mock_period_service = MockPeriodService::default();
 
         let event = mk_lambda_event(vec![mk_sqs_message_with_id(
             &event_record,
             message_id.clone(),
         )]);
-        let result = handler(
-            &mock_classification_service,
-            &mock_repository,
-            &mock_category_service,
-            &mock_period_service,
-            event,
-        )
-        .await
-        .unwrap();
+        let result = handler(&mock_classification_service, &mock_repository, event)
+            .await
+            .unwrap();
 
         assert!(result.batch_item_failures.is_empty());
     }
@@ -587,22 +452,14 @@ mod tests {
 
         let mock_classification_service = MockClassificationService::default();
         let mock_repository = MockProductDynamoDbRepository::default();
-        let mock_category_service = MockCategoryService::default();
-        let mock_period_service = MockPeriodService::default();
 
         let event = mk_lambda_event(vec![mk_sqs_message_with_id(
             &event_record,
             message_id.clone(),
         )]);
-        let result = handler(
-            &mock_classification_service,
-            &mock_repository,
-            &mock_category_service,
-            &mock_period_service,
-            event,
-        )
-        .await
-        .unwrap();
+        let result = handler(&mock_classification_service, &mock_repository, event)
+            .await
+            .unwrap();
 
         assert!(result.batch_item_failures.is_empty());
     }
@@ -613,27 +470,21 @@ mod tests {
         let event_record = ProductEventRecord::Enrichment(enrichment_record);
         let message_id = "test-msg-no-categories".to_string();
 
-        let mock_classification_service = MockClassificationService::default();
+        let mut mock_classification_service = MockClassificationService::default();
+        mock_classification_service
+            .expect_classify()
+            .returning(|_, _| {
+                Box::pin(async { Err(ClassificationError::NoCandidates("category")) })
+            });
         let mock_repository = MockProductDynamoDbRepository::default();
-        let mut mock_category_service = MockCategoryService::default();
-        mock_category_service
-            .expect_find_similar()
-            .returning(|_, _| Box::pin(async { Ok(vec![]) }));
-        let mock_period_service = mk_period_service_returning_periods();
 
         let event = mk_lambda_event(vec![mk_sqs_message_with_id(
             &event_record,
             message_id.clone(),
         )]);
-        let result = handler(
-            &mock_classification_service,
-            &mock_repository,
-            &mock_category_service,
-            &mock_period_service,
-            event,
-        )
-        .await
-        .unwrap();
+        let result = handler(&mock_classification_service, &mock_repository, event)
+            .await
+            .unwrap();
 
         assert_eq!(1, result.batch_item_failures.len());
         assert_eq!(message_id, result.batch_item_failures[0].item_identifier);
@@ -645,27 +496,19 @@ mod tests {
         let event_record = ProductEventRecord::Enrichment(enrichment_record);
         let message_id = "test-msg-no-periods".to_string();
 
-        let mock_classification_service = MockClassificationService::default();
+        let mut mock_classification_service = MockClassificationService::default();
+        mock_classification_service
+            .expect_classify()
+            .returning(|_, _| Box::pin(async { Err(ClassificationError::NoCandidates("period")) }));
         let mock_repository = MockProductDynamoDbRepository::default();
-        let mock_category_service = mk_category_service_returning_categories();
-        let mut mock_period_service = MockPeriodService::default();
-        mock_period_service
-            .expect_find_similar()
-            .returning(|_, _| Box::pin(async { Ok(vec![]) }));
 
         let event = mk_lambda_event(vec![mk_sqs_message_with_id(
             &event_record,
             message_id.clone(),
         )]);
-        let result = handler(
-            &mock_classification_service,
-            &mock_repository,
-            &mock_category_service,
-            &mock_period_service,
-            event,
-        )
-        .await
-        .unwrap();
+        let result = handler(&mock_classification_service, &mock_repository, event)
+            .await
+            .unwrap();
 
         assert_eq!(1, result.batch_item_failures.len());
         assert_eq!(message_id, result.batch_item_failures[0].item_identifier);
@@ -682,45 +525,21 @@ mod tests {
         mock_classification_service
             .expect_classify()
             .times(2)
-            .returning(|_, categories, periods| {
-                let cat = categories[0].clone();
-                let per = periods[0].clone();
-                Box::pin(async move { Ok((cat, per)) })
+            .returning(|_, _| {
+                Box::pin(
+                    async move { Ok((CategoryId::from("furniture"), PeriodId::from("baroque"))) },
+                )
             });
 
         let mock_repository = mk_write_repository();
-
-        let mut mock_category_service = MockCategoryService::default();
-        mock_category_service
-            .expect_find_similar()
-            .times(2)
-            .returning(|_, _| {
-                let category: Category = Faker.fake();
-                Box::pin(async move { Ok(vec![(category, 0.95)]) })
-            });
-
-        let mut mock_period_service = MockPeriodService::default();
-        mock_period_service
-            .expect_find_similar()
-            .times(2)
-            .returning(|_, _| {
-                let period: Period = Faker.fake();
-                Box::pin(async move { Ok(vec![(period, 0.9)]) })
-            });
 
         let event = mk_lambda_event(vec![
             mk_sqs_message(&event_record1),
             mk_sqs_message(&event_record2),
         ]);
-        let result = handler(
-            &mock_classification_service,
-            &mock_repository,
-            &mock_category_service,
-            &mock_period_service,
-            event,
-        )
-        .await
-        .unwrap();
+        let result = handler(&mock_classification_service, &mock_repository, event)
+            .await
+            .unwrap();
 
         assert!(result.batch_item_failures.is_empty());
     }

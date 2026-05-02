@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true, features = ["opensearch"] }
+product = { workspace = true }
 time = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -21,6 +22,8 @@ strum_macros = { workspace = true }
 
 # Optional
 fake = { workspace = true, optional = true }
+reqwest = { workspace = true, features = ["json"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]
 product-classification = { workspace = true, features = ["test-data", "data"] }

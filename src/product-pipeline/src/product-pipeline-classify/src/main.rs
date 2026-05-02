@@ -50,37 +50,25 @@ async fn main() -> Result<(), Error> {
         use product_pipeline_classify::service::MockClassificationService;
 
         let mut classification_service = MockClassificationService::new();
-        classification_service
-            .expect_classify()
-            .returning(|_, categories, periods| {
-                let cat = categories[0].clone();
-                let per = periods[0].clone();
-                Box::pin(async move { Ok((cat, per)) })
-            });
+        classification_service.expect_classify().returning(|_, _| {
+            Box::pin(async move {
+                Ok((
+                    common::category_key::CategoryId::from("furniture"),
+                    common::period_key::PeriodId::from("baroque"),
+                ))
+            })
+        });
         run(service_fn(|event: LambdaEvent<SqsEvent>| async {
-            handler(
-                &classification_service,
-                &product_repository,
-                &category_service,
-                &period_service,
-                event,
-            )
-            .await
+            handler(&classification_service, &product_repository, event).await
         }))
         .await
     } else {
         let gemini_api_key = std::env::var("GEMINI_API_KEY")
             .expect("shouldn't fail loading env-var 'GEMINI_API_KEY'");
-        let classification_service = ClassificationServiceImpl::new(&gemini_api_key);
+        let classification_service =
+            ClassificationServiceImpl::new(&gemini_api_key, &category_service, &period_service);
         run(service_fn(|event: LambdaEvent<SqsEvent>| async {
-            handler(
-                &classification_service,
-                &product_repository,
-                &category_service,
-                &period_service,
-                event,
-            )
-            .await
+            handler(&classification_service, &product_repository, event).await
         }))
         .await
     }

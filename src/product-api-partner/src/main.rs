@@ -10,12 +10,6 @@ use llm::builder::{LLMBackend, LLMBuilder};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::command_service::CommandProductServiceImpl;
 use product_api_partner::handler;
-use product_classification::category::dynamodb_repository::CategoryDynamoDbRepositoryImpl;
-use product_classification::category::opensearch_repository::CategoryOpenSearchRepositoryImpl;
-use product_classification::category::service::CategoryServiceImpl;
-use product_classification::period::dynamodb_repository::PeriodDynamoDbRepositoryImpl;
-use product_classification::period::opensearch_repository::PeriodOpenSearchRepositoryImpl;
-use product_classification::period::service::PeriodServiceImpl;
 use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
 use shop::opensearch::repository::ShopOpenSearchRepositoryImpl;
 use shop::service::command_service::CommandShopServiceImpl;
@@ -89,21 +83,9 @@ async fn main() -> Result<(), Error> {
 
     let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let fx_rate = FixedFxRate();
-    let period_dynamodb_repository = PeriodDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
-    let category_dynamodb_repository = CategoryDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
-    let period_opensearch_repository = PeriodOpenSearchRepositoryImpl::new(&opensearch);
-    let category_opensearch_repository = CategoryOpenSearchRepositoryImpl::new(&opensearch);
-    let period_service =
-        PeriodServiceImpl::new(&period_dynamodb_repository, &period_opensearch_repository);
-    let category_service = CategoryServiceImpl::new(
-        &category_dynamodb_repository,
-        &category_opensearch_repository,
-    );
     let command_product_service = CommandProductServiceImpl::new(
         &product_dynamodb_repository,
         &fx_rate,
-        &period_service,
-        &category_service,
         &get_shop_service,
         seller_service.as_ref(),
     );

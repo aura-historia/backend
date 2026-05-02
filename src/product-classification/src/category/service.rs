@@ -15,6 +15,7 @@ use common::{
     language::domain::Language,
     sort::{Sort, SortOrder},
 };
+use product::core::title::Title;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CategoryServiceError {
@@ -81,6 +82,12 @@ pub trait CategoryService {
         &self,
         embedding: &[f32],
         k: u16,
+    ) -> Result<Vec<(Category, f64)>, opensearch::Error>;
+
+    async fn find_category_candidates(
+        &self,
+        product_title: &Title,
+        product_embedding: &[f32],
     ) -> Result<Vec<(Category, f64)>, opensearch::Error>;
 
     async fn search_categories(
@@ -161,6 +168,25 @@ impl<'a> CategoryService for CategoryServiceImpl<'a> {
             .collect();
 
         Ok(similar)
+    }
+
+    async fn find_category_candidates(
+        &self,
+        product_title: &Title,
+        product_embedding: &[f32],
+    ) -> Result<Vec<(Category, f64)>, opensearch::Error> {
+        let search_res = self
+            .opensearch_search
+            .hybrid_search(product_title, product_embedding, 8)
+            .await?;
+        let candidates = search_res
+            .hits
+            .hits
+            .into_iter()
+            .map(|hit| (hit.source.into(), hit.score.unwrap_or(0.0)))
+            .collect();
+
+        Ok(candidates)
     }
 
     async fn search_categories(
@@ -576,6 +602,62 @@ mod tests {
                 actual.unwrap_err(),
                 CategoryServiceError::CategoryNotExists(err_id) if err_id == category_id
             ));
+        }
+    }
+
+    mod find_category_candidates {
+        use super::*;
+        use product::core::title::Title;
+
+        #[tokio::test]
+        async fn should_return_candidates_when_hybrid_search_succeeds_for_category_service() {
+            let category: Category = Faker.fake();
+            let category_id = category.category_id.clone();
+            let category_document: CategoryDocument = category.try_into().unwrap();
+            let mut opensearch_repository = MockCategoryOpenSearchRepository::default();
+            opensearch_repository
+                .expect_hybrid_search()
+                .once()
+                .return_once(move |_, _, _| {
+                    Box::pin(async move {
+                        Ok(SearchResponse {
+                            took: 12,
+                            timed_out: false,
+                            shards: ShardStats {
+                                total: 1,
+                                successful: 1,
+                                skipped: 0,
+                                failed: 0,
+                            },
+                            hits: HitsMetadata {
+                                total: TotalHits {
+                                    value: 1,
+                                    relation: "eq".to_string(),
+                                },
+                                max_score: Some(7.5),
+                                hits: vec![SearchHit {
+                                    index: "categories".to_string(),
+                                    id: category_document.category_id.to_string(),
+                                    score: Some(7.5),
+                                    source: category_document,
+                                    sort: None,
+                                }],
+                            },
+                        })
+                    })
+                });
+
+            let dynamodb_repository = MockCategoryDynamoDbRepository::default();
+            let service = CategoryServiceImpl::new(&dynamodb_repository, &opensearch_repository);
+
+            let actual = service
+                .find_category_candidates(&Title::from("antique cabinet"), &[0.1, 0.2])
+                .await
+                .unwrap();
+
+            assert_eq!(actual.len(), 1);
+            assert_eq!(actual[0].0.category_id, category_id);
+            assert_eq!(actual[0].1, 7.5);
         }
     }
 

@@ -6,6 +6,7 @@ use common::opensearch::index_response::IndexResponse;
 use common::opensearch::search_response::SearchResponse;
 use common::sort::{Sort, SortOrder};
 use opensearch::{IndexParts, SearchParts};
+use product::core::title::Title;
 use serde::ser::Error;
 use serde_json::json;
 
@@ -20,6 +21,13 @@ pub trait PeriodOpenSearchRepository {
     async fn exact_k_nn(
         &self,
         embedding: &[f32],
+        k: u16,
+    ) -> Result<SearchResponse<PeriodDocument>, opensearch::Error>;
+
+    async fn hybrid_search(
+        &self,
+        product_title: &Title,
+        product_embedding: &[f32],
         k: u16,
     ) -> Result<SearchResponse<PeriodDocument>, opensearch::Error>;
 
@@ -102,6 +110,69 @@ impl<'a> PeriodOpenSearchRepository for PeriodOpenSearchRepositoryImpl<'a> {
 
         let response_body = response.json::<SearchResponse<PeriodDocument>>().await?;
         Ok(response_body)
+    }
+
+    async fn hybrid_search(
+        &self,
+        product_title: &Title,
+        product_embedding: &[f32],
+        k: u16,
+    ) -> Result<SearchResponse<PeriodDocument>, opensearch::Error> {
+        let response = self
+            .client
+            .search(SearchParts::Index(&["periods"]))
+            .body(json!({
+                "size": k,
+                "query": {
+                    "bool": {
+                        "should": [
+                            {
+                                "script_score": {
+                                    "query": { "match_all": {} },
+                                    "script": {
+                                        "source": "knn_score",
+                                        "lang": "knn",
+                                        "params": {
+                                            "field": PeriodDocumentSerdeField::Embedding.as_str(),
+                                            "query_value": product_embedding,
+                                            "space_type": "cosinesimil"
+                                        }
+                                    },
+                                    "boost": 2.0
+                                }
+                            },
+                            {
+                                "multi_match": {
+                                    "query": product_title.as_ref(),
+                                    "fields": [
+                                        format!("{}^8", PeriodDocumentSerdeField::MetaName.as_str()),
+                                        format!("{}^5", PeriodDocumentSerdeField::MetaKeywords.as_str()),
+                                        format!("{}^3", PeriodDocumentSerdeField::MetaDescription.as_str()),
+                                    ],
+                                    "type": "best_fields",
+                                    "fuzziness": "AUTO",
+                                    "minimum_should_match": "60%",
+                                    "boost": 4.0
+                                }
+                            }
+                        ],
+                        "minimum_should_match": 1
+                    }
+                }
+            }))
+            .send()
+            .await?
+            .error_for_status_code()?;
+
+        let payload = response.text().await?;
+        let search_response =
+            serde_json::from_str::<SearchResponse<PeriodDocument>>(&payload).map_err(|err| {
+                serde_json::Error::custom(format!(
+                    "Failed deserializing 'SearchResponse<PeriodDocument>' with error '{err}'. Received payload: {payload}"
+                ))
+            })?;
+
+        Ok(search_response)
     }
 
     async fn search_period_documents(
