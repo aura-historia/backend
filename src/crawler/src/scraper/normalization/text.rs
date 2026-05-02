@@ -51,15 +51,49 @@ pub(super) fn normalize_title(raw: &str) -> Result<Title, NormalizationError> {
 /// Errors with [`NormalizationError::TitleEmpty`] if the trimmed value is
 /// blank, or [`NormalizationError::TitleUnknownLanguage`] if the language
 /// cannot be detected.
+#[allow(dead_code)]
 pub(super) fn normalize_title_localized(
     raw: &str,
 ) -> Result<Localized<Language, Title>, NormalizationError> {
+    normalize_title_localized_with_description_language_fallback(raw, None)
+}
+
+fn word_count(text: &str) -> usize {
+    text.split_whitespace().count()
+}
+
+pub(super) fn detect_description_language(fragments: &[String]) -> Option<Language> {
+    let cleaned: Vec<String> = fragments
+        .iter()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if cleaned.is_empty() {
+        return None;
+    }
+    detect_language(cleaned.join("\n\n").as_str())
+}
+
+pub(super) fn normalize_title_localized_with_description_language_fallback(
+    raw: &str,
+    description_language: Option<Language>,
+) -> Result<Localized<Language, Title>, NormalizationError> {
     let title = normalize_title(raw)?;
-    let language = detect_language(title.as_ref()).ok_or_else(|| {
-        NormalizationError::TitleUnknownLanguage {
-            text: title.as_ref().chars().take(100).collect(),
+    let language = if word_count(title.as_ref()) < 3 {
+        if let Some(language) = description_language {
+            language
+        } else {
+            detect_language(title.as_ref()).ok_or_else(|| {
+                NormalizationError::TitleUnknownLanguage {
+                    text: title.as_ref().chars().take(100).collect(),
+                }
+            })?
         }
-    })?;
+    } else {
+        detect_language(title.as_ref()).ok_or_else(|| NormalizationError::TitleUnknownLanguage {
+            text: title.as_ref().chars().take(100).collect(),
+        })?
+    };
     Ok(Localized::new(language, title))
 }
 
@@ -100,9 +134,9 @@ mod tests {
     use url::Url;
 
     use super::{
-        normalize_description, normalize_shops_product_id,
+        detect_description_language, normalize_description, normalize_shops_product_id,
         normalize_shops_product_id_with_url_sha_fallback, normalize_title,
-        normalize_title_localized,
+        normalize_title_localized, normalize_title_localized_with_description_language_fallback,
     };
     use crate::scraper::normalization::error::NormalizationError;
 
@@ -228,6 +262,36 @@ mod tests {
             "expected TitleUnknownLanguage, got: {:?}",
             err
         );
+    }
+
+    #[test]
+    fn should_use_description_language_for_short_title_when_available() {
+        use common::language::domain::Language;
+        let localized = normalize_title_localized_with_description_language_fallback(
+            "La Saintongeoise",
+            Some(Language::En),
+        )
+        .unwrap();
+        assert_eq!(localized.localization, Language::En);
+    }
+
+    #[test]
+    fn should_fallback_to_title_detection_when_description_language_missing_for_short_title() {
+        use common::language::domain::Language;
+        let localized =
+            normalize_title_localized_with_description_language_fallback("Vintage Poster", None)
+                .unwrap();
+        assert_eq!(localized.localization, Language::En);
+    }
+
+    #[test]
+    fn should_detect_description_language_when_long_description_provided() {
+        use common::language::domain::Language;
+        let language = detect_description_language(&[
+            "This vintage poster comes from a private collection and has documented provenance."
+                .to_string(),
+        ]);
+        assert_eq!(language, Some(Language::En));
     }
 
     // -----------------------------------------------------------------------
