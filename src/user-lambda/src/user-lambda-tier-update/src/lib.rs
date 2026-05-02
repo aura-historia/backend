@@ -22,6 +22,8 @@ use time::OffsetDateTime;
 use tracing::{error, info};
 use user::dynamodb::user_record::UserRecord;
 
+const LATEST_FIRST: bool = false;
+
 #[tracing::instrument(skip(event, watchlist_repository, search_filter_repository), fields(requestId = %event.context.request_id))]
 pub async fn handler(
     watchlist_repository: &(impl WatchlistProductDynamoDbRepository + Sync),
@@ -51,7 +53,7 @@ pub async fn enforce_tier(
     let tier: user::core::tier::UserTier = user.tier.into();
 
     let mut watchlist_records = watchlist_repository
-        .query_watchlist_records_all(&user_id, false)
+        .query_watchlist_records_all(&user_id, LATEST_FIRST)
         .await?;
     let watchlist_quota = tier.watchlist_quota() as usize;
     let mut active_watchlist_count = 0usize;
@@ -71,7 +73,7 @@ pub async fn enforce_tier(
     }
 
     let mut search_filter_records = search_filter_repository
-        .query_user_search_filter_records(&user_id, false)
+        .query_user_search_filter_records(&user_id, LATEST_FIRST)
         .await?;
     let search_filter_quota = tier.search_filter_quota() as usize;
     let mut active_search_filter_count = 0usize;
@@ -80,7 +82,10 @@ pub async fn enforce_tier(
             continue;
         }
 
-        let feature_allowed = search_filter_features_allowed(&tier, &record);
+        let record_state = record.state;
+        let record_user_id = record.user_id;
+        let record_search_filter_id = record.user_search_filter_id;
+        let feature_allowed = search_filter_features_allowed(&tier, record);
         if feature_allowed {
             active_search_filter_count += 1;
         }
@@ -90,7 +95,14 @@ pub async fn enforce_tier(
             UserSearchFilterStateRecord::InactiveByRestrictedPlan
         };
 
-        update_search_filter_state(search_filter_repository, record, target_state).await?;
+        update_search_filter_state(
+            search_filter_repository,
+            record_user_id,
+            record_search_filter_id,
+            record_state,
+            target_state,
+        )
+        .await?;
     }
 
     info!(userId = %user_id, tier = ?tier, "Enforced tier quotas.");
@@ -99,9 +111,9 @@ pub async fn enforce_tier(
 
 fn search_filter_features_allowed(
     tier: &user::core::tier::UserTier,
-    record: &UserSearchFilterRecord,
+    record: UserSearchFilterRecord,
 ) -> bool {
-    let filter = search_filter::core::user_search_filter::UserSearchFilter::from(record.clone());
+    let filter = search_filter::core::user_search_filter::UserSearchFilter::from(record);
     tier.check_search_filter_features(&filter.search).is_ok()
         && filter
             .enhanced_search_description
@@ -140,23 +152,25 @@ async fn update_watchlist_state(
 
 async fn update_search_filter_state(
     repository: &(impl UserSearchFilterDynamoDbRepository + Sync),
-    record: UserSearchFilterRecord,
+    user_id: common::user_id::UserId,
+    search_filter_id: common::user_search_filter_id::UserSearchFilterId,
+    current_state: UserSearchFilterStateRecord,
     target_state: UserSearchFilterStateRecord,
 ) -> Result<(), lambda_runtime::Error> {
-    if record.state == target_state {
+    if current_state == target_state {
         return Ok(());
     }
 
     repository
         .update_user_search_filter_record(
-            &record.user_id,
-            &record.user_search_filter_id,
+            &user_id,
+            &search_filter_id,
             search_filter_state_update(target_state),
         )
         .await
         .map(|_| ())
         .map_err(|err| {
-            error!(error = ?err, userId = %record.user_id, "Failed updating search filter state.");
+            error!(error = ?err, userId = %user_id, "Failed updating search filter state.");
             lambda_runtime::Error::from(err)
         })
 }
