@@ -1,4 +1,5 @@
 use crate::core::user_search_filter_name::UserSearchFilterName;
+use crate::dynamodb::user_search_filter_state_record::UserSearchFilterStateRecord;
 use common::category_key::CategoryId;
 use common::dynamodb_update::DynamoDbUpdate;
 use common::period_key::PeriodId;
@@ -25,6 +26,8 @@ pub struct UserSearchFilterRecordUpdate {
     pub name: Option<UserSearchFilterName>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notifications: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<UserSearchFilterStateRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub product_query: Option<TextQuery<1>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -111,6 +114,7 @@ mod fake {
             UserSearchFilterRecordUpdate {
                 name: config.fake_with_rng(rng),
                 notifications: config.fake_with_rng(rng),
+                state: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
                 period_id: config.fake_with_rng(rng),

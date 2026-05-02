@@ -195,6 +195,10 @@ impl<'a> ProductMatcherServiceImpl<'a> {
             .user_search_filter_service
             .match_user_search_filters(&product_document)
             .await?;
+        let matched_filters: Vec<_> = matched_filters
+            .into_iter()
+            .filter(|filter| filter.state.is_active())
+            .collect();
 
         if matched_filters.is_empty() {
             return Ok((event_id, product, vec![]));
@@ -436,6 +440,7 @@ mod tests {
     use search_filter::core::user_search_filter::EnhancedSearchDescription;
     use search_filter::core::user_search_filter::UserSearchFilterSummary;
     use search_filter::core::user_search_filter_name::UserSearchFilterName;
+    use search_filter::core::user_search_filter_state::UserSearchFilterState;
     use search_filter::service::enhanced_search_match_service::{
         EnhancedSearchMatchError, EnhancedSearchMatchResult, MockEnhancedSearchMatchService,
     };
@@ -504,6 +509,7 @@ mod tests {
             name: UserSearchFilterName::from("Test Filter"),
             enhanced_search_description: None,
             notifications: true,
+            state: UserSearchFilterState::Active,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -519,6 +525,7 @@ mod tests {
             name: UserSearchFilterName::from("Enhanced Filter"),
             enhanced_search_description: Some(EnhancedSearchDescription::from(description)),
             notifications: true,
+            state: UserSearchFilterState::Active,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -709,6 +716,7 @@ mod tests {
             name: filter_name.clone(),
             enhanced_search_description: None,
             notifications: true,
+            state: UserSearchFilterState::Active,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };

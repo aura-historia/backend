@@ -2726,7 +2726,8 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
         .query_user_ids_watching_product(&patched.item.product_id)
         .await
         .unwrap();
-    let eligible_user_ids: Vec<UserId> = eligible.into_iter().map(|(user_id, _)| user_id).collect();
+    let eligible_user_ids: Vec<UserId> =
+        eligible.into_iter().map(|record| record.user_id).collect();
     assert_eq!(vec![UserId::from(user.sub)], eligible_user_ids);
     tokio::time::sleep(Duration::from_secs(10)).await;
 

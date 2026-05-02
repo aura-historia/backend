@@ -1,5 +1,8 @@
 use crate::{
-    core::{quota::WatchlistQuota, watchlist_product::WatchlistProduct},
+    core::{
+        quota::WatchlistQuota, watchlist_product::WatchlistProduct,
+        watchlist_product_state::WatchlistProductState,
+    },
     dynamodb::{
         record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
         record_update::WatchlistProductRecordUpdate,
@@ -176,7 +179,7 @@ pub trait ProductWatchListService {
     async fn find_user_ids_watching_product(
         &self,
         product_id: &ProductId,
-    ) -> Result<Vec<(UserId, bool)>, WatchProductError>;
+    ) -> Result<Vec<WatchlistProduct>, WatchProductError>;
 }
 
 pub struct ProductWatchListServiceImpl<'a> {
@@ -269,6 +272,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
             notifications: false,
+            state: WatchlistProductState::Active.into(),
             created: now,
             updated: now,
         };
@@ -384,10 +388,11 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
     async fn find_user_ids_watching_product(
         &self,
         product_id: &ProductId,
-    ) -> Result<Vec<(UserId, bool)>, WatchProductError> {
+    ) -> Result<Vec<WatchlistProduct>, WatchProductError> {
         self.watchlist_repository
             .query_user_ids_watching_product(product_id)
             .await
+            .map(|records| records.into_iter().map(WatchlistProduct::from).collect())
             .map_err(WatchProductError::from)
     }
 }
@@ -1000,6 +1005,7 @@ mod tests {
                     &Faker.fake(),
                     UpdateWatchlistProductCommand {
                         notifications: Some(true),
+                        state: None,
                     },
                 )
                 .await
@@ -1031,6 +1037,7 @@ mod tests {
                     &shops_product_id,
                     UpdateWatchlistProductCommand {
                         notifications: Some(true),
+                        state: None,
                     },
                 )
                 .await
@@ -1094,6 +1101,7 @@ mod tests {
                     &Faker.fake(),
                     UpdateWatchlistProductCommand {
                         notifications: Some(true),
+                        state: None,
                     },
                 )
                 .await;
@@ -1154,6 +1162,7 @@ mod tests {
                     &Faker.fake(),
                     UpdateWatchlistProductCommand {
                         notifications: Some(true),
+                        state: None,
                     },
                 )
                 .await;

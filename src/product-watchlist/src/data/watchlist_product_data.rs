@@ -1,4 +1,5 @@
 use crate::core::watchlist_product::WatchlistProduct;
+use crate::data::watchlist_product_state_data::WatchlistProductStateData;
 use common::{product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -10,6 +11,8 @@ pub struct WatchlistProductData {
     pub shops_product_id: ShopsProductId,
     pub product_id: ProductId,
     pub notifications: bool,
+    #[serde(default)]
+    pub state: WatchlistProductStateData,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -25,6 +28,7 @@ impl From<WatchlistProduct> for WatchlistProductData {
             shops_product_id: domain.shops_product_id,
             product_id: domain.product_id,
             notifications: domain.notifications,
+            state: domain.state.into(),
             created: domain.created,
             updated: domain.updated,
         }

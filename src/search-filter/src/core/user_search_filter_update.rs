@@ -2,7 +2,9 @@ use std::collections::HashSet;
 
 use crate::core::user_search_filter::EnhancedSearchDescription;
 use crate::core::user_search_filter_name::UserSearchFilterName;
+use crate::core::user_search_filter_state::UserSearchFilterState;
 use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
+use crate::dynamodb::user_search_filter_state_record::UserSearchFilterStateRecord;
 use common::category_key::CategoryId;
 use common::period_key::PeriodId;
 use common::query::any_of_query::AnyOfQuery;
@@ -35,6 +37,7 @@ pub struct UserSearchFilterUpdate {
     pub name: Option<UserSearchFilterName>,
     pub enhanced_search_description: Option<EnhancedSearchDescription>,
     pub notifications: Option<bool>,
+    pub state: Option<UserSearchFilterState>,
     pub product_query: Option<TextQuery<1>>,
     pub category_id: Option<AnyOfQuery<CategoryId>>,
     pub period_id: Option<AnyOfQuery<PeriodId>>,
@@ -69,6 +72,7 @@ impl UserSearchFilterUpdate {
             name,
             enhanced_search_description,
             notifications,
+            state,
             product_query,
             category_id,
             period_id,
@@ -100,6 +104,7 @@ impl UserSearchFilterUpdate {
         name.is_none()
             && enhanced_search_description.is_none()
             && notifications.is_none()
+            && state.is_none()
             && product_query.is_none()
             && category_id.is_none()
             && period_id.is_none()
@@ -133,6 +138,7 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
         UserSearchFilterRecordUpdate {
             name: update.name,
             notifications: update.notifications,
+            state: update.state.map(UserSearchFilterStateRecord::from),
             product_query: update.product_query,
             category_id: update.category_id.map(HashSet::from),
             period_id: update.period_id.map(HashSet::from),
@@ -190,6 +196,7 @@ mod fake {
                 name: config.fake_with_rng(rng),
                 enhanced_search_description: config.fake_with_rng(rng),
                 notifications: config.fake_with_rng(rng),
+                state: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
                 period_id: config.fake_with_rng(rng),

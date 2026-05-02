@@ -6,6 +6,7 @@ use crate::core::user_search_filter::{
     EnhancedSearchDescription, UserSearchFilter, UserSearchFilterSummary,
 };
 use crate::core::user_search_filter_name::UserSearchFilterName;
+use crate::core::user_search_filter_state::UserSearchFilterState;
 use crate::core::user_search_filter_update::UserSearchFilterUpdate;
 use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
 use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
@@ -355,6 +356,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             name,
             enhanced_search_description,
             notifications: true,
+            state: UserSearchFilterState::Active,
             search,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),

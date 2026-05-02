@@ -196,6 +196,7 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
             name: patch.name,
             enhanced_search_description: patch.enhanced_search_description.map(Into::into),
             notifications: patch.notifications,
+            state: None,
             language: patch
                 .search
                 .as_ref()

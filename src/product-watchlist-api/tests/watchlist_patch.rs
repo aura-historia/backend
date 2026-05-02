@@ -106,6 +106,7 @@ async fn should_respond_with_patched_notifications(
         shop_id: product_record.shop_id,
         shops_product_id: product_record.shops_product_id.clone(),
         notifications: old_notifications,
+        state: product_watchlist::dynamodb::watchlist_product_state_record::WatchlistProductStateRecord::Active,
         created,
         updated: created,
     };

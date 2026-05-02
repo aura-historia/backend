@@ -29,6 +29,7 @@ impl From<WatchlistProductPatch> for UpdateWatchlistProductCommand {
     fn from(patch: WatchlistProductPatch) -> Self {
         UpdateWatchlistProductCommand {
             notifications: patch.notifications,
+            state: None,
         }
     }
 }

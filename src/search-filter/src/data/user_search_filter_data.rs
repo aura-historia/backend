@@ -1,6 +1,7 @@
 use crate::core::{
     user_search_filter::UserSearchFilter, user_search_filter_name::UserSearchFilterName,
 };
+use crate::data::user_search_filter_state_data::UserSearchFilterStateData;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use product::data::product_search_data::ProductSearchData;
@@ -18,6 +19,8 @@ pub struct UserSearchFilterData {
     pub enhanced_search_description: Option<String>,
 
     pub notifications: bool,
+    #[serde(default)]
+    pub state: UserSearchFilterStateData,
 
     pub search: ProductSearchData,
 
@@ -38,6 +41,7 @@ impl From<UserSearchFilter> for UserSearchFilterData {
                 .enhanced_search_description
                 .map(Into::into),
             notifications: user_search_filter.notifications,
+            state: user_search_filter.state.into(),
             search: user_search_filter.search.into(),
             created: user_search_filter.created,
             updated: user_search_filter.updated,
@@ -58,6 +62,7 @@ mod faker {
                 name: config.fake_with_rng(rng),
                 enhanced_search_description: config.fake_with_rng(rng),
                 notifications: true,
+                state: UserSearchFilterStateData::Active,
                 search: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
@@ -69,6 +74,7 @@ mod faker {
 #[cfg(test)]
 mod tests {
     use crate::data::user_search_filter_data::UserSearchFilterData;
+    use crate::data::user_search_filter_state_data::UserSearchFilterStateData;
     use common::category_key::CategoryId;
     use common::period_key::PeriodId;
     use common::query::range_query::RangeQuery;
@@ -94,6 +100,7 @@ mod tests {
             name: "My Boop Filter".into(),
             enhanced_search_description: Some("This is a filter for Boop products".into()),
             notifications: true,
+            state: UserSearchFilterStateData::Active,
             search: ProductSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
@@ -153,6 +160,7 @@ mod tests {
             "name": "My Boop Filter",
             "enhancedSearchDescription": "This is a filter for Boop products",
             "notifications": true,
+            "state": "ACTIVE",
             "search": {
                 "language": "de",
                 "currency": "EUR",
@@ -260,6 +268,7 @@ mod tests {
             name: "My Boop Filter".into(),
             enhanced_search_description: Some("This is a filter for Boop products".into()),
             notifications: true,
+            state: UserSearchFilterStateData::Active,
             search: ProductSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,

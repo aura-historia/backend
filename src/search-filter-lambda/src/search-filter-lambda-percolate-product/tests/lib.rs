@@ -62,6 +62,7 @@ fn mk_search_filter_record(
         name: "Integration Test Filter".into(),
         enhanced_search_description: None,
         notifications: true,
+        state: search_filter::dynamodb::user_search_filter_state_record::UserSearchFilterStateRecord::Active,
         product_query: None,
         category_id: HashSet::new(),
         period_id: HashSet::new(),

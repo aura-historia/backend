@@ -1,4 +1,5 @@
 use crate::core::watchlist_product::WatchlistProduct;
+use crate::dynamodb::watchlist_product_state_record::WatchlistProductStateRecord;
 use common::{
     product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId,
 };
@@ -27,6 +28,9 @@ pub struct WatchlistProductRecord {
     pub shops_product_id: ShopsProductId,
 
     pub notifications: bool,
+
+    #[serde(default)]
+    pub state: WatchlistProductStateRecord,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -61,10 +65,12 @@ pub fn mk_gsi1_sk(user_id: &UserId) -> String {
 impl From<WatchlistProductRecord> for WatchlistProduct {
     fn from(record: WatchlistProductRecord) -> Self {
         WatchlistProduct {
+            user_id: record.user_id,
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id,
             product_id: record.product_id,
             notifications: record.notifications,
+            state: record.state.into(),
             created: record.created,
             updated: record.updated,
         }
@@ -96,6 +102,7 @@ mod faker {
                 shop_id,
                 shops_product_id: shops_product_id.clone(),
                 notifications,
+                state: WatchlistProductStateRecord::Active,
                 created,
                 updated: created,
             }
