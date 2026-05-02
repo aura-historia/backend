@@ -22,6 +22,8 @@ strum_macros = { workspace = true }
 
 # Optional
 fake = { workspace = true, optional = true }
+reqwest = { workspace = true, features = ["json"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]
 product-classification = { workspace = true, features = ["test-data", "data"] }
