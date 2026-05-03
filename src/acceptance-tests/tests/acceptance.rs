@@ -2707,6 +2707,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
         .bearer_auth(&user.access_token)
         .json(&WatchlistProductPatch {
             notifications: Some(true),
+            state: None,
         })
         .send()
         .await
@@ -4201,6 +4202,7 @@ async fn should_post_get_patch_delete_watchlist_product() {
                     .watchlist
                     .notifications,
             ),
+            state: None,
         })
         .send()
         .await
@@ -4389,6 +4391,7 @@ async fn should_post_get_patch_delete_search_filter() {
         name: None,
         enhanced_search_description: None,
         notifications: None,
+        state: None,
         search: Some(PatchProductSearchData {
             language: Some(LanguageData::Fr),
             currency: None,

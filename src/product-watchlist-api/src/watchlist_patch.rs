@@ -33,14 +33,14 @@ pub struct WatchlistProductPatch {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum WatchlistProductPatchState {
     Active,
-    UserInactive,
+    InactiveByUser,
 }
 
 impl From<WatchlistProductPatchState> for WatchlistProductState {
     fn from(state: WatchlistProductPatchState) -> Self {
         match state {
             WatchlistProductPatchState::Active => WatchlistProductState::Active,
-            WatchlistProductPatchState::UserInactive => WatchlistProductState::InactiveByUser,
+            WatchlistProductPatchState::InactiveByUser => WatchlistProductState::InactiveByUser,
         }
     }
 }

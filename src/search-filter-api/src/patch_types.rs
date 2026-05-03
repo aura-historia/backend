@@ -54,14 +54,14 @@ pub struct PatchUserSearchFilterData {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum UserSearchFilterPatchState {
     Active,
-    UserInactive,
+    InactiveByUser,
 }
 
 impl From<UserSearchFilterPatchState> for UserSearchFilterState {
     fn from(state: UserSearchFilterPatchState) -> Self {
         match state {
             UserSearchFilterPatchState::Active => UserSearchFilterState::Active,
-            UserSearchFilterPatchState::UserInactive => UserSearchFilterState::InactiveByUser,
+            UserSearchFilterPatchState::InactiveByUser => UserSearchFilterState::InactiveByUser,
         }
     }
 }
