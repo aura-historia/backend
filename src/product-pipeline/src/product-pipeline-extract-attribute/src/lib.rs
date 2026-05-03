@@ -121,7 +121,7 @@ pub async fn handler(
                     shopId = %enrichment_record.shop_id,
                     shopsProductId = %enrichment_record.shops_product_id,
                     eventId = %enrichment_record.event_id,
-                    "Failed extracting attributes for product."
+                    "Extraction service returned no result for product — marking message as failed."
                 );
                 failed_message_ids.push(message_id);
                 continue;

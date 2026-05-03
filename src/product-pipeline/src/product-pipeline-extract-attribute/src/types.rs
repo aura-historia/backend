@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 
 /// Extracted antique attributes returned by Gemini.
 ///
-/// Short JSON key names reduce prompt and response token counts.
+/// Each field is optional; `None` means the model could not determine the
+/// value from the product text.  Short JSON key names are intentional and
+/// reduce prompt and response token counts.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct ExtractedAttributes {
     /// Exact origin year.
