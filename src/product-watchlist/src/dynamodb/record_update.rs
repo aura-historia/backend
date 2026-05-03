@@ -1,6 +1,5 @@
-use crate::dynamodb::watchlist_product_state_record::WatchlistProductStateRecord;
 use crate::service::command::UpdateWatchlistProductCommand;
-use common::dynamodb_update::DynamoDbUpdate;
+use common::{dynamodb_update::DynamoDbUpdate, resource_state::record::ResourceStateRecord};
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
@@ -11,7 +10,7 @@ pub struct WatchlistProductRecordUpdate {
     pub notifications: Option<bool>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state: Option<WatchlistProductStateRecord>,
+    pub state: Option<ResourceStateRecord>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
@@ -23,7 +22,7 @@ impl WatchlistProductRecordUpdate {
     pub fn from_cmd(cmd: UpdateWatchlistProductCommand) -> WatchlistProductRecordUpdate {
         WatchlistProductRecordUpdate {
             notifications: cmd.notifications,
-            state: cmd.state.map(WatchlistProductStateRecord::from),
+            state: cmd.state.map(ResourceStateRecord::from),
             updated: OffsetDateTime::now_utc(),
         }
     }

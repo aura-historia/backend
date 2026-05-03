@@ -1,7 +1,8 @@
-use crate::core::{
-    user_search_filter_name::UserSearchFilterName, user_search_filter_state::UserSearchFilterState,
+use crate::core::user_search_filter_name::UserSearchFilterName;
+use common::{
+    resource_state::domain::ResourceState, string_newtype, user_id::UserId,
+    user_search_filter_id::UserSearchFilterId,
 };
-use common::{string_newtype, user_id::UserId, user_search_filter_id::UserSearchFilterId};
 use product::core::product_search::ProductSearch;
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
@@ -15,7 +16,7 @@ pub struct UserSearchFilterSummary {
     pub name: UserSearchFilterName,
     pub enhanced_search_description: Option<EnhancedSearchDescription>,
     pub notifications: bool,
-    pub state: UserSearchFilterState,
+    pub state: ResourceState,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -26,7 +27,7 @@ pub struct UserSearchFilter {
     pub user_search_filter_id: UserSearchFilterId,
     pub name: UserSearchFilterName,
     pub notifications: bool,
-    pub state: UserSearchFilterState,
+    pub state: ResourceState,
     pub search: ProductSearch,
     pub enhanced_search_description: Option<EnhancedSearchDescription>,
     pub created: OffsetDateTime,
@@ -60,7 +61,7 @@ mod faker {
                 user_search_filter_id: config.fake_with_rng(rng),
                 name: config.fake_with_rng(rng),
                 notifications: true,
-                state: UserSearchFilterState::Active,
+                state: ResourceState::Active,
                 search: config.fake_with_rng(rng),
                 enhanced_search_description: None,
                 created: OffsetDateTime::now_utc(),
@@ -77,7 +78,7 @@ mod faker {
                 name: config.fake_with_rng(rng),
                 enhanced_search_description: None,
                 notifications: true,
-                state: UserSearchFilterState::Active,
+                state: ResourceState::Active,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

@@ -1,11 +1,11 @@
 use crate::core::user_search_filter::UserSearchFilter;
 use crate::core::user_search_filter_name::UserSearchFilterName;
-use crate::dynamodb::user_search_filter_state_record::UserSearchFilterStateRecord;
 use common::category_key::CategoryId;
 use common::distance::data::GeoDistanceQueryData;
 use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
+use common::resource_state::record::ResourceStateRecord;
 use common::shop_name::ShopName;
 use common::slug_id::SlugId;
 use common::user_search_filter_id::UserSearchFilterId;
@@ -46,7 +46,7 @@ pub struct UserSearchFilterRecord {
     #[serde(default = "default_notifications")]
     pub notifications: bool,
     #[serde(default)]
-    pub state: UserSearchFilterStateRecord,
+    pub state: ResourceStateRecord,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub product_query: Option<TextQuery<1>>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
@@ -307,10 +307,8 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
 
 #[cfg(feature = "test-data")]
 mod fake {
-    use crate::dynamodb::{
-        user_search_filter_record::{UserSearchFilterRecord, mk_pk, mk_sk},
-        user_search_filter_state_record::UserSearchFilterStateRecord,
-    };
+    use crate::dynamodb::user_search_filter_record::{UserSearchFilterRecord, mk_pk, mk_sk};
+    use common::resource_state::record::ResourceStateRecord;
     use fake::{Dummy, Fake, Faker};
     use product::core::product_search::faker::fake_range_query_datetime;
     use time::OffsetDateTime;
@@ -327,7 +325,7 @@ mod fake {
                 name: config.fake_with_rng(rng),
                 enhanced_search_description: config.fake_with_rng(rng),
                 notifications: true,
-                state: UserSearchFilterStateRecord::Active,
+                state: ResourceStateRecord::Active,
                 product_query: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
                 period_id: config.fake_with_rng(rng),

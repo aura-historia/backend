@@ -1,7 +1,7 @@
 use crate::core::watchlist_product::WatchlistProduct;
-use crate::dynamodb::watchlist_product_state_record::WatchlistProductStateRecord;
 use common::{
-    product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId,
+    product_id::ProductId, resource_state::record::ResourceStateRecord, shop_id::ShopId,
+    shops_product_id::ShopsProductId, user_id::UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -30,7 +30,7 @@ pub struct WatchlistProductRecord {
     pub notifications: bool,
 
     #[serde(default)]
-    pub state: WatchlistProductStateRecord,
+    pub state: ResourceStateRecord,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -102,7 +102,7 @@ mod faker {
                 shop_id,
                 shops_product_id: shops_product_id.clone(),
                 notifications,
-                state: WatchlistProductStateRecord::Active,
+                state: ResourceStateRecord::Active,
                 created,
                 updated: created,
             }

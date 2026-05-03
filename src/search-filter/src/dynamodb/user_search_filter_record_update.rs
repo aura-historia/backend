@@ -1,10 +1,10 @@
 use crate::core::user_search_filter_name::UserSearchFilterName;
-use crate::dynamodb::user_search_filter_state_record::UserSearchFilterStateRecord;
 use common::category_key::CategoryId;
 use common::dynamodb_update::DynamoDbUpdate;
 use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
+use common::resource_state::record::ResourceStateRecord;
 use common::shop_name::ShopName;
 use common::slug_id::SlugId;
 use common::year::Year;
@@ -27,7 +27,7 @@ pub struct UserSearchFilterRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notifications: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state: Option<UserSearchFilterStateRecord>,
+    pub state: Option<ResourceStateRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub product_query: Option<TextQuery<1>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

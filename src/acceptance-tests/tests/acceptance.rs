@@ -1,6 +1,7 @@
 use aws_tests_common::get_cfn_output;
 use common::execution_state::data::ExecutionStateData;
 use common::personalized::api::PersonalizedData;
+use common::resource_state::record::ResourceStateRecord;
 use common::utm::append_utm_params;
 use common::{
     batch::Batch,
@@ -7046,7 +7047,6 @@ async fn should_deactivate_over_quota_watchlist_entries_when_tier_is_downgraded(
                 mk_pk as watchlist_mk_pk, mk_sk as watchlist_mk_sk,
             },
             repository::WatchlistProductDynamoDbRepository,
-            watchlist_product_state_record::WatchlistProductStateRecord,
         },
     };
 
@@ -7093,7 +7093,7 @@ async fn should_deactivate_over_quota_watchlist_entries_when_tier_is_downgraded(
             shop_id,
             shops_product_id,
             notifications: true,
-            state: WatchlistProductStateRecord::Active,
+            state: ResourceStateRecord::Active,
             created,
             updated: created,
         };
@@ -7120,13 +7120,13 @@ async fn should_deactivate_over_quota_watchlist_entries_when_tier_is_downgraded(
 
         let inactive_count = records
             .iter()
-            .filter(|r| r.state == WatchlistProductStateRecord::InactiveByRestrictedPlan)
+            .filter(|r| r.state == ResourceStateRecord::InactiveByRestrictedPlan)
             .count();
 
         if inactive_count == entry_count - free_quota {
             let active_count = records
                 .iter()
-                .filter(|r| r.state == WatchlistProductStateRecord::Active)
+                .filter(|r| r.state == ResourceStateRecord::Active)
                 .count();
             assert_eq!(active_count, free_quota);
             break;
@@ -7152,7 +7152,6 @@ async fn should_reactivate_plan_restricted_watchlist_entries_when_tier_is_upgrad
             mk_sk as watchlist_mk_sk,
         },
         repository::WatchlistProductDynamoDbRepository,
-        watchlist_product_state_record::WatchlistProductStateRecord,
     };
 
     let stack = get_cfn_output();
@@ -7186,7 +7185,7 @@ async fn should_reactivate_plan_restricted_watchlist_entries_when_tier_is_upgrad
             shop_id,
             shops_product_id,
             notifications: true,
-            state: WatchlistProductStateRecord::InactiveByRestrictedPlan,
+            state: ResourceStateRecord::InactiveByRestrictedPlan,
             created,
             updated: created,
         };
@@ -7214,7 +7213,7 @@ async fn should_reactivate_plan_restricted_watchlist_entries_when_tier_is_upgrad
 
         let active_count = records
             .iter()
-            .filter(|r| r.state == WatchlistProductStateRecord::Active)
+            .filter(|r| r.state == ResourceStateRecord::Active)
             .count();
 
         if active_count == entry_count {

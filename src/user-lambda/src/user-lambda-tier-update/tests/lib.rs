@@ -1,16 +1,15 @@
+use common::resource_state::record::ResourceStateRecord;
 use common::{currency::domain::Currency, language::domain::Language};
 use fake::{Fake, Faker};
 use product_watchlist::core::quota::WatchlistQuota;
 use product_watchlist::dynamodb::{
     record::WatchlistProductRecord, repository::WatchlistProductDynamoDbRepository,
     repository::WatchlistProductDynamoDbRepositoryImpl,
-    watchlist_product_state_record::WatchlistProductStateRecord,
 };
 use search_filter::dynamodb::{
     repository::UserSearchFilterDynamoDbRepository,
     repository::UserSearchFilterDynamoDbRepositoryImpl,
     user_search_filter_record::UserSearchFilterRecord,
-    user_search_filter_state_record::UserSearchFilterStateRecord,
 };
 use test_api::*;
 use time::OffsetDateTime;
@@ -25,7 +24,7 @@ fn user_record(tier: UserTier) -> user::dynamodb::user_record::UserRecord {
 
 fn watchlist_record(
     user: &user::dynamodb::user_record::UserRecord,
-    state: WatchlistProductStateRecord,
+    state: ResourceStateRecord,
     created: OffsetDateTime,
 ) -> WatchlistProductRecord {
     let mut record = Faker.fake::<WatchlistProductRecord>();
@@ -40,7 +39,7 @@ fn watchlist_record(
 
 fn search_filter_record(
     user: &user::dynamodb::user_record::UserRecord,
-    state: UserSearchFilterStateRecord,
+    state: ResourceStateRecord,
     created: OffsetDateTime,
 ) -> UserSearchFilterRecord {
     let filter = search_filter::core::user_search_filter::UserSearchFilter {
@@ -69,14 +68,14 @@ async fn should_deactivate_over_quota_resources_when_tier_is_downgraded() {
     for i in 0..=UserTier::Free.watchlist_quota() {
         watch_records.push(watchlist_record(
             &user,
-            WatchlistProductStateRecord::Active,
+            ResourceStateRecord::Active,
             old + time::Duration::seconds(i.into()),
         ));
     }
     let oldest_watch = watch_records.first().unwrap().clone();
     let newest_watch = watch_records.last().unwrap().clone();
-    let old_filter = search_filter_record(&user, UserSearchFilterStateRecord::Active, old);
-    let new_filter = search_filter_record(&user, UserSearchFilterStateRecord::Active, new);
+    let old_filter = search_filter_record(&user, ResourceStateRecord::Active, old);
+    let new_filter = search_filter_record(&user, ResourceStateRecord::Active, new);
 
     for record in watch_records {
         watchlist_repository
@@ -103,16 +102,13 @@ async fn should_deactivate_over_quota_resources_when_tier_is_downgraded() {
         .iter()
         .find(|record| record.sk == newest_watch.sk)
         .unwrap();
-    assert_eq!(
-        WatchlistProductStateRecord::Active,
-        newest_watch_record.state
-    );
+    assert_eq!(ResourceStateRecord::Active, newest_watch_record.state);
     let old_watch_record = watchlist
         .iter()
         .find(|record| record.sk == oldest_watch.sk)
         .unwrap();
     assert_eq!(
-        WatchlistProductStateRecord::InactiveByRestrictedPlan,
+        ResourceStateRecord::InactiveByRestrictedPlan,
         old_watch_record.state
     );
 
@@ -120,13 +116,13 @@ async fn should_deactivate_over_quota_resources_when_tier_is_downgraded() {
         .query_user_search_filter_records(&old_filter.user_id, false)
         .await
         .unwrap();
-    assert_eq!(UserSearchFilterStateRecord::Active, filters[0].state);
+    assert_eq!(ResourceStateRecord::Active, filters[0].state);
     let old_filter_record = filters
         .iter()
         .find(|record| record.sk == old_filter.sk)
         .unwrap();
     assert_eq!(
-        UserSearchFilterStateRecord::InactiveByRestrictedPlan,
+        ResourceStateRecord::InactiveByRestrictedPlan,
         old_filter_record.state
     );
 }
@@ -138,16 +134,8 @@ async fn should_reactivate_restricted_resources_when_tier_is_upgraded() {
     let search_filter_repository = UserSearchFilterDynamoDbRepositoryImpl::new(ddb, "table_1");
     let user = user_record(UserTier::Ultimate);
     let now = OffsetDateTime::now_utc();
-    let watch = watchlist_record(
-        &user,
-        WatchlistProductStateRecord::InactiveByRestrictedPlan,
-        now,
-    );
-    let filter = search_filter_record(
-        &user,
-        UserSearchFilterStateRecord::InactiveByRestrictedPlan,
-        now,
-    );
+    let watch = watchlist_record(&user, ResourceStateRecord::InactiveByRestrictedPlan, now);
+    let filter = search_filter_record(&user, ResourceStateRecord::InactiveByRestrictedPlan, now);
 
     watchlist_repository
         .put_watchlist_record(watch.clone())
@@ -167,12 +155,12 @@ async fn should_reactivate_restricted_resources_when_tier_is_upgraded() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(WatchlistProductStateRecord::Active, watch.state);
+    assert_eq!(ResourceStateRecord::Active, watch.state);
 
     let filter = search_filter_repository
         .get_user_search_filter_record(&filter.user_id, &filter.user_search_filter_id)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(UserSearchFilterStateRecord::Active, filter.state);
+    assert_eq!(ResourceStateRecord::Active, filter.state);
 }

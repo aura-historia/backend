@@ -99,7 +99,7 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
             notifications: false,
-            state: product_watchlist::dynamodb::watchlist_product_state_record::WatchlistProductStateRecord::Active,
+            state: common::resource_state::record::ResourceStateRecord::Active,
             created,
             updated: created,
         };
@@ -208,7 +208,7 @@ async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
             notifications: false,
-            state: product_watchlist::dynamodb::watchlist_product_state_record::WatchlistProductStateRecord::Active,
+            state: common::resource_state::record::ResourceStateRecord::Active,
             created,
             updated: created,
         };

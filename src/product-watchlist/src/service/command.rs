@@ -1,9 +1,9 @@
-use crate::core::watchlist_product_state::WatchlistProductState;
+use common::resource_state::domain::ResourceState;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UpdateWatchlistProductCommand {
     pub notifications: Option<bool>,
-    pub state: Option<WatchlistProductState>,
+    pub state: Option<ResourceState>,
 }
 
 impl UpdateWatchlistProductCommand {

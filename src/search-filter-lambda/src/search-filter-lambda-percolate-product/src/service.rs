@@ -427,6 +427,7 @@ mod tests {
     use common::event_id::EventId;
     use common::language::domain::Language;
     use common::product_state::domain::ProductState;
+    use common::resource_state::domain::ResourceState;
     use common::user_id::UserId;
     use common::user_search_filter_id::UserSearchFilterId;
     use fake::{Fake, Faker};
@@ -439,7 +440,6 @@ mod tests {
     use search_filter::core::user_search_filter::EnhancedSearchDescription;
     use search_filter::core::user_search_filter::UserSearchFilterSummary;
     use search_filter::core::user_search_filter_name::UserSearchFilterName;
-    use search_filter::core::user_search_filter_state::UserSearchFilterState;
     use search_filter::service::enhanced_search_match_service::{
         EnhancedSearchMatchError, EnhancedSearchMatchResult, MockEnhancedSearchMatchService,
     };
@@ -508,7 +508,7 @@ mod tests {
             name: UserSearchFilterName::from("Test Filter"),
             enhanced_search_description: None,
             notifications: true,
-            state: UserSearchFilterState::Active,
+            state: ResourceState::Active,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -524,7 +524,7 @@ mod tests {
             name: UserSearchFilterName::from("Enhanced Filter"),
             enhanced_search_description: Some(EnhancedSearchDescription::from(description)),
             notifications: true,
-            state: UserSearchFilterState::Active,
+            state: ResourceState::Active,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -715,7 +715,7 @@ mod tests {
             name: filter_name.clone(),
             enhanced_search_description: None,
             notifications: true,
-            state: UserSearchFilterState::Active,
+            state: ResourceState::Active,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };

@@ -194,9 +194,7 @@ mod tests {
         ProductPriceChangeDomainEventPayload, ProductStateChangeDomainEventPayload,
     };
     use product::service::get_service::{GetProductError, MockGetProductService};
-    use product_watchlist::core::{
-        watchlist_product::WatchlistProduct, watchlist_product_state::WatchlistProductState,
-    };
+    use product_watchlist::core::watchlist_product::WatchlistProduct;
     use product_watchlist::service::product_watchlist_service::{
         MockProductWatchListService, WatchProductError,
     };
@@ -222,7 +220,7 @@ mod tests {
             shops_product_id: Faker.fake(),
             product_id: ProductId::new(),
             notifications,
-            state: WatchlistProductState::Active,
+            state: common::resource_state::domain::ResourceState::Active,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }

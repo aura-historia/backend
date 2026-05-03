@@ -1,19 +1,22 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
-use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_language_query;
 use common::personalized::api::PersonalizedData;
+use common::resource_state::data::PatchResourceStateData;
 use common::shop_id::api::extract_shop_id_path;
 use common::shops_product_id::api::extract_shops_product_id_path;
 use common::user_id::api::extract_user_id_request_context;
+use common::{
+    api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
+    resource_state::domain::ResourceState,
+};
 use lambda_runtime::LambdaEvent;
 use product::data::get_data::GetProductData;
 use product::data::user_state_data::ProductUserStateData;
 use product::service::get_service::GetProductService;
 use product_personalization::service::ProductPersonalizationService;
-use product_watchlist::core::watchlist_product_state::WatchlistProductState;
 use product_watchlist::service::{
     command::UpdateWatchlistProductCommand, product_watchlist_service::ProductWatchListService,
 };
@@ -26,30 +29,14 @@ pub struct WatchlistProductPatch {
     pub notifications: Option<bool>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state: Option<WatchlistProductPatchState>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum WatchlistProductPatchState {
-    Active,
-    InactiveByUser,
-}
-
-impl From<WatchlistProductPatchState> for WatchlistProductState {
-    fn from(state: WatchlistProductPatchState) -> Self {
-        match state {
-            WatchlistProductPatchState::Active => WatchlistProductState::Active,
-            WatchlistProductPatchState::InactiveByUser => WatchlistProductState::InactiveByUser,
-        }
-    }
+    pub state: Option<PatchResourceStateData>,
 }
 
 impl From<WatchlistProductPatch> for UpdateWatchlistProductCommand {
     fn from(patch: WatchlistProductPatch) -> Self {
         UpdateWatchlistProductCommand {
             notifications: patch.notifications,
-            state: patch.state.map(WatchlistProductState::from),
+            state: patch.state.map(ResourceState::from),
         }
     }
 }

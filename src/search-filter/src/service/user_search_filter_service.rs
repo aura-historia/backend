@@ -6,7 +6,6 @@ use crate::core::user_search_filter::{
     EnhancedSearchDescription, UserSearchFilter, UserSearchFilterSummary,
 };
 use crate::core::user_search_filter_name::UserSearchFilterName;
-use crate::core::user_search_filter_state::UserSearchFilterState;
 use crate::core::user_search_filter_update::UserSearchFilterUpdate;
 use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
 use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
@@ -14,6 +13,7 @@ use crate::dynamodb::user_search_filter_match_record_update::UserSearchFilterMat
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::batch::Batch;
 use common::pagination::cursor::{Cursor, CursoredResult};
+use common::resource_state::domain::ResourceState;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::sort::Sort;
@@ -367,7 +367,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             name,
             enhanced_search_description,
             notifications: true,
-            state: UserSearchFilterState::Active,
+            state: ResourceState::Active,
             search,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
@@ -429,9 +429,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             .find_user_search_filter(user_id, user_search_filter_id)
             .await?;
 
-        if matches!(update.state, Some(UserSearchFilterState::Active))
-            && !existing.state.is_active()
-        {
+        if matches!(update.state, Some(ResourceState::Active)) && !existing.state.is_active() {
             user.tier
                 .check_search_filter_features(&existing.search)
                 .map_err(UserSearchFilterError::SearchFilterFeatureForbidden)?;

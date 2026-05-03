@@ -1,8 +1,5 @@
 use crate::{
-    core::{
-        quota::WatchlistQuota, watchlist_product::WatchlistProduct,
-        watchlist_product_state::WatchlistProductState,
-    },
+    core::{quota::WatchlistQuota, watchlist_product::WatchlistProduct},
     dynamodb::{
         record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
         record_update::WatchlistProductRecordUpdate,
@@ -14,7 +11,6 @@ use crate::{
     },
 };
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
-use common::slug_id::SlugId;
 use common::{
     pagination::cursor::{Cursor, CursoredResult},
     price::domain::MonetaryAmountOverflowError,
@@ -24,6 +20,7 @@ use common::{
     sort::{Sort, SortOrder},
     user_id::UserId,
 };
+use common::{resource_state::domain::ResourceState, slug_id::SlugId};
 use product::dynamodb::repository::ProductDynamoDbRepository;
 use time::OffsetDateTime;
 use user::service::user_service::{UserService, UserServiceError};
@@ -282,7 +279,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
             notifications: false,
-            state: WatchlistProductState::Active.into(),
+            state: ResourceState::Active.into(),
             created: now,
             updated: now,
         };
@@ -334,7 +331,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
                 shops_product_id.clone(),
             ))?;
 
-        if matches!(update.state, Some(WatchlistProductState::Active))
+        if matches!(update.state, Some(ResourceState::Active))
             && !watchlist_record.state.is_active()
         {
             let user = self
@@ -545,7 +542,10 @@ mod tests {
             error::{ConnectorError, SdkError},
             operation::put_item::PutItemOutput,
         };
-        use common::{shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId};
+        use common::{
+            resource_state::record::ResourceStateRecord, shop_id::ShopId,
+            shops_product_id::ShopsProductId, user_id::UserId,
+        };
         use fake::{Fake, Faker};
         use product::dynamodb::repository::MockProductDynamoDbRepository;
         use user::core::user::User;
@@ -673,7 +673,7 @@ mod tests {
                         Ok((0..user::core::tier::UserTier::Free.watchlist_quota())
                             .map(|_| {
                                 let mut record = Faker.fake::<WatchlistProductRecord>();
-                                record.state = crate::dynamodb::watchlist_product_state_record::WatchlistProductStateRecord::Active;
+                                record.state = ResourceStateRecord::Active;
                                 record
                             })
                             .collect())

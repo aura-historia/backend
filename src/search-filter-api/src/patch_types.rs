@@ -2,6 +2,8 @@ use common::category_key::CategoryId;
 use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
+use common::resource_state::data::PatchResourceStateData;
+use common::resource_state::domain::ResourceState;
 use common::shop_name::ShopName;
 use common::slug_id::SlugId;
 use common::year::Year;
@@ -21,7 +23,6 @@ use product::data::product_state_data::ProductStateData;
 use product::data::provenance_data::ProvenanceData;
 use product::data::restoration_data::RestorationData;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
-use search_filter::core::user_search_filter_state::UserSearchFilterState;
 use search_filter::core::user_search_filter_update::UserSearchFilterUpdate;
 use serde::{Deserialize, Serialize};
 use shop::core::shop_type::ShopType;
@@ -43,27 +44,10 @@ pub struct PatchUserSearchFilterData {
     pub notifications: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub state: Option<UserSearchFilterPatchState>,
+    pub state: Option<PatchResourceStateData>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub search: Option<PatchProductSearchData>,
-}
-
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum UserSearchFilterPatchState {
-    Active,
-    InactiveByUser,
-}
-
-impl From<UserSearchFilterPatchState> for UserSearchFilterState {
-    fn from(state: UserSearchFilterPatchState) -> Self {
-        match state {
-            UserSearchFilterPatchState::Active => UserSearchFilterState::Active,
-            UserSearchFilterPatchState::InactiveByUser => UserSearchFilterState::InactiveByUser,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -217,7 +201,7 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
             name: patch.name,
             enhanced_search_description: patch.enhanced_search_description.map(Into::into),
             notifications: patch.notifications,
-            state: patch.state.map(UserSearchFilterState::from),
+            state: patch.state.map(ResourceState::from),
             language: patch
                 .search
                 .as_ref()

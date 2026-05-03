@@ -1,4 +1,5 @@
 use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
+use common::resource_state::record::ResourceStateRecord;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
@@ -62,7 +63,7 @@ fn mk_search_filter_record(
         name: "Integration Test Filter".into(),
         enhanced_search_description: None,
         notifications: true,
-        state: search_filter::dynamodb::user_search_filter_state_record::UserSearchFilterStateRecord::Active,
+        state: ResourceStateRecord::Active,
         product_query: None,
         category_id: HashSet::new(),
         period_id: HashSet::new(),

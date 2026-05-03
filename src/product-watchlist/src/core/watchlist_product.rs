@@ -1,6 +1,6 @@
-use crate::core::watchlist_product_state::WatchlistProductState;
 use common::{
-    product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId,
+    product_id::ProductId, resource_state::domain::ResourceState, shop_id::ShopId,
+    shops_product_id::ShopsProductId, user_id::UserId,
 };
 use time::OffsetDateTime;
 
@@ -11,16 +11,15 @@ pub struct WatchlistProduct {
     pub shops_product_id: ShopsProductId,
     pub product_id: ProductId,
     pub notifications: bool,
-    pub state: WatchlistProductState,
+    pub state: ResourceState,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
 
 #[cfg(feature = "test-data")]
 mod faker {
-    use crate::core::{
-        watchlist_product::WatchlistProduct, watchlist_product_state::WatchlistProductState,
-    };
+    use crate::core::watchlist_product::WatchlistProduct;
+    use common::resource_state::domain::ResourceState;
     use fake::{Dummy, Fake, Faker, RngExt};
     use time::OffsetDateTime;
 
@@ -32,7 +31,7 @@ mod faker {
                 shops_product_id: config.fake_with_rng(rng),
                 product_id: config.fake_with_rng(rng),
                 notifications: config.fake_with_rng(rng),
-                state: WatchlistProductState::Active,
+                state: ResourceState::Active,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

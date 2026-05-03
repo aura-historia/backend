@@ -1,12 +1,13 @@
 use aws_lambda_events::sqs::SqsEvent;
-use common::dynamodb_stream::extract_from_dynamodb_stream;
+use common::{
+    dynamodb_stream::extract_from_dynamodb_stream, resource_state::record::ResourceStateRecord,
+};
 use lambda_runtime::LambdaEvent;
 use product_watchlist::{
     core::quota::WatchlistQuota,
     dynamodb::{
         record::WatchlistProductRecord, record_update::WatchlistProductRecordUpdate,
         repository::WatchlistProductDynamoDbRepository,
-        watchlist_product_state_record::WatchlistProductStateRecord,
     },
 };
 use search_filter::{
@@ -15,7 +16,6 @@ use search_filter::{
         repository::UserSearchFilterDynamoDbRepository,
         user_search_filter_record::UserSearchFilterRecord,
         user_search_filter_record_update::UserSearchFilterRecordUpdate,
-        user_search_filter_state_record::UserSearchFilterStateRecord,
     },
 };
 use time::OffsetDateTime;
@@ -59,15 +59,15 @@ pub async fn enforce_tier(
     let watchlist_quota = tier.watchlist_quota() as usize;
     let mut active_watchlist_count = 0usize;
     for record in watchlist_records.drain(..) {
-        if matches!(record.state, WatchlistProductStateRecord::InactiveByUser) {
+        if matches!(record.state, ResourceStateRecord::InactiveByUser) {
             continue;
         }
 
         active_watchlist_count += 1;
         let target_state = if active_watchlist_count <= watchlist_quota {
-            WatchlistProductStateRecord::Active
+            ResourceStateRecord::Active
         } else {
-            WatchlistProductStateRecord::InactiveByRestrictedPlan
+            ResourceStateRecord::InactiveByRestrictedPlan
         };
 
         update_watchlist_state(watchlist_repository, record, target_state).await?;
@@ -80,7 +80,7 @@ pub async fn enforce_tier(
     let search_filter_quota = tier.search_filter_quota() as usize;
     let mut active_search_filter_count = 0usize;
     for record in search_filter_records.drain(..) {
-        if matches!(record.state, UserSearchFilterStateRecord::InactiveByUser) {
+        if matches!(record.state, ResourceStateRecord::InactiveByUser) {
             continue;
         }
 
@@ -92,9 +92,9 @@ pub async fn enforce_tier(
             active_search_filter_count += 1;
         }
         let target_state = if feature_allowed && active_search_filter_count <= search_filter_quota {
-            UserSearchFilterStateRecord::Active
+            ResourceStateRecord::Active
         } else {
-            UserSearchFilterStateRecord::InactiveByRestrictedPlan
+            ResourceStateRecord::InactiveByRestrictedPlan
         };
 
         update_search_filter_state(
@@ -127,7 +127,7 @@ fn search_filter_features_allowed(
 async fn update_watchlist_state(
     repository: &(impl WatchlistProductDynamoDbRepository + Sync),
     record: WatchlistProductRecord,
-    target_state: WatchlistProductStateRecord,
+    target_state: ResourceStateRecord,
 ) -> Result<(), lambda_runtime::Error> {
     if record.state == target_state {
         return Ok(());
@@ -156,8 +156,8 @@ async fn update_search_filter_state(
     repository: &(impl UserSearchFilterDynamoDbRepository + Sync),
     user_id: common::user_id::UserId,
     search_filter_id: common::user_search_filter_id::UserSearchFilterId,
-    current_state: UserSearchFilterStateRecord,
-    target_state: UserSearchFilterStateRecord,
+    current_state: ResourceStateRecord,
+    target_state: ResourceStateRecord,
 ) -> Result<(), lambda_runtime::Error> {
     if current_state == target_state {
         return Ok(());
@@ -177,7 +177,7 @@ async fn update_search_filter_state(
         })
 }
 
-fn search_filter_state_update(state: UserSearchFilterStateRecord) -> UserSearchFilterRecordUpdate {
+fn search_filter_state_update(state: ResourceStateRecord) -> UserSearchFilterRecordUpdate {
     UserSearchFilterRecordUpdate {
         name: None,
         notifications: None,
@@ -215,7 +215,10 @@ fn search_filter_state_update(state: UserSearchFilterStateRecord) -> UserSearchF
 mod tests {
     use super::*;
     use aws_sdk_dynamodb::error::SdkError;
-    use common::{currency::domain::Currency, language::domain::Language};
+    use common::{
+        currency::domain::Currency, language::domain::Language,
+        resource_state::record::ResourceStateRecord,
+    };
     use fake::{Fake, Faker};
     use product_watchlist::dynamodb::repository::MockWatchlistProductDynamoDbRepository;
     use search_filter::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
@@ -227,10 +230,7 @@ mod tests {
         user
     }
 
-    fn watchlist_record(
-        user: &UserRecord,
-        state: WatchlistProductStateRecord,
-    ) -> WatchlistProductRecord {
+    fn watchlist_record(user: &UserRecord, state: ResourceStateRecord) -> WatchlistProductRecord {
         let mut record = Faker.fake::<WatchlistProductRecord>();
         record.user_id = user.user_id;
         record.pk = product_watchlist::dynamodb::record::mk_pk(&user.user_id);
@@ -240,7 +240,7 @@ mod tests {
 
     fn search_filter_record(
         user: &UserRecord,
-        state: UserSearchFilterStateRecord,
+        state: ResourceStateRecord,
     ) -> UserSearchFilterRecord {
         let filter = search_filter::core::user_search_filter::UserSearchFilter {
             user_id: user.user_id,
@@ -260,7 +260,7 @@ mod tests {
     async fn should_deactivate_oldest_watchlist_products_when_active_quota_is_reduced() {
         let user = user_record(UserTier::Free);
         let records = (0..=UserTier::Free.watchlist_quota())
-            .map(|_| watchlist_record(&user, WatchlistProductStateRecord::Active))
+            .map(|_| watchlist_record(&user, ResourceStateRecord::Active))
             .collect::<Vec<_>>();
         let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::new();
         watchlist_repository
@@ -274,7 +274,7 @@ mod tests {
             .expect_update_watchlist_record()
             .times(1)
             .withf(|_, _, _, update| {
-                update.state == Some(WatchlistProductStateRecord::InactiveByRestrictedPlan)
+                update.state == Some(ResourceStateRecord::InactiveByRestrictedPlan)
             })
             .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
 
@@ -292,8 +292,8 @@ mod tests {
     async fn should_deactivate_oldest_search_filters_when_active_quota_is_reduced() {
         let user = user_record(UserTier::Free);
         let records = vec![
-            search_filter_record(&user, UserSearchFilterStateRecord::Active),
-            search_filter_record(&user, UserSearchFilterStateRecord::Active),
+            search_filter_record(&user, ResourceStateRecord::Active),
+            search_filter_record(&user, ResourceStateRecord::Active),
         ];
         let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::new();
         watchlist_repository
@@ -312,7 +312,7 @@ mod tests {
             .expect_update_user_search_filter_record()
             .times(1)
             .withf(|_, _, update| {
-                update.state == Some(UserSearchFilterStateRecord::InactiveByRestrictedPlan)
+                update.state == Some(ResourceStateRecord::InactiveByRestrictedPlan)
             })
             .returning(|_, _, _| Box::pin(async { Ok(None) }));
 
@@ -325,12 +325,12 @@ mod tests {
     async fn should_reactivate_plan_restricted_resources_when_tier_allows_them() {
         let user = user_record(UserTier::Ultimate);
         let watchlist_records = vec![
-            watchlist_record(&user, WatchlistProductStateRecord::InactiveByRestrictedPlan),
-            watchlist_record(&user, WatchlistProductStateRecord::InactiveByUser),
+            watchlist_record(&user, ResourceStateRecord::InactiveByRestrictedPlan),
+            watchlist_record(&user, ResourceStateRecord::InactiveByUser),
         ];
         let search_filter_records = vec![
-            search_filter_record(&user, UserSearchFilterStateRecord::InactiveByRestrictedPlan),
-            search_filter_record(&user, UserSearchFilterStateRecord::InactiveByUser),
+            search_filter_record(&user, ResourceStateRecord::InactiveByRestrictedPlan),
+            search_filter_record(&user, ResourceStateRecord::InactiveByUser),
         ];
         let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::new();
         watchlist_repository
@@ -339,7 +339,7 @@ mod tests {
         watchlist_repository
             .expect_update_watchlist_record()
             .times(1)
-            .withf(|_, _, _, update| update.state == Some(WatchlistProductStateRecord::Active))
+            .withf(|_, _, _, update| update.state == Some(ResourceStateRecord::Active))
             .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
 
         let mut search_filter_repository = MockUserSearchFilterDynamoDbRepository::new();
@@ -349,7 +349,7 @@ mod tests {
         search_filter_repository
             .expect_update_user_search_filter_record()
             .times(1)
-            .withf(|_, _, update| update.state == Some(UserSearchFilterStateRecord::Active))
+            .withf(|_, _, update| update.state == Some(ResourceStateRecord::Active))
             .returning(|_, _, _| Box::pin(async { Ok(None) }));
 
         enforce_tier(&watchlist_repository, &search_filter_repository, user)

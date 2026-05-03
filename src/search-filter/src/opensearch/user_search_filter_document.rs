@@ -3,7 +3,7 @@ use crate::core::user_search_filter::UserSearchFilter;
 use crate::core::user_search_filter::UserSearchFilterSummary;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::dynamodb::user_search_filter_record::UserSearchFilterRecord;
-use crate::opensearch::user_search_filter_state_document::UserSearchFilterStateDocument;
+use common::resource_state::document::ResourceStateDocument;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use serde::{Deserialize, Serialize};
@@ -22,7 +22,7 @@ pub struct UserSearchFilterDocument {
     pub enhanced_search_description: Option<String>,
     pub notifications: bool,
     #[serde(default)]
-    pub state: UserSearchFilterStateDocument,
+    pub state: ResourceStateDocument,
     pub query: ProductPercolatorQuery,
 
     #[serde(with = "time::serde::rfc3339")]
