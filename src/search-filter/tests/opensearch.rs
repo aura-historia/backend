@@ -6,6 +6,7 @@ use common::language::record::LanguageRecord;
 use common::period_key::PeriodId;
 use common::product_id::ProductId;
 use common::query::range_query::RangeQuery;
+use common::resource_state::record::ResourceStateRecord;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
@@ -1158,6 +1159,7 @@ fn base_record() -> UserSearchFilterRecord {
         name: "imperial filter".into(),
         enhanced_search_description: None,
         notifications: true,
+        state: ResourceStateRecord::Active,
         product_query: Some("renaissance cabinet".try_into().unwrap()),
         category_id: HashSet::from_iter([CategoryId::from("furniture")]),
         period_id: HashSet::from_iter([PeriodId::from("baroque")]),
@@ -1351,6 +1353,7 @@ fn base_query_record() -> UserSearchFilterRecord {
         name: "text-only filter".into(),
         enhanced_search_description: None,
         notifications: true,
+        state: ResourceStateRecord::Active,
         product_query: None,
         category_id: HashSet::new(),
         period_id: HashSet::new(),

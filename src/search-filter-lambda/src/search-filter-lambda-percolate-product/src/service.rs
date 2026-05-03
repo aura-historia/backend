@@ -191,10 +191,13 @@ impl<'a> ProductMatcherServiceImpl<'a> {
         };
 
         let product_document = ProductDocument::from(product.clone());
-        let matched_filters = self
+        let matched_filters: Vec<_> = self
             .user_search_filter_service
             .match_user_search_filters(&product_document)
-            .await?;
+            .await?
+            .into_iter()
+            .filter(|filter| filter.state.is_active())
+            .collect();
 
         if matched_filters.is_empty() {
             return Ok((event_id, product, vec![]));
@@ -424,6 +427,7 @@ mod tests {
     use common::event_id::EventId;
     use common::language::domain::Language;
     use common::product_state::domain::ProductState;
+    use common::resource_state::domain::ResourceState;
     use common::user_id::UserId;
     use common::user_search_filter_id::UserSearchFilterId;
     use fake::{Fake, Faker};
@@ -504,6 +508,7 @@ mod tests {
             name: UserSearchFilterName::from("Test Filter"),
             enhanced_search_description: None,
             notifications: true,
+            state: ResourceState::Active,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -519,6 +524,7 @@ mod tests {
             name: UserSearchFilterName::from("Enhanced Filter"),
             enhanced_search_description: Some(EnhancedSearchDescription::from(description)),
             notifications: true,
+            state: ResourceState::Active,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -709,6 +715,7 @@ mod tests {
             name: filter_name.clone(),
             enhanced_search_description: None,
             notifications: true,
+            state: ResourceState::Active,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };

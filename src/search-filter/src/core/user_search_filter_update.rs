@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::core::user_search_filter::EnhancedSearchDescription;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
@@ -8,6 +6,8 @@ use common::period_key::PeriodId;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
+use common::resource_state::domain::ResourceState;
+use common::resource_state::record::ResourceStateRecord;
 use common::shop_name::ShopName;
 use common::slug_id::SlugId;
 use common::year::Year;
@@ -28,6 +28,7 @@ use product::dynamodb::provenance_record::ProvenanceRecord;
 use product::dynamodb::restoration_record::RestorationRecord;
 use shop::core::shop_type::ShopType;
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
+use std::collections::HashSet;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,6 +36,7 @@ pub struct UserSearchFilterUpdate {
     pub name: Option<UserSearchFilterName>,
     pub enhanced_search_description: Option<EnhancedSearchDescription>,
     pub notifications: Option<bool>,
+    pub state: Option<ResourceState>,
     pub product_query: Option<TextQuery<1>>,
     pub category_id: Option<AnyOfQuery<CategoryId>>,
     pub period_id: Option<AnyOfQuery<PeriodId>>,
@@ -69,6 +71,7 @@ impl UserSearchFilterUpdate {
             name,
             enhanced_search_description,
             notifications,
+            state,
             product_query,
             category_id,
             period_id,
@@ -100,6 +103,7 @@ impl UserSearchFilterUpdate {
         name.is_none()
             && enhanced_search_description.is_none()
             && notifications.is_none()
+            && state.is_none()
             && product_query.is_none()
             && category_id.is_none()
             && period_id.is_none()
@@ -133,6 +137,7 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
         UserSearchFilterRecordUpdate {
             name: update.name,
             notifications: update.notifications,
+            state: update.state.map(ResourceStateRecord::from),
             product_query: update.product_query,
             category_id: update.category_id.map(HashSet::from),
             period_id: update.period_id.map(HashSet::from),
@@ -190,6 +195,7 @@ mod fake {
                 name: config.fake_with_rng(rng),
                 enhanced_search_description: config.fake_with_rng(rng),
                 notifications: config.fake_with_rng(rng),
+                state: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
                 period_id: config.fake_with_rng(rng),

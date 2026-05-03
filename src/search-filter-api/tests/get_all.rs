@@ -1,3 +1,4 @@
+use common::resource_state::domain::ResourceState;
 use common::user_search_filter_id::UserSearchFilterId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
@@ -40,6 +41,7 @@ async fn should_return_actual_search_filters_sorted_oldest_for_order_asc() {
             name: Faker.fake(),
             enhanced_search_description: Faker.fake(),
             notifications: true,
+            state: ResourceState::Active,
             search: search_filter,
             created: time::OffsetDateTime::now_utc(),
             updated: time::OffsetDateTime::now_utc(),
@@ -120,6 +122,7 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
             name: Faker.fake(),
             enhanced_search_description: Faker.fake(),
             notifications: true,
+            state: ResourceState::Active,
             search: search_filter,
             created: time::OffsetDateTime::now_utc(),
             updated: time::OffsetDateTime::now_utc(),

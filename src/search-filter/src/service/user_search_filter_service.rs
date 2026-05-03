@@ -13,6 +13,7 @@ use crate::dynamodb::user_search_filter_match_record_update::UserSearchFilterMat
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::batch::Batch;
 use common::pagination::cursor::{Cursor, CursoredResult};
+use common::resource_state::domain::ResourceState;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::sort::Sort;
@@ -275,6 +276,19 @@ impl<'a> UserSearchFilterServiceImpl<'a> {
             opensearch_repository: Some(opensearch_repository),
         }
     }
+
+    async fn count_active_user_search_filter_records(
+        &self,
+        user_id: &UserId,
+    ) -> Result<usize, UserSearchFilterError> {
+        Ok(self
+            .repository
+            .query_user_search_filter_records(user_id, true)
+            .await?
+            .into_iter()
+            .filter(|record| record.state.is_active())
+            .count())
+    }
 }
 
 #[async_trait::async_trait]
@@ -331,10 +345,8 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
 
         let limit = user.tier.search_filter_quota();
         let filter_count = self
-            .repository
-            .query_user_search_filter_records(user_id, true)
-            .await?
-            .len();
+            .count_active_user_search_filter_records(user_id)
+            .await?;
         if filter_count as u32 >= limit {
             return Err(UserSearchFilterError::SearchFilterQuotaExceeded(
                 filter_count as u32,
@@ -355,6 +367,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             name,
             enhanced_search_description,
             notifications: true,
+            state: ResourceState::Active,
             search,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
@@ -412,9 +425,33 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             .map_err(UserSearchFilterError::SearchFilterFeatureForbidden)?;
 
         // exists guard
-        let _ = self
+        let existing = self
             .find_user_search_filter(user_id, user_search_filter_id)
             .await?;
+
+        if matches!(update.state, Some(ResourceState::Active)) && !existing.state.is_active() {
+            user.tier
+                .check_search_filter_features(&existing.search)
+                .map_err(UserSearchFilterError::SearchFilterFeatureForbidden)?;
+            if let Some(enhanced_description) = existing.enhanced_search_description.as_ref() {
+                user.tier
+                    .check_enhanced_search_filter_description(enhanced_description)
+                    .map_err(|_| {
+                        UserSearchFilterError::EnhancedSearchDescriptionFeatureForbidden
+                    })?;
+            }
+            let limit = user.tier.search_filter_quota();
+            let filter_count = self
+                .count_active_user_search_filter_records(user_id)
+                .await?;
+            if filter_count as u32 >= limit {
+                return Err(UserSearchFilterError::SearchFilterQuotaExceeded(
+                    filter_count as u32,
+                    limit,
+                ));
+            }
+        }
+
         let updated_opt = self
             .repository
             .update_user_search_filter_record(user_id, user_search_filter_id, update.into())

@@ -4,6 +4,7 @@ use common::dynamodb_update::DynamoDbUpdate;
 use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
+use common::resource_state::record::ResourceStateRecord;
 use common::shop_name::ShopName;
 use common::slug_id::SlugId;
 use common::year::Year;
@@ -25,6 +26,8 @@ pub struct UserSearchFilterRecordUpdate {
     pub name: Option<UserSearchFilterName>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notifications: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<ResourceStateRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub product_query: Option<TextQuery<1>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -111,6 +114,7 @@ mod fake {
             UserSearchFilterRecordUpdate {
                 name: config.fake_with_rng(rng),
                 notifications: config.fake_with_rng(rng),
+                state: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
                 period_id: config.fake_with_rng(rng),

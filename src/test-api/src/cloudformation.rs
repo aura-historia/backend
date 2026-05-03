@@ -67,6 +67,7 @@ const LAMBDA_BINARIES: &[&str] = &[
     "product-pipeline-classify",
     "shop-lambda-opensearch-index",
     "user-lambda-index-opensearch",
+    "user-lambda-tier-update",
     "search-filter-lambda-opensearch-sync",
     "product-lambda-update-notify-user",
     "search-filter-lambda-percolate-product",

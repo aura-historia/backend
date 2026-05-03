@@ -36,6 +36,7 @@ pub mod partner_shop_application_id;
 pub mod personalized;
 pub mod price;
 pub mod query;
+pub mod resource_state;
 pub mod serde;
 pub mod shop_id;
 pub mod shop_name;

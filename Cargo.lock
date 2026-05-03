@@ -9058,6 +9058,7 @@ name = "user-lambda"
 version = "0.1.0"
 dependencies = [
  "user-lambda-index-opensearch",
+ "user-lambda-tier-update",
 ]
 
 [[package]]
@@ -9080,6 +9081,28 @@ dependencies = [
  "url",
  "user",
  "uuid",
+]
+
+[[package]]
+name = "user-lambda-tier-update"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "lambda_runtime",
+ "product",
+ "product-watchlist",
+ "search-filter",
+ "serde_dynamo",
+ "serial_test",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "user",
 ]
 
 [[package]]

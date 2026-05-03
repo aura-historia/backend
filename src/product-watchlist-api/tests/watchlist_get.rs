@@ -88,6 +88,7 @@ async fn should_200_when_sort_created_asc() {
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
             notifications: false,
+            state: common::resource_state::record::ResourceStateRecord::Active,
             created,
             updated: created,
         };
@@ -208,6 +209,7 @@ async fn should_200_when_sort_created_asc_search_after() {
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
             notifications: false,
+            state: common::resource_state::record::ResourceStateRecord::Active,
             created,
             updated: created,
         };
@@ -322,6 +324,7 @@ async fn should_200_when_sort_created_desc() {
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
             notifications: false,
+            state: common::resource_state::record::ResourceStateRecord::Active,
             created,
             updated: created,
         };
@@ -443,6 +446,7 @@ async fn should_200_when_sort_created_desc_search_after() {
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
             notifications: true,
+            state: common::resource_state::record::ResourceStateRecord::Active,
             created,
             updated: created,
         };
@@ -608,6 +612,7 @@ async fn should_respond_200_and_respect_language_query_param(
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
             notifications: false,
+            state: common::resource_state::record::ResourceStateRecord::Active,
             created,
             updated: created,
         };

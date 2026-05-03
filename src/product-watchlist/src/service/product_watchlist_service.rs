@@ -11,7 +11,6 @@ use crate::{
     },
 };
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
-use common::slug_id::SlugId;
 use common::{
     pagination::cursor::{Cursor, CursoredResult},
     price::domain::MonetaryAmountOverflowError,
@@ -21,6 +20,7 @@ use common::{
     sort::{Sort, SortOrder},
     user_id::UserId,
 };
+use common::{resource_state::domain::ResourceState, slug_id::SlugId};
 use product::dynamodb::repository::ProductDynamoDbRepository;
 use time::OffsetDateTime;
 use user::service::user_service::{UserService, UserServiceError};
@@ -176,7 +176,7 @@ pub trait ProductWatchListService {
     async fn find_user_ids_watching_product(
         &self,
         product_id: &ProductId,
-    ) -> Result<Vec<(UserId, bool)>, WatchProductError>;
+    ) -> Result<Vec<WatchlistProduct>, WatchProductError>;
 }
 
 pub struct ProductWatchListServiceImpl<'a> {
@@ -196,6 +196,19 @@ impl<'a> ProductWatchListServiceImpl<'a> {
             product_repository,
             user_service,
         }
+    }
+
+    async fn count_active_watchlist_records(
+        &self,
+        user_id: &UserId,
+    ) -> Result<u64, WatchProductError> {
+        Ok(self
+            .watchlist_repository
+            .query_watchlist_records_all(user_id, true)
+            .await?
+            .into_iter()
+            .filter(|record| record.state.is_active())
+            .count() as u64)
     }
 }
 
@@ -247,10 +260,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
         let now = OffsetDateTime::now_utc();
 
         let limit = user.tier.watchlist_quota();
-        let watchlist_count = self
-            .watchlist_repository
-            .count_watchlist_records(user_id, &Default::default(), true)
-            .await?;
+        let watchlist_count = self.count_active_watchlist_records(user_id).await?;
         if watchlist_count >= limit as u64 {
             return Err(WatchProductError::WatchlistEntryCountExceeded(
                 watchlist_count as u32,
@@ -269,6 +279,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
             notifications: false,
+            state: ResourceState::Active.into(),
             created: now,
             updated: now,
         };
@@ -319,6 +330,27 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
                 *shop_id,
                 shops_product_id.clone(),
             ))?;
+
+        if matches!(update.state, Some(ResourceState::Active))
+            && !watchlist_record.state.is_active()
+        {
+            let user = self
+                .user_service
+                .find_user(user_id)
+                .await
+                .map_err(|e| match e {
+                    UserServiceError::UserNotFound(id) => WatchProductError::UserNotFound(id),
+                    other => WatchProductError::UserServiceError(other),
+                })?;
+            let limit = user.tier.watchlist_quota();
+            let watchlist_count = self.count_active_watchlist_records(user_id).await?;
+            if watchlist_count >= limit as u64 {
+                return Err(WatchProductError::WatchlistEntryCountExceeded(
+                    watchlist_count as u32,
+                    limit,
+                ));
+            }
+        }
 
         if update.is_empty() {
             Ok(watchlist_record.into())
@@ -384,10 +416,11 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
     async fn find_user_ids_watching_product(
         &self,
         product_id: &ProductId,
-    ) -> Result<Vec<(UserId, bool)>, WatchProductError> {
+    ) -> Result<Vec<WatchlistProduct>, WatchProductError> {
         self.watchlist_repository
             .query_user_ids_watching_product(product_id)
             .await
+            .map(|records| records.into_iter().map(WatchlistProduct::from).collect())
             .map_err(WatchProductError::from)
     }
 }
@@ -498,6 +531,7 @@ mod tests {
     mod create_watchlist_product {
         use crate::{
             core::quota::WatchlistQuota,
+            dynamodb::record::WatchlistProductRecord,
             dynamodb::repository::MockWatchlistProductDynamoDbRepository,
             service::product_watchlist_service::{
                 ProductWatchListService, ProductWatchListServiceImpl, WatchProductError,
@@ -508,7 +542,10 @@ mod tests {
             error::{ConnectorError, SdkError},
             operation::put_item::PutItemOutput,
         };
-        use common::{shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId};
+        use common::{
+            resource_state::record::ResourceStateRecord, shop_id::ShopId,
+            shops_product_id::ShopsProductId, user_id::UserId,
+        };
         use fake::{Fake, Faker};
         use product::dynamodb::repository::MockProductDynamoDbRepository;
         use user::core::user::User;
@@ -527,12 +564,8 @@ mod tests {
 
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
             watchlist_repository
-                .expect_count_watchlist_records()
-                .return_once(|_, _, _| {
-                    Box::pin(async {
-                        Ok(user::core::tier::UserTier::Free.watchlist_quota() as u64 - 1)
-                    })
-                });
+                .expect_query_watchlist_records_all()
+                .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
             watchlist_repository
                 .expect_put_watchlist_record()
                 .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
@@ -634,10 +667,16 @@ mod tests {
 
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
             watchlist_repository
-                .expect_count_watchlist_records()
-                .return_once(|_, _, _| {
+                .expect_query_watchlist_records_all()
+                .return_once(|_, _| {
                     Box::pin(async {
-                        Ok(user::core::tier::UserTier::Free.watchlist_quota() as u64)
+                        Ok((0..user::core::tier::UserTier::Free.watchlist_quota())
+                            .map(|_| {
+                                let mut record = Faker.fake::<WatchlistProductRecord>();
+                                record.state = ResourceStateRecord::Active;
+                                record
+                            })
+                            .collect())
                     })
                 });
 
@@ -751,14 +790,8 @@ mod tests {
 
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
             watchlist_repository
-                .expect_count_watchlist_records()
-                .return_once(|_, _, _| {
-                    Box::pin(async {
-                        Ok(fake::rand::random_range(
-                            0..user::core::tier::UserTier::Free.watchlist_quota() as u64,
-                        ))
-                    })
-                });
+                .expect_query_watchlist_records_all()
+                .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
             watchlist_repository
                 .expect_put_watchlist_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
@@ -1000,6 +1033,7 @@ mod tests {
                     &Faker.fake(),
                     UpdateWatchlistProductCommand {
                         notifications: Some(true),
+                        state: None,
                     },
                 )
                 .await
@@ -1031,6 +1065,7 @@ mod tests {
                     &shops_product_id,
                     UpdateWatchlistProductCommand {
                         notifications: Some(true),
+                        state: None,
                     },
                 )
                 .await
@@ -1094,6 +1129,7 @@ mod tests {
                     &Faker.fake(),
                     UpdateWatchlistProductCommand {
                         notifications: Some(true),
+                        state: None,
                     },
                 )
                 .await;
@@ -1154,6 +1190,7 @@ mod tests {
                     &Faker.fake(),
                     UpdateWatchlistProductCommand {
                         notifications: Some(true),
+                        state: None,
                     },
                 )
                 .await;

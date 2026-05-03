@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 user-lambda-index-opensearch = { workspace = true }
+user-lambda-tier-update = { workspace = true }

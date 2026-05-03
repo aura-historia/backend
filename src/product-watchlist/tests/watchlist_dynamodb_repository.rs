@@ -261,6 +261,7 @@ fn should_set_notifications_true_for_update() {
             &initial.shops_product_id,
             WatchlistProductRecordUpdate {
                 notifications: Some(true),
+                state: None,
                 updated,
             },
         )
@@ -301,6 +302,7 @@ fn should_set_notifications_false_for_update() {
             &initial.shops_product_id,
             WatchlistProductRecordUpdate {
                 notifications: Some(false),
+                state: None,
                 updated,
             },
         )

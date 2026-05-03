@@ -326,6 +326,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
             &record.shops_product_id,
             UpdateWatchlistProductCommand {
                 notifications: Some(true),
+                state: None,
             },
         )
         .await

@@ -2,6 +2,8 @@ use common::category_key::CategoryId;
 use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
+use common::resource_state::data::PatchResourceStateData;
+use common::resource_state::domain::ResourceState;
 use common::shop_name::ShopName;
 use common::slug_id::SlugId;
 use common::year::Year;
@@ -40,6 +42,9 @@ pub struct PatchUserSearchFilterData {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub notifications: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub state: Option<PatchResourceStateData>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub search: Option<PatchProductSearchData>,
@@ -196,6 +201,7 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
             name: patch.name,
             enhanced_search_description: patch.enhanced_search_description.map(Into::into),
             notifications: patch.notifications,
+            state: patch.state.map(ResourceState::from),
             language: patch
                 .search
                 .as_ref()
@@ -485,6 +491,7 @@ mod tests {
             name: Some("hugos filter for peppino".into()),
             enhanced_search_description: Some("I want foo".into()),
             notifications: None,
+            state: None,
             search: Some(PatchProductSearchData {
                 language: Some(LanguageData::De),
                 currency: Some(CurrencyData::Eur),

@@ -74,7 +74,7 @@ pub trait WatchlistProductDynamoDbRepository {
     async fn query_user_ids_watching_product(
         &self,
         product_id: &ProductId,
-    ) -> Result<Vec<(UserId, bool)>, SdkError<QueryError>>;
+    ) -> Result<Vec<WatchlistProductRecord>, SdkError<QueryError>>;
 }
 
 #[derive(Debug, Clone)]
@@ -347,7 +347,7 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
     async fn query_user_ids_watching_product(
         &self,
         product_id: &ProductId,
-    ) -> Result<Vec<(UserId, bool)>, SdkError<QueryError>> {
+    ) -> Result<Vec<WatchlistProductRecord>, SdkError<QueryError>> {
         let user_records = self
             .client
             .query()
@@ -372,7 +372,7 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
             .flat_map(|qo| qo.items.unwrap_or_default())
             .map(serde_dynamo::from_item::<_, WatchlistProductRecord>)
             .filter_map(|res| match res {
-                Ok(record) => Some((record.user_id, record.notifications)),
+                Ok(record) => Some(record),
                 Err(err) => {
                     error!(productId = %product_id, error = %err, type = %std::any::type_name::<WatchlistProductRecord>(), "Failed deserializing.");
                     None

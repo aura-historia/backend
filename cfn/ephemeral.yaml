@@ -537,6 +537,84 @@ Resources:
       BatchSize: 1
       MaximumBatchingWindowInSeconds: 0
 
+
+  UserTierUpdateDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "user-tier-update-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+  UserTierUpdateQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "user-tier-update-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt UserTierUpdateDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+      SqsManagedSseEnabled: true
+  UserTierUpdateRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "user-tier-update-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:UpdateItem
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: SqsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt UserTierUpdateQ.Arn
+  UserTierUpdateLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "user-tier-update-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt UserTierUpdateRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "user-lambda-tier-update-${StageName}-${CommitSHA}.zip"
+      MemorySize: 256
+      Timeout: 30
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  UserTierUpdateMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref UserTierUpdateLambda
+      EventSourceArn: !GetAtt UserTierUpdateQ.Arn
+      Enabled: true
+      BatchSize: 1
+      MaximumBatchingWindowInSeconds: 0
+
   SearchFilterOpenSearchSyncDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -786,6 +864,7 @@ Resources:
         - !Ref ProductMaterializeOpenSearchQ
         - !Ref ShopOpenSearchIndexQ
         - !Ref UserOpenSearchIndexQ
+        - !Ref UserTierUpdateQ
         - !Ref SearchFilterOpenSearchSyncQ
         - !Ref ProductUpdateNotifyUserQ
         - !Ref SearchFilterPercolateProductQ
@@ -806,6 +885,7 @@ Resources:
               - !GetAtt ProductMaterializeOpenSearchQ.Arn
               - !GetAtt ShopOpenSearchIndexQ.Arn
               - !GetAtt UserOpenSearchIndexQ.Arn
+              - !GetAtt UserTierUpdateQ.Arn
               - !GetAtt SearchFilterOpenSearchSyncQ.Arn
               - !GetAtt ProductUpdateNotifyUserQ.Arn
               - !GetAtt SearchFilterPercolateProductQ.Arn
@@ -952,6 +1032,8 @@ Resources:
       Targets:
         - Id: UserOpenSearchIndexQ
           Arn: !GetAtt UserOpenSearchIndexQ.Arn
+        - Id: UserTierUpdateQ
+          Arn: !GetAtt UserTierUpdateQ.Arn
 
   DynamoDbSearchFilterSyncEventRule:
     Type: AWS::Events::Rule

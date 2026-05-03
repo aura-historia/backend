@@ -106,6 +106,7 @@ async fn should_respond_with_patched_notifications(
         shop_id: product_record.shop_id,
         shops_product_id: product_record.shops_product_id.clone(),
         notifications: old_notifications,
+        state: common::resource_state::record::ResourceStateRecord::Active,
         created,
         updated: created,
     };
@@ -123,6 +124,7 @@ async fn should_respond_with_patched_notifications(
             .query_string_parameter("currency", "EUR")
             .body_serde(&WatchlistProductPatch {
                 notifications: Some(new_notifications),
+                state: None,
             })
             .jwt_claim("sub", user_record.user_id)
             .build(),
