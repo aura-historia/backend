@@ -6820,7 +6820,6 @@ async fn should_deactivate_over_quota_search_filters_when_tier_is_downgraded() {
             user_search_filter_record::{
                 UserSearchFilterRecord, mk_pk as sf_mk_pk, mk_sk as sf_mk_sk,
             },
-            user_search_filter_state_record::UserSearchFilterStateRecord,
         },
     };
 
@@ -6859,7 +6858,7 @@ async fn should_deactivate_over_quota_search_filters_when_tier_is_downgraded() {
         record.sk = sf_mk_sk(&filter_id);
         record.user_id = user_id;
         record.user_search_filter_id = filter_id;
-        record.state = UserSearchFilterStateRecord::Active;
+        record.state = ResourceStateRecord::Active;
         record.enhanced_search_description = None;
         record.created = created;
         record.updated = created;
@@ -6912,13 +6911,13 @@ async fn should_deactivate_over_quota_search_filters_when_tier_is_downgraded() {
 
         let inactive_count = records
             .iter()
-            .filter(|r| r.state == UserSearchFilterStateRecord::InactiveByRestrictedPlan)
+            .filter(|r| r.state == ResourceStateRecord::InactiveByRestrictedPlan)
             .count();
 
         if inactive_count == filter_count - free_quota {
             let active_count = records
                 .iter()
-                .filter(|r| r.state == UserSearchFilterStateRecord::Active)
+                .filter(|r| r.state == ResourceStateRecord::Active)
                 .count();
             assert_eq!(active_count, free_quota);
             break;
@@ -6941,7 +6940,6 @@ async fn should_reactivate_plan_restricted_search_filters_when_tier_is_upgraded(
     use search_filter::dynamodb::{
         repository::UserSearchFilterDynamoDbRepository,
         user_search_filter_record::{UserSearchFilterRecord, mk_pk as sf_mk_pk, mk_sk as sf_mk_sk},
-        user_search_filter_state_record::UserSearchFilterStateRecord,
     };
 
     let stack = get_cfn_output();
@@ -6967,7 +6965,7 @@ async fn should_reactivate_plan_restricted_search_filters_when_tier_is_upgraded(
         record.sk = sf_mk_sk(&filter_id);
         record.user_id = user_id;
         record.user_search_filter_id = filter_id;
-        record.state = UserSearchFilterStateRecord::InactiveByRestrictedPlan;
+        record.state = ResourceStateRecord::InactiveByRestrictedPlan;
         record.enhanced_search_description = None;
         record.created = created;
         record.updated = created;
@@ -7019,7 +7017,7 @@ async fn should_reactivate_plan_restricted_search_filters_when_tier_is_upgraded(
 
         let active_count = records
             .iter()
-            .filter(|r| r.state == UserSearchFilterStateRecord::Active)
+            .filter(|r| r.state == ResourceStateRecord::Active)
             .count();
 
         if active_count == filter_count {
