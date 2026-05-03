@@ -454,6 +454,9 @@ impl Product {
         if self.authenticity == authenticity {
             return None;
         }
+        if authenticity == Authenticity::Unknown {
+            return None;
+        }
         self.authenticity = authenticity;
         Some(Event {
             aggregate_id: self.product_id,
@@ -472,6 +475,9 @@ impl Product {
 
     pub fn change_condition(&mut self, condition: Condition) -> Option<ProductDomainEvent> {
         if self.condition == condition {
+            return None;
+        }
+        if condition == Condition::Unknown {
             return None;
         }
         self.condition = condition;
@@ -494,6 +500,9 @@ impl Product {
         if self.provenance == provenance {
             return None;
         }
+        if provenance == Provenance::Unknown {
+            return None;
+        }
         self.provenance = provenance;
         Some(Event {
             aggregate_id: self.product_id,
@@ -512,6 +521,9 @@ impl Product {
 
     pub fn change_restoration(&mut self, restoration: Restoration) -> Option<ProductDomainEvent> {
         if self.restoration == restoration {
+            return None;
+        }
+        if restoration == Restoration::Unknown {
             return None;
         }
         self.restoration = restoration;
