@@ -14,27 +14,14 @@ async fn main() -> Result<(), Error> {
     let autoscaling = aws_sdk_autoscaling::Client::new(&aws_config);
     let sqs = aws_sdk_sqs::Client::new(&aws_config);
     let cloudwatch = aws_sdk_cloudwatch::Client::new(&aws_config);
-    let components = vec![
-        SqsAsgComponent {
-            sqs_url: std::env::var("PRODUCT_PIPELINE_TRANSLATE_SQS_URL")
-                .expect("shouldn't fail loading env-var 'PRODUCT_PIPELINE_TRANSLATE_SQS_URL'"),
-            queue_name: std::env::var("PRODUCT_PIPELINE_TRANSLATE_SQS_NAME")
-                .expect("shouldn't fail loading env-var 'PRODUCT_PIPELINE_TRANSLATE_SQS_NAME'"),
-            asg_name: std::env::var("PRODUCT_PIPELINE_TRANSLATE_ASG_NAME")
-                .expect("shouldn't fail loading env-var 'PRODUCT_PIPELINE_TRANSLATE_ASG_NAME'"),
-        },
-        SqsAsgComponent {
-            sqs_url: std::env::var("PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_SQS_URL").expect(
-                "shouldn't fail loading env-var 'PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_SQS_URL'",
-            ),
-            queue_name: std::env::var("PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_SQS_NAME").expect(
-                "shouldn't fail loading env-var 'PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_SQS_NAME'",
-            ),
-            asg_name: std::env::var("PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_ASG_NAME").expect(
-                "shouldn't fail loading env-var 'PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_ASG_NAME'",
-            ),
-        },
-    ];
+    let components = vec![SqsAsgComponent {
+        sqs_url: std::env::var("PRODUCT_PIPELINE_TRANSLATE_SQS_URL")
+            .expect("shouldn't fail loading env-var 'PRODUCT_PIPELINE_TRANSLATE_SQS_URL'"),
+        queue_name: std::env::var("PRODUCT_PIPELINE_TRANSLATE_SQS_NAME")
+            .expect("shouldn't fail loading env-var 'PRODUCT_PIPELINE_TRANSLATE_SQS_NAME'"),
+        asg_name: std::env::var("PRODUCT_PIPELINE_TRANSLATE_ASG_NAME")
+            .expect("shouldn't fail loading env-var 'PRODUCT_PIPELINE_TRANSLATE_ASG_NAME'"),
+    }];
 
     debug!("Lambda initialized.");
 
