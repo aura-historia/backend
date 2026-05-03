@@ -91,7 +91,12 @@ impl<'a> Pipe for PipeImpl<'a> {
 
             let processed = self.processor.process(products).await;
             info!(
-                successes = processed.successes.len(),
+                successes = processed
+                    .successes
+                    .iter()
+                    .map(|success| success.aggregate_id)
+                    .collect::<HashSet<_>>()
+                    .len(),
                 failures = processed.failures.len(),
                 "Processed products."
             );
@@ -105,7 +110,7 @@ impl<'a> Pipe for PipeImpl<'a> {
             info!(
                 successes = out_res.successes.len(),
                 failures = out_res.failures.len(),
-                "Products have flown out."
+                "Product-Events have flown out."
             );
 
             // Remove successes from message_refs - leaving beahind failures
