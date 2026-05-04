@@ -12,6 +12,26 @@ pub enum ProductEnrichmentEventTypeRecord {
     EnrichmentClassifyPeriod,
 }
 
+impl ProductEnrichmentEventTypeRecord {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProductEnrichmentEventTypeRecord::EnrichmentTranslatedTitle => {
+                "ENRICHMENT_TRANSLATED_TITLE"
+            }
+            ProductEnrichmentEventTypeRecord::EnrichmentEmbedded => "ENRICHMENT_EMBEDDED",
+            ProductEnrichmentEventTypeRecord::EnrichmentExtractedAttributes => {
+                "ENRICHMENT_EXTRACTED_ATTRIBUTES"
+            }
+            ProductEnrichmentEventTypeRecord::EnrichmentClassifyCategory => {
+                "ENRICHMENT_CLASSIFY_CATEGORY"
+            }
+            ProductEnrichmentEventTypeRecord::EnrichmentClassifyPeriod => {
+                "ENRICHMENT_CLASSIFY_PERIOD"
+            }
+        }
+    }
+}
+
 impl From<&ProductEnrichmentEventPayload> for ProductEnrichmentEventTypeRecord {
     fn from(domain: &ProductEnrichmentEventPayload) -> Self {
         match domain {

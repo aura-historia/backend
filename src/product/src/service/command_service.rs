@@ -1,4 +1,5 @@
 use crate::core::product::Product;
+use crate::core::product_event::ProductEventLog;
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::repository::{ProductDynamoDbRepository, extract_product_key};
@@ -9,7 +10,7 @@ use crate::service::product_command::{
 use async_trait::async_trait;
 use common::batch::Batch;
 use common::has_key::HasKey;
-use common::logging::{LogEntityType, LogEventType, LogWriteSource};
+use common::logging::{LogEventType, LogWriteSource};
 use common::price::domain::FxRate;
 use common::product_id::ProductKey;
 use common::shop_id::ShopId;
@@ -18,7 +19,7 @@ use shop::core::shop_type::ShopType;
 use shop::service::get_service::GetShopService;
 use shop::service::seller_service::SellerService;
 use std::collections::{HashMap, HashSet};
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 
 #[async_trait]
 #[mockall::automock]
@@ -161,9 +162,14 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
     ) -> Vec<(ProductKey, C)> {
         let mut failures = Vec::new();
         for batch in Batch::<_, 25>::chunked_from(events.into_iter()) {
-            let writes_to_log = batch
+            let event_logs = batch
                 .iter()
-                .map(build_product_event_write_log)
+                .map(|record| {
+                    ProductEventLog::from(record)
+                        .with_event_type(LogEventType::EntityWrite)
+                        .with_write_source(LogWriteSource::ProductCommandService)
+                        .with_msg("Persisted product event.")
+                })
                 .collect::<Vec<_>>();
             let product_keys = batch.iter().map(|event| event.key()).collect::<Vec<_>>();
             let res = self
@@ -192,9 +198,9 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
                             failures.push((failed_product_key.clone(), cmd));
                         }
                     }
-                    for write in writes_to_log {
-                        if !failed_product_keys.contains(&write.key) {
-                            log_product_event_write(write);
+                    for event_log in event_logs {
+                        if !failed_product_keys.contains(&event_log.key()) {
+                            event_log.log();
                         }
                     }
                 }
@@ -448,76 +454,6 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
 
         failures
     }
-}
-
-struct ProductEventWriteLog {
-    key: ProductKey,
-    event_type: LogEventType,
-    write_source: LogWriteSource,
-    product_id: String,
-    shop_id: String,
-    shops_product_id: String,
-    event_id: String,
-    product_event_type: String,
-    decision: Option<String>,
-    reason: Option<String>,
-}
-
-fn build_product_event_write_log(record: &ProductEventRecord) -> ProductEventWriteLog {
-    match record {
-        ProductEventRecord::Domain(record) => ProductEventWriteLog {
-            key: ProductKey::new(record.shop_id, record.shops_product_id.clone()),
-            event_type: LogEventType::EntityWrite,
-            write_source: LogWriteSource::ProductCommandService,
-            product_id: record.product_id.to_string(),
-            shop_id: record.shop_id.to_string(),
-            shops_product_id: record.shops_product_id.to_string(),
-            event_id: record.event_id.to_string(),
-            product_event_type: format!("{:?}", record.event_type),
-            decision: None,
-            reason: None,
-        },
-        ProductEventRecord::Enrichment(record) => ProductEventWriteLog {
-            key: ProductKey::new(record.shop_id, record.shops_product_id.clone()),
-            event_type: LogEventType::EntityWrite,
-            write_source: LogWriteSource::ProductCommandService,
-            product_id: record.product_id.to_string(),
-            shop_id: record.shop_id.to_string(),
-            shops_product_id: record.shops_product_id.to_string(),
-            event_id: record.event_id.to_string(),
-            product_event_type: format!("{:?}", record.event_type),
-            decision: None,
-            reason: None,
-        },
-        ProductEventRecord::Policy(record) => ProductEventWriteLog {
-            key: ProductKey::new(record.shop_id, record.shops_product_id.clone()),
-            event_type: LogEventType::PolicyDecision,
-            write_source: LogWriteSource::ProductCommandService,
-            product_id: record.product_id.to_string(),
-            shop_id: record.shop_id.to_string(),
-            shops_product_id: record.shops_product_id.to_string(),
-            event_id: record.event_id.to_string(),
-            product_event_type: format!("{:?}", record.event_type),
-            decision: Some(format!("{:?}", record.prohibited_content_decision)),
-            reason: Some(format!("{:?}", record.prohibited_content_reason)),
-        },
-    }
-}
-
-fn log_product_event_write(write: ProductEventWriteLog) {
-    info!(
-        eventType = %write.event_type,
-        entityType = %LogEntityType::Product,
-        writeSource = %write.write_source,
-        productId = write.product_id,
-        shopId = write.shop_id,
-        shopsProductId = write.shops_product_id,
-        eventId = write.event_id,
-        productEventType = write.product_event_type,
-        decision = write.decision,
-        reason = write.reason,
-        "Persisted product event."
-    );
 }
 
 fn determine_update_events(

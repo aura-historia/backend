@@ -6,14 +6,14 @@ use common::{
     dynamodb_stream::extract_from_dynamodb_stream,
     event_id::EventId,
     has_key::HasKey,
-    logging::{LogEntityType, LogEventType, LogPipelineStage, LogWriteSource},
+    logging::{LogEventType, LogPipelineStage, LogWriteSource},
     product_id::ProductKey,
 };
 use lambda_runtime::LambdaEvent;
 use product::{
     core::{
         product_event::{
-            ProductEvent, ProductEventPayload,
+            ProductEvent, ProductEventLog, ProductEventPayload,
             enrichment::{
                 ClassifiedCategoryProductEnrichmentEventPayload,
                 ClassifiedPeriodProductEnrichmentEventPayload, ProductEnrichmentEventPayload,
@@ -201,9 +201,14 @@ async fn persist_enrichment_events(
 ) {
     for batch in Batch::chunked_from(enrichment_events.into_iter()) {
         let batch: Batch<_, 25> = batch;
-        let writes_to_log = batch
+        let event_logs = batch
             .iter()
-            .map(|(_, record)| build_product_event_write_log(record))
+            .map(|(_, record)| {
+                ProductEventLog::from(record)
+                    .with_event_type(LogEventType::EntityWrite)
+                    .with_write_source(LogWriteSource::ProductClassification)
+                    .with_msg("Persisted product classification event.")
+            })
             .collect::<Vec<_>>();
         let batch_message_ids = batch
             .iter()
@@ -219,9 +224,9 @@ async fn persist_enrichment_events(
                     &mut failures,
                 );
                 let failures = failures.into_iter().collect::<HashSet<_>>();
-                for write in writes_to_log {
-                    if !failures.contains(&write.key) {
-                        log_product_event_write(write);
+                for event_log in event_logs {
+                    if !failures.contains(&event_log.key()) {
+                        event_log.log();
                     }
                 }
                 for key in failures {
@@ -242,53 +247,6 @@ async fn persist_enrichment_events(
             }
         }
     }
-}
-
-struct ProductEventWriteLog {
-    key: ProductKey,
-    product_id: String,
-    shop_id: String,
-    shops_product_id: String,
-    event_id: String,
-    product_event_type: String,
-}
-
-fn build_product_event_write_log(record: &ProductEventRecord) -> ProductEventWriteLog {
-    match record {
-        ProductEventRecord::Enrichment(record) => ProductEventWriteLog {
-            key: ProductKey::new(record.shop_id, record.shops_product_id.clone()),
-            product_id: record.product_id.to_string(),
-            shop_id: record.shop_id.to_string(),
-            shops_product_id: record.shops_product_id.to_string(),
-            event_id: record.event_id.to_string(),
-            product_event_type: format!("{:?}", record.event_type),
-        },
-        _ => {
-            let key = record.key();
-            ProductEventWriteLog {
-                key: key.clone(),
-                product_id: record.product_id().to_string(),
-                shop_id: key.shop_id.to_string(),
-                shops_product_id: key.shops_product_id.to_string(),
-                event_id: record.event_id().to_string(),
-                product_event_type: "unknown".to_string(),
-            }
-        }
-    }
-}
-
-fn log_product_event_write(write: ProductEventWriteLog) {
-    info!(
-        eventType = %LogEventType::EntityWrite,
-        entityType = %LogEntityType::Product,
-        writeSource = %LogWriteSource::ProductClassification,
-        productId = write.product_id,
-        shopId = write.shop_id,
-        shopsProductId = write.shops_product_id,
-        eventId = write.event_id,
-        productEventType = write.product_event_type,
-        "Persisted product classification event."
-    );
 }
 
 #[cfg(test)]

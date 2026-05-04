@@ -10,6 +10,16 @@ pub enum ProductPolicyEventPayload {
     ProhibitedContentDecision(ProhibitedContentProductPolicyEventPayload),
 }
 
+impl ProductPolicyEventPayload {
+    pub fn event_type(&self) -> &'static str {
+        match self {
+            ProductPolicyEventPayload::ProhibitedContentDecision(_) => {
+                "POLICY_PROHIBITED_CONTENT_DECISION"
+            }
+        }
+    }
+}
+
 impl HasKey for ProductPolicyEventPayload {
     type Key = ProductKey;
 

@@ -42,6 +42,23 @@ pub enum ProductDomainEventPayload {
 }
 
 impl ProductDomainEventPayload {
+    pub fn event_type(&self) -> &'static str {
+        match self {
+            ProductDomainEventPayload::Created(_) => "DOMAIN_CREATED",
+            ProductDomainEventPayload::StateChanged(_) => "DOMAIN_STATE_CHANGED",
+            ProductDomainEventPayload::PriceChanged(_) => "DOMAIN_PRICE_CHANGED",
+            ProductDomainEventPayload::EstimatePriceChanged(_) => "DOMAIN_ESTIMATE_PRICE_CHANGED",
+            ProductDomainEventPayload::UrlChanged(_) => "DOMAIN_URL_CHANGED",
+            ProductDomainEventPayload::ImagesChanged(_) => "DOMAIN_IMAGES_CHANGED",
+            ProductDomainEventPayload::AuctionTimeChanged(_) => "DOMAIN_AUCTION_TIME_CHANGED",
+            ProductDomainEventPayload::OriginYearChanged(_) => "DOMAIN_ORIGIN_YEAR_CHANGED",
+            ProductDomainEventPayload::AuthenticityChanged(_) => "DOMAIN_AUTHENTICITY_CHANGED",
+            ProductDomainEventPayload::ConditionChanged(_) => "DOMAIN_CONDITION_CHANGED",
+            ProductDomainEventPayload::ProvenanceChanged(_) => "DOMAIN_PROVENANCE_CHANGED",
+            ProductDomainEventPayload::RestorationChanged(_) => "DOMAIN_RESTORATION_CHANGED",
+        }
+    }
+
     pub fn is_price_event(&self) -> bool {
         matches!(self, ProductDomainEventPayload::PriceChanged(_))
     }

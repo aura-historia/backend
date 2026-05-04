@@ -8,6 +8,16 @@ pub enum ProductPolicyEventTypeRecord {
     PolicyProhibitedContentDecision,
 }
 
+impl ProductPolicyEventTypeRecord {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProductPolicyEventTypeRecord::PolicyProhibitedContentDecision => {
+                "POLICY_PROHIBITED_CONTENT_DECISION"
+            }
+        }
+    }
+}
+
 impl From<&ProductPolicyEventPayload> for ProductPolicyEventTypeRecord {
     fn from(domain: &ProductPolicyEventPayload) -> Self {
         match domain {

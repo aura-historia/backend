@@ -14,7 +14,7 @@ use lambda_runtime::LambdaEvent;
 use product::{
     core::{
         product_event::{
-            ProductEvent, ProductEventPayload,
+            ProductEvent, ProductEventLog, ProductEventPayload,
             enrichment::{
                 ExtractedAttributesProductEnrichmentEventPayload, ProductEnrichmentEventPayload,
             },
@@ -331,9 +331,14 @@ async fn persist_events(
 ) {
     for batch in Batch::chunked_from(events.into_iter()) {
         let batch: Batch<_, 25> = batch;
-        let writes_to_log = batch
+        let event_logs = batch
             .iter()
-            .map(|(_, record)| build_product_event_write_log(record))
+            .map(|(_, record)| {
+                ProductEventLog::from(record)
+                    .with_event_type(LogEventType::EntityWrite)
+                    .with_write_source(LogWriteSource::ProductAttributeExtraction)
+                    .with_msg("Persisted product attribute extraction event.")
+            })
             .collect::<Vec<_>>();
         let batch_message_ids = batch
             .iter()
@@ -349,9 +354,9 @@ async fn persist_events(
                     &mut failures,
                 );
                 let failures = failures.into_iter().collect::<HashSet<_>>();
-                for write in writes_to_log {
-                    if !failures.contains(&write.key) {
-                        log_product_event_write(write);
+                for event_log in event_logs {
+                    if !failures.contains(&event_log.key()) {
+                        event_log.log();
                     }
                 }
                 for key in failures {
@@ -372,62 +377,6 @@ async fn persist_events(
             }
         }
     }
-}
-
-struct ProductEventWriteLog {
-    key: ProductKey,
-    event_type: LogEventType,
-    product_id: String,
-    shop_id: String,
-    shops_product_id: String,
-    event_id: String,
-    product_event_type: String,
-    decision: Option<String>,
-    reason: Option<String>,
-}
-
-fn build_product_event_write_log(record: &ProductEventRecord) -> ProductEventWriteLog {
-    match record {
-        ProductEventRecord::Enrichment(record) => ProductEventWriteLog {
-            key: ProductKey::new(record.shop_id, record.shops_product_id.clone()),
-            event_type: LogEventType::EntityWrite,
-            product_id: record.product_id.to_string(),
-            shop_id: record.shop_id.to_string(),
-            shops_product_id: record.shops_product_id.to_string(),
-            event_id: record.event_id.to_string(),
-            product_event_type: format!("{:?}", record.event_type),
-            decision: None,
-            reason: None,
-        },
-        ProductEventRecord::Policy(record) => ProductEventWriteLog {
-            key: ProductKey::new(record.shop_id, record.shops_product_id.clone()),
-            event_type: LogEventType::PolicyDecision,
-            product_id: record.product_id.to_string(),
-            shop_id: record.shop_id.to_string(),
-            shops_product_id: record.shops_product_id.to_string(),
-            event_id: record.event_id.to_string(),
-            product_event_type: format!("{:?}", record.event_type),
-            decision: Some(format!("{:?}", record.prohibited_content_decision)),
-            reason: Some(format!("{:?}", record.prohibited_content_reason)),
-        },
-        _ => unreachable!("attribute extraction only persists enrichment and policy events"),
-    }
-}
-
-fn log_product_event_write(write: ProductEventWriteLog) {
-    info!(
-        eventType = %write.event_type,
-        entityType = %LogEntityType::Product,
-        writeSource = %LogWriteSource::ProductAttributeExtraction,
-        productId = write.product_id,
-        shopId = write.shop_id,
-        shopsProductId = write.shops_product_id,
-        eventId = write.event_id,
-        productEventType = write.product_event_type,
-        decision = write.decision,
-        reason = write.reason,
-        "Persisted product attribute extraction event."
-    );
 }
 
 #[cfg(test)]

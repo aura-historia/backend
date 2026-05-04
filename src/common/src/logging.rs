@@ -14,11 +14,11 @@ pub enum LogEventType {
 impl LogEventType {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::LlmInvocation => "llmInvocation",
-            Self::BatchProcessing => "batchProcessing",
-            Self::EntityWrite => "entityWrite",
-            Self::PolicyDecision => "policyDecision",
-            Self::ClassificationDecision => "classificationDecision",
+            Self::LlmInvocation => "LLM_INVOCATION",
+            Self::BatchProcessing => "BATCH_PROCESSING",
+            Self::EntityWrite => "ENTITY_WRITE",
+            Self::PolicyDecision => "POLICY_DECISION",
+            Self::ClassificationDecision => "CLASSIFICATION_DECISION",
         }
     }
 }
@@ -59,10 +59,10 @@ pub enum LogPipelineStage {
 impl LogPipelineStage {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::ProductClassification => "productClassification",
-            Self::ProductTranslation => "productTranslation",
-            Self::ProductAttributeExtraction => "productAttributeExtraction",
-            Self::ProductEmbedding => "productEmbedding",
+            Self::ProductClassification => "PRODUCT_CLASSIFICATION",
+            Self::ProductTranslation => "PRODUCT_TRANSLATION",
+            Self::ProductAttributeExtraction => "PRODUCT_ATTRIBUTE_EXTRACTION",
+            Self::ProductEmbedding => "PRODUCT_EMBEDDING",
         }
     }
 }
@@ -85,11 +85,11 @@ pub enum LogWriteSource {
 impl LogWriteSource {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::ProductCommandService => "productCommandService",
-            Self::ProductClassification => "productClassification",
-            Self::ProductTranslation => "productTranslation",
-            Self::ProductAttributeExtraction => "productAttributeExtraction",
-            Self::ProductEmbedding => "productEmbedding",
+            Self::ProductCommandService => "PRODUCT_COMMAND_SERVICE",
+            Self::ProductClassification => "PRODUCT_CLASSIFICATION",
+            Self::ProductTranslation => "PRODUCT_TRANSLATION",
+            Self::ProductAttributeExtraction => "PRODUCT_ATTRIBUTE_EXTRACTION",
+            Self::ProductEmbedding => "PRODUCT_EMBEDDING",
         }
     }
 }
@@ -109,8 +109,8 @@ pub enum LogClassificationMethod {
 impl LogClassificationMethod {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::ClearScore => "clearScore",
-            Self::Llm => "llm",
+            Self::ClearScore => "CLEAR_SCORE",
+            Self::Llm => "LLM",
         }
     }
 }
@@ -134,12 +134,12 @@ pub enum LlmOperation {
 impl LlmOperation {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::ProductClassification => "productClassification",
-            Self::ProductTitleTranslation => "productTitleTranslation",
-            Self::ProductAttributeExtraction => "productAttributeExtraction",
-            Self::ProductEmbedding => "productEmbedding",
-            Self::ProductQueryEmbedding => "productQueryEmbedding",
-            Self::SellerShopDisambiguation => "sellerShopDisambiguation",
+            Self::ProductClassification => "PRODUCT_CLASSIFICATION",
+            Self::ProductTitleTranslation => "PRODUCT_TITLE_TRANSLATION",
+            Self::ProductAttributeExtraction => "PRODUCT_ATTRIBUTE_EXTRACTION",
+            Self::ProductEmbedding => "PRODUCT_EMBEDDING",
+            Self::ProductQueryEmbedding => "PRODUCT_QUERY_EMBEDDING",
+            Self::SellerShopDisambiguation => "SELLER_SHOP_DISAMBIGUATION",
         }
     }
 }
@@ -159,8 +159,8 @@ pub enum LlmProvider {
 impl LlmProvider {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Google => "google",
-            Self::Configured => "configured",
+            Self::Google => "GOOGLE",
+            Self::Configured => "CONFIGURED",
         }
     }
 }
@@ -183,7 +183,7 @@ impl LlmModel {
         match self {
             Self::Gemini25FlashLite => "gemini-2.5-flash-lite",
             Self::GeminiEmbedding2Preview0325 => "gemini-embedding-2-preview-03-25",
-            Self::Configured => "configured",
+            Self::Configured => "CONFIGURED",
         }
     }
 }

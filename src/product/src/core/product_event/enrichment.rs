@@ -130,6 +130,20 @@ impl HasKey for ClassifiedPeriodProductEnrichmentEventPayload {
 }
 
 impl ProductEnrichmentEventPayload {
+    pub fn event_type(&self) -> &'static str {
+        match self {
+            ProductEnrichmentEventPayload::TranslatedTitle(_) => "ENRICHMENT_TRANSLATED_TITLE",
+            ProductEnrichmentEventPayload::Embedded(_) => "ENRICHMENT_EMBEDDED",
+            ProductEnrichmentEventPayload::ExtractedAttributes(_) => {
+                "ENRICHMENT_EXTRACTED_ATTRIBUTES"
+            }
+            ProductEnrichmentEventPayload::ClassifiedCategory(_) => {
+                "ENRICHMENT_CLASSIFIED_CATEGORY"
+            }
+            ProductEnrichmentEventPayload::ClassifiedPeriod(_) => "ENRICHMENT_CLASSIFIED_PERIOD",
+        }
+    }
+
     pub fn as_translated_title(&self) -> Option<&TranslationProductEnrichmentEventPayload<Title>> {
         match self {
             ProductEnrichmentEventPayload::TranslatedTitle(payload) => Some(payload),
