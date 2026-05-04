@@ -1,6 +1,7 @@
 use aws_config::BehaviorVersion;
 use lambda_runtime::service_fn;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
+use product::service::get_service::GetProductServiceImpl;
 use product_pipeline_extract_attribute::handler;
 
 #[tokio::main]
@@ -14,6 +15,7 @@ async fn main() {
     let dynamodb_table_name = std::env::var("DYNAMODB_TABLE_NAME")
         .expect("shouldn't fail reading env-var 'DYNAMODB_TABLE_NAME'");
     let product_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb, &dynamodb_table_name);
+    let get_product_service = GetProductServiceImpl::new(&product_repository);
 
     if std::env::var("LOCALSTACK_HOSTNAME").is_ok() {
         use product_pipeline_extract_attribute::service::MockExtractionService;
@@ -34,7 +36,12 @@ async fn main() {
             })
         });
         lambda_runtime::run(service_fn(|event| {
-            handler(&extraction_service, &product_repository, event)
+            handler(
+                &extraction_service,
+                &get_product_service,
+                &product_repository,
+                event,
+            )
         }))
         .await
         .expect("shouldn't fail running Lambda");
@@ -46,7 +53,12 @@ async fn main() {
                 &gemini_api_key,
             );
         lambda_runtime::run(service_fn(|event| {
-            handler(&extraction_service, &product_repository, event)
+            handler(
+                &extraction_service,
+                &get_product_service,
+                &product_repository,
+                event,
+            )
         }))
         .await
         .expect("shouldn't fail running Lambda");

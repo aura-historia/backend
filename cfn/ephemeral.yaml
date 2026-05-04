@@ -1213,7 +1213,7 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - "ENRICHMENT_EMBEDDED"
+                  - "ENRICHMENT_CLASSIFY_CATEGORY"
       Targets:
         - Id: ProductPipelineExtractAttributeQ
           Arn: !GetAtt ProductPipelineExtractAttributeQ.Arn
@@ -3433,6 +3433,11 @@ Outputs:
     Value: !Ref ProductPipelineEmbedTextQ
   ProductPipelineEmbedTextDeadLetterQueueUrl:
     Value: !Ref ProductPipelineEmbedTextDlq
+
+  ProductPipelineExtractAttributeQueueUrl:
+    Value: !Ref ProductPipelineExtractAttributeQ
+  ProductPipelineExtractAttributeDeadLetterQueueUrl:
+    Value: !Ref ProductPipelineExtractAttributeDlq
 
   ProductPipelineClassifyQueueUrl:
     Value: !Ref ProductPipelineClassifyQ

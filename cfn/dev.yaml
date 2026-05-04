@@ -3290,7 +3290,7 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - "ENRICHMENT_EMBEDDED"
+                  - "ENRICHMENT_CLASSIFY_CATEGORY"
       Targets:
         - Id: ProductPipelineExtractAttributeQ
           Arn: !GetAtt ProductPipelineExtractAttributeQ.Arn
