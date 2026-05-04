@@ -68,8 +68,7 @@ impl ExtractionServiceImpl {
             .join("\n");
 
         let user_message = format!(
-            "Extract attributes from these antique products:\n{numbered_texts}\n\n\
-             Schema for each object:\n\
+            "Schema for each object:\n\
              {{\"y\":int|null,\"yMin\":int|null,\"yMax\":int|null,\
              \"auth\":\"ORIGINAL\"|\"LATER_COPY\"|\"REPRODUCTION\"|\"QUESTIONABLE\"|\"UNKNOWN\"|null,\
              \"cond\":\"EXCELLENT\"|\"GREAT\"|\"GOOD\"|\"FAIR\"|\"POOR\"|\"UNKNOWN\"|null,\
@@ -78,7 +77,8 @@ impl ExtractionServiceImpl {
              \"nazi\":true|false|null}}\n\
              y=exact year, yMin/yMax=year range (only one form per product).\n\
              Century note: early=first third, mid=middle third, late=last third.\n\
-             nazi=true if from/related to Nazi Germany or SA/SS (even pre-1933)."
+             nazi=true if from/related to Nazi Germany or SA/SS (even pre-1933).\n\n\
+             Extract attributes from these antique products:\n{numbered_texts}"
         );
 
         debug!(

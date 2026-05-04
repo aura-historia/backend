@@ -138,7 +138,7 @@ pub async fn handler(
         }
         let title = title_trimmed.to_string();
 
-        // Concatenate native title and description with a single space so Gemini
+        // Concatenate native title and description separated by ": " so Gemini
         // receives the fullest possible context for attribute extraction.
         let text = match &product.native_description {
             Some(desc) => {
@@ -146,7 +146,7 @@ pub async fn handler(
                 if d.is_empty() {
                     title
                 } else {
-                    format!("{title} {d}")
+                    format!("{title}: {d}")
                 }
             }
             None => title,
@@ -809,7 +809,7 @@ mod tests {
         let event_record = ProductEventRecord::Enrichment(classify_record);
 
         let expected_text =
-            "Victorian writing desk Solid mahogany, circa 1870, excellent condition.".to_string();
+            "Victorian writing desk: Solid mahogany, circa 1870, excellent condition.".to_string();
 
         let mut mock_service = MockExtractionService::default();
         mock_service
