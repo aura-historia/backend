@@ -139,9 +139,9 @@ async fn persist_enrichment_events(
 ) {
     for batch in Batch::chunked_from(enrichment_events.into_iter()) {
         let batch: Batch<_, 25> = batch;
-        let records_to_log = batch
+        let writes_to_log = batch
             .iter()
-            .map(|(_, record)| record.clone())
+            .map(|(_, record)| build_product_event_write_log(record))
             .collect::<Vec<_>>();
         let batch_message_ids = batch
             .iter()
@@ -157,9 +157,9 @@ async fn persist_enrichment_events(
                     &mut failures,
                 );
                 let failures = failures.into_iter().collect::<HashSet<_>>();
-                for record in records_to_log {
-                    if !failures.contains(&record.key()) {
-                        log_product_event_write(&record);
+                for write in writes_to_log {
+                    if !failures.contains(&write.key) {
+                        log_product_event_write(write);
                     }
                 }
                 for key in failures {
@@ -182,20 +182,41 @@ async fn persist_enrichment_events(
     }
 }
 
-fn log_product_event_write(record: &ProductEventRecord) {
-    if let ProductEventRecord::Enrichment(record) = record {
-        info!(
-            eventType = "entityWrite",
-            entityType = "product",
-            writeSource = "productEmbedding",
-            productId = %record.product_id,
-            shopId = %record.shop_id,
-            shopsProductId = %record.shops_product_id,
-            eventId = %record.event_id,
-            productEventType = ?record.event_type,
-            "Persisted product embedding event."
-        );
+struct ProductEventWriteLog {
+    key: ProductKey,
+    product_id: String,
+    shop_id: String,
+    shops_product_id: String,
+    event_id: String,
+    product_event_type: String,
+}
+
+fn build_product_event_write_log(record: &ProductEventRecord) -> ProductEventWriteLog {
+    match record {
+        ProductEventRecord::Enrichment(record) => ProductEventWriteLog {
+            key: ProductKey::new(record.shop_id, record.shops_product_id.clone()),
+            product_id: record.product_id.to_string(),
+            shop_id: record.shop_id.to_string(),
+            shops_product_id: record.shops_product_id.to_string(),
+            event_id: record.event_id.to_string(),
+            product_event_type: format!("{:?}", record.event_type),
+        },
+        _ => unreachable!("embedding only persists enrichment events"),
     }
+}
+
+fn log_product_event_write(write: ProductEventWriteLog) {
+    info!(
+        eventType = "entityWrite",
+        entityType = "product",
+        writeSource = "productEmbedding",
+        productId = write.product_id,
+        shopId = write.shop_id,
+        shopsProductId = write.shops_product_id,
+        eventId = write.event_id,
+        productEventType = write.product_event_type,
+        "Persisted product embedding event."
+    );
 }
 
 #[cfg(test)]

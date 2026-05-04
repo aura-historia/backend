@@ -330,9 +330,9 @@ async fn persist_events(
 ) {
     for batch in Batch::chunked_from(events.into_iter()) {
         let batch: Batch<_, 25> = batch;
-        let records_to_log = batch
+        let writes_to_log = batch
             .iter()
-            .map(|(_, record)| record.clone())
+            .map(|(_, record)| build_product_event_write_log(record))
             .collect::<Vec<_>>();
         let batch_message_ids = batch
             .iter()
@@ -348,9 +348,9 @@ async fn persist_events(
                     &mut failures,
                 );
                 let failures = failures.into_iter().collect::<HashSet<_>>();
-                for record in records_to_log {
-                    if !failures.contains(&record.key()) {
-                        log_product_event_write(&record);
+                for write in writes_to_log {
+                    if !failures.contains(&write.key) {
+                        log_product_event_write(write);
                     }
                 }
                 for key in failures {
@@ -373,34 +373,60 @@ async fn persist_events(
     }
 }
 
-fn log_product_event_write(record: &ProductEventRecord) {
+struct ProductEventWriteLog {
+    key: ProductKey,
+    event_type: &'static str,
+    product_id: String,
+    shop_id: String,
+    shops_product_id: String,
+    event_id: String,
+    product_event_type: String,
+    decision: Option<String>,
+    reason: Option<String>,
+}
+
+fn build_product_event_write_log(record: &ProductEventRecord) -> ProductEventWriteLog {
     match record {
-        ProductEventRecord::Enrichment(record) => info!(
-            eventType = "entityWrite",
-            entityType = "product",
-            writeSource = "productAttributeExtraction",
-            productId = %record.product_id,
-            shopId = %record.shop_id,
-            shopsProductId = %record.shops_product_id,
-            eventId = %record.event_id,
-            productEventType = ?record.event_type,
-            "Persisted product attribute extraction event."
-        ),
-        ProductEventRecord::Policy(record) => info!(
-            eventType = "policyDecision",
-            entityType = "product",
-            writeSource = "productAttributeExtraction",
-            productId = %record.product_id,
-            shopId = %record.shop_id,
-            shopsProductId = %record.shops_product_id,
-            eventId = %record.event_id,
-            productEventType = ?record.event_type,
-            decision = ?record.prohibited_content_decision,
-            reason = ?record.prohibited_content_reason,
-            "Persisted prohibited-content product policy decision."
-        ),
-        _ => {}
+        ProductEventRecord::Enrichment(record) => ProductEventWriteLog {
+            key: ProductKey::new(record.shop_id, record.shops_product_id.clone()),
+            event_type: "entityWrite",
+            product_id: record.product_id.to_string(),
+            shop_id: record.shop_id.to_string(),
+            shops_product_id: record.shops_product_id.to_string(),
+            event_id: record.event_id.to_string(),
+            product_event_type: format!("{:?}", record.event_type),
+            decision: None,
+            reason: None,
+        },
+        ProductEventRecord::Policy(record) => ProductEventWriteLog {
+            key: ProductKey::new(record.shop_id, record.shops_product_id.clone()),
+            event_type: "policyDecision",
+            product_id: record.product_id.to_string(),
+            shop_id: record.shop_id.to_string(),
+            shops_product_id: record.shops_product_id.to_string(),
+            event_id: record.event_id.to_string(),
+            product_event_type: format!("{:?}", record.event_type),
+            decision: Some(format!("{:?}", record.prohibited_content_decision)),
+            reason: Some(format!("{:?}", record.prohibited_content_reason)),
+        },
+        _ => unreachable!("attribute extraction only persists enrichment and policy events"),
     }
+}
+
+fn log_product_event_write(write: ProductEventWriteLog) {
+    info!(
+        eventType = write.event_type,
+        entityType = "product",
+        writeSource = "productAttributeExtraction",
+        productId = write.product_id,
+        shopId = write.shop_id,
+        shopsProductId = write.shops_product_id,
+        eventId = write.event_id,
+        productEventType = write.product_event_type,
+        decision = write.decision,
+        reason = write.reason,
+        "Persisted product attribute extraction event."
+    );
 }
 
 #[cfg(test)]

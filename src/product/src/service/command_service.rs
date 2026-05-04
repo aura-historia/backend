@@ -160,7 +160,10 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
     ) -> Vec<(ProductKey, C)> {
         let mut failures = Vec::new();
         for batch in Batch::<_, 25>::chunked_from(events.into_iter()) {
-            let records_to_log = batch.iter().cloned().collect::<Vec<_>>();
+            let writes_to_log = batch
+                .iter()
+                .map(build_product_event_write_log)
+                .collect::<Vec<_>>();
             let product_keys = batch.iter().map(|event| event.key()).collect::<Vec<_>>();
             let res = self
                 .dynamodb_repository
@@ -188,9 +191,9 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
                             failures.push((failed_product_key.clone(), cmd));
                         }
                     }
-                    for record in records_to_log {
-                        if !failed_product_keys.contains(&record.key()) {
-                            log_product_event_write(&record, "productCommandService");
+                    for write in writes_to_log {
+                        if !failed_product_keys.contains(&write.key) {
+                            log_product_event_write(write);
                         }
                     }
                 }
@@ -446,44 +449,74 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
     }
 }
 
-fn log_product_event_write(record: &ProductEventRecord, write_source: &str) {
+struct ProductEventWriteLog {
+    key: ProductKey,
+    event_type: &'static str,
+    write_source: &'static str,
+    product_id: String,
+    shop_id: String,
+    shops_product_id: String,
+    event_id: String,
+    product_event_type: String,
+    decision: Option<String>,
+    reason: Option<String>,
+}
+
+fn build_product_event_write_log(record: &ProductEventRecord) -> ProductEventWriteLog {
     match record {
-        ProductEventRecord::Domain(record) => info!(
-            eventType = "entityWrite",
-            entityType = "product",
-            writeSource = write_source,
-            productId = %record.product_id,
-            shopId = %record.shop_id,
-            shopsProductId = %record.shops_product_id,
-            eventId = %record.event_id,
-            productEventType = ?record.event_type,
-            "Persisted product event."
-        ),
-        ProductEventRecord::Enrichment(record) => info!(
-            eventType = "entityWrite",
-            entityType = "product",
-            writeSource = write_source,
-            productId = %record.product_id,
-            shopId = %record.shop_id,
-            shopsProductId = %record.shops_product_id,
-            eventId = %record.event_id,
-            productEventType = ?record.event_type,
-            "Persisted product event."
-        ),
-        ProductEventRecord::Policy(record) => info!(
-            eventType = "policyDecision",
-            entityType = "product",
-            writeSource = write_source,
-            productId = %record.product_id,
-            shopId = %record.shop_id,
-            shopsProductId = %record.shops_product_id,
-            eventId = %record.event_id,
-            productEventType = ?record.event_type,
-            decision = ?record.prohibited_content_decision,
-            reason = ?record.prohibited_content_reason,
-            "Persisted prohibited-content product policy decision."
-        ),
+        ProductEventRecord::Domain(record) => ProductEventWriteLog {
+            key: ProductKey::new(record.shop_id, record.shops_product_id.clone()),
+            event_type: "entityWrite",
+            write_source: "productCommandService",
+            product_id: record.product_id.to_string(),
+            shop_id: record.shop_id.to_string(),
+            shops_product_id: record.shops_product_id.to_string(),
+            event_id: record.event_id.to_string(),
+            product_event_type: format!("{:?}", record.event_type),
+            decision: None,
+            reason: None,
+        },
+        ProductEventRecord::Enrichment(record) => ProductEventWriteLog {
+            key: ProductKey::new(record.shop_id, record.shops_product_id.clone()),
+            event_type: "entityWrite",
+            write_source: "productCommandService",
+            product_id: record.product_id.to_string(),
+            shop_id: record.shop_id.to_string(),
+            shops_product_id: record.shops_product_id.to_string(),
+            event_id: record.event_id.to_string(),
+            product_event_type: format!("{:?}", record.event_type),
+            decision: None,
+            reason: None,
+        },
+        ProductEventRecord::Policy(record) => ProductEventWriteLog {
+            key: ProductKey::new(record.shop_id, record.shops_product_id.clone()),
+            event_type: "policyDecision",
+            write_source: "productCommandService",
+            product_id: record.product_id.to_string(),
+            shop_id: record.shop_id.to_string(),
+            shops_product_id: record.shops_product_id.to_string(),
+            event_id: record.event_id.to_string(),
+            product_event_type: format!("{:?}", record.event_type),
+            decision: Some(format!("{:?}", record.prohibited_content_decision)),
+            reason: Some(format!("{:?}", record.prohibited_content_reason)),
+        },
     }
+}
+
+fn log_product_event_write(write: ProductEventWriteLog) {
+    info!(
+        eventType = write.event_type,
+        entityType = "product",
+        writeSource = write.write_source,
+        productId = write.product_id,
+        shopId = write.shop_id,
+        shopsProductId = write.shops_product_id,
+        eventId = write.event_id,
+        productEventType = write.product_event_type,
+        decision = write.decision,
+        reason = write.reason,
+        "Persisted product event."
+    );
 }
 
 fn determine_update_events(
