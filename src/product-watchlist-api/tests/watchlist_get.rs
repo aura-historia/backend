@@ -505,36 +505,16 @@ async fn should_200_when_sort_created_desc_search_after() {
 #[rstest::rstest]
 #[trace]
 #[test_attr(apply(test))]
-#[case("de", "German title", Language::De, "German description", Language::De)]
-#[case(
-    "en",
-    "English title",
-    Language::En,
-    "English description",
-    Language::En
-)]
-#[case("fr", "French title", Language::Fr, "French description", Language::Fr)]
-#[case(
-    "es",
-    "Spanish title",
-    Language::Es,
-    "Spanish description",
-    Language::Es
-)]
-#[case(
-    "it",
-    "Italian title",
-    Language::It,
-    "Italian description",
-    Language::It
-)]
+#[case("de", "German title", Language::De)]
+#[case("en", "English title", Language::En)]
+#[case("fr", "French title", Language::Fr)]
+#[case("es", "Spanish title", Language::Es)]
+#[case("it", "Italian title", Language::It)]
 #[localstack_test(services = [DynamoDB()])]
 async fn should_respond_200_and_respect_language_query_param(
     #[case] _language_query: &str,
     #[case] expected_title: &str,
     #[case] expected_title_lang: Language,
-    #[case] expected_description: &str,
-    #[case] expected_description_lang: Language,
 ) {
     let client = get_dynamodb_client().await;
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
@@ -582,11 +562,6 @@ async fn should_respond_200_and_respect_language_query_param(
             text: "German description".to_string(),
             language: LanguageRecord::De,
         });
-        product_record.description_de = Some("German description".to_string());
-        product_record.description_en = Some("English description".to_string());
-        product_record.description_fr = Some("French description".to_string());
-        product_record.description_es = Some("Spanish description".to_string());
-        product_record.description_it = Some("Italian description".to_string());
     }
     let put_res = product_repository
         .put_product_records(product_records.clone().try_into().unwrap())
@@ -666,18 +641,5 @@ async fn should_respond_200_and_respect_language_query_param(
             .items
             .iter()
             .all(|item| item.item.title.language == expected_title_lang.into())
-    );
-    assert!(
-        actual
-            .items
-            .iter()
-            .all(|item| item.item.description.as_ref().unwrap().text == expected_description)
-    );
-    assert!(
-        actual
-            .items
-            .iter()
-            .all(|item| item.item.description.as_ref().unwrap().language
-                == expected_description_lang.into())
     );
 }

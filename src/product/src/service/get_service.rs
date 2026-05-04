@@ -720,53 +720,6 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[case(&[], En, "English")]
-        #[case(&[De], De, "German")]
-        #[case(&[De, En], De, "German")]
-        #[case(&[De, Fr], De, "German")]
-        #[case(&[Fr, De, En, Es], Fr, "French")]
-        #[case(&[En], En, "English")]
-        #[case(&[En, De, Fr, Es], En, "English")]
-        #[case(&[En, De, Es], En, "English")]
-        #[case(&[Es, De, En], Es, "Spanish")]
-        #[case(&[Es, En, De], Es, "Spanish")]
-        #[trace]
-        async fn should_respect_language_for_description(
-            #[case] languages: &[Language],
-            #[case] expected_language: Language,
-            #[case] expected_description: &str,
-        ) {
-            let mut repository = MockProductDynamoDbRepository::default();
-            let mut expected_record: ProductRecord = Faker.fake();
-            expected_record.description_native =
-                Some(TextRecord::new("Spanish", LanguageRecord::Es));
-            expected_record.description_de = Some("German".to_string());
-            expected_record.description_en = Some("English".to_string());
-            expected_record.description_fr = Some("French".to_string());
-            expected_record.description_es = Some("Spanish".to_string());
-            repository
-                .expect_get_product_record()
-                .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
-            let service = GetProductServiceImpl {
-                repository: &repository,
-            };
-            let actual_description = service
-                .view_product(
-                    &ShopId::new(),
-                    &ShopsProductId::new(),
-                    languages,
-                    &Currency::Gbp,
-                )
-                .await
-                .unwrap()
-                .description
-                .unwrap();
-            assert_eq!(expected_language, actual_description.localization);
-            assert_eq!(expected_description, actual_description.payload.as_ref());
-        }
-
-        #[tokio::test]
-        #[rstest::rstest]
         #[case(&[], Es, "Spanish")]
         #[case(&[De], Es, "Spanish")]
         #[case(&[De, En], Es, "Spanish")]
@@ -787,11 +740,6 @@ mod tests {
             let mut expected_record: ProductRecord = Faker.fake();
             expected_record.description_native =
                 Some(TextRecord::new("Spanish", LanguageRecord::Es));
-            expected_record.description_de = None;
-            expected_record.description_en = None;
-            expected_record.description_fr = None;
-            expected_record.description_es = None;
-            expected_record.description_it = None;
             repository
                 .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
@@ -832,11 +780,6 @@ mod tests {
             let mut repository = MockProductDynamoDbRepository::default();
             let mut expected_record: ProductRecord = Faker.fake();
             expected_record.description_native = None;
-            expected_record.description_de = None;
-            expected_record.description_en = None;
-            expected_record.description_fr = None;
-            expected_record.description_es = None;
-            expected_record.description_it = None;
             repository
                 .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));

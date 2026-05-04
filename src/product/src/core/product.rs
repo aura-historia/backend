@@ -76,7 +76,6 @@ pub struct Product {
     pub native_title: Localized<Language, Title>,
     pub other_title: HashMap<Language, Title>,
     pub native_description: Option<Localized<Language, Description>>,
-    pub other_description: HashMap<Language, Description>,
     pub native_price: Option<Price>,
     pub other_price: HashMap<Currency, MonetaryAmount>,
     pub native_price_estimate_min: Option<Price>,
@@ -577,42 +576,6 @@ impl Product {
         }
     }
 
-    pub fn translate_description(
-        &mut self,
-        source_language: Language,
-        target_language: Language,
-        description: Description,
-    ) -> Option<ProductEnrichmentEvent> {
-        if self
-            .other_description
-            .get(&target_language)
-            .is_some_and(|existing| existing == &description)
-        {
-            None
-        } else {
-            self.other_description
-                .insert(target_language, description.clone());
-            let event_payload = ProductEnrichmentEventPayload::TranslatedDescription(
-                TranslationProductEnrichmentEventPayload {
-                    shop_id: self.shop_id,
-                    seller_id: self.seller_id,
-                    shops_product_id: self.shops_product_id.clone(),
-                    source_language,
-                    target_language,
-                    target: description,
-                },
-            );
-            let event = Event {
-                aggregate_id: self.product_id,
-                event_id: EventId::new(),
-                timestamp: OffsetDateTime::now_utc(),
-                payload: event_payload,
-            };
-
-            Some(event)
-        }
-    }
-
     pub fn embed(&mut self, embedding: Vec<f32>) -> Option<ProductEnrichmentEvent> {
         if self
             .embedding
@@ -784,9 +747,6 @@ impl Product {
                 ProductEnrichmentEventPayload::TranslatedTitle(p) => {
                     self.other_title.insert(p.target_language, p.target);
                 }
-                ProductEnrichmentEventPayload::TranslatedDescription(p) => {
-                    self.other_description.insert(p.target_language, p.target);
-                }
                 ProductEnrichmentEventPayload::Embedded(p) => {
                     self.embedding = Some(p.embedding);
                 }
@@ -841,7 +801,7 @@ impl Product {
             .entry(self.native_title.localization)
             .or_insert(self.native_title.payload);
 
-        let mut available_descriptions: HashMap<Language, Description> = self.other_description;
+        let mut available_descriptions: HashMap<Language, Description> = HashMap::new();
         if let Some(description_native) = self.native_description {
             available_descriptions
                 .entry(description_native.localization)
@@ -925,7 +885,7 @@ impl Product {
     }
 
     pub fn descriptions(&self) -> HashMap<Language, Description> {
-        let mut descriptions: HashMap<Language, Description> = self.other_description.clone();
+        let mut descriptions: HashMap<Language, Description> = HashMap::new();
         if let Some(description_native) = &self.native_description {
             descriptions
                 .entry(description_native.localization)
@@ -1038,7 +998,6 @@ mod faker {
                 native_title,
                 other_title: config.fake_with_rng(rng),
                 native_description: config.fake_with_rng(rng),
-                other_description: config.fake_with_rng(rng),
                 native_price,
                 other_price,
                 native_price_estimate_min,
@@ -1195,7 +1154,6 @@ mod tests {
                 },
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -1262,7 +1220,6 @@ mod tests {
                 },
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -1329,7 +1286,6 @@ mod tests {
                 },
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -1429,7 +1385,6 @@ mod tests {
                 },
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: Some(price),
                 other_price: IdentityFxRate
                     .exchange_all(price.currency, price.monetary_amount)
@@ -1499,7 +1454,6 @@ mod tests {
                 },
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -1578,7 +1532,6 @@ mod tests {
                 },
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: Some(Price::new(700u64.into(), Currency::Eur)),
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -1659,7 +1612,6 @@ mod tests {
                 },
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: Some(Price::new(169u64.into(), Currency::Eur)),
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -1742,7 +1694,6 @@ mod tests {
                 },
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: Some(price),
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -1831,7 +1782,6 @@ mod tests {
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: Some(price),
                 other_price: IdentityFxRate
                     .exchange_all(price.currency, price.monetary_amount)
@@ -1896,7 +1846,6 @@ mod tests {
                     m
                 },
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -1945,7 +1894,6 @@ mod tests {
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -1980,120 +1928,6 @@ mod tests {
                     );
                 }
                 _ => panic!("Expected ProductEnrichmentEventPayload::TranslatedTitle"),
-            }
-        }
-
-        #[test]
-        fn should_return_none_when_translated_description_is_same_for_translate_description() {
-            let mut product = Product {
-                product_id: Default::default(),
-                product_slug_id: Faker.fake(),
-                shop_slug_id: Faker.fake(),
-                seller_slug_id: Faker.fake(),
-                event_id: Default::default(),
-                shop_id: Default::default(),
-                seller_id: Default::default(),
-                shops_product_id: Default::default(),
-                shop_name: "Boop".into(),
-                seller_name: "Baap".into(),
-                shop_type: fake::Faker.fake(),
-                structured_address: None,
-                geo_address: None,
-                category_id: Faker.fake(),
-                category_name: Faker.fake(),
-                period_id: Faker.fake(),
-                period_name: Faker.fake(),
-                native_title: Localized::new(Language::De, "Titel".into()),
-                other_title: Default::default(),
-                native_description: None,
-                other_description: {
-                    let mut m = std::collections::HashMap::new();
-                    m.insert(Language::En, "Desc".into());
-                    m
-                },
-                native_price: None,
-                other_price: Default::default(),
-                native_price_estimate_min: None,
-                other_price_estimate_min: Default::default(),
-                native_price_estimate_max: None,
-                other_price_estimate_max: Default::default(),
-                state: common::product_state::domain::ProductState::Listed,
-                url: Url::parse("https://example.com").unwrap(),
-                images: vec![],
-                embedding: Some(fake::vec![f32; 768]),
-                origin_year: None,
-                authenticity: Default::default(),
-                condition: Default::default(),
-                provenance: Default::default(),
-                restoration: Default::default(),
-                auction_start: None,
-                auction_end: None,
-                created: OffsetDateTime::now_utc(),
-                updated: OffsetDateTime::now_utc(),
-            };
-
-            let actual = product.translate_description(Language::De, Language::En, "Desc".into());
-            assert!(actual.is_none());
-        }
-
-        #[test]
-        fn should_emit_event_and_store_translated_description_when_new_for_translate_description() {
-            let mut product = Product {
-                product_id: Default::default(),
-                product_slug_id: Faker.fake(),
-                shop_slug_id: Faker.fake(),
-                seller_slug_id: Faker.fake(),
-                event_id: Default::default(),
-                shop_id: Default::default(),
-                seller_id: Default::default(),
-                shops_product_id: Default::default(),
-                shop_name: "Boop".into(),
-                seller_name: "Baap".into(),
-                shop_type: fake::Faker.fake(),
-                structured_address: None,
-                geo_address: None,
-                category_id: Faker.fake(),
-                category_name: Faker.fake(),
-                period_id: Faker.fake(),
-                period_name: Faker.fake(),
-                native_title: Localized::new(Language::De, "Titel".into()),
-                other_title: Default::default(),
-                native_description: None,
-                other_description: Default::default(),
-                native_price: None,
-                other_price: Default::default(),
-                native_price_estimate_min: None,
-                other_price_estimate_min: Default::default(),
-                native_price_estimate_max: None,
-                other_price_estimate_max: Default::default(),
-                state: common::product_state::domain::ProductState::Listed,
-                url: Url::parse("https://example.com").unwrap(),
-                images: vec![],
-                embedding: Some(fake::vec![f32; 768]),
-                origin_year: None,
-                authenticity: Default::default(),
-                condition: Default::default(),
-                provenance: Default::default(),
-                restoration: Default::default(),
-                auction_start: None,
-                auction_end: None,
-                created: OffsetDateTime::now_utc(),
-                updated: OffsetDateTime::now_utc(),
-            };
-
-            let actual = product
-                .translate_description(Language::De, Language::En, "Desc".into())
-                .unwrap();
-            match actual.payload {
-                ProductEnrichmentEventPayload::TranslatedDescription(payload) => {
-                    assert_eq!(payload.target_language, Language::En);
-                    assert_eq!(payload.target, "Desc".into());
-                    assert_eq!(
-                        product.other_description.get(&Language::En).cloned(),
-                        Some("Desc".into())
-                    );
-                }
-                _ => panic!("Expected ProductEnrichmentEventPayload::TranslatedDescription"),
             }
         }
     }
@@ -2132,7 +1966,6 @@ mod tests {
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -2182,7 +2015,6 @@ mod tests {
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -2248,7 +2080,6 @@ mod tests {
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -2339,7 +2170,6 @@ mod tests {
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -2400,7 +2230,6 @@ mod tests {
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -2490,11 +2319,6 @@ mod tests {
                     m
                 },
                 native_description: Some(Localized::new(Language::De, "Beschreibung".into())),
-                other_description: {
-                    let mut m = std::collections::HashMap::new();
-                    m.insert(Language::En, "Description".into());
-                    m
-                },
                 native_price: Some(Price::new(42u64.into(), Currency::Eur)),
                 other_price: {
                     let mut m = std::collections::HashMap::new();
@@ -2534,11 +2358,11 @@ mod tests {
             assert_eq!(view.title.payload, "Title".into());
             assert_eq!(
                 view.description.as_ref().unwrap().localization,
-                Language::En
+                Language::De
             );
             assert_eq!(
                 view.description.as_ref().unwrap().payload,
-                "Description".into()
+                "Beschreibung".into()
             );
             assert_eq!(view.price.unwrap().currency, Currency::Usd);
             assert_eq!(view.price.unwrap().monetary_amount, 42u64.into());
@@ -2577,7 +2401,6 @@ mod tests {
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: Some(Localized::new(Language::De, "Beschreibung".into())),
-                other_description: Default::default(),
                 native_price: Some(Price::new(42u64.into(), Currency::Eur)),
                 other_price: Default::default(),
                 native_price_estimate_min: Some(Price::new(10u64.into(), Currency::Eur)),
@@ -3139,7 +2962,6 @@ mod tests {
                 },
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -3271,7 +3093,6 @@ mod tests {
                 },
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -3363,7 +3184,6 @@ mod tests {
                 },
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -3459,7 +3279,6 @@ mod tests {
                 },
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -3585,7 +3404,6 @@ mod tests {
                 },
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -3687,7 +3505,6 @@ mod tests {
                 },
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -3770,7 +3587,6 @@ mod tests {
                 },
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -3853,7 +3669,6 @@ mod tests {
                 },
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,
@@ -3936,7 +3751,6 @@ mod tests {
                 },
                 other_title: Default::default(),
                 native_description: None,
-                other_description: Default::default(),
                 native_price: None,
                 other_price: Default::default(),
                 native_price_estimate_min: None,

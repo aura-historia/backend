@@ -3,7 +3,6 @@ use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::repository::{ProductDynamoDbRepository, extract_product_key};
 use crate::dynamodb::utm::strip_utm_params;
-use crate::service::heuristics;
 use crate::service::product_command::{
     CreateProductCommand, UpdateProductCommand, UpsertProductCommand,
 };
@@ -243,12 +242,6 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                     for mut cmd in working.into_values() {
                         if let Some(resolved) = self.enrich_shop_information(&mut cmd).await {
                             self.enrich_price(&mut cmd);
-                            heuristics::classify_images(&mut cmd);
-                            heuristics::enrich_origin_year(&mut cmd);
-                            heuristics::enrich_authenticity(&mut cmd);
-                            heuristics::enrich_condition(&mut cmd);
-                            heuristics::enrich_provenance(&mut cmd);
-                            heuristics::enrich_restoration(&mut cmd);
                             events.push(ProductEventRecord::Domain(
                                 ProductDomainEventRecord::from(Product::create(
                                     cmd.shop_id,
@@ -395,12 +388,6 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                         if let Some(resolved) = self.enrich_shop_information(&mut create_cmd).await
                         {
                             self.enrich_price(&mut create_cmd);
-                            heuristics::classify_images(&mut create_cmd);
-                            heuristics::enrich_origin_year(&mut create_cmd);
-                            heuristics::enrich_authenticity(&mut create_cmd);
-                            heuristics::enrich_condition(&mut create_cmd);
-                            heuristics::enrich_provenance(&mut create_cmd);
-                            heuristics::enrich_restoration(&mut create_cmd);
                             create_events.push(ProductEventRecord::Domain(
                                 ProductDomainEventRecord::from(Product::create(
                                     create_cmd.shop_id,

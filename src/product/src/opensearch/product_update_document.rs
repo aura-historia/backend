@@ -99,17 +99,6 @@ pub struct ProductUpdateDocument {
     pub title_it: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_de: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_en: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_fr: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_es: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_it: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub images: Option<Vec<ProductImageDocument>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -264,11 +253,6 @@ impl Default for ProductUpdateDocument {
             title_fr: None,
             title_es: None,
             title_it: None,
-            description_de: None,
-            description_en: None,
-            description_fr: None,
-            description_es: None,
-            description_it: None,
             images: None,
             price_estimate_min_eur: None,
             price_estimate_min_usd: None,
@@ -350,11 +334,6 @@ impl From<ProductDomainEventRecord> for ProductUpdateDocument {
             title_fr: event_record.title_fr,
             title_es: event_record.title_es,
             title_it: event_record.title_it,
-            description_de: event_record.description_de,
-            description_en: event_record.description_en,
-            description_fr: event_record.description_fr,
-            description_es: event_record.description_es,
-            description_it: event_record.description_it,
             images: event_record
                 .images
                 .map(|images| images.into_iter().map(ProductImageDocument::from).collect()),
@@ -450,11 +429,6 @@ impl From<ProductEnrichmentEventRecord> for ProductUpdateDocument {
             title_fr: None,
             title_es: None,
             title_it: None,
-            description_de: None,
-            description_en: None,
-            description_fr: None,
-            description_es: None,
-            description_it: None,
             images: None,
             price_estimate_min_eur: None,
             price_estimate_min_usd: None,
@@ -548,31 +522,6 @@ impl From<ProductEnrichmentEventRecord> for ProductUpdateDocument {
                 Some(LanguageRecord::It),
                 Some(target),
             ) => update.title_it = Some(target),
-            (
-                ProductEnrichmentEventTypeRecord::EnrichmentTranslatedDescription,
-                Some(LanguageRecord::De),
-                Some(target),
-            ) => update.description_de = Some(target),
-            (
-                ProductEnrichmentEventTypeRecord::EnrichmentTranslatedDescription,
-                Some(LanguageRecord::En),
-                Some(target),
-            ) => update.description_en = Some(target),
-            (
-                ProductEnrichmentEventTypeRecord::EnrichmentTranslatedDescription,
-                Some(LanguageRecord::Fr),
-                Some(target),
-            ) => update.description_fr = Some(target),
-            (
-                ProductEnrichmentEventTypeRecord::EnrichmentTranslatedDescription,
-                Some(LanguageRecord::Es),
-                Some(target),
-            ) => update.description_es = Some(target),
-            (
-                ProductEnrichmentEventTypeRecord::EnrichmentTranslatedDescription,
-                Some(LanguageRecord::It),
-                Some(target),
-            ) => update.description_it = Some(target),
             _ => {}
         }
         update
@@ -582,7 +531,7 @@ impl From<ProductEnrichmentEventRecord> for ProductUpdateDocument {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
-    use crate::core::{description::Description, title::Title};
+    use crate::core::title::Title;
     use common::price::domain::MonetaryAmount;
     use fake::{Dummy, Fake, Faker, RngExt};
 
@@ -614,11 +563,6 @@ mod faker {
                 title_fr: Some(config.fake_with_rng::<Title, _>(rng).into()),
                 title_es: Some(config.fake_with_rng::<Title, _>(rng).into()),
                 title_it: Some(config.fake_with_rng::<Title, _>(rng).into()),
-                description_de: Some(config.fake_with_rng::<Description, _>(rng).into()),
-                description_en: Some(config.fake_with_rng::<Description, _>(rng).into()),
-                description_fr: Some(config.fake_with_rng::<Description, _>(rng).into()),
-                description_es: Some(config.fake_with_rng::<Description, _>(rng).into()),
-                description_it: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 images: Some(config.fake_with_rng(rng)),
                 price_estimate_min_eur: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_estimate_min_usd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
@@ -796,43 +740,6 @@ mod tests {
         );
         let title_fields = ["titleDe", "titleEn", "titleFr", "titleEs", "titleIt"];
         for field in title_fields.iter().filter(|&&f| f != expected_field) {
-            assert!(
-                json.get(field).is_none(),
-                "Expected field '{field}' to be absent but it was present"
-            );
-        }
-    }
-
-    #[rstest::rstest]
-    #[case(LanguageRecord::De, "descriptionDe")]
-    #[case(LanguageRecord::En, "descriptionEn")]
-    #[case(LanguageRecord::Fr, "descriptionFr")]
-    #[case(LanguageRecord::Es, "descriptionEs")]
-    #[case(LanguageRecord::It, "descriptionIt")]
-    fn should_set_description_field_when_translated_description_enrichment_event_for_supported_language(
-        #[case] language: LanguageRecord,
-        #[case] expected_field: &str,
-    ) {
-        let record = make_translation_record(
-            ProductEnrichmentEventTypeRecord::EnrichmentTranslatedDescription,
-            language,
-            "translated description",
-        );
-        let update = ProductUpdateDocument::from(record);
-        let json = serde_json::to_value(&update).unwrap();
-        assert_eq!(
-            json[expected_field].as_str(),
-            Some("translated description"),
-            "Expected field '{expected_field}' to contain the translated description"
-        );
-        let description_fields = [
-            "descriptionDe",
-            "descriptionEn",
-            "descriptionFr",
-            "descriptionEs",
-            "descriptionIt",
-        ];
-        for field in description_fields.iter().filter(|&&f| f != expected_field) {
             assert!(
                 json.get(field).is_none(),
                 "Expected field '{field}' to be absent but it was present"

@@ -1219,9 +1219,6 @@ async fn should_respond_200_and_respect_language_query_param(
         doc.title_fr = Some("French title".to_string());
         doc.title_es = Some("Spanish title".to_string());
         doc.title_it = Some("Italian title".to_string());
-        doc.description_fr = Some("French description".to_string());
-        doc.description_es = Some("Spanish description".to_string());
-        doc.description_it = Some("Italian description".to_string());
     }
     product_documents.push(product_document);
     let os_insert_res = product_opensearch_repository

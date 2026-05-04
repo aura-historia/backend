@@ -39,16 +39,6 @@ jobs:
       - name: Install grcov
         run: cargo install grcov
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Install Python deps
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r src/product-pipeline/src/product-pipeline-extract-attribute/python/requirements.txt
-
       - name: Generate coverage
         env:
           CARGO_PROFILE_TEST_DEBUG: 1

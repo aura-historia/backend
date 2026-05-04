@@ -129,12 +129,11 @@ Located in various directories:
 - `product-lambda-update-notify-user`: Notify users about product updates
 
 **Product Pipeline Modules** (`src/product-pipeline/src/`):
-- `product-pipeline-asg-scale-control`: Auto Scaling Group control for pipeline (Lambda)
-- `product-pipeline-embed-text`: Embed text for product search (EC2 binary)
-- `product-pipeline-translate`: Translate product data (EC2 binary)
-- `product-pipeline-extract-attribute`: Extract product attributes (EC2 binary)
-- `product-pipeline-classify-category`: Classify product categories (EC2 binary)
-- `product-pipeline-classify-period`: Classify product periods (EC2 binary)
+- `product-pipeline-embed-text`: Embed text for product search
+- `product-pipeline-translate`: Translate product data
+- `product-pipeline-extract-attribute`: Extract product attributes
+- `product-pipeline-classify-category`: Classify product categories
+- `product-pipeline-classify-period`: Classify product periods
 - `product-pipeline-common`: Common utilities for product pipeline
 
 **Shop Lambda Functions** (`src/shop-lambda/src/`):
@@ -205,7 +204,6 @@ Located in various directories:
 - Test user module: `cd src/user && cargo test --lib --all-features`
 - Test FX rate module: `cd src/fxrate && cargo test --lib --all-features`
 - **Integration tests**: `cd src/product && cargo test --test '*' --all-features` (requires LocalStack containers)
-- **Product pipeline tests**: `cd src/product-pipeline/src/product-pipeline-embed-text && cargo test --all-features -- --include-ignored` (requires Python deps and runs on self-hosted runners)
 
 ### Code Quality
 - Format all code: `cargo fmt --all`
@@ -242,12 +240,10 @@ src/
 ├── product-lambda/  # Lambda function implementations (5 lambdas)
 │   └── src/         # Individual lambda crates
 ├── product-pipeline/  # Product pipeline
-│   ├── python/      # Python pipeline scripts
 │   └── src/         # Pipeline modules and binaries
-│       ├── product-pipeline-asg-scale-control/  # Lambda for ASG control
-│       ├── product-pipeline-embed-text/         # EC2 binary for text embedding
-│       ├── product-pipeline-translate/          # EC2 binary for translation
-│       ├── product-pipeline-extract-attribute/  # EC2 binary for attribute extraction
+│       ├── product-pipeline-embed-text/         # Lambda for text embedding
+│       ├── product-pipeline-translate/          # Lambda for translation
+│       ├── product-pipeline-extract-attribute/  # Lambda binary for attribute extraction
 │       └── product-pipeline-common/             # Common pipeline utilities
 ├── shop/           # Shop/store management system
 │   ├── src/core/           # Shop domain models
@@ -299,7 +295,6 @@ src/
 - `cfn/`: CloudFormation templates for different stages (dev, prod, ephemeral, golden-ami)
 
 ### Additional Resources
-- `ami/`: Packer configuration files for golden AMIs (product-pipeline EC2 instances)
 - `docs/`: Documentation including DynamoDB schema documentation
 - `opensearch/mappings/`: OpenSearch index mappings for products and shops
 - `mjml/`: MJML email templates for watchlist notifications (price/state updates in multiple languages)

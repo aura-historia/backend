@@ -23,6 +23,7 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/product-classification-api",
     "src/product-pipeline/src/product-pipeline-common",
     "src/product-pipeline/src/product-pipeline-extract-attribute",
+    "src/product-pipeline/src/product-pipeline-translate",
     "src/product-watchlist",
     "src/product-watchlist-api",
     "src/search-filter",
@@ -42,10 +43,6 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
 /// These paths are relative to the workspace root.
 const ACCEPTANCE_TEST_CRATES: &[&str] = &["src/acceptance-tests"];
 
-/// Product pipeline test crates that run on self-hosted runners with Python deps.
-/// These paths are relative to the workspace root.
-const PIPELINE_TEST_CRATES: &[&str] = &["src/product-pipeline/src/product-pipeline-translate"];
-
 fn main() -> Result<()> {
     let base_ref = std::env::args()
         .nth(1)
@@ -56,7 +53,6 @@ fn main() -> Result<()> {
     if changed_files.is_empty() {
         let output = serde_json::json!({
             "integration_test": Vec::<&str>::new(),
-            "test_pipeline": Vec::<&str>::new(),
             "acceptance_test": Vec::<&str>::new(),
         });
         println!("{output}");
@@ -91,12 +87,6 @@ fn main() -> Result<()> {
         .filter(|c| affected_dirs.contains(*c))
         .collect();
 
-    let test_pipeline: Vec<&str> = PIPELINE_TEST_CRATES
-        .iter()
-        .copied()
-        .filter(|c| affected_dirs.contains(*c))
-        .collect();
-
     let acceptance_test: Vec<&str> = ACCEPTANCE_TEST_CRATES
         .iter()
         .copied()
@@ -105,7 +95,6 @@ fn main() -> Result<()> {
 
     let output = serde_json::json!({
         "integration_test": integration_test,
-        "test_pipeline": test_pipeline,
         "acceptance_test": acceptance_test,
     });
     println!("{output}");

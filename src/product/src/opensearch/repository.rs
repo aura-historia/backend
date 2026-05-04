@@ -199,12 +199,9 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         embedding: &[f32],
         k: u16,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error> {
-        let mut source_excludes = ProductDocumentSerdeField::description_fields();
-        source_excludes.push(ProductDocumentSerdeField::Embedding);
-
         let body = json!({
             "_source": {
-              "excludes": source_excludes
+              "excludes": [ProductDocumentSerdeField::Embedding]
             },
             "size": k,
             "query": {
@@ -278,10 +275,8 @@ pub fn build_search_request(
     sort: &Sort<SortProductField>,
     cursor: &Option<Cursor<serde_json::Value>>,
 ) -> Result<serde_json::Value, serde_json::Error> {
-    let mut source_excludes = ProductDocumentSerdeField::description_fields();
-    source_excludes.push(ProductDocumentSerdeField::Embedding);
     let mut body = json!({
-        "_source": { "excludes": source_excludes },
+        "_source": { "excludes": [ProductDocumentSerdeField::Embedding] },
         "query": build_search_query(search)?
     });
 
@@ -326,14 +321,10 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
     let mut must = Vec::with_capacity(3);
 
     // ---------- Text search ----------
-    let (title_field, description_field) = title_and_description_fields(&search.language);
+    let title_field = title_fields(&search.language);
 
     if let Some(product_query) = search.product_query.as_ref() {
-        must.push(build_text_match_clause(
-            product_query.as_ref(),
-            title_field,
-            description_field,
-        ));
+        must.push(build_text_match_clause(product_query.as_ref(), title_field));
     }
 
     let (must_not, filter) = build_filter_clauses(search)?;
@@ -369,42 +360,21 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
     }
 }
 
-fn title_and_description_fields(
-    language: &Language,
-) -> (ProductDocumentSerdeField, ProductDocumentSerdeField) {
+fn title_fields(language: &Language) -> ProductDocumentSerdeField {
     match language {
-        Language::De => (
-            ProductDocumentSerdeField::TitleDe,
-            ProductDocumentSerdeField::DescriptionDe,
-        ),
-        Language::En => (
-            ProductDocumentSerdeField::TitleEn,
-            ProductDocumentSerdeField::DescriptionEn,
-        ),
-        Language::Fr => (
-            ProductDocumentSerdeField::TitleFr,
-            ProductDocumentSerdeField::DescriptionFr,
-        ),
-        Language::Es => (
-            ProductDocumentSerdeField::TitleEs,
-            ProductDocumentSerdeField::DescriptionEs,
-        ),
-        Language::It => (
-            ProductDocumentSerdeField::TitleIt,
-            ProductDocumentSerdeField::DescriptionIt,
-        ),
+        Language::De => ProductDocumentSerdeField::TitleDe,
+        Language::En => ProductDocumentSerdeField::TitleEn,
+        Language::Fr => ProductDocumentSerdeField::TitleFr,
+        Language::Es => ProductDocumentSerdeField::TitleEs,
+        Language::It => ProductDocumentSerdeField::TitleIt,
         // Ingestion-only languages fall back to English for search
-        _ => (
-            ProductDocumentSerdeField::TitleEn,
-            ProductDocumentSerdeField::DescriptionEn,
-        ),
+        _ => ProductDocumentSerdeField::TitleEn,
     }
 }
 
 fn build_text_match_clause(
     product_query: &str,
     title_field: ProductDocumentSerdeField,
-    description_field: ProductDocumentSerdeField,
 ) -> serde_json::Value {
     json!({
         "bool": {
@@ -469,15 +439,13 @@ fn build_text_match_clause(
 
                 // Fuzzy + recall layer (language-specific)
                 {
-                    "multi_match": {
-                        "query": product_query,
-                        "fields": [
-                            format!("{title_field}^3"),
-                            format!("{description_field}^1")
-                        ],
-                        "type": "best_fields",
-                        "fuzziness": "AUTO:4,6",
-                        "minimum_should_match": "2<75%"
+                    "match": {
+                        title_field.as_str(): {
+                            "query": product_query,
+                            "fuzziness": "AUTO:4,6",
+                            "minimum_should_match": "2<75%",
+                            "boost": 3
+                        }
                     }
                 }
             ]
@@ -795,13 +763,10 @@ pub fn build_hybrid_search_request(
 ) -> Result<serde_json::Value, serde_json::Error> {
     let (must_not, filter) = build_filter_clauses(search)?;
 
-    let mut source_excludes = ProductDocumentSerdeField::description_fields();
-    source_excludes.push(ProductDocumentSerdeField::Embedding);
-
     // ---------- BM25 sub-query: text-match + filters ----------
-    let (title_field, description_field) = title_and_description_fields(&search.language);
+    let title_field = title_fields(&search.language);
     let bm25_text_clause = match search.product_query.as_ref() {
-        Some(q) => build_text_match_clause(q.as_ref(), title_field, description_field),
+        Some(q) => build_text_match_clause(q.as_ref(), title_field),
         // Defensive: hybrid search is only meaningful with a text query, but fall back to
         // a match-all so the request is still valid.
         None => json!({ "match_all": {} }),
@@ -839,7 +804,7 @@ pub fn build_hybrid_search_request(
 
     let page_size = cursor.as_ref().map(|c| c.size).unwrap_or(20).max(1);
     let mut body = json!({
-        "_source": { "excludes": source_excludes },
+        "_source": { "excludes": [ProductDocumentSerdeField::Embedding] },
         "size": page_size,
         "query": {
             "hybrid": {

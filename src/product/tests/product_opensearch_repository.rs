@@ -87,11 +87,6 @@ async fn should_create_product_document() {
         title_fr: Some("Bat".to_string()),
         title_es: Some("Bao".to_string()),
         title_it: Some("Bao".to_string()),
-        description_de: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_en: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_fr: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_es: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_it: Some("Lorem ipsum dolor sit amet".to_string()),
         price_eur: Some(99),
         price_usd: None,
         price_gbp: None,
@@ -219,11 +214,6 @@ async fn should_create_product_documents() {
         title_fr: Some("Bat".to_string()),
         title_es: Some("Bao".to_string()),
         title_it: Some("Bao".to_string()),
-        description_de: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_en: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_fr: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_es: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_it: Some("Lorem ipsum dolor sit amet".to_string()),
         price_eur: Some(99),
         price_usd: None,
         price_gbp: None,
@@ -336,11 +326,6 @@ async fn should_create_product_documents() {
         title_fr: Some("Bat".to_string()),
         title_es: Some("Bao".to_string()),
         title_it: Some("Bao".to_string()),
-        description_de: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_en: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_fr: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_es: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_it: Some("Lorem ipsum dolor sit amet".to_string()),
         price_eur: Some(99),
         price_usd: None,
         price_gbp: None,
@@ -470,11 +455,6 @@ async fn should_update_product_document() {
         title_fr: Some("Bat".to_string()),
         title_es: Some("Bao".to_string()),
         title_it: Some("Bao".to_string()),
-        description_de: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_en: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_fr: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_es: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_it: Some("Lorem ipsum dolor sit amet".to_string()),
         price_eur: Some(99),
         price_usd: None,
         price_gbp: None,
@@ -594,11 +574,6 @@ async fn should_update_product_document() {
         title_fr: None,
         title_es: None,
         title_it: None,
-        description_de: None,
-        description_en: None,
-        description_fr: None,
-        description_es: None,
-        description_it: None,
         images: None,
         price_estimate_min_eur: None,
         price_estimate_min_usd: None,
@@ -710,11 +685,6 @@ async fn should_search_product_documents() {
         title_fr: Some("Bat".to_string()),
         title_es: None,
         title_it: None,
-        description_de: None,
-        description_en: None,
-        description_fr: None,
-        description_es: None,
-        description_it: None,
         price_eur: Some(99),
         price_usd: None,
         price_gbp: None,
@@ -837,194 +807,6 @@ async fn should_search_product_documents() {
         )
         .await
         .unwrap();
-
-    assert_eq!(
-        vec![expected],
-        response
-            .hits
-            .hits
-            .into_iter()
-            .map(|hit| hit.source)
-            .collect::<Vec<_>>()
-    )
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_omit_descriptions_in_response_for_search_product_documents() {
-    let mut expected = ProductDocument {
-        product_id: Default::default(),
-        product_slug_id: Faker.fake(),
-        shop_slug_id: Faker.fake(),
-        seller_slug_id: Faker.fake(),
-        event_id: Default::default(),
-        shop_id: Default::default(),
-        seller_id: Default::default(),
-        shops_product_id: ShopsProductId::from("abcdefgh"),
-        shop_name: "Foo".to_string(),
-        seller_name: "Bar".to_string(),
-        shop_type: ShopTypeDocument::CommercialDealer,
-        structured_address_addressline: None,
-        structured_address_addressline_extra: None,
-        structured_address_locality: None,
-        structured_address_region: None,
-        structured_address_postal_code: None,
-        structured_address_country: None,
-        structured_address_continent: None,
-        geo_address: None,
-        category_id: Faker.fake(),
-        category_name_de: Faker.fake(),
-        category_name_en: Faker.fake(),
-        category_name_fr: Faker.fake(),
-        category_name_es: Faker.fake(),
-        category_name_it: Faker.fake(),
-        period_id: Faker.fake(),
-        period_name_de: Faker.fake(),
-        period_name_en: Faker.fake(),
-        period_name_fr: Faker.fake(),
-        period_name_es: Faker.fake(),
-        period_name_it: Faker.fake(),
-        title_native: TextDocument {
-            text: "Foo".to_string(),
-            language: LanguageDocument::Fr,
-        },
-        title_de: Some("Hallo Welt".to_string()),
-        title_en: Some("Baz".to_string()),
-        title_fr: Some("Bat".to_string()),
-        title_es: None,
-        title_it: None,
-        description_de: Some("Hallo Welt".to_string()),
-        description_en: Some("Baz".to_string()),
-        description_fr: Some("Bat".to_string()),
-        description_es: None,
-        description_it: None,
-        price_eur: Some(99),
-        price_usd: None,
-        price_gbp: None,
-        price_aud: None,
-        price_cad: None,
-        price_nzd: None,
-        price_cny: None,
-        price_brl: None,
-        price_pln: None,
-        price_try: None,
-        price_jpy: None,
-        price_czk: None,
-        price_rub: None,
-        price_aed: None,
-        price_sar: None,
-        price_hkd: None,
-        price_sgd: None,
-        price_chf: None,
-        price_estimate_min_eur: None,
-        price_estimate_min_usd: None,
-        price_estimate_min_gbp: None,
-        price_estimate_min_aud: None,
-        price_estimate_min_cad: None,
-        price_estimate_min_nzd: None,
-        price_estimate_min_cny: None,
-        price_estimate_min_brl: None,
-        price_estimate_min_pln: None,
-        price_estimate_min_try: None,
-        price_estimate_min_jpy: None,
-        price_estimate_min_czk: None,
-        price_estimate_min_rub: None,
-        price_estimate_min_aed: None,
-        price_estimate_min_sar: None,
-        price_estimate_min_hkd: None,
-        price_estimate_min_sgd: None,
-        price_estimate_min_chf: None,
-        price_estimate_max_eur: None,
-        price_estimate_max_usd: None,
-        price_estimate_max_gbp: None,
-        price_estimate_max_aud: None,
-        price_estimate_max_cad: None,
-        price_estimate_max_nzd: None,
-        price_estimate_max_cny: None,
-        price_estimate_max_brl: None,
-        price_estimate_max_pln: None,
-        price_estimate_max_try: None,
-        price_estimate_max_jpy: None,
-        price_estimate_max_czk: None,
-        price_estimate_max_rub: None,
-        price_estimate_max_aed: None,
-        price_estimate_max_sar: None,
-        price_estimate_max_hkd: None,
-        price_estimate_max_sgd: None,
-        price_estimate_max_chf: None,
-        state: ProductStateDocument::Available,
-        url: Url::parse("https://foo.com/bar").unwrap(),
-        images: Faker.fake(),
-        embedding: None,
-        origin_year_min: None,
-        origin_year: None,
-        origin_year_max: None,
-        authenticity: Default::default(),
-        condition: Default::default(),
-        provenance: Default::default(),
-        restoration: Default::default(),
-        created: OffsetDateTime::now_utc(),
-        updated: OffsetDateTime::now_utc(),
-        auction_start: None,
-        auction_end: None,
-    };
-    let client = get_opensearch_client().await;
-    let repository = ProductOpenSearchRepositoryImpl::new(client);
-    let response = repository
-        .create_product_documents(vec![expected.clone()])
-        .await
-        .unwrap();
-    assert!(!response.errors);
-    refresh_index("products").await;
-
-    tokio::time::sleep(Duration::from_millis(3000)).await;
-
-    let search_filter = ProductSearch {
-        language: Language::De,
-        currency: Currency::Eur,
-        product_query: Some("Hallo Welt".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
-        shop_name_query: Default::default(),
-        exclude_shop_name_query: Default::default(),
-        seller_name_query: Default::default(),
-        exclude_seller_name_query: Default::default(),
-        shop_type_query: Default::default(),
-        country_query: Default::default(),
-        continent_query: Default::default(),
-        geo_address_distance_query: None,
-        price_query: None,
-        state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
-        created_query: None,
-        updated_query: None,
-        auction_start_query: None,
-        auction_end_query: None,
-        shop_slug_id_query: Default::default(),
-        exclude_shop_slug_id_query: Default::default(),
-        seller_slug_id_query: Default::default(),
-        exclude_seller_slug_id_query: Default::default(),
-    };
-    let response = repository
-        .search_product_documents(
-            &search_filter,
-            &Sort {
-                sort: SortProductField::Score,
-                order: SortOrder::Desc,
-            },
-            &None,
-        )
-        .await
-        .unwrap();
-
-    expected.description_de = None;
-    expected.description_en = None;
-    expected.description_fr = None;
-    expected.description_es = None;
-    expected.description_it = None;
 
     assert_eq!(
         vec![expected],
@@ -1273,11 +1055,6 @@ async fn should_search_product_documents_when_price_range_is_given(
         .map(|mut product| {
             product.title_de = Some("The same title".into());
             product.price_eur = Some(rand::random_range(150..=1000));
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -1286,11 +1063,6 @@ async fn should_search_product_documents_when_price_range_is_given(
         .map(|mut product| {
             product.title_de = Some("The same title".into());
             product.price_eur = Some(rand::random_range(1500..=20000));
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -1384,11 +1156,6 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
         .map(|mut product| {
             product.title_en = Some("The same title".into());
             product.price_usd = Some(rand::random_range(1500..=20000));
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -1476,11 +1243,6 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
         .map(|mut product| {
             product.title_en = Some("The same title".into());
             product.price_usd = Some(rand::random_range(1500..=20000));
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -1738,11 +1500,6 @@ async fn should_get_product_document() {
         title_fr: Some("Bat".to_string()),
         title_es: Some("Bao".to_string()),
         title_it: Some("Bao".to_string()),
-        description_de: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_en: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_fr: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_es: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_it: Some("Lorem ipsum dolor sit amet".to_string()),
         price_eur: Some(99),
         price_usd: None,
         price_gbp: None,
@@ -2633,11 +2390,6 @@ async fn should_search_product_documents_when_exact_year_is_given_for_stored_exa
             product.origin_year = Some(year);
             product.origin_year_min = Some(year);
             product.origin_year_max = Some(year);
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2649,11 +2401,6 @@ async fn should_search_product_documents_when_exact_year_is_given_for_stored_exa
             product.origin_year = Some(year);
             product.origin_year_min = Some(year);
             product.origin_year_max = Some(year);
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2740,11 +2487,6 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
             product.origin_year = Some(year);
             product.origin_year_min = Some(year);
             product.origin_year_max = Some(year);
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2756,11 +2498,6 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
             product.origin_year = Some(year);
             product.origin_year_min = Some(year);
             product.origin_year_max = Some(year);
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2847,11 +2584,6 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
             product.origin_year = Some(year);
             product.origin_year_min = Some(year);
             product.origin_year_max = Some(year);
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2863,11 +2595,6 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
             product.origin_year = Some(year);
             product.origin_year_min = Some(year);
             product.origin_year_max = Some(year);
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2954,11 +2681,6 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
             product.origin_year = Some(year);
             product.origin_year_min = Some(year);
             product.origin_year_max = Some(year);
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2970,11 +2692,6 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
             product.origin_year = Some(year);
             product.origin_year_min = Some(year);
             product.origin_year_max = Some(year);
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -3063,11 +2780,6 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
             product.title_de = Some("The same title".into());
             product.origin_year_min = Some(year1);
             product.origin_year_max = Some(year2);
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -3079,11 +2791,6 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
             product.title_de = Some("The same title".into());
             product.origin_year_min = Some(year1);
             product.origin_year_max = Some(year2);
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -3170,11 +2877,6 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
             product.title_de = Some("The same title".into());
             product.origin_year_min = Some(year1);
             product.origin_year_max = Some(year2);
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -3186,11 +2888,6 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
             product.title_de = Some("The same title".into());
             product.origin_year_min = Some(year1);
             product.origin_year_max = Some(year2);
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -3277,11 +2974,6 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
             product.title_de = Some("The same title".into());
             product.origin_year_min = Some(year1);
             product.origin_year_max = Some(year2);
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -3293,11 +2985,6 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
             product.title_de = Some("The same title".into());
             product.origin_year_min = Some(year1);
             product.origin_year_max = Some(year2);
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -4750,11 +4437,6 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
             product.title_de = Some("Auction product".into());
             product.auction_start = Some(datetime!(2026-01-15 10:00 UTC));
             product.auction_end = Some(datetime!(2026-01-15 14:00 UTC));
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -4764,11 +4446,6 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
             product.title_de = Some("Auction product".into());
             product.auction_start = Some(datetime!(2026-06-20 10:00 UTC));
             product.auction_end = Some(datetime!(2026-06-20 14:00 UTC));
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -4778,11 +4455,6 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
             product.title_de = Some("Auction product".into());
             product.auction_start = None;
             product.auction_end = None;
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -4894,11 +4566,6 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
             product.title_de = Some("Auction item".into());
             product.auction_start = Some(datetime!(2026-01-15 10:00 UTC));
             product.auction_end = Some(datetime!(2026-01-15 14:00 UTC));
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -4908,11 +4575,6 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
             product.title_de = Some("Auction item".into());
             product.auction_start = Some(datetime!(2026-06-20 10:00 UTC));
             product.auction_end = Some(datetime!(2026-06-20 14:00 UTC));
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -4922,11 +4584,6 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
             product.title_de = Some("Auction item".into());
             product.auction_start = None;
             product.auction_end = None;
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -5038,11 +4695,6 @@ async fn should_search_product_documents_when_query_is_empty(
             product.title_de = Some("Auction item".into());
             product.auction_start = Some(datetime!(2026-01-15 10:00 UTC));
             product.auction_end = Some(datetime!(2026-01-15 14:00 UTC));
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -5052,11 +4704,6 @@ async fn should_search_product_documents_when_query_is_empty(
             product.title_de = Some("Auction item".into());
             product.auction_start = Some(datetime!(2026-06-20 10:00 UTC));
             product.auction_end = Some(datetime!(2026-06-20 14:00 UTC));
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -5066,11 +4713,6 @@ async fn should_search_product_documents_when_query_is_empty(
             product.title_de = Some("Auction item".into());
             product.auction_start = None;
             product.auction_end = None;
-            product.description_de = None;
-            product.description_en = None;
-            product.description_fr = None;
-            product.description_es = None;
-            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -5357,16 +4999,11 @@ async fn should_apply_category_filter_to_hybrid_search() {
 }
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_omit_descriptions_and_embedding_in_hybrid_response() {
+async fn should_omit_embedding_in_hybrid_response() {
     // The `_source.excludes` list in the hybrid request must strip the (large) embedding
-    // and the per-language description fields from the response payload, so clients
-    // never have to download them.
+    // from the response payload, so clients never have to download them.
     let doc = make_product_doc(|d| {
         d.title_en = Some("Tea Cup Set".to_string());
-        d.description_en =
-            Some("This long description should be excluded from the hit".to_string());
-        d.description_de =
-            Some("Diese lange Beschreibung darf nicht im Treffer landen".to_string());
         d.embedding = Some(one_hot_embedding(11, 1.0).into());
     });
 
@@ -5401,14 +5038,6 @@ async fn should_omit_descriptions_and_embedding_in_hybrid_response() {
     assert!(
         hit.source.embedding.is_none(),
         "embedding must be excluded from the hit source"
-    );
-    assert!(
-        hit.source.description_en.is_none(),
-        "description_en must be excluded from the hit source"
-    );
-    assert!(
-        hit.source.description_de.is_none(),
-        "description_de must be excluded from the hit source"
     );
 }
 

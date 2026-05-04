@@ -18,14 +18,13 @@ consumed by a Lambda function.
 | `ProductMaterializeOpenSearchQ` | SQS + Lambda | Indexes products in OpenSearch |
 | `ProductUpdateNotifyUserQ` | SQS + Lambda | Notifies watchlist users on price/state changes |
 | `SearchFilterPercolateProductQ` | SQS + Lambda | Matches products against saved search filters, notifies users |
-| `ProductPipelineTranslateQ` | SQS + EC2 ASG | Translates product titles and descriptions (ML, GPU) |
+| `ProductPipelineTranslateQ` | SQS + Lambda | Translates product titles and descriptions (ML, GPU) |
 | `ProductPipelineEmbedTextQ` | SQS + Lambda | Creates vector embeddings via Gemini Embedding API |
 | `ProductPipelineExtractAttributeQ` | SQS + Lambda | Extracts product attributes (year, condition, …) via Gemini |
 | `ProductPipelineClassifyQ` | SQS + Lambda | Classifies products into categories and periods via Gemini |
 | `ShopOpenSearchIndexQ` | SQS + Lambda | Indexes shop records in OpenSearch |
 | `SearchFilterOpenSearchSyncQ` | SQS + Lambda | Syncs search filters to OpenSearch percolation queries |
 | `NotificationSendQ` | SQS + Lambda | Sends external notifications via SES |
-| `ProductPipelineScaleControlLambda` | Lambda (scheduled) | Scales EC2 ASGs based on SQS queue depth (every 15 min) |
 | `FxRateSyncLambda` | Lambda (scheduled) | Updates foreign exchange rates (every 12 h) |
 
 ---
@@ -52,7 +51,7 @@ flowchart TD
     BUS -->|"DOMAIN_* / ENRICHMENT_* (INSERT)"| Percolate["SearchFilterPercolateProductQ\n→ Lambda\n(match saved search filters)"]
 
     %% Enrichment pipeline
-    BUS -->|"DOMAIN_CREATED (INSERT)"| Translate["ProductPipelineTranslateQ\n→ EC2 ASG (GPU)\n(translate title & description)"]
+    BUS -->|"DOMAIN_CREATED (INSERT)"| Translate["ProductPipelineTranslateQ\n→ Lambda\n(translate title & description)"]
     BUS -->|"DOMAIN_CREATED (INSERT)"| EmbedText["ProductPipelineEmbedTextQ\n→ Lambda\n(vector embedding via Gemini)"]
     BUS -->|"ENRICHMENT_EMBEDDED (INSERT)"| Classify["ProductPipelineClassifyQ\n→ Lambda\n(classify category & period via Gemini)"]
     Classify -->|"ENRICHMENT_CLASSIFY_CATEGORY (INSERT)"| Extract["ProductPipelineExtractAttributeQ\n→ Lambda\n(extract attributes via Gemini)"]
@@ -71,7 +70,6 @@ flowchart TD
     BUS -->|"user#notification#* + external=true (INSERT)"| SendNotif["NotificationSendQ\n→ Lambda\n(send email via SES)"]
 
     %% Scheduled
-    SCHED1["Scheduler (every 15 min)"] --> ScaleCtrl["ProductPipelineScaleControlLambda\n(scale Translate ASG)"]
     SCHED2["Scheduler (every 12 h)"] --> FxRate["FxRateSyncLambda\n(update FX rates in DynamoDB)"]
 ```
 

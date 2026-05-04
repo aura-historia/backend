@@ -593,10 +593,6 @@ mod tests {
                         product.title_en = Some("English".to_string());
                         product.title_fr = Some("French".to_string());
                         product.title_es = Some("Spanish".to_string());
-                        product.description_de = Some("German".to_string());
-                        product.description_en = Some("English".to_string());
-                        product.description_fr = Some("French".to_string());
-                        product.description_es = Some("Spanish".to_string());
                         product
                     })
                     .collect();
@@ -653,18 +649,6 @@ mod tests {
                 .items
                 .iter()
                 .all(|item| { item.title.payload.as_ref() == expected })
-        );
-        assert!(
-            actual
-                .items
-                .iter()
-                .all(|item| item.description.clone().unwrap().localization == language)
-        );
-        assert!(
-            actual
-                .items
-                .iter()
-                .all(|item| item.description.clone().unwrap().payload.as_ref() == expected)
         );
     }
 }

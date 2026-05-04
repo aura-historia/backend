@@ -99,7 +99,6 @@ fn to_create_command(data: PostProductData, partner_shop: &PartnerShop) -> Creat
         native_title,
         other_title: HashMap::new(),
         native_description: Some(native_description),
-        other_description: HashMap::new(),
         native_price,
         other_price: HashMap::new(),
         native_price_estimate_min,

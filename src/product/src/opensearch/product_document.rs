@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::core::origin_year::OriginYear;
 use crate::core::product::Product;
 use crate::core::product_image::ProductImage;
@@ -37,6 +35,7 @@ use serde_fields::SerdeField;
 use shop::opensearch::{
     continent_document::ContinentDocument, shop_type_document::ShopTypeDocument,
 };
+use std::collections::HashMap;
 use strum::EnumCount;
 use time::OffsetDateTime;
 use url::Url;
@@ -108,17 +107,6 @@ pub struct ProductDocument {
     pub title_es: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_it: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_de: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_en: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_fr: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_es: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_it: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_eur: Option<u64>,
@@ -366,11 +354,6 @@ impl TryFrom<ProductDomainEventRecord> for ProductDocument {
             title_fr: event_product_document.title_fr,
             title_es: event_product_document.title_es,
             title_it: event_product_document.title_it,
-            description_de: event_product_document.description_de,
-            description_en: event_product_document.description_en,
-            description_fr: event_product_document.description_fr,
-            description_es: event_product_document.description_es,
-            description_it: event_product_document.description_it,
             price_eur: event_product_document.new_price_eur,
             price_usd: event_product_document.new_price_usd,
             price_gbp: event_product_document.new_price_gbp,
@@ -498,11 +481,6 @@ impl From<ProductRecord> for ProductDocument {
             title_fr: product_document.title_fr,
             title_es: product_document.title_es,
             title_it: product_document.title_it,
-            description_de: product_document.description_de,
-            description_en: product_document.description_en,
-            description_fr: product_document.description_fr,
-            description_es: product_document.description_es,
-            description_it: product_document.description_it,
             price_eur: product_document.price_eur,
             price_usd: product_document.price_usd,
             price_gbp: product_document.price_gbp,
@@ -580,19 +558,6 @@ impl From<ProductRecord> for ProductDocument {
     }
 }
 
-impl ProductDocumentSerdeField {
-    pub fn description_fields() -> Vec<ProductDocumentSerdeField> {
-        [
-            ProductDocumentSerdeField::DescriptionDe,
-            ProductDocumentSerdeField::DescriptionEn,
-            ProductDocumentSerdeField::DescriptionFr,
-            ProductDocumentSerdeField::DescriptionEs,
-            ProductDocumentSerdeField::DescriptionIt,
-        ]
-        .into()
-    }
-}
-
 impl From<Product> for ProductDocument {
     fn from(product: Product) -> Self {
         let mut product = product;
@@ -629,27 +594,6 @@ impl From<Product> for ProductDocument {
         let title_fr = product.other_title.remove(&Language::Fr).map(String::from);
         let title_es = product.other_title.remove(&Language::Es).map(String::from);
         let title_it = product.other_title.remove(&Language::It).map(String::from);
-
-        let description_de = product
-            .other_description
-            .remove(&Language::De)
-            .map(String::from);
-        let description_en = product
-            .other_description
-            .remove(&Language::En)
-            .map(String::from);
-        let description_fr = product
-            .other_description
-            .remove(&Language::Fr)
-            .map(String::from);
-        let description_es = product
-            .other_description
-            .remove(&Language::Es)
-            .map(String::from);
-        let description_it = product
-            .other_description
-            .remove(&Language::It)
-            .map(String::from);
 
         let (origin_year_min, origin_year, origin_year_max) = match product.origin_year {
             Some(OriginYear::ExactYear(y)) => (None, Some(y), None),
@@ -717,11 +661,6 @@ impl From<Product> for ProductDocument {
             title_fr,
             title_es,
             title_it,
-            description_de,
-            description_en,
-            description_fr,
-            description_es,
-            description_it,
             price_eur: Currency::Eur
                 .extract_amount(&product.native_price, &product.other_price)
                 .map(u64::from),
@@ -1067,23 +1006,6 @@ impl From<ProductDocument> for Product {
             other_title.insert(Language::It, title_it.into());
         }
 
-        let mut other_description = HashMap::with_capacity(Language::COUNT);
-        if let Some(description_en) = product_document.description_en {
-            other_description.insert(Language::En, description_en.into());
-        }
-        if let Some(description_de) = product_document.description_de {
-            other_description.insert(Language::De, description_de.into());
-        }
-        if let Some(description_fr) = product_document.description_fr {
-            other_description.insert(Language::Fr, description_fr.into());
-        }
-        if let Some(description_es) = product_document.description_es {
-            other_description.insert(Language::Es, description_es.into());
-        }
-        if let Some(description_it) = product_document.description_it {
-            other_description.insert(Language::It, description_it.into());
-        }
-
         let mut other_price = HashMap::with_capacity(Currency::COUNT);
         if let Some(price_eur) = product_document.price_eur {
             other_price.insert(Currency::Eur, price_eur.into());
@@ -1283,7 +1205,6 @@ impl From<ProductDocument> for Product {
             ),
             other_title,
             native_description: None,
-            other_description,
             native_price: None,
             other_price,
             native_price_estimate_min: None,
@@ -1323,7 +1244,6 @@ impl From<ProductDocument> for Product {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
-    use crate::core::description::Description;
     use crate::core::title::Title;
     use common::price::domain::MonetaryAmount;
     use fake::{Dummy, Fake, Faker, RngExt};
@@ -1382,11 +1302,6 @@ mod faker {
                 title_fr: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_es: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_it: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
-                description_de: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
-                description_en: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
-                description_fr: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
-                description_es: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
-                description_it: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
                 price_eur: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_usd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_gbp: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),

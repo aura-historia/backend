@@ -2257,7 +2257,6 @@ Resources:
       BatchSize: 1
       MaximumBatchingWindowInSeconds: 0
 
-
   UserTierUpdateDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -2797,67 +2796,6 @@ Resources:
         - Id: NotificationSendQ
           Arn: !GetAtt NotificationSendQ.Arn
 
-  ProductPipelineVpc:
-    Type: AWS::EC2::VPC
-    Properties:
-      CidrBlock: 10.0.0.0/16
-      EnableDnsSupport: true
-      EnableDnsHostnames: true
-      Tags:
-        - Key: Name
-          Value: "product-pipeline-vpc-dev"
-  ProductPipelineInternetGateway:
-    Type: AWS::EC2::InternetGateway
-    Properties:
-      Tags:
-        - Key: Name
-          Value: "product-pipeline-igw-dev"
-  ProductPipelineVpcGatewayAttachment:
-    Type: AWS::EC2::VPCGatewayAttachment
-    Properties:
-      InternetGatewayId: !Ref ProductPipelineInternetGateway
-      VpcId: !Ref ProductPipelineVpc
-  ProductPipelinePublicRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref ProductPipelineVpc
-      Tags:
-        - Key: Name
-          Value: "product-pipeline-public-rt-dev"
-  ProductPipelinePublicRoute:
-    Type: AWS::EC2::Route
-    DependsOn: ProductPipelineVpcGatewayAttachment
-    Properties:
-      RouteTableId: !Ref ProductPipelinePublicRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref ProductPipelineInternetGateway
-  ProductPipelineSubnetA:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref ProductPipelineVpc
-      CidrBlock: 10.0.1.0/24
-      MapPublicIpOnLaunch: true
-      AvailabilityZone: !Select [0, !GetAZs ""]
-      Tags:
-        - Key: Name
-          Value: "product-pipeline-subnet-a-dev"
-  ProductPipelineSubnetRouteAssocA:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref ProductPipelineSubnetA
-      RouteTableId: !Ref ProductPipelinePublicRouteTable
-  ProductPipelineSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Allow SSH and internal comms
-      VpcId: !Ref ProductPipelineVpc
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          CidrIp: 0.0.0.0/0
-      Tags:
-        - Key: Name
-          Value: "product-pipeline-sg-dev"
-
   ProductPipelineTranslateDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -2880,24 +2818,25 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Service: ec2.amazonaws.com
-            Action: sts:AssumeRole
-          - Effect: Allow
-            Principal:
-              Service: spot.amazonaws.com
+              Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
-        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
-        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: AllowTerminateInASG
+        - PolicyName: DynamoDBAccess
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
-                Action: autoscaling:TerminateInstanceInAutoScalingGroup
-                Resource: "*"
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -2906,171 +2845,37 @@ Resources:
                 Action:
                   - sqs:ReceiveMessage
                   - sqs:DeleteMessage
-                  - sqs:DeleteMessageBatch
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
-                  - sqs:ChangeMessageVisibility
-                Resource:
-                  - !GetAtt ProductPipelineTranslateQ.Arn
-        - PolicyName: CloudWatchLogsCreate
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: "*"
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:Query
-                  - dynamodb:PutItem
-                  - dynamodb:DeleteItem
-                  - dynamodb:UpdateItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:BatchWriteItem
-                  - dynamodb:TransactGetItems
-                  - dynamodb:TransactWriteItems
-                Resource:
-                  - !GetAtt TableOne.Arn
-                  - !Sub "${TableOne.Arn}/index/*"
-  ProductPipelineTranslateInstanceProfile:
-    Type: AWS::IAM::InstanceProfile
+                Resource: !GetAtt ProductPipelineTranslateQ.Arn
+  ProductPipelineTranslateLambda:
+    Type: AWS::Lambda::Function
     Properties:
-      InstanceProfileName: "product-pipeline-translate-profile-dev"
-      Roles:
-        - !Ref ProductPipelineTranslateRole
-  ProductPipelineTranslateLaunchTemplate:
-    Type: AWS::EC2::LaunchTemplate
+      FunctionName: "product-pipeline-translate-dev"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ProductPipelineTranslateRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-pipeline-translate-dev-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          GEMINI_API_KEY: "{{resolve:ssm:/secrets/dev/gemini-api-key}}"
+  ProductPipelineTranslateMapping:
+    Type: AWS::Lambda::EventSourceMapping
     Properties:
-      LaunchTemplateName: "product-pipeline-translate-template-dev"
-      LaunchTemplateData:
-        IamInstanceProfile:
-          Name: !Ref ProductPipelineTranslateInstanceProfile
-        InstanceType: g6.xlarge # Placeholder - ASG overrides this
-        ImageId: "{{resolve:ssm:/amis/dev/product-pipeline-translate/latest}}"
-        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
-        BlockDeviceMappings:
-          - DeviceName: /dev/sda1
-            Ebs:
-              VolumeSize: 80
-              VolumeType: gp3
-              DeleteOnTermination: true
-        TagSpecifications:
-          - ResourceType: instance
-            Tags:
-              - Key: Name
-                Value: "product-pipeline-translate-dev"
-              - Key: Fleet
-                Value: product-pipeline-translate
-        UserData:
-          Fn::Base64: !Sub |
-            #!/bin/bash
-            set -euxo pipefail
-            sudo -i
-            export DYNAMODB_TABLE_NAME="${TableOne}"
-            export STAGE="dev"
-            export STAGE_NAME=dev
-            export CommitSHA="${CommitSHA}"
-            export ARTIFACT_BUCKET="${ArtifactBucket}"
-            export SOURCE_QUEUE_URL="${ProductPipelineTranslateQ}"
-            # Download and install binary
-            sudo aws s3 cp "s3://${ArtifactBucket}/dev/${CommitSHA}/product-pipeline-translate" /opt/product-pipeline-translate/product-pipeline-translate --region eu-central-1
-            sudo chmod +x /opt/product-pipeline-translate/product-pipeline-translate
-            # Prepare (preconfigured via custom ami) python venv
-            cd /opt/product-pipeline-translate
-            source .venv/bin/activate
-            # ----------------------------
-            # INSTANCE STORE (CORRECT ZERO-COPY HF CACHE)
-            # ----------------------------
-            set -euxo pipefail
-
-            ROOT_DEV=$(lsblk -ndo PKNAME "$(findmnt -n -o SOURCE /)")
-            DEVICE=""
-
-            echo "Waiting for instance store NVMe..."
-
-            for i in {1..30}; do
-              DEVICE=$(lsblk -ndo NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}' | grep -v "$ROOT_DEV" | head -n1 || true)
-              [ -n "$DEVICE" ] && break
-              sleep 1
-            done
-
-            if [ -z "$DEVICE" ]; then
-              echo "❌ No instance store detected — using EBS"
-              export HF_HOME=/opt/huggingface
-              export TRANSFORMERS_CACHE=/opt/huggingface
-              export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
-            else
-              echo "✅ Found instance store: $DEVICE"
-
-              if ! blkid "$DEVICE" >/dev/null 2>&1; then
-                mkfs.xfs -f "$DEVICE"
-              fi
-
-              mkdir -p /mnt/instance-store
-              mount -o noatime,nodiratime "$DEVICE" /mnt/instance-store
-
-              mkdir -p /mnt/instance-store/huggingface
-
-              # If /opt/huggingface is NOT already a symlink, replace it
-              if [ ! -L /opt/huggingface ]; then
-                echo "🔁 Moving HF cache pointer to NVMe (no copy)"
-                rm -rf /opt/huggingface
-                ln -s /mnt/instance-store/huggingface /opt/huggingface
-              fi
-
-              export HF_HOME=/opt/huggingface
-              export TRANSFORMERS_CACHE=/opt/huggingface
-              export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
-
-              echo "🔥 HuggingFace cache now lives on NVMe"
-            fi
-
-            # Run binary
-            LOG_PATH="/var/log/product-pipeline-translate.log"
-            echo "[$(date)] Running product-pipeline-translate..." | tee -a "$LOG_PATH"
-            ./product-pipeline-translate >> "$LOG_PATH" 2>&1
-            EXIT_CODE=$?
-            echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
-            sleep 5
-            aws autoscaling terminate-instance-in-auto-scaling-group \
-              --instance-id $(ec2metadata --instance-id) \
-              --should-decrement-desired-capacity
-            exit $EXIT_CODE
-  ProductPipelineTranslateASG:
-    Type: AWS::AutoScaling::AutoScalingGroup
-    Properties:
-      VPCZoneIdentifier:
-        - !Ref ProductPipelineSubnetA
-      MinSize: 0
-      MaxSize: 1
-      DesiredCapacity: 0
-      MixedInstancesPolicy:
-        LaunchTemplate:
-          LaunchTemplateSpecification:
-            LaunchTemplateId: !Ref ProductPipelineTranslateLaunchTemplate
-            Version: !GetAtt ProductPipelineTranslateLaunchTemplate.LatestVersionNumber
-          Overrides:
-            - InstanceType: g6.xlarge
-            - InstanceType: g6.2xlarge
-            - InstanceType: g5.xlarge
-            - InstanceType: g5.2xlarge
-        InstancesDistribution:
-          OnDemandPercentageAboveBaseCapacity: 0
-          SpotAllocationStrategy: price-capacity-optimized
-      Tags:
-        - Key: Name
-          Value: "product-pipeline-translate-dev"
-          PropagateAtLaunch: true
-      HealthCheckType: EC2
-      HealthCheckGracePeriod: 120
+      FunctionName: !Ref ProductPipelineTranslateLambda
+      EventSourceArn: !GetAtt ProductPipelineTranslateQ.Arn
+      Enabled: true
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
 
   ProductPipelineEmbedTextDlq:
     Type: AWS::SQS::Queue
@@ -3399,76 +3204,6 @@ Resources:
       Targets:
         - Id: ProductPipelineClassifyQ
           Arn: !GetAtt ProductPipelineClassifyQ.Arn
-
-  ProductPipelineScaleControlRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "product-pipeline-asg-scale-control-role-dev"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: SqsGetQueueAttributes
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:GetQueueAttributes
-                  - sqs:GetQueueUrl
-                  - cloudwatch:GetMetricStatistics
-                Resource: "*"
-        - PolicyName: ScaleASG
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - autoscaling:UpdateAutoScalingGroup
-                  - autoscaling:DescribeAutoScalingGroups
-                Resource: "*"
-  ProductPipelineScaleControlLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "product-pipeline-asg-scale-control-dev"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ProductPipelineScaleControlRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-pipeline-asg-scale-control-dev-${CommitSHA}.zip"
-      MemorySize: 128
-      Timeout: 60
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          PRODUCT_PIPELINE_TRANSLATE_SQS_URL: !Ref ProductPipelineTranslateQ
-          PRODUCT_PIPELINE_TRANSLATE_SQS_NAME: !GetAtt ProductPipelineTranslateQ.QueueName
-          PRODUCT_PIPELINE_TRANSLATE_ASG_NAME: !Ref ProductPipelineTranslateASG
-  ProductPipelineScaleControlStartSchedule:
-    Type: AWS::Events::Rule
-    Properties:
-      ScheduleExpression: "cron(*/15 * * * ? *)" # every 15min
-      Targets:
-        - Arn: !GetAtt ProductPipelineScaleControlLambda.Arn
-          Id: "ProductPipelineScaleControlStartSchedule"
-          RetryPolicy:
-            MaximumRetryAttempts: 5
-            MaximumEventAgeInSeconds: 3600
-  ProductPipelineScaleControlStartSchedulePermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref ProductPipelineScaleControlLambda
-      Action: "lambda:InvokeFunction"
-      Principal: "events.amazonaws.com"
-      SourceArn: !GetAtt ProductPipelineScaleControlStartSchedule.Arn
 
   FxRateSyncRole:
     Type: AWS::IAM::Role

@@ -47,8 +47,8 @@ use product::{
         product_event::{
             ProductEvent, ProductEventPayload,
             domain::{
-                ProductDomainEventPayload, ProductPriceChangeDomainEventPayload,
-                ProductStateChangeDomainEventPayload,
+                ProductCreatedDomainEventPayload, ProductDomainEventPayload,
+                ProductPriceChangeDomainEventPayload, ProductStateChangeDomainEventPayload,
             },
             enrichment::{EmbeddedProductEnrichmentEventPayload, ProductEnrichmentEventPayload},
             policy::{ProductPolicyEventPayload, ProhibitedContentProductPolicyEventPayload},
@@ -1890,6 +1890,87 @@ async fn should_materialize_product_in_dynamodb_for_enrichment_event() {
     }
 }
 
+// Verifies the full translate-lambda wiring:
+// DOMAIN_CREATED event → DDB stream → EventBridge → translate Lambda
+// → ENRICHMENT_TRANSLATED_TITLE events → DDB stream → EventBridge
+// → materialize-dynamodb-update Lambda → ProductRecord.title_en populated.
+#[localstack_test(services = [Cloudformation()])]
+async fn should_materialize_translated_titles_in_dynamodb_when_domain_created_event() {
+    use common::language::record::{LanguageRecord, TextRecord};
+
+    let stack = get_cfn_output();
+    let shop = prepare_test_shop().await;
+    let repository = ProductDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &stack.dynamodb_table_1_name,
+    );
+
+    // Seed a product record with a German native title; English translation not yet present.
+    let mut materialized_old: ProductRecord = Faker.fake();
+    materialized_old.pk = mk_pk(&shop.shop_id, &materialized_old.shops_product_id);
+    materialized_old.shop_id = shop.shop_id;
+    materialized_old
+        .url
+        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
+        .unwrap();
+    materialized_old.title_native = TextRecord {
+        text: "Alter Tisch".to_string(),
+        language: LanguageRecord::De,
+    };
+    materialized_old.title_en = None;
+    let insert_res = repository
+        .put_product_records([materialized_old.clone()].into())
+        .await
+        .unwrap();
+    assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Write a DOMAIN_CREATED event — this triggers the translate lambda via DDB stream.
+    let mut created_payload: ProductCreatedDomainEventPayload = Faker.fake();
+    created_payload.shop_id = materialized_old.shop_id;
+    created_payload.seller_id = materialized_old.seller_id;
+    created_payload.shops_product_id = materialized_old.shops_product_id.clone();
+    let product_event_records = Batch::try_from_iter([ProductEventRecord::from(ProductEvent {
+        aggregate_id: materialized_old.product_id,
+        event_id: EventId::new(),
+        timestamp: OffsetDateTime::now_utc(),
+        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::Created(
+            created_payload,
+        )),
+    })])
+    .unwrap();
+    repository
+        .put_product_event_records(product_event_records)
+        .await
+        .unwrap();
+
+    // Wait for translate Lambda → ENRICHMENT_TRANSLATED_TITLE → materialize-dynamodb-update Lambda.
+    // MockTranslationService (active when LOCALSTACK_HOSTNAME is set) always returns "Antique chair"
+    // for English.
+    let deadline = Instant::now() + Duration::from_secs(120);
+    loop {
+        let materialized = repository
+            .get_product_record(&shop.shop_id, &materialized_old.shops_product_id)
+            .await
+            .unwrap();
+
+        if let Some(materialized) = materialized
+            && materialized.title_en.is_some()
+        {
+            assert_eq!(Some("Antique chair".to_string()), materialized.title_en);
+            break;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: ProductRecord for shop '{}' / product '{}' not updated with translated title after 120s",
+                materialized_old.shop_id, materialized_old.shops_product_id
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+}
+
 #[localstack_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_dynamodb_for_policy_event() {
     let stack = get_cfn_output();
@@ -3482,11 +3563,6 @@ async fn should_respond_200_when_product_search_hits_authenticated() {
         title_fr: None,
         title_es: None,
         title_it: None,
-        description_de: None,
-        description_en: None,
-        description_fr: None,
-        description_es: None,
-        description_it: None,
         price_eur: Some(1400000),
         price_usd: Some(1500000),
         price_gbp: Some(1600000),
@@ -3575,11 +3651,6 @@ async fn should_respond_200_when_product_search_hits_authenticated() {
         title_es: None,
         title_it: None,
         description_native: None,
-        description_de: None,
-        description_en: None,
-        description_fr: None,
-        description_es: None,
-        description_it: None,
         price_native: Some(PriceRecord {
             currency: CurrencyRecord::Eur,
             amount: 1400000,
@@ -3736,11 +3807,6 @@ async fn should_respond_200_when_product_search_hits_anon() {
         title_fr: None,
         title_es: None,
         title_it: None,
-        description_de: None,
-        description_en: None,
-        description_fr: None,
-        description_es: None,
-        description_it: None,
         price_eur: Some(1400000),
         price_usd: Some(1500000),
         price_gbp: Some(1600000),
