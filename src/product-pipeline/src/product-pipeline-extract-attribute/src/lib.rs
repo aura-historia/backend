@@ -126,8 +126,8 @@ pub async fn handler(
             }
         };
 
-        let title = product.native_title.payload.as_ref().trim().to_string();
-        if title.is_empty() {
+        let title_trimmed = product.native_title.payload.as_ref().trim();
+        if title_trimmed.is_empty() {
             warn!(
                 messageId = message_id,
                 shopId = %product.shop_id,
@@ -136,7 +136,10 @@ pub async fn handler(
             );
             continue;
         }
+        let title = title_trimmed.to_string();
 
+        // Concatenate native title and description with a single space so Gemini
+        // receives the fullest possible context for attribute extraction.
         let text = match &product.native_description {
             Some(desc) => {
                 let d = desc.payload.as_ref().trim();

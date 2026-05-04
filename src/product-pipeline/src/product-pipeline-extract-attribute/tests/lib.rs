@@ -102,7 +102,7 @@ async fn seed_product_record(
     record.product_id = product_id;
     record.title_native = TextRecord::new(native_title, LanguageRecord::En);
     record.description_native = Some(TextRecord::new(
-        format!("{native_title} — antique item in original condition."),
+        format!("{native_title} - antique item in original condition."),
         LanguageRecord::En,
     ));
 
