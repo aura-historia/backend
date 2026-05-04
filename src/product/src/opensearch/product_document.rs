@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::core::origin_year::OriginYear;
 use crate::core::product::Product;
 use crate::core::product_image::ProductImage;
@@ -37,6 +35,7 @@ use serde_fields::SerdeField;
 use shop::opensearch::{
     continent_document::ContinentDocument, shop_type_document::ShopTypeDocument,
 };
+use std::collections::HashMap;
 use strum::EnumCount;
 use time::OffsetDateTime;
 use url::Url;
@@ -556,19 +555,6 @@ impl From<ProductRecord> for ProductDocument {
             created: product_document.created,
             updated: product_document.updated,
         }
-    }
-}
-
-impl ProductDocumentSerdeField {
-    pub fn description_fields() -> Vec<ProductDocumentSerdeField> {
-        [
-            ProductDocumentSerdeField::DescriptionDe,
-            ProductDocumentSerdeField::DescriptionEn,
-            ProductDocumentSerdeField::DescriptionFr,
-            ProductDocumentSerdeField::DescriptionEs,
-            ProductDocumentSerdeField::DescriptionIt,
-        ]
-        .into()
     }
 }
 
@@ -1258,7 +1244,6 @@ impl From<ProductDocument> for Product {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
-    use crate::core::description::Description;
     use crate::core::title::Title;
     use common::price::domain::MonetaryAmount;
     use fake::{Dummy, Fake, Faker, RngExt};

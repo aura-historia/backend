@@ -74,7 +74,6 @@ jobs:
           - src/product-api-partner
           - src/product-classification-api
           - src/product-watchlist-api
-          - src/product-pipeline/src/product-pipeline-asg-scale-control
           - src/product-pipeline/src/product-pipeline-embed-text
           - src/product-pipeline/src/product-pipeline-classify
           - src/product-pipeline/src/product-pipeline-extract-attribute
@@ -228,8 +227,7 @@ jobs:
   aws-cfn-deploy:
     name: Deploy & initialize CFN-Stack
     if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop') }}
-    needs:
-      [cfn-lint, aws-push-lambda, aws-push-mail-templates]
+    needs: [cfn-lint, aws-push-lambda, aws-push-mail-templates]
     environment:
       name: ${{ github.ref == 'refs/heads/prod' && 'aws-prod' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
     runs-on: ubuntu-latest

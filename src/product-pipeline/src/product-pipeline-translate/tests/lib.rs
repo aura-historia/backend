@@ -234,4 +234,3 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
         result.batch_item_failures
     );
 }
-

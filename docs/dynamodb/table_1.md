@@ -38,7 +38,6 @@ Each product change is stored as an immutable event. The sort key encodes the ev
 | Domain | `DOMAIN_PROVENANCE_CHANGED` |
 | Domain | `DOMAIN_RESTORATION_CHANGED` |
 | Enrichment | `ENRICHMENT_TRANSLATED_TITLE` |
-| Enrichment | `ENRICHMENT_TRANSLATED_DESCRIPTION` |
 | Enrichment | `ENRICHMENT_EMBEDDED` |
 | Enrichment | `ENRICHMENT_EXTRACTED_ATTRIBUTES` |
 | Enrichment | `ENRICHMENT_CLASSIFY_CATEGORY` |

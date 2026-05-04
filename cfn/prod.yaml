@@ -2908,7 +2908,6 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-
   UserTierUpdateDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -3503,67 +3502,6 @@ Resources:
         - Id: NotificationSendQ
           Arn: !GetAtt NotificationSendQ.Arn
 
-  ProductPipelineVpc:
-    Type: AWS::EC2::VPC
-    Properties:
-      CidrBlock: 10.0.0.0/16
-      EnableDnsSupport: true
-      EnableDnsHostnames: true
-      Tags:
-        - Key: Name
-          Value: "product-pipeline-vpc-prod"
-  ProductPipelineInternetGateway:
-    Type: AWS::EC2::InternetGateway
-    Properties:
-      Tags:
-        - Key: Name
-          Value: "product-pipeline-igw-prod"
-  ProductPipelineVpcGatewayAttachment:
-    Type: AWS::EC2::VPCGatewayAttachment
-    Properties:
-      InternetGatewayId: !Ref ProductPipelineInternetGateway
-      VpcId: !Ref ProductPipelineVpc
-  ProductPipelinePublicRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref ProductPipelineVpc
-      Tags:
-        - Key: Name
-          Value: "product-pipeline-public-rt-prod"
-  ProductPipelinePublicRoute:
-    Type: AWS::EC2::Route
-    DependsOn: ProductPipelineVpcGatewayAttachment
-    Properties:
-      RouteTableId: !Ref ProductPipelinePublicRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref ProductPipelineInternetGateway
-  ProductPipelineSubnetA:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref ProductPipelineVpc
-      CidrBlock: 10.0.1.0/24
-      MapPublicIpOnLaunch: true
-      AvailabilityZone: !Select [0, !GetAZs ""]
-      Tags:
-        - Key: Name
-          Value: "product-pipeline-subnet-a-prod"
-  ProductPipelineSubnetRouteAssocA:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref ProductPipelineSubnetA
-      RouteTableId: !Ref ProductPipelinePublicRouteTable
-  ProductPipelineSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Allow SSH and internal comms
-      VpcId: !Ref ProductPipelineVpc
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          CidrIp: 0.0.0.0/0
-      Tags:
-        - Key: Name
-          Value: "product-pipeline-sg-prod"
-
   ProductPipelineTranslateDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -4031,93 +3969,6 @@ Resources:
       Dimensions:
         - Name: FunctionName
           Value: !Ref ProductPipelineClassifyLambda
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  ProductPipelineScaleControlRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "product-pipeline-asg-scale-control-role-prod"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: SqsGetQueueAttributes
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:GetQueueAttributes
-                  - sqs:GetQueueUrl
-                  - cloudwatch:GetMetricStatistics
-                Resource: "*"
-        - PolicyName: ScaleASG
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - autoscaling:UpdateAutoScalingGroup
-                  - autoscaling:DescribeAutoScalingGroups
-                Resource: "*"
-  ProductPipelineScaleControlLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "product-pipeline-asg-scale-control-prod"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ProductPipelineScaleControlRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-pipeline-asg-scale-control-prod-${CommitSHA}.zip"
-      MemorySize: 128
-      Timeout: 60
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          PRODUCT_PIPELINE_TRANSLATE_SQS_URL: !Ref ProductPipelineTranslateQ
-          PRODUCT_PIPELINE_TRANSLATE_SQS_NAME: !GetAtt ProductPipelineTranslateQ.QueueName
-  ProductPipelineScaleControlStartSchedule:
-    Type: AWS::Events::Rule
-    Properties:
-      ScheduleExpression: "cron(*/15 * * * ? *)" # every 15min
-      Targets:
-        - Arn: !GetAtt ProductPipelineScaleControlLambda.Arn
-          Id: "ProductPipelineScaleControlStartSchedule"
-          RetryPolicy:
-            MaximumRetryAttempts: 5
-            MaximumEventAgeInSeconds: 3600
-  ProductPipelineScaleControlStartSchedulePermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref ProductPipelineScaleControlLambda
-      Action: "lambda:InvokeFunction"
-      Principal: "events.amazonaws.com"
-      SourceArn: !GetAtt ProductPipelineScaleControlStartSchedule.Arn
-  ProductPipelineScaleControlLambdaErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-pipeline-scale-control-lambda-errors"
-      AlarmDescription: "Alarm when pipeline-scale-control Lambda has errors"
-      MetricName: Errors
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref ProductPipelineScaleControlLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic

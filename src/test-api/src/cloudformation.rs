@@ -43,9 +43,6 @@ const STAGE: &str = "ephemeral";
 /// All Lambda binary names that the ephemeral CloudFormation stack requires.
 ///
 /// Each entry corresponds to a Cargo binary target that produces a Lambda handler.
-/// The product-pipeline-asg-scale-control Lambda is excluded because it is not
-/// exercised by acceptance tests and its ASG/EC2 resources are removed from the
-/// LocalStack-specific template.
 const LAMBDA_BINARIES: &[&str] = &[
     "cognito-post-confirmation",
     "product-api",
@@ -243,8 +240,6 @@ fn build_lambdas() {
             "crawler",
             "--exclude",
             "acceptance-tests",
-            "--exclude",
-            "product-pipeline-asg-scale-control",
             "--exclude",
             "product-pipeline-common",
             "--exclude",
