@@ -7,6 +7,7 @@ use common::{
     event_id::EventId,
     has_key::HasKey,
     language::domain::Language,
+    logging::{LogEntityType, LogEventType, LogPipelineStage, LogWriteSource},
     product_id::{ProductId, ProductKey},
 };
 use lambda_runtime::LambdaEvent;
@@ -68,8 +69,8 @@ pub async fn handler(
     if key_to_record.is_empty() {
         let failures = failed_message_ids.len();
         info!(
-            eventType = "batchProcessing",
-            pipelineStage = "productTranslation",
+            eventType = %LogEventType::BatchProcessing,
+            pipelineStage = %LogPipelineStage::ProductTranslation,
             processed = count,
             successful = 0,
             failures = failures,
@@ -91,8 +92,8 @@ pub async fn handler(
             failed_message_ids.extend(key_to_record.into_values().map(|(msg_id, _)| msg_id));
             let failures = failed_message_ids.len();
             info!(
-                eventType = "batchProcessing",
-                pipelineStage = "productTranslation",
+                eventType = %LogEventType::BatchProcessing,
+                pipelineStage = %LogPipelineStage::ProductTranslation,
                 processed = count,
                 successful = 0,
                 failures = failures,
@@ -167,8 +168,8 @@ pub async fn handler(
     if valid_inputs.is_empty() {
         let failures = failed_message_ids.len();
         info!(
-            eventType = "batchProcessing",
-            pipelineStage = "productTranslation",
+            eventType = %LogEventType::BatchProcessing,
+            pipelineStage = %LogPipelineStage::ProductTranslation,
             processed = count,
             successful = 0,
             failures = failures,
@@ -266,8 +267,8 @@ pub async fn handler(
 
     let failures = failed_message_ids.len();
     info!(
-        eventType = "batchProcessing",
-        pipelineStage = "productTranslation",
+        eventType = %LogEventType::BatchProcessing,
+        pipelineStage = %LogPipelineStage::ProductTranslation,
         processed = count,
         successful = count - failures,
         failures = failures,
@@ -363,9 +364,9 @@ fn build_product_event_write_log(record: &ProductEventRecord) -> ProductEventWri
 
 fn log_product_event_write(write: ProductEventWriteLog) {
     info!(
-        eventType = "entityWrite",
-        entityType = "product",
-        writeSource = "productTranslation",
+        eventType = %LogEventType::EntityWrite,
+        entityType = %LogEntityType::Product,
+        writeSource = %LogWriteSource::ProductTranslation,
         productId = write.product_id,
         shopId = write.shop_id,
         shopsProductId = write.shops_product_id,

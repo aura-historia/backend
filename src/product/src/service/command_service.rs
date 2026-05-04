@@ -9,6 +9,7 @@ use crate::service::product_command::{
 use async_trait::async_trait;
 use common::batch::Batch;
 use common::has_key::HasKey;
+use common::logging::{LogEntityType, LogEventType, LogWriteSource};
 use common::price::domain::FxRate;
 use common::product_id::ProductKey;
 use common::shop_id::ShopId;
@@ -451,8 +452,8 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
 
 struct ProductEventWriteLog {
     key: ProductKey,
-    event_type: &'static str,
-    write_source: &'static str,
+    event_type: LogEventType,
+    write_source: LogWriteSource,
     product_id: String,
     shop_id: String,
     shops_product_id: String,
@@ -466,8 +467,8 @@ fn build_product_event_write_log(record: &ProductEventRecord) -> ProductEventWri
     match record {
         ProductEventRecord::Domain(record) => ProductEventWriteLog {
             key: ProductKey::new(record.shop_id, record.shops_product_id.clone()),
-            event_type: "entityWrite",
-            write_source: "productCommandService",
+            event_type: LogEventType::EntityWrite,
+            write_source: LogWriteSource::ProductCommandService,
             product_id: record.product_id.to_string(),
             shop_id: record.shop_id.to_string(),
             shops_product_id: record.shops_product_id.to_string(),
@@ -478,8 +479,8 @@ fn build_product_event_write_log(record: &ProductEventRecord) -> ProductEventWri
         },
         ProductEventRecord::Enrichment(record) => ProductEventWriteLog {
             key: ProductKey::new(record.shop_id, record.shops_product_id.clone()),
-            event_type: "entityWrite",
-            write_source: "productCommandService",
+            event_type: LogEventType::EntityWrite,
+            write_source: LogWriteSource::ProductCommandService,
             product_id: record.product_id.to_string(),
             shop_id: record.shop_id.to_string(),
             shops_product_id: record.shops_product_id.to_string(),
@@ -490,8 +491,8 @@ fn build_product_event_write_log(record: &ProductEventRecord) -> ProductEventWri
         },
         ProductEventRecord::Policy(record) => ProductEventWriteLog {
             key: ProductKey::new(record.shop_id, record.shops_product_id.clone()),
-            event_type: "policyDecision",
-            write_source: "productCommandService",
+            event_type: LogEventType::PolicyDecision,
+            write_source: LogWriteSource::ProductCommandService,
             product_id: record.product_id.to_string(),
             shop_id: record.shop_id.to_string(),
             shops_product_id: record.shops_product_id.to_string(),
@@ -505,9 +506,9 @@ fn build_product_event_write_log(record: &ProductEventRecord) -> ProductEventWri
 
 fn log_product_event_write(write: ProductEventWriteLog) {
     info!(
-        eventType = write.event_type,
-        entityType = "product",
-        writeSource = write.write_source,
+        eventType = %write.event_type,
+        entityType = %LogEntityType::Product,
+        writeSource = %write.write_source,
         productId = write.product_id,
         shopId = write.shop_id,
         shopsProductId = write.shops_product_id,

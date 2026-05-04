@@ -7,6 +7,7 @@ use common::{
     dynamodb_stream::extract_from_dynamodb_stream,
     event_id::EventId,
     has_key::HasKey,
+    logging::{LogEntityType, LogEventType, LogPipelineStage, LogWriteSource},
     product_id::{ProductId, ProductKey},
 };
 use lambda_runtime::LambdaEvent;
@@ -73,8 +74,8 @@ pub async fn handler(
     if key_to_record.is_empty() {
         let failures = failed_message_ids.len();
         info!(
-            eventType = "batchProcessing",
-            pipelineStage = "productAttributeExtraction",
+            eventType = %LogEventType::BatchProcessing,
+            pipelineStage = %LogPipelineStage::ProductAttributeExtraction,
             processed = count,
             successful = 0,
             failures = failures,
@@ -97,8 +98,8 @@ pub async fn handler(
             failed_message_ids.extend(key_to_record.into_values().map(|(msg_id, _)| msg_id));
             let failures = failed_message_ids.len();
             info!(
-                eventType = "batchProcessing",
-                pipelineStage = "productAttributeExtraction",
+                eventType = %LogEventType::BatchProcessing,
+                pipelineStage = %LogPipelineStage::ProductAttributeExtraction,
                 processed = count,
                 successful = 0,
                 failures = failures,
@@ -189,8 +190,8 @@ pub async fn handler(
     if valid_inputs.is_empty() {
         let failures = failed_message_ids.len();
         info!(
-            eventType = "batchProcessing",
-            pipelineStage = "productAttributeExtraction",
+            eventType = %LogEventType::BatchProcessing,
+            pipelineStage = %LogPipelineStage::ProductAttributeExtraction,
             processed = count,
             successful = 0,
             failures = failures,
@@ -263,8 +264,8 @@ pub async fn handler(
 
         if let Some(decision) = prohibited_content {
             info!(
-                eventType = "policyDecision",
-                entityType = "product",
+                eventType = %LogEventType::PolicyDecision,
+                entityType = %LogEntityType::Product,
                 decision = ?decision,
                 reason = ?ProhibitedContentReason::ProductText,
                 shopId = %input.key.shop_id,
@@ -301,8 +302,8 @@ pub async fn handler(
 
     let failures = failed_message_ids.len();
     info!(
-        eventType = "batchProcessing",
-        pipelineStage = "productAttributeExtraction",
+        eventType = %LogEventType::BatchProcessing,
+        pipelineStage = %LogPipelineStage::ProductAttributeExtraction,
         processed = count,
         successful = count - failures,
         failures = failures,
@@ -375,7 +376,7 @@ async fn persist_events(
 
 struct ProductEventWriteLog {
     key: ProductKey,
-    event_type: &'static str,
+    event_type: LogEventType,
     product_id: String,
     shop_id: String,
     shops_product_id: String,
@@ -389,7 +390,7 @@ fn build_product_event_write_log(record: &ProductEventRecord) -> ProductEventWri
     match record {
         ProductEventRecord::Enrichment(record) => ProductEventWriteLog {
             key: ProductKey::new(record.shop_id, record.shops_product_id.clone()),
-            event_type: "entityWrite",
+            event_type: LogEventType::EntityWrite,
             product_id: record.product_id.to_string(),
             shop_id: record.shop_id.to_string(),
             shops_product_id: record.shops_product_id.to_string(),
@@ -400,7 +401,7 @@ fn build_product_event_write_log(record: &ProductEventRecord) -> ProductEventWri
         },
         ProductEventRecord::Policy(record) => ProductEventWriteLog {
             key: ProductKey::new(record.shop_id, record.shops_product_id.clone()),
-            event_type: "policyDecision",
+            event_type: LogEventType::PolicyDecision,
             product_id: record.product_id.to_string(),
             shop_id: record.shop_id.to_string(),
             shops_product_id: record.shops_product_id.to_string(),
@@ -415,9 +416,9 @@ fn build_product_event_write_log(record: &ProductEventRecord) -> ProductEventWri
 
 fn log_product_event_write(write: ProductEventWriteLog) {
     info!(
-        eventType = write.event_type,
-        entityType = "product",
-        writeSource = "productAttributeExtraction",
+        eventType = %write.event_type,
+        entityType = %LogEntityType::Product,
+        writeSource = %LogWriteSource::ProductAttributeExtraction,
         productId = write.product_id,
         shopId = write.shop_id,
         shopsProductId = write.shops_product_id,

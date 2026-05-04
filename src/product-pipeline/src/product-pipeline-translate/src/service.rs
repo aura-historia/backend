@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use common::language::domain::Language;
-use common::logging::{LlmInvocationMetrics, log_llm_invocation};
+use common::logging::{
+    LlmInvocationMetrics, LlmModel, LlmOperation, LlmProvider, log_llm_invocation,
+};
 use llm::chat::ChatMessage;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -99,9 +101,9 @@ impl TranslationServiceImpl {
             .chat(&[ChatMessage::user().content(&user_message).build()])
             .await?;
         log_llm_invocation(
-            "productTitleTranslation",
-            "google",
-            "gemini-2.5-flash-lite",
+            LlmOperation::ProductTitleTranslation,
+            LlmProvider::Google,
+            LlmModel::Gemini25FlashLite,
             started_at.elapsed(),
             llm_metrics(response.usage(), Some(titles.len())),
         );

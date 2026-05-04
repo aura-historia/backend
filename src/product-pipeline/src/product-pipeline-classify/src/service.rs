@@ -1,6 +1,9 @@
 use async_trait::async_trait;
 use common::category_key::CategoryId;
-use common::logging::{LlmInvocationMetrics, log_llm_invocation};
+use common::logging::{
+    LlmInvocationMetrics, LlmModel, LlmOperation, LlmProvider, LogClassificationMethod,
+    LogEventType, log_llm_invocation,
+};
 use common::period_key::PeriodId;
 use llm::chat::ChatMessage;
 use product::core::title::Title;
@@ -114,8 +117,8 @@ impl ClassificationService for ClassificationServiceImpl<'_> {
             clear_period_candidate(&periods),
         ) {
             info!(
-                eventType = "classificationDecision",
-                classificationMethod = "clearScore",
+                eventType = %LogEventType::ClassificationDecision,
+                classificationMethod = %LogClassificationMethod::ClearScore,
                 categoryId = %category_id,
                 periodId = %period_id,
                 categoryCandidateScores = ?format_category_candidates(&categories),
@@ -149,9 +152,9 @@ impl ClassificationService for ClassificationServiceImpl<'_> {
             .chat(&[ChatMessage::user().content(&user_message).build()])
             .await?;
         log_llm_invocation(
-            "productClassification",
-            "google",
-            "gemini-2.5-flash-lite",
+            LlmOperation::ProductClassification,
+            LlmProvider::Google,
+            LlmModel::Gemini25FlashLite,
             started_at.elapsed(),
             llm_metrics(response.usage(), Some(1)),
         );
@@ -163,8 +166,8 @@ impl ClassificationService for ClassificationServiceImpl<'_> {
         let (category_id, period_id) =
             parse_classification_response(&response_text, &category_ids, &period_ids)?;
         info!(
-            eventType = "classificationDecision",
-            classificationMethod = "llm",
+            eventType = %LogEventType::ClassificationDecision,
+            classificationMethod = %LogClassificationMethod::Llm,
             categoryId = %category_id,
             periodId = %period_id,
             categoryCandidateScores = ?format_category_candidates(&categories),

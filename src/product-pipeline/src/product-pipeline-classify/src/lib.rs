@@ -6,6 +6,7 @@ use common::{
     dynamodb_stream::extract_from_dynamodb_stream,
     event_id::EventId,
     has_key::HasKey,
+    logging::{LogEntityType, LogEventType, LogPipelineStage, LogWriteSource},
     product_id::ProductKey,
 };
 use lambda_runtime::LambdaEvent;
@@ -174,8 +175,8 @@ pub async fn handler(
 
     let failures = failed_message_ids.len();
     info!(
-        eventType = "batchProcessing",
-        pipelineStage = "productClassification",
+        eventType = %LogEventType::BatchProcessing,
+        pipelineStage = %LogPipelineStage::ProductClassification,
         processed = count,
         successful = count - failures,
         failures = failures,
@@ -278,9 +279,9 @@ fn build_product_event_write_log(record: &ProductEventRecord) -> ProductEventWri
 
 fn log_product_event_write(write: ProductEventWriteLog) {
     info!(
-        eventType = "entityWrite",
-        entityType = "product",
-        writeSource = "productClassification",
+        eventType = %LogEventType::EntityWrite,
+        entityType = %LogEntityType::Product,
+        writeSource = %LogWriteSource::ProductClassification,
         productId = write.product_id,
         shopId = write.shop_id,
         shopsProductId = write.shops_product_id,

@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-use common::logging::{LlmInvocationMetrics, log_llm_invocation};
+use common::logging::{
+    LlmInvocationMetrics, LlmModel, LlmOperation, LlmProvider, log_llm_invocation,
+};
 use product::core::{description::Description, title::Title};
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
@@ -176,9 +178,9 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
         }
 
         log_llm_invocation(
-            "productEmbedding",
-            "google",
-            "gemini-embedding-2-preview-03-25",
+            LlmOperation::ProductEmbedding,
+            LlmProvider::Google,
+            LlmModel::GeminiEmbedding2Preview0325,
             started_at.elapsed(),
             LlmInvocationMetrics {
                 output_dimensions: Some(values.len()),
@@ -195,9 +197,9 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
         // promotion) so we need a `&mut` lock here; the lock is held only for the lookup.
         if let Some(hit) = self.query_cache.lock().await.get(query).cloned() {
             log_llm_invocation(
-                "productQueryEmbedding",
-                "google",
-                "gemini-embedding-2-preview-03-25",
+                LlmOperation::ProductQueryEmbedding,
+                LlmProvider::Google,
+                LlmModel::GeminiEmbedding2Preview0325,
                 std::time::Duration::default(),
                 LlmInvocationMetrics {
                     output_dimensions: Some(hit.len()),
@@ -252,9 +254,9 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
             .put(query.to_string(), values.clone());
 
         log_llm_invocation(
-            "productQueryEmbedding",
-            "google",
-            "gemini-embedding-2-preview-03-25",
+            LlmOperation::ProductQueryEmbedding,
+            LlmProvider::Google,
+            LlmModel::GeminiEmbedding2Preview0325,
             started_at.elapsed(),
             LlmInvocationMetrics {
                 output_dimensions: Some(values.len()),

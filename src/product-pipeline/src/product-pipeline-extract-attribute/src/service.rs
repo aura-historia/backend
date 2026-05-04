@@ -1,6 +1,8 @@
 use crate::types::ExtractedAttributes;
 use async_trait::async_trait;
-use common::logging::{LlmInvocationMetrics, log_llm_invocation};
+use common::logging::{
+    LlmInvocationMetrics, LlmModel, LlmOperation, LlmProvider, log_llm_invocation,
+};
 use llm::chat::ChatMessage;
 use std::time::Instant;
 use thiserror::Error;
@@ -94,9 +96,9 @@ impl ExtractionServiceImpl {
             .chat(&[ChatMessage::user().content(&user_message).build()])
             .await?;
         log_llm_invocation(
-            "productAttributeExtraction",
-            "google",
-            "gemini-2.5-flash-lite",
+            LlmOperation::ProductAttributeExtraction,
+            LlmProvider::Google,
+            LlmModel::Gemini25FlashLite,
             started_at.elapsed(),
             llm_metrics(response.usage(), Some(texts.len())),
         );

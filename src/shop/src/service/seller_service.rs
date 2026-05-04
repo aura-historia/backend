@@ -7,7 +7,9 @@ use crate::service::command::CreateShopCommand;
 use crate::service::command_service::CommandShopService;
 use crate::service::get_service::GetShopService;
 use crate::service::query_service::QueryShopService;
-use common::logging::{LlmInvocationMetrics, log_llm_invocation};
+use common::logging::{
+    LlmInvocationMetrics, LlmModel, LlmOperation, LlmProvider, log_llm_invocation,
+};
 use common::{query::text_query::TextQuery, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use llm::{LLMProvider, chat::ChatMessage};
 use std::time::Instant;
@@ -130,9 +132,9 @@ impl<'a> SellerServiceImpl<'a> {
         let started_at = Instant::now();
         let response = self.llm.chat(&[message]).await?;
         log_llm_invocation(
-            "sellerShopDisambiguation",
-            "configured",
-            "configured",
+            LlmOperation::SellerShopDisambiguation,
+            LlmProvider::Configured,
+            LlmModel::Configured,
             started_at.elapsed(),
             llm_metrics(response.usage()),
         );
