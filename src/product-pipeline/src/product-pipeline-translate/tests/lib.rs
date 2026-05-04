@@ -2,17 +2,16 @@ use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
 use common::batch::Batch;
-use common::category_key::CategoryId;
+use common::event::Event;
 use common::event_id::EventId;
 use common::language::domain::Language;
 use common::language::record::{LanguageRecord, TextRecord};
 use common::product_id::ProductId;
 use fake::{Fake, Faker};
 use lambda_runtime::{Context, LambdaEvent};
-use product::core::product_event::enrichment::{
-    ClassifiedCategoryProductEnrichmentEventPayload, ProductEnrichmentEventPayload,
+use product::core::product_event::domain::{
+    ProductCreatedDomainEventPayload, ProductDomainEventPayload,
 };
-use product::core::product_event::{ProductEvent, ProductEventPayload};
 use product::dynamodb::product_event_record::ProductEventRecord;
 use product::dynamodb::product_record::{ProductRecord, mk_pk};
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
@@ -61,27 +60,26 @@ fn mk_lambda_event(messages: Vec<SqsMessage>) -> LambdaEvent<SqsEvent> {
     }
 }
 
-fn mk_classify_event_record(
+/// Creates a DOMAIN_CREATED event record — the trigger for translate.
+fn mk_domain_created_event_record(
     shop_id: common::shop_id::ShopId,
     seller_id: common::shop_id::ShopId,
     shops_product_id: common::shops_product_id::ShopsProductId,
     product_id: ProductId,
 ) -> ProductEventRecord {
-    let payload = ClassifiedCategoryProductEnrichmentEventPayload {
-        shop_id,
-        seller_id,
-        shops_product_id,
-        category_id: CategoryId::from("furniture"),
-    };
-    let event = ProductEvent {
+    let mut payload: ProductCreatedDomainEventPayload = Faker.fake();
+    payload.shop_id = shop_id;
+    payload.seller_id = seller_id;
+    payload.shops_product_id = shops_product_id;
+    let event = Event {
         aggregate_id: product_id,
         event_id: EventId::new(),
         timestamp: OffsetDateTime::now_utc(),
-        payload: ProductEventPayload::ProductEnrichmentEvent(
-            ProductEnrichmentEventPayload::ClassifiedCategory(payload),
-        ),
+        payload: ProductDomainEventPayload::Created(payload),
     };
-    event.into()
+    let domain_event: product::dynamodb::product_event_record::domain::ProductDomainEventRecord =
+        event.into();
+    ProductEventRecord::Domain(domain_event)
 }
 
 async fn seed_product_record(
@@ -110,7 +108,7 @@ async fn seed_product_record(
 }
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_persist_translated_title_events_when_classify_event_triggers_pipeline() {
+async fn should_persist_translated_title_events_when_domain_created_event_triggers_pipeline() {
     let client = get_dynamodb_client().await;
     let table_name = std::env::var("DYNAMODB_TABLE_NAME").unwrap();
     let repository = ProductDynamoDbRepositoryImpl::new(client, &table_name);
@@ -132,8 +130,8 @@ async fn should_persist_translated_title_events_when_classify_event_triggers_pip
     .await;
 
     let get_product_service = GetProductServiceImpl::new(&repository);
-    let classify_record =
-        mk_classify_event_record(shop_id, seller_id, shops_product_id, product_id);
+    let domain_record =
+        mk_domain_created_event_record(shop_id, seller_id, shops_product_id, product_id);
 
     let mut mock_service = MockTranslationService::new();
     mock_service
@@ -154,7 +152,7 @@ async fn should_persist_translated_title_events_when_classify_event_triggers_pip
             })
         });
 
-    let event = mk_lambda_event(vec![mk_sqs_message(&classify_record)]);
+    let event = mk_lambda_event(vec![mk_sqs_message(&domain_record)]);
     let result = handler(&mock_service, &get_product_service, &repository, event)
         .await
         .unwrap();
@@ -180,7 +178,7 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
         "Georgian silver tea service",
     ];
 
-    let mut classify_messages = Vec::new();
+    let mut domain_messages = Vec::new();
     for title in &titles {
         let shop_id: common::shop_id::ShopId = Faker.fake();
         let seller_id: common::shop_id::ShopId = Faker.fake();
@@ -198,7 +196,7 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
         )
         .await;
 
-        classify_messages.push(mk_sqs_message(&mk_classify_event_record(
+        domain_messages.push(mk_sqs_message(&mk_domain_created_event_record(
             shop_id,
             seller_id,
             shops_product_id,
@@ -225,7 +223,7 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
             })
         });
 
-    let event = mk_lambda_event(classify_messages);
+    let event = mk_lambda_event(domain_messages);
     let result = handler(&mock_service, &get_product_service, &repository, event)
         .await
         .unwrap();
@@ -236,3 +234,4 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
         result.batch_item_failures
     );
 }
+

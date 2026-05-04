@@ -543,7 +543,7 @@ impl From<ProductEnrichmentEventRecord> for ProductRecordUpdate {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
-    use crate::core::{description::Description, title::Title};
+    use crate::core::title::Title;
     use common::price::domain::{MonetaryAmount, Price};
     use fake::{Dummy, Fake, Faker, RngExt};
 

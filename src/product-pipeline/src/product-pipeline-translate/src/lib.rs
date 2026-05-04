@@ -46,10 +46,10 @@ pub async fn handler(
 
     for (message_id, event_record) in event_records {
         match event_record {
-            ProductEventRecord::Enrichment(ref enrichment_record) => {
+            ProductEventRecord::Domain(ref domain_record) => {
                 let key = ProductKey::new(
-                    enrichment_record.shop_id,
-                    enrichment_record.shops_product_id.clone(),
+                    domain_record.shop_id,
+                    domain_record.shops_product_id.clone(),
                 );
                 key_to_record.insert(key, (message_id, event_record));
             }
@@ -60,7 +60,7 @@ pub async fn handler(
                     shopId = %key.shop_id,
                     shopsProductId = %key.shops_product_id,
                     eventId = %other.event_id(),
-                    "Unexpected non-Enrichment event record type in translate handler."
+                    "Unexpected non-Domain event record type in translate handler."
                 );
             }
         }

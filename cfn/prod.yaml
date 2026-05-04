@@ -3865,7 +3865,7 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - "ENRICHMENT_CLASSIFY_CATEGORY"
+                  - "DOMAIN_CREATED"
       Targets:
         - Id: ProductPipelineTranslateQ
           Arn: !GetAtt ProductPipelineTranslateQ.Arn
