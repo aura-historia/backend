@@ -23,7 +23,7 @@ use product::{
     dynamodb::{product_event_record::ProductEventRecord, repository::ProductDynamoDbRepository},
 };
 use service::ClassificationService;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
 use tracing::{error, info, warn};
 
@@ -37,7 +37,6 @@ pub async fn handler(
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let count = event.payload.records.len();
-    info!(count = count, "Handler invoked.");
 
     let (event_records, mut failed_message_ids) =
         extract_from_dynamodb_stream::<ProductEventRecord>(event.payload.records);
@@ -112,7 +111,7 @@ pub async fn handler(
             match classification_service.classify(&title, embedding).await {
                 Ok(result) => result,
                 Err(err) => {
-                    error!(
+                    warn!(
                         error = %err,
                         messageId = message_id,
                         shopId = %enrichment_record.shop_id,
@@ -175,9 +174,12 @@ pub async fn handler(
 
     let failures = failed_message_ids.len();
     info!(
+        eventType = "batchProcessing",
+        pipelineStage = "productClassification",
+        processed = count,
         successful = count - failures,
         failures = failures,
-        "Handler finished.",
+        "Processed product classification batch."
     );
     let mut sqs_batch_response = SqsBatchResponse::default();
     sqs_batch_response.batch_item_failures = failed_message_ids
@@ -198,6 +200,10 @@ async fn persist_enrichment_events(
 ) {
     for batch in Batch::chunked_from(enrichment_events.into_iter()) {
         let batch: Batch<_, 25> = batch;
+        let records_to_log = batch
+            .iter()
+            .map(|(_, record)| record.clone())
+            .collect::<Vec<_>>();
         let batch_message_ids = batch
             .iter()
             .map(|(message_id, record)| (record.key(), message_id.clone()))
@@ -211,6 +217,12 @@ async fn persist_enrichment_events(
                     output,
                     &mut failures,
                 );
+                let failures = failures.into_iter().collect::<HashSet<_>>();
+                for record in records_to_log {
+                    if !failures.contains(&record.key()) {
+                        log_product_event_write(&record);
+                    }
+                }
                 for key in failures {
                     match batch_message_ids.get(&key) {
                         Some(message_id) => failed_message_ids.push(message_id.clone()),
@@ -224,10 +236,36 @@ async fn persist_enrichment_events(
                 }
             }
             Err(err) => {
-                error!(error = ?err, "Failed entire enrichment event batch.");
+                warn!(error = ?err, "Failed persisting classification events. Marking messages as failed for retry.");
                 failed_message_ids.extend(batch_message_ids.into_values());
             }
         }
+    }
+}
+
+fn log_product_event_write(record: &ProductEventRecord) {
+    match record {
+        ProductEventRecord::Enrichment(record) => info!(
+            eventType = "entityWrite",
+            entityType = "product",
+            writeSource = "productClassification",
+            productId = %record.product_id,
+            shopId = %record.shop_id,
+            shopsProductId = %record.shops_product_id,
+            eventId = %record.event_id,
+            productEventType = ?record.event_type,
+            "Persisted product classification event."
+        ),
+        _ => info!(
+            eventType = "entityWrite",
+            entityType = "product",
+            writeSource = "productClassification",
+            productId = %record.product_id(),
+            shopId = %record.key().shop_id,
+            shopsProductId = %record.key().shops_product_id,
+            eventId = %record.event_id(),
+            "Persisted product event."
+        ),
     }
 }
 

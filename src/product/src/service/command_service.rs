@@ -16,8 +16,8 @@ use common::shop_name::ShopName;
 use shop::core::shop_type::ShopType;
 use shop::service::get_service::GetShopService;
 use shop::service::seller_service::SellerService;
-use std::collections::HashMap;
-use tracing::error;
+use std::collections::{HashMap, HashSet};
+use tracing::{error, info, warn};
 
 #[async_trait]
 #[mockall::automock]
@@ -160,6 +160,7 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
     ) -> Vec<(ProductKey, C)> {
         let mut failures = Vec::new();
         for batch in Batch::<_, 25>::chunked_from(events.into_iter()) {
+            let records_to_log = batch.iter().cloned().collect::<Vec<_>>();
             let product_keys = batch.iter().map(|event| event.key()).collect::<Vec<_>>();
             let res = self
                 .dynamodb_repository
@@ -181,14 +182,20 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
                                 None
                             }
                         });
-                    for failed_product_key in failed_product_keys {
-                        if let Some(cmd) = key_cmds.remove(&failed_product_key) {
-                            failures.push((failed_product_key, cmd));
+                    let failed_product_keys = failed_product_keys.collect::<HashSet<_>>();
+                    for failed_product_key in &failed_product_keys {
+                        if let Some(cmd) = key_cmds.remove(failed_product_key) {
+                            failures.push((failed_product_key.clone(), cmd));
+                        }
+                    }
+                    for record in records_to_log {
+                        if !failed_product_keys.contains(&record.key()) {
+                            log_product_event_write(&record, "productCommandService");
                         }
                     }
                 }
                 Err(err) => {
-                    error!(error = ?err, "Failed writing entire ProductEventRecord-Batch due to SdkError.");
+                    warn!(error = ?err, "Failed writing product event batch. Returning commands for retry.");
                     for product_key in product_keys {
                         if let Some(cmd) = key_cmds.remove(&product_key) {
                             failures.push((product_key, cmd));
@@ -230,7 +237,7 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                     for record in records.items {
                         let key = record.key();
                         if working.remove(&key).is_some() {
-                            error!(
+                            warn!(
                                 shopId = %key.shop_id,
                                 shopsProductId = %key.shops_product_id,
                                 "Product already exists. Cannot create."
@@ -277,7 +284,7 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                     failures.extend(persist_failures.into_iter().map(|(_, cmd)| cmd));
                 }
                 Err(err) => {
-                    error!(err = ?err, "Failed entire BatchGetItem-Operation.");
+                    warn!(error = ?err, "Failed loading product batch before create. Returning commands for retry.");
                     failures.extend(working.into_values());
                 }
             }
@@ -322,7 +329,7 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                     // Remaining items in `working` are products not found in DynamoDB —
                     // `determine_update_events` removes matched keys.
                     for (key, cmd) in &working {
-                        error!(
+                        warn!(
                             shopId = %key.shop_id,
                             shopsProductId = %key.shops_product_id,
                             "Product not found. Cannot update."
@@ -334,7 +341,7 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                     failures.extend(persist_failures);
                 }
                 Err(err) => {
-                    error!(err = ?err, "Failed entire BatchGetItem-Operation.");
+                    warn!(error = ?err, "Failed loading product batch before update. Returning commands for retry.");
                     failures.extend(working);
                 }
             }
@@ -429,13 +436,53 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                     failures.extend(persist_failures.into_iter().map(|(_, cmd)| cmd));
                 }
                 Err(err) => {
-                    error!(err = ?err, "Failed entire BatchGetItem-Operation.");
+                    warn!(error = ?err, "Failed loading product batch before upsert. Returning commands for retry.");
                     failures.extend(working.into_values());
                 }
             }
         }
 
         failures
+    }
+}
+
+fn log_product_event_write(record: &ProductEventRecord, write_source: &str) {
+    match record {
+        ProductEventRecord::Domain(record) => info!(
+            eventType = "entityWrite",
+            entityType = "product",
+            writeSource = write_source,
+            productId = %record.product_id,
+            shopId = %record.shop_id,
+            shopsProductId = %record.shops_product_id,
+            eventId = %record.event_id,
+            productEventType = ?record.event_type,
+            "Persisted product event."
+        ),
+        ProductEventRecord::Enrichment(record) => info!(
+            eventType = "entityWrite",
+            entityType = "product",
+            writeSource = write_source,
+            productId = %record.product_id,
+            shopId = %record.shop_id,
+            shopsProductId = %record.shops_product_id,
+            eventId = %record.event_id,
+            productEventType = ?record.event_type,
+            "Persisted product event."
+        ),
+        ProductEventRecord::Policy(record) => info!(
+            eventType = "policyDecision",
+            entityType = "product",
+            writeSource = write_source,
+            productId = %record.product_id,
+            shopId = %record.shop_id,
+            shopsProductId = %record.shops_product_id,
+            eventId = %record.event_id,
+            productEventType = ?record.event_type,
+            decision = ?record.prohibited_content_decision,
+            reason = ?record.prohibited_content_reason,
+            "Persisted prohibited-content product policy decision."
+        ),
     }
 }
 

@@ -1,5 +1,22 @@
-use tracing::Level;
+use std::time::Duration;
+use tracing::{Level, info};
 use tracing_subscriber::EnvFilter;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LlmInvocationMetrics {
+    pub batch_size: Option<usize>,
+    pub prompt_tokens: Option<u32>,
+    pub completion_tokens: Option<u32>,
+    pub total_tokens: Option<u32>,
+    pub cached_prompt_tokens: Option<u32>,
+    pub reasoning_tokens: Option<u32>,
+    pub output_dimensions: Option<usize>,
+    pub cache_hit: Option<bool>,
+}
+
+fn duration_millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
 
 fn parse_log_level(log_level: &str) -> Option<Level> {
     match log_level.to_ascii_uppercase().as_str() {
@@ -31,6 +48,31 @@ pub fn init_logging() {
         .init();
 
     tracing::debug!(log_level = ?log_level, "Logger initialized.");
+}
+
+pub fn log_llm_invocation(
+    operation: &str,
+    provider: &str,
+    model: &str,
+    latency: Duration,
+    metrics: LlmInvocationMetrics,
+) {
+    info!(
+        eventType = "llmInvocation",
+        llmOperation = operation,
+        llmProvider = provider,
+        llmModel = model,
+        latencyMs = duration_millis(latency),
+        batchSize = metrics.batch_size,
+        promptTokens = metrics.prompt_tokens,
+        completionTokens = metrics.completion_tokens,
+        totalTokens = metrics.total_tokens,
+        cachedPromptTokens = metrics.cached_prompt_tokens,
+        reasoningTokens = metrics.reasoning_tokens,
+        outputDimensions = metrics.output_dimensions,
+        cacheHit = metrics.cache_hit,
+        "Completed LLM invocation."
+    );
 }
 
 /// Like [`init_logging`] but accepts additional [`EnvFilter`] directives that
@@ -85,5 +127,10 @@ mod tests {
     #[test]
     fn should_use_info_when_invalid_log_level_for_logging() {
         assert_eq!(resolve_log_level(Some("INVALID")), Level::INFO);
+    }
+
+    #[test]
+    fn should_convert_duration_to_millis_for_logging() {
+        assert_eq!(duration_millis(Duration::from_millis(42)), 42);
     }
 }

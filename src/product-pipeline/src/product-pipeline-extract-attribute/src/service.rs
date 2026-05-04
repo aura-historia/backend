@@ -1,6 +1,8 @@
 use crate::types::ExtractedAttributes;
 use async_trait::async_trait;
+use common::logging::{LlmInvocationMetrics, log_llm_invocation};
 use llm::chat::ChatMessage;
+use std::time::Instant;
 use thiserror::Error;
 use tracing::{debug, error};
 
@@ -86,16 +88,45 @@ impl ExtractionServiceImpl {
             "Requesting attribute extraction from Gemini."
         );
 
+        let started_at = Instant::now();
         let response = self
             .llm
             .chat(&[ChatMessage::user().content(&user_message).build()])
             .await?;
+        log_llm_invocation(
+            "productAttributeExtraction",
+            "google",
+            "gemini-2.5-flash-lite",
+            started_at.elapsed(),
+            llm_metrics(response.usage(), Some(texts.len())),
+        );
 
         let response_text = response.text().ok_or_else(|| {
             ExtractionError::InvalidResponse("Empty response from LLM".to_string())
         })?;
 
         parse_extraction_response(&response_text, texts.len())
+    }
+}
+
+fn llm_metrics(usage: Option<llm::chat::Usage>, batch_size: Option<usize>) -> LlmInvocationMetrics {
+    let Some(usage) = usage else {
+        return LlmInvocationMetrics {
+            batch_size,
+            ..Default::default()
+        };
+    };
+
+    LlmInvocationMetrics {
+        batch_size,
+        prompt_tokens: Some(usage.prompt_tokens),
+        completion_tokens: Some(usage.completion_tokens),
+        total_tokens: Some(usage.total_tokens),
+        cached_prompt_tokens: usage.prompt_tokens_details.and_then(|d| d.cached_tokens),
+        reasoning_tokens: usage
+            .completion_tokens_details
+            .and_then(|d| d.reasoning_tokens),
+        ..Default::default()
     }
 }
 

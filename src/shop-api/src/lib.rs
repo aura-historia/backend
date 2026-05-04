@@ -23,6 +23,7 @@ pub mod search;
         body = &event.payload.body.as_deref().unwrap_or("NULL"),
         ip = &event.payload.request_context.http.source_ip.as_deref().unwrap_or("NULL"),
         userAgent = &event.payload.request_context.http.user_agent.as_deref().unwrap_or("NULL"),
+        userId = tracing::field::Empty,
     )
 )]
 pub async fn handler(

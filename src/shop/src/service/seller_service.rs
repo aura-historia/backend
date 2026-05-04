@@ -7,8 +7,10 @@ use crate::service::command::CreateShopCommand;
 use crate::service::command_service::CommandShopService;
 use crate::service::get_service::GetShopService;
 use crate::service::query_service::QueryShopService;
+use common::logging::{LlmInvocationMetrics, log_llm_invocation};
 use common::{query::text_query::TextQuery, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use llm::{LLMProvider, chat::ChatMessage};
+use std::time::Instant;
 use time::OffsetDateTime;
 use tracing::info;
 
@@ -125,10 +127,16 @@ impl<'a> SellerServiceImpl<'a> {
         );
         let message = ChatMessage::user().content(prompt).build();
 
-        let response = self
-            .llm
-            .chat(&[message])
-            .await?
+        let started_at = Instant::now();
+        let response = self.llm.chat(&[message]).await?;
+        log_llm_invocation(
+            "sellerShopDisambiguation",
+            "configured",
+            "configured",
+            started_at.elapsed(),
+            llm_metrics(response.usage()),
+        );
+        let response = response
             .text()
             .ok_or(SellerServiceError::LLMNoTextResponse)?;
 
@@ -140,6 +148,24 @@ impl<'a> SellerServiceImpl<'a> {
             return Ok(Some(shop.clone()));
         }
         Ok(None)
+    }
+}
+
+fn llm_metrics(usage: Option<llm::chat::Usage>) -> LlmInvocationMetrics {
+    let Some(usage) = usage else {
+        return LlmInvocationMetrics::default();
+    };
+
+    LlmInvocationMetrics {
+        batch_size: Some(1),
+        prompt_tokens: Some(usage.prompt_tokens),
+        completion_tokens: Some(usage.completion_tokens),
+        total_tokens: Some(usage.total_tokens),
+        cached_prompt_tokens: usage.prompt_tokens_details.and_then(|d| d.cached_tokens),
+        reasoning_tokens: usage
+            .completion_tokens_details
+            .and_then(|d| d.reasoning_tokens),
+        ..Default::default()
     }
 }
 

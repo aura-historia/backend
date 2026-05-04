@@ -22,7 +22,7 @@ use product::{
     service::get_service::GetProductService,
 };
 use service::TranslationService;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
 use tracing::{error, info, warn};
 
@@ -37,7 +37,6 @@ pub async fn handler(
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let count = event.payload.records.len();
-    info!(count = count, "Handler invoked.");
 
     let (event_records, mut failed_message_ids) =
         extract_from_dynamodb_stream::<ProductEventRecord>(event.payload.records);
@@ -68,7 +67,14 @@ pub async fn handler(
 
     if key_to_record.is_empty() {
         let failures = failed_message_ids.len();
-        info!(successful = 0, failures = failures, "Handler finished.");
+        info!(
+            eventType = "batchProcessing",
+            pipelineStage = "productTranslation",
+            processed = count,
+            successful = 0,
+            failures = failures,
+            "Processed product translation batch."
+        );
         let mut sqs_batch_response = SqsBatchResponse::default();
         sqs_batch_response.batch_item_failures = failed_message_ids
             .into_iter()
@@ -81,10 +87,17 @@ pub async fn handler(
     let products = match get_product_service.find_products(keys).await {
         Ok(ps) => ps,
         Err(err) => {
-            error!(error = ?err, "Failed batch-loading products from DynamoDB — marking all messages as failed.");
+            warn!(error = ?err, "Failed loading products for translation. Marking messages as failed for retry.");
             failed_message_ids.extend(key_to_record.into_values().map(|(msg_id, _)| msg_id));
             let failures = failed_message_ids.len();
-            info!(successful = 0, failures = failures, "Handler finished.");
+            info!(
+                eventType = "batchProcessing",
+                pipelineStage = "productTranslation",
+                processed = count,
+                successful = 0,
+                failures = failures,
+                "Processed product translation batch."
+            );
             let mut sqs_batch_response = SqsBatchResponse::default();
             sqs_batch_response.batch_item_failures = failed_message_ids
                 .into_iter()
@@ -153,7 +166,14 @@ pub async fn handler(
 
     if valid_inputs.is_empty() {
         let failures = failed_message_ids.len();
-        info!(successful = 0, failures = failures, "Handler finished.");
+        info!(
+            eventType = "batchProcessing",
+            pipelineStage = "productTranslation",
+            processed = count,
+            successful = 0,
+            failures = failures,
+            "Processed product translation batch."
+        );
         let mut sqs_batch_response = SqsBatchResponse::default();
         sqs_batch_response.batch_item_failures = failed_message_ids
             .into_iter()
@@ -201,7 +221,7 @@ pub async fn handler(
         let translations = match maybe_translations {
             Some(t) => t,
             None => {
-                error!(
+                warn!(
                     messageId = input.message_id,
                     shopId = %input.key.shop_id,
                     shopsProductId = %input.key.shops_product_id,
@@ -246,9 +266,12 @@ pub async fn handler(
 
     let failures = failed_message_ids.len();
     info!(
+        eventType = "batchProcessing",
+        pipelineStage = "productTranslation",
+        processed = count,
         successful = count - failures,
         failures = failures,
-        "Handler finished.",
+        "Processed product translation batch."
     );
 
     let mut sqs_batch_response = SqsBatchResponse::default();
@@ -272,6 +295,10 @@ async fn persist_events(
 ) {
     for batch in Batch::chunked_from(events.into_iter()) {
         let batch: Batch<_, 25> = batch;
+        let records_to_log = batch
+            .iter()
+            .map(|(_, record)| record.clone())
+            .collect::<Vec<_>>();
         let batch_message_ids = batch
             .iter()
             .map(|(message_id, record)| (record.key(), message_id.clone()))
@@ -285,6 +312,12 @@ async fn persist_events(
                     output,
                     &mut failures,
                 );
+                let failures = failures.into_iter().collect::<HashSet<_>>();
+                for record in records_to_log {
+                    if !failures.contains(&record.key()) {
+                        log_product_event_write(&record);
+                    }
+                }
                 for key in failures {
                     match batch_message_ids.get(&key) {
                         Some(message_id) => failed_message_ids.push(message_id.clone()),
@@ -298,9 +331,26 @@ async fn persist_events(
                 }
             }
             Err(err) => {
-                error!(error = ?err, "Failed entire event batch.");
+                warn!(error = ?err, "Failed persisting translation events. Marking messages as failed for retry.");
                 failed_message_ids.extend(batch_message_ids.into_values());
             }
         }
+    }
+}
+
+fn log_product_event_write(record: &ProductEventRecord) {
+    match record {
+        ProductEventRecord::Enrichment(record) => info!(
+            eventType = "entityWrite",
+            entityType = "product",
+            writeSource = "productTranslation",
+            productId = %record.product_id,
+            shopId = %record.shop_id,
+            shopsProductId = %record.shops_product_id,
+            eventId = %record.event_id,
+            productEventType = ?record.event_type,
+            "Persisted product translation event."
+        ),
+        _ => {}
     }
 }
