@@ -582,11 +582,6 @@ async fn should_respond_200_and_respect_language_query_param(
             text: "German description".to_string(),
             language: LanguageRecord::De,
         });
-        product_record.description_de = Some("German description".to_string());
-        product_record.description_en = Some("English description".to_string());
-        product_record.description_fr = Some("French description".to_string());
-        product_record.description_es = Some("Spanish description".to_string());
-        product_record.description_it = Some("Italian description".to_string());
     }
     let put_res = product_repository
         .put_product_records(product_records.clone().try_into().unwrap())

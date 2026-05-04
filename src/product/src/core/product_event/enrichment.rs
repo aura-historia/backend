@@ -1,6 +1,6 @@
 use crate::core::{
-    authenticity::Authenticity, condition::Condition, description::Description,
-    provenance::Provenance, restoration::Restoration, title::Title,
+    authenticity::Authenticity, condition::Condition, provenance::Provenance,
+    restoration::Restoration, title::Title,
 };
 use common::{
     category_key::CategoryId, has_key::HasKey, language::domain::Language, period_key::PeriodId,
@@ -12,7 +12,6 @@ use common::{
 #[allow(clippy::large_enum_variant)]
 pub enum ProductEnrichmentEventPayload {
     TranslatedTitle(TranslationProductEnrichmentEventPayload<Title>),
-    TranslatedDescription(TranslationProductEnrichmentEventPayload<Description>),
     Embedded(EmbeddedProductEnrichmentEventPayload),
     ExtractedAttributes(ExtractedAttributesProductEnrichmentEventPayload),
     ClassifiedCategory(ClassifiedCategoryProductEnrichmentEventPayload),
@@ -79,7 +78,6 @@ impl HasKey for ProductEnrichmentEventPayload {
     fn key(&self) -> Self::Key {
         match self {
             ProductEnrichmentEventPayload::TranslatedTitle(payload) => payload.key(),
-            ProductEnrichmentEventPayload::TranslatedDescription(payload) => payload.key(),
             ProductEnrichmentEventPayload::Embedded(payload) => payload.key(),
             ProductEnrichmentEventPayload::ExtractedAttributes(payload) => payload.key(),
             ProductEnrichmentEventPayload::ClassifiedCategory(payload) => payload.key(),
@@ -135,15 +133,6 @@ impl ProductEnrichmentEventPayload {
     pub fn as_translated_title(&self) -> Option<&TranslationProductEnrichmentEventPayload<Title>> {
         match self {
             ProductEnrichmentEventPayload::TranslatedTitle(payload) => Some(payload),
-            _ => None,
-        }
-    }
-
-    pub fn as_translated_description(
-        &self,
-    ) -> Option<&TranslationProductEnrichmentEventPayload<Description>> {
-        match self {
-            ProductEnrichmentEventPayload::TranslatedDescription(payload) => Some(payload),
             _ => None,
         }
     }

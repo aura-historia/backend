@@ -128,34 +128,6 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     timestamp: event.timestamp,
                 }
             }
-            ProductEnrichmentEventPayload::TranslatedDescription(payload) => {
-                ProductEnrichmentEventRecord {
-                    pk: mk_pk(&payload.shop_id, &payload.shops_product_id),
-                    sk: mk_sk(&event.event_id),
-                    product_id: event.aggregate_id,
-                    event_id: event.event_id,
-                    event_type: ProductEnrichmentEventTypeRecord::EnrichmentTranslatedDescription,
-                    event_type_schema_version: 0,
-                    shop_id: payload.shop_id,
-                    seller_id: payload.seller_id,
-                    shops_product_id: payload.shops_product_id,
-                    category_id: None,
-                    period_id: None,
-                    source_language: Some(payload.source_language.into()),
-                    target_language: Some(payload.target_language.into()),
-                    target: Some(payload.target.into()),
-                    embedding: None,
-                    native_title: None,
-                    origin_year_min: None,
-                    origin_year: None,
-                    origin_year_max: None,
-                    authenticity: None,
-                    condition: None,
-                    provenance: None,
-                    restoration: None,
-                    timestamp: event.timestamp,
-                }
-            }
             ProductEnrichmentEventPayload::Embedded(payload) => ProductEnrichmentEventRecord {
                 pk: mk_pk(&payload.shop_id, &payload.shops_product_id),
                 sk: mk_sk(&event.event_id),
@@ -281,39 +253,6 @@ impl TryFrom<ProductEnrichmentEventRecord> for ProductEnrichmentEvent {
                     event_id: record.event_id,
                     timestamp: record.timestamp,
                     payload: ProductEnrichmentEventPayload::TranslatedTitle(
-                        TranslationProductEnrichmentEventPayload {
-                            shop_id: record.shop_id,
-                            seller_id: record.seller_id,
-                            shops_product_id: record.shops_product_id,
-                            source_language: record
-                                .source_language
-                                .ok_or(MissingPersistenceField::new(
-                                    field::field!(source_language@ProductEnrichmentEventRecord),
-                                ))?
-                                .into(),
-                            target_language: record
-                                .target_language
-                                .ok_or(MissingPersistenceField::new(
-                                    field::field!(target_language@ProductEnrichmentEventRecord),
-                                ))?
-                                .into(),
-                            target: record
-                                .target
-                                .ok_or(MissingPersistenceField::new(
-                                    field::field!(target@ProductEnrichmentEventRecord),
-                                ))?
-                                .into(),
-                        },
-                    ),
-                };
-                Ok(event)
-            }
-            ProductEnrichmentEventTypeRecord::EnrichmentTranslatedDescription => {
-                let event = Event {
-                    aggregate_id: record.product_id,
-                    event_id: record.event_id,
-                    timestamp: record.timestamp,
-                    payload: ProductEnrichmentEventPayload::TranslatedDescription(
                         TranslationProductEnrichmentEventPayload {
                             shop_id: record.shop_id,
                             seller_id: record.seller_id,

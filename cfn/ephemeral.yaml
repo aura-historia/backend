@@ -670,6 +670,74 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductPipelineTranslateDlq.Arn
         maxReceiveCount: 3
       VisibilityTimeout: 300
+  ProductPipelineTranslateRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "product-pipeline-translate-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ProductPipelineTranslateQ.Arn
+  ProductPipelineTranslateLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "product-pipeline-translate-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ProductPipelineTranslateRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-pipeline-translate-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          GEMINI_API_KEY: "test-key"
+          STAGE: "ephemeral"
+  ProductPipelineTranslateMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ProductPipelineTranslateLambda
+      EventSourceArn: !GetAtt ProductPipelineTranslateQ.Arn
+      Enabled: true
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
 
   ProductPipelineEmbedTextDlq:
     Type: AWS::SQS::Queue
@@ -1172,7 +1240,7 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - "DOMAIN_CREATED"
+                  - "ENRICHMENT_CLASSIFY_CATEGORY"
       Targets:
         - Id: ProductPipelineTranslateQ
           Arn: !GetAtt ProductPipelineTranslateQ.Arn

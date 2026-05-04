@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProductEnrichmentEventTypeRecord {
     EnrichmentTranslatedTitle,
-    EnrichmentTranslatedDescription,
     EnrichmentEmbedded,
     EnrichmentExtractedAttributes,
     EnrichmentClassifyCategory,
@@ -18,9 +17,6 @@ impl From<&ProductEnrichmentEventPayload> for ProductEnrichmentEventTypeRecord {
         match domain {
             ProductEnrichmentEventPayload::TranslatedTitle(_) => {
                 ProductEnrichmentEventTypeRecord::EnrichmentTranslatedTitle
-            }
-            ProductEnrichmentEventPayload::TranslatedDescription(_) => {
-                ProductEnrichmentEventTypeRecord::EnrichmentTranslatedDescription
             }
             ProductEnrichmentEventPayload::Embedded(_) => {
                 ProductEnrichmentEventTypeRecord::EnrichmentEmbedded

@@ -2002,11 +2002,6 @@ async fn should_respond_200_and_respect_language_query_param(
     document.title_fr = Some("French title".to_string());
     document.title_es = Some("Spanish title".to_string());
     document.title_it = Some("Italian title".to_string());
-    document.description_de = Some("German description".to_string());
-    document.description_en = Some("English description".to_string());
-    document.description_fr = Some("French description".to_string());
-    document.description_es = Some("Spanish description".to_string());
-    document.description_it = Some("Italian description".to_string());
     let create_res = opensearch_repository
         .create_product_documents(vec![document])
         .await

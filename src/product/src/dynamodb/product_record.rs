@@ -111,16 +111,6 @@ pub struct ProductRecord {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_native: Option<TextRecord>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_de: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_en: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_fr: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_es: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_it: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_native: Option<PriceRecord>,
@@ -360,23 +350,6 @@ impl From<ProductRecord> for Product {
             other_title.insert(Language::It, title_it.into());
         }
 
-        let mut other_description = HashMap::with_capacity(Language::COUNT);
-        if let Some(description_en) = record.description_en {
-            other_description.insert(Language::En, description_en.into());
-        }
-        if let Some(description_de) = record.description_de {
-            other_description.insert(Language::De, description_de.into());
-        }
-        if let Some(description_fr) = record.description_fr {
-            other_description.insert(Language::Fr, description_fr.into());
-        }
-        if let Some(description_es) = record.description_es {
-            other_description.insert(Language::Es, description_es.into());
-        }
-        if let Some(description_it) = record.description_it {
-            other_description.insert(Language::It, description_it.into());
-        }
-
         let mut other_price = HashMap::with_capacity(Currency::COUNT);
         if let Some(price_eur) = record.price_eur {
             other_price.insert(Currency::Eur, price_eur.into());
@@ -578,7 +551,6 @@ impl From<ProductRecord> for Product {
             native_description: record.description_native.map(|text_record| {
                 Localized::new(text_record.language.into(), text_record.text.into())
             }),
-            other_description,
             native_price: record.price_native.map(Price::from),
             other_price,
             native_price_estimate_min: record.price_estimate_min_native.map(Price::from),
@@ -672,11 +644,6 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
             title_es: event_record.title_es,
             title_it: event_record.title_it,
             description_native: event_record.description_native,
-            description_de: event_record.description_de,
-            description_en: event_record.description_en,
-            description_fr: event_record.description_fr,
-            description_es: event_record.description_es,
-            description_it: event_record.description_it,
             price_native: event_record.new_price_native,
             price_eur: event_record.new_price_eur,
             price_usd: event_record.new_price_usd,
@@ -838,11 +805,6 @@ mod faker {
                     config.fake_with_rng::<Description, _>(rng).to_string(),
                     config.fake_with_rng(rng),
                 )),
-                description_de: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
-                description_en: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
-                description_fr: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
-                description_es: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
-                description_it: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
                 price_native,
                 price_eur: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_usd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),

@@ -257,26 +257,6 @@
                 "analyzer": "italian",
                 "search_analyzer": "italian_with_synonyms"
             },
-            "descriptionDe": {
-                "type": "text",
-                "analyzer": "german"
-            },
-            "descriptionEn": {
-                "type": "text",
-                "analyzer": "english"
-            },
-            "descriptionFr": {
-                "type": "text",
-                "analyzer": "french"
-            },
-            "descriptionEs": {
-                "type": "text",
-                "analyzer": "spanish"
-            },
-            "descriptionIt": {
-                "type": "text",
-                "analyzer": "italian"
-            },
             "priceEur": {
                 "type": "unsigned_long"
             },

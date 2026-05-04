@@ -97,16 +97,6 @@ pub struct ProductDomainEventRecord {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_native: Option<TextRecord>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_de: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_en: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_fr: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_es: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description_it: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub new_price_native: Option<PriceRecord>,
@@ -387,55 +377,6 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                         _ => (None, None, None, None, None),
                     };
 
-                let (
-                    description_de,
-                    description_en,
-                    description_fr,
-                    description_es,
-                    description_it,
-                ) = match payload.native_description {
-                    Some(ref native_description) => match native_description.localization {
-                        Language::De => (
-                            Some(native_description.payload.to_string()),
-                            None,
-                            None,
-                            None,
-                            None,
-                        ),
-                        Language::En => (
-                            None,
-                            Some(native_description.payload.to_string()),
-                            None,
-                            None,
-                            None,
-                        ),
-                        Language::Fr => (
-                            None,
-                            None,
-                            Some(native_description.payload.to_string()),
-                            None,
-                            None,
-                        ),
-                        Language::Es => (
-                            None,
-                            None,
-                            None,
-                            Some(native_description.payload.to_string()),
-                            None,
-                        ),
-                        Language::It => (
-                            None,
-                            None,
-                            None,
-                            None,
-                            Some(native_description.payload.to_string()),
-                        ),
-                        // Ingestion-only languages have no dedicated description field
-                        _ => (None, None, None, None, None),
-                    },
-                    None => (None, None, None, None, None),
-                };
-
                 ProductDomainEventRecord {
                     pk,
                     sk,
@@ -485,11 +426,6 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                     title_es,
                     title_it,
                     description_native: payload.native_description.map(TextRecord::from),
-                    description_de,
-                    description_en,
-                    description_fr,
-                    description_es,
-                    description_it,
                     new_price_native: payload.native_price.map(PriceRecord::from),
                     new_price_eur: payload
                         .other_price
@@ -1213,11 +1149,6 @@ fn mk_state_event_record(
         title_es: None,
         title_it: None,
         description_native: None,
-        description_de: None,
-        description_en: None,
-        description_fr: None,
-        description_es: None,
-        description_it: None,
         new_price_native: None,
         new_price_eur: None,
         new_price_usd: None,
@@ -1355,11 +1286,6 @@ fn mk_price_change_event_record(
         title_es: None,
         title_it: None,
         description_native: None,
-        description_de: None,
-        description_en: None,
-        description_fr: None,
-        description_es: None,
-        description_it: None,
         new_price_native: payload.new_native_price.map(PriceRecord::from),
         new_price_eur: payload
             .new_other_price
@@ -1640,11 +1566,6 @@ fn mk_empty_event_record(
         title_es: None,
         title_it: None,
         description_native: None,
-        description_de: None,
-        description_en: None,
-        description_fr: None,
-        description_es: None,
-        description_it: None,
         new_price_native: None,
         new_price_eur: None,
         new_price_usd: None,

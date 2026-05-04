@@ -1246,13 +1246,7 @@ fn base_product_document() -> ProductDocument {
         title_fr: Some("Cabinet renaissance".to_string()),
         title_es: Some("Armario renacentista".to_string()),
         title_it: Some("Cabinet rinascimentale".to_string()),
-        description_de: Some("Großer barocker Schrank aus Nussbaum".to_string()),
-        description_en: Some(
-            "Large renaissance cabinet with documented provenance and restored details".to_string(),
         ),
-        description_fr: Some("Grand cabinet avec provenance documentée".to_string()),
-        description_es: Some("Gran armario con procedencia documentada".to_string()),
-        description_it: Some("Grande cabinet con provenienza documentata".to_string()),
         price_eur: Some(150),
         price_usd: None,
         price_gbp: None,
@@ -1436,34 +1430,10 @@ fn silver_tea_set_product_document() -> ProductDocument {
         title_fr: Some("Service argent sterling victorien Londres 1872".to_string()),
         title_es: Some("Servicio plata esterlina victoriano Londres 1872".to_string()),
         title_it: Some("Servizio argento sterling vittoriano Londra 1872".to_string()),
-        description_de: Some(
-            "Sechsteiliges Sterling-Silber-Teeservice von Goldschmied George Richards, \
-             London 1872. Bestehend aus gravierter Teekanne, Heißwasserkrug, Sahnekanne, \
-             Zuckerdose und Präsentationstablett. Vollständige Londoner Punzierung."
-                .to_string(),
         ),
-        description_en: Some(
-            "Superb six-piece sterling silver tea service by London silversmith \
-             George Richards, hallmarked 1872. Comprising engraved teapot, hot water jug, \
-             cream jug, sugar bowl with tongs, and presentation tray. Complete London hallmarks."
-                .to_string(),
         ),
-        description_fr: Some(
-            "Superbe service à thé en argent sterling par l'orfèvre londonien George Richards, \
-             poinçonné 1872. Comprenant une théière gravée, pot à eau chaude, pot à crème \
-             et sucrier. Poinçons londoniens complets."
-                .to_string(),
         ),
-        description_es: Some(
-            "Soberbio servicio de té en plata esterlina del platero londinense George Richards, \
-             punzonado 1872. Con tetera grabada, jarro de agua caliente, lechera y azucarera."
-                .to_string(),
         ),
-        description_it: Some(
-            "Superbo servizio da tè in argento sterling dell'orefice londinese George Richards, \
-             punzonato 1872. Comprende teiera incisa, bricco per acqua calda, lattiera e \
-             zuccheriera."
-                .to_string(),
         ),
         price_eur: None,
         price_usd: None,
@@ -1655,39 +1625,6 @@ fn ming_vase_product_document() -> ProductDocument {
         title_fr: Some("Vase Ming porcelaine bleu blanc Jiajing dragon nuages".to_string()),
         title_es: Some("Vaso Ming porcelana azul blanco Jiajing dragón nubes".to_string()),
         title_it: Some("Vaso Ming porcellana bianco blu Jiajing drago nuvole".to_string()),
-        description_de: Some(
-            "Außergewöhnliche blau-weiße Porzellanvase aus der Ming-Dynastie, \
-             Jiajing-Periode (1521–1567). Mit fünfklauigem Kaiserdrachen durch stilisierte \
-             Wolken. Sechszeichen-Jiajing-Regierungszeichen am Boden. Shanghais Auktionshaus \
-             1988, mit Exportzertifikat."
-                .to_string(),
-        ),
-        description_en: Some(
-            "Exceptional Ming dynasty blue-and-white porcelain vase from the Jiajing period \
-             (1521–1567). The ovoid body is painted with a five-clawed imperial dragon chasing \
-             a flaming pearl through stylised clouds. Six-character Jiajing reign mark on base. \
-             Provenance: Shanghai auction house, 1988, export certificate included."
-                .to_string(),
-        ),
-        description_fr: Some(
-            "Exceptionnel vase en porcelaine bleu et blanc de la période Jiajing de la \
-             dynastie Ming (1521–1567). La panse ovoïde est ornée d'un dragon impérial à cinq \
-             griffes courant dans des nuages stylisés. Marque de règne Jiajing à six caractères \
-             au fond."
-                .to_string(),
-        ),
-        description_es: Some(
-            "Excepcional vaso de porcelana azul y blanco del período Jiajing de la \
-             dinastía Ming (1521–1567). El cuerpo ovoide está pintado con un dragón imperial \
-             de cinco garras persiguiendo una perla llameante entre nubes estilizadas."
-                .to_string(),
-        ),
-        description_it: Some(
-            "Eccezionale vaso in porcellana bianco-blu del periodo Jiajing della \
-             dinastia Ming (1521–1567). Il corpo ovoide è dipinto con un drago imperiale a \
-             cinque artigli tra nuvole stilizzate."
-                .to_string(),
-        ),
         price_eur: Some(12_000),
         price_usd: None,
         price_gbp: None,
@@ -1872,38 +1809,10 @@ fn louis_xv_fauteuil_product_document() -> ProductDocument {
         title_fr: Some("Louis XV fauteuil noyer Aubusson tapisserie Rococo 1750".to_string()),
         title_es: Some("Luis XV fauteuil nogal Aubusson tapicería Rococo 1750".to_string()),
         title_it: Some("Luigi XV fauteuil noce Aubusson tappezzeria Rococo 1750".to_string()),
-        description_de: Some(
-            "Eleganter Nussbaum-Fauteuil aus der Ludwig-XV-Periode mit Cabriole-Beinen, \
-             um 1750. Sitzgestell und Rücken mit Blumen- und Muschelmotiven im Rokoko-Stil \
-             geschnitzt. Mit originaler Aubusson-Tapisserie, die Blumensträuße auf \
-             cremefarbenem Grund zeigt."
-                .to_string(),
         ),
-        description_en: Some(
-            "Elegant Louis XV period carved walnut fauteuil with cabriole legs, circa 1750. \
-             The serpentine seat rail and shaped back are carved with floral and shell motifs \
-             in the Rococo style. Upholstered in original Aubusson tapestry depicting floral \
-             bouquets on a cream ground. Stampmaker's mark on rear seat rail."
-                .to_string(),
         ),
-        description_fr: Some(
-            "Élégant fauteuil en noyer sculpté de la période Louis XV aux pieds cambrés, \
-             vers 1750. La ceinture serpentine et le dossier sont sculptés de motifs floraux \
-             et de coquillages typiques du Rococo. Tapissé de tapisserie Aubusson d'origine \
-             représentant des bouquets de fleurs sur fond crème."
-                .to_string(),
         ),
-        description_es: Some(
-            "Elegante fauteuil en nogal tallado del período Luis XV con patas en cabriola, \
-             hacia 1750. La ceintura serpentina y el respaldo tallados con motivos florales y \
-             conchas del estilo Rococó. Tapizado en tapicería Aubusson original."
-                .to_string(),
         ),
-        description_it: Some(
-            "Elegante fauteuil in noce intagliato del periodo Luigi XV con gambe a cabriole, \
-             circa 1750. Stile Rococò evidente nelle decorazioni floreali e a conchiglia. \
-             Tappezzeria Aubusson originale con motivi floreali su fondo crema."
-                .to_string(),
         ),
         price_eur: Some(4_500),
         price_usd: None,

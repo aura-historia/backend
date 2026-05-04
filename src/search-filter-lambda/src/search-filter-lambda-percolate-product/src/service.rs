@@ -159,7 +159,6 @@ impl<'a> ProductMatcherServiceImpl<'a> {
                 native_title: created_payload.native_title,
                 other_title: Default::default(),
                 native_description: created_payload.native_description,
-                other_description: Default::default(),
                 native_price: created_payload.native_price,
                 other_price: created_payload.other_price,
                 native_price_estimate_min: created_payload.native_price_estimate_min,
