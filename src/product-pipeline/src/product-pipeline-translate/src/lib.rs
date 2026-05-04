@@ -339,8 +339,8 @@ async fn persist_events(
 }
 
 fn log_product_event_write(record: &ProductEventRecord) {
-    match record {
-        ProductEventRecord::Enrichment(record) => info!(
+    if let ProductEventRecord::Enrichment(record) = record {
+        info!(
             eventType = "entityWrite",
             entityType = "product",
             writeSource = "productTranslation",
@@ -350,7 +350,6 @@ fn log_product_event_write(record: &ProductEventRecord) {
             eventId = %record.event_id,
             productEventType = ?record.event_type,
             "Persisted product translation event."
-        ),
-        _ => {}
+        );
     }
 }
