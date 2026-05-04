@@ -20,7 +20,7 @@ consumed by a Lambda function.
 | `SearchFilterPercolateProductQ` | SQS + Lambda | Matches products against saved search filters, notifies users |
 | `ProductPipelineTranslateQ` | SQS + EC2 ASG | Translates product titles and descriptions (ML, GPU) |
 | `ProductPipelineEmbedTextQ` | SQS + Lambda | Creates vector embeddings via Gemini Embedding API |
-| `ProductPipelineExtractAttributeQ` | SQS + EC2 ASG | Extracts product attributes (year, condition, …) (ML, GPU) |
+| `ProductPipelineExtractAttributeQ` | SQS + Lambda | Extracts product attributes (year, condition, …) via Gemini |
 | `ProductPipelineClassifyQ` | SQS + Lambda | Classifies products into categories and periods via Gemini |
 | `ShopOpenSearchIndexQ` | SQS + Lambda | Indexes shop records in OpenSearch |
 | `SearchFilterOpenSearchSyncQ` | SQS + Lambda | Syncs search filters to OpenSearch percolation queries |
@@ -54,14 +54,14 @@ flowchart TD
     %% Enrichment pipeline
     BUS -->|"DOMAIN_CREATED (INSERT)"| Translate["ProductPipelineTranslateQ\n→ EC2 ASG (GPU)\n(translate title & description)"]
     BUS -->|"DOMAIN_CREATED (INSERT)"| EmbedText["ProductPipelineEmbedTextQ\n→ Lambda\n(vector embedding via Gemini)"]
-    BUS -->|"ENRICHMENT_EMBEDDED (INSERT)"| Extract["ProductPipelineExtractAttributeQ\n→ EC2 ASG (GPU)\n(extract attributes)"]
     BUS -->|"ENRICHMENT_EMBEDDED (INSERT)"| Classify["ProductPipelineClassifyQ\n→ Lambda\n(classify category & period via Gemini)"]
+    Classify -->|"ENRICHMENT_CLASSIFY_CATEGORY (INSERT)"| Extract["ProductPipelineExtractAttributeQ\n→ Lambda\n(extract attributes via Gemini)"]
 
     %% Enrichment pipeline writes back to DynamoDB
     Translate -->|"write ENRICHMENT_TRANSLATED_TITLE\n/ ENRICHMENT_TRANSLATED_DESCRIPTION"| DB
     EmbedText -->|"write ENRICHMENT_EMBEDDED"| DB
-    Extract -->|"write ENRICHMENT_EXTRACTED_ATTRIBUTES"| DB
     Classify -->|"write ENRICHMENT_CLASSIFY_CATEGORY\n/ ENRICHMENT_CLASSIFY_PERIOD"| DB
+    Extract -->|"write ENRICHMENT_EXTRACTED_ATTRIBUTES"| DB
 
     %% Shop & search filter sync
     BUS -->|"shop#details (INSERT/MODIFY)"| ShopOS["ShopOpenSearchIndexQ\n→ Lambda\n(index shop in OpenSearch)"]
@@ -71,7 +71,7 @@ flowchart TD
     BUS -->|"user#notification#* + external=true (INSERT)"| SendNotif["NotificationSendQ\n→ Lambda\n(send email via SES)"]
 
     %% Scheduled
-    SCHED1["Scheduler (every 15 min)"] --> ScaleCtrl["ProductPipelineScaleControlLambda\n(scale Translate & ExtractAttribute ASGs)"]
+    SCHED1["Scheduler (every 15 min)"] --> ScaleCtrl["ProductPipelineScaleControlLambda\n(scale Translate ASG)"]
     SCHED2["Scheduler (every 12 h)"] --> FxRate["FxRateSyncLambda\n(update FX rates in DynamoDB)"]
 ```
 
@@ -103,9 +103,9 @@ stateDiagram-v2
     DOMAIN_CREATED --> ENRICHMENT_TRANSLATED_DESCRIPTION
     DOMAIN_CREATED --> ENRICHMENT_EMBEDDED
 
-    ENRICHMENT_EMBEDDED --> ENRICHMENT_EXTRACTED_ATTRIBUTES
     ENRICHMENT_EMBEDDED --> ENRICHMENT_CLASSIFY_CATEGORY
     ENRICHMENT_EMBEDDED --> ENRICHMENT_CLASSIFY_PERIOD
+    ENRICHMENT_CLASSIFY_CATEGORY --> ENRICHMENT_EXTRACTED_ATTRIBUTES
 ```
 
 ---

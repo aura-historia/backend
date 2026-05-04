@@ -5878,6 +5878,102 @@ async fn should_classify_product_when_embedded_text_event_triggers_pipeline() {
 }
 */
 
+// ─── Product Pipeline Extract Attribute (Lambda) ─────────────────────────────
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_extract_attributes_when_classify_category_event_triggers_pipeline() {
+    let stack = get_cfn_output();
+    let shop = prepare_test_shop().await;
+    let repository = ProductDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &stack.dynamodb_table_1_name,
+    );
+
+    // 1. Create product via command service (triggers DOMAIN_CREATED event)
+    let mut create_cmd: CreateProductCommand = Faker.fake();
+    create_cmd.shop_id = shop.shop_id;
+
+    create_products(vec![create_cmd.clone()]).await;
+
+    // 2. Wait for product to be materialized in DynamoDB.
+    //    GetProductService (used inside the extract-attribute Lambda) reads from this record.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let product_id = loop {
+        let materialized = repository
+            .get_product_record(&shop.shop_id, &create_cmd.shops_product_id)
+            .await
+            .unwrap();
+
+        if let Some(record) = materialized {
+            break record.product_id;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: ProductRecord for shop '{}' / product '{}' not materialized after 60s",
+                shop.shop_id, create_cmd.shops_product_id
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    };
+
+    // 3. Write an ENRICHMENT_CLASSIFY_CATEGORY event directly to DynamoDB.
+    //    This simulates the classify Lambda completing and triggers the
+    //    extract-attribute Lambda via EventBridge routing.
+    let classify_event = ProductEvent {
+        aggregate_id: product_id,
+        event_id: EventId::new(),
+        timestamp: OffsetDateTime::now_utc(),
+        payload: ProductEventPayload::ProductEnrichmentEvent(
+            ProductEnrichmentEventPayload::ClassifiedCategory(
+                product::core::product_event::enrichment::ClassifiedCategoryProductEnrichmentEventPayload {
+                    shop_id: shop.shop_id,
+                    seller_id: Faker.fake(),
+                    shops_product_id: create_cmd.shops_product_id.clone(),
+                    category_id: "furniture".into(),
+                },
+            ),
+        ),
+    };
+    let classify_record: ProductEventRecord = classify_event.into();
+    let batch = Batch::try_from_iter(std::iter::once(classify_record))
+        .expect("shouldn't fail building single-item batch");
+    repository
+        .put_product_event_records(batch)
+        .await
+        .expect("shouldn't fail writing classify event");
+
+    // 4. Wait for the extract-attribute Lambda to produce ENRICHMENT_EXTRACTED_ATTRIBUTES
+    //    and for the materialize-dynamodb Lambda to write origin_year to the product record.
+    //    The MockExtractionService (active when LOCALSTACK_HOSTNAME is set) returns y=Some(1900).
+    let deadline = Instant::now() + Duration::from_secs(120);
+    loop {
+        let materialized = repository
+            .get_product_record(&shop.shop_id, &create_cmd.shops_product_id)
+            .await
+            .unwrap();
+
+        if let Some(record) = materialized
+            && record.origin_year.is_some()
+        {
+            assert_eq!(
+                Some(common::year::Year::from(1900i32)),
+                record.origin_year,
+                "origin_year should match MockExtractionService output"
+            );
+            break;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: ProductRecord for shop '{}' / product '{}' not updated with origin_year after 120s",
+                shop.shop_id, create_cmd.shops_product_id
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+}
+
 #[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_for_partner_patch_products() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(

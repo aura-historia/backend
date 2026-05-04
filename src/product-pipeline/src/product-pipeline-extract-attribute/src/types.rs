@@ -5,23 +5,35 @@ use product::dynamodb::{
 };
 use serde::{Deserialize, Serialize};
 
+/// Extracted antique attributes returned by Gemini.
+///
+/// Each field is optional; `None` means the model could not determine the
+/// value from the product text.  Short JSON key names are intentional and
+/// reduce prompt and response token counts.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ExtractedAttributes {
+    /// Exact origin year.
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year_min: Option<Year>,
+    pub y: Option<Year>,
+    /// Lower bound of the origin year range.
+    #[serde(rename = "yMin", skip_serializing_if = "Option::is_none", default)]
+    pub y_min: Option<Year>,
+    /// Upper bound of the origin year range.
+    #[serde(rename = "yMax", skip_serializing_if = "Option::is_none", default)]
+    pub y_max: Option<Year>,
+    /// Authenticity of the antique.
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year: Option<Year>,
+    pub auth: Option<AuthenticityRecord>,
+    /// Physical condition of the antique.
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year_max: Option<Year>,
+    pub cond: Option<ConditionRecord>,
+    /// Provenance documentation.
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub authenticity: Option<AuthenticityRecord>,
+    pub prov: Option<ProvenanceRecord>,
+    /// Restoration work done.
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub condition: Option<ConditionRecord>,
+    pub rest: Option<RestorationRecord>,
+    /// Whether the item is from or related to Nazi Germany / SA / SS.
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub provenance: Option<ProvenanceRecord>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub restoration: Option<RestorationRecord>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub is_from_nazi_germany_epoch: Option<bool>,
+    pub nazi: Option<bool>,
 }
