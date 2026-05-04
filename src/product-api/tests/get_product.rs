@@ -415,37 +415,17 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
 
 #[rstest::rstest]
 #[test_attr(apply(test))]
-#[case("de", "German title", Language::De, "German description", Language::De)]
-#[case(
-    "en",
-    "English title",
-    Language::En,
-    "English description",
-    Language::En
-)]
-#[case("fr", "French title", Language::Fr, "French description", Language::Fr)]
-#[case(
-    "es",
-    "Spanish title",
-    Language::Es,
-    "Spanish description",
-    Language::Es
-)]
-#[case(
-    "it",
-    "Italian title",
-    Language::It,
-    "Italian description",
-    Language::It
-)]
+#[case("de", "German title", Language::De)]
+#[case("en", "English title", Language::En)]
+#[case("fr", "French title", Language::Fr)]
+#[case("es", "Spanish title", Language::Es)]
+#[case("it", "Italian title", Language::It)]
 #[trace]
 #[localstack_test(services = [DynamoDB()])]
 async fn should_respond_200_and_respect_language_query_param(
     #[case] _language_query: &str,
     #[case] expected_title: &str,
     #[case] expected_title_lang: Language,
-    #[case] expected_description: &str,
-    #[case] expected_description_lang: Language,
 ) {
     use common::language::record::LanguageRecord;
 
@@ -526,12 +506,13 @@ async fn should_respond_200_and_respect_language_query_param(
 
     assert_eq!(expected_title, actual.item.title.text);
     assert_eq!(expected_title_lang, actual.item.title.language.into());
+    // Description is always the native language (translation removed); assert it is present
     assert_eq!(
-        expected_description,
+        "German description",
         actual.item.description.as_ref().unwrap().text
     );
     assert_eq!(
-        expected_description_lang,
+        Language::De,
         actual.item.description.as_ref().unwrap().language.into()
     );
 }

@@ -650,17 +650,5 @@ mod tests {
                 .iter()
                 .all(|item| { item.title.payload.as_ref() == expected })
         );
-        assert!(
-            actual
-                .items
-                .iter()
-                .all(|item| item.description.clone().unwrap().localization == language)
-        );
-        assert!(
-            actual
-                .items
-                .iter()
-                .all(|item| item.description.clone().unwrap().payload.as_ref() == expected)
-        );
     }
 }

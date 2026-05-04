@@ -2358,11 +2358,11 @@ mod tests {
             assert_eq!(view.title.payload, "Title".into());
             assert_eq!(
                 view.description.as_ref().unwrap().localization,
-                Language::En
+                Language::De
             );
             assert_eq!(
                 view.description.as_ref().unwrap().payload,
-                "Description".into()
+                "Beschreibung".into()
             );
             assert_eq!(view.price.unwrap().currency, Currency::Usd);
             assert_eq!(view.price.unwrap().monetary_amount, 42u64.into());
