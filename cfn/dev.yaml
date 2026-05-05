@@ -3384,6 +3384,11 @@ Outputs:
   ProductPipelineTranslateDeadLetterQueueUrl:
     Value: !Ref ProductPipelineTranslateDlq
 
+  ProductPipelineExtractAttributeQueueUrl:
+    Value: !Ref ProductPipelineExtractAttributeQ
+  ProductPipelineExtractAttributeDeadLetterQueueUrl:
+    Value: !Ref ProductPipelineExtractAttributeDlq
+
   ProductPipelineEmbedTextQueueUrl:
     Value: !Ref ProductPipelineEmbedTextQ
   ProductPipelineEmbedTextDeadLetterQueueUrl:
