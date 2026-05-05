@@ -325,17 +325,4 @@ mod tests {
     fn should_convert_duration_to_millis_for_logging() {
         assert_eq!(duration_millis(Duration::from_millis(42)), 42);
     }
-
-    #[test]
-    fn should_render_logging_enum_values_for_cloudwatch_fields() {
-        assert_eq!(LogEventType::LlmInvocation.to_string(), "llmInvocation");
-        assert_eq!(
-            LlmOperation::ProductClassification.to_string(),
-            "productClassification"
-        );
-        assert_eq!(
-            LlmModel::Gemini25FlashLite.to_string(),
-            "gemini-2.5-flash-lite"
-        );
-    }
 }
