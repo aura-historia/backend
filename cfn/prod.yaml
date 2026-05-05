@@ -2436,7 +2436,7 @@ Resources:
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt NotificationSendDlq.Arn
         maxReceiveCount: 5
-      VisibilityTimeout: 180
+      VisibilityTimeout: 360
       SqsManagedSseEnabled: true
   NotificationSendRole:
     Type: AWS::IAM::Role
@@ -2711,8 +2711,8 @@ Resources:
       FunctionName: !Ref ProductMaterializeOpenSearchLambda
       EventSourceArn: !GetAtt ProductMaterializeOpenSearchQ.Arn
       Enabled: true
-      BatchSize: 2500
-      MaximumBatchingWindowInSeconds: 1
+      BatchSize: 500
+      MaximumBatchingWindowInSeconds: 5
       FunctionResponseTypes:
         - ReportBatchItemFailures
   ProductMaterializeOpenSearchLambdaErrorAlarm:
@@ -2747,7 +2747,7 @@ Resources:
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ShopOpenSearchIndexDlq.Arn
         maxReceiveCount: 5
-      VisibilityTimeout: 360
+      VisibilityTimeout: 180
       SqsManagedSseEnabled: true
   ShopOpenSearchIndexRole:
     Type: AWS::IAM::Role
@@ -2834,7 +2834,7 @@ Resources:
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt UserOpenSearchIndexDlq.Arn
         maxReceiveCount: 5
-      VisibilityTimeout: 360
+      VisibilityTimeout: 180
       SqsManagedSseEnabled: true
   UserOpenSearchIndexRole:
     Type: AWS::IAM::Role
@@ -2921,7 +2921,7 @@ Resources:
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt UserTierUpdateDlq.Arn
         maxReceiveCount: 5
-      VisibilityTimeout: 360
+      VisibilityTimeout: 180
       SqsManagedSseEnabled: true
   UserTierUpdateRole:
     Type: AWS::IAM::Role
@@ -2998,7 +2998,7 @@ Resources:
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt SearchFilterOpenSearchSyncDlq.Arn
         maxReceiveCount: 5
-      VisibilityTimeout: 360
+      VisibilityTimeout: 180
       SqsManagedSseEnabled: true
   SearchFilterOpenSearchSyncRole:
     Type: AWS::IAM::Role
@@ -3515,7 +3515,7 @@ Resources:
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductPipelineTranslateDlq.Arn
         maxReceiveCount: 3
-      VisibilityTimeout: 300
+      VisibilityTimeout: 360
       SqsManagedSseEnabled: true
   ProductPipelineTranslateRole:
     Type: AWS::IAM::Role
@@ -3568,6 +3568,7 @@ Resources:
         S3Key: !Sub "product-pipeline-translate-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
+      ReservedConcurrentExecutions: 50
       EphemeralStorage:
         Size: 512
       Environment:
@@ -3616,7 +3617,7 @@ Resources:
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductPipelineEmbedTextDlq.Arn
         maxReceiveCount: 3
-      VisibilityTimeout: 300
+      VisibilityTimeout: 360
       SqsManagedSseEnabled: true
   ProductPipelineEmbedTextRole:
     Type: AWS::IAM::Role
@@ -3717,7 +3718,7 @@ Resources:
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductPipelineExtractAttributeDlq.Arn
         maxReceiveCount: 3
-      VisibilityTimeout: 300
+      VisibilityTimeout: 360
       SqsManagedSseEnabled: true
   ProductPipelineExtractAttributeRole:
     Type: AWS::IAM::Role
@@ -3770,6 +3771,7 @@ Resources:
         S3Key: !Sub "product-pipeline-extract-attribute-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
+      ReservedConcurrentExecutions: 50
       EphemeralStorage:
         Size: 512
       Environment:
@@ -3882,7 +3884,7 @@ Resources:
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductPipelineClassifyDlq.Arn
         maxReceiveCount: 3
-      VisibilityTimeout: 300
+      VisibilityTimeout: 360
       SqsManagedSseEnabled: true
   ProductPipelineClassifyRole:
     Type: AWS::IAM::Role
@@ -4009,7 +4011,7 @@ Resources:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "fxrate-lambda-prod-${CommitSHA}.zip"
       MemorySize: 128
-      Timeout: 180
+      Timeout: 30
       EphemeralStorage:
         Size: 512
       Environment:

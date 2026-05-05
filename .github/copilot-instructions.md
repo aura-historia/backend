@@ -303,6 +303,14 @@ src/
 - `mjml/`: MJML email templates for watchlist notifications (price/state updates in multiple languages)
 - `ci/`: CI/CD helper scripts (e.g., OpenSearch index setup)
 
+### Production CloudFormation Tuning Overview
+- Treat the prod Lambdas in three workload classes when tuning `cfn/prod.yaml`:
+  1. **API Lambdas** (`product-api`, `shop-api`, `user-api`, `search-filter-api`, `product-classification-api`, `stripe-api`, `newsletter-api`, `partner-*`) are short-lived request/response handlers that mainly orchestrate DynamoDB, OpenSearch, Cognito, Stripe, Zoho, or geocoding calls.
+  2. **Sequential queue workers** (`notification-send`, `product-lambda-update-notify-user`, `search-filter-lambda-percolate-product`, `shop-lambda-opensearch-index`, `user-lambda-index-opensearch`, `user-lambda-tier-update`, `search-filter-lambda-opensearch-sync`) process SQS records one-by-one and often perform external I/O per record, so batch sizes and SQS visibility timeouts must stay conservative.
+  3. **Product pipeline workers** (`product-pipeline-translate`, `product-pipeline-embed-text`, `product-pipeline-extract-attribute`, `product-pipeline-classify`) call Gemini and/or OpenSearch, then persist enrichment events back to DynamoDB; prod tuning should cap concurrency deliberately and keep queue visibility timeouts at least `6 x` the Lambda timeout.
+- `product-lambda-materialize-dynamodb` chunks writes into DynamoDB batch-write groups, so it tolerates larger SQS batches than `product-lambda-materialize-opensearch`, whose policy-event path still performs per-record DynamoDB lookups before bulk-indexing to OpenSearch.
+- `fxrate-lambda` is a scheduled single-request sync against fxratesapi plus DynamoDB persistence, so it should fail fast instead of holding a very long timeout window.
+
 ## Troubleshooting
 
 ### Build Issues
