@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use serde::de::DeserializeOwned;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 #[derive(Debug, Clone)]
 pub struct SqsMessage {
@@ -56,7 +56,7 @@ pub fn extract_sqs_event_bridge_dynamodb_record<T: DeserializeOwned>(
                 ) {
                     Ok(example_record) => Some(example_record),
                     Err(e) => {
-                        error!(
+                        warn!(
                             error = %e,
                             type = %std::any::type_name::<T>(),
                             payload = %event_bridge_event_json,
@@ -67,7 +67,7 @@ pub fn extract_sqs_event_bridge_dynamodb_record<T: DeserializeOwned>(
                     }
                 },
                 Err(e) => {
-                    error!(
+                    warn!(
                         error = %e,
                         type = %std::any::type_name::<EventBridgeEvent<aws_lambda_events::dynamodb::EventRecord>>(),
                         payload = %event_bridge_event_json,
@@ -125,7 +125,7 @@ pub fn extract_event_bridge_sqs_dynamodb_record<T: DeserializeOwned>(
                 ) {
                     Ok(record) => Ok((message_id, Some(record))),
                     Err(e) => {
-                        error!(
+                        warn!(
                             error = %e,
                             type = %std::any::type_name::<T>(),
                             payload = %event_bridge_event_json,
@@ -135,7 +135,7 @@ pub fn extract_event_bridge_sqs_dynamodb_record<T: DeserializeOwned>(
                     }
                 },
                 Err(e) => {
-                    error!(
+                    warn!(
                         error = %e,
                         type = %std::any::type_name::<EventBridgeEvent<aws_lambda_events::dynamodb::EventRecord>>(),
                         payload = %event_bridge_event_json,

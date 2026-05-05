@@ -65,7 +65,7 @@ pub async fn handle(
             if let Some(p) = product_map.remove(&wp.product_id) {
                 Some(p)
             } else {
-                tracing::error!(
+                tracing::warn!(
                     productId = %wp.product_id,
                     "Could not find product for watchlist entry. Skipping."
                 );

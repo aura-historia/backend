@@ -18,7 +18,7 @@ use product_classification::category::dynamodb_repository::CategoryDynamoDbRepos
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 struct CategoryNames {
     category_name_de: String,
@@ -95,7 +95,7 @@ pub async fn handler(
                         failed_message_ids.push(message_id);
                     }
                     Err(err) => {
-                        error!(
+                        warn!(
                             error = ?err,
                             shopId = %policy_record.shop_id,
                             "Failed getting ProductRecord."
@@ -216,7 +216,7 @@ async fn build_enrichment_update(
                                 );
                             }
                             Err(err) => {
-                                error!(
+                                warn!(
                                     error = ?err,
                                     categoryId = %category_id,
                                     "Failed to find category name for category_id.",

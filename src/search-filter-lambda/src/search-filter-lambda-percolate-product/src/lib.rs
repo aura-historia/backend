@@ -125,7 +125,7 @@ pub async fn handler(
                     }
                 }
                 Err(err) => {
-                    error!(messageId = message_id, error = %err, "Failed processing product event.");
+                    warn!(messageId = message_id, error = %err, "Failed processing product event.");
                     failed_message_ids.push(message_id);
                 }
             }

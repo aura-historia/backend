@@ -19,7 +19,7 @@ use search_filter::{
     },
 };
 use time::OffsetDateTime;
-use tracing::{error, info};
+use tracing::{info, warn};
 use user::dynamodb::user_record::UserRecord;
 
 const ASCENDING_KEYS: bool = true;
@@ -147,7 +147,7 @@ async fn update_watchlist_state(
         .await
         .map(|_| ())
         .map_err(|err| {
-            error!(error = ?err, userId = %record.user_id, "Failed updating watchlist product state.");
+            warn!(error = ?err, userId = %record.user_id, "Failed updating watchlist product state.");
             lambda_runtime::Error::from(err)
         })
 }
@@ -172,7 +172,7 @@ async fn update_search_filter_state(
         .await
         .map(|_| ())
         .map_err(|err| {
-            error!(error = ?err, userId = %user_id, "Failed updating search filter state.");
+            warn!(error = ?err, userId = %user_id, "Failed updating search filter state.");
             lambda_runtime::Error::from(err)
         })
 }

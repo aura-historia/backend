@@ -99,7 +99,7 @@ pub async fn handler(
                         failed_message_ids.push(message_id);
                     }
                     Err(err) => {
-                        error!(
+                        warn!(
                             error = ?err,
                             shopId = %policy_record.shop_id,
                             "Failed getting ProductRecord."
@@ -220,7 +220,7 @@ async fn build_enrichment_update(
                                 );
                             }
                             Err(err) => {
-                                error!(
+                                warn!(
                                     error = ?err,
                                     categoryId = %category_id,
                                     "Failed to find category name for category_id.",
@@ -263,7 +263,7 @@ async fn persist_creates(
             handle_bulk_response(response, failed_message_ids, &mut message_ids, "Create");
         }
         Err(err) => {
-            error!(error = ?err, "Failed entire create batch.");
+            warn!(error = ?err, "Failed entire create batch.");
             failed_message_ids.extend(message_ids.into_values());
         }
     }
@@ -289,7 +289,7 @@ async fn persist_updates(
             handle_bulk_response(response, failed_message_ids, &mut message_ids, "Update");
         }
         Err(err) => {
-            error!(error = ?err, "Failed entire update batch.");
+            warn!(error = ?err, "Failed entire update batch.");
             failed_message_ids.extend(message_ids.into_values());
         }
     }

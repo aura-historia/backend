@@ -37,7 +37,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use time::OffsetDateTime;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use user::service::user_service::{UserService, UserServiceError};
 
 const SENDER_MAIL: &str = "no-reply@notify.aura-historia.com";
@@ -696,7 +696,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                     }
                 }
                 Err(err) => {
-                    error!(
+                    warn!(
                         error = ?err,
                         "Failed writing NotificationRecord batch due to SdkError."
                     );

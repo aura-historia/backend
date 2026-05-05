@@ -196,9 +196,16 @@ pub fn log_api_error(err: &ApiError) {
             Some(ref cause) => warn!(status = err.status, error = ?cause),
         }
     } else if err.is5xx() {
-        match err.cause {
-            None => error!(status = err.status),
-            Some(ref cause) => error!(status = err.status, error = ?cause),
+        if matches!(err.status, 502..=504) {
+            match err.cause {
+                None => warn!(status = err.status),
+                Some(ref cause) => warn!(status = err.status, error = ?cause),
+            }
+        } else {
+            match err.cause {
+                None => error!(status = err.status),
+                Some(ref cause) => error!(status = err.status, error = ?cause),
+            }
         }
     }
 }

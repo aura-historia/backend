@@ -19,6 +19,29 @@ pub enum ProductDomainEventTypeRecord {
     DomainRestorationChanged,
 }
 
+impl ProductDomainEventTypeRecord {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProductDomainEventTypeRecord::DomainCreated => "DOMAIN_CREATED",
+            ProductDomainEventTypeRecord::DomainStateChanged => "DOMAIN_STATE_CHANGED",
+            ProductDomainEventTypeRecord::DomainPriceChanged => "DOMAIN_PRICE_CHANGED",
+            ProductDomainEventTypeRecord::DomainEstimatePriceChanged => {
+                "DOMAIN_ESTIMATE_PRICE_CHANGED"
+            }
+            ProductDomainEventTypeRecord::DomainUrlChanged => "DOMAIN_URL_CHANGED",
+            ProductDomainEventTypeRecord::DomainImagesChanged => "DOMAIN_IMAGES_CHANGED",
+            ProductDomainEventTypeRecord::DomainAuctionTimeChanged => "DOMAIN_AUCTION_TIME_CHANGED",
+            ProductDomainEventTypeRecord::DomainOriginYearChanged => "DOMAIN_ORIGIN_YEAR_CHANGED",
+            ProductDomainEventTypeRecord::DomainAuthenticityChanged => {
+                "DOMAIN_AUTHENTICITY_CHANGED"
+            }
+            ProductDomainEventTypeRecord::DomainConditionChanged => "DOMAIN_CONDITION_CHANGED",
+            ProductDomainEventTypeRecord::DomainProvenanceChanged => "DOMAIN_PROVENANCE_CHANGED",
+            ProductDomainEventTypeRecord::DomainRestorationChanged => "DOMAIN_RESTORATION_CHANGED",
+        }
+    }
+}
+
 impl From<&ProductDomainEventPayload> for ProductDomainEventTypeRecord {
     fn from(domain: &ProductDomainEventPayload) -> Self {
         match domain {

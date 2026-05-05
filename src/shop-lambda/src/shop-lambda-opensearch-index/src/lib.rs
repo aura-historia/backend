@@ -2,7 +2,7 @@ use aws_lambda_events::sqs::SqsEvent;
 use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
 use lambda_runtime::LambdaEvent;
 use shop::{dynamodb::shop_record::ShopRecord, opensearch::repository::ShopOpenSearchRepository};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[tracing::instrument(skip(repository, event), fields(requestId = %event.context.request_id))]
 pub async fn handler(
@@ -38,7 +38,7 @@ pub async fn handler(
                 }
                 Err(err) => {
                     let msg = "Failed indexing ShopRecord";
-                    error!(error = %err, shopId = %shop_id, msg);
+                    warn!(error = %err, shopId = %shop_id, msg);
                     Err(msg.into())
                 }
             }

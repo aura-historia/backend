@@ -5,18 +5,22 @@ use common::{
     batch::{Batch, dynamodb::handle_dynamodb_batch_write_put_product_output},
     dynamodb_stream::extract_from_dynamodb_stream,
     has_key::HasKey,
+    logging::{LogEventType, LogPipelineStage, LogWriteSource},
     product_id::ProductKey,
 };
 use lambda_runtime::LambdaEvent;
 use product::{
-    core::{product::Product, product_event::ProductEventPayload},
+    core::{
+        product::Product,
+        product_event::{ProductEventLog, ProductEventPayload},
+    },
     dynamodb::{
         product_event_record::ProductEventRecord, product_record::ProductRecord,
         repository::ProductDynamoDbRepository,
     },
 };
 use service::MultimodalEmbeddingService;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tracing::{debug, error, info};
 
 #[tracing::instrument(
@@ -29,7 +33,6 @@ pub async fn handler(
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let count = event.payload.records.len();
-    info!(count = count, "Handler invoked.");
 
     let (event_records, mut failed_message_ids) =
         extract_from_dynamodb_stream::<ProductEventRecord>(event.payload.records);
@@ -78,7 +81,7 @@ pub async fn handler(
         {
             Ok(embedding) => embedding,
             Err(err) => {
-                error!(
+                tracing::warn!(
                     error = %err,
                     messageId = message_id,
                     shopId = %product.shop_id,
@@ -114,9 +117,12 @@ pub async fn handler(
 
     let failures = failed_message_ids.len();
     info!(
+        eventType = %LogEventType::BatchProcessing,
+        pipelineStage = %LogPipelineStage::ProductEmbedding,
+        processed = count,
         successful = count - failures,
         failures = failures,
-        "Handler finished.",
+        "Processed product embedding batch."
     );
     let mut sqs_batch_response = SqsBatchResponse::default();
     sqs_batch_response.batch_item_failures = failed_message_ids
@@ -137,6 +143,15 @@ async fn persist_enrichment_events(
 ) {
     for batch in Batch::chunked_from(enrichment_events.into_iter()) {
         let batch: Batch<_, 25> = batch;
+        let event_logs = batch
+            .iter()
+            .map(|(_, record)| {
+                ProductEventLog::from(record)
+                    .with_event_type(LogEventType::EntityWrite)
+                    .with_write_source(LogWriteSource::ProductEmbedding)
+                    .with_msg("Persisted product embedding event.")
+            })
+            .collect::<Vec<_>>();
         let batch_message_ids = batch
             .iter()
             .map(|(message_id, record)| (record.key(), message_id.clone()))
@@ -150,6 +165,12 @@ async fn persist_enrichment_events(
                     output,
                     &mut failures,
                 );
+                let failures = failures.into_iter().collect::<HashSet<_>>();
+                for event_log in event_logs {
+                    if !failures.contains(&event_log.key()) {
+                        event_log.log();
+                    }
+                }
                 for key in failures {
                     match batch_message_ids.get(&key) {
                         Some(message_id) => failed_message_ids.push(message_id.clone()),
@@ -163,7 +184,7 @@ async fn persist_enrichment_events(
                 }
             }
             Err(err) => {
-                error!(error = ?err, "Failed entire enrichment event batch.");
+                tracing::warn!(error = ?err, "Failed persisting embedding events. Marking messages as failed for retry.");
                 failed_message_ids.extend(batch_message_ids.into_values());
             }
         }

@@ -1,4 +1,5 @@
 use crate::core::product::Product;
+use crate::core::product_event::ProductEventLog;
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::repository::{ProductDynamoDbRepository, extract_product_key};
@@ -9,6 +10,7 @@ use crate::service::product_command::{
 use async_trait::async_trait;
 use common::batch::Batch;
 use common::has_key::HasKey;
+use common::logging::{LogEventType, LogWriteSource};
 use common::price::domain::FxRate;
 use common::product_id::ProductKey;
 use common::shop_id::ShopId;
@@ -16,8 +18,8 @@ use common::shop_name::ShopName;
 use shop::core::shop_type::ShopType;
 use shop::service::get_service::GetShopService;
 use shop::service::seller_service::SellerService;
-use std::collections::HashMap;
-use tracing::error;
+use std::collections::{HashMap, HashSet};
+use tracing::{error, warn};
 
 #[async_trait]
 #[mockall::automock]
@@ -67,7 +69,7 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
             {
                 Ok(other) => cmd.other_price = other,
                 Err(err) => {
-                    error!(error = %err, "Failed to convert native_price. Defaulting to empty.")
+                    warn!(error = %err, "Failed to convert native_price. Defaulting to empty.")
                 }
             }
         }
@@ -78,7 +80,7 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
             {
                 Ok(other) => cmd.other_price_estimate_min = other,
                 Err(err) => {
-                    error!(error = %err, "Failed to convert native_price_estimate_min. Defaulting to empty.")
+                    warn!(error = %err, "Failed to convert native_price_estimate_min. Defaulting to empty.")
                 }
             }
         }
@@ -89,7 +91,7 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
             {
                 Ok(other) => cmd.other_price_estimate_max = other,
                 Err(err) => {
-                    error!(error = %err, "Failed to convert native_price_estimate_max. Defaulting to empty.")
+                    warn!(error = %err, "Failed to convert native_price_estimate_max. Defaulting to empty.")
                 }
             }
         }
@@ -102,7 +104,7 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
         let shop = match self.get_shop_service.find_shop(&cmd.shop_id).await {
             Ok(shop) => shop,
             Err(err) => {
-                error!(
+                warn!(
                     error = ?err,
                     shopId = %cmd.shop_id,
                     shopsProductId = %cmd.shops_product_id,
@@ -128,7 +130,7 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
                     {
                         Ok((id, _, name)) => (id, name),
                         Err(err) => {
-                            error!(
+                            warn!(
                                 error = ?err,
                                 shopId = %cmd.shop_id,
                                 shopsProductId = %cmd.shops_product_id,
@@ -160,6 +162,15 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
     ) -> Vec<(ProductKey, C)> {
         let mut failures = Vec::new();
         for batch in Batch::<_, 25>::chunked_from(events.into_iter()) {
+            let event_logs = batch
+                .iter()
+                .map(|record| {
+                    ProductEventLog::from(record)
+                        .with_event_type(LogEventType::EntityWrite)
+                        .with_write_source(LogWriteSource::ProductCommandService)
+                        .with_msg("Persisted product event.")
+                })
+                .collect::<Vec<_>>();
             let product_keys = batch.iter().map(|event| event.key()).collect::<Vec<_>>();
             let res = self
                 .dynamodb_repository
@@ -181,14 +192,20 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
                                 None
                             }
                         });
-                    for failed_product_key in failed_product_keys {
-                        if let Some(cmd) = key_cmds.remove(&failed_product_key) {
-                            failures.push((failed_product_key, cmd));
+                    let failed_product_keys = failed_product_keys.collect::<HashSet<_>>();
+                    for failed_product_key in &failed_product_keys {
+                        if let Some(cmd) = key_cmds.remove(failed_product_key) {
+                            failures.push((failed_product_key.clone(), cmd));
+                        }
+                    }
+                    for event_log in event_logs {
+                        if !failed_product_keys.contains(&event_log.key()) {
+                            event_log.log();
                         }
                     }
                 }
                 Err(err) => {
-                    error!(error = ?err, "Failed writing entire ProductEventRecord-Batch due to SdkError.");
+                    warn!(error = ?err, "Failed writing product event batch. Returning commands for retry.");
                     for product_key in product_keys {
                         if let Some(cmd) = key_cmds.remove(&product_key) {
                             failures.push((product_key, cmd));
@@ -230,7 +247,7 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                     for record in records.items {
                         let key = record.key();
                         if working.remove(&key).is_some() {
-                            error!(
+                            warn!(
                                 shopId = %key.shop_id,
                                 shopsProductId = %key.shops_product_id,
                                 "Product already exists. Cannot create."
@@ -277,7 +294,7 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                     failures.extend(persist_failures.into_iter().map(|(_, cmd)| cmd));
                 }
                 Err(err) => {
-                    error!(err = ?err, "Failed entire BatchGetItem-Operation.");
+                    warn!(error = ?err, "Failed loading product batch before create. Returning commands for retry.");
                     failures.extend(working.into_values());
                 }
             }
@@ -322,7 +339,7 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                     // Remaining items in `working` are products not found in DynamoDB —
                     // `determine_update_events` removes matched keys.
                     for (key, cmd) in &working {
-                        error!(
+                        warn!(
                             shopId = %key.shop_id,
                             shopsProductId = %key.shops_product_id,
                             "Product not found. Cannot update."
@@ -334,7 +351,7 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                     failures.extend(persist_failures);
                 }
                 Err(err) => {
-                    error!(err = ?err, "Failed entire BatchGetItem-Operation.");
+                    warn!(error = ?err, "Failed loading product batch before update. Returning commands for retry.");
                     failures.extend(working);
                 }
             }
@@ -429,7 +446,7 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                     failures.extend(persist_failures.into_iter().map(|(_, cmd)| cmd));
                 }
                 Err(err) => {
-                    error!(err = ?err, "Failed entire BatchGetItem-Operation.");
+                    warn!(error = ?err, "Failed loading product batch before upsert. Returning commands for retry.");
                     failures.extend(working.into_values());
                 }
             }

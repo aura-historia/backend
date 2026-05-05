@@ -1,5 +1,8 @@
 use crate::{
-    core::product_event::{ProductEvent, ProductEventPayload},
+    core::{
+        product_event::{ProductEvent, ProductEventLog, ProductEventPayload},
+        prohibited_content::{ProhibitedContent, ProhibitedContentReason},
+    },
     dynamodb::product_event_record::{
         domain::ProductDomainEventRecord, enrichment::ProductEnrichmentEventRecord,
         policy::ProductPolicyEventRecord,
@@ -10,6 +13,8 @@ use common::{
     event_id::EventId,
     has_key::HasKey,
     product_id::{ProductId, ProductKey},
+    shop_id::ShopId,
+    shops_product_id::ShopsProductId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +39,22 @@ impl From<ProductDomainEventRecord> for ProductEventRecord {
 }
 
 impl ProductEventRecord {
+    pub fn shop_id(&self) -> &ShopId {
+        match self {
+            ProductEventRecord::Domain(record) => &record.shop_id,
+            ProductEventRecord::Enrichment(record) => &record.shop_id,
+            ProductEventRecord::Policy(record) => &record.shop_id,
+        }
+    }
+
+    pub fn shops_product_id(&self) -> &ShopsProductId {
+        match self {
+            ProductEventRecord::Domain(record) => &record.shops_product_id,
+            ProductEventRecord::Enrichment(record) => &record.shops_product_id,
+            ProductEventRecord::Policy(record) => &record.shops_product_id,
+        }
+    }
+
     pub fn product_id(&self) -> &ProductId {
         match self {
             ProductEventRecord::Domain(record) => &record.product_id,
@@ -47,6 +68,14 @@ impl ProductEventRecord {
             ProductEventRecord::Domain(record) => &record.event_id,
             ProductEventRecord::Enrichment(record) => &record.event_id,
             ProductEventRecord::Policy(record) => &record.event_id,
+        }
+    }
+
+    pub fn event_type(&self) -> &str {
+        match self {
+            ProductEventRecord::Domain(record) => record.event_type.as_str(),
+            ProductEventRecord::Enrichment(record) => record.event_type.as_str(),
+            ProductEventRecord::Policy(record) => record.event_type.as_str(),
         }
     }
 }
@@ -108,6 +137,40 @@ impl From<ProductEvent> for ProductEventRecord {
                 let helper_record = helper.into();
                 ProductEventRecord::Policy(helper_record)
             }
+        }
+    }
+}
+
+impl From<&ProductEventRecord> for ProductEventLog {
+    fn from(event_record: &ProductEventRecord) -> Self {
+        let (decision, reason) = match event_record {
+            ProductEventRecord::Domain(_) => (None, None),
+            ProductEventRecord::Enrichment(_) => (None, None),
+            ProductEventRecord::Policy(event_record) => (
+                Some(
+                    ProhibitedContent::from(event_record.prohibited_content_decision)
+                        .as_str()
+                        .to_owned(),
+                ),
+                Some(
+                    ProhibitedContentReason::from(event_record.prohibited_content_reason)
+                        .as_str()
+                        .to_owned(),
+                ),
+            ),
+        };
+
+        ProductEventLog {
+            event_type: None,
+            write_source: None,
+            product_id: *event_record.product_id(),
+            shop_id: *event_record.shop_id(),
+            shops_product_id: event_record.shops_product_id().clone(),
+            event_id: *event_record.event_id(),
+            product_event_type: event_record.event_type().to_owned(),
+            decision,
+            reason,
+            msg: None,
         }
     }
 }

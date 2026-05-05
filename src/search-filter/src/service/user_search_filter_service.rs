@@ -22,7 +22,7 @@ use common::{sort::SortOrder, user_id::UserId};
 use product::core::product_search::{ProductSearch, ProductSearchSerdeField};
 use product::opensearch::product_document::ProductDocument;
 use time::OffsetDateTime;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use user::core::user::User;
 use user::service::user_service::{UserService, UserServiceError};
 
@@ -724,7 +724,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
                     }
                 }
                 Err(err) => {
-                    error!(
+                    warn!(
                         error = ?err,
                         "Failed writing UserSearchFilterMatchRecord batch."
                     );

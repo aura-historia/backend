@@ -1,7 +1,7 @@
 use aws_lambda_events::sqs::SqsEvent;
 use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
 use lambda_runtime::LambdaEvent;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use user::{dynamodb::user_record::UserRecord, opensearch::repository::UserOpenSearchRepository};
 
 #[tracing::instrument(skip(repository, event), fields(requestId = %event.context.request_id))]
@@ -34,7 +34,7 @@ pub async fn handler(
                 }
                 Err(err) => {
                     let msg = "Failed indexing UserRecord";
-                    error!(error = %err, userId = %user_id, msg);
+                    warn!(error = %err, userId = %user_id, msg);
                     Err(msg.into())
                 }
             }

@@ -1,5 +1,9 @@
 use async_trait::async_trait;
 use common::category_key::CategoryId;
+use common::logging::{
+    LlmInvocationMetrics, LlmModel, LlmOperation, LlmProvider, LogClassificationMethod,
+    LogEventType, log_llm_invocation,
+};
 use common::period_key::PeriodId;
 use llm::chat::ChatMessage;
 use product::core::title::Title;
@@ -7,8 +11,9 @@ use product_classification::category::core::Category;
 use product_classification::category::service::CategoryService;
 use product_classification::period::core::Period;
 use product_classification::period::service::PeriodService;
+use std::time::Instant;
 use thiserror::Error;
-use tracing::debug;
+use tracing::{debug, info};
 
 const CLEAR_SCORE_RATIO: f64 = 1.20;
 const CANDIDATE_LIMIT_FOR_LLM: usize = 5;
@@ -111,6 +116,15 @@ impl ClassificationService for ClassificationServiceImpl<'_> {
             clear_category_candidate(&categories),
             clear_period_candidate(&periods),
         ) {
+            info!(
+                eventType = %LogEventType::ClassificationDecision,
+                classificationMethod = %LogClassificationMethod::ClearScore,
+                categoryId = %category_id,
+                periodId = %period_id,
+                categoryCandidateScores = format_candidates(&categories.iter().map(|(c, score)| (c.category_id.to_string(), *score)).collect::<Vec<_>>()),
+                periodCandidateScores = format_candidates(&periods.iter().map(|(c, score)| (c.period_id.to_string(), *score)).collect::<Vec<_>>()),
+                "Selected product classification from clear OpenSearch scores."
+            );
             return Ok((category_id, period_id));
         }
 
@@ -132,17 +146,72 @@ impl ClassificationService for ClassificationServiceImpl<'_> {
 
         debug!("Requesting classification from Gemini API.");
 
+        let started_at = Instant::now();
         let response = self
             .llm
             .chat(&[ChatMessage::user().content(&user_message).build()])
             .await?;
+        log_llm_invocation(
+            LlmOperation::ProductClassification,
+            LlmProvider::Google,
+            LlmModel::Gemini25FlashLite,
+            started_at.elapsed(),
+            llm_metrics(response.usage(), Some(1)),
+        );
 
         let response_text = response.text().ok_or_else(|| {
             ClassificationError::InvalidResponse("Empty response from LLM".to_string())
         })?;
 
-        parse_classification_response(&response_text, &category_ids, &period_ids)
+        let (category_id, period_id) =
+            parse_classification_response(&response_text, &category_ids, &period_ids)?;
+        info!(
+            eventType = %LogEventType::ClassificationDecision,
+            classificationMethod = %LogClassificationMethod::Llm,
+            categoryId = %category_id,
+            periodId = %period_id,
+            categoryCandidateScores = format_candidates(&categories.iter().map(|(c, score)| (c.category_id.to_string(), *score)).collect::<Vec<_>>()),
+            periodCandidateScores = format_candidates(&periods.iter().map(|(c, score)| (c.period_id.to_string(), *score)).collect::<Vec<_>>()),
+            "Selected product classification with LLM."
+        );
+        Ok((category_id, period_id))
     }
+}
+
+fn llm_metrics(usage: Option<llm::chat::Usage>, batch_size: Option<usize>) -> LlmInvocationMetrics {
+    let Some(usage) = usage else {
+        return LlmInvocationMetrics {
+            batch_size,
+            ..Default::default()
+        };
+    };
+
+    LlmInvocationMetrics {
+        batch_size,
+        prompt_tokens: Some(usage.prompt_tokens),
+        completion_tokens: Some(usage.completion_tokens),
+        total_tokens: Some(usage.total_tokens),
+        cached_prompt_tokens: usage.prompt_tokens_details.and_then(|d| d.cached_tokens),
+        reasoning_tokens: usage
+            .completion_tokens_details
+            .and_then(|d| d.reasoning_tokens),
+        ..Default::default()
+    }
+}
+
+fn format_candidates(candidates: &[(impl AsRef<str>, f64)]) -> String {
+    let pairs = candidates
+        .iter()
+        .take(CANDIDATE_LIMIT_FOR_LLM)
+        .map(|(candidate, score)| {
+            (
+                candidate.as_ref().to_owned(),
+                serde_json::json!(format!("{score:.3}")),
+            )
+        })
+        .collect::<serde_json::Map<String, serde_json::Value>>();
+    serde_json::to_string(&serde_json::Value::Object(pairs))
+        .unwrap_or("Failed serializing candidates".to_owned())
 }
 
 fn clear_category_candidate(categories: &[(Category, f64)]) -> Option<CategoryId> {

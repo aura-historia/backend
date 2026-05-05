@@ -1,10 +1,14 @@
 use async_trait::async_trait;
 use common::language::domain::Language;
+use common::logging::{
+    LlmInvocationMetrics, LlmModel, LlmOperation, LlmProvider, log_llm_invocation,
+};
 use llm::chat::ChatMessage;
 use std::collections::HashMap;
+use std::time::Instant;
 use strum::IntoEnumIterator;
 use thiserror::Error;
-use tracing::{debug, error};
+use tracing::{debug, warn};
 
 /// Maximum total characters per Gemini batch to avoid context overflow.
 const MAX_BATCH_CHARS: usize = 8_000;
@@ -91,16 +95,45 @@ impl TranslationServiceImpl {
             "Requesting title translation from Gemini."
         );
 
+        let started_at = Instant::now();
         let response = self
             .llm
             .chat(&[ChatMessage::user().content(&user_message).build()])
             .await?;
+        log_llm_invocation(
+            LlmOperation::ProductTitleTranslation,
+            LlmProvider::Google,
+            LlmModel::Gemini25FlashLite,
+            started_at.elapsed(),
+            llm_metrics(response.usage(), Some(titles.len())),
+        );
 
         let response_text = response.text().ok_or_else(|| {
             TranslationError::InvalidResponse("Empty response from LLM".to_string())
         })?;
 
         parse_translation_response(&response_text, titles.len(), target_languages)
+    }
+}
+
+fn llm_metrics(usage: Option<llm::chat::Usage>, batch_size: Option<usize>) -> LlmInvocationMetrics {
+    let Some(usage) = usage else {
+        return LlmInvocationMetrics {
+            batch_size,
+            ..Default::default()
+        };
+    };
+
+    LlmInvocationMetrics {
+        batch_size,
+        prompt_tokens: Some(usage.prompt_tokens),
+        completion_tokens: Some(usage.completion_tokens),
+        total_tokens: Some(usage.total_tokens),
+        cached_prompt_tokens: usage.prompt_tokens_details.and_then(|d| d.cached_tokens),
+        reasoning_tokens: usage
+            .completion_tokens_details
+            .and_then(|d| d.reasoning_tokens),
+        ..Default::default()
     }
 }
 
@@ -136,7 +169,7 @@ impl TranslationService for TranslationServiceImpl {
                     }
                 }
                 Err(err) => {
-                    error!(
+                    warn!(
                         error = %err,
                         batchSize = batch_indices.len(),
                         "Batch title translation failed."

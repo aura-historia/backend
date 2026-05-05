@@ -7,13 +7,14 @@ use common::{
     dynamodb_stream::extract_from_dynamodb_stream,
     event_id::EventId,
     has_key::HasKey,
+    logging::{LogEntityType, LogEventType, LogPipelineStage, LogWriteSource},
     product_id::{ProductId, ProductKey},
 };
 use lambda_runtime::LambdaEvent;
 use product::{
     core::{
         product_event::{
-            ProductEvent, ProductEventPayload,
+            ProductEvent, ProductEventLog, ProductEventPayload,
             enrichment::{
                 ExtractedAttributesProductEnrichmentEventPayload, ProductEnrichmentEventPayload,
             },
@@ -25,7 +26,7 @@ use product::{
     service::get_service::GetProductService,
 };
 use service::ExtractionService;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
 use tracing::{error, info, warn};
 
@@ -40,7 +41,6 @@ pub async fn handler(
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let count = event.payload.records.len();
-    info!(count = count, "Handler invoked.");
 
     let (event_records, mut failed_message_ids) =
         extract_from_dynamodb_stream::<ProductEventRecord>(event.payload.records);
@@ -73,7 +73,14 @@ pub async fn handler(
 
     if key_to_record.is_empty() {
         let failures = failed_message_ids.len();
-        info!(successful = 0, failures = failures, "Handler finished.");
+        info!(
+            eventType = %LogEventType::BatchProcessing,
+            pipelineStage = %LogPipelineStage::ProductAttributeExtraction,
+            processed = count,
+            successful = 0,
+            failures = failures,
+            "Processed product attribute extraction batch."
+        );
         let mut sqs_batch_response = SqsBatchResponse::default();
         sqs_batch_response.batch_item_failures = failed_message_ids
             .into_iter()
@@ -87,10 +94,17 @@ pub async fn handler(
     let products = match get_product_service.find_products(keys).await {
         Ok(ps) => ps,
         Err(err) => {
-            error!(error = ?err, "Failed batch-loading products from DynamoDB — marking all messages as failed.");
+            warn!(error = ?err, "Failed loading products for attribute extraction. Marking messages as failed for retry.");
             failed_message_ids.extend(key_to_record.into_values().map(|(msg_id, _)| msg_id));
             let failures = failed_message_ids.len();
-            info!(successful = 0, failures = failures, "Handler finished.");
+            info!(
+                eventType = %LogEventType::BatchProcessing,
+                pipelineStage = %LogPipelineStage::ProductAttributeExtraction,
+                processed = count,
+                successful = 0,
+                failures = failures,
+                "Processed product attribute extraction batch."
+            );
             let mut sqs_batch_response = SqsBatchResponse::default();
             sqs_batch_response.batch_item_failures = failed_message_ids
                 .into_iter()
@@ -164,7 +178,7 @@ pub async fn handler(
     // Products not found in DynamoDB — mark the corresponding messages as failed (retry).
     for (message_id, record) in key_to_record.values() {
         let key = record.key();
-        error!(
+        warn!(
             messageId = message_id,
             shopId = %key.shop_id,
             shopsProductId = %key.shops_product_id,
@@ -175,7 +189,14 @@ pub async fn handler(
 
     if valid_inputs.is_empty() {
         let failures = failed_message_ids.len();
-        info!(successful = 0, failures = failures, "Handler finished.");
+        info!(
+            eventType = %LogEventType::BatchProcessing,
+            pipelineStage = %LogPipelineStage::ProductAttributeExtraction,
+            processed = count,
+            successful = 0,
+            failures = failures,
+            "Processed product attribute extraction batch."
+        );
         let mut sqs_batch_response = SqsBatchResponse::default();
         sqs_batch_response.batch_item_failures = failed_message_ids
             .into_iter()
@@ -196,7 +217,7 @@ pub async fn handler(
         let attrs = match maybe_attrs {
             Some(attrs) => attrs,
             None => {
-                error!(
+                warn!(
                     messageId = input.message_id,
                     shopId = %input.key.shop_id,
                     shopsProductId = %input.key.shops_product_id,
@@ -242,6 +263,15 @@ pub async fn handler(
         };
 
         if let Some(decision) = prohibited_content {
+            info!(
+                eventType = %LogEventType::PolicyDecision,
+                entityType = %LogEntityType::Product,
+                decision = ?decision,
+                reason = ?ProhibitedContentReason::ProductText,
+                shopId = %input.key.shop_id,
+                shopsProductId = %input.key.shops_product_id,
+                "Determined prohibited-content policy decision from extracted attributes."
+            );
             let policy_event = ProductEvent {
                 aggregate_id: input.product_id,
                 event_id: EventId::new(),
@@ -272,9 +302,12 @@ pub async fn handler(
 
     let failures = failed_message_ids.len();
     info!(
+        eventType = %LogEventType::BatchProcessing,
+        pipelineStage = %LogPipelineStage::ProductAttributeExtraction,
+        processed = count,
         successful = count - failures,
         failures = failures,
-        "Handler finished.",
+        "Processed product attribute extraction batch."
     );
 
     let mut sqs_batch_response = SqsBatchResponse::default();
@@ -298,6 +331,15 @@ async fn persist_events(
 ) {
     for batch in Batch::chunked_from(events.into_iter()) {
         let batch: Batch<_, 25> = batch;
+        let event_logs = batch
+            .iter()
+            .map(|(_, record)| {
+                ProductEventLog::from(record)
+                    .with_event_type(LogEventType::EntityWrite)
+                    .with_write_source(LogWriteSource::ProductAttributeExtraction)
+                    .with_msg("Persisted product attribute extraction event.")
+            })
+            .collect::<Vec<_>>();
         let batch_message_ids = batch
             .iter()
             .map(|(message_id, record)| (record.key(), message_id.clone()))
@@ -311,6 +353,12 @@ async fn persist_events(
                     output,
                     &mut failures,
                 );
+                let failures = failures.into_iter().collect::<HashSet<_>>();
+                for event_log in event_logs {
+                    if !failures.contains(&event_log.key()) {
+                        event_log.log();
+                    }
+                }
                 for key in failures {
                     match batch_message_ids.get(&key) {
                         Some(message_id) => failed_message_ids.push(message_id.clone()),
@@ -324,7 +372,7 @@ async fn persist_events(
                 }
             }
             Err(err) => {
-                error!(error = ?err, "Failed entire event batch.");
+                warn!(error = ?err, "Failed persisting attribute extraction events. Marking messages as failed for retry.");
                 failed_message_ids.extend(batch_message_ids.into_values());
             }
         }
