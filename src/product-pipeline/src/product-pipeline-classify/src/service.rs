@@ -121,8 +121,8 @@ impl ClassificationService for ClassificationServiceImpl<'_> {
                 classificationMethod = %LogClassificationMethod::ClearScore,
                 categoryId = %category_id,
                 periodId = %period_id,
-                categoryCandidateScores = ?format_category_candidates(&categories),
-                periodCandidateScores = ?format_period_candidates(&periods),
+                categoryCandidateScores = format_candidates(&categories.iter().map(|(c, score)| (c.category_id.to_string(), *score)).collect::<Vec<_>>()),
+                periodCandidateScores = format_candidates(&periods.iter().map(|(c, score)| (c.period_id.to_string(), *score)).collect::<Vec<_>>()),
                 "Selected product classification from clear OpenSearch scores."
             );
             return Ok((category_id, period_id));
@@ -170,8 +170,8 @@ impl ClassificationService for ClassificationServiceImpl<'_> {
             classificationMethod = %LogClassificationMethod::Llm,
             categoryId = %category_id,
             periodId = %period_id,
-            categoryCandidateScores = ?format_category_candidates(&categories),
-            periodCandidateScores = ?format_period_candidates(&periods),
+            categoryCandidateScores = format_candidates(&categories.iter().map(|(c, score)| (c.category_id.to_string(), *score)).collect::<Vec<_>>()),
+            periodCandidateScores = format_candidates(&periods.iter().map(|(c, score)| (c.period_id.to_string(), *score)).collect::<Vec<_>>()),
             "Selected product classification with LLM."
         );
         Ok((category_id, period_id))
@@ -199,20 +199,19 @@ fn llm_metrics(usage: Option<llm::chat::Usage>, batch_size: Option<usize>) -> Ll
     }
 }
 
-fn format_category_candidates(categories: &[(Category, f64)]) -> Vec<String> {
-    categories
+fn format_candidates(candidates: &[(impl AsRef<str>, f64)]) -> String {
+    let pairs = candidates
         .iter()
         .take(CANDIDATE_LIMIT_FOR_LLM)
-        .map(|(category, score)| format!("{}:{score:.3}", category.category_id))
-        .collect()
-}
-
-fn format_period_candidates(periods: &[(Period, f64)]) -> Vec<String> {
-    periods
-        .iter()
-        .take(CANDIDATE_LIMIT_FOR_LLM)
-        .map(|(period, score)| format!("{}:{score:.3}", period.period_id))
-        .collect()
+        .map(|(candidate, score)| {
+            (
+                candidate.as_ref().to_owned(),
+                serde_json::json!(format!("{score:.3}")),
+            )
+        })
+        .collect::<serde_json::Map<String, serde_json::Value>>();
+    serde_json::to_string(&serde_json::Value::Object(pairs))
+        .unwrap_or("Failed serializing candidates".to_owned())
 }
 
 fn clear_category_candidate(categories: &[(Category, f64)]) -> Option<CategoryId> {
