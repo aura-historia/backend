@@ -68,6 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[allow(dead_code)]
 async fn create_products(commands: Vec<CreateProductCommand>) {
     let stack = get_cfn_output();
     let dynamodb_client = get_dynamodb_client().await;
@@ -89,6 +90,7 @@ async fn create_products(commands: Vec<CreateProductCommand>) {
     assert!(result.is_empty(), "Some products failed to create");
 }
 
+#[allow(dead_code)]
 async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
     let stack = get_cfn_output();
     let dynamodb_client = get_dynamodb_client().await;
@@ -110,6 +112,7 @@ async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
     assert!(result.is_empty(), "Some products failed to update");
 }
 
+#[allow(dead_code)]
 async fn populate_products(shops: Vec<GetShopData>) {
     println!("Populating products...");
 
@@ -458,6 +461,7 @@ async fn populate_products(shops: Vec<GetShopData>) {
     println!("Enriched products.");
 }
 
+#[allow(dead_code)]
 async fn populate_shops() -> Vec<GetShopData> {
     println!("Populating shops...");
     let stack = get_cfn_output();
