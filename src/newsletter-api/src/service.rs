@@ -52,7 +52,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info};
+use tracing::{debug, info, warn};
 
 #[derive(Debug, Deserialize)]
 struct OAuthTokenResponse {
@@ -158,7 +158,7 @@ impl ZohoCampaignsServiceImpl {
                 .text()
                 .await
                 .unwrap_or_else(|_| "unknown".to_string());
-            error!(status = %status, body = %body, "Failed to obtain Zoho OAuth token.");
+            warn!(status = %status, body = %body, "Failed to obtain Zoho OAuth token.");
             return Err(ZohoCampaignsError::OAuthTokenError(format!(
                 "HTTP {status}: {body}"
             )));

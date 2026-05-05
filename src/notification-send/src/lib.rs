@@ -5,7 +5,7 @@ use notification::{
     core::notification::Notification, dynamodb::notification_record::NotificationRecord,
     service::notification_service::NotificationService,
 };
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 #[tracing::instrument(skip(service, event), fields(requestId = %event.context.request_id))]
 pub async fn handler(
@@ -39,7 +39,7 @@ pub async fn handler(
                 );
             }
             Err(err) => {
-                error!(
+                warn!(
                     error = %err,
                     messageId = message_id,
                     userId = %user_id,

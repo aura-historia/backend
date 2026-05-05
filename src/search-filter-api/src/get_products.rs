@@ -67,7 +67,7 @@ pub async fn handle(
             if let Some(p) = product_map.remove(&m.product_id) {
                 Some(p)
             } else {
-                tracing::error!(
+                tracing::warn!(
                     productId = %m.product_id,
                     "Could not find product for search filter match entry. Skipping."
                 );

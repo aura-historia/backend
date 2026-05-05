@@ -1,6 +1,6 @@
 use fxrate::service::FxRateService;
 use lambda_runtime::LambdaEvent;
-use tracing::{error, info};
+use tracing::{info, warn};
 
 #[tracing::instrument(skip(service, event), fields(requestId = %event.context.request_id))]
 pub async fn handler(
@@ -14,7 +14,7 @@ pub async fn handler(
             Ok(())
         }
         Err(err) => {
-            error!(error = %err, "Failed updating FxRatesRecord.");
+            warn!(error = %err, "Failed updating FxRatesRecord.");
             Err(err.into())
         }
     }

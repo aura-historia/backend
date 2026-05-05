@@ -7,7 +7,7 @@ use lambda_runtime::LambdaEvent;
 use search_filter::dynamodb::user_search_filter_record::UserSearchFilterRecord;
 use search_filter::opensearch::repository::UserSearchFilterOpenSearchRepository;
 use search_filter::opensearch::user_search_filter_document::UserSearchFilterDocument;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[tracing::instrument(skip(repository, event), fields(requestId = %event.context.request_id))]
 pub async fn handler(
@@ -73,7 +73,7 @@ async fn handle_upsert(
         }
         Err(err) => {
             let msg = "Failed indexing UserSearchFilterRecord";
-            error!(error = %err, userSearchFilterId = %filter_id, msg);
+            warn!(error = %err, userSearchFilterId = %filter_id, msg);
             Err(msg.into())
         }
     }

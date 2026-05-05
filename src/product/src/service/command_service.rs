@@ -69,7 +69,7 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
             {
                 Ok(other) => cmd.other_price = other,
                 Err(err) => {
-                    error!(error = %err, "Failed to convert native_price. Defaulting to empty.")
+                    warn!(error = %err, "Failed to convert native_price. Defaulting to empty.")
                 }
             }
         }
@@ -80,7 +80,7 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
             {
                 Ok(other) => cmd.other_price_estimate_min = other,
                 Err(err) => {
-                    error!(error = %err, "Failed to convert native_price_estimate_min. Defaulting to empty.")
+                    warn!(error = %err, "Failed to convert native_price_estimate_min. Defaulting to empty.")
                 }
             }
         }
@@ -91,7 +91,7 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
             {
                 Ok(other) => cmd.other_price_estimate_max = other,
                 Err(err) => {
-                    error!(error = %err, "Failed to convert native_price_estimate_max. Defaulting to empty.")
+                    warn!(error = %err, "Failed to convert native_price_estimate_max. Defaulting to empty.")
                 }
             }
         }
@@ -104,7 +104,7 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
         let shop = match self.get_shop_service.find_shop(&cmd.shop_id).await {
             Ok(shop) => shop,
             Err(err) => {
-                error!(
+                warn!(
                     error = ?err,
                     shopId = %cmd.shop_id,
                     shopsProductId = %cmd.shops_product_id,
@@ -130,7 +130,7 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
                     {
                         Ok((id, _, name)) => (id, name),
                         Err(err) => {
-                            error!(
+                            warn!(
                                 error = ?err,
                                 shopId = %cmd.shop_id,
                                 shopsProductId = %cmd.shops_product_id,

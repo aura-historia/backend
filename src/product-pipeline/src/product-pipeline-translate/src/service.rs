@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 use strum::IntoEnumIterator;
 use thiserror::Error;
-use tracing::{debug, error};
+use tracing::{debug, warn};
 
 /// Maximum total characters per Gemini batch to avoid context overflow.
 const MAX_BATCH_CHARS: usize = 8_000;
@@ -169,7 +169,7 @@ impl TranslationService for TranslationServiceImpl {
                     }
                 }
                 Err(err) => {
-                    error!(
+                    warn!(
                         error = %err,
                         batchSize = batch_indices.len(),
                         "Batch title translation failed."

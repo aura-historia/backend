@@ -84,7 +84,7 @@ impl<'a> Pipe for PipeImpl<'a> {
             let products = match get_products_res {
                 Ok(products) => products,
                 Err(err) => {
-                    error!(error = %err, "Failed finding products. Continuing with no products");
+                    warn!(error = %err, "Failed finding products. Continuing with no products");
                     vec![]
                 }
             };
@@ -247,7 +247,7 @@ impl<'a> PipeImpl<'a> {
                 .collect()
             }
             Err(err) => {
-                error!(error = ?err, "Failed deleting entire MessageBatch.");
+                warn!(error = ?err, "Failed deleting entire MessageBatch.");
                 message_ids_message_refs.into_values().collect()
             }
         }

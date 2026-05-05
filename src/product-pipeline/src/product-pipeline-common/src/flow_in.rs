@@ -6,7 +6,7 @@ use common::{
 };
 use product::dynamodb::product_event_record::ProductEventRecord;
 use std::collections::HashMap;
-use tracing::error;
+use tracing::warn;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MessageRef {
@@ -59,7 +59,7 @@ impl<'a> PipeFlowIn for PipeFlowInImpl<'a> {
                 .await;
             match res {
                 Err(err) => {
-                    error!(
+                    warn!(
                         error = ?err,
                         "Failed receiving messages. Aborting receiving - continuing pipe."
                     );

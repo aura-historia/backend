@@ -6,7 +6,7 @@ use common::logging::{
 use llm::chat::ChatMessage;
 use std::time::Instant;
 use thiserror::Error;
-use tracing::{debug, error};
+use tracing::{debug, warn};
 
 /// Maximum total characters per Gemini batch to avoid context overflow.
 const MAX_BATCH_CHARS: usize = 8_000;
@@ -150,7 +150,7 @@ impl ExtractionService for ExtractionServiceImpl {
                     }
                 }
                 Err(err) => {
-                    error!(
+                    warn!(
                         error = %err,
                         batchSize = batch_indices.len(),
                         "Batch attribute extraction failed."

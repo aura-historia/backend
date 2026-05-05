@@ -178,7 +178,7 @@ pub async fn handler(
     // Products not found in DynamoDB — mark the corresponding messages as failed (retry).
     for (message_id, record) in key_to_record.values() {
         let key = record.key();
-        error!(
+        warn!(
             messageId = message_id,
             shopId = %key.shop_id,
             shopsProductId = %key.shops_product_id,

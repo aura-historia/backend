@@ -55,7 +55,7 @@ pub async fn handler(
                             }
                         }
                         Err(err) => {
-                            error!(messageId = message_id, error = %err, "Failed creating CreateNotificationCommands.");
+                            warn!(messageId = message_id, error = %err, "Failed creating CreateNotificationCommands.");
                             failed_message_ids.push(message_id);
                         }
                     }

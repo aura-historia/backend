@@ -4,7 +4,7 @@ use product::dynamodb::{
     repository::ProductDynamoDbRepository,
 };
 use std::collections::HashSet;
-use tracing::error;
+use tracing::warn;
 
 #[derive(Debug, Clone, Default)]
 pub struct FlowOutResult {
@@ -75,7 +75,7 @@ impl<'a> PipeFlowOut for PipeFlowOutImpl<'a> {
                     successes.extend(&mut batch_product_ids.iter());
                 }
                 Err(err) => {
-                    error!(error = ?err, "Failed writing batch of ProductEventRecords.");
+                    warn!(error = ?err, "Failed writing batch of ProductEventRecords.");
                     failures.extend(&mut batch_product_ids.into_iter());
                 }
             }

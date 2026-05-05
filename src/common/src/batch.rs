@@ -142,7 +142,7 @@ pub mod dynamodb {
         types::{PutRequest, WriteRequest},
     };
     use serde::{Deserialize, Serialize};
-    use tracing::error;
+    use tracing::warn;
 
     impl<T: Serialize> Batch<T, 25> {
         pub fn into_dynamodb_write_requests(self) -> Vec<WriteRequest> {
@@ -158,7 +158,7 @@ pub mod dynamodb {
                             .build(),
                     ),
                     Err(err) => {
-                        error!(
+                        warn!(
                             error = %err,
                             type = %std::any::type_name::<T>(),
                             "Failed to serialize record."
@@ -196,7 +196,7 @@ pub mod dynamodb {
                 match record_res {
                     Ok(record_event) => Some(record_event),
                     Err(err) => {
-                        error!(
+                        warn!(
                             error = %err,
                             type = %std::any::type_name::<T>(),
                             "Failed converting DynamoDB-JSON to target-type from failed BatchWriteItemOutput."
@@ -217,7 +217,7 @@ pub mod sqs {
     use aws_sdk_sqs::types::SendMessageBatchRequestEntry;
     use itertools::Itertools;
     use serde::Serialize;
-    use tracing::error;
+    use tracing::warn;
 
     impl<T: Serialize> Batch<T, 10> {
         pub fn into_sqs_message_entries(self) -> Vec<SendMessageBatchRequestEntry> {
@@ -233,7 +233,7 @@ pub mod sqs {
                             .expect("shouldn't fail because 'id' and 'message_body' have been set"),
                     ),
                     Err(err) => {
-                        error!(
+                        warn!(
                             error = %err,
                             type = %std::any::type_name::<T>(),
                             "Failed to serialize message."
