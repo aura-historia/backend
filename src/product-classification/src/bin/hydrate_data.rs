@@ -86,7 +86,7 @@ async fn embed(
     text: &str,
 ) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
     let request = EmbedRequest {
-        model: "models/gemini-embedding-2-preview-03-25",
+        model: "models/gemini-embedding-2",
         content: EmbedContent {
             parts: vec![EmbedPart { text }],
         },
@@ -94,7 +94,7 @@ async fn embed(
     };
 
     let response = client
-        .post("https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2-preview:embedContent")
+        .post("https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent")
         .header("x-goog-api-key", api_key)
         .query(&[("output_dimensionality", "768")])
         .json(&request)

@@ -144,7 +144,7 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
         let parts = Self::build_content_parts(title, description, image_data);
 
         let request = EmbedContentRequest {
-            model: "models/gemini-embedding-2-preview-03-25",
+            model: "models/gemini-embedding-2",
             content: Content { parts },
             task_type: None,
         };
@@ -154,7 +154,7 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
         let started_at = Instant::now();
         let response = self
             .client
-            .post("https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2-preview:embedContent")
+            .post("https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent")
             .header("x-goog-api-key", &self.api_key)
             .query(&[("output_dimensionality", "768")])
             .json(&request)
@@ -180,7 +180,7 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
         log_llm_invocation(
             LlmOperation::ProductEmbedding,
             LlmProvider::Google,
-            LlmModel::GeminiEmbedding2Preview0325,
+            LlmModel::GeminiEmbedding2,
             started_at.elapsed(),
             LlmInvocationMetrics {
                 output_dimensions: Some(values.len()),
@@ -199,7 +199,7 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
             log_llm_invocation(
                 LlmOperation::ProductQueryEmbedding,
                 LlmProvider::Google,
-                LlmModel::GeminiEmbedding2Preview0325,
+                LlmModel::GeminiEmbedding2,
                 std::time::Duration::default(),
                 LlmInvocationMetrics {
                     output_dimensions: Some(hit.len()),
@@ -211,7 +211,7 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
         }
 
         let request = EmbedContentRequest {
-            model: "models/gemini-embedding-2-preview-03-25",
+            model: "models/gemini-embedding-2",
             content: Content {
                 parts: vec![ContentPart::Text {
                     text: query.to_string(),
@@ -225,7 +225,7 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
         let started_at = Instant::now();
         let response = self
             .client
-            .post("https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2-preview:embedContent")
+            .post("https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent")
             .header("x-goog-api-key", &self.api_key)
             .query(&[("output_dimensionality", "768")])
             .json(&request)
@@ -256,7 +256,7 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
         log_llm_invocation(
             LlmOperation::ProductQueryEmbedding,
             LlmProvider::Google,
-            LlmModel::GeminiEmbedding2Preview0325,
+            LlmModel::GeminiEmbedding2,
             started_at.elapsed(),
             LlmInvocationMetrics {
                 output_dimensions: Some(values.len()),
@@ -1187,7 +1187,7 @@ mod tests {
     #[test]
     fn should_serialize_embed_content_request_correctly() {
         let request = EmbedContentRequest {
-            model: "models/gemini-embedding-2-preview-03-25",
+            model: "models/gemini-embedding-2",
             content: Content {
                 parts: vec![ContentPart::Text {
                     text: "Test title".to_string(),
@@ -1199,7 +1199,7 @@ mod tests {
         assert_eq!(
             json,
             serde_json::json!({
-                "model": "models/gemini-embedding-2-preview-03-25",
+                "model": "models/gemini-embedding-2",
                 "content": {
                     "parts": [{"text": "Test title"}]
                 }
