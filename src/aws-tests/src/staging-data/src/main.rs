@@ -60,8 +60,8 @@ use time::OffsetDateTime;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     staging_tests::reset().await;
-    let shops = populate_shops().await;
-    populate_products(shops).await;
+    // let shops = populate_shops().await;
+    // populate_products(shops).await;
     let _ = populate_categories().await;
     let _ = populate_periods().await;
 
