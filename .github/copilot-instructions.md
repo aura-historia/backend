@@ -214,6 +214,9 @@ Located in various directories:
 - Initialize application logging via `common::logging::init_logging()` from each executable `main.rs`.
 - Configure log-level through `LOG_LEVEL`; fallback to `INFO` when not provided or invalid.
 - Keep startup logs at `debug` level and avoid logging infrastructure identifiers (for example table names or OpenSearch endpoints) in initialization messages.
+- Keep logs compact and informative, especially in Lambda functions where log volume can impact costs. Focus on logging key events, errors, and important state changes without excessive detail.
+- Conservatively error-log. An error-log means: Something is burning and should be resolved immediately. Avoid logging recoverable errors or expected failures as errors. Use `warn` level for non-critical issues.
+- Module `common::logging` offers utilities for structured logging, log level configuration, and integration with AWS Lambda logging. Use these utilities to maintain consistent logging practices across the codebase.
 
 ## Frequently Referenced Files
 
