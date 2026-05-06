@@ -194,7 +194,11 @@ fn parse_extraction_response(
     response: &str,
     expected_count: usize,
 ) -> Result<Vec<Option<ExtractedAttributes>>, ExtractionError> {
-    let cleaned: String = response.chars().skip_while(|c| c != &'[').collect();
+    let cleaned: String = response
+        .trim()
+        .trim_start_matches("```json")
+        .trim_end_matches("```")
+        .to_string();
 
     let items: Vec<serde_json::Value> = serde_json::from_str(&cleaned).map_err(|e| {
         ExtractionError::InvalidResponse(format!("Failed to parse JSON array: {e}"))

@@ -213,7 +213,6 @@ fn parse_translation_response(
         .trim_start_matches("```json")
         .trim_end_matches("```")
         .to_string();
-    tracing::info!(response = cleaned, "Parsing translation response from LLM.",);
 
     let items: Vec<serde_json::Value> = serde_json::from_str(&cleaned).map_err(|e| {
         TranslationError::InvalidResponse(format!("Failed to parse JSON array: {e}"))
