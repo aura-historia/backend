@@ -3585,7 +3585,7 @@ Resources:
       FunctionName: !Ref ProductPipelineTranslateLambda
       EventSourceArn: !GetAtt ProductPipelineTranslateQ.Arn
       Enabled: true
-      BatchSize: 10
+      BatchSize: 50
       MaximumBatchingWindowInSeconds: 1
       FunctionResponseTypes:
         - ReportBatchItemFailures
@@ -3686,7 +3686,7 @@ Resources:
       FunctionName: !Ref ProductPipelineEmbedTextLambda
       EventSourceArn: !GetAtt ProductPipelineEmbedTextQ.Arn
       Enabled: true
-      BatchSize: 10
+      BatchSize: 50
       MaximumBatchingWindowInSeconds: 5
       FunctionResponseTypes:
         - ReportBatchItemFailures
