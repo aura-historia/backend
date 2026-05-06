@@ -3460,27 +3460,6 @@ Resources:
         - Id: SearchFilterOpenSearchSyncQ
           Arn: !GetAtt SearchFilterOpenSearchSyncQ.Arn
 
-  DynamoDbUserUpdatedFanoutWatchlistUpdateEventRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: "ddb-user-update-fanout-watchlist-prod"
-      EventBusName: !Ref DynamoDbEventBus
-      EventPattern:
-        source:
-          - !Ref TableOne
-        detail-type:
-          - "DynamoDBStreamRecord"
-        detail:
-          eventName:
-            - "MODIFY"
-          dynamodb:
-            NewImage:
-              sk:
-                S:
-                  - "user#details"
-      Targets:
-        - Id: UserLambdaFanoutUpdateWatchlistQ
-          Arn: !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
   DynamoDbNotificationSendEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -3960,6 +3939,28 @@ Resources:
       MaximumBatchingWindowInSeconds: 60
       FunctionResponseTypes:
         - ReportBatchItemFailures
+  ProductPipelineClassifyDynamoDbProductEventRecordCreatedEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "ddb-product-embed-product-pipeline-classify-product-prod"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - "ENRICHMENT_EMBEDDED"
+      Targets:
+        - Id: ProductPipelineClassifyQ
+          Arn: !GetAtt ProductPipelineClassifyQ.Arn
+
   ProductPipelineClassifyLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
