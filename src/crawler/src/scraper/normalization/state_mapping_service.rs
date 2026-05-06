@@ -238,13 +238,23 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
         );
         let message = ChatMessage::user().content(instruction).build();
 
-        let res = self.llm.chat(&[message]).await?.text().ok_or_else(|| {
+        let started_at = std::time::Instant::now();
+        let response = self.llm.chat(&[message]).await?;
+        crate::logging::log_crawler_llm_invocation(
+            common::logging::LlmOperation::CrawlerProductStateMapping,
+            &crate::logging::current_gemini_model(),
+            started_at.elapsed(),
+            crate::logging::llm_metrics(response.usage(), Some(1)),
+        );
+        let res = response.text().ok_or_else(|| {
             StateMappingServiceError::NoTextResponse("Expected text response".to_string())
         })?;
 
         let parsed = parse_llm_response(&res)
             .ok_or_else(|| StateMappingServiceError::UnparsableResponse(res.clone()))?;
         debug!(
+            service = crate::logging::CRAWLER_SERVICE_NAME,
+            component = crate::logging::COMPONENT_LLM,
             raw = %key,
             llm_response = %res,
             mapping_type = ?parsed,
@@ -300,14 +310,24 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
         match existing {
             Some(_) => {
-                debug!(raw = %key, "Updating existing state mapping...");
+                debug!(
+                    service = crate::logging::CRAWLER_SERVICE_NAME,
+                    component = crate::logging::COMPONENT_SCRAPER,
+                    raw = %key,
+                    "Updating existing state mapping..."
+                );
                 self.repository
                     .update_mapping(&key, &normalized_record, &mapping_type)
                     .await
                     .map_err(StateMappingServiceError::DatabaseError)
             }
             None => {
-                debug!(raw = %key, "Inserting new state mapping...");
+                debug!(
+                    service = crate::logging::CRAWLER_SERVICE_NAME,
+                    component = crate::logging::COMPONENT_SCRAPER,
+                    raw = %key,
+                    "Inserting new state mapping..."
+                );
                 let now = OffsetDateTime::now_utc();
                 let record = ProductStateMappingRecord {
                     raw: key,
@@ -336,6 +356,8 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
         if key.len() > MAX_STATE_RAW_LEN {
             let truncated = &key[..key.len().min(120)];
             warn!(
+                service = crate::logging::CRAWLER_SERVICE_NAME,
+                component = crate::logging::COMPONENT_SCRAPER,
                 raw = %truncated,
                 len = key.len(),
                 max = MAX_STATE_RAW_LEN,
@@ -349,7 +371,12 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
         // ── Step 1: exact DB lookup ──────────────────────────────────────
         if let Some(existing) = self.repository.find_mapping(&key).await? {
-            debug!(raw = %key, "Found exact state mapping in DB.");
+            debug!(
+                service = crate::logging::CRAWLER_SERVICE_NAME,
+                component = crate::logging::COMPONENT_SCRAPER,
+                raw = %key,
+                "Found exact state mapping in DB."
+            );
             return Ok((existing, false));
         }
 
@@ -362,6 +389,8 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
             match Regex::new(&mapping.raw) {
                 Ok(re) if re.is_match(&key) => {
                     debug!(
+                        service = crate::logging::CRAWLER_SERVICE_NAME,
+                        component = crate::logging::COMPONENT_SCRAPER,
                         raw = %key,
                         pattern = %mapping.raw,
                         "Matched state via DB regex pattern."
@@ -371,6 +400,8 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
                 Ok(_) => {}
                 Err(err) => {
                     warn!(
+                        service = crate::logging::CRAWLER_SERVICE_NAME,
+                        component = crate::logging::COMPONENT_SCRAPER,
                         pattern = %mapping.raw,
                         error = %err,
                         "Skipping invalid regex pattern in product_state_mapping table."
@@ -381,7 +412,12 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
         // ── Step 3: LLM fallback ─────────────────────────────────────────
         let truncated_raw = if key.len() > 100 { &key[..100] } else { &key };
-        info!(raw = %truncated_raw, "No DB mapping found, asking LLM...");
+        info!(
+            service = crate::logging::CRAWLER_SERVICE_NAME,
+            component = crate::logging::COMPONENT_LLM,
+            raw = %truncated_raw,
+            "No DB mapping found, asking LLM..."
+        );
         let record = self.create_state_mapping(&key).await?;
 
         // Persist the result so future lookups are instant.

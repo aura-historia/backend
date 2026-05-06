@@ -1,3 +1,4 @@
+use crate::logging::{COMPONENT_SCRAPER, CRAWLER_SERVICE_NAME};
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
 };
@@ -56,12 +57,23 @@ impl ScraperServiceImpl {
                         .schema_service
                         .save_product_schemas(shop_id, domain, persisted_schemas)
                         .await?;
-                    info!(domain, url = %url, attempt, "Generated schema appended and applied");
+                    info!(
+                        service = CRAWLER_SERVICE_NAME,
+                        component = COMPONENT_SCRAPER,
+                        shop_id = %shop_id,
+                        domain,
+                        url = %url,
+                        attempt,
+                        "Generated schema appended and applied"
+                    );
                     return Ok((selected_schema, raw, saved.product_schemas));
                 }
                 Err(err) => {
                     last_generated_schema = Some(generated_schema);
                     warn!(
+                        service = CRAWLER_SERVICE_NAME,
+                        component = COMPONENT_SCRAPER,
+                        shop_id = %shop_id,
                         domain,
                         url = %url,
                         attempt,

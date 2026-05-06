@@ -11,6 +11,7 @@
 //! - [`ShopRegistrationRepositoryImpl`] — Postgres-backed repository implementation.
 //! - [`RegisteredShop`] — value object carrying shop identity, type, and domains.
 
+use crate::logging::{COMPONENT_SHOP_SYNC, CRAWLER_SERVICE_NAME};
 use async_trait::async_trait;
 use common::domain::Domain;
 use common::shop_id::ShopId;
@@ -78,7 +79,11 @@ impl ShopRegistrationService {
         let shops = self.source.fetch_registered_shops().await?;
 
         if shops.is_empty() {
-            warn!("Shop sync returned 0 shops; skipping deactivation pass");
+            warn!(
+                service = CRAWLER_SERVICE_NAME,
+                component = COMPONENT_SHOP_SYNC,
+                "Shop sync returned 0 shops; skipping deactivation pass"
+            );
             return Ok(0);
         }
 
@@ -90,8 +95,11 @@ impl ShopRegistrationService {
 
             if let Err(e) = self.repository.upsert_shop(shop).await {
                 error!(
+                    service = CRAWLER_SERVICE_NAME,
+                    component = COMPONENT_SHOP_SYNC,
                     shop_id = %shop.shop_id,
                     shop_name = %shop.shop_name,
+                    shop_slug = %shop.shop_slug,
                     error = %e,
                     "Failed to upsert shop during sync"
                 );
@@ -100,8 +108,12 @@ impl ShopRegistrationService {
 
             if let Err(e) = self.repository.sync_domains(shop).await {
                 error!(
+                    service = CRAWLER_SERVICE_NAME,
+                    component = COMPONENT_SHOP_SYNC,
                     shop_id = %shop.shop_id,
                     shop_name = %shop.shop_name,
+                    shop_slug = %shop.shop_slug,
+                    domains = shop.domains.len(),
                     error = %e,
                     "Failed to sync domains during shop sync"
                 );
@@ -116,16 +128,28 @@ impl ShopRegistrationService {
             Ok(deactivated_count) => {
                 if deactivated_count > 0 {
                     info!(
+                        service = CRAWLER_SERVICE_NAME,
+                        component = COMPONENT_SHOP_SYNC,
                         deactivated_count,
                         "Deactivated shops not found in upstream sync"
                     );
                 }
             }
-            Err(e) => error!(error = %e, "Failed to deactivate shops not present in upstream sync"),
+            Err(e) => error!(
+                service = CRAWLER_SERVICE_NAME,
+                component = COMPONENT_SHOP_SYNC,
+                error = %e,
+                "Failed to deactivate shops not present in upstream sync"
+            ),
         }
 
         if count > 0 {
-            info!(count, "Shop sync complete");
+            info!(
+                service = CRAWLER_SERVICE_NAME,
+                component = COMPONENT_SHOP_SYNC,
+                count,
+                "Shop sync complete"
+            );
         }
         Ok(count)
     }

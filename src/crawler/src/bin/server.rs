@@ -12,22 +12,40 @@
 //!
 //! # Required environment variables
 //!
-//! | Variable                  | Purpose                                                        |
-//! |---------------------------|----------------------------------------------------------------|
-//! | `LOCAL_DB_URL`            | Hardcoded local Postgres URL (`crawler_server`)               |
-//! | `GEMINI_API_KEY`          | API key for the Gemini LLM backend                             |
-//! | `GEMINI_MODEL`            | Gemini model name (default: `gemini-3.1-pro-preview`)   |
-//! | `DYNAMODB_TABLE_NAME`     | DynamoDB table for product events                              |
-//! | `OPENSEARCH_ENDPOINT_URL` | OpenSearch base URL                                            |
-//! | `OPENSEARCH_USERNAME`     | OpenSearch username                                            |
-//! | `OPENSEARCH_PASSWORD`     | OpenSearch password                                            |
+//! | Variable                        | Purpose                                                        |
+//! |---------------------------------|----------------------------------------------------------------|
+//! | `LOCAL_DB_URL`                  | Hardcoded local Postgres URL (`crawler_server`)                |
+//! | `GEMINI_API_KEY`                | API key for the Gemini LLM backend                             |
+//! | `GEMINI_MODEL`                  | Gemini model name (default: `gemini-3.1-flash-lite-preview`)   |
+//! | `DYNAMODB_TABLE_NAME`           | DynamoDB table for product events                              |
+//! | `OPENSEARCH_ENDPOINT_URL`       | OpenSearch base URL                                            |
+//! | `OPENSEARCH_USERNAME`           | OpenSearch username                                            |
+//! | `OPENSEARCH_PASSWORD`           | OpenSearch password                                            |
+//! | `CRAWLER_CLOUDWATCH_LOG_GROUP`  | Optional CloudWatch Logs group name for crawler server logs    |
+//! | `CRAWLER_CLOUDWATCH_LOG_STREAM` | Optional CloudWatch Logs stream name; defaults to host name    |
+//!
+//! # CloudWatch IAM permissions
+//!
+//! If `CRAWLER_CLOUDWATCH_LOG_GROUP` is set, the crawler runtime needs:
+//!
+//! - `logs:CreateLogGroup`
+//! - `logs:CreateLogStream`
+//! - `logs:PutLogEvents`
 
 use async_trait::async_trait;
 use aws_config::BehaviorVersion;
+use aws_sdk_cloudwatchlogs::Client as CloudWatchLogsClient;
+use aws_sdk_cloudwatchlogs::error::SdkError;
+use aws_sdk_cloudwatchlogs::operation::create_log_group::CreateLogGroupError;
+use aws_sdk_cloudwatchlogs::operation::create_log_stream::CreateLogStreamError;
 use common::pagination::cursor::Cursor;
 use common::price::domain::FixedFxRate;
 use common::shop_id::ShopId;
 use crawler::local_db::{SERVER_DB_NAME, bootstrap_local_database, server_db_url};
+use crawler::logging::{
+    COMPONENT_STARTUP, CRAWLER_SERVICE_NAME, CloudWatchBootstrapClient, CloudWatchBootstrapError,
+    CloudWatchLoggingConfig, cloudwatch_logging_config, ensure_cloudwatch_log_destination,
+};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
@@ -65,6 +83,9 @@ use shop::service::seller_service::MockSellerService;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 // ---------------------------------------------------------------------------
 // ShopRegistrationSource backed by QueryShopService (OpenSearch)
@@ -116,12 +137,132 @@ impl ShopRegistrationSource for OpenSearchShopSource {
         let filtered: Vec<_> = all_shops
             .into_iter()
             .filter(|shop| {
-                shop.domains
-                    .iter()
-                    .any(|domain| ["anticoantico.com"].contains(&domain.as_str()))
+                shop.domains.iter().any(|domain| {
+                    ["anticoantico.com", "antik-und-stil.com", "antixx.de"]
+                        .contains(&domain.as_str())
+                })
             })
             .collect();
         Ok(filtered)
+    }
+}
+
+struct AwsSdkCloudWatchBootstrapClient {
+    client: CloudWatchLogsClient,
+}
+
+#[async_trait]
+impl CloudWatchBootstrapClient for AwsSdkCloudWatchBootstrapClient {
+    async fn create_log_group(&self, log_group_name: &str) -> Result<(), CloudWatchBootstrapError> {
+        match self
+            .client
+            .create_log_group()
+            .log_group_name(log_group_name)
+            .send()
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(SdkError::ServiceError(err))
+                if err.err().is_resource_already_exists_exception() =>
+            {
+                Err(CloudWatchBootstrapError::AlreadyExists)
+            }
+            Err(SdkError::ServiceError(err)) => Err(map_create_log_group_error(err.err())),
+            Err(err) => Err(CloudWatchBootstrapError::Other(err.to_string())),
+        }
+    }
+
+    async fn create_log_stream(
+        &self,
+        log_group_name: &str,
+        log_stream_name: &str,
+    ) -> Result<(), CloudWatchBootstrapError> {
+        match self
+            .client
+            .create_log_stream()
+            .log_group_name(log_group_name)
+            .log_stream_name(log_stream_name)
+            .send()
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(SdkError::ServiceError(err))
+                if err.err().is_resource_already_exists_exception() =>
+            {
+                Err(CloudWatchBootstrapError::AlreadyExists)
+            }
+            Err(SdkError::ServiceError(err)) => Err(map_create_log_stream_error(err.err())),
+            Err(err) => Err(CloudWatchBootstrapError::Other(err.to_string())),
+        }
+    }
+}
+
+fn map_create_log_group_error(error: &CreateLogGroupError) -> CloudWatchBootstrapError {
+    if error.is_resource_already_exists_exception() {
+        CloudWatchBootstrapError::AlreadyExists
+    } else {
+        CloudWatchBootstrapError::Other(error.to_string())
+    }
+}
+
+fn map_create_log_stream_error(error: &CreateLogStreamError) -> CloudWatchBootstrapError {
+    if error.is_resource_already_exists_exception() {
+        CloudWatchBootstrapError::AlreadyExists
+    } else {
+        CloudWatchBootstrapError::Other(error.to_string())
+    }
+}
+
+fn build_log_filter() -> EnvFilter {
+    let configured_log_level = std::env::var("LOG_LEVEL").ok();
+    let raw_level = configured_log_level
+        .as_deref()
+        .unwrap_or("info")
+        .to_string();
+    let directives = format!("{raw_level},spider=warn,sqlx::postgres::notice=warn");
+    EnvFilter::new(directives)
+}
+
+fn init_crawler_logging(
+    cloudwatch_config: Option<&CloudWatchLoggingConfig>,
+    cloudwatch_client: Option<CloudWatchLogsClient>,
+) {
+    let stdout_layer = tracing_subscriber::fmt::layer()
+        .json()
+        .with_current_span(true)
+        .with_ansi(false)
+        .without_time();
+
+    if let (Some(config), Some(client)) = (cloudwatch_config, cloudwatch_client) {
+        let cloudwatch_layer = tracing_cloudwatch::layer()
+            .with_client(
+                client,
+                tracing_cloudwatch::ExportConfig::default()
+                    .with_batch_size(50usize)
+                    .with_interval(Duration::from_secs(1))
+                    .with_log_group_name(config.log_group_name.clone())
+                    .with_log_stream_name(config.log_stream_name.clone()),
+            )
+            .with_fmt_layer(
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_current_span(true)
+                    .with_ansi(false)
+                    .without_time(),
+            )
+            .with_code_location(false)
+            .with_target(false);
+
+        tracing_subscriber::registry()
+            .with(build_log_filter())
+            .with(stdout_layer)
+            .with(cloudwatch_layer)
+            .init();
+    } else {
+        tracing_subscriber::registry()
+            .with(build_log_filter())
+            .with(stdout_layer)
+            .init();
     }
 }
 
@@ -146,18 +287,51 @@ fn build_opensearch_client() -> opensearch::OpenSearch {
 async fn main() {
     dotenvy::dotenv().ok();
 
-    common::logging::init_logging_with_directives(&["spider=warn", "sqlx::postgres::notice=warn"]);
+    let cloudwatch_logging = cloudwatch_logging_config()
+        .expect("Failed to parse crawler CloudWatch logging configuration");
+    let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
+        .load()
+        .await;
+    let cloudwatch_client = cloudwatch_logging
+        .as_ref()
+        .map(|_| CloudWatchLogsClient::new(&aws_config));
 
-    info!("Starting Crawler Server");
+    if let (Some(config), Some(client)) = (cloudwatch_logging.as_ref(), cloudwatch_client.as_ref())
+    {
+        let bootstrap_client = AwsSdkCloudWatchBootstrapClient {
+            client: client.clone(),
+        };
+        ensure_cloudwatch_log_destination(&bootstrap_client, config)
+            .await
+            .expect("Failed to ensure CloudWatch log group and stream for crawler server");
+    }
+
+    init_crawler_logging(cloudwatch_logging.as_ref(), cloudwatch_client.clone());
+
+    info!(
+        service = CRAWLER_SERVICE_NAME,
+        component = COMPONENT_STARTUP,
+        "Starting Crawler Server"
+    );
+
+    if let Some(config) = cloudwatch_logging.as_ref() {
+        info!(
+            service = CRAWLER_SERVICE_NAME,
+            component = COMPONENT_STARTUP,
+            log_group = %config.log_group_name,
+            log_stream = %config.log_stream_name,
+            "CloudWatch log export enabled"
+        );
+    }
 
     // 1. Build cron config (needed for pool sizing before everything else)
     let config = CrawlerCronConfig {
         spider_interval: Duration::from_hours(72),
-        scraper_interval: Duration::from_hours(2),
+        scraper_interval: Duration::from_mins(10),
         spider_batch_size: 100,
         scraper_batch_size: 10000,
-        spider_concurrency: 10,
-        scraper_concurrency: 10,
+        spider_concurrency: 3,
+        scraper_concurrency: 3,
         spider_classify_threshold: 400,
         scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
         push_batch_size: 100,
@@ -165,6 +339,8 @@ async fn main() {
     };
 
     info!(
+        service = CRAWLER_SERVICE_NAME,
+        component = COMPONENT_STARTUP,
         spider_interval_s = config.spider_interval.as_secs(),
         scraper_interval_s = config.scraper_interval.as_secs(),
         spider_concurrency = config.spider_concurrency,
@@ -186,6 +362,8 @@ async fn main() {
         .expect("Failed to connect to database");
 
     info!(
+        service = CRAWLER_SERVICE_NAME,
+        component = COMPONENT_STARTUP,
         max_connections = config.effective_db_max_connections(),
         "Connected to Postgres"
     );
@@ -196,12 +374,19 @@ async fn main() {
         .run(&pool)
         .await
         .expect("Failed to run database migrations");
-    info!("Database migrations applied successfully");
+    info!(
+        service = CRAWLER_SERVICE_NAME,
+        component = COMPONENT_STARTUP,
+        "Database migrations applied successfully"
+    );
 
     // 4. Wire scraper + spider dependencies
     let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set");
-    let model =
-        std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.1-pro-preview".to_string());
+    let model = std::env::var("GEMINI_MODEL")
+        .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
+    unsafe {
+        std::env::set_var("GEMINI_MODEL", &model);
+    }
 
     let state_llm_builder = LLMBuilder::new()
         .backend(LLMBackend::Google)
@@ -287,9 +472,6 @@ async fn main() {
 
     // 6. Wire product push — backed by DynamoDB in production
     let table_name = std::env::var("DYNAMODB_TABLE_NAME").expect("DYNAMODB_TABLE_NAME must be set");
-    let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
-        .load()
-        .await;
     let dynamodb = aws_sdk_dynamodb::Client::new(&aws_config);
 
     let product_dynamodb_repo = Box::leak(Box::new(ProductDynamoDbRepositoryImpl::new(
@@ -329,8 +511,11 @@ async fn main() {
 
     // 8. Run forever
     info!(
+        service = CRAWLER_SERVICE_NAME,
+        component = COMPONENT_STARTUP,
         db_max_connections,
         scraper_max_llm_calls_per_shop,
+        gemini_model = %model,
         "Crawler Server is fully initialized. Starting background tasks..."
     );
     cron_job.run_loop().await;

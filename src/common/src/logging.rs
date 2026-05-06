@@ -129,6 +129,10 @@ pub enum LlmOperation {
     ProductEmbedding,
     ProductQueryEmbedding,
     SellerShopDisambiguation,
+    CrawlerUrlClassification,
+    CrawlerProductSchemaGeneration,
+    CrawlerProductSchemaRepair,
+    CrawlerProductStateMapping,
 }
 
 impl LlmOperation {
@@ -140,6 +144,10 @@ impl LlmOperation {
             Self::ProductEmbedding => "PRODUCT_EMBEDDING",
             Self::ProductQueryEmbedding => "PRODUCT_QUERY_EMBEDDING",
             Self::SellerShopDisambiguation => "SELLER_SHOP_DISAMBIGUATION",
+            Self::CrawlerUrlClassification => "CRAWLER_URL_CLASSIFICATION",
+            Self::CrawlerProductSchemaGeneration => "CRAWLER_PRODUCT_SCHEMA_GENERATION",
+            Self::CrawlerProductSchemaRepair => "CRAWLER_PRODUCT_SCHEMA_REPAIR",
+            Self::CrawlerProductStateMapping => "CRAWLER_PRODUCT_STATE_MAPPING",
         }
     }
 }
@@ -249,22 +257,96 @@ pub fn log_llm_invocation(
     latency: Duration,
     metrics: LlmInvocationMetrics,
 ) {
-    info!(
-        eventType = %LogEventType::LlmInvocation,
-        llmOperation = %operation,
-        llmProvider = %provider,
-        llmModel = %model,
-        latencyMs = duration_millis(latency),
-        batchSize = metrics.batch_size,
-        promptTokens = metrics.prompt_tokens,
-        completionTokens = metrics.completion_tokens,
-        totalTokens = metrics.total_tokens,
-        cachedPromptTokens = metrics.cached_prompt_tokens,
-        reasoningTokens = metrics.reasoning_tokens,
-        outputDimensions = metrics.output_dimensions,
-        cacheHit = metrics.cache_hit,
-        "Completed LLM invocation."
+    log_llm_invocation_with_context(
+        operation.as_str(),
+        provider.as_str(),
+        model.as_str(),
+        latency,
+        metrics,
+        None,
+        None,
     );
+}
+
+pub fn log_llm_invocation_with_context(
+    operation: &str,
+    provider: &str,
+    model: &str,
+    latency: Duration,
+    metrics: LlmInvocationMetrics,
+    service: Option<&str>,
+    component: Option<&str>,
+) {
+    match (service, component) {
+        (Some(service), Some(component)) => info!(
+            service,
+            component,
+            eventType = %LogEventType::LlmInvocation,
+            llmOperation = operation,
+            llmProvider = provider,
+            llmModel = model,
+            latencyMs = duration_millis(latency),
+            batchSize = metrics.batch_size,
+            promptTokens = metrics.prompt_tokens,
+            completionTokens = metrics.completion_tokens,
+            totalTokens = metrics.total_tokens,
+            cachedPromptTokens = metrics.cached_prompt_tokens,
+            reasoningTokens = metrics.reasoning_tokens,
+            outputDimensions = metrics.output_dimensions,
+            cacheHit = metrics.cache_hit,
+            "Completed LLM invocation."
+        ),
+        (Some(service), None) => info!(
+            service,
+            eventType = %LogEventType::LlmInvocation,
+            llmOperation = operation,
+            llmProvider = provider,
+            llmModel = model,
+            latencyMs = duration_millis(latency),
+            batchSize = metrics.batch_size,
+            promptTokens = metrics.prompt_tokens,
+            completionTokens = metrics.completion_tokens,
+            totalTokens = metrics.total_tokens,
+            cachedPromptTokens = metrics.cached_prompt_tokens,
+            reasoningTokens = metrics.reasoning_tokens,
+            outputDimensions = metrics.output_dimensions,
+            cacheHit = metrics.cache_hit,
+            "Completed LLM invocation."
+        ),
+        (None, Some(component)) => info!(
+            component,
+            eventType = %LogEventType::LlmInvocation,
+            llmOperation = operation,
+            llmProvider = provider,
+            llmModel = model,
+            latencyMs = duration_millis(latency),
+            batchSize = metrics.batch_size,
+            promptTokens = metrics.prompt_tokens,
+            completionTokens = metrics.completion_tokens,
+            totalTokens = metrics.total_tokens,
+            cachedPromptTokens = metrics.cached_prompt_tokens,
+            reasoningTokens = metrics.reasoning_tokens,
+            outputDimensions = metrics.output_dimensions,
+            cacheHit = metrics.cache_hit,
+            "Completed LLM invocation."
+        ),
+        (None, None) => info!(
+            eventType = %LogEventType::LlmInvocation,
+            llmOperation = operation,
+            llmProvider = provider,
+            llmModel = model,
+            latencyMs = duration_millis(latency),
+            batchSize = metrics.batch_size,
+            promptTokens = metrics.prompt_tokens,
+            completionTokens = metrics.completion_tokens,
+            totalTokens = metrics.total_tokens,
+            cachedPromptTokens = metrics.cached_prompt_tokens,
+            reasoningTokens = metrics.reasoning_tokens,
+            outputDimensions = metrics.output_dimensions,
+            cacheHit = metrics.cache_hit,
+            "Completed LLM invocation."
+        ),
+    }
 }
 
 /// Like [`init_logging`] but accepts additional [`EnvFilter`] directives that
@@ -324,5 +406,37 @@ mod tests {
     #[test]
     fn should_convert_duration_to_millis_for_logging() {
         assert_eq!(duration_millis(Duration::from_millis(42)), 42);
+    }
+
+    #[test]
+    fn should_return_crawler_url_classification_name_for_llm_operation() {
+        assert_eq!(
+            LlmOperation::CrawlerUrlClassification.as_str(),
+            "CRAWLER_URL_CLASSIFICATION"
+        );
+    }
+
+    #[test]
+    fn should_return_crawler_product_schema_generation_name_for_llm_operation() {
+        assert_eq!(
+            LlmOperation::CrawlerProductSchemaGeneration.as_str(),
+            "CRAWLER_PRODUCT_SCHEMA_GENERATION"
+        );
+    }
+
+    #[test]
+    fn should_return_crawler_product_schema_repair_name_for_llm_operation() {
+        assert_eq!(
+            LlmOperation::CrawlerProductSchemaRepair.as_str(),
+            "CRAWLER_PRODUCT_SCHEMA_REPAIR"
+        );
+    }
+
+    #[test]
+    fn should_return_crawler_product_state_mapping_name_for_llm_operation() {
+        assert_eq!(
+            LlmOperation::CrawlerProductStateMapping.as_str(),
+            "CRAWLER_PRODUCT_STATE_MAPPING"
+        );
     }
 }

@@ -1,8 +1,14 @@
 use regex::Regex;
 use std::collections::HashSet;
+use std::time::Instant;
 use tracing::{debug, info, warn};
 
+use crate::logging::{
+    COMPONENT_LLM, COMPONENT_SPIDER, CRAWLER_SERVICE_NAME, current_gemini_model, llm_metrics,
+    log_crawler_llm_invocation,
+};
 use crate::scraper::css_selector::product_schema_service::strip_markdown_json_embedding;
+use common::logging::LlmOperation;
 use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -156,10 +162,19 @@ impl UrlClassificationServiceImpl {
         let pattern = parsed.pattern.trim().to_string();
 
         if pattern.is_empty() {
-            debug!("LLM returned empty product URL pattern");
+            debug!(
+                service = CRAWLER_SERVICE_NAME,
+                component = COMPONENT_LLM,
+                "LLM returned empty product URL pattern"
+            );
             Ok(None)
         } else {
-            debug!(pattern = %pattern, "LLM returned product URL pattern");
+            debug!(
+                service = CRAWLER_SERVICE_NAME,
+                component = COMPONENT_LLM,
+                pattern = %pattern,
+                "LLM returned product URL pattern"
+            );
             Ok(Some(pattern))
         }
     }
@@ -172,11 +187,18 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
         shop_url: &str,
         all_urls: &[String],
     ) -> Result<Option<Regex>, UrlClassificationError> {
-        info!(shop_url = %shop_url, url_count = all_urls.len(), "Analyzing crawled URLs with LLM");
+        info!(
+            service = CRAWLER_SERVICE_NAME,
+            component = COMPONENT_LLM,
+            shop_url = %shop_url,
+            url_count = all_urls.len(),
+            "Analyzing crawled URLs with LLM"
+        );
 
         let prompt = Self::build_prompt(all_urls);
         let messages = vec![ChatMessage::user().content(prompt).build()];
 
+        let started_at = Instant::now();
         let response = match self.llm.chat(&messages).await {
             Ok(r) => r,
             Err(e) => {
@@ -186,6 +208,12 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
                 )));
             }
         };
+        log_crawler_llm_invocation(
+            LlmOperation::CrawlerUrlClassification,
+            &current_gemini_model(),
+            started_at.elapsed(),
+            llm_metrics(response.usage(), Some(all_urls.len())),
+        );
 
         let response_text = response.text().ok_or_else(|| {
             UrlClassificationError::Llm("LLM returned no text response".to_string())
@@ -194,11 +222,19 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
         match Self::parse_pattern_response(&response_text) {
             Ok(Some(pattern)) => match Regex::new(&pattern) {
                 Ok(regex) => {
-                    info!(shop_url = %shop_url, pattern = %pattern, "LLM returned a valid URL pattern");
+                    info!(
+                        service = CRAWLER_SERVICE_NAME,
+                        component = COMPONENT_LLM,
+                        shop_url = %shop_url,
+                        pattern = %pattern,
+                        "LLM returned a valid URL pattern"
+                    );
                     Ok(Some(regex))
                 }
                 Err(error) => {
                     warn!(
+                        service = CRAWLER_SERVICE_NAME,
+                        component = COMPONENT_LLM,
                         shop_url = %shop_url,
                         pattern = %pattern,
                         error = %error,
@@ -208,7 +244,12 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
                 }
             },
             Ok(None) => {
-                info!(shop_url = %shop_url, "LLM found no consistent product URL pattern");
+                info!(
+                    service = CRAWLER_SERVICE_NAME,
+                    component = COMPONENT_LLM,
+                    shop_url = %shop_url,
+                    "LLM found no consistent product URL pattern"
+                );
                 Ok(None)
             }
             Err(error) => Err(error),
@@ -221,6 +262,8 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
         all_urls: &[String],
     ) -> Result<Vec<CrawledUrl>, UrlClassificationError> {
         info!(
+            service = CRAWLER_SERVICE_NAME,
+            component = COMPONENT_SPIDER,
             url_count = all_urls.len(),
             "Applying URL pattern to crawled URLs"
         );
@@ -235,7 +278,12 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
             }
         }
 
-        debug!(match_count = matches.len(), "Finished applying URL pattern");
+        debug!(
+            service = CRAWLER_SERVICE_NAME,
+            component = COMPONENT_SPIDER,
+            match_count = matches.len(),
+            "Finished applying URL pattern"
+        );
 
         if matches.is_empty() {
             return Err(UrlClassificationError::NoProducts(
