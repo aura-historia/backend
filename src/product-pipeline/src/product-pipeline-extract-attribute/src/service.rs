@@ -370,8 +370,8 @@ mod tests {
     }
 
     #[test]
-    fn should_parse_response_with_leading_think_tags_for_extraction_response() {
-        let response = r#"<think>reasoning</think>[{"y":1750}]"#;
+    fn should_parse_response_with_json_markdown_for_extraction_response() {
+        let response = r#"```json[{"y":1750}]```"#;
         let result = parse_extraction_response(response, 1).unwrap();
         assert_eq!(Some(1750.into()), result[0].unwrap().y);
     }
