@@ -162,11 +162,6 @@ impl CloudWatchBootstrapClient for AwsSdkCloudWatchBootstrapClient {
             .await
         {
             Ok(_) => Ok(()),
-            Err(SdkError::ServiceError(err))
-                if err.err().is_resource_already_exists_exception() =>
-            {
-                Err(CloudWatchBootstrapError::AlreadyExists)
-            }
             Err(SdkError::ServiceError(err)) => Err(map_create_log_group_error(err.err())),
             Err(err) => Err(CloudWatchBootstrapError::Other(err.to_string())),
         }
@@ -186,11 +181,6 @@ impl CloudWatchBootstrapClient for AwsSdkCloudWatchBootstrapClient {
             .await
         {
             Ok(_) => Ok(()),
-            Err(SdkError::ServiceError(err))
-                if err.err().is_resource_already_exists_exception() =>
-            {
-                Err(CloudWatchBootstrapError::AlreadyExists)
-            }
             Err(SdkError::ServiceError(err)) => Err(map_create_log_stream_error(err.err())),
             Err(err) => Err(CloudWatchBootstrapError::Other(err.to_string())),
         }
