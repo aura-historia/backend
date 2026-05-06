@@ -2710,7 +2710,7 @@ Resources:
       EventSourceArn: !GetAtt ProductMaterializeOpenSearchQ.Arn
       Enabled: true
       BatchSize: 500
-      MaximumBatchingWindowInSeconds: 5
+      MaximumBatchingWindowInSeconds: 30
       FunctionResponseTypes:
         - ReportBatchItemFailures
   ProductMaterializeOpenSearchLambdaErrorAlarm:
@@ -3586,7 +3586,7 @@ Resources:
       EventSourceArn: !GetAtt ProductPipelineTranslateQ.Arn
       Enabled: true
       BatchSize: 50
-      MaximumBatchingWindowInSeconds: 1
+      MaximumBatchingWindowInSeconds: 60
       FunctionResponseTypes:
         - ReportBatchItemFailures
   ProductPipelineTranslateErrorAlarm:
@@ -3687,7 +3687,7 @@ Resources:
       EventSourceArn: !GetAtt ProductPipelineEmbedTextQ.Arn
       Enabled: true
       BatchSize: 50
-      MaximumBatchingWindowInSeconds: 5
+      MaximumBatchingWindowInSeconds: 60
       FunctionResponseTypes:
         - ReportBatchItemFailures
   ProductPipelineEmbedTextLambdaErrorAlarm:
@@ -3789,7 +3789,7 @@ Resources:
       EventSourceArn: !GetAtt ProductPipelineExtractAttributeQ.Arn
       Enabled: true
       BatchSize: 10
-      MaximumBatchingWindowInSeconds: 1
+      MaximumBatchingWindowInSeconds: 60
       FunctionResponseTypes:
         - ReportBatchItemFailures
   ProductPipelineTranslateDynamoDbProductEventRecordCreatedEventRule:
@@ -3957,7 +3957,7 @@ Resources:
       EventSourceArn: !GetAtt ProductPipelineClassifyQ.Arn
       Enabled: true
       BatchSize: 10
-      MaximumBatchingWindowInSeconds: 5
+      MaximumBatchingWindowInSeconds: 60
       FunctionResponseTypes:
         - ReportBatchItemFailures
   ProductPipelineClassifyLambdaErrorAlarm:
