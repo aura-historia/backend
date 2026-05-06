@@ -126,8 +126,10 @@ pub mod api {
                 WatchProductError::UnprocessedAfterMaxRetries(_) => {
                     ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES, Box::new(err))
                 }
-                WatchProductError::WatchlistEntryCountExceeded(_, _) => {
+                err @ WatchProductError::WatchlistEntryCountExceeded(_, _) => {
+                    let detail = err.to_string();
                     ApiError::unprocessable_entity(WATCHLIST_QUOTA_EXCEEDED, Box::new(err))
+                        .with_detail(detail)
                 }
             }
         }

@@ -122,14 +122,20 @@ pub mod api {
                 UserSearchFilterError::UserNotFound(_) => {
                     ApiError::not_found(USER_NOT_FOUND, Box::new(err))
                 }
-                UserSearchFilterError::SearchFilterQuotaExceeded(_, _) => {
+                err @ UserSearchFilterError::SearchFilterQuotaExceeded(_, _) => {
+                    let detail = err.to_string();
                     ApiError::unprocessable_entity(SEARCH_FILTER_QUOTA_EXCEEDED, Box::new(err))
+                        .with_detail(detail)
                 }
-                UserSearchFilterError::SearchFilterFeatureForbidden(_) => {
+                err @ UserSearchFilterError::SearchFilterFeatureForbidden(_) => {
+                    let detail = err.to_string();
                     ApiError::unprocessable_entity(SEARCH_FILTER_RESTRICTED_FEATURE, Box::new(err))
+                        .with_detail(detail)
                 }
-                UserSearchFilterError::EnhancedSearchDescriptionFeatureForbidden => {
+                err @ UserSearchFilterError::EnhancedSearchDescriptionFeatureForbidden => {
+                    let detail = err.to_string();
                     ApiError::unprocessable_entity(SEARCH_FILTER_RESTRICTED_FEATURE, Box::new(err))
+                        .with_detail(detail)
                 }
                 UserSearchFilterError::UserServiceError(_) => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
