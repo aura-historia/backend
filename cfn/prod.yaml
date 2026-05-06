@@ -108,8 +108,8 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "cognito-post-confirmation-prod-${CommitSHA}.zip"
-      MemorySize: 256
-      Timeout: 5
+      MemorySize: 128
+      Timeout: 10
       ReservedConcurrentExecutions: 50
       EphemeralStorage:
         Size: 512
@@ -718,7 +718,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-api-prod-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 10
       EphemeralStorage:
         Size: 512
@@ -811,7 +811,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-api-partner-prod-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 10
       EphemeralStorage:
         Size: 512
@@ -909,7 +909,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-watchlist-api-prod-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 10
       EphemeralStorage:
         Size: 512
@@ -992,7 +992,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "stripe-api-prod-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 10
       ReservedConcurrentExecutions: 10
       EphemeralStorage:
@@ -1120,7 +1120,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "notification-api-prod-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 10
       EphemeralStorage:
         Size: 512
@@ -1244,7 +1244,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "user-api-prod-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 10
       EphemeralStorage:
         Size: 512
@@ -1311,7 +1311,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "newsletter-api-prod-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 10
       ReservedConcurrentExecutions: 10
       EphemeralStorage:
@@ -1483,7 +1483,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "partner-shop-application-api-prod-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 10
       EphemeralStorage:
         Size: 512
@@ -1624,7 +1624,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "partner-shop-application-lambda-prod-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 30
       EphemeralStorage:
         Size: 512
@@ -1632,8 +1632,8 @@ Resources:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
-          STAGE_NAME: "prod"
-          COMMIT_SHA: !Sub "${CommitSHA}"
+          STAGE_NAME: prod
+          COMMIT_SHA: !Ref CommitSHA
           GOOGLE_GEOCODING_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/google-geocoding-api-key}}"
   PartnerShopApplicationStateMachineExecutionRole:
     Type: AWS::IAM::Role
@@ -1827,7 +1827,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "shop-api-prod-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 10
       EphemeralStorage:
         Size: 512
@@ -1926,7 +1926,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-classification-api-prod-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 10
       EphemeralStorage:
         Size: 512
@@ -2047,7 +2047,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "search-filter-api-prod-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 10
       EphemeralStorage:
         Size: 512
@@ -2500,8 +2500,8 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "notification-send-prod-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 60
+      MemorySize: 128
+      Timeout: 20
       ReservedConcurrentExecutions: 50
       EphemeralStorage:
         Size: 512
@@ -2509,8 +2509,8 @@ Resources:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
-          STAGE_NAME: "prod"
-          COMMIT_SHA: !Sub "${CommitSHA}"
+          STAGE_NAME: prod
+          COMMIT_SHA: !Ref CommitSHA
   NotificationSendMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2598,8 +2598,8 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-lambda-materialize-dynamodb-prod-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 60
+      MemorySize: 128
+      Timeout: 30
       ReservedConcurrentExecutions: 10
       EphemeralStorage:
         Size: 512
@@ -2693,7 +2693,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-lambda-materialize-opensearch-prod-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 60
       ReservedConcurrentExecutions: 10
       EphemeralStorage:
@@ -2784,7 +2784,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "shop-lambda-opensearch-index-prod-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 30
       EphemeralStorage:
         Size: 512
@@ -2871,7 +2871,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "user-lambda-index-opensearch-prod-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 30
       EphemeralStorage:
         Size: 512
@@ -2969,7 +2969,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "user-lambda-tier-update-prod-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 30
       EphemeralStorage:
         Size: 512
@@ -3035,7 +3035,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "search-filter-lambda-opensearch-sync-prod-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 30
       EphemeralStorage:
         Size: 512
@@ -3148,16 +3148,16 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-lambda-update-notify-user-prod-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 60
+      MemorySize: 128
+      Timeout: 30
       EphemeralStorage:
         Size: 512
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
-          STAGE_NAME: "prod"
-          COMMIT_SHA: !Sub "${CommitSHA}"
+          STAGE_NAME: prod
+          COMMIT_SHA: !Ref CommitSHA
   ProductUpdateNotifyUserMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -3264,7 +3264,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "search-filter-lambda-percolate-product-prod-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 60
       EphemeralStorage:
         Size: 512
@@ -3272,8 +3272,8 @@ Resources:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
-          STAGE_NAME: "prod"
-          COMMIT_SHA: !Sub "${CommitSHA}"
+          STAGE_NAME: prod
+          COMMIT_SHA: !Ref CommitSHA
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
           OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/prod/username}}"
           OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/prod/password}}"
@@ -3566,9 +3566,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-pipeline-translate-prod-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 60
-      ReservedConcurrentExecutions: 50
+      ReservedConcurrentExecutions: 10
       EphemeralStorage:
         Size: 512
       Environment:
@@ -3667,9 +3667,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-pipeline-embed-text-prod-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 60
-      ReservedConcurrentExecutions: 50
+      ReservedConcurrentExecutions: 10
       EphemeralStorage:
         Size: 512
       Environment:
@@ -3769,9 +3769,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-pipeline-extract-attribute-prod-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 60
-      ReservedConcurrentExecutions: 50
+      ReservedConcurrentExecutions: 10
       EphemeralStorage:
         Size: 512
       Environment:
@@ -3934,9 +3934,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-pipeline-classify-prod-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 60
-      ReservedConcurrentExecutions: 50
+      ReservedConcurrentExecutions: 10
       EphemeralStorage:
         Size: 512
       Environment:
@@ -4011,7 +4011,7 @@ Resources:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "fxrate-lambda-prod-${CommitSHA}.zip"
       MemorySize: 128
-      Timeout: 30
+      Timeout: 10
       EphemeralStorage:
         Size: 512
       Environment:
@@ -4097,9 +4097,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "stripe-lambda-prod-${CommitSHA}.zip"
-      MemorySize: 256
-      Timeout: 30
-      ReservedConcurrentExecutions: 10
+      MemorySize: 128
+      Timeout: 7
+      ReservedConcurrentExecutions: 20
       EphemeralStorage:
         Size: 512
       Environment:
