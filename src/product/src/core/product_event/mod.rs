@@ -148,11 +148,7 @@ impl ProductEventLog {
         }
 
         let _entered = event.enter();
-        if let Some(v) = self.msg {
-            tracing::info!(v);
-        } else {
-            tracing::info!("");
-        }
+        tracing::info!(message = self.msg.unwrap_or(""));
     }
 }
 
