@@ -102,8 +102,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "cognito-post-confirmation-dev-${CommitSHA}.zip"
-      MemorySize: 256
-      Timeout: 5
+      MemorySize: 128
+      Timeout: 10
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -564,8 +565,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-api-dev-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 10
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -657,8 +659,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-api-partner-dev-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 10
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -755,8 +758,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-watchlist-api-dev-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 10
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -838,8 +842,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "stripe-api-dev-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 10
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -947,8 +952,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "notification-api-dev-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 10
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -1071,8 +1077,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "user-api-dev-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 10
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -1138,8 +1145,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "newsletter-api-dev-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 10
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -1293,8 +1301,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "partner-shop-application-api-dev-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 10
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -1365,6 +1374,7 @@ Resources:
         S3Key: !Sub "partner-api-dev-${CommitSHA}.zip"
       MemorySize: 256
       Timeout: 10
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -1434,8 +1444,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "partner-shop-application-lambda-dev-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 30
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -1637,8 +1648,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "shop-api-dev-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 10
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -1736,8 +1748,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-classification-api-dev-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 10
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -1857,8 +1870,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "search-filter-api-dev-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 10
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -1948,8 +1962,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "notification-send-dev-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 60
+      MemorySize: 128
+      Timeout: 20
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -1965,7 +1980,7 @@ Resources:
       EventSourceArn: !GetAtt NotificationSendQ.Arn
       Enabled: true
       BatchSize: 25
-      MaximumBatchingWindowInSeconds: 1
+      MaximumBatchingWindowInSeconds: 5
       FunctionResponseTypes:
         - ReportBatchItemFailures
 
@@ -2025,8 +2040,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-lambda-materialize-dynamodb-dev-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 60
+      MemorySize: 128
+      Timeout: 30
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -2099,8 +2115,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-lambda-materialize-opensearch-dev-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 60
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -2116,8 +2133,8 @@ Resources:
       FunctionName: !Ref ProductMaterializeOpenSearchLambda
       EventSourceArn: !GetAtt ProductMaterializeOpenSearchQ.Arn
       Enabled: true
-      BatchSize: 2500
-      MaximumBatchingWindowInSeconds: 1
+      BatchSize: 500
+      MaximumBatchingWindowInSeconds: 30
       FunctionResponseTypes:
         - ReportBatchItemFailures
 
@@ -2169,8 +2186,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "shop-lambda-opensearch-index-dev-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 30
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -2238,8 +2256,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "user-lambda-index-opensearch-dev-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 30
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -2318,8 +2337,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "user-lambda-tier-update-dev-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 30
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -2382,8 +2402,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "search-filter-lambda-opensearch-sync-dev-${CommitSHA}.zip"
-      MemorySize: 256
+      MemorySize: 128
       Timeout: 30
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -2479,8 +2500,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-lambda-update-notify-user-dev-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 60
+      MemorySize: 128
+      Timeout: 30
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -2496,7 +2518,7 @@ Resources:
       EventSourceArn: !GetAtt ProductUpdateNotifyUserQ.Arn
       Enabled: true
       BatchSize: 10
-      MaximumBatchingWindowInSeconds: 1
+      MaximumBatchingWindowInSeconds: 5
       FunctionResponseTypes:
         - ReportBatchItemFailures
 
@@ -2579,8 +2601,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "search-filter-lambda-percolate-product-dev-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 60
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -2600,7 +2623,7 @@ Resources:
       EventSourceArn: !GetAtt SearchFilterPercolateProductQ.Arn
       Enabled: true
       BatchSize: 10
-      MaximumBatchingWindowInSeconds: 1
+      MaximumBatchingWindowInSeconds: 5
       FunctionResponseTypes:
         - ReportBatchItemFailures
 
@@ -2858,8 +2881,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-pipeline-translate-dev-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 60
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -2872,8 +2896,8 @@ Resources:
       FunctionName: !Ref ProductPipelineTranslateLambda
       EventSourceArn: !GetAtt ProductPipelineTranslateQ.Arn
       Enabled: true
-      BatchSize: 10
-      MaximumBatchingWindowInSeconds: 1
+      BatchSize: 50
+      MaximumBatchingWindowInSeconds: 60
       FunctionResponseTypes:
         - ReportBatchItemFailures
 
@@ -2938,8 +2962,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-pipeline-embed-text-dev-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 60
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -2952,8 +2977,8 @@ Resources:
       FunctionName: !Ref ProductPipelineEmbedTextLambda
       EventSourceArn: !GetAtt ProductPipelineEmbedTextQ.Arn
       Enabled: true
-      BatchSize: 10
-      MaximumBatchingWindowInSeconds: 1
+      BatchSize: 50
+      MaximumBatchingWindowInSeconds: 60
       FunctionResponseTypes:
         - ReportBatchItemFailures
 
@@ -3019,8 +3044,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-pipeline-extract-attribute-dev-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 60
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -3034,7 +3060,7 @@ Resources:
       EventSourceArn: !GetAtt ProductPipelineExtractAttributeQ.Arn
       Enabled: true
       BatchSize: 10
-      MaximumBatchingWindowInSeconds: 1
+      MaximumBatchingWindowInSeconds: 60
       FunctionResponseTypes:
         - ReportBatchItemFailures
   ProductPipelineTranslateDynamoDbProductEventRecordCreatedEventRule:
@@ -3162,8 +3188,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-pipeline-classify-dev-${CommitSHA}.zip"
-      MemorySize: 512
+      MemorySize: 128
       Timeout: 60
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -3180,7 +3207,7 @@ Resources:
       EventSourceArn: !GetAtt ProductPipelineClassifyQ.Arn
       Enabled: true
       BatchSize: 10
-      MaximumBatchingWindowInSeconds: 1
+      MaximumBatchingWindowInSeconds: 60
       FunctionResponseTypes:
         - ReportBatchItemFailures
   ProductPipelineClassifyDynamoDbProductEventRecordCreatedEventRule:
@@ -3240,7 +3267,8 @@ Resources:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "fxrate-lambda-dev-${CommitSHA}.zip"
       MemorySize: 128
-      Timeout: 180
+      Timeout: 10
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
@@ -3308,8 +3336,9 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "stripe-lambda-dev-${CommitSHA}.zip"
-      MemorySize: 256
-      Timeout: 30
+      MemorySize: 128
+      Timeout: 7
+      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 512
       Environment:
