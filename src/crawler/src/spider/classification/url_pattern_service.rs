@@ -4,6 +4,7 @@ use regex::Regex;
 use thiserror::Error;
 use tracing::info;
 
+use crate::logging::{COMPONENT_SPIDER, CRAWLER_SERVICE_NAME};
 use crate::spider::classification::url_classification_service::{
     UrlClassificationError, UrlClassificationService,
 };
@@ -140,9 +141,23 @@ impl UrlPatternService for UrlPatternServiceImpl {
             self.save_pattern_for_shop(shop_id, shop_url, p).await?;
             match extract_shop_base_url(shop_url) {
                 Ok(extracted_domain) => {
-                    info!(domain = %extracted_domain, "Persisted product URL pattern")
+                    info!(
+                        service = CRAWLER_SERVICE_NAME,
+                        component = COMPONENT_SPIDER,
+                        shop_id = %shop_id,
+                        shop_url,
+                        domain = %extracted_domain,
+                        "Persisted product URL pattern"
+                    )
                 }
-                Err(_) => info!(domain = %shop_url, "Persisted product URL pattern"),
+                Err(_) => info!(
+                    service = CRAWLER_SERVICE_NAME,
+                    component = COMPONENT_SPIDER,
+                    shop_id = %shop_id,
+                    shop_url,
+                    domain = %shop_url,
+                    "Persisted product URL pattern"
+                ),
             }
         }
 

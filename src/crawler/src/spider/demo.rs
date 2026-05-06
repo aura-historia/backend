@@ -103,6 +103,9 @@ async fn main() {
     let crawler = Box::new(SpiderImpl::default());
     let model =
         env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
+    unsafe {
+        env::set_var("GEMINI_MODEL", &model);
+    }
     let llm_builder = llm::builder::LLMBuilder::new()
         .backend(llm::builder::LLMBackend::Google)
         .api_key(&api_key)

@@ -1,3 +1,4 @@
+use crate::logging::{COMPONENT_SCRAPER, CRAWLER_SERVICE_NAME};
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use common::shop_id::ShopId;
 use std::collections::HashSet;
@@ -29,6 +30,8 @@ impl ScraperServiceImpl {
             Ok(urls) => urls,
             Err(err) => {
                 warn!(
+                    service = CRAWLER_SERVICE_NAME,
+                    component = COMPONENT_SCRAPER,
                     error = %err,
                     shop_id = %shop_id,
                     url = %url,
@@ -56,7 +59,11 @@ impl ScraperServiceImpl {
                 Ok(sample_html) => pages.push(sample_html),
                 Err(err) => {
                     warn!(
+                        service = CRAWLER_SERVICE_NAME,
+                        component = COMPONENT_SCRAPER,
                         error = %err,
+                        shop_id = %shop_id,
+                        url = %url,
                         sample_url = %sample_url,
                         "Failed to fetch sampled schema-seed page; continuing with available samples"
                     );

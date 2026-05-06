@@ -259,6 +259,9 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
         .expect("GEMINI_API_KEY must be set — see the module-level doc comment");
     let model = std::env::var("GEMINI_MODEL")
         .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
+    unsafe {
+        std::env::set_var("GEMINI_MODEL", &model);
+    }
 
     let schema_llm_builder = LLMBuilder::new()
         .backend(LLMBackend::Google)

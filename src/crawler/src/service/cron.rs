@@ -304,6 +304,12 @@ impl CrawlerCronJob {
                                 service = CRAWLER_SERVICE_NAME,
                                 component = COMPONENT_SPIDER,
                                 shop_id = %candidate.shop_id,
+                                service = CRAWLER_SERVICE_NAME,
+                                component = COMPONENT_SPIDER,
+                                shop_id = %candidate.shop_id,
+                                service = CRAWLER_SERVICE_NAME,
+                                component = COMPONENT_SPIDER,
+                                shop_id = %candidate.shop_id,
                                 domain_id = %candidate.domain_id,
                                 shop_url = %shop_url,
                                 "Spider semaphore closed unexpectedly"
@@ -315,6 +321,9 @@ impl CrawlerCronJob {
                             DomainLock::try_acquire(&lock_manager, candidate.domain_id)
                         else {
                             warn!(
+                                service = CRAWLER_SERVICE_NAME,
+                                component = COMPONENT_SPIDER,
+                                shop_id = %candidate.shop_id,
                                 domain_id = %candidate.domain_id,
                                 "Skipping domain — lock held by another worker"
                             );
@@ -336,6 +345,10 @@ impl CrawlerCronJob {
                                     .await
                                 {
                                     warn!(
+                                        service = CRAWLER_SERVICE_NAME,
+                                        component = COMPONENT_SPIDER,
+                                        shop_id = %candidate.shop_id,
+                                        domain_id = %candidate.domain_id,
                                         error = %err,
                                         domain = %candidate.shop_domain,
                                         "Failed to reset crawl failure metadata"
@@ -356,6 +369,10 @@ impl CrawlerCronJob {
                                     .await
                                 {
                                     warn!(
+                                        service = CRAWLER_SERVICE_NAME,
+                                        component = COMPONENT_SPIDER,
+                                        shop_id = %candidate.shop_id,
+                                        domain_id = %candidate.domain_id,
                                         error = %err,
                                         domain = %candidate.shop_domain,
                                         "Failed to persist crawl failure metadata"
@@ -498,6 +515,8 @@ async fn scrape_candidate(
         let exhausted = ctx.budget_exhausted_shops.lock().await;
         if exhausted.contains(&candidate.shop_id) {
             debug!(
+                service = CRAWLER_SERVICE_NAME,
+                component = COMPONENT_SCRAPER,
                 shop_id = %candidate.shop_id,
                 url = %candidate.url,
                 "Skipping URL — shop LLM budget already exhausted in this batch"
@@ -511,7 +530,13 @@ async fn scrape_candidate(
     }
 
     let Some(_lock) = UrlLock::try_acquire(&ctx.lock_manager, &candidate.url) else {
-        warn!(url = %candidate.url, "Skipping URL — lock held by another worker");
+        warn!(
+            service = CRAWLER_SERVICE_NAME,
+            component = COMPONENT_SCRAPER,
+            shop_id = %candidate.shop_id,
+            url = %candidate.url,
+            "Skipping URL — lock held by another worker"
+        );
         return ScrapeCandidateOutcome {
             command: None,
             errored: false,
@@ -571,6 +596,9 @@ async fn scrape_candidate(
                     .await
                 {
                     warn!(
+                        service = CRAWLER_SERVICE_NAME,
+                        component = COMPONENT_SCRAPER,
+                        shop_id = %candidate.shop_id,
                         error = %mark_err,
                         url = %candidate.url,
                         "Failed to persist scraper fetch failure metadata"
@@ -600,6 +628,9 @@ async fn scrape_candidate(
                             .await
                         {
                             warn!(
+                                service = CRAWLER_SERVICE_NAME,
+                                component = COMPONENT_SCRAPER,
+                                shop_id = %candidate.shop_id,
                                 error = %mark_err,
                                 url = %candidate.url,
                                 "Failed to persist schema-regeneration/normalization-fix/LLM-budget cooldown metadata"
@@ -618,6 +649,9 @@ async fn scrape_candidate(
                             .await
                         {
                             warn!(
+                                service = CRAWLER_SERVICE_NAME,
+                                component = COMPONENT_SCRAPER,
+                                shop_id = %candidate.shop_id,
                                 error = %mark_err,
                                 url = %candidate.url,
                                 "Failed to persist scraper failure metadata"

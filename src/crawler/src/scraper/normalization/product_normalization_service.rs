@@ -9,6 +9,7 @@ use super::{
         normalize_title_localized_with_description_language_fallback,
     },
 };
+use crate::logging::{COMPONENT_SCRAPER, CRAWLER_SERVICE_NAME};
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use crate::scraper::normalization::{
     product::NormalizedProduct,
@@ -81,6 +82,8 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
         default_currency: Option<Currency>,
     ) -> Result<(NormalizedProduct, u32), NormalizationError> {
         debug!(
+            service = CRAWLER_SERVICE_NAME,
+            component = COMPONENT_SCRAPER,
             url = %url,
             shops_product_id = %raw.shops_product_id,
             title = %raw.title,
@@ -118,6 +121,8 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
         let description = normalize_description(raw.description)?;
 
         debug!(
+            service = CRAWLER_SERVICE_NAME,
+            component = COMPONENT_SCRAPER,
             url = %url,
             default_currency = ?default_currency,
             "Using schema default_currency as fallback for price normalization"

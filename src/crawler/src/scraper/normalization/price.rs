@@ -1,4 +1,5 @@
 use super::error::NormalizationError;
+use crate::logging::{COMPONENT_SCRAPER, CRAWLER_SERVICE_NAME};
 use common::{
     currency::domain::{Currency, HasMinorUnitExponent},
     price::domain::{MonetaryAmount, Price},
@@ -147,6 +148,8 @@ pub(super) fn normalize_price_field(
 
     if is_price_on_request_marker(&trimmed) {
         debug!(
+            service = CRAWLER_SERVICE_NAME,
+            component = COMPONENT_SCRAPER,
             url = %context_url,
             field = field_name,
             raw_price = %trimmed,
