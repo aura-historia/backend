@@ -3,9 +3,12 @@ use crate::{
         product_event::{ProductEvent, ProductEventLog, ProductEventPayload},
         prohibited_content::{ProhibitedContent, ProhibitedContentReason},
     },
-    dynamodb::product_event_record::{
-        domain::ProductDomainEventRecord, enrichment::ProductEnrichmentEventRecord,
-        policy::ProductPolicyEventRecord,
+    dynamodb::{
+        product_event_record::{
+            domain::ProductDomainEventRecord, enrichment::ProductEnrichmentEventRecord,
+            policy::ProductPolicyEventRecord,
+        },
+        product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord,
     },
 };
 use common::{
@@ -143,9 +146,21 @@ impl From<ProductEvent> for ProductEventRecord {
 
 impl From<&ProductEventRecord> for ProductEventLog {
     fn from(event_record: &ProductEventRecord) -> Self {
-        let (decision, reason) = match event_record {
-            ProductEventRecord::Domain(_) => (None, None),
-            ProductEventRecord::Enrichment(_) => (None, None),
+        let (decision, reason, class) = match event_record {
+            ProductEventRecord::Domain(_) => (None, None, None),
+            ProductEventRecord::Enrichment(payload) => {
+                let class = match payload.event_type {
+                    ProductEnrichmentEventTypeRecord::EnrichmentClassifyCategory => {
+                        payload.category_id.clone()
+                    }
+                    ProductEnrichmentEventTypeRecord::EnrichmentClassifyPeriod => {
+                        payload.period_id.clone()
+                    }
+                    _ => None,
+                }
+                .map(|class| class.to_string());
+                (None, None, class)
+            }
             ProductEventRecord::Policy(event_record) => (
                 Some(
                     ProhibitedContent::from(event_record.prohibited_content_decision)
@@ -157,6 +172,7 @@ impl From<&ProductEventRecord> for ProductEventLog {
                         .as_str()
                         .to_owned(),
                 ),
+                None,
             ),
         };
 
@@ -170,6 +186,7 @@ impl From<&ProductEventRecord> for ProductEventLog {
             product_event_type: event_record.event_type().to_owned(),
             decision,
             reason,
+            class,
             msg: None,
         }
     }

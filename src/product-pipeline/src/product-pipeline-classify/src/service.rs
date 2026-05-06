@@ -121,8 +121,8 @@ impl ClassificationService for ClassificationServiceImpl<'_> {
                 classificationMethod = %LogClassificationMethod::ClearScore,
                 categoryId = %category_id,
                 periodId = %period_id,
-                categoryCandidateScores = format_candidates(&categories.iter().map(|(c, score)| (c.category_id.to_string(), *score)).collect::<Vec<_>>()),
-                periodCandidateScores = format_candidates(&periods.iter().map(|(c, score)| (c.period_id.to_string(), *score)).collect::<Vec<_>>()),
+                categoryCandidates = format_candidates(&categories.iter().map(|(c, score)| (c.category_id.to_string(), *score)).collect::<Vec<_>>()),
+                periodCandidates = format_candidates(&periods.iter().map(|(c, score)| (c.period_id.to_string(), *score)).collect::<Vec<_>>()),
                 "Selected product classification from clear OpenSearch scores."
             );
             return Ok((category_id, period_id));
@@ -168,10 +168,11 @@ impl ClassificationService for ClassificationServiceImpl<'_> {
         info!(
             eventType = %LogEventType::ClassificationDecision,
             classificationMethod = %LogClassificationMethod::Llm,
+            title = %title,
             categoryId = %category_id,
             periodId = %period_id,
-            categoryCandidateScores = format_candidates(&categories.iter().map(|(c, score)| (c.category_id.to_string(), *score)).collect::<Vec<_>>()),
-            periodCandidateScores = format_candidates(&periods.iter().map(|(c, score)| (c.period_id.to_string(), *score)).collect::<Vec<_>>()),
+            categoryCandidates = format_candidates(&categories.iter().map(|(c, score)| (c.category_id.to_string(), *score)).collect::<Vec<_>>()),
+            periodCandidates = format_candidates(&periods.iter().map(|(c, score)| (c.period_id.to_string(), *score)).collect::<Vec<_>>()),
             "Selected product classification with LLM."
         );
         Ok((category_id, period_id))
