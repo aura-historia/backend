@@ -105,6 +105,7 @@ pub struct ProductEventLog {
     pub product_event_type: String,
     pub decision: Option<String>,
     pub reason: Option<String>,
+    pub class: Option<String>,
     pub msg: Option<&'static str>,
 }
 
@@ -135,16 +136,19 @@ impl ProductEventLog {
         );
 
         if let Some(ref v) = self.event_type {
-            event.record("event_type", tracing::field::display(v.as_str()));
+            event.record("eventType", tracing::field::display(v.as_str()));
         }
         if let Some(ref v) = self.write_source {
-            event.record("write_source", tracing::field::display(v.as_str()));
+            event.record("writeSource", tracing::field::display(v.as_str()));
         }
         if let Some(ref v) = self.decision {
             event.record("decision", tracing::field::display(v));
         }
         if let Some(ref v) = self.reason {
             event.record("reason", tracing::field::display(v));
+        }
+        if let Some(ref v) = self.class {
+            event.record("class", tracing::field::display(v));
         }
 
         let _entered = event.enter();
@@ -155,14 +159,21 @@ impl ProductEventLog {
 impl From<&ProductEvent> for ProductEventLog {
     fn from(event: &ProductEvent) -> Self {
         let key = event.payload.key();
-        let (decision, reason) = match event.payload {
-            ProductEventPayload::ProductDomainEvent(_) => (None, None),
-            ProductEventPayload::ProductEnrichmentEvent(_) => (None, None),
+        let (decision, reason, class) = match event.payload {
+            ProductEventPayload::ProductDomainEvent(_) => (None, None, None),
+            ProductEventPayload::ProductEnrichmentEvent(
+                ProductEnrichmentEventPayload::ClassifiedCategory(ref payload),
+            ) => (None, None, Some(payload.category_id.to_string())),
+            ProductEventPayload::ProductEnrichmentEvent(
+                ProductEnrichmentEventPayload::ClassifiedPeriod(ref payload),
+            ) => (None, None, Some(payload.period_id.to_string())),
+            ProductEventPayload::ProductEnrichmentEvent(_) => (None, None, None),
             ProductEventPayload::ProductPolicyEvent(
                 ProductPolicyEventPayload::ProhibitedContentDecision(ref payload),
             ) => (
                 Some(payload.decision.as_str().to_owned()),
                 Some(payload.reason.as_str().to_owned()),
+                None,
             ),
         };
 
@@ -176,6 +187,7 @@ impl From<&ProductEvent> for ProductEventLog {
             product_event_type: event.payload.event_type().to_owned(),
             decision,
             reason,
+            class,
             msg: None,
         }
     }
