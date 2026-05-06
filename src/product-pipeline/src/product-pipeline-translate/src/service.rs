@@ -81,8 +81,8 @@ impl TranslationServiceImpl {
 
         let user_message = format!(
             "Translate these antique product titles from {source} to all of these languages: {targets}.\n\
-             Return a JSON array where each item is an object mapping language codes to translations.\n\
-             If translation is unclear, use null for that item. Respond ONLY with the JSON array—no other text.\n\n\
+             Keep their order and return a JSON array where each item is an object mapping language codes to translations.\n\
+             If translation is unclear, use null for that item. Respond ONLY with the one-line JSON array—no other text.\n\n\
              {numbered_titles}",
             source = source_language.as_str(),
             targets = target_language_codes,
@@ -208,7 +208,12 @@ fn parse_translation_response(
     expected_count: usize,
     target_languages: &[Language],
 ) -> Result<Vec<Option<HashMap<Language, String>>>, TranslationError> {
-    let cleaned: String = response.chars().skip_while(|c| c != &'[').collect();
+    let cleaned: String = response
+        .trim()
+        .trim_start_matches("```json")
+        .trim_end_matches("```")
+        .to_string();
+    tracing::info!(response = cleaned, "Parsing translation response from LLM.",);
 
     let items: Vec<serde_json::Value> = serde_json::from_str(&cleaned).map_err(|e| {
         TranslationError::InvalidResponse(format!("Failed to parse JSON array: {e}"))
@@ -391,9 +396,9 @@ mod tests {
     }
 
     #[test]
-    fn should_parse_response_with_leading_think_tags_for_translation_response() {
+    fn should_parse_response_with_markdown_json_translation_response() {
         let target_langs = vec![Language::En];
-        let response = r#"<think>reasoning</think>[{"en":"Antique chair"}]"#;
+        let response = r#"```json[{"en":"Antique chair"}]```"#;
         let result = parse_translation_response(response, 1, &target_langs).unwrap();
         assert_eq!(
             result[0].as_ref().unwrap().get(&Language::En).unwrap(),
