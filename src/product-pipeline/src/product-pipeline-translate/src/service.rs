@@ -396,9 +396,9 @@ mod tests {
     }
 
     #[test]
-    fn should_parse_response_with_leading_think_tags_for_translation_response() {
+    fn should_parse_response_with_markdown_json_translation_response() {
         let target_langs = vec![Language::En];
-        let response = r#"<think>reasoning</think>[{"en":"Antique chair"}]"#;
+        let response = r#"```json[{"en":"Antique chair"}]```"#;
         let result = parse_translation_response(response, 1, &target_langs).unwrap();
         assert_eq!(
             result[0].as_ref().unwrap().get(&Language::En).unwrap(),
