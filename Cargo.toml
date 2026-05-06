@@ -139,7 +139,6 @@ product-classification-api = { path = "src/product-classification-api" }
 product-watchlist = { path = "src/product-watchlist" }
 product-watchlist-api = { path = "src/product-watchlist-api" }
 product-lambda = { path = "src/product-lambda" }
-product-pipeline-common = { path = "src/product-pipeline/src/product-pipeline-common" }
 product-pipeline-classify = { path = "src/product-pipeline/src/product-pipeline-classify" }
 product-pipeline-translate = { path = "src/product-pipeline/src/product-pipeline-translate" }
 product-pipeline-embed-text = { path = "src/product-pipeline/src/product-pipeline-embed-text" }

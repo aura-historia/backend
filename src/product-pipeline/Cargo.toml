@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-product-pipeline-common = { workspace = true }
 product-pipeline-classify = { workspace = true }
 product-pipeline-translate = { workspace = true }
 product-pipeline-embed-text = { workspace = true }

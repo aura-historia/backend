@@ -241,8 +241,6 @@ fn build_lambdas() {
             "--exclude",
             "acceptance-tests",
             "--exclude",
-            "product-pipeline-common",
-            "--exclude",
             "aws-tests",
             "--exclude",
             "aws-tests-common",

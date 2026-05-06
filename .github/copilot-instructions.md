@@ -134,7 +134,6 @@ Located in various directories:
 - `product-pipeline-extract-attribute`: Extract product attributes
 - `product-pipeline-classify-category`: Classify product categories
 - `product-pipeline-classify-period`: Classify product periods
-- `product-pipeline-common`: Common utilities for product pipeline
 
 **Shop Lambda Functions** (`src/shop-lambda/src/`):
 - `shop-lambda-opensearch-index`: Index shops to OpenSearch
@@ -247,7 +246,6 @@ src/
 │       ├── product-pipeline-embed-text/         # Lambda for text embedding
 │       ├── product-pipeline-translate/          # Lambda for translation
 │       ├── product-pipeline-extract-attribute/  # Lambda binary for attribute extraction
-│       └── product-pipeline-common/             # Common pipeline utilities
 ├── shop/           # Shop/store management system
 │   ├── src/core/           # Shop domain models
 │   ├── src/data/           # Shop data models

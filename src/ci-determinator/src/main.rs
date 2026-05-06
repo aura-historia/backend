@@ -21,7 +21,6 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/product-api-partner",
     "src/product-classification",
     "src/product-classification-api",
-    "src/product-pipeline/src/product-pipeline-common",
     "src/product-pipeline/src/product-pipeline-extract-attribute",
     "src/product-pipeline/src/product-pipeline-translate",
     "src/product-watchlist",

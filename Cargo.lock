@@ -5549,7 +5549,6 @@ name = "product-pipeline"
 version = "0.1.0"
 dependencies = [
  "product-pipeline-classify",
- "product-pipeline-common",
  "product-pipeline-embed-text",
  "product-pipeline-extract-attribute",
  "product-pipeline-translate",
@@ -5581,31 +5580,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "product-pipeline-common"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-sqs",
- "aws_lambda_events",
- "common",
- "fake",
- "mockall",
- "product",
- "product-pipeline-common",
- "rstest",
- "serde",
- "serde_dynamo",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
  "uuid",
 ]
 
