@@ -7,7 +7,7 @@ use product::core::product_search::ProductSearch;
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
 
-string_newtype!(EnhancedSearchDescription, max_length(500));
+string_newtype!(EnhancedSearchDescription, max_length(1000));
 
 #[derive(Debug, Clone)]
 pub struct UserSearchFilterSummary {
@@ -98,16 +98,16 @@ mod tests {
 
     #[test]
     fn should_truncate_enhanced_search_description_exceeding_max_length() {
-        let long = "a".repeat(600);
+        let long = "a".repeat(1200);
         let desc = EnhancedSearchDescription::from(long.as_str());
-        assert_eq!(desc.as_ref().len(), 500);
+        assert_eq!(desc.as_ref().len(), 1000);
     }
 
     #[test]
-    fn should_keep_exactly_500_chars_for_enhanced_search_description() {
-        let exact = "b".repeat(500);
+    fn should_keep_exactly_1000_chars_for_enhanced_search_description() {
+        let exact = "b".repeat(1000);
         let desc = EnhancedSearchDescription::from(exact.as_str());
-        assert_eq!(desc.as_ref().len(), 500);
+        assert_eq!(desc.as_ref().len(), 1000);
     }
 
     #[test]
@@ -124,15 +124,15 @@ mod tests {
 
     #[test]
     fn should_trim_then_truncate_for_enhanced_search_description() {
-        let padded = format!("   {}   ", "c".repeat(600));
+        let padded = format!("   {}   ", "c".repeat(1100));
         let desc = EnhancedSearchDescription::from(padded.as_str());
-        assert_eq!(desc.as_ref().len(), 500);
+        assert_eq!(desc.as_ref().len(), 1000);
     }
 
     #[test]
     fn should_create_from_string_with_truncation() {
-        let long = "d".repeat(600);
+        let long = "d".repeat(1111);
         let desc = EnhancedSearchDescription::from(long);
-        assert_eq!(desc.as_ref().len(), 500);
+        assert_eq!(desc.as_ref().len(), 1000);
     }
 }
