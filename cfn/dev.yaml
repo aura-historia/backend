@@ -851,9 +851,9 @@ Resources:
           STRIPE_PRO_YEARLY_PRICE_ID: !Ref StripeProYearlyPriceId
           STRIPE_ULTIMATE_MONTHLY_PRICE_ID: !Ref StripeUltimateMonthlyPriceId
           STRIPE_ULTIMATE_YEARLY_PRICE_ID: !Ref StripeUltimateYearlyPriceId
-          STRIPE_CHECKOUT_SUCCESS_URL: "https://stage.aura-historia.com/account"
+          STRIPE_CHECKOUT_SUCCESS_URL: "https://stage.aura-historia.com/me/account"
           STRIPE_CHECKOUT_CANCEL_URL: "https://stage.aura-historia.com"
-          STRIPE_PORTAL_RETURN_URL: "https://stage.aura-historia.com/account"
+          STRIPE_PORTAL_RETURN_URL: "https://stage.aura-historia.com/me/account"
   StripeApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
