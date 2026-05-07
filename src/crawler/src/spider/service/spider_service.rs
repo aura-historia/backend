@@ -2,9 +2,6 @@ use common::shop_id::ShopId;
 
 use std::sync::Arc;
 
-use tracing::{info, warn};
-
-use crate::logging::{COMPONENT_LLM, COMPONENT_SPIDER, CRAWLER_SERVICE_NAME};
 use crate::spider::classification::url_metadata_repository::UrlMetadataRepository;
 use crate::spider::classification::url_pattern_service::{
     UrlPatternService, UrlPatternServiceError,
@@ -14,6 +11,7 @@ use crate::spider::service::crawl_run_state::CrawlRunState;
 use crate::spider::service::product_pattern::ProductPattern;
 use crate::spider::utils::url::CrawledUrl;
 use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 use url::Url;
 
 use crate::spider::classification::url_metadata::UrlClass;
@@ -141,6 +139,10 @@ impl SpiderServiceImpl {
         Ok(count)
     }
 
+    #[tracing::instrument(
+        skip(self, state),
+        fields(shop_id = %shop_id, shop_url = %shop_url, stage)
+    )]
     async fn classify_and_save_for_stage(
         &self,
         state: &mut CrawlRunState,
@@ -159,19 +161,16 @@ impl SpiderServiceImpl {
             })?;
 
         if state.pattern.is_unknown() {
-            warn!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_LLM,
-                shop_id = %shop_id,
-                shop_url = %shop_url,
-                stage,
-                "Found no product URL pattern"
-            );
+            warn!(stage, "Found no product URL pattern");
         }
 
         Ok(())
     }
 
+    #[tracing::instrument(
+        skip(self, state),
+        fields(shop_id = %shop_id, shop_url = %shop_url, classify_threshold)
+    )]
     async fn maybe_classify_at_threshold(
         &self,
         state: &mut CrawlRunState,
@@ -181,10 +180,6 @@ impl SpiderServiceImpl {
     ) -> Result<(), SpiderServiceError> {
         if !state.classification_done && state.total_crawled >= classify_threshold {
             info!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_LLM,
-                shop_id = %shop_id,
-                shop_url = %shop_url,
                 url_count = state.inference_sample.len(),
                 "Threshold reached, requesting product URL pattern"
             );
@@ -213,12 +208,10 @@ impl SpiderServiceImpl {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, state), fields(shop_url = %shop_url))]
     fn log_progress(&self, state: &CrawlRunState, shop_url: &str) {
         if state.total_crawled.is_multiple_of(500) {
             info!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_SPIDER,
-                shop_url = %shop_url,
                 total_crawled = state.total_crawled,
                 products_found = state.products_found,
                 "Crawl progress"
@@ -226,6 +219,7 @@ impl SpiderServiceImpl {
         }
     }
 
+    #[tracing::instrument(skip(self, state), fields(shop_id = %shop_id, shop_url = %shop_url))]
     async fn classify_at_end_if_needed(
         &self,
         state: &mut CrawlRunState,
@@ -234,10 +228,6 @@ impl SpiderServiceImpl {
     ) -> Result<(), SpiderServiceError> {
         if !state.classification_done && !state.page_buffer.is_empty() {
             info!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_LLM,
-                shop_id = %shop_id,
-                shop_url = %shop_url,
                 url_count = state.inference_sample.len(),
                 "Threshold not reached, classifying collected URLs"
             );
@@ -250,6 +240,7 @@ impl SpiderServiceImpl {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, state), fields(shop_id = %shop_id, shop_url = %shop_url))]
     async fn reclassify_if_persisted_pattern_failed(
         &self,
         state: &mut CrawlRunState,
@@ -260,13 +251,7 @@ impl SpiderServiceImpl {
             && state.products_found == 0
             && !state.inference_sample.is_empty()
         {
-            warn!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_LLM,
-                shop_id = %shop_id,
-                shop_url = %shop_url,
-                "Persisted product URL pattern did not match crawl results, reclassifying"
-            );
+            warn!("Persisted product URL pattern did not match crawl results, reclassifying");
 
             self.classify_and_save_for_stage(state, shop_id, shop_url, "refresh")
                 .await?;
@@ -289,23 +274,26 @@ impl SpiderServiceImpl {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self), fields(shop_id = %shop_id, shop_url = %shop_url))]
     async fn mark_as_crawled_best_effort(&self, shop_id: &ShopId, shop_url: &str) {
         if let Err(error) = self
             .pattern_service
             .mark_as_crawled(shop_id, shop_url)
             .await
         {
-            warn!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_SPIDER,
-                shop_id = %shop_id,
-                shop_url = %shop_url,
-                error = %error,
-                "Failed to mark shop as crawled"
-            );
+            warn!(error = %error, "Failed to mark shop as crawled");
         }
     }
 
+    #[tracing::instrument(
+        skip(self),
+        fields(
+            shop_id = %shop_id,
+            domain_id = %domain_id,
+            shop_url = %shop_url,
+            classify_threshold
+        )
+    )]
     async fn run_locked(
         &self,
         shop_id: &ShopId,
@@ -319,14 +307,7 @@ impl SpiderServiceImpl {
         let mut state = CrawlRunState::new(initial_pattern);
 
         if state.pattern_loaded_from_store {
-            info!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_SPIDER,
-                shop_id = %shop_id,
-                domain_id = %domain_id,
-                shop_url = %shop_url,
-                "Loaded persisted product URL pattern"
-            );
+            info!("Loaded persisted product URL pattern");
         }
 
         while let Some(page) = crawl_rx.recv().await {
@@ -346,15 +327,7 @@ impl SpiderServiceImpl {
             self.log_progress(&state, shop_url);
         }
 
-        info!(
-            service = CRAWLER_SERVICE_NAME,
-            component = COMPONENT_SPIDER,
-            shop_id = %shop_id,
-            domain_id = %domain_id,
-            shop_url = %shop_url,
-            total_crawled = state.total_crawled,
-            "Crawl complete"
-        );
+        info!(total_crawled = state.total_crawled, "Crawl complete");
 
         self.classify_at_end_if_needed(&mut state, shop_id, shop_url)
             .await?;
@@ -369,11 +342,6 @@ impl SpiderServiceImpl {
             .map(|regex| regex.as_str().to_string());
 
         info!(
-            service = CRAWLER_SERVICE_NAME,
-            component = COMPONENT_SPIDER,
-            shop_id = %shop_id,
-            domain_id = %domain_id,
-            shop_url = %shop_url,
             confirmed_product_count = state.products_found,
             "Collected confirmed product URLs"
         );
@@ -390,6 +358,15 @@ impl SpiderServiceImpl {
 
 #[async_trait::async_trait]
 impl SpiderService for SpiderServiceImpl {
+    #[tracing::instrument(
+        skip(self),
+        fields(
+            shop_id = %shop_id,
+            domain_id = %domain_id,
+            shop_url = %shop_url,
+            classify_threshold
+        )
+    )]
     async fn run(
         &self,
         shop_id: &ShopId,
@@ -397,15 +374,7 @@ impl SpiderService for SpiderServiceImpl {
         shop_url: &str,
         classify_threshold: usize,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
-        info!(
-            service = CRAWLER_SERVICE_NAME,
-            component = COMPONENT_SPIDER,
-            shop_id = %shop_id,
-            domain_id = %domain_id,
-            shop_url = %shop_url,
-            classify_threshold,
-            "Starting crawl"
-        );
+        info!("Starting crawl");
 
         self.run_locked(shop_id, domain_id, shop_url, classify_threshold)
             .await

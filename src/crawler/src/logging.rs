@@ -1,17 +1,42 @@
-use std::time::Duration;
-
 use async_trait::async_trait;
-use common::logging::{
-    LlmInvocationMetrics, LlmOperation, LlmProvider, log_llm_invocation_with_context,
-};
 
 pub const CRAWLER_SERVICE_NAME: &str = "crawler";
-pub const COMPONENT_CRON: &str = "cron";
-pub const COMPONENT_LLM: &str = "llm";
-pub const COMPONENT_SCRAPER: &str = "scraper";
-pub const COMPONENT_SHOP_SYNC: &str = "shop_sync";
-pub const COMPONENT_SPIDER: &str = "spider";
-pub const COMPONENT_STARTUP: &str = "startup";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CrawlerComponent {
+    Startup,
+    Cron,
+    ShopSync,
+    Spider,
+    Scraper,
+    Llm,
+}
+
+impl CrawlerComponent {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Startup => "startup",
+            Self::Cron => "cron",
+            Self::ShopSync => "shop_sync",
+            Self::Spider => "spider",
+            Self::Scraper => "scraper",
+            Self::Llm => "llm",
+        }
+    }
+}
+
+impl std::fmt::Display for CrawlerComponent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+pub const COMPONENT_CRON: &str = CrawlerComponent::Cron.as_str();
+pub const COMPONENT_LLM: &str = CrawlerComponent::Llm.as_str();
+pub const COMPONENT_SCRAPER: &str = CrawlerComponent::Scraper.as_str();
+pub const COMPONENT_SHOP_SYNC: &str = CrawlerComponent::ShopSync.as_str();
+pub const COMPONENT_SPIDER: &str = CrawlerComponent::Spider.as_str();
+pub const COMPONENT_STARTUP: &str = CrawlerComponent::Startup.as_str();
 
 const DEFAULT_LOG_STREAM_NAME: &str = "unknown-host";
 
@@ -82,15 +107,15 @@ pub fn current_gemini_model() -> String {
 pub fn llm_metrics(
     usage: Option<llm::chat::Usage>,
     batch_size: Option<usize>,
-) -> LlmInvocationMetrics {
+) -> common::logging::LlmInvocationMetrics {
     let Some(usage) = usage else {
-        return LlmInvocationMetrics {
+        return common::logging::LlmInvocationMetrics {
             batch_size,
             ..Default::default()
         };
     };
 
-    LlmInvocationMetrics {
+    common::logging::LlmInvocationMetrics {
         batch_size,
         prompt_tokens: Some(usage.prompt_tokens),
         completion_tokens: Some(usage.completion_tokens),
@@ -103,23 +128,6 @@ pub fn llm_metrics(
             .and_then(|details| details.reasoning_tokens),
         ..Default::default()
     }
-}
-
-pub fn log_crawler_llm_invocation(
-    operation: LlmOperation,
-    model: &str,
-    latency: Duration,
-    metrics: LlmInvocationMetrics,
-) {
-    log_llm_invocation_with_context(
-        operation.as_str(),
-        LlmProvider::Google.as_str(),
-        model,
-        latency,
-        metrics,
-        Some(CRAWLER_SERVICE_NAME),
-        Some(COMPONENT_LLM),
-    );
 }
 
 #[async_trait]
@@ -267,5 +275,11 @@ mod tests {
         .await;
 
         assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn should_format_llm_crawler_component_name() {
+        assert_eq!(CrawlerComponent::Llm.as_str(), "llm");
+        assert_eq!(CrawlerComponent::Llm.to_string(), "llm");
     }
 }

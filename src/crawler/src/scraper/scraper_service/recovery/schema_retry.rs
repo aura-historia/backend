@@ -1,4 +1,3 @@
-use crate::logging::{COMPONENT_SCRAPER, CRAWLER_SERVICE_NAME};
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
 };
@@ -17,6 +16,15 @@ impl ScraperServiceImpl {
     /// appended).  The caller must use this updated list as `existing_schemas`
     /// for any subsequent normalization-fix retry so that the persisted set
     /// stays consistent.
+    #[tracing::instrument(
+        skip(self, html, existing_schemas),
+        fields(
+            shop_id = %shop_id,
+            domain,
+            url = %url,
+            schema_count = existing_schemas.len()
+        )
+    )]
     pub(crate) async fn append_and_reapply_with_retry(
         &self,
         shop_id: &ShopId,
@@ -57,25 +65,12 @@ impl ScraperServiceImpl {
                         .schema_service
                         .save_product_schemas(shop_id, domain, persisted_schemas)
                         .await?;
-                    info!(
-                        service = CRAWLER_SERVICE_NAME,
-                        component = COMPONENT_SCRAPER,
-                        shop_id = %shop_id,
-                        domain,
-                        url = %url,
-                        attempt,
-                        "Generated schema appended and applied"
-                    );
+                    info!(attempt, "Generated schema appended and applied");
                     return Ok((selected_schema, raw, saved.product_schemas));
                 }
                 Err(err) => {
                     last_generated_schema = Some(generated_schema);
                     warn!(
-                        service = CRAWLER_SERVICE_NAME,
-                        component = COMPONENT_SCRAPER,
-                        shop_id = %shop_id,
-                        domain,
-                        url = %url,
                         attempt,
                         max_attempts = attempts,
                         error = %err,

@@ -36,6 +36,15 @@ impl ScraperServiceImpl {
     ///   generate a better schema and re-normalize.
     /// - **Non-fixable normalization error** — propagate immediately as
     ///   [`ScraperError::NormalizationError`].
+    #[tracing::instrument(
+        skip(self, ctx, raw),
+        fields(
+            shop_id = %ctx.shop_id,
+            domain = ctx.domain,
+            url = %ctx.url,
+            schema_count = ctx.existing_schemas.len()
+        )
+    )]
     pub(crate) async fn normalize_with_schema_fix_retry(
         &self,
         ctx: NormalizationRetryContext<'_>,
@@ -82,6 +91,15 @@ impl ScraperServiceImpl {
     /// On exhaustion the terminal failure mode determines the error variant:
     /// - Last failure was an apply error → [`ScraperError::SchemaRegenerationExhausted`].
     /// - Last failure was a normalization error → [`ScraperError::NormalizationFixExhausted`].
+    #[tracing::instrument(
+        skip(self, ctx, first_norm_err),
+        fields(
+            shop_id = %ctx.shop_id,
+            domain = ctx.domain,
+            url = %ctx.url,
+            schema_count = ctx.existing_schemas.len()
+        )
+    )]
     pub(crate) async fn fix_normalization_with_schema_retry(
         &self,
         ctx: NormalizationRetryContext<'_>,

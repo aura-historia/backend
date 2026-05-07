@@ -1,4 +1,3 @@
-use crate::logging::{COMPONENT_SCRAPER, CRAWLER_SERVICE_NAME};
 use crate::scraper::css_selector::product_schema::ShopsProductSchema;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
@@ -12,6 +11,7 @@ impl ScraperServiceImpl {
     ///
     /// The dispatcher guarantees at most one in-flight scrape per domain at a
     /// time, so no additional locking is required here.
+    #[tracing::instrument(skip(self, html), fields(shop_id = %shop_id, domain, url = %url))]
     pub(crate) async fn obtain_schemas(
         &self,
         shop_id: &ShopId,
@@ -19,21 +19,9 @@ impl ScraperServiceImpl {
         url: &Url,
         html: &str,
     ) -> Result<ShopsProductSchema, ScraperError> {
-        debug!(
-            service = CRAWLER_SERVICE_NAME,
-            component = COMPONENT_SCRAPER,
-            domain,
-            url = %url,
-            "Obtaining product CSS selector schemas"
-        );
+        debug!("Obtaining product CSS selector schemas");
         if let Some(existing) = self.schema_service.find_product_schema(shop_id).await? {
-            debug!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_SCRAPER,
-                domain,
-                url = %url,
-                "Schema found in DB"
-            );
+            debug!("Schema found in DB");
             Ok(existing)
         } else {
             let seed_pages = self.collect_schema_seed_pages(shop_id, url, html).await;

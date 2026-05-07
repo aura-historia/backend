@@ -1,6 +1,3 @@
-use crate::logging::{
-    COMPONENT_CRON, COMPONENT_SCRAPER, COMPONENT_SHOP_SYNC, COMPONENT_SPIDER, CRAWLER_SERVICE_NAME,
-};
 use crate::scraper::candidate_service::{
     ProductSnapshot, ScraperCandidate, ScraperCandidateService,
 };
@@ -23,7 +20,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
-use tracing::{debug, error, info, warn};
+use tracing::{Instrument, debug, error, info, warn};
 
 /// Context for scraping a domain's candidates.
 struct ScrapeDomainContext {
@@ -134,8 +131,6 @@ impl PerfCounter {
             let total_ms = self.duration_ms.load(Ordering::Relaxed);
             let avg_ms = total_ms / total;
             info!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_CRON,
                 items_processed = total,
                 avg_ms = avg_ms,
                 label = self.label,
@@ -187,12 +182,9 @@ impl CrawlerCronJob {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn run_loop(self) {
-        info!(
-            service = CRAWLER_SERVICE_NAME,
-            component = COMPONENT_CRON,
-            "Starting crawler cron job loop"
-        );
+        info!("Starting crawler cron job loop");
 
         self.run_shop_sync_once().await;
 
@@ -215,6 +207,7 @@ impl CrawlerCronJob {
         let _ = tokio::join!(spider_handle, scraper_handle, sync_handle);
     }
 
+    #[tracing::instrument(skip(self))]
     async fn spider_loop(&self) {
         loop {
             self.run_spider_once().await;
@@ -222,6 +215,7 @@ impl CrawlerCronJob {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     async fn scraper_loop(&self) {
         loop {
             self.run_scraper_once().await;
@@ -229,6 +223,7 @@ impl CrawlerCronJob {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     async fn shop_sync_loop(&self) {
         loop {
             tokio::time::sleep(self.config.shop_sync_interval).await;
@@ -236,18 +231,15 @@ impl CrawlerCronJob {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     async fn run_shop_sync_once(&self) {
         match self.shop_registration.sync().await {
             Ok(_) => {}
-            Err(e) => error!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_SHOP_SYNC,
-                error = %e,
-                "Shop sync failed"
-            ),
+            Err(e) => warn!(error = %e, "Shop sync failed"),
         }
     }
 
+    #[tracing::instrument(skip(self))]
     async fn run_spider_once(&self) {
         match self
             .spider_candidates
@@ -256,27 +248,16 @@ impl CrawlerCronJob {
         {
             Ok(candidates) => {
                 if candidates.is_empty() {
-                    debug!(
-                        service = CRAWLER_SERVICE_NAME,
-                        component = COMPONENT_SPIDER,
-                        "No spider candidates, skipping batch"
-                    );
+                    debug!("No spider candidates, skipping batch");
                     return;
                 }
                 let total = candidates.len();
                 let batch_start = tokio::time::Instant::now();
-                info!(
-                    service = CRAWLER_SERVICE_NAME,
-                    component = COMPONENT_SPIDER,
-                    candidates = total,
-                    "Spider batch starting"
-                );
+                info!(candidates = total, "Spider batch starting");
 
                 let spider_concurrency = self.config.spider_concurrency;
                 if spider_concurrency == 0 {
                     warn!(
-                        service = CRAWLER_SERVICE_NAME,
-                        component = COMPONENT_SPIDER,
                         spider_concurrency,
                         "spider_concurrency is 0, skipping spider batch"
                     );
@@ -297,23 +278,16 @@ impl CrawlerCronJob {
                     } else {
                         format!("https://{}", candidate.shop_domain)
                     };
+                    let span = tracing::info_span!(
+                        "spider_candidate",
+                        shop_id = %candidate.shop_id,
+                        domain_id = %candidate.domain_id,
+                        shop_url = %shop_url
+                    );
 
                     join_set.spawn(async move {
                         let Ok(_permit) = permit_pool.acquire_owned().await else {
-                            error!(
-                                service = CRAWLER_SERVICE_NAME,
-                                component = COMPONENT_SPIDER,
-                                shop_id = %candidate.shop_id,
-                                service = CRAWLER_SERVICE_NAME,
-                                component = COMPONENT_SPIDER,
-                                shop_id = %candidate.shop_id,
-                                service = CRAWLER_SERVICE_NAME,
-                                component = COMPONENT_SPIDER,
-                                shop_id = %candidate.shop_id,
-                                domain_id = %candidate.domain_id,
-                                shop_url = %shop_url,
-                                "Spider semaphore closed unexpectedly"
-                            );
+                            error!("Spider semaphore closed unexpectedly");
                             return false;
                         };
 
@@ -321,8 +295,6 @@ impl CrawlerCronJob {
                             DomainLock::try_acquire(&lock_manager, candidate.domain_id)
                         else {
                             warn!(
-                                service = CRAWLER_SERVICE_NAME,
-                                component = COMPONENT_SPIDER,
                                 shop_id = %candidate.shop_id,
                                 domain_id = %candidate.domain_id,
                                 "Skipping domain — lock held by another worker"
@@ -345,10 +317,6 @@ impl CrawlerCronJob {
                                     .await
                                 {
                                     warn!(
-                                        service = CRAWLER_SERVICE_NAME,
-                                        component = COMPONENT_SPIDER,
-                                        shop_id = %candidate.shop_id,
-                                        domain_id = %candidate.domain_id,
                                         error = %err,
                                         domain = %candidate.shop_domain,
                                         "Failed to reset crawl failure metadata"
@@ -369,28 +337,17 @@ impl CrawlerCronJob {
                                     .await
                                 {
                                     warn!(
-                                        service = CRAWLER_SERVICE_NAME,
-                                        component = COMPONENT_SPIDER,
-                                        shop_id = %candidate.shop_id,
-                                        domain_id = %candidate.domain_id,
                                         error = %err,
                                         domain = %candidate.shop_domain,
                                         "Failed to persist crawl failure metadata"
                                     );
                                 }
-                                error!(
-                                    service = CRAWLER_SERVICE_NAME,
-                                    component = COMPONENT_SPIDER,
-                                    shop_id = %candidate.shop_id,
-                                    domain_id = %candidate.domain_id,
-                                    domain = %candidate.shop_domain,
-                                    error = %e,
-                                    "Spider run failed"
-                                );
+                                warn!(domain = %candidate.shop_domain, error = %e, "Spider run failed");
                                 false
                             }
                         }
-                    });
+                    }
+                    .instrument(span));
                 }
 
                 let mut results: Vec<bool> = Vec::new();
@@ -398,12 +355,7 @@ impl CrawlerCronJob {
                     match joined {
                         Ok(ok) => results.push(ok),
                         Err(e) => {
-                            error!(
-                                service = CRAWLER_SERVICE_NAME,
-                                component = COMPONENT_SPIDER,
-                                error = %e,
-                                "Spider worker task failed to join"
-                            );
+                            error!(error = %e, "Spider worker task failed to join");
                             results.push(false);
                         }
                     }
@@ -413,23 +365,13 @@ impl CrawlerCronJob {
                 let failed = total - succeeded;
                 let duration_ms = batch_start.elapsed().as_millis() as u64;
                 info!(
-                    service = CRAWLER_SERVICE_NAME,
-                    component = COMPONENT_SPIDER,
                     total,
-                    succeeded,
-                    failed,
-                    duration_ms,
-                    "Spider batch complete"
+                    succeeded, failed, duration_ms, "Spider batch complete"
                 );
 
                 self.spider_perf.record(total as u64, duration_ms);
             }
-            Err(e) => error!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_SPIDER,
-                error = %e,
-                "Failed to retrieve spider candidates"
-            ),
+            Err(e) => warn!(error = %e, "Failed to retrieve spider candidates"),
         }
     }
 }
@@ -465,6 +407,10 @@ struct ScrapeDomainOutcome {
 ///
 /// The position correspondence between `commands` and `metas` is preserved so
 /// that succeeded commands can be matched back to their metadata by index.
+#[tracing::instrument(
+    skip(push_service, scraper_candidates, batch),
+    fields(batch_size = batch.len())
+)]
 async fn flush_batch(
     push_service: &Arc<dyn ProductPushService>,
     scraper_candidates: &Arc<dyn ScraperCandidateService>,
@@ -493,34 +439,29 @@ async fn flush_batch(
                 .mark_as_scraped(&meta.shop_id, &meta.url, &meta.hash, &meta.snapshot)
                 .await
         {
-            warn!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_SCRAPER,
-                shop_id = %meta.shop_id,
-                error = %e,
-                url = %meta.url,
-                "Failed to mark product as scraped after push"
-            );
+            warn!(shop_id = %meta.shop_id, error = %e, url = %meta.url, "Failed to mark product as scraped after push");
         }
     }
 }
 
+#[tracing::instrument(
+    skip(candidate, ctx),
+    fields(
+        shop_id = %candidate.shop_id,
+        domain = %_domain,
+        url = %candidate.url
+    )
+)]
 async fn scrape_candidate(
     candidate: ScraperCandidate,
-    domain: String,
+    _domain: String,
     ctx: &ScrapeDomainContext,
 ) -> ScrapeCandidateOutcome {
     // Skip URLs from shops with already-exhausted budgets
     {
         let exhausted = ctx.budget_exhausted_shops.lock().await;
         if exhausted.contains(&candidate.shop_id) {
-            debug!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_SCRAPER,
-                shop_id = %candidate.shop_id,
-                url = %candidate.url,
-                "Skipping URL — shop LLM budget already exhausted in this batch"
-            );
+            debug!("Skipping URL — shop LLM budget already exhausted in this batch");
             return ScrapeCandidateOutcome {
                 command: None,
                 errored: false,
@@ -530,13 +471,7 @@ async fn scrape_candidate(
     }
 
     let Some(_lock) = UrlLock::try_acquire(&ctx.lock_manager, &candidate.url) else {
-        warn!(
-            service = CRAWLER_SERVICE_NAME,
-            component = COMPONENT_SCRAPER,
-            shop_id = %candidate.shop_id,
-            url = %candidate.url,
-            "Skipping URL — lock held by another worker"
-        );
+        warn!("Skipping URL — lock held by another worker");
         return ScrapeCandidateOutcome {
             command: None,
             errored: false,
@@ -596,11 +531,7 @@ async fn scrape_candidate(
                     .await
                 {
                     warn!(
-                        service = CRAWLER_SERVICE_NAME,
-                        component = COMPONENT_SCRAPER,
-                        shop_id = %candidate.shop_id,
                         error = %mark_err,
-                        url = %candidate.url,
                         "Failed to persist scraper fetch failure metadata"
                     );
                 }
@@ -628,11 +559,7 @@ async fn scrape_candidate(
                             .await
                         {
                             warn!(
-                                service = CRAWLER_SERVICE_NAME,
-                                component = COMPONENT_SCRAPER,
-                                shop_id = %candidate.shop_id,
                                 error = %mark_err,
-                                url = %candidate.url,
                                 "Failed to persist schema-regeneration/normalization-fix/LLM-budget cooldown metadata"
                             );
                         }
@@ -649,11 +576,7 @@ async fn scrape_candidate(
                             .await
                         {
                             warn!(
-                                service = CRAWLER_SERVICE_NAME,
-                                component = COMPONENT_SCRAPER,
-                                shop_id = %candidate.shop_id,
                                 error = %mark_err,
-                                url = %candidate.url,
                                 "Failed to persist scraper failure metadata"
                             );
                         }
@@ -670,8 +593,6 @@ async fn scrape_candidate(
                     let mut exhausted = ctx.budget_exhausted_shops.lock().await;
                     if exhausted.insert(*shop_id) {
                         info!(
-                            service = CRAWLER_SERVICE_NAME,
-                            component = COMPONENT_SCRAPER,
                             shop_id = %shop_id,
                             max_calls,
                             "LLM call budget exhausted for shop; skipping remaining URLs in batch"
@@ -679,15 +600,7 @@ async fn scrape_candidate(
                     }
                 }
             } else {
-                error!(
-                    service = CRAWLER_SERVICE_NAME,
-                    component = COMPONENT_SCRAPER,
-                    domain = %domain,
-                    shop_id = %candidate.shop_id,
-                    url = %candidate.url,
-                    error = %e,
-                    "Scraper run failed"
-                );
+                warn!(error = %e, "Scraper run failed");
             }
 
             ScrapeCandidateOutcome {
@@ -718,6 +631,10 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
     }
 }
 
+#[tracing::instrument(
+    skip(candidates, ctx),
+    fields(domain = %domain, candidate_count = candidates.len())
+)]
 async fn scrape_domain_candidates(
     domain: String,
     candidates: Vec<ScraperCandidate>,
@@ -738,12 +655,7 @@ async fn scrape_domain_candidates(
         } else if let Some(pair) = candidate_outcome.command {
             outcome.succeeded += 1;
             if ctx.command_tx.send(pair).is_err() {
-                error!(
-                    service = CRAWLER_SERVICE_NAME,
-                    component = COMPONENT_SCRAPER,
-                    domain = %domain,
-                    "Command channel closed while scraper worker is running"
-                );
+                error!("Command channel closed while scraper worker is running");
                 outcome.failed += 1;
                 outcome.succeeded = outcome.succeeded.saturating_sub(1);
             }
@@ -762,28 +674,20 @@ async fn scrape_domain_candidates(
 }
 
 impl CrawlerCronJob {
+    #[tracing::instrument(skip(self))]
     async fn run_scraper_once(&self) {
         let total_fetch = (self.config.scraper_concurrency as i64) * self.config.scraper_batch_size;
 
         let all_candidates = match self.scraper_candidates.get_candidates(total_fetch).await {
             Ok(c) => c,
             Err(e) => {
-                error!(
-                    service = CRAWLER_SERVICE_NAME,
-                    component = COMPONENT_SCRAPER,
-                    error = %e,
-                    "Failed to retrieve scraper candidates"
-                );
+                warn!(error = %e, "Failed to retrieve scraper candidates");
                 return;
             }
         };
 
         if all_candidates.is_empty() {
-            debug!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_SCRAPER,
-                "No scraper candidates, skipping batch"
-            );
+            debug!("No scraper candidates, skipping batch");
             return;
         }
 
@@ -796,8 +700,6 @@ impl CrawlerCronJob {
         let scraper_concurrency = self.config.scraper_concurrency;
         if scraper_concurrency == 0 {
             warn!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_SCRAPER,
                 scraper_concurrency,
                 "scraper_concurrency is 0, skipping scraper batch"
             );
@@ -805,8 +707,6 @@ impl CrawlerCronJob {
         }
 
         info!(
-            service = CRAWLER_SERVICE_NAME,
-            component = COMPONENT_SCRAPER,
             candidates = total,
             concurrency = scraper_concurrency,
             "Scraper batch starting"
@@ -818,12 +718,7 @@ impl CrawlerCronJob {
             by_domain.entry(domain).or_default().push(candidate);
         }
 
-        debug!(
-            service = CRAWLER_SERVICE_NAME,
-            component = COMPONENT_SCRAPER,
-            domains = by_domain.len(),
-            "Candidates grouped by domain"
-        );
+        debug!(domains = by_domain.len(), "Candidates grouped by domain");
 
         let domain_delay = self.config.scraper_domain_delay;
         let semaphore = Arc::new(Semaphore::new(scraper_concurrency));
@@ -869,33 +764,35 @@ impl CrawlerCronJob {
             let permit_pool = Arc::clone(&semaphore);
             let domain_tx = command_tx.clone();
             let budget_exhausted_shops = Arc::clone(&budget_exhausted_shops);
+            let span = tracing::info_span!(
+                "scrape_domain",
+                domain = %domain
+            );
 
-            join_set.spawn(async move {
-                let Ok(_permit) = permit_pool.acquire_owned().await else {
-                    error!(
-                        service = CRAWLER_SERVICE_NAME,
-                        component = COMPONENT_SCRAPER,
-                        domain = %domain,
-                        "Scraper semaphore closed unexpectedly"
-                    );
-                    return ScrapeDomainOutcome {
-                        succeeded: 0,
-                        failed: 1,
-                        skipped: 0,
+            join_set.spawn(
+                async move {
+                    let Ok(_permit) = permit_pool.acquire_owned().await else {
+                        error!("Scraper semaphore closed unexpectedly");
+                        return ScrapeDomainOutcome {
+                            succeeded: 0,
+                            failed: 1,
+                            skipped: 0,
+                        };
                     };
-                };
 
-                let ctx = ScrapeDomainContext {
-                    scraper,
-                    scraper_candidates,
-                    lock_manager,
-                    domain_delay,
-                    command_tx: domain_tx,
-                    budget_exhausted_shops,
-                };
+                    let ctx = ScrapeDomainContext {
+                        scraper,
+                        scraper_candidates,
+                        lock_manager,
+                        domain_delay,
+                        command_tx: domain_tx,
+                        budget_exhausted_shops,
+                    };
 
-                scrape_domain_candidates(domain, candidates, ctx).await
-            });
+                    scrape_domain_candidates(domain, candidates, ctx).await
+                }
+                .instrument(span),
+            );
         }
         drop(command_tx);
 
@@ -903,12 +800,7 @@ impl CrawlerCronJob {
             let outcome = match joined {
                 Ok(outcome) => outcome,
                 Err(e) => {
-                    error!(
-                        service = CRAWLER_SERVICE_NAME,
-                        component = COMPONENT_SCRAPER,
-                        error = %e,
-                        "Scraper domain worker task failed to join"
-                    );
+                    error!(error = %e, "Scraper domain worker task failed to join");
                     failed += 1;
                     continue;
                 }
@@ -920,26 +812,15 @@ impl CrawlerCronJob {
         }
 
         if let Err(e) = push_collector.await {
-            error!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_SCRAPER,
-                error = %e,
-                "Scraper push collector task failed to join"
-            );
+            error!(error = %e, "Scraper push collector task failed to join");
             failed += 1;
         }
 
         let duration_ms = batch_start.elapsed().as_millis() as u64;
         skipped += total.saturating_sub(succeeded + failed + skipped);
         info!(
-            service = CRAWLER_SERVICE_NAME,
-            component = COMPONENT_SCRAPER,
             total,
-            succeeded,
-            failed,
-            skipped,
-            duration_ms,
-            "Scraper batch complete"
+            succeeded, failed, skipped, duration_ms, "Scraper batch complete"
         );
 
         #[cfg(not(test))]
@@ -952,8 +833,6 @@ impl CrawlerCronJob {
                 Ok(usages) => {
                     for usage in usages {
                         info!(
-                            service = CRAWLER_SERVICE_NAME,
-                            component = COMPONENT_SCRAPER,
                             shop_name = %usage.shop_name,
                             llm_calls_count = usage.llm_calls_count,
                             llm_calls_cap = self.config.scraper_max_llm_calls_per_shop,
@@ -963,12 +842,7 @@ impl CrawlerCronJob {
                     }
                 }
                 Err(e) => {
-                    warn!(
-                        service = CRAWLER_SERVICE_NAME,
-                        component = COMPONENT_SCRAPER,
-                        error = %e,
-                        "Failed to load per-shop LLM usage summary"
-                    );
+                    warn!(error = %e, "Failed to load per-shop LLM usage summary");
                 }
             }
         }

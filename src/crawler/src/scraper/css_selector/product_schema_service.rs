@@ -1,12 +1,9 @@
-use crate::logging::{
-    COMPONENT_LLM, COMPONENT_SCRAPER, CRAWLER_SERVICE_NAME, current_gemini_model, llm_metrics,
-    log_crawler_llm_invocation,
-};
+use crate::logging::llm_metrics;
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, ShopsProductSchema,
 };
 use crate::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepository;
-use common::logging::LlmOperation;
+use common::logging::{LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
 use common::shop_id::ShopId;
 use kuchiki::traits::*;
 use kuchiki::{NodeRef, parse_html};
@@ -140,6 +137,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         })
     }
 
+    #[tracing::instrument(skip(self, html_pages), fields(html_pages = html_pages.len()))]
     async fn create_product_schemas(
         &self,
         html_pages: &[String],
@@ -150,9 +148,10 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
 
         let started_at = Instant::now();
         let response = self.llm.chat(&messages).await?;
-        log_crawler_llm_invocation(
+        log_llm_invocation(
             LlmOperation::CrawlerProductSchemaGeneration,
-            &current_gemini_model(),
+            LlmProvider::Google,
+            LlmModel::Configured,
             started_at.elapsed(),
             llm_metrics(response.usage(), Some(html_pages.len())),
         );
@@ -170,14 +169,13 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         }
 
         debug!(
-            service = CRAWLER_SERVICE_NAME,
-            component = COMPONENT_LLM,
             schemas_count = schemas.len(),
             "LLM created product CSS selector schemas"
         );
         Ok(schemas)
     }
 
+    #[tracing::instrument(skip(self, html, failed_schema, last_error), fields(domain = %_domain))]
     async fn append_single_schema(
         &self,
         _domain: &str,
@@ -192,9 +190,10 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
 
         let started_at = Instant::now();
         let response = self.llm.chat(&messages).await?;
-        log_crawler_llm_invocation(
+        log_llm_invocation(
             LlmOperation::CrawlerProductSchemaRepair,
-            &current_gemini_model(),
+            LlmProvider::Google,
+            LlmModel::Configured,
             started_at.elapsed(),
             llm_metrics(response.usage(), Some(1)),
         );
@@ -218,11 +217,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
             )
         })?;
 
-        debug!(
-            service = CRAWLER_SERVICE_NAME,
-            component = COMPONENT_LLM,
-            "Generated single schema for append-and-retry"
-        );
+        debug!("Generated single schema for append-and-retry");
         Ok(schema)
     }
 
@@ -246,10 +241,14 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
             .await
     }
 
+    #[tracing::instrument(
+        skip(self, product_schemas),
+        fields(shop_id = %shop_id, domain = %_domain, schema_count = product_schemas.len())
+    )]
     async fn save_product_schemas(
         &self,
         shop_id: &ShopId,
-        domain: &str,
+        _domain: &str,
         product_schemas: Vec<ProductCssSelectorSchema>,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
         if product_schemas.is_empty() {
@@ -262,24 +261,14 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
 
         match existing {
             Some(_) => {
-                info!(
-                    service = CRAWLER_SERVICE_NAME,
-                    component = COMPONENT_SCRAPER,
-                    domain = %domain,
-                    "Updating existing product schema"
-                );
+                info!("Updating existing product schema");
                 self.repository
                     .update_product_schema(shop_id, &product_schemas)
                     .await
                     .map_err(ProductSchemaServiceError::DatabaseError)
             }
             None => {
-                info!(
-                    service = CRAWLER_SERVICE_NAME,
-                    component = COMPONENT_SCRAPER,
-                    domain = %domain,
-                    "Inserting new product schema"
-                );
+                info!("Inserting new product schema");
                 let now = OffsetDateTime::now_utc();
                 let schema = ShopsProductSchema {
                     shop_id: *shop_id,
@@ -295,6 +284,10 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         }
     }
 
+    #[tracing::instrument(
+        skip(self, html_pages),
+        fields(shop_id = %shop_id, domain = %domain, html_pages = html_pages.len())
+    )]
     async fn get_product_schema(
         &self,
         shop_id: &ShopId,
@@ -302,21 +295,11 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         html_pages: &[String],
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
         if let Some(existing) = self.find_product_schema(shop_id).await? {
-            debug!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_SCRAPER,
-                domain = %domain,
-                "Found existing product schema"
-            );
+            debug!("Found existing product schema");
             return Ok(existing);
         }
 
-        info!(
-            service = CRAWLER_SERVICE_NAME,
-            component = COMPONENT_LLM,
-            domain = %domain,
-            "No product schema found for shop, creating via LLM"
-        );
+        info!("No product schema found for shop, creating via LLM");
         let product_schemas = self.create_product_schemas(html_pages).await?;
         self.save_product_schemas(shop_id, domain, product_schemas)
             .await

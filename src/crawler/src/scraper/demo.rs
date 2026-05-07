@@ -60,7 +60,7 @@ use product::data::product_state_data::ProductStateData;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use time::OffsetDateTime;
-use tracing::{error, info};
+use tracing::{Instrument, error, info};
 use url::Url;
 
 // ---------------------------------------------------------------------------
@@ -155,57 +155,68 @@ async fn main() {
         },
     ];
 
-    // 1. Force info log level before init_logging reads LOG_LEVEL.
-    //    Safety: single-threaded at this point, no other threads have spawned.
     unsafe { std::env::set_var("LOG_LEVEL", "info") };
     common::logging::init_logging();
 
-    // 2. Connect to local Postgres and apply pending migrations.
-    let pool: &'static PgPool = connect_and_migrate().await;
+    async {
+        let pool: &'static PgPool = connect_and_migrate().await;
+        let service = build_scraper_service(pool);
 
-    // 3. Wire services.
-    let service = build_scraper_service(pool);
+        let mut products: Vec<DemoProduct> = vec![];
+        for target in targets {
+            let shop_id = target.shop_id;
+            let url = match Url::parse(target.url) {
+                Ok(u) => u,
+                Err(e) => {
+                    error!(
+                        url = target.url,
+                        error = %e,
+                        "Invalid URL — skipping"
+                    );
+                    continue;
+                }
+            };
 
-    // 4. Run the scraper for each target.
-    let mut products: Vec<DemoProduct> = vec![];
-    for target in targets {
-        let shop_id = target.shop_id;
-        let url = match Url::parse(target.url) {
-            Ok(u) => u,
-            Err(e) => {
-                error!(
-                    url = target.url,
-                    error = %e,
-                    "Invalid URL — skipping"
-                );
-                continue;
-            }
-        };
-
-        match service.scrape(&shop_id, &url, None).await {
-            Ok(Some(scraped)) => {
-                info!(
-                    title = %scraped.product.title.payload,
-                    shopsProductId = %scraped.product.shops_product_id,
-                    "Scrape succeeded"
-                );
-                products.push(scraped.product.into());
-            }
-            Ok(None) => {
-                info!("Hash matched, skipped scraping");
-            }
-            Err(e) => {
-                error!(error = %e, "Scrape failed");
+            let scrape_span = tracing::info_span!(
+                "scraper_demo_target",
+                shop_id = %shop_id,
+                url = %url
+            );
+            match service
+                .scrape(&shop_id, &url, None)
+                .instrument(scrape_span)
+                .await
+            {
+                Ok(Some(scraped)) => {
+                    info!(
+                        title = %scraped.product.title.payload,
+                        shopsProductId = %scraped.product.shops_product_id,
+                        "Scrape succeeded"
+                    );
+                    products.push(scraped.product.into());
+                }
+                Ok(None) => {
+                    info!("Hash matched, skipped scraping");
+                }
+                Err(e) => {
+                    error!(error = %e, "Scrape failed");
+                }
             }
         }
-    }
 
-    // Serialize products to JSON
-    info!("Scraping complete, writing output to 'scraper_output.json'…");
-    let file = File::create("scraper_output.json").unwrap();
-    let writer = BufWriter::new(file);
-    serde_json::to_writer_pretty(writer, &products).unwrap();
-    info!("Output written to 'scraper_output.json'.");
+        info!("Scraping complete, writing output to 'scraper_output.json'…");
+        let file = File::create("scraper_output.json").unwrap();
+        let writer = BufWriter::new(file);
+        serde_json::to_writer_pretty(writer, &products).unwrap();
+        info!("Output written to 'scraper_output.json'.");
+    }
+    .instrument(tracing::info_span!(
+        "crawler_scraper_demo",
+        entrypoint = "demo-scraper",
+        database = DEMO_SCRAPER_DB_NAME,
+        target_count = targets.len()
+    ))
+    .await;
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +228,7 @@ async fn main() {
 ///
 /// The pool is intentionally leaked: the repositories hold `&'static PgPool`
 /// references and must outlive the service, which lives until end of `main`.
+#[tracing::instrument]
 async fn connect_and_migrate() -> &'static PgPool {
     bootstrap_local_database(DEMO_SCRAPER_DB_NAME)
         .await
@@ -254,6 +266,7 @@ async fn connect_and_migrate() -> &'static PgPool {
 ///
 /// Both LLM-backed services receive a fresh [`LLMBuilder`] each — they apply
 /// their own system prompts internally via their `::new` constructors.
+#[tracing::instrument(skip(pool))]
 fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     let api_key = std::env::var("GEMINI_API_KEY")
         .expect("GEMINI_API_KEY must be set — see the module-level doc comment");

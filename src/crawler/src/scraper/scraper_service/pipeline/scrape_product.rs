@@ -1,4 +1,3 @@
-use crate::logging::{COMPONENT_SCRAPER, CRAWLER_SERVICE_NAME};
 use crate::network::policy::NetworkErrorKind;
 use crate::scraper::candidate_service::ProductSnapshot;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
@@ -14,23 +13,18 @@ use tracing::{debug, warn};
 use url::Url;
 
 impl ScraperServiceImpl {
+    #[tracing::instrument(skip(self), fields(shop_id = %shop_id, url = %url))]
     pub(crate) async fn mark_product_removed_best_effort(&self, shop_id: &ShopId, url: &Url) {
         if let Err(err) = self
             .candidate_service
             .set_state(shop_id, url, UrlState::Removed)
             .await
         {
-            warn!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_SCRAPER,
-                shop_id = %shop_id,
-                error = %err,
-                url = %url,
-                "Failed to mark product as REMOVED"
-            );
+            warn!(error = %err, "Failed to mark product as REMOVED");
         }
     }
 
+    #[tracing::instrument(skip(self), fields(shop_id = %shop_id, url = %url, state = %state))]
     pub(crate) async fn persist_scraped_state_best_effort(
         &self,
         shop_id: &ShopId,
@@ -38,21 +32,14 @@ impl ScraperServiceImpl {
         state: UrlState,
     ) {
         if let Err(err) = self.candidate_service.set_state(shop_id, url, state).await {
-            warn!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_SCRAPER,
-                shop_id = %shop_id,
-                error = %err,
-                url = %url,
-                state = %state,
-                "Failed to persist scraped URL state"
-            );
+            warn!(error = %err, "Failed to persist scraped URL state");
         }
     }
 }
 
 #[async_trait::async_trait]
 impl ScraperService for ScraperServiceImpl {
+    #[tracing::instrument(skip(self, last_scraped_hash), fields(shop_id = %shop_id, url = %url))]
     async fn scrape(
         &self,
         shop_id: &ShopId,
@@ -64,14 +51,7 @@ impl ScraperService for ScraperServiceImpl {
             .ok_or_else(|| ScraperError::NoHost { url: url.clone() })?;
 
         // 1. Fetch HTML --------------------------------------------------
-        debug!(
-            service = CRAWLER_SERVICE_NAME,
-            component = COMPONENT_SCRAPER,
-            shop_id = %shop_id,
-            domain,
-            url = %url,
-            "Fetching product page HTML"
-        );
+        debug!(domain, "Fetching product page HTML");
         let html = match self.html_fetcher.fetch(url).await {
             Ok(html) => html,
             Err(FetchError::Network {
@@ -97,26 +77,13 @@ impl ScraperService for ScraperServiceImpl {
         let current_hash = hash_main_fragment(&html).unwrap_or_else(|| hash_html(&html));
 
         if has_main && last_scraped_hash == Some(current_hash.as_str()) {
-            debug!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_SCRAPER,
-                shop_id = %shop_id,
-                url = %url,
-                "Hash matches last scraped hash, skipping extraction."
-            );
+            debug!("Hash matches last scraped hash, skipping extraction.");
             if let Err(e) = self
                 .candidate_service
                 .touch_scraped(shop_id, url, &current_hash)
                 .await
             {
-                warn!(
-                    service = CRAWLER_SERVICE_NAME,
-                    component = COMPONENT_SCRAPER,
-                    shop_id = %shop_id,
-                    error = %e,
-                    url = %url,
-                    "Failed to touch url as scraped after hash-match skip"
-                );
+                warn!(error = %e, "Failed to touch url as scraped after hash-match skip");
             }
             return Ok(None);
         }
@@ -139,11 +106,7 @@ impl ScraperService for ScraperServiceImpl {
                 }
                 Err(err) => {
                     warn!(
-                        service = CRAWLER_SERVICE_NAME,
-                        component = COMPONENT_SCRAPER,
-                        shop_id = %shop_id,
                         domain,
-                        url = %url,
                         schemas = shops_product_schema.product_schemas.len(),
                         error = %err,
                         "No cached schema applied; generating new schema candidates"
@@ -161,11 +124,7 @@ impl ScraperService for ScraperServiceImpl {
 
         {
             debug!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_SCRAPER,
-                shop_id = %shop_id,
                 domain,
-                url = %url,
                 shops_product_id = %raw.shops_product_id,
                 title = %raw.title,
                 state = %raw.state,
@@ -181,14 +140,7 @@ impl ScraperService for ScraperServiceImpl {
         }
 
         // 4. Normalize --------------------------------------------------
-        debug!(
-            service = CRAWLER_SERVICE_NAME,
-            component = COMPONENT_SCRAPER,
-            shop_id = %shop_id,
-            domain,
-            url = %url,
-            "Normalizing extracted product data"
-        );
+        debug!(domain, "Normalizing extracted product data");
         let final_product = self
             .normalize_with_schema_fix_retry(
                 NormalizationRetryContext {
@@ -214,12 +166,8 @@ impl ScraperService for ScraperServiceImpl {
         let snapshot = ProductSnapshot::from_normalized(&final_product);
 
         debug!(
-            service = CRAWLER_SERVICE_NAME,
-            component = COMPONENT_SCRAPER,
-            shop_id = %shop_id,
             domain,
             shops_product_id = %final_product.shops_product_id,
-            url = %url,
             "Scraping complete"
         );
         Ok(Some(ScrapedProduct {

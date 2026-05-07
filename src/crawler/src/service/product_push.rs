@@ -25,7 +25,6 @@ use shop::core::shop_type::ShopType;
 use time::OffsetDateTime;
 use tracing::{debug, error, warn};
 
-use crate::logging::{COMPONENT_SCRAPER, CRAWLER_SERVICE_NAME};
 use crate::scraper::candidate_service::ScraperCandidate;
 use crate::scraper::normalization::product::NormalizedProduct;
 
@@ -63,13 +62,12 @@ impl ProductPushServiceImpl {
 
 #[async_trait]
 impl ProductPushService for ProductPushServiceImpl {
+    #[tracing::instrument(skip(self, commands), fields(total = commands.len()))]
     async fn push(&self, commands: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand> {
         let count = commands.len();
         let failed = self.command_service.upsert(commands.clone()).await;
         if !failed.is_empty() {
             warn!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_SCRAPER,
                 failures = failed.len(),
                 total = count,
                 "Some products failed to upsert"
@@ -77,8 +75,6 @@ impl ProductPushService for ProductPushServiceImpl {
             for cmd in &failed {
                 let shop_id_uuid: uuid::Uuid = cmd.shop_id.into();
                 warn!(
-                    service = CRAWLER_SERVICE_NAME,
-                    component = COMPONENT_SCRAPER,
                     shop_id = %shop_id_uuid,
                     shops_product_id = %cmd.shops_product_id,
                     url = ?cmd.url.as_ref().map(|u| u.as_str()),
@@ -205,6 +201,7 @@ impl From<&UpsertProductCommand> for UpsertCommandSnapshot {
 
 #[async_trait]
 impl ProductPushService for FileProductPushService {
+    #[tracing::instrument(skip(self, commands), fields(total = commands.len()))]
     async fn push(&self, commands: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand> {
         if commands.is_empty() {
             return commands;
@@ -229,16 +226,12 @@ impl ProductPushService for FileProductPushService {
             Ok(json) => {
                 if let Err(e) = std::fs::write(&self.output_path, json) {
                     error!(
-                        service = CRAWLER_SERVICE_NAME,
-                        component = COMPONENT_SCRAPER,
                         error = %e,
                         path = %self.output_path.display(),
                         "Failed to write scraped_products.json"
                     );
                 } else {
                     debug!(
-                        service = CRAWLER_SERVICE_NAME,
-                        component = COMPONENT_SCRAPER,
                         count,
                         path = %self.output_path.display(),
                         "Wrote scraped products to file"
@@ -246,12 +239,7 @@ impl ProductPushService for FileProductPushService {
                 }
             }
             Err(e) => {
-                error!(
-                    service = CRAWLER_SERVICE_NAME,
-                    component = COMPONENT_SCRAPER,
-                    error = %e,
-                    "Failed to serialise upsert commands to JSON"
-                );
+                error!(error = %e, "Failed to serialise upsert commands to JSON");
             }
         }
         // File push always "succeeds" — return all commands as succeeded.
@@ -275,8 +263,6 @@ pub fn normalize_to_upsert(
         ShopType::CommercialDealer | ShopType::AuctionHouse => {}
         ShopType::Marketplace | ShopType::AuctionPlatform => {
             warn!(
-                service = CRAWLER_SERVICE_NAME,
-                component = COMPONENT_SCRAPER,
                 shop_id = %candidate.shop_id,
                 shop_type = ?candidate.shop_type,
                 url = %candidate.url,

@@ -4,7 +4,6 @@ use regex::Regex;
 use thiserror::Error;
 use tracing::info;
 
-use crate::logging::{COMPONENT_SPIDER, CRAWLER_SERVICE_NAME};
 use crate::spider::classification::url_classification_service::{
     UrlClassificationError, UrlClassificationService,
 };
@@ -89,6 +88,7 @@ impl UrlPatternServiceImpl {
 
 #[async_trait::async_trait]
 impl UrlPatternService for UrlPatternServiceImpl {
+    #[tracing::instrument(skip(self), fields(shop_id = %shop_id))]
     async fn load_pattern_for_shop(
         &self,
         shop_id: &ShopId,
@@ -125,6 +125,10 @@ impl UrlPatternService for UrlPatternServiceImpl {
         Ok(())
     }
 
+    #[tracing::instrument(
+        skip(self, urls),
+        fields(shop_id = %shop_id, shop_url = %shop_url, url_count = urls.len())
+    )]
     async fn classify_and_save(
         &self,
         shop_id: &ShopId,
@@ -141,29 +145,16 @@ impl UrlPatternService for UrlPatternServiceImpl {
             self.save_pattern_for_shop(shop_id, shop_url, p).await?;
             match extract_shop_base_url(shop_url) {
                 Ok(extracted_domain) => {
-                    info!(
-                        service = CRAWLER_SERVICE_NAME,
-                        component = COMPONENT_SPIDER,
-                        shop_id = %shop_id,
-                        shop_url,
-                        domain = %extracted_domain,
-                        "Persisted product URL pattern"
-                    )
+                    info!(domain = %extracted_domain, "Persisted product URL pattern")
                 }
-                Err(_) => info!(
-                    service = CRAWLER_SERVICE_NAME,
-                    component = COMPONENT_SPIDER,
-                    shop_id = %shop_id,
-                    shop_url,
-                    domain = %shop_url,
-                    "Persisted product URL pattern"
-                ),
+                Err(_) => info!(domain = %shop_url, "Persisted product URL pattern"),
             }
         }
 
         Ok(pattern)
     }
 
+    #[tracing::instrument(skip(self), fields(shop_id = %shop_id, shop_url = %shop_url))]
     async fn mark_as_crawled(
         &self,
         shop_id: &ShopId,
