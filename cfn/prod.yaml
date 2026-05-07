@@ -110,7 +110,7 @@ Resources:
         S3Key: !Sub "cognito-post-confirmation-prod-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 10
-      ReservedConcurrentExecutions: 20
+      # ReservedConcurrentExecutions: 20
       EphemeralStorage:
         Size: 512
       Environment:
@@ -2500,7 +2500,7 @@ Resources:
         S3Key: !Sub "notification-send-prod-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 20
-      ReservedConcurrentExecutions: 20
+      # ReservedConcurrentExecutions: 20
       EphemeralStorage:
         Size: 512
       Environment:
@@ -2598,7 +2598,7 @@ Resources:
         S3Key: !Sub "product-lambda-materialize-dynamodb-prod-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 30
-      ReservedConcurrentExecutions: 10
+      # ReservedConcurrentExecutions: 10
       EphemeralStorage:
         Size: 512
       Environment:
@@ -2693,7 +2693,7 @@ Resources:
         S3Key: !Sub "product-lambda-materialize-opensearch-prod-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 60
-      ReservedConcurrentExecutions: 10
+      # ReservedConcurrentExecutions: 10
       EphemeralStorage:
         Size: 512
       Environment:
@@ -2784,7 +2784,7 @@ Resources:
         S3Key: !Sub "shop-lambda-opensearch-index-prod-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 30
-      ReservedConcurrentExecutions: 5
+      # ReservedConcurrentExecutions: 5
       EphemeralStorage:
         Size: 512
       Environment:
@@ -2872,7 +2872,7 @@ Resources:
         S3Key: !Sub "user-lambda-index-opensearch-prod-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 30
-      ReservedConcurrentExecutions: 5
+      # ReservedConcurrentExecutions: 5
       EphemeralStorage:
         Size: 512
       Environment:
@@ -2971,7 +2971,7 @@ Resources:
         S3Key: !Sub "user-lambda-tier-update-prod-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 30
-      ReservedConcurrentExecutions: 5
+      # ReservedConcurrentExecutions: 5
       EphemeralStorage:
         Size: 512
       Environment:
@@ -3038,7 +3038,7 @@ Resources:
         S3Key: !Sub "search-filter-lambda-opensearch-sync-prod-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 30
-      ReservedConcurrentExecutions: 5
+      # ReservedConcurrentExecutions: 5
       EphemeralStorage:
         Size: 512
       Environment:
@@ -3152,7 +3152,7 @@ Resources:
         S3Key: !Sub "product-lambda-update-notify-user-prod-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 30
-      ReservedConcurrentExecutions: 20
+      # ReservedConcurrentExecutions: 20
       EphemeralStorage:
         Size: 512
       Environment:
@@ -3269,7 +3269,7 @@ Resources:
         S3Key: !Sub "search-filter-lambda-percolate-product-prod-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 60
-      ReservedConcurrentExecutions: 20
+      # ReservedConcurrentExecutions: 20
       EphemeralStorage:
         Size: 512
       Environment:
@@ -3551,7 +3551,7 @@ Resources:
         S3Key: !Sub "product-pipeline-translate-prod-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 60
-      ReservedConcurrentExecutions: 10
+      # ReservedConcurrentExecutions: 10
       EphemeralStorage:
         Size: 512
       Environment:
@@ -3652,7 +3652,7 @@ Resources:
         S3Key: !Sub "product-pipeline-embed-text-prod-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 60
-      ReservedConcurrentExecutions: 10
+      # ReservedConcurrentExecutions: 10
       EphemeralStorage:
         Size: 512
       Environment:
@@ -3754,7 +3754,7 @@ Resources:
         S3Key: !Sub "product-pipeline-extract-attribute-prod-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 60
-      ReservedConcurrentExecutions: 10
+      # ReservedConcurrentExecutions: 10
       EphemeralStorage:
         Size: 512
       Environment:
@@ -3919,7 +3919,7 @@ Resources:
         S3Key: !Sub "product-pipeline-classify-prod-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 60
-      ReservedConcurrentExecutions: 10
+      # ReservedConcurrentExecutions: 10
       EphemeralStorage:
         Size: 512
       Environment:
@@ -4104,7 +4104,7 @@ Resources:
         S3Key: !Sub "stripe-lambda-prod-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 7
-      ReservedConcurrentExecutions: 20
+      # ReservedConcurrentExecutions: 20
       EphemeralStorage:
         Size: 512
       Environment:
