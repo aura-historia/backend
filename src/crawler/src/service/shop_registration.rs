@@ -74,7 +74,7 @@ impl ShopRegistrationService {
         Self { source, repository }
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(name = "shop_registration_sync", skip(self))]
     pub async fn sync(&self) -> Result<usize, ShopSyncError> {
         let shops = self.source.fetch_registered_shops().await?;
 

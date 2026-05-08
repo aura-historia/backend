@@ -140,6 +140,7 @@ impl SpiderServiceImpl {
     }
 
     #[tracing::instrument(
+        name = "spider_classify_and_save_for_stage",
         skip(self, state),
         fields(shop_id = %shop_id, shop_url = %shop_url, stage)
     )]
@@ -168,6 +169,7 @@ impl SpiderServiceImpl {
     }
 
     #[tracing::instrument(
+        name = "spider_maybe_classify_at_threshold",
         skip(self, state),
         fields(shop_id = %shop_id, shop_url = %shop_url, classify_threshold)
     )]
@@ -208,7 +210,11 @@ impl SpiderServiceImpl {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, state), fields(shop_url = %shop_url))]
+    #[tracing::instrument(
+        name = "spider_log_progress",
+        skip(self, state, shop_url),
+        fields(shop_url = %shop_url)
+    )]
     fn log_progress(&self, state: &CrawlRunState, shop_url: &str) {
         if state.total_crawled.is_multiple_of(500) {
             info!(
@@ -219,7 +225,11 @@ impl SpiderServiceImpl {
         }
     }
 
-    #[tracing::instrument(skip(self, state), fields(shop_id = %shop_id, shop_url = %shop_url))]
+    #[tracing::instrument(
+        name = "spider_classify_at_end_if_needed",
+        skip(self, state),
+        fields(shop_id = %shop_id, shop_url = %shop_url)
+    )]
     async fn classify_at_end_if_needed(
         &self,
         state: &mut CrawlRunState,
@@ -240,7 +250,11 @@ impl SpiderServiceImpl {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, state), fields(shop_id = %shop_id, shop_url = %shop_url))]
+    #[tracing::instrument(
+        name = "spider_reclassify_if_persisted_pattern_failed",
+        skip(self, state),
+        fields(shop_id = %shop_id, shop_url = %shop_url)
+    )]
     async fn reclassify_if_persisted_pattern_failed(
         &self,
         state: &mut CrawlRunState,
@@ -274,7 +288,11 @@ impl SpiderServiceImpl {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self), fields(shop_id = %shop_id, shop_url = %shop_url))]
+    #[tracing::instrument(
+        name = "spider_mark_as_crawled_best_effort",
+        skip(self),
+        fields(shop_id = %shop_id, shop_url = %shop_url)
+    )]
     async fn mark_as_crawled_best_effort(&self, shop_id: &ShopId, shop_url: &str) {
         if let Err(error) = self
             .pattern_service
@@ -286,6 +304,7 @@ impl SpiderServiceImpl {
     }
 
     #[tracing::instrument(
+        name = "spider_run_locked",
         skip(self),
         fields(
             shop_id = %shop_id,
@@ -359,6 +378,7 @@ impl SpiderServiceImpl {
 #[async_trait::async_trait]
 impl SpiderService for SpiderServiceImpl {
     #[tracing::instrument(
+        name = "spider_run",
         skip(self),
         fields(
             shop_id = %shop_id,

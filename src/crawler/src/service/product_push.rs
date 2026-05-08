@@ -62,7 +62,11 @@ impl ProductPushServiceImpl {
 
 #[async_trait]
 impl ProductPushService for ProductPushServiceImpl {
-    #[tracing::instrument(skip(self, commands), fields(total = commands.len()))]
+    #[tracing::instrument(
+        name = "product_push_batch",
+        skip(self, commands),
+        fields(total = commands.len())
+    )]
     async fn push(&self, commands: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand> {
         let count = commands.len();
         let failed = self.command_service.upsert(commands.clone()).await;
@@ -201,7 +205,11 @@ impl From<&UpsertProductCommand> for UpsertCommandSnapshot {
 
 #[async_trait]
 impl ProductPushService for FileProductPushService {
-    #[tracing::instrument(skip(self, commands), fields(total = commands.len()))]
+    #[tracing::instrument(
+        name = "file_product_push_batch",
+        skip(self, commands),
+        fields(total = commands.len())
+    )]
     async fn push(&self, commands: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand> {
         if commands.is_empty() {
             return commands;

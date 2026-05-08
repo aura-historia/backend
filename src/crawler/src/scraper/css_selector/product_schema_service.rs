@@ -175,10 +175,14 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         Ok(schemas)
     }
 
-    #[tracing::instrument(skip(self, html, failed_schema, last_error), fields(domain = %_domain))]
+    #[tracing::instrument(
+        name = "scraper_append_single_schema",
+        skip(self, domain, html, failed_schema, last_error),
+        fields(domain = %domain)
+    )]
     async fn append_single_schema(
         &self,
-        _domain: &str,
+        domain: &str,
         html: &str,
         failed_schema: Option<&ProductCssSelectorSchema>,
         last_error: Option<&ApplySchemaError>,
@@ -242,13 +246,14 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
     }
 
     #[tracing::instrument(
-        skip(self, product_schemas),
-        fields(shop_id = %shop_id, domain = %_domain, schema_count = product_schemas.len())
+        name = "scraper_save_product_schemas",
+        skip(self, domain, product_schemas),
+        fields(shop_id = %shop_id, domain = %domain, schema_count = product_schemas.len())
     )]
     async fn save_product_schemas(
         &self,
         shop_id: &ShopId,
-        _domain: &str,
+        domain: &str,
         product_schemas: Vec<ProductCssSelectorSchema>,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
         if product_schemas.is_empty() {

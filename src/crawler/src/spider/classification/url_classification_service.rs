@@ -170,10 +170,14 @@ impl UrlClassificationServiceImpl {
 
 #[async_trait::async_trait]
 impl UrlClassificationService for UrlClassificationServiceImpl {
-    #[tracing::instrument(skip(self, all_urls), fields(shop_url = %_shop_url, url_count = all_urls.len()))]
+    #[tracing::instrument(
+        name = "spider_classify_product_url_pattern",
+        skip(self, shop_url, all_urls),
+        fields(shop_url = %shop_url, url_count = all_urls.len())
+    )]
     async fn find_product_url_pattern(
         &self,
-        _shop_url: &str,
+        shop_url: &str,
         all_urls: &[String],
     ) -> Result<Option<Regex>, UrlClassificationError> {
         info!("Analyzing crawled URLs with LLM");
@@ -226,7 +230,11 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
         }
     }
 
-    #[tracing::instrument(skip(self, pattern, all_urls), fields(url_count = all_urls.len()))]
+    #[tracing::instrument(
+        name = "spider_filter_product_urls",
+        skip(self, pattern, all_urls),
+        fields(url_count = all_urls.len())
+    )]
     fn filter_product_urls(
         &self,
         pattern: &Regex,

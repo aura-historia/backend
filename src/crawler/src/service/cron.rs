@@ -182,7 +182,7 @@ impl CrawlerCronJob {
         }
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(name = "crawler_run_loop", skip(self))]
     pub async fn run_loop(self) {
         info!("Starting crawler cron job loop");
 
@@ -207,7 +207,7 @@ impl CrawlerCronJob {
         let _ = tokio::join!(spider_handle, scraper_handle, sync_handle);
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(name = "crawler_spider_loop", skip(self))]
     async fn spider_loop(&self) {
         loop {
             self.run_spider_once().await;
@@ -215,7 +215,7 @@ impl CrawlerCronJob {
         }
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(name = "crawler_scraper_loop", skip(self))]
     async fn scraper_loop(&self) {
         loop {
             self.run_scraper_once().await;
@@ -223,7 +223,7 @@ impl CrawlerCronJob {
         }
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(name = "crawler_shop_sync_loop", skip(self))]
     async fn shop_sync_loop(&self) {
         loop {
             tokio::time::sleep(self.config.shop_sync_interval).await;
@@ -231,7 +231,7 @@ impl CrawlerCronJob {
         }
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(name = "crawler_run_shop_sync_once", skip(self))]
     async fn run_shop_sync_once(&self) {
         match self.shop_registration.sync().await {
             Ok(_) => {}
@@ -239,7 +239,7 @@ impl CrawlerCronJob {
         }
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(name = "crawler_run_spider_once", skip(self))]
     async fn run_spider_once(&self) {
         match self
             .spider_candidates
@@ -408,6 +408,7 @@ struct ScrapeDomainOutcome {
 /// The position correspondence between `commands` and `metas` is preserved so
 /// that succeeded commands can be matched back to their metadata by index.
 #[tracing::instrument(
+    name = "crawler_flush_push_batch",
     skip(push_service, scraper_candidates, batch),
     fields(batch_size = batch.len())
 )]
@@ -445,16 +446,17 @@ async fn flush_batch(
 }
 
 #[tracing::instrument(
-    skip(candidate, ctx),
+    name = "crawler_scrape_candidate",
+    skip(candidate, domain, ctx),
     fields(
         shop_id = %candidate.shop_id,
-        domain = %_domain,
+        domain = %domain,
         url = %candidate.url
     )
 )]
 async fn scrape_candidate(
     candidate: ScraperCandidate,
-    _domain: String,
+    domain: String,
     ctx: &ScrapeDomainContext,
 ) -> ScrapeCandidateOutcome {
     // Skip URLs from shops with already-exhausted budgets
@@ -632,6 +634,7 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
 }
 
 #[tracing::instrument(
+    name = "crawler_scrape_domain_candidates",
     skip(candidates, ctx),
     fields(domain = %domain, candidate_count = candidates.len())
 )]
@@ -674,7 +677,7 @@ async fn scrape_domain_candidates(
 }
 
 impl CrawlerCronJob {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(name = "crawler_run_scraper_once", skip(self))]
     async fn run_scraper_once(&self) {
         let total_fetch = (self.config.scraper_concurrency as i64) * self.config.scraper_batch_size;
 

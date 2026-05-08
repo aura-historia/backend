@@ -131,7 +131,7 @@ pub(super) fn parse_price(
 /// or ISO code — typically the `default_currency` stored in the shop's
 /// [`ProductCssSelectorSchema`] and set by the LLM during schema creation.
 #[tracing::instrument(
-    skip(raw, make_currency_err, make_parse_err),
+    skip(raw, field_name, context_url, make_currency_err, make_parse_err),
     fields(url = %context_url, field = field_name)
 )]
 pub(super) fn normalize_price_field(
