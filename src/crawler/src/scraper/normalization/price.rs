@@ -130,10 +130,6 @@ pub(super) fn parse_price(
 /// `fallback_currency` is used when the raw string contains no currency symbol
 /// or ISO code — typically the `default_currency` stored in the shop's
 /// [`ProductCssSelectorSchema`] and set by the LLM during schema creation.
-#[tracing::instrument(
-    skip(raw, field_name, context_url, make_currency_err, make_parse_err),
-    fields(url = %context_url, field = field_name)
-)]
 pub(super) fn normalize_price_field(
     raw: Option<String>,
     field_name: &'static str,
@@ -142,6 +138,13 @@ pub(super) fn normalize_price_field(
     make_currency_err: impl Fn(String) -> NormalizationError,
     make_parse_err: impl Fn(String) -> NormalizationError,
 ) -> Result<Option<Price>, NormalizationError> {
+    let _span = tracing::info_span!(
+        "normalize_price_field",
+        url = %context_url,
+        field = field_name
+    )
+    .entered();
+
     let Some(s) = raw else { return Ok(None) };
 
     let trimmed = s.trim().to_owned();

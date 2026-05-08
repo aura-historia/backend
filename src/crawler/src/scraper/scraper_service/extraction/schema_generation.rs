@@ -11,11 +11,10 @@ impl ScraperServiceImpl {
     ///
     /// The dispatcher guarantees at most one in-flight scrape per domain at a
     /// time, so no additional locking is required here.
-    #[tracing::instrument(skip(self, html), fields(shop_id = %shop_id, domain, url = %url))]
+    #[tracing::instrument(skip(self, html), fields(shop_id = %shop_id, url = %url))]
     pub(crate) async fn obtain_schemas(
         &self,
         shop_id: &ShopId,
-        domain: &str,
         url: &Url,
         html: &str,
     ) -> Result<ShopsProductSchema, ScraperError> {
@@ -32,7 +31,7 @@ impl ScraperServiceImpl {
                 .await?;
             Ok(self
                 .schema_service
-                .save_product_schemas(shop_id, domain, schemas)
+                .save_product_schemas(shop_id, schemas)
                 .await?)
         }
     }

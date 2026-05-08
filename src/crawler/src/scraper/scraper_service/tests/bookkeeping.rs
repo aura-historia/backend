@@ -29,7 +29,7 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
     schema_svc
         .expect_save_product_schemas()
         .once()
-        .returning(move |_, _, _| {
+        .returning(move |_, _| {
             let s = schema_for_save.clone();
             Box::pin(async move { Ok(s) })
         });

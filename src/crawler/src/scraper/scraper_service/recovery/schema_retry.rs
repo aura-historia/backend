@@ -20,7 +20,6 @@ impl ScraperServiceImpl {
         skip(self, html, existing_schemas),
         fields(
             shop_id = %shop_id,
-            domain,
             url = %url,
             schema_count = existing_schemas.len()
         )
@@ -28,7 +27,6 @@ impl ScraperServiceImpl {
     pub(crate) async fn append_and_reapply_with_retry(
         &self,
         shop_id: &ShopId,
-        domain: &str,
         url: &Url,
         html: &str,
         existing_schemas: &[ProductCssSelectorSchema],
@@ -49,12 +47,7 @@ impl ScraperServiceImpl {
 
             let generated_schema = self
                 .schema_service
-                .append_single_schema(
-                    domain,
-                    html,
-                    last_generated_schema.as_ref(),
-                    last_error.as_ref(),
-                )
+                .append_single_schema(html, last_generated_schema.as_ref(), last_error.as_ref())
                 .await?;
 
             match try_apply_schemas(std::iter::once(&generated_schema), html) {
@@ -63,7 +56,7 @@ impl ScraperServiceImpl {
                     persisted_schemas.push(generated_schema);
                     let saved = self
                         .schema_service
-                        .save_product_schemas(shop_id, domain, persisted_schemas)
+                        .save_product_schemas(shop_id, persisted_schemas)
                         .await?;
                     info!(attempt, "Generated schema appended and applied");
                     return Ok((selected_schema, raw, saved.product_schemas));

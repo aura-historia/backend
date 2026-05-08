@@ -127,12 +127,7 @@ impl ScraperServiceImpl {
 
             let generated_schema = self
                 .schema_service
-                .append_single_schema(
-                    ctx.domain,
-                    ctx.html,
-                    last_generated_schema.as_ref(),
-                    Some(&apply_hint),
-                )
+                .append_single_schema(ctx.html, last_generated_schema.as_ref(), Some(&apply_hint))
                 .await?;
 
             let reapplied = match try_apply_schemas(std::iter::once(&generated_schema), ctx.html) {
@@ -162,7 +157,7 @@ impl ScraperServiceImpl {
                     let mut persisted_schemas = ctx.existing_schemas.to_vec();
                     persisted_schemas.push(generated_schema);
                     self.schema_service
-                        .save_product_schemas(ctx.shop_id, ctx.domain, persisted_schemas)
+                        .save_product_schemas(ctx.shop_id, persisted_schemas)
                         .await?;
                     info!(
                         domain = ctx.domain,

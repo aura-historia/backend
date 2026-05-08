@@ -34,7 +34,7 @@ async fn should_regenerate_schema_when_normalization_error_is_fixable() {
     schema_svc
         .expect_append_single_schema()
         .once()
-        .withf(move |_, _, failed_schema, last_error| {
+        .withf(move |_, failed_schema, last_error| {
             failed_schema == &Some(&existing_schema_for_append)
                 && matches!(
                     last_error,
@@ -43,14 +43,14 @@ async fn should_regenerate_schema_when_normalization_error_is_fixable() {
                     })) if selector == "title"
                 )
         })
-        .returning(move |_, _, _, _| {
+        .returning(move |_, _, _| {
             let s = minimal_schema();
             Box::pin(async move { Ok(s) })
         });
     schema_svc
         .expect_save_product_schemas()
         .once()
-        .returning(move |_, _, schemas| {
+        .returning(move |_, schemas| {
             let saved = ShopsProductSchema {
                 shop_id: id,
                 product_schemas: schemas,
@@ -205,7 +205,7 @@ async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
 
     let append_call_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     schema_svc.expect_append_single_schema().times(2).returning(
-        move |_, _, failed_schema, last_error| {
+        move |_, failed_schema, last_error| {
             let append_call_count = append_call_count.clone();
             let failed_schema = failed_schema.cloned();
             let last_error = last_error.cloned();
@@ -292,7 +292,7 @@ async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norma
     schema_svc
         .expect_append_single_schema()
         .times(2)
-        .returning(|_, _, _, _| Box::pin(async { Ok(minimal_schema()) }));
+        .returning(|_, _, _| Box::pin(async { Ok(minimal_schema()) }));
     // Schema is never persisted because normalization never succeeds.
     schema_svc.expect_save_product_schemas().never();
 

@@ -58,7 +58,7 @@ pub trait SpiderService: Send + Sync {
         &self,
         shop_id: &ShopId,
         domain_id: &uuid::Uuid,
-        shop_url: &str,
+        _shop_url: &str,
         classify_threshold: usize,
     ) -> Result<SpiderRunResult, SpiderServiceError>;
 }
@@ -210,12 +210,8 @@ impl SpiderServiceImpl {
         Ok(())
     }
 
-    #[tracing::instrument(
-        name = "spider_log_progress",
-        skip(self, state, shop_url),
-        fields(shop_url = %shop_url)
-    )]
-    fn log_progress(&self, state: &CrawlRunState, shop_url: &str) {
+    #[tracing::instrument(name = "spider_log_progress", skip(self, state))]
+    fn log_progress(&self, state: &CrawlRunState) {
         if state.total_crawled.is_multiple_of(500) {
             info!(
                 total_crawled = state.total_crawled,
@@ -343,7 +339,7 @@ impl SpiderServiceImpl {
 
             self.flush_batch_if_needed(&mut state, shop_id, domain_id)
                 .await?;
-            self.log_progress(&state, shop_url);
+            self.log_progress(&state);
         }
 
         info!(total_crawled = state.total_crawled, "Crawl complete");

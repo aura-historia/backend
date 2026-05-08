@@ -89,7 +89,7 @@ impl ScraperService for ScraperServiceImpl {
         }
 
         // 2. Obtain schemas (from DB or freshly created by LLM) -----------
-        let shops_product_schema = self.obtain_schemas(shop_id, domain, url, &html).await?;
+        let shops_product_schema = self.obtain_schemas(shop_id, url, &html).await?;
 
         // 3. Apply one schema that fits this page -------------------------
         // `existing_schemas_for_norm` tracks the full persisted schema list as
@@ -113,7 +113,6 @@ impl ScraperService for ScraperServiceImpl {
                     );
                     self.append_and_reapply_with_retry(
                         shop_id,
-                        domain,
                         url,
                         &html,
                         &shops_product_schema.product_schemas,
