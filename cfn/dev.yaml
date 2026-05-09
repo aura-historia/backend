@@ -2655,6 +2655,7 @@ Resources:
                   - "DOMAIN_CREATED"
       Targets:
         - Id: ProductPipelineEmbedTextQ
+          Arn: !GetAtt ProductPipelineEmbedTextQ.Arn
   DynamoDbPutShopRecordEventRule:
     Type: AWS::Events::Rule
     Properties:
