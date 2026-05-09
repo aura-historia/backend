@@ -145,6 +145,7 @@ impl IntegrationTestService for Sqs {
 ///
 /// Prefer [`Sqs::tear_down`] for test teardown when full isolation including
 /// invisible messages is required.
+#[allow(dead_code)]
 pub(crate) async fn drain_queues(queue_urls: Vec<String>) {
     for queue_url in queue_urls {
         drain_queue(&queue_url).await;
@@ -152,6 +153,7 @@ pub(crate) async fn drain_queues(queue_urls: Vec<String>) {
 }
 
 /// Receives and deletes all currently **visible** messages from a single SQS queue.
+#[allow(dead_code)]
 async fn drain_queue(queue_url: &str) {
     let client = get_sqs_client().await;
     loop {

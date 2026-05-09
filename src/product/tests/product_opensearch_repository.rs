@@ -3478,9 +3478,9 @@ async fn should_return_results_combining_bm25_and_knn_for_hybrid_search() {
 }
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_omit_embedding_in_hybrid_response() {
-    // The `_source.excludes` list in the hybrid request must strip the (large) embedding
-    // from the response payload, so clients never have to download them.
+async fn should_include_embedding_in_hybrid_response_when_dropouts_are_filtered() {
+    // The adaptive hybrid service computes a client-side semantic floor for vector-only hits,
+    // so the repository response must keep the stored embedding in `_source`.
     let doc = make_product_doc(|d| {
         d.title_en = Some("Tea Cup Set".to_string());
         d.embedding = Some(one_hot_embedding(11, 1.0).into());
@@ -3515,8 +3515,8 @@ async fn should_omit_embedding_in_hybrid_response() {
         .find(|h| h.source.product_id == doc.product_id)
         .expect("freshly-indexed document must be returned");
     assert!(
-        hit.source.embedding.is_none(),
-        "embedding must be excluded from the hit source"
+        hit.source.embedding.is_some(),
+        "embedding must be preserved in the hit source for dropout filtering"
     );
 }
 

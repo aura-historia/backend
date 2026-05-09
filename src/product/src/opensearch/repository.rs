@@ -34,6 +34,10 @@ use time::format_description::well_known;
 /// In tests this is done by [`test_api::opensearch::set_up_indices`].
 pub const HYBRID_SEARCH_PIPELINE_NAME: &str = "hybrid-search-pipeline";
 
+/// Name attached to the BM25 branch of the hybrid query so the client-side dropout filter
+/// can distinguish text-anchored hits from vector-only hits.
+pub const HYBRID_BM25_QUERY_NAME: &str = "hybrid_bm25_text";
+
 #[async_trait]
 #[mockall::automock]
 pub trait ProductOpenSearchRepository {
@@ -655,17 +659,14 @@ pub fn build_hybrid_search_request(
         // a match-all so the request is still valid.
         None => json!({ "match_all": {} }),
     };
-    let bm25_subquery = if filter.is_empty() && must_not.is_empty() {
-        bm25_text_clause
-    } else {
-        json!({
-            "bool": {
-                "must": [bm25_text_clause],
-                "filter": filter.clone(),
-                "must_not": must_not.clone(),
-            }
-        })
-    };
+    let bm25_subquery = json!({
+        "bool": {
+            "_name": HYBRID_BM25_QUERY_NAME,
+            "must": [bm25_text_clause],
+            "filter": filter.clone(),
+            "must_not": must_not.clone(),
+        }
+    });
 
     // ---------- kNN sub-query: vector + filters ----------
     let mut knn_body = json!({
@@ -688,7 +689,9 @@ pub fn build_hybrid_search_request(
 
     let page_size = cursor.as_ref().map(|c| c.size).unwrap_or(20).max(1);
     let mut body = json!({
-        "_source": { "excludes": [ProductDocumentSerdeField::Embedding] },
+        // Keep the document embedding in `_source` so the service layer can compute an
+        // absolute semantic similarity floor for vector-only hits and trim the hybrid tail.
+        "_source": true,
         "size": page_size,
         "query": {
             "hybrid": {

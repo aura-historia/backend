@@ -801,7 +801,9 @@ pub struct HybridSearchParams {
 impl From<&IntentSignals> for HybridSearchParams {
     /// Derive parameters from soft intent signals.
     ///
-    /// Formula matches the issue's recommended shape; clamped per the guardrails.
+    /// The candidate window is intentionally conservative: shopping users can scroll far,
+    /// but once the semantic retriever falls deep into its tail it starts surfacing weak
+    /// neighbours that add noise rather than value.
     fn from(signals: &IntentSignals) -> Self {
         let raw_vector_weight = 0.2 * signals.precision_score
             + 0.5 * signals.style_score
@@ -809,10 +811,10 @@ impl From<&IntentSignals> for HybridSearchParams {
             + 0.8 * signals.exploratory_score;
         let vector_weight = raw_vector_weight.clamp(0.0, 1.0 - Self::MIN_BM25_WEIGHT);
 
-        let raw_k = 200.0 * signals.precision_score
-            + 800.0 * signals.style_score
-            + 1500.0 * signals.visual_score
-            + 3000.0 * signals.exploratory_score;
+        let raw_k = 60.0 * signals.precision_score
+            + 180.0 * signals.style_score
+            + 300.0 * signals.visual_score
+            + 600.0 * signals.exploratory_score;
         let candidate_k = (raw_k.round() as i32)
             .clamp(Self::MIN_CANDIDATE_K as i32, Self::MAX_CANDIDATE_K as i32)
             as u16;
@@ -825,9 +827,34 @@ impl From<&IntentSignals> for HybridSearchParams {
 }
 
 impl HybridSearchParams {
-    pub const MIN_CANDIDATE_K: u16 = 200;
-    pub const MAX_CANDIDATE_K: u16 = 3000;
+    pub const MIN_CANDIDATE_K: u16 = 60;
+    pub const MAX_CANDIDATE_K: u16 = 600;
     pub const MIN_BM25_WEIGHT: f32 = 0.2;
+    pub const MIN_SEMANTIC_COSINE: f32 = 0.35;
+    pub const MAX_SEMANTIC_COSINE: f32 = 0.55;
+}
+
+/// Adaptive cosine floor used to prune low-confidence vector-only hits after the hybrid
+/// query returns. BM25-anchored hits are exempt from this floor.
+pub fn semantic_dropout_floor(signals: &IntentSignals) -> f32 {
+    let raw_floor = 0.35
+        + 0.20 * signals.precision_score
+        + 0.10 * signals.style_score
+        + 0.08 * signals.visual_score;
+    raw_floor.clamp(
+        HybridSearchParams::MIN_SEMANTIC_COSINE,
+        HybridSearchParams::MAX_SEMANTIC_COSINE,
+    )
+}
+
+/// Exact / highly specific product lookups behave better with the regular BM25 path than
+/// with semantic expansion. This guardrail is intentionally strict so only clearly
+/// precision-dominant queries bypass hybrid retrieval.
+pub fn should_prefer_lexical_search(signals: &IntentSignals) -> bool {
+    signals.precision_score >= 0.55
+        && signals.precision_score > signals.style_score + 0.10
+        && signals.precision_score > signals.visual_score + 0.10
+        && signals.precision_score > signals.exploratory_score + 0.10
 }
 
 #[cfg(test)]
@@ -971,6 +998,9 @@ mod tests {
         let p2 = HybridSearchParams::from(&mostly_exploratory);
         assert!(p2.vector_weight > p1.vector_weight);
         assert!(p2.candidate_k > p1.candidate_k);
+        assert!(
+            semantic_dropout_floor(&mostly_precision) > semantic_dropout_floor(&mostly_exploratory)
+        );
     }
 
     #[test]
@@ -980,5 +1010,50 @@ mod tests {
 
         let flat = bm25_distribution_score(&[1.0, 0.99, 0.98, 0.97]);
         assert!(flat.flatness > flat.peakedness);
+    }
+
+    #[test]
+    fn should_raise_semantic_dropout_floor_for_precision_queries() {
+        let precision = IntentSignals {
+            precision_score: 0.85,
+            style_score: 0.05,
+            visual_score: 0.05,
+            exploratory_score: 0.05,
+        };
+        let exploratory = IntentSignals {
+            precision_score: 0.05,
+            style_score: 0.05,
+            visual_score: 0.05,
+            exploratory_score: 0.85,
+        };
+
+        let precision_floor = semantic_dropout_floor(&precision);
+        let exploratory_floor = semantic_dropout_floor(&exploratory);
+
+        assert!(precision_floor > exploratory_floor);
+        assert!(precision_floor <= HybridSearchParams::MAX_SEMANTIC_COSINE + 1e-6);
+        assert!(exploratory_floor >= HybridSearchParams::MIN_SEMANTIC_COSINE - 1e-6);
+    }
+
+    #[test]
+    fn should_prefer_lexical_search_when_precision_signal_is_dominant() {
+        let signals = IntentSignals {
+            precision_score: 0.72,
+            style_score: 0.10,
+            visual_score: 0.08,
+            exploratory_score: 0.10,
+        };
+        assert!(should_prefer_lexical_search(&signals));
+    }
+
+    #[test]
+    fn should_keep_hybrid_search_when_precision_signal_is_not_clearly_dominant() {
+        let signals = IntentSignals {
+            precision_score: 0.35,
+            style_score: 0.30,
+            visual_score: 0.20,
+            exploratory_score: 0.15,
+        };
+        assert!(!should_prefer_lexical_search(&signals));
     }
 }

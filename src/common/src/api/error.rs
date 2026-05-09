@@ -370,7 +370,14 @@ pub mod opensearch {
     use crate::api::error_code::{
         BAD_GATEWAY, GATEWAY_TIMEOUT, INTERNAL_SERVER_ERROR, SERVICE_UNAVAILABLE,
     };
+    use crate::opensearch::search_response::OpenSearchTimedOutError;
     use opensearch::Error as OpenSearchError;
+
+    impl From<OpenSearchTimedOutError> for ApiError {
+        fn from(e: OpenSearchTimedOutError) -> Self {
+            ApiError::gateway_time_out(GATEWAY_TIMEOUT, Box::new(e))
+        }
+    }
 
     impl From<OpenSearchError> for ApiError {
         fn from(e: OpenSearchError) -> Self {
@@ -404,6 +411,22 @@ pub mod opensearch {
 
             assert_eq!(api_error.status, 500);
             assert_eq!(api_error.error.as_str(), "INTERNAL_SERVER_ERROR");
+        }
+
+        #[test]
+        fn should_convert_opensearch_timeout_error_to_gateway_timeout() {
+            let api_error: ApiError = OpenSearchTimedOutError {
+                request_kind: "product search",
+                took: 250,
+                total_shards: 4,
+                successful_shards: 3,
+                skipped_shards: 0,
+                failed_shards: 1,
+            }
+            .into();
+
+            assert_eq!(api_error.status, 504);
+            assert_eq!(api_error.error.as_str(), "GATEWAY_TIMEOUT");
         }
     }
 }

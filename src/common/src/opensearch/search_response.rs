@@ -1,5 +1,18 @@
 use serde::Deserialize;
 
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "OpenSearch request timed out during {request_kind} after {took} ms (failed_shards={failed_shards}/{total_shards})"
+)]
+pub struct OpenSearchTimedOutError {
+    pub request_kind: &'static str,
+    pub took: u64,
+    pub total_shards: u64,
+    pub successful_shards: u64,
+    pub skipped_shards: u64,
+    pub failed_shards: u64,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct SearchResponse<T> {
     pub took: u64,
@@ -8,6 +21,26 @@ pub struct SearchResponse<T> {
     #[serde(rename = "_shards")]
     pub shards: ShardStats,
     pub hits: HitsMetadata<T>,
+}
+
+impl<T> SearchResponse<T> {
+    pub fn into_non_timed_out(
+        self,
+        request_kind: &'static str,
+    ) -> Result<Self, OpenSearchTimedOutError> {
+        if self.timed_out {
+            Err(OpenSearchTimedOutError {
+                request_kind,
+                took: self.took,
+                total_shards: self.shards.total,
+                successful_shards: self.shards.successful,
+                skipped_shards: self.shards.skipped,
+                failed_shards: self.shards.failed,
+            })
+        } else {
+            Ok(self)
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone, Copy)]
@@ -44,6 +77,9 @@ pub struct SearchHit<T> {
 
     #[serde(default)]
     pub sort: Option<serde_json::Value>,
+
+    #[serde(default)]
+    pub matched_queries: Vec<String>,
 
     #[serde(rename = "_source")]
     pub source: T,
@@ -271,5 +307,35 @@ mod tests {
         assert_eq!(resp.shards.successful, 2);
         assert_eq!(resp.shards.failed, 1);
         assert_eq!(resp.hits.hits.len(), 1);
+    }
+
+    #[test]
+    fn should_convert_timed_out_response_into_error() {
+        let json = r#"
+        {
+            "took": 321,
+            "timed_out": true,
+            "_shards": {
+                "total": 4,
+                "successful": 3,
+                "skipped": 0,
+                "failed": 1
+            },
+            "hits": {
+                "total": { "value": 0, "relation": "eq" },
+                "max_score": null,
+                "hits": []
+            }
+        }
+        "#;
+
+        let resp: SearchResponse<MyDoc> = serde_json::from_str(json).unwrap();
+        let err = resp.into_non_timed_out("product search").unwrap_err();
+
+        assert_eq!(err.request_kind, "product search");
+        assert_eq!(err.took, 321);
+        assert_eq!(err.total_shards, 4);
+        assert_eq!(err.successful_shards, 3);
+        assert_eq!(err.failed_shards, 1);
     }
 }
