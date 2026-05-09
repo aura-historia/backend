@@ -4,15 +4,17 @@ use crate::core::sort_shop_field::SortShopField;
 use crate::opensearch::repository::ShopOpenSearchRepository;
 use async_trait::async_trait;
 use common::{
+    opensearch::search_response::OpenSearchTimedOutError,
     pagination::cursor::{Cursor, CursoredResult},
     sort::{Sort, SortOrder},
 };
-use tracing::warn;
 
 #[derive(thiserror::Error, Debug)]
 pub enum SearchShopsError {
     #[error("OpenSearchError: {0}")]
     OpenSearchError(#[from] opensearch::Error),
+    #[error("OpenSearchTimedOut: {0}")]
+    OpenSearchTimedOut(#[from] OpenSearchTimedOutError),
 }
 
 #[cfg(feature = "data")]
@@ -24,6 +26,7 @@ pub mod api {
         fn from(err: SearchShopsError) -> Self {
             match err {
                 SearchShopsError::OpenSearchError(opensearch_err) => opensearch_err.into(),
+                SearchShopsError::OpenSearchTimedOut(timeout_err) => timeout_err.into(),
             }
         }
     }
@@ -75,17 +78,8 @@ impl<'a> QueryShopService for QueryShopServiceImpl<'a> {
         let search_response = self
             .repository
             .search_shop_documents(search, &sort, cursor)
-            .await?;
-        if search_response.timed_out {
-            warn!(
-                searchFilter = ?search,
-                sort = ?sort,
-                cursor = ?cursor,
-                took = search_response.took,
-                shardStats = ?search_response.shards,
-                "Search-Request to OpenSearch timed out when querying shops."
-            );
-        }
+            .await?
+            .into_non_timed_out("shop search")?;
 
         let cursor = Cursor {
             size: search_response.hits.hits.len() as u64,
@@ -118,7 +112,7 @@ mod tests {
     use crate::core::sort_shop_field::SortShopField;
     use crate::opensearch::repository::MockShopOpenSearchRepository;
     use crate::opensearch::shop_document::ShopDocument;
-    use crate::service::query_service::{QueryShopService, QueryShopServiceImpl};
+    use crate::service::query_service::{QueryShopService, QueryShopServiceImpl, SearchShopsError};
     use common::pagination::cursor::Cursor;
     use common::query::range_query::RangeQuery;
     use common::shop_id::ShopId;
@@ -157,6 +151,7 @@ mod tests {
                         score: None,
                         source: shop_document,
                         sort: None,
+                        matched_queries: vec![],
                     })
                     .collect(),
             },
@@ -280,6 +275,43 @@ mod tests {
             .await;
 
         assert!(actual.is_err());
+    }
+
+    #[tokio::test]
+    async fn should_err_when_shop_search_times_out() {
+        let mut repository = MockShopOpenSearchRepository::default();
+        repository
+            .expect_search_shop_documents()
+            .return_once(|_, _, _| {
+                Box::pin(async move {
+                    Ok(SearchResponse {
+                        took: 200,
+                        timed_out: true,
+                        shards: ShardStats {
+                            total: 4,
+                            successful: 3,
+                            skipped: 0,
+                            failed: 1,
+                        },
+                        hits: HitsMetadata {
+                            total: TotalHits {
+                                value: 0,
+                                relation: "eq".to_string(),
+                            },
+                            max_score: None,
+                            hits: vec![],
+                        },
+                    })
+                })
+            });
+        let service = QueryShopServiceImpl::new(&repository);
+
+        let actual = service
+            .search_shops(&ShopSearch::default(), &None, &None)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(actual, SearchShopsError::OpenSearchTimedOut(_)));
     }
 
     #[tokio::test]

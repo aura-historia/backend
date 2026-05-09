@@ -5,14 +5,16 @@ use crate::core::sort_product_field::SortProductField;
 use crate::opensearch::repository::ProductOpenSearchRepository;
 use crate::service::hybrid_search::HybridSearchError;
 use async_trait::async_trait;
+use common::opensearch::search_response::OpenSearchTimedOutError;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::sort::{Sort, SortOrder};
-use tracing::warn;
 
 #[derive(thiserror::Error, Debug)]
 pub enum SearchProductsError {
     #[error("OpenSearchError: {0}")]
     OpenSearchError(#[from] opensearch::Error),
+    #[error("OpenSearchTimedOut: {0}")]
+    OpenSearchTimedOut(#[from] OpenSearchTimedOutError),
     #[error("HybridSearchError: {0}")]
     HybridSearchError(#[from] HybridSearchError),
 }
@@ -26,8 +28,10 @@ pub mod api {
         fn from(err: SearchProductsError) -> Self {
             match err {
                 SearchProductsError::OpenSearchError(opensearch_err) => opensearch_err.into(),
+                SearchProductsError::OpenSearchTimedOut(timeout_err) => timeout_err.into(),
                 SearchProductsError::HybridSearchError(err) => match err {
                     HybridSearchError::OpenSearchError(opensearch_err) => opensearch_err.into(),
+                    HybridSearchError::OpenSearchTimedOut(timeout_err) => timeout_err.into(),
                 },
             }
         }
@@ -89,7 +93,8 @@ impl<'a> QueryProductService for QueryProductServiceImpl<'a> {
                 }),
                 page,
             )
-            .await?;
+            .await?
+            .into_non_timed_out("product search")?;
         let cursor = Cursor {
             size: search_response.hits.hits.len() as u64,
             search_after: search_response
@@ -98,16 +103,6 @@ impl<'a> QueryProductService for QueryProductServiceImpl<'a> {
                 .last()
                 .and_then(|last| last.sort.clone()),
         };
-        if search_response.timed_out {
-            warn!(
-                searchFilter = ?search,
-                sort = ?sort,
-                page = ?page,
-                took = search_response.took,
-                shardStats = ?search_response.shards,
-                "Search-Request to OpenSearch timed out when querying products."
-            );
-        }
 
         let product_views = search_response
             .hits
@@ -150,7 +145,9 @@ mod tests {
     use crate::opensearch::{
         product_document::ProductDocument, repository::MockProductOpenSearchRepository,
     };
-    use crate::service::query_service::{QueryProductService, QueryProductServiceImpl};
+    use crate::service::query_service::{
+        QueryProductService, QueryProductServiceImpl, SearchProductsError,
+    };
     use common::language::document::{LanguageDocument, TextDocument};
     use common::pagination::cursor::Cursor;
     use common::query::any_of_query::AnyOfQuery;
@@ -164,6 +161,7 @@ mod tests {
         product_state::domain::ProductState,
         sort::{Sort, SortOrder},
     };
+    use fake::{Fake, Faker};
     use rstest;
     use serde::ser::Error;
     use serde_json::json;
@@ -196,6 +194,7 @@ mod tests {
                         score: None,
                         source: product_document,
                         sort: None,
+                        matched_queries: vec![],
                     })
                     .collect(),
             },
@@ -441,6 +440,43 @@ mod tests {
             .await;
 
         assert!(actual.is_err());
+    }
+
+    #[tokio::test]
+    async fn should_err_when_product_search_times_out() {
+        let mut repository = MockProductOpenSearchRepository::default();
+        repository
+            .expect_search_product_documents()
+            .return_once(|_, _, _| {
+                Box::pin(async move {
+                    Ok(SearchResponse {
+                        took: 250,
+                        timed_out: true,
+                        shards: ShardStats {
+                            total: 4,
+                            successful: 3,
+                            skipped: 0,
+                            failed: 1,
+                        },
+                        hits: HitsMetadata {
+                            total: TotalHits {
+                                value: 0,
+                                relation: "eq".to_string(),
+                            },
+                            max_score: None,
+                            hits: vec![],
+                        },
+                    })
+                })
+            });
+        let service = QueryProductServiceImpl::new(&repository);
+
+        let actual = service
+            .search_products(&Faker.fake(), &None, &None)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(actual, SearchProductsError::OpenSearchTimedOut(_)));
     }
 
     #[tokio::test]

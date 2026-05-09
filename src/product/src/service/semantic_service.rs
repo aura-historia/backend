@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use aws_sdk_dynamodb::error::SdkError;
 use common::currency::domain::Currency;
 use common::language::domain::Language;
+use common::opensearch::search_response::OpenSearchTimedOutError;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use time::OffsetDateTime;
@@ -18,6 +19,9 @@ pub enum SemanticSearchProductsError {
 
     #[error("OpenSearchError: {0}")]
     OpenSearchError(#[from] opensearch::Error),
+
+    #[error("OpenSearchTimedOut: {0}")]
+    OpenSearchTimedOut(#[from] OpenSearchTimedOutError),
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(#[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>),
@@ -38,6 +42,7 @@ pub mod api {
                 SemanticSearchProductsError::OpenSearchError(opensearch_err) => {
                     opensearch_err.into()
                 }
+                SemanticSearchProductsError::OpenSearchTimedOut(timeout_err) => timeout_err.into(),
                 SemanticSearchProductsError::SdkGetItemError(sdk_error) => sdk_error.into(),
             }
         }
@@ -110,6 +115,7 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
                     .opensearch_repository
                     .k_nn_text(&embedding, 20)
                     .await?
+                    .into_non_timed_out("product semantic similarity search")?
                     .hits
                     .hits
                     .into_iter()
@@ -191,6 +197,7 @@ mod tests {
                                     id: doc.product_id.to_string(),
                                     score: None,
                                     sort: None,
+                                    matched_queries: vec![],
                                     source: doc,
                                 })
                                 .collect(),
@@ -247,6 +254,7 @@ mod tests {
                                     id: doc.product_id.to_string(),
                                     score: None,
                                     sort: None,
+                                    matched_queries: vec![],
                                     source: doc,
                                 })
                                 .collect(),
@@ -332,6 +340,7 @@ mod tests {
                                     id: doc.product_id.to_string(),
                                     score: None,
                                     sort: None,
+                                    matched_queries: vec![],
                                     source: doc,
                                 })
                                 .collect(),
@@ -435,5 +444,55 @@ mod tests {
                 panic!("Expected 'SemanticSearchProductsError::OpenSearchError' but got '{other}'")
             }
         }
+    }
+
+    #[tokio::test]
+    async fn should_err_when_knn_search_times_out() {
+        let mut dynamodb_repository = MockProductDynamoDbRepository::default();
+        let mut opensearch_repository = MockProductOpenSearchRepository::default();
+
+        dynamodb_repository
+            .expect_get_product_record()
+            .return_once(|_, _| {
+                Box::pin(async move {
+                    let mut record = Faker.fake::<ProductRecord>();
+                    record.embedding = Some(Faker.fake());
+                    Ok(Some(record))
+                })
+            });
+        opensearch_repository
+            .expect_k_nn_text()
+            .return_once(|_, _| {
+                Box::pin(async move {
+                    Ok(SearchResponse {
+                        took: 150,
+                        timed_out: true,
+                        shards: ShardStats {
+                            total: 4,
+                            successful: 3,
+                            skipped: 0,
+                            failed: 1,
+                        },
+                        hits: HitsMetadata {
+                            total: TotalHits {
+                                value: 0,
+                                relation: "eq".to_string(),
+                            },
+                            max_score: None,
+                            hits: vec![],
+                        },
+                    })
+                })
+            });
+
+        let service = SemanticSearchServiceImpl::new(&dynamodb_repository, &opensearch_repository);
+        let actual = service
+            .similar_products(&Faker.fake(), &Faker.fake(), &[Faker.fake()], &Faker.fake())
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            actual,
+            SemanticSearchProductsError::OpenSearchTimedOut(_)
+        ));
     }
 }

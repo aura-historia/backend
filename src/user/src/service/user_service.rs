@@ -14,6 +14,7 @@ use aws_sdk_dynamodb::error::SdkError;
 use common::{
     currency::record::CurrencyRecord,
     language::record::LanguageRecord,
+    opensearch::search_response::OpenSearchTimedOutError,
     pagination::cursor::{Cursor, CursoredResult},
     sort::{Sort, SortOrder},
     stripe_customer_id::StripeCustomerId,
@@ -69,6 +70,9 @@ pub enum UserServiceError {
     #[error("OpenSearchError: {0}")]
     OpenSearchError(#[from] opensearch::Error),
 
+    #[error("OpenSearchTimedOut: {0}")]
+    OpenSearchTimedOut(#[from] OpenSearchTimedOutError),
+
     #[error("User OpenSearch repository not configured")]
     UserOpenSearchRepositoryNotConfigured,
 }
@@ -111,6 +115,7 @@ pub mod api {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
                 UserServiceError::OpenSearchError(opensearch_err) => opensearch_err.into(),
+                UserServiceError::OpenSearchTimedOut(timeout_err) => timeout_err.into(),
                 UserServiceError::UserOpenSearchRepositoryNotConfigured => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
@@ -455,17 +460,8 @@ impl<'a> UserService for UserServiceImpl<'a> {
 
         let search_response = repository
             .search_user_documents(search, &sort, cursor)
-            .await?;
-        if search_response.timed_out {
-            warn!(
-                searchFilter = ?search,
-                sort = ?sort,
-                cursor = ?cursor,
-                took = search_response.took,
-                shardStats = ?search_response.shards,
-                "Search-Request to OpenSearch timed out when querying users."
-            );
-        }
+            .await?
+            .into_non_timed_out("user search")?;
         let cursor = Cursor {
             size: search_response.hits.hits.len() as u64,
             search_after: search_response
@@ -1270,6 +1266,7 @@ mod search_users_tests {
                         score: None,
                         source: user_document,
                         sort: None,
+                        matched_queries: vec![],
                     })
                     .collect(),
             },
@@ -1333,5 +1330,48 @@ mod search_users_tests {
             actual.unwrap_err(),
             UserServiceError::UserOpenSearchRepositoryNotConfigured
         ));
+    }
+
+    #[tokio::test]
+    async fn should_err_when_user_search_times_out() {
+        let dynamodb_repository = MockUserDynamoDbRepository::default();
+        let mut opensearch_repository = MockUserOpenSearchRepository::default();
+        opensearch_repository
+            .expect_search_user_documents()
+            .return_once(|_, _, _| {
+                Box::pin(async move {
+                    Ok(SearchResponse {
+                        took: 180,
+                        timed_out: true,
+                        shards: ShardStats {
+                            total: 4,
+                            successful: 3,
+                            skipped: 0,
+                            failed: 1,
+                        },
+                        hits: HitsMetadata {
+                            total: TotalHits {
+                                value: 0,
+                                relation: "eq".to_string(),
+                            },
+                            max_score: None,
+                            hits: vec![],
+                        },
+                    })
+                })
+            });
+        let service = UserServiceImpl {
+            repository: &dynamodb_repository,
+            cognito_admin_service: None,
+            opensearch_repository: Some(&opensearch_repository),
+            geocoding_service: &geo::service::geocoding_service::NoopGeocodingService,
+        };
+
+        let actual = service
+            .search_users(&UserSearch::default(), &None, &None)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(actual, UserServiceError::OpenSearchTimedOut(_)));
     }
 }
