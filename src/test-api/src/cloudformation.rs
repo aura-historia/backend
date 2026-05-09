@@ -194,8 +194,6 @@ impl IntegrationTestService for Cloudformation {
             cfn.product_pipeline_embed_text_queue_url.clone(),
             cfn.product_pipeline_embed_text_dead_letter_queue_url
                 .clone(),
-            cfn.product_pipeline_classify_queue_url.clone(),
-            cfn.product_pipeline_classify_dead_letter_queue_url.clone(),
         ])
         .await;
         debug!("Drained all SQS queues for test isolation");
