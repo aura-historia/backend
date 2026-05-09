@@ -2614,6 +2614,47 @@ Resources:
       Targets:
         - Id: SearchFilterPercolateProductQ
           Arn: !GetAtt SearchFilterPercolateProductQ.Arn
+  ProductPipelineTranslateDynamoDbProductEventRecordCreatedEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "ddb-product-create-product-pipeline-translate-dev"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - "DOMAIN_CREATED"
+      Targets:
+        - Id: ProductPipelineTranslateQ
+          Arn: !GetAtt ProductPipelineTranslateQ.Arn
+  ProductPipelineEmbedTextDynamoDbProductEventRecordCreatedEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "ddb-product-create-product-pipeline-embed-text-dev"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - "DOMAIN_CREATED"
+      Targets:
+        - Id: ProductPipelineEmbedTextQ
   DynamoDbPutShopRecordEventRule:
     Type: AWS::Events::Rule
     Properties:
