@@ -1,5 +1,5 @@
+use product::data::product_search_data::ProductSearchData;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
-use search_filter::data::search_filter_search_data::SearchFilterSearchData;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -8,7 +8,7 @@ pub struct PostUserSearchFilterData {
     pub name: UserSearchFilterName,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enhanced_search_description: Option<String>,
-    pub search: SearchFilterSearchData,
+    pub search: ProductSearchData,
 }
 
 #[cfg(feature = "test-data")]
@@ -37,8 +37,8 @@ mod tests {
     use common::slug_id::SlugId;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
     use geo::data::continent_data::ContinentData;
+    use product::data::product_search_data::ProductSearchData;
     use product::data::product_state_data::ProductStateData;
-    use search_filter::data::search_filter_search_data::SearchFilterSearchData;
     use serde_json::json;
     use shop::data::shop_type_data::ShopTypeData;
     use std::collections::HashSet;
@@ -93,7 +93,7 @@ mod tests {
         let expected = PostUserSearchFilterData {
             name: "hugos filter for peppino".into(),
             enhanced_search_description: Some("a filter for peppino".into()),
-            search: SearchFilterSearchData {
+            search: ProductSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
                 product_query: Some("Boop".try_into().unwrap()),

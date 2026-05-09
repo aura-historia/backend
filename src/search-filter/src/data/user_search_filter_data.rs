@@ -1,9 +1,9 @@
 use crate::core::{
     user_search_filter::UserSearchFilter, user_search_filter_name::UserSearchFilterName,
 };
-use crate::data::search_filter_search_data::SearchFilterSearchData;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::{resource_state::data::ResourceStateData, user_id::UserId};
+use product::data::product_search_data::ProductSearchData;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -21,7 +21,7 @@ pub struct UserSearchFilterData {
     #[serde(default)]
     pub state: ResourceStateData,
 
-    pub search: SearchFilterSearchData,
+    pub search: ProductSearchData,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -72,10 +72,7 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
-    use crate::data::{
-        search_filter_search_data::SearchFilterSearchData,
-        user_search_filter_data::UserSearchFilterData,
-    };
+    use crate::data::user_search_filter_data::UserSearchFilterData;
     use common::distance::data::GeoDistanceQueryData;
     use common::distance::data::{DistanceData, DistanceUnitData};
     use common::query::range_query::RangeQuery;
@@ -85,6 +82,7 @@ mod tests {
     use common::user_search_filter_id::UserSearchFilterId;
     use common::{currency::data::CurrencyData, language::data::LanguageData, user_id::UserId};
     use geo::data::continent_data::ContinentData;
+    use product::data::product_search_data::ProductSearchData;
     use product::data::product_state_data::ProductStateData;
     use serde_json::json;
     use shop::data::shop_type_data::ShopTypeData;
@@ -102,7 +100,7 @@ mod tests {
             enhanced_search_description: Some("This is a filter for Boop products".into()),
             notifications: true,
             state: ResourceStateData::Active,
-            search: SearchFilterSearchData {
+            search: ProductSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
                 product_query: Some("Boop".try_into().unwrap()),
@@ -267,7 +265,7 @@ mod tests {
             enhanced_search_description: Some("This is a filter for Boop products".into()),
             notifications: true,
             state: ResourceStateData::Active,
-            search: SearchFilterSearchData {
+            search: ProductSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
                 product_query: Some("Boop".try_into().unwrap()),
