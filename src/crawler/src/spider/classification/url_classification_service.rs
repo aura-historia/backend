@@ -1,8 +1,11 @@
 use regex::Regex;
 use std::collections::HashSet;
+use std::time::Instant;
 use tracing::{debug, info, warn};
 
+use crate::logging::llm_metrics;
 use crate::scraper::css_selector::product_schema_service::strip_markdown_json_embedding;
+use common::logging::{LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
 use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -167,16 +170,22 @@ impl UrlClassificationServiceImpl {
 
 #[async_trait::async_trait]
 impl UrlClassificationService for UrlClassificationServiceImpl {
+    #[tracing::instrument(
+        name = "spider_classify_product_url_pattern",
+        skip(self, shop_url, all_urls),
+        fields(shop_url = %shop_url, url_count = all_urls.len())
+    )]
     async fn find_product_url_pattern(
         &self,
         shop_url: &str,
         all_urls: &[String],
     ) -> Result<Option<Regex>, UrlClassificationError> {
-        info!(shop_url = %shop_url, url_count = all_urls.len(), "Analyzing crawled URLs with LLM");
+        info!("Analyzing crawled URLs with LLM");
 
         let prompt = Self::build_prompt(all_urls);
         let messages = vec![ChatMessage::user().content(prompt).build()];
 
+        let started_at = Instant::now();
         let response = match self.llm.chat(&messages).await {
             Ok(r) => r,
             Err(e) => {
@@ -186,6 +195,13 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
                 )));
             }
         };
+        log_llm_invocation(
+            LlmOperation::CrawlerUrlClassification,
+            LlmProvider::Google,
+            LlmModel::Configured,
+            started_at.elapsed(),
+            llm_metrics(response.usage(), Some(all_urls.len())),
+        );
 
         let response_text = response.text().ok_or_else(|| {
             UrlClassificationError::Llm("LLM returned no text response".to_string())
@@ -194,12 +210,11 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
         match Self::parse_pattern_response(&response_text) {
             Ok(Some(pattern)) => match Regex::new(&pattern) {
                 Ok(regex) => {
-                    info!(shop_url = %shop_url, pattern = %pattern, "LLM returned a valid URL pattern");
+                    info!(pattern = %pattern, "LLM returned a valid URL pattern");
                     Ok(Some(regex))
                 }
                 Err(error) => {
                     warn!(
-                        shop_url = %shop_url,
                         pattern = %pattern,
                         error = %error,
                         "LLM returned an invalid regex pattern"
@@ -208,22 +223,24 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
                 }
             },
             Ok(None) => {
-                info!(shop_url = %shop_url, "LLM found no consistent product URL pattern");
+                info!("LLM found no consistent product URL pattern");
                 Ok(None)
             }
             Err(error) => Err(error),
         }
     }
 
+    #[tracing::instrument(
+        name = "spider_filter_product_urls",
+        skip(self, pattern, all_urls),
+        fields(url_count = all_urls.len())
+    )]
     fn filter_product_urls(
         &self,
         pattern: &Regex,
         all_urls: &[String],
     ) -> Result<Vec<CrawledUrl>, UrlClassificationError> {
-        info!(
-            url_count = all_urls.len(),
-            "Applying URL pattern to crawled URLs"
-        );
+        info!("Applying URL pattern to crawled URLs");
 
         let mut matches = Vec::new();
         for url_str in all_urls {

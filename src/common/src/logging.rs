@@ -117,6 +117,10 @@ pub enum LlmOperation {
     ProductEmbedding,
     ProductQueryEmbedding,
     SellerShopDisambiguation,
+    CrawlerUrlClassification,
+    CrawlerProductSchemaGeneration,
+    CrawlerProductSchemaRepair,
+    CrawlerProductStateMapping,
 }
 
 impl LlmOperation {
@@ -126,6 +130,10 @@ impl LlmOperation {
             Self::ProductEmbedding => "PRODUCT_EMBEDDING",
             Self::ProductQueryEmbedding => "PRODUCT_QUERY_EMBEDDING",
             Self::SellerShopDisambiguation => "SELLER_SHOP_DISAMBIGUATION",
+            Self::CrawlerUrlClassification => "CRAWLER_URL_CLASSIFICATION",
+            Self::CrawlerProductSchemaGeneration => "CRAWLER_PRODUCT_SCHEMA_GENERATION",
+            Self::CrawlerProductSchemaRepair => "CRAWLER_PRODUCT_SCHEMA_REPAIR",
+            Self::CrawlerProductStateMapping => "CRAWLER_PRODUCT_STATE_MAPPING",
         }
     }
 }
@@ -293,6 +301,11 @@ pub fn init_logging_with_directives(extra_directives: &[&str]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
+    use std::io;
+    use std::sync::{Arc, Mutex};
+    use tracing::Dispatch;
+    use tracing_subscriber::fmt::writer::MakeWriter;
 
     #[test]
     fn should_use_info_when_no_log_level_for_default_logging() {
@@ -312,5 +325,128 @@ mod tests {
     #[test]
     fn should_convert_duration_to_millis_for_logging() {
         assert_eq!(duration_millis(Duration::from_millis(42)), 42);
+    }
+
+    #[test]
+    fn should_return_crawler_url_classification_name_for_llm_operation() {
+        assert_eq!(
+            LlmOperation::CrawlerUrlClassification.as_str(),
+            "CRAWLER_URL_CLASSIFICATION"
+        );
+    }
+
+    #[test]
+    fn should_return_crawler_product_schema_generation_name_for_llm_operation() {
+        assert_eq!(
+            LlmOperation::CrawlerProductSchemaGeneration.as_str(),
+            "CRAWLER_PRODUCT_SCHEMA_GENERATION"
+        );
+    }
+
+    #[test]
+    fn should_return_crawler_product_schema_repair_name_for_llm_operation() {
+        assert_eq!(
+            LlmOperation::CrawlerProductSchemaRepair.as_str(),
+            "CRAWLER_PRODUCT_SCHEMA_REPAIR"
+        );
+    }
+
+    #[test]
+    fn should_return_crawler_product_state_mapping_name_for_llm_operation() {
+        assert_eq!(
+            LlmOperation::CrawlerProductStateMapping.as_str(),
+            "CRAWLER_PRODUCT_STATE_MAPPING"
+        );
+    }
+
+    #[test]
+    fn should_include_current_span_fields_when_logging_llm_invocation() {
+        #[derive(Clone, Default)]
+        struct SharedWriter {
+            output: Arc<Mutex<Vec<u8>>>,
+        }
+
+        struct GuardedWriter {
+            output: Arc<Mutex<Vec<u8>>>,
+        }
+
+        impl<'a> MakeWriter<'a> for SharedWriter {
+            type Writer = GuardedWriter;
+
+            fn make_writer(&'a self) -> Self::Writer {
+                GuardedWriter {
+                    output: Arc::clone(&self.output),
+                }
+            }
+        }
+
+        impl io::Write for GuardedWriter {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                self.output
+                    .lock()
+                    .expect("log capture mutex poisoned")
+                    .extend_from_slice(buf);
+                Ok(buf.len())
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let writer = SharedWriter::default();
+        let captured = Arc::clone(&writer.output);
+        let subscriber = tracing_subscriber::fmt()
+            .json()
+            .with_current_span(true)
+            .with_ansi(false)
+            .with_writer(writer)
+            .finish();
+
+        let dispatch = Dispatch::new(subscriber);
+        tracing::dispatcher::with_default(&dispatch, || {
+            let span = tracing::info_span!(
+                "crawler_llm",
+                shop_url = "https://example.com",
+                url_count = 3
+            );
+            let _guard = span.enter();
+            log_llm_invocation(
+                LlmOperation::CrawlerUrlClassification,
+                LlmProvider::Google,
+                LlmModel::Configured,
+                Duration::from_millis(42),
+                LlmInvocationMetrics {
+                    batch_size: Some(3),
+                    prompt_tokens: Some(12),
+                    completion_tokens: Some(4),
+                    total_tokens: Some(16),
+                    cached_prompt_tokens: Some(2),
+                    reasoning_tokens: Some(1),
+                    output_dimensions: Some(5),
+                    cache_hit: Some(true),
+                },
+            );
+        });
+
+        let output =
+            String::from_utf8(captured.lock().expect("log capture mutex poisoned").clone())
+                .expect("captured logs must be utf-8");
+        let event: Value = serde_json::from_str(
+            output
+                .lines()
+                .find(|line| !line.trim().is_empty())
+                .expect("expected one log line"),
+        )
+        .expect("log output must be valid json");
+
+        assert_eq!(event["fields"]["eventType"], "LLM_INVOCATION");
+        assert_eq!(
+            event["fields"]["llmOperation"],
+            "CRAWLER_URL_CLASSIFICATION"
+        );
+        assert_eq!(event["fields"]["latencyMs"], 42);
+        assert_eq!(event["span"]["shop_url"], "https://example.com");
+        assert_eq!(event["span"]["url_count"], 3);
     }
 }

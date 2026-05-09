@@ -74,6 +74,7 @@ impl ShopRegistrationService {
         Self { source, repository }
     }
 
+    #[tracing::instrument(name = "shop_registration_sync", skip(self))]
     pub async fn sync(&self) -> Result<usize, ShopSyncError> {
         let shops = self.source.fetch_registered_shops().await?;
 
@@ -92,6 +93,7 @@ impl ShopRegistrationService {
                 error!(
                     shop_id = %shop.shop_id,
                     shop_name = %shop.shop_name,
+                    shop_slug = %shop.shop_slug,
                     error = %e,
                     "Failed to upsert shop during sync"
                 );
@@ -102,6 +104,8 @@ impl ShopRegistrationService {
                 error!(
                     shop_id = %shop.shop_id,
                     shop_name = %shop.shop_name,
+                    shop_slug = %shop.shop_slug,
+                    domains = shop.domains.len(),
                     error = %e,
                     "Failed to sync domains during shop sync"
                 );

@@ -9,6 +9,10 @@ impl ScraperServiceImpl {
     /// generating a schema for the first time.  Always includes `primary_html`
     /// as the first entry.  Best-effort: any fetch failure is logged and
     /// skipped.
+    #[tracing::instrument(
+        skip(self, primary_html),
+        fields(shop_id = %shop_id, url = %url, schema_seed_pages = self.schema_seed_pages)
+    )]
     pub(crate) async fn collect_schema_seed_pages(
         &self,
         shop_id: &ShopId,
@@ -30,8 +34,6 @@ impl ScraperServiceImpl {
             Err(err) => {
                 warn!(
                     error = %err,
-                    shop_id = %shop_id,
-                    url = %url,
                     "Failed to load random schema-seed URLs; falling back to current page only"
                 );
                 return pages;

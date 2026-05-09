@@ -55,7 +55,7 @@ use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
 use llm::builder::{LLMBackend, LLMBuilder};
 use shop::core::shop_type::ShopType;
-use tracing::{error, info};
+use tracing::{Instrument, error, info};
 
 // ---------------------------------------------------------------------------
 // Demo shop source — returns hardcoded shops (no OpenSearch needed)
@@ -109,158 +109,157 @@ async fn main() {
     dotenvy::dotenv().ok();
     init_logging();
 
-    let api_key = match env::var("GEMINI_API_KEY") {
-        Ok(api_key) => api_key,
-        Err(e) => {
-            error!("Missing GEMINI_API_KEY: {e}. Please set it to run the demo.");
+    async {
+        let api_key = match env::var("GEMINI_API_KEY") {
+            Ok(api_key) => api_key,
+            Err(e) => {
+                error!("Missing GEMINI_API_KEY: {e}. Please set it to run the demo.");
+                return;
+            }
+        };
+
+        let model =
+            std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.1-pro-preview".to_string());
+        unsafe {
+            std::env::set_var("GEMINI_MODEL", &model);
+        }
+
+        let config = CrawlerCronConfig {
+            spider_interval: Duration::from_secs(120),
+            scraper_interval: Duration::from_secs(30),
+            spider_batch_size: 5,
+            scraper_batch_size: 10000,
+            spider_concurrency: 5,
+            scraper_concurrency: 5,
+            spider_classify_threshold: 200,
+            scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
+            ..Default::default()
+        };
+
+        let db_url = demo_db_url();
+        if let Err(error) = bootstrap_local_database(DEMO_DB_NAME).await {
+            error!(error = %error, "Failed to bootstrap local Postgres database");
             return;
         }
-    };
 
-    let model =
-        std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.1-pro-preview".to_string());
+        info!("Waiting for Postgres to be ready…");
+        let pool = match connect_with_retry(&config, &db_url).await {
+            Ok(p) => p,
+            Err(e) => {
+                error!(error = %e, "Failed to connect to Postgres after retries");
+                return;
+            }
+        };
 
-    // Build the cron config first so it can drive pool sizing below.
-    let config = CrawlerCronConfig {
-        spider_interval: Duration::from_secs(120), // Demo: retry spider every 2 minutes
-        scraper_interval: Duration::from_secs(30), // Dem
-        spider_batch_size: 5,
-        scraper_batch_size: 10000,
-        spider_concurrency: 5,
-        scraper_concurrency: 5,
-        spider_classify_threshold: 200,
-        scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
-        ..Default::default()
-    };
-
-    // ------------------------------------------------------------------
-    // Database — start docker compose and wait for Postgres to be ready,
-    // then apply any pending migrations.
-    // ------------------------------------------------------------------
-
-    let db_url = demo_db_url();
-    if let Err(error) = bootstrap_local_database(DEMO_DB_NAME).await {
-        error!(error = %error, "Failed to bootstrap local Postgres database");
-        return;
-    }
-
-    info!("Waiting for Postgres to be ready…");
-    let pool = match connect_with_retry(&config, &db_url).await {
-        Ok(p) => p,
-        Err(e) => {
-            error!(error = %e, "Failed to connect to Postgres after retries");
+        if let Err(error) = sqlx::migrate!("./migrations").run(&pool).await {
+            error!(error = %error, "Failed to apply database migrations");
             return;
         }
-    };
+        info!("Database migrations applied successfully");
 
-    if let Err(error) = sqlx::migrate!("./migrations").run(&pool).await {
-        error!(error = %error, "Failed to apply database migrations");
-        return;
-    }
-    info!("Database migrations applied successfully");
+        info!("Wiring crawler dependencies...");
 
-    info!("Wiring crawler dependencies...");
+        let state_llm_builder = LLMBuilder::new()
+            .backend(LLMBackend::Google)
+            .api_key(&api_key)
+            .model(&model);
 
-    let state_llm_builder = LLMBuilder::new()
-        .backend(LLMBackend::Google)
-        .api_key(&api_key)
-        .model(&model);
+        let state_mapping_repo = Box::new(ProductStateMappingRepositoryImpl::new(Box::leak(
+            Box::new(pool.clone()),
+        )));
+        let state_mapping_svc =
+            ProductStateMappingServiceImpl::new(state_llm_builder, state_mapping_repo)
+                .expect("failed to build ProductStateMappingServiceImpl");
+        let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
-    let state_mapping_repo = Box::new(ProductStateMappingRepositoryImpl::new(Box::leak(Box::new(
-        pool.clone(),
-    ))));
-    let state_mapping_svc =
-        ProductStateMappingServiceImpl::new(state_llm_builder, state_mapping_repo)
-            .expect("failed to build ProductStateMappingServiceImpl");
+        let schema_llm_builder = LLMBuilder::new()
+            .backend(LLMBackend::Google)
+            .api_key(&api_key)
+            .model(&model);
 
-    let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
-
-    let schema_llm_builder = LLMBuilder::new()
-        .backend(LLMBackend::Google)
-        .api_key(&api_key)
-        .model(&model);
-
-    let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
-        pool.clone(),
-    ))));
-    let schema_svc = ProductSchemaServiceImpl::new(schema_llm_builder, schema_repo)
-        .expect("failed to build ProductSchemaServiceImpl");
-
-    let scraper_candidates = Box::new(
-        ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
+        let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
             pool.clone(),
-            config.scraper_max_llm_calls_per_shop,
-        ),
-    );
+        ))));
+        let schema_svc = ProductSchemaServiceImpl::new(schema_llm_builder, schema_repo)
+            .expect("failed to build ProductSchemaServiceImpl");
 
-    let fetcher = Box::new(ReqwestHtmlFetcher::new());
-    let scraper_svc = Box::new(ScraperServiceImpl::new_with_schema_seed_pages(
-        fetcher,
-        Box::new(schema_svc),
-        Box::new(normalization_svc),
-        Arc::new(
+        let scraper_candidates = Box::new(
             ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
                 pool.clone(),
                 config.scraper_max_llm_calls_per_shop,
             ),
-        ),
-        3,
-        config.scraper_schema_seed_pages,
-        config.scraper_max_llm_calls_per_shop,
-    ));
+        );
 
-    let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
-    let url_pattern_repo = Box::new(ShopUrlPatternRepositoryImpl::new(pool.clone()));
+        let fetcher = Box::new(ReqwestHtmlFetcher::new());
+        let scraper_svc = Box::new(ScraperServiceImpl::new_with_schema_seed_pages(
+            fetcher,
+            Box::new(schema_svc),
+            Box::new(normalization_svc),
+            Arc::new(
+                ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
+                    pool.clone(),
+                    config.scraper_max_llm_calls_per_shop,
+                ),
+            ),
+            3,
+            config.scraper_schema_seed_pages,
+            config.scraper_max_llm_calls_per_shop,
+        ));
 
-    let class_llm_builder = LLMBuilder::new()
-        .backend(LLMBackend::Google)
-        .api_key(&api_key)
-        .model(&model);
-    let class_svc = Box::new(UrlClassificationServiceImpl::new(class_llm_builder).unwrap());
+        let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
+        let url_pattern_repo = Box::new(ShopUrlPatternRepositoryImpl::new(pool.clone()));
 
-    let pattern_svc = Box::new(UrlPatternServiceImpl::new(
-        Arc::new(*url_pattern_repo),
-        class_svc,
-    ));
+        let class_llm_builder = LLMBuilder::new()
+            .backend(LLMBackend::Google)
+            .api_key(&api_key)
+            .model(&model);
+        let class_svc = Box::new(UrlClassificationServiceImpl::new(class_llm_builder).unwrap());
+        let pattern_svc = Box::new(UrlPatternServiceImpl::new(
+            Arc::new(*url_pattern_repo),
+            class_svc,
+        ));
 
-    let spider_config = SpiderServiceConfig {
-        db_batch_size: 40,
-        ..Default::default()
-    };
-    let website_spider = Box::new(SpiderImpl::default());
+        let spider_svc = Box::new(SpiderServiceImpl::new(
+            SpiderServiceConfig {
+                db_batch_size: 40,
+                ..Default::default()
+            },
+            Box::new(SpiderImpl::default()),
+            pattern_svc,
+            url_metadata_repo.clone(),
+        ));
+        let spider_candidates = Box::new(SpiderCandidateServiceImpl::new(pool.clone()));
 
-    let spider_svc = Box::new(SpiderServiceImpl::new(
-        spider_config,
-        website_spider,
-        pattern_svc,
-        url_metadata_repo.clone(),
-    ));
+        let shop_source = Box::new(DemoShopSource {
+            shops: demo_shops(),
+        });
+        let shop_repo = Box::new(ShopRegistrationRepositoryImpl::new(pool.clone()));
+        let shop_registration = ShopRegistrationService::new(shop_source, shop_repo);
+        let product_push = Box::new(FileProductPushService::new("scraped_products.json"));
 
-    let spider_candidates = Box::new(SpiderCandidateServiceImpl::new(pool.clone()));
+        let cron_job = CrawlerCronJob::new(
+            config,
+            Arc::new(LocalLockManager::new()),
+            spider_candidates,
+            spider_svc,
+            scraper_candidates,
+            scraper_svc,
+            shop_registration,
+            product_push,
+        );
 
-    // Wire shop registration (demo: hardcoded shops, synced into DB on startup)
-    let shop_source = Box::new(DemoShopSource {
-        shops: demo_shops(),
-    });
-    let shop_repo = Box::new(ShopRegistrationRepositoryImpl::new(pool.clone()));
-    let shop_registration = ShopRegistrationService::new(shop_source, shop_repo);
-
-    // Wire product push — demo writes to a local JSON file instead of DynamoDB
-    let product_push = Box::new(FileProductPushService::new("scraped_products.json"));
-
-    let cron_job = CrawlerCronJob::new(
-        config,
-        Arc::new(LocalLockManager::new()),
-        spider_candidates,
-        spider_svc,
-        scraper_candidates,
-        scraper_svc,
-        shop_registration,
-        product_push,
-    );
-
-    info!("Crawler demo is fully initialized. Starting background tasks. Press Ctrl+C to stop.");
-    cron_job.run_loop().await;
+        info!(
+            shop_count = demo_shops().len(),
+            "Crawler demo is fully initialized. Starting background tasks. Press Ctrl+C to stop."
+        );
+        cron_job.run_loop().await;
+    }
+    .instrument(tracing::info_span!(
+        "crawler_demo",
+        entrypoint = "demo",
+        database = DEMO_DB_NAME
+    ))
+    .await;
 }
 
 // ---------------------------------------------------------------------------
@@ -279,6 +278,7 @@ async fn main() {
 /// Attempts to connect to Postgres, retrying with exponential back-off.
 /// This handles the window between `docker compose up -d` returning and
 /// Postgres actually accepting connections.
+#[tracing::instrument(skip(config), fields(db_url = %db_url))]
 async fn connect_with_retry(
     config: &CrawlerCronConfig,
     db_url: &str,

@@ -79,7 +79,7 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_uses
     schema_svc
         .expect_save_product_schemas()
         .once()
-        .returning(move |_, _, _| {
+        .returning(move |_, _| {
             let s = schema_for_save.clone();
             Box::pin(async move { Ok(s) })
         });
@@ -148,7 +148,7 @@ async fn should_return_llm_budget_exceeded_when_normalization_llm_call_exceeds_c
     schema_svc
         .expect_save_product_schemas()
         .once()
-        .returning(move |_, _, _| {
+        .returning(move |_, _| {
             let s = schema_for_save2.clone();
             Box::pin(async move { Ok(s) })
         });

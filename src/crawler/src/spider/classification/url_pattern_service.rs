@@ -88,6 +88,7 @@ impl UrlPatternServiceImpl {
 
 #[async_trait::async_trait]
 impl UrlPatternService for UrlPatternServiceImpl {
+    #[tracing::instrument(skip(self), fields(shop_id = %shop_id))]
     async fn load_pattern_for_shop(
         &self,
         shop_id: &ShopId,
@@ -124,6 +125,10 @@ impl UrlPatternService for UrlPatternServiceImpl {
         Ok(())
     }
 
+    #[tracing::instrument(
+        skip(self, urls),
+        fields(shop_id = %shop_id, shop_url = %shop_url, url_count = urls.len())
+    )]
     async fn classify_and_save(
         &self,
         shop_id: &ShopId,
@@ -149,6 +154,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
         Ok(pattern)
     }
 
+    #[tracing::instrument(skip(self), fields(shop_id = %shop_id, shop_url = %shop_url))]
     async fn mark_as_crawled(
         &self,
         shop_id: &ShopId,

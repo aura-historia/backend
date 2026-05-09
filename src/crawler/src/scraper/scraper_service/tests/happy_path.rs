@@ -29,7 +29,7 @@ async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly
     schema_svc
         .expect_save_product_schemas()
         .once()
-        .returning(move |_, _, _| {
+        .returning(move |_, _| {
             let s = schema_for_save.clone();
             Box::pin(async move { Ok(s) })
         });
@@ -96,7 +96,7 @@ async fn should_return_normalized_product_with_all_fields_when_normalization_pro
     schema_svc
         .expect_save_product_schemas()
         .once()
-        .returning(move |_, _, _| {
+        .returning(move |_, _| {
             let s = schema_for_save.clone();
             Box::pin(async move { Ok(s) })
         });

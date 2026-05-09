@@ -11,16 +11,16 @@ impl ScraperServiceImpl {
     ///
     /// The dispatcher guarantees at most one in-flight scrape per domain at a
     /// time, so no additional locking is required here.
+    #[tracing::instrument(skip(self, html), fields(shop_id = %shop_id, url = %url))]
     pub(crate) async fn obtain_schemas(
         &self,
         shop_id: &ShopId,
-        domain: &str,
         url: &Url,
         html: &str,
     ) -> Result<ShopsProductSchema, ScraperError> {
-        debug!(domain, url = %url, "Obtaining product CSS selector schemas");
+        debug!("Obtaining product CSS selector schemas");
         if let Some(existing) = self.schema_service.find_product_schema(shop_id).await? {
-            debug!(domain, url = %url, "Schema found in DB");
+            debug!("Schema found in DB");
             Ok(existing)
         } else {
             let seed_pages = self.collect_schema_seed_pages(shop_id, url, html).await;
@@ -31,7 +31,7 @@ impl ScraperServiceImpl {
                 .await?;
             Ok(self
                 .schema_service
-                .save_product_schemas(shop_id, domain, schemas)
+                .save_product_schemas(shop_id, schemas)
                 .await?)
         }
     }

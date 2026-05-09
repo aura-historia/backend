@@ -43,7 +43,7 @@ use crawler::spider::service::{SpiderService, SpiderServiceConfig, SpiderService
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use thiserror::Error;
-use tracing::{error, info};
+use tracing::{Instrument, error, info};
 
 #[derive(Debug, Error)]
 enum DemoError {
@@ -80,92 +80,104 @@ async fn main() {
     init_logging();
 
     let shop_url = read_shop_url();
-    let api_key = match read_api_key() {
-        Ok(api_key) => api_key,
-        Err(error) => {
-            error!(error = %error, "Failed to load configuration");
-            return;
+
+    async {
+        let api_key = match read_api_key() {
+            Ok(api_key) => api_key,
+            Err(error) => {
+                error!(error = %error, "Failed to load configuration");
+                return;
+            }
+        };
+
+        let pool = match connect_and_migrate().await {
+            Ok(p) => p,
+            Err(error) => {
+                error!(error = %error, "Failed to connect to Postgres");
+                return;
+            }
+        };
+
+        let pattern_repository = build_pattern_repository(pool.clone());
+        let url_repository = build_url_repository(pool.clone());
+
+        let model = env::var("GEMINI_MODEL")
+            .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
+        unsafe {
+            env::set_var("GEMINI_MODEL", &model);
         }
-    };
+        let llm_builder = llm::builder::LLMBuilder::new()
+            .backend(llm::builder::LLMBackend::Google)
+            .api_key(&api_key)
+            .model(&model);
+        let classification_service = Box::new(
+            UrlClassificationServiceImpl::new(llm_builder)
+                .expect("Failed to initialize UrlClassificationService"),
+        );
+        let pattern_service = Box::new(UrlPatternServiceImpl::new(
+            pattern_repository.clone(),
+            classification_service,
+        ));
 
-    // Connect to local Postgres and apply pending migrations.
-    let pool = match connect_and_migrate().await {
-        Ok(p) => p,
-        Err(error) => {
-            error!(error = %error, "Failed to connect to Postgres");
-            return;
-        }
-    };
+        let spider = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(SpiderImpl::default()),
+            pattern_service,
+            url_repository,
+        );
 
-    let pattern_repository = build_pattern_repository(pool.clone());
-    let url_repository = build_url_repository(pool.clone());
+        let shop_id: ShopId = uuid::Uuid::new_v4().into();
+        let shop_url_parsed = url::Url::parse(&shop_url)
+            .unwrap_or_else(|_| url::Url::parse("https://demo.invalid").unwrap());
+        let demo_domain = shop_url_parsed
+            .host_str()
+            .unwrap_or("demo.invalid")
+            .to_string();
 
-    let crawler = Box::new(SpiderImpl::default());
-    let model =
-        env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
-    let llm_builder = llm::builder::LLMBuilder::new()
-        .backend(llm::builder::LLMBackend::Google)
-        .api_key(&api_key)
-        .model(&model);
-    let classification_service = Box::new(
-        UrlClassificationServiceImpl::new(llm_builder)
-            .expect("Failed to initialize UrlClassificationService"),
-    );
-    let pattern_service = Box::new(UrlPatternServiceImpl::new(
-        pattern_repository.clone(),
-        classification_service,
-    ));
+        let demo_domain_id = match insert_demo_shop(&pool, &shop_id, &demo_domain).await {
+            Ok(id) => id,
+            Err(error) => {
+                error!(error = %error, "Failed to insert demo shop rows into DB");
+                return;
+            }
+        };
 
-    let spider = SpiderServiceImpl::new(
-        SpiderServiceConfig::default(),
-        crawler,
-        pattern_service,
-        url_repository,
-    );
-
-    let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_url_parsed = url::Url::parse(&shop_url)
-        .unwrap_or_else(|_| url::Url::parse("https://demo.invalid").unwrap());
-    let demo_domain = shop_url_parsed
-        .host_str()
-        .unwrap_or("demo.invalid")
-        .to_string();
-
-    let demo_domain_id = match insert_demo_shop(&pool, &shop_id, &demo_domain).await {
-        Ok(id) => id,
-        Err(error) => {
-            error!(error = %error, "Failed to insert demo shop rows into DB");
-            return;
-        }
-    };
-
-    match spider
-        .run(
-            &shop_id,
-            &demo_domain_id,
-            &shop_url,
-            DEFAULT_CLASSIFY_THRESHOLD,
-        )
-        .await
-    {
-        Ok(result) => {
-            info!(
-                linkCount = result.total_links,
-                productCount = result.product_urls_count,
-                "Spider run finished successfully"
-            );
-            if let Err(error) = write_output(&result) {
-                error!(error = %error, "Failed to write demo output file");
-            } else {
-                info!("Output written to 'spider_output.json'");
+        match spider
+            .run(
+                &shop_id,
+                &demo_domain_id,
+                &shop_url,
+                DEFAULT_CLASSIFY_THRESHOLD,
+            )
+            .await
+        {
+            Ok(result) => {
+                info!(
+                    linkCount = result.total_links,
+                    productCount = result.product_urls_count,
+                    "Spider run finished successfully"
+                );
+                if let Err(error) = write_output(&result) {
+                    error!(error = %error, "Failed to write demo output file");
+                } else {
+                    info!("Output written to 'spider_output.json'");
+                }
+            }
+            Err(error) => {
+                error!(error = %error, "Spider run failed");
             }
         }
-        Err(error) => {
-            error!(error = %error, "Spider run failed");
-        }
     }
+    .instrument(tracing::info_span!(
+        "crawler_spider_demo",
+        entrypoint = "demo-spider",
+        shop_url = %shop_url,
+        classify_threshold = DEFAULT_CLASSIFY_THRESHOLD
+    ))
+    .await;
 }
 
+#[tracing::instrument]
 fn read_shop_url() -> String {
     let raw_url = env::args()
         .nth(1)
@@ -174,19 +186,23 @@ fn read_shop_url() -> String {
     ensure_scheme(&raw_url)
 }
 
+#[tracing::instrument]
 fn read_api_key() -> Result<String, DemoError> {
     Ok(env::var("GEMINI_API_KEY")?)
 }
 
+#[tracing::instrument(skip(pool))]
 fn build_pattern_repository(pool: PgPool) -> Arc<ShopUrlPatternRepositoryImpl> {
     Arc::new(ShopUrlPatternRepositoryImpl::new(pool))
 }
 
+#[tracing::instrument(skip(pool))]
 fn build_url_repository(pool: PgPool) -> Arc<UrlMetadataRepositoryImpl> {
     Arc::new(UrlMetadataRepositoryImpl::new(pool))
 }
 
 /// Connects to local Postgres and applies pending migrations.
+#[tracing::instrument]
 async fn connect_and_migrate() -> Result<PgPool, DemoError> {
     bootstrap_local_database(DEMO_SPIDER_DB_NAME)
         .await
@@ -217,6 +233,7 @@ async fn connect_and_migrate() -> Result<PgPool, DemoError> {
 ///
 /// Uses `ON CONFLICT DO NOTHING` so the function is idempotent if called multiple times
 /// with the same `shop_id` / `shop_domain`.
+#[tracing::instrument(skip(pool), fields(shop_id = %shop_id, shop_domain = %shop_domain))]
 async fn insert_demo_shop(
     pool: &PgPool,
     shop_id: &ShopId,
@@ -250,6 +267,7 @@ async fn insert_demo_shop(
     Ok(domain_id)
 }
 
+#[tracing::instrument(skip(url), fields(raw_url = %url))]
 fn ensure_scheme(url: &str) -> String {
     let trimmed = url.trim();
 
@@ -274,6 +292,7 @@ fn init_logging() {
         .init();
 }
 
+#[tracing::instrument(skip(result), fields(total_links = result.total_links, product_urls_count = result.product_urls_count))]
 fn write_output(result: &SpiderRunResult) -> Result<(), std::io::Error> {
     let file = File::create("spider_output.json")?;
     let writer = BufWriter::new(file);

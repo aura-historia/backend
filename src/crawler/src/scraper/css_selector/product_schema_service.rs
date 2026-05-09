@@ -1,12 +1,15 @@
+use crate::logging::llm_metrics;
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, ShopsProductSchema,
 };
 use crate::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepository;
+use common::logging::{LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
 use common::shop_id::ShopId;
 use kuchiki::traits::*;
 use kuchiki::{NodeRef, parse_html};
 use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
 use schemars::schema_for;
+use std::time::Instant;
 use time::OffsetDateTime;
 use tracing::{debug, info};
 
@@ -43,7 +46,6 @@ pub trait ProductSchemaService {
     /// dynamically expand the schema set without full regeneration.
     async fn append_single_schema(
         &self,
-        _domain: &str,
         html: &str,
         failed_schema: Option<&ProductCssSelectorSchema>,
         last_error: Option<&ApplySchemaError>,
@@ -57,21 +59,18 @@ pub trait ProductSchemaService {
     async fn save_product_schema(
         &self,
         shop_id: &ShopId,
-        _domain: &str,
         product_schema: ProductCssSelectorSchema,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
 
     async fn save_product_schemas(
         &self,
         shop_id: &ShopId,
-        _domain: &str,
         product_schemas: Vec<ProductCssSelectorSchema>,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
 
     async fn get_product_schema(
         &self,
         shop_id: &ShopId,
-        _domain: &str,
         html_pages: &[String],
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
 }
@@ -134,6 +133,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         })
     }
 
+    #[tracing::instrument(skip(self, html_pages), fields(html_pages = html_pages.len()))]
     async fn create_product_schemas(
         &self,
         html_pages: &[String],
@@ -142,7 +142,16 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
 
-        let res = self.llm.chat(&messages).await?.text().ok_or_else(|| {
+        let started_at = Instant::now();
+        let response = self.llm.chat(&messages).await?;
+        log_llm_invocation(
+            LlmOperation::CrawlerProductSchemaGeneration,
+            LlmProvider::Google,
+            LlmModel::Configured,
+            started_at.elapsed(),
+            llm_metrics(response.usage(), Some(html_pages.len())),
+        );
+        let res = response.text().ok_or_else(|| {
             ProductSchemaServiceError::NoTextResponse("Expected text response".to_string())
         })?;
 
@@ -162,9 +171,12 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         Ok(schemas)
     }
 
+    #[tracing::instrument(
+        name = "scraper_append_single_schema",
+        skip(self, html, failed_schema, last_error)
+    )]
     async fn append_single_schema(
         &self,
-        _domain: &str,
         html: &str,
         failed_schema: Option<&ProductCssSelectorSchema>,
         last_error: Option<&ApplySchemaError>,
@@ -174,7 +186,16 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
 
-        let res = self.llm.chat(&messages).await?.text().ok_or_else(|| {
+        let started_at = Instant::now();
+        let response = self.llm.chat(&messages).await?;
+        log_llm_invocation(
+            LlmOperation::CrawlerProductSchemaRepair,
+            LlmProvider::Google,
+            LlmModel::Configured,
+            started_at.elapsed(),
+            llm_metrics(response.usage(), Some(1)),
+        );
+        let res = response.text().ok_or_else(|| {
             ProductSchemaServiceError::NoTextResponse("Expected text response".to_string())
         })?;
 
@@ -211,17 +232,20 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
     async fn save_product_schema(
         &self,
         shop_id: &ShopId,
-        domain: &str,
         product_schema: ProductCssSelectorSchema,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
-        self.save_product_schemas(shop_id, domain, vec![product_schema])
+        self.save_product_schemas(shop_id, vec![product_schema])
             .await
     }
 
+    #[tracing::instrument(
+        name = "scraper_save_product_schemas",
+        skip(self, product_schemas),
+        fields(shop_id = %shop_id, schema_count = product_schemas.len())
+    )]
     async fn save_product_schemas(
         &self,
         shop_id: &ShopId,
-        domain: &str,
         product_schemas: Vec<ProductCssSelectorSchema>,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
         if product_schemas.is_empty() {
@@ -234,14 +258,14 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
 
         match existing {
             Some(_) => {
-                info!(domain = %domain, "Updating existing product schema");
+                info!("Updating existing product schema");
                 self.repository
                     .update_product_schema(shop_id, &product_schemas)
                     .await
                     .map_err(ProductSchemaServiceError::DatabaseError)
             }
             None => {
-                info!(domain = %domain, "Inserting new product schema");
+                info!("Inserting new product schema");
                 let now = OffsetDateTime::now_utc();
                 let schema = ShopsProductSchema {
                     shop_id: *shop_id,
@@ -257,21 +281,23 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         }
     }
 
+    #[tracing::instrument(
+        skip(self, html_pages),
+        fields(shop_id = %shop_id, html_pages = html_pages.len())
+    )]
     async fn get_product_schema(
         &self,
         shop_id: &ShopId,
-        domain: &str,
         html_pages: &[String],
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
         if let Some(existing) = self.find_product_schema(shop_id).await? {
-            debug!(domain = %domain, "Found existing product schema");
+            debug!("Found existing product schema");
             return Ok(existing);
         }
 
-        info!(domain = %domain, "No product schema found for shop, creating via LLM");
+        info!("No product schema found for shop, creating via LLM");
         let product_schemas = self.create_product_schemas(html_pages).await?;
-        self.save_product_schemas(shop_id, domain, product_schemas)
-            .await
+        self.save_product_schemas(shop_id, product_schemas).await
     }
 }
 
@@ -572,7 +598,7 @@ mod tests {
         };
 
         let result = service
-            .save_product_schema(&shop_id, "example.com", css_schema)
+            .save_product_schema(&shop_id, css_schema)
             .await
             .unwrap();
         assert_eq!(result.shop_id, expected.shop_id);
@@ -603,7 +629,7 @@ mod tests {
         };
 
         let result = service
-            .save_product_schema(&shop_id, "example.com", css_schema)
+            .save_product_schema(&shop_id, css_schema)
             .await
             .unwrap();
         assert_eq!(result.shop_id, updated.shop_id);
@@ -624,9 +650,7 @@ mod tests {
             repository: Box::new(repository),
         };
 
-        let result = service
-            .save_product_schema(&shop_id, "example.com", css_schema)
-            .await;
+        let result = service.save_product_schema(&shop_id, css_schema).await;
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
@@ -652,9 +676,7 @@ mod tests {
             repository: Box::new(repository),
         };
 
-        let result = service
-            .save_product_schema(&shop_id, "example.com", css_schema)
-            .await;
+        let result = service.save_product_schema(&shop_id, css_schema).await;
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
@@ -687,7 +709,7 @@ mod tests {
 
         let html_pages = vec!["<html></html>".to_string()];
         let result = service
-            .get_product_schema(&shop_id, "example.com", &html_pages)
+            .get_product_schema(&shop_id, &html_pages)
             .await
             .unwrap();
         assert_eq!(result.shop_id, existing.shop_id);
@@ -726,7 +748,7 @@ mod tests {
 
         let html_pages = vec!["<html></html>".to_string()];
         let result = service
-            .get_product_schema(&shop_id, "example.com", &html_pages)
+            .get_product_schema(&shop_id, &html_pages)
             .await
             .unwrap();
         assert_eq!(result.shop_id, saved.shop_id);
@@ -747,9 +769,7 @@ mod tests {
         };
 
         let html_pages = vec!["<html></html>".to_string()];
-        let result = service
-            .get_product_schema(&shop_id, "example.com", &html_pages)
-            .await;
+        let result = service.get_product_schema(&shop_id, &html_pages).await;
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),

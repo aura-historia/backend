@@ -8,6 +8,7 @@ common = { workspace = true }
 product = { workspace = true, features = ["dynamodb", "service", "data"] }
 shop = { workspace = true, features = ["opensearch", "service"] }
 aws-config = { workspace = true, features = ["credentials-login"] }
+aws-sdk-cloudwatchlogs = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
 opensearch = { workspace = true }
 testcontainers = { workspace = true }
@@ -18,6 +19,7 @@ serde_json = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+tracing-cloudwatch = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 schemars = { workspace = true }
 async-trait = { workspace = true }

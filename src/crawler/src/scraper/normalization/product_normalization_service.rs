@@ -74,6 +74,7 @@ impl ProductNormalizationServiceImpl {
 
 #[async_trait::async_trait]
 impl ProductNormalizationService for ProductNormalizationServiceImpl {
+    #[tracing::instrument(skip(self, raw), fields(url = %url))]
     async fn normalize(
         &self,
         raw: RawExtractedProduct,
@@ -81,7 +82,6 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
         default_currency: Option<Currency>,
     ) -> Result<(NormalizedProduct, u32), NormalizationError> {
         debug!(
-            url = %url,
             shops_product_id = %raw.shops_product_id,
             title = %raw.title,
             state = %raw.state,
@@ -118,7 +118,6 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
         let description = normalize_description(raw.description)?;
 
         debug!(
-            url = %url,
             default_currency = ?default_currency,
             "Using schema default_currency as fallback for price normalization"
         );

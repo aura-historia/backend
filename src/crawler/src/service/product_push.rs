@@ -62,6 +62,11 @@ impl ProductPushServiceImpl {
 
 #[async_trait]
 impl ProductPushService for ProductPushServiceImpl {
+    #[tracing::instrument(
+        name = "product_push_batch",
+        skip(self, commands),
+        fields(total = commands.len())
+    )]
     async fn push(&self, commands: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand> {
         let count = commands.len();
         let failed = self.command_service.upsert(commands.clone()).await;
@@ -200,6 +205,11 @@ impl From<&UpsertProductCommand> for UpsertCommandSnapshot {
 
 #[async_trait]
 impl ProductPushService for FileProductPushService {
+    #[tracing::instrument(
+        name = "file_product_push_batch",
+        skip(self, commands),
+        fields(total = commands.len())
+    )]
     async fn push(&self, commands: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand> {
         if commands.is_empty() {
             return commands;
@@ -223,7 +233,11 @@ impl ProductPushService for FileProductPushService {
         match serde_json::to_string_pretty(&existing) {
             Ok(json) => {
                 if let Err(e) = std::fs::write(&self.output_path, json) {
-                    error!(error = %e, path = %self.output_path.display(), "Failed to write scraped_products.json");
+                    error!(
+                        error = %e,
+                        path = %self.output_path.display(),
+                        "Failed to write scraped_products.json"
+                    );
                 } else {
                     debug!(
                         count,
@@ -259,6 +273,7 @@ pub fn normalize_to_upsert(
             warn!(
                 shop_id = %candidate.shop_id,
                 shop_type = ?candidate.shop_type,
+                url = %candidate.url,
                 "Skipping product push for marketplace/auction-platform shop — seller resolution not yet implemented"
             );
             return None;

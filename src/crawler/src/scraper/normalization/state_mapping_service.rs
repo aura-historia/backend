@@ -1,5 +1,7 @@
-﻿use crate::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
+use crate::logging::llm_metrics;
+use crate::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
 use crate::scraper::normalization::state_mapping_repository::ProductStateMappingRepository;
+use common::logging::{LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
 use common::product_state::domain::ProductState;
 use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
 use product::dynamodb::product_state_record::ProductStateRecord;
@@ -225,6 +227,7 @@ pub(crate) fn parse_llm_response(response: &str) -> Option<LlmMappingResponse> {
 impl ProductStateMappingService for ProductStateMappingServiceImpl {
     // ── create_state_mapping ─────────────────────────────────────────────
 
+    #[tracing::instrument(skip(self), fields(raw = %raw))]
     async fn create_state_mapping(
         &self,
         raw: &str,
@@ -238,14 +241,22 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
         );
         let message = ChatMessage::user().content(instruction).build();
 
-        let res = self.llm.chat(&[message]).await?.text().ok_or_else(|| {
+        let started_at = std::time::Instant::now();
+        let response = self.llm.chat(&[message]).await?;
+        log_llm_invocation(
+            LlmOperation::CrawlerProductStateMapping,
+            LlmProvider::Google,
+            LlmModel::Configured,
+            started_at.elapsed(),
+            llm_metrics(response.usage(), Some(1)),
+        );
+        let res = response.text().ok_or_else(|| {
             StateMappingServiceError::NoTextResponse("Expected text response".to_string())
         })?;
 
         let parsed = parse_llm_response(&res)
             .ok_or_else(|| StateMappingServiceError::UnparsableResponse(res.clone()))?;
         debug!(
-            raw = %key,
             llm_response = %res,
             mapping_type = ?parsed,
             "LLM state mapping response parsed successfully"
@@ -287,6 +298,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
     // ── save_state_mapping ───────────────────────────────────────────────
 
+    #[tracing::instrument(skip(self), fields(raw = %raw, mapping_type = ?mapping_type))]
     async fn save_state_mapping(
         &self,
         raw: &str,
@@ -300,14 +312,14 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
         match existing {
             Some(_) => {
-                debug!(raw = %key, "Updating existing state mapping...");
+                debug!("Updating existing state mapping...");
                 self.repository
                     .update_mapping(&key, &normalized_record, &mapping_type)
                     .await
                     .map_err(StateMappingServiceError::DatabaseError)
             }
             None => {
-                debug!(raw = %key, "Inserting new state mapping...");
+                debug!("Inserting new state mapping...");
                 let now = OffsetDateTime::now_utc();
                 let record = ProductStateMappingRecord {
                     raw: key,
@@ -326,6 +338,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
     // ── get_state_mapping ────────────────────────────────────────────────
 
+    #[tracing::instrument(skip(self), fields(raw = %raw))]
     async fn get_state_mapping(
         &self,
         raw: &str,
@@ -349,7 +362,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
         // ── Step 1: exact DB lookup ──────────────────────────────────────
         if let Some(existing) = self.repository.find_mapping(&key).await? {
-            debug!(raw = %key, "Found exact state mapping in DB.");
+            debug!("Found exact state mapping in DB.");
             return Ok((existing, false));
         }
 
@@ -361,11 +374,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
             // not break all lookups.
             match Regex::new(&mapping.raw) {
                 Ok(re) if re.is_match(&key) => {
-                    debug!(
-                        raw = %key,
-                        pattern = %mapping.raw,
-                        "Matched state via DB regex pattern."
-                    );
+                    debug!(pattern = %mapping.raw, "Matched state via DB regex pattern.");
                     return Ok((mapping.clone(), false));
                 }
                 Ok(_) => {}

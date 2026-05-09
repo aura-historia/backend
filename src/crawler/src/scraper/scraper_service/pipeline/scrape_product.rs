@@ -13,16 +13,18 @@ use tracing::{debug, warn};
 use url::Url;
 
 impl ScraperServiceImpl {
+    #[tracing::instrument(skip(self), fields(shop_id = %shop_id, url = %url))]
     pub(crate) async fn mark_product_removed_best_effort(&self, shop_id: &ShopId, url: &Url) {
         if let Err(err) = self
             .candidate_service
             .set_state(shop_id, url, UrlState::Removed)
             .await
         {
-            warn!(error = %err, url = %url, "Failed to mark product as REMOVED");
+            warn!(error = %err, "Failed to mark product as REMOVED");
         }
     }
 
+    #[tracing::instrument(skip(self), fields(shop_id = %shop_id, url = %url, state = %state))]
     pub(crate) async fn persist_scraped_state_best_effort(
         &self,
         shop_id: &ShopId,
@@ -30,18 +32,14 @@ impl ScraperServiceImpl {
         state: UrlState,
     ) {
         if let Err(err) = self.candidate_service.set_state(shop_id, url, state).await {
-            warn!(
-                error = %err,
-                url = %url,
-                state = %state,
-                "Failed to persist scraped URL state"
-            );
+            warn!(error = %err, "Failed to persist scraped URL state");
         }
     }
 }
 
 #[async_trait::async_trait]
 impl ScraperService for ScraperServiceImpl {
+    #[tracing::instrument(skip(self, last_scraped_hash), fields(shop_id = %shop_id, url = %url))]
     async fn scrape(
         &self,
         shop_id: &ShopId,
@@ -53,7 +51,7 @@ impl ScraperService for ScraperServiceImpl {
             .ok_or_else(|| ScraperError::NoHost { url: url.clone() })?;
 
         // 1. Fetch HTML --------------------------------------------------
-        debug!(domain, url = %url, "Fetching product page HTML");
+        debug!(domain, "Fetching product page HTML");
         let html = match self.html_fetcher.fetch(url).await {
             Ok(html) => html,
             Err(FetchError::Network {
@@ -79,7 +77,7 @@ impl ScraperService for ScraperServiceImpl {
         let current_hash = hash_main_fragment(&html).unwrap_or_else(|| hash_html(&html));
 
         if has_main && last_scraped_hash == Some(current_hash.as_str()) {
-            debug!(url = %url, "Hash matches last scraped hash, skipping extraction.");
+            debug!("Hash matches last scraped hash, skipping extraction.");
             if let Err(e) = self
                 .candidate_service
                 .touch_scraped(shop_id, url, &current_hash)
@@ -91,7 +89,7 @@ impl ScraperService for ScraperServiceImpl {
         }
 
         // 2. Obtain schemas (from DB or freshly created by LLM) -----------
-        let shops_product_schema = self.obtain_schemas(shop_id, domain, url, &html).await?;
+        let shops_product_schema = self.obtain_schemas(shop_id, url, &html).await?;
 
         // 3. Apply one schema that fits this page -------------------------
         // `existing_schemas_for_norm` tracks the full persisted schema list as
@@ -109,14 +107,12 @@ impl ScraperService for ScraperServiceImpl {
                 Err(err) => {
                     warn!(
                         domain,
-                        url = %url,
                         schemas = shops_product_schema.product_schemas.len(),
                         error = %err,
                         "No cached schema applied; generating new schema candidates"
                     );
                     self.append_and_reapply_with_retry(
                         shop_id,
-                        domain,
                         url,
                         &html,
                         &shops_product_schema.product_schemas,
@@ -128,7 +124,6 @@ impl ScraperService for ScraperServiceImpl {
         {
             debug!(
                 domain,
-                url = %url,
                 shops_product_id = %raw.shops_product_id,
                 title = %raw.title,
                 state = %raw.state,
@@ -144,7 +139,7 @@ impl ScraperService for ScraperServiceImpl {
         }
 
         // 4. Normalize --------------------------------------------------
-        debug!(domain, url = %url, "Normalizing extracted product data");
+        debug!(domain, "Normalizing extracted product data");
         let final_product = self
             .normalize_with_schema_fix_retry(
                 NormalizationRetryContext {
@@ -172,7 +167,6 @@ impl ScraperService for ScraperServiceImpl {
         debug!(
             domain,
             shops_product_id = %final_product.shops_product_id,
-            url = %url,
             "Scraping complete"
         );
         Ok(Some(ScrapedProduct {

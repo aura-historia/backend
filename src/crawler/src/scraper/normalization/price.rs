@@ -138,6 +138,13 @@ pub(super) fn normalize_price_field(
     make_currency_err: impl Fn(String) -> NormalizationError,
     make_parse_err: impl Fn(String) -> NormalizationError,
 ) -> Result<Option<Price>, NormalizationError> {
+    let _span = tracing::info_span!(
+        "normalize_price_field",
+        url = %context_url,
+        field = field_name
+    )
+    .entered();
+
     let Some(s) = raw else { return Ok(None) };
 
     let trimmed = s.trim().to_owned();
@@ -147,8 +154,6 @@ pub(super) fn normalize_price_field(
 
     if is_price_on_request_marker(&trimmed) {
         debug!(
-            url = %context_url,
-            field = field_name,
             raw_price = %trimmed,
             "Price text indicates 'price on request'; defaulting normalized price to None"
         );

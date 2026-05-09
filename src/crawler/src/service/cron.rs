@@ -20,7 +20,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
-use tracing::{debug, error, info, warn};
+use tracing::{Instrument, debug, error, info, warn};
 
 /// Context for scraping a domain's candidates.
 struct ScrapeDomainContext {
@@ -182,6 +182,7 @@ impl CrawlerCronJob {
         }
     }
 
+    #[tracing::instrument(name = "crawler_run_loop", skip(self))]
     pub async fn run_loop(self) {
         info!("Starting crawler cron job loop");
 
@@ -206,6 +207,7 @@ impl CrawlerCronJob {
         let _ = tokio::join!(spider_handle, scraper_handle, sync_handle);
     }
 
+    #[tracing::instrument(name = "crawler_spider_loop", skip(self))]
     async fn spider_loop(&self) {
         loop {
             self.run_spider_once().await;
@@ -213,6 +215,7 @@ impl CrawlerCronJob {
         }
     }
 
+    #[tracing::instrument(name = "crawler_scraper_loop", skip(self))]
     async fn scraper_loop(&self) {
         loop {
             self.run_scraper_once().await;
@@ -220,6 +223,7 @@ impl CrawlerCronJob {
         }
     }
 
+    #[tracing::instrument(name = "crawler_shop_sync_loop", skip(self))]
     async fn shop_sync_loop(&self) {
         loop {
             tokio::time::sleep(self.config.shop_sync_interval).await;
@@ -227,13 +231,15 @@ impl CrawlerCronJob {
         }
     }
 
+    #[tracing::instrument(name = "crawler_run_shop_sync_once", skip(self))]
     async fn run_shop_sync_once(&self) {
         match self.shop_registration.sync().await {
             Ok(_) => {}
-            Err(e) => error!(error = %e, "Shop sync failed"),
+            Err(e) => warn!(error = %e, "Shop sync failed"),
         }
     }
 
+    #[tracing::instrument(name = "crawler_run_spider_once", skip(self))]
     async fn run_spider_once(&self) {
         match self
             .spider_candidates
@@ -251,7 +257,10 @@ impl CrawlerCronJob {
 
                 let spider_concurrency = self.config.spider_concurrency;
                 if spider_concurrency == 0 {
-                    warn!("spider_concurrency is 0, skipping spider batch");
+                    warn!(
+                        spider_concurrency,
+                        "spider_concurrency is 0, skipping spider batch"
+                    );
                     return;
                 }
 
@@ -269,6 +278,12 @@ impl CrawlerCronJob {
                     } else {
                         format!("https://{}", candidate.shop_domain)
                     };
+                    let span = tracing::info_span!(
+                        "spider_candidate",
+                        shop_id = %candidate.shop_id,
+                        domain_id = %candidate.domain_id,
+                        shop_url = %shop_url
+                    );
 
                     join_set.spawn(async move {
                         let Ok(_permit) = permit_pool.acquire_owned().await else {
@@ -276,9 +291,11 @@ impl CrawlerCronJob {
                             return false;
                         };
 
-                        let Some(_lock) = DomainLock::try_acquire(&lock_manager, candidate.domain_id)
+                        let Some(_lock) =
+                            DomainLock::try_acquire(&lock_manager, candidate.domain_id)
                         else {
                             warn!(
+                                shop_id = %candidate.shop_id,
                                 domain_id = %candidate.domain_id,
                                 "Skipping domain — lock held by another worker"
                             );
@@ -286,12 +303,18 @@ impl CrawlerCronJob {
                         };
 
                         match spider_service
-                            .run(&candidate.shop_id, &candidate.domain_id, &shop_url, threshold)
+                            .run(
+                                &candidate.shop_id,
+                                &candidate.domain_id,
+                                &shop_url,
+                                threshold,
+                            )
                             .await
                         {
                             Ok(_) => {
-                                if let Err(err) =
-                                    spider_candidates.reset_crawl_failure(&candidate.domain_id).await
+                                if let Err(err) = spider_candidates
+                                    .reset_crawl_failure(&candidate.domain_id)
+                                    .await
                                 {
                                     warn!(
                                         error = %err,
@@ -319,11 +342,12 @@ impl CrawlerCronJob {
                                         "Failed to persist crawl failure metadata"
                                     );
                                 }
-                                error!(domain = %candidate.shop_domain, error = %e, "Spider run failed");
+                                warn!(domain = %candidate.shop_domain, error = %e, "Spider run failed");
                                 false
                             }
                         }
-                    });
+                    }
+                    .instrument(span));
                 }
 
                 let mut results: Vec<bool> = Vec::new();
@@ -347,7 +371,7 @@ impl CrawlerCronJob {
 
                 self.spider_perf.record(total as u64, duration_ms);
             }
-            Err(e) => error!(error = %e, "Failed to retrieve spider candidates"),
+            Err(e) => warn!(error = %e, "Failed to retrieve spider candidates"),
         }
     }
 }
@@ -383,6 +407,11 @@ struct ScrapeDomainOutcome {
 ///
 /// The position correspondence between `commands` and `metas` is preserved so
 /// that succeeded commands can be matched back to their metadata by index.
+#[tracing::instrument(
+    name = "crawler_flush_push_batch",
+    skip(push_service, scraper_candidates, batch),
+    fields(batch_size = batch.len())
+)]
 async fn flush_batch(
     push_service: &Arc<dyn ProductPushService>,
     scraper_candidates: &Arc<dyn ScraperCandidateService>,
@@ -411,15 +440,20 @@ async fn flush_batch(
                 .mark_as_scraped(&meta.shop_id, &meta.url, &meta.hash, &meta.snapshot)
                 .await
         {
-            warn!(
-                error = %e,
-                url = %meta.url,
-                "Failed to mark product as scraped after push"
-            );
+            warn!(shop_id = %meta.shop_id, error = %e, url = %meta.url, "Failed to mark product as scraped after push");
         }
     }
 }
 
+#[tracing::instrument(
+    name = "crawler_scrape_candidate",
+    skip(candidate, domain, ctx),
+    fields(
+        shop_id = %candidate.shop_id,
+        domain = %domain,
+        url = %candidate.url
+    )
+)]
 async fn scrape_candidate(
     candidate: ScraperCandidate,
     domain: String,
@@ -429,11 +463,7 @@ async fn scrape_candidate(
     {
         let exhausted = ctx.budget_exhausted_shops.lock().await;
         if exhausted.contains(&candidate.shop_id) {
-            debug!(
-                shop_id = %candidate.shop_id,
-                url = %candidate.url,
-                "Skipping URL — shop LLM budget already exhausted in this batch"
-            );
+            debug!("Skipping URL — shop LLM budget already exhausted in this batch");
             return ScrapeCandidateOutcome {
                 command: None,
                 errored: false,
@@ -443,7 +473,7 @@ async fn scrape_candidate(
     }
 
     let Some(_lock) = UrlLock::try_acquire(&ctx.lock_manager, &candidate.url) else {
-        warn!(url = %candidate.url, "Skipping URL — lock held by another worker");
+        warn!("Skipping URL — lock held by another worker");
         return ScrapeCandidateOutcome {
             command: None,
             errored: false,
@@ -504,7 +534,6 @@ async fn scrape_candidate(
                 {
                     warn!(
                         error = %mark_err,
-                        url = %candidate.url,
                         "Failed to persist scraper fetch failure metadata"
                     );
                 }
@@ -533,7 +562,6 @@ async fn scrape_candidate(
                         {
                             warn!(
                                 error = %mark_err,
-                                url = %candidate.url,
                                 "Failed to persist schema-regeneration/normalization-fix/LLM-budget cooldown metadata"
                             );
                         }
@@ -551,7 +579,6 @@ async fn scrape_candidate(
                         {
                             warn!(
                                 error = %mark_err,
-                                url = %candidate.url,
                                 "Failed to persist scraper failure metadata"
                             );
                         }
@@ -575,12 +602,7 @@ async fn scrape_candidate(
                     }
                 }
             } else {
-                error!(
-                    domain = %domain,
-                    url = %candidate.url,
-                    error = %e,
-                    "Scraper run failed"
-                );
+                warn!(error = %e, "Scraper run failed");
             }
 
             ScrapeCandidateOutcome {
@@ -611,6 +633,11 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
     }
 }
 
+#[tracing::instrument(
+    name = "crawler_scrape_domain_candidates",
+    skip(candidates, ctx),
+    fields(domain = %domain, candidate_count = candidates.len())
+)]
 async fn scrape_domain_candidates(
     domain: String,
     candidates: Vec<ScraperCandidate>,
@@ -650,13 +677,14 @@ async fn scrape_domain_candidates(
 }
 
 impl CrawlerCronJob {
+    #[tracing::instrument(name = "crawler_run_scraper_once", skip(self))]
     async fn run_scraper_once(&self) {
         let total_fetch = (self.config.scraper_concurrency as i64) * self.config.scraper_batch_size;
 
         let all_candidates = match self.scraper_candidates.get_candidates(total_fetch).await {
             Ok(c) => c,
             Err(e) => {
-                error!(error = %e, "Failed to retrieve scraper candidates");
+                warn!(error = %e, "Failed to retrieve scraper candidates");
                 return;
             }
         };
@@ -674,7 +702,10 @@ impl CrawlerCronJob {
         let batch_start = tokio::time::Instant::now();
         let scraper_concurrency = self.config.scraper_concurrency;
         if scraper_concurrency == 0 {
-            warn!("scraper_concurrency is 0, skipping scraper batch");
+            warn!(
+                scraper_concurrency,
+                "scraper_concurrency is 0, skipping scraper batch"
+            );
             return;
         }
 
@@ -736,28 +767,35 @@ impl CrawlerCronJob {
             let permit_pool = Arc::clone(&semaphore);
             let domain_tx = command_tx.clone();
             let budget_exhausted_shops = Arc::clone(&budget_exhausted_shops);
+            let span = tracing::info_span!(
+                "scrape_domain",
+                domain = %domain
+            );
 
-            join_set.spawn(async move {
-                let Ok(_permit) = permit_pool.acquire_owned().await else {
-                    error!("Scraper semaphore closed unexpectedly");
-                    return ScrapeDomainOutcome {
-                        succeeded: 0,
-                        failed: 1,
-                        skipped: 0,
+            join_set.spawn(
+                async move {
+                    let Ok(_permit) = permit_pool.acquire_owned().await else {
+                        error!("Scraper semaphore closed unexpectedly");
+                        return ScrapeDomainOutcome {
+                            succeeded: 0,
+                            failed: 1,
+                            skipped: 0,
+                        };
                     };
-                };
 
-                let ctx = ScrapeDomainContext {
-                    scraper,
-                    scraper_candidates,
-                    lock_manager,
-                    domain_delay,
-                    command_tx: domain_tx,
-                    budget_exhausted_shops,
-                };
+                    let ctx = ScrapeDomainContext {
+                        scraper,
+                        scraper_candidates,
+                        lock_manager,
+                        domain_delay,
+                        command_tx: domain_tx,
+                        budget_exhausted_shops,
+                    };
 
-                scrape_domain_candidates(domain, candidates, ctx).await
-            });
+                    scrape_domain_candidates(domain, candidates, ctx).await
+                }
+                .instrument(span),
+            );
         }
         drop(command_tx);
 
