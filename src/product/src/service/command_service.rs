@@ -56,6 +56,39 @@ struct ResolvedShopInformation {
     shop_type: ShopType,
 }
 
+/// Returns `true` when any of the command's images are flagged as
+/// [`ProhibitedContent::NaziGermany`] by the text heuristic.
+fn has_nazi_image_content(cmd: &CreateProductCommand) -> bool {
+    cmd.images
+        .iter()
+        .any(|img| img.prohibited_content == ProhibitedContent::NaziGermany)
+}
+
+/// Builds a [`ProductPolicyEventRecord`] that records a text-based
+/// [`ProhibitedContent::NaziGermany`] decision for a newly created product.
+fn make_nazi_text_policy_event(
+    domain_event: &crate::core::product_event::ProductDomainEvent,
+    shop_id: ShopId,
+    seller_id: ShopId,
+    shops_product_id: common::shops_product_id::ShopsProductId,
+) -> ProductEventRecord {
+    let policy_event: ProductPolicyEvent = Event {
+        aggregate_id: domain_event.aggregate_id,
+        event_id: EventId::new(),
+        timestamp: OffsetDateTime::now_utc(),
+        payload: ProductPolicyEventPayload::ProhibitedContentDecision(
+            ProhibitedContentProductPolicyEventPayload {
+                shop_id,
+                seller_id,
+                shops_product_id,
+                decision: ProhibitedContent::NaziGermany,
+                reason: ProhibitedContentReason::ProductText,
+            },
+        ),
+    };
+    ProductEventRecord::from(ProductPolicyEventRecord::from(policy_event))
+}
+
 impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
     pub fn new(
         dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
@@ -270,9 +303,7 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                         if let Some(resolved) = self.enrich_shop_information(&mut cmd).await {
                             self.enrich_price(&mut cmd);
                             heuristics::classify_images(&mut cmd);
-                            let has_nazi_content = cmd.images.iter().any(|img| {
-                                img.prohibited_content == ProhibitedContent::NaziGermany
-                            });
+                            let has_nazi_content = has_nazi_image_content(&cmd);
                             let seller_id = resolved.seller_id;
                             let domain_event = Product::create(
                                 cmd.shop_id,
@@ -298,22 +329,11 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                                 cmd.auction_end,
                             );
                             if has_nazi_content {
-                                let policy_event: ProductPolicyEvent = Event {
-                                    aggregate_id: domain_event.aggregate_id,
-                                    event_id: EventId::new(),
-                                    timestamp: OffsetDateTime::now_utc(),
-                                    payload: ProductPolicyEventPayload::ProhibitedContentDecision(
-                                        ProhibitedContentProductPolicyEventPayload {
-                                            shop_id: cmd.shop_id,
-                                            seller_id,
-                                            shops_product_id: cmd.shops_product_id,
-                                            decision: ProhibitedContent::NaziGermany,
-                                            reason: ProhibitedContentReason::ProductText,
-                                        },
-                                    ),
-                                };
-                                events.push(ProductEventRecord::from(
-                                    ProductPolicyEventRecord::from(policy_event),
+                                events.push(make_nazi_text_policy_event(
+                                    &domain_event,
+                                    cmd.shop_id,
+                                    seller_id,
+                                    cmd.shops_product_id,
                                 ));
                             }
                             events.push(ProductEventRecord::Domain(
@@ -440,9 +460,7 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                         {
                             self.enrich_price(&mut create_cmd);
                             heuristics::classify_images(&mut create_cmd);
-                            let has_nazi_content = create_cmd.images.iter().any(|img| {
-                                img.prohibited_content == ProhibitedContent::NaziGermany
-                            });
+                            let has_nazi_content = has_nazi_image_content(&create_cmd);
                             let seller_id = resolved.seller_id;
                             let domain_event = Product::create(
                                 create_cmd.shop_id,
@@ -468,22 +486,11 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                                 create_cmd.auction_end,
                             );
                             if has_nazi_content {
-                                let policy_event: ProductPolicyEvent = Event {
-                                    aggregate_id: domain_event.aggregate_id,
-                                    event_id: EventId::new(),
-                                    timestamp: OffsetDateTime::now_utc(),
-                                    payload: ProductPolicyEventPayload::ProhibitedContentDecision(
-                                        ProhibitedContentProductPolicyEventPayload {
-                                            shop_id: create_cmd.shop_id,
-                                            seller_id,
-                                            shops_product_id: create_cmd.shops_product_id,
-                                            decision: ProhibitedContent::NaziGermany,
-                                            reason: ProhibitedContentReason::ProductText,
-                                        },
-                                    ),
-                                };
-                                create_events.push(ProductEventRecord::from(
-                                    ProductPolicyEventRecord::from(policy_event),
+                                create_events.push(make_nazi_text_policy_event(
+                                    &domain_event,
+                                    create_cmd.shop_id,
+                                    seller_id,
+                                    create_cmd.shops_product_id,
                                 ));
                             }
                             create_events.push(ProductEventRecord::Domain(
