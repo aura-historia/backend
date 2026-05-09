@@ -1,3 +1,4 @@
+use crate::core::product_event::ProductDomainEvent;
 use crate::core::product_event::domain::{
     ProductAuctionTimeChangeDomainEventPayload, ProductCommonEventPayload,
     ProductCreatedDomainEventPayload, ProductDomainEventPayload,
@@ -5,7 +6,6 @@ use crate::core::product_event::domain::{
     ProductPriceChangeDomainEventPayload, ProductStateChangeDomainEventPayload,
     ProductUrlChangeDomainEventPayload,
 };
-use crate::core::product_event::ProductDomainEvent;
 use crate::core::product_image::ProductImage;
 use crate::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
 use crate::dynamodb::product_image_record::ProductImageRecord;
@@ -1960,11 +1960,11 @@ mod faker {
 #[cfg(all(test, feature = "test-data"))]
 mod tests {
     use super::*;
+    use crate::core::product_event::ProductDomainEvent;
     use crate::core::product_event::domain::{
         ProductCreatedDomainEventPayload, ProductDomainEventPayload,
         ProductUrlChangeDomainEventPayload,
     };
-    use crate::core::product_event::ProductDomainEvent;
     use fake::{Fake, Faker};
     use time::OffsetDateTime;
     use url::Url;

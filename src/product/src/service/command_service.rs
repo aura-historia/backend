@@ -393,10 +393,12 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                     let update_events =
                         determine_update_events(&mut update_cmds, records.items, self.fx_rate);
 
-                    let mut create_events: Vec<ProductEventRecord> = Vec::with_capacity(working.len());
+                    let mut create_events: Vec<ProductEventRecord> =
+                        Vec::with_capacity(working.len());
                     for cmd in working.into_values() {
                         let mut create_cmd = CreateProductCommand::from(cmd.clone());
-                        if let Some(resolved) = self.enrich_shop_information(&mut create_cmd).await {
+                        if let Some(resolved) = self.enrich_shop_information(&mut create_cmd).await
+                        {
                             self.enrich_price(&mut create_cmd);
                             create_events.push(ProductEventRecord::Domain(
                                 ProductDomainEventRecord::from(Product::create(

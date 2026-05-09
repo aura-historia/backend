@@ -557,7 +557,7 @@ mod faker {
 #[cfg(test)]
 mod tests {
     use crate::dynamodb::product_event_record::enrichment::{
-        mk_pk, mk_sk, ProductEnrichmentEventRecord,
+        ProductEnrichmentEventRecord, mk_pk, mk_sk,
     };
     use crate::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord;
     use crate::dynamodb::{
@@ -572,9 +572,11 @@ mod tests {
 
     #[test]
     fn should_be_subset_of_product_record() {
-        assert!(ProductRecordUpdate::SERDE_FIELDS
-            .iter()
-            .all(|field| ProductRecord::SERDE_FIELDS.contains(field)))
+        assert!(
+            ProductRecordUpdate::SERDE_FIELDS
+                .iter()
+                .all(|field| ProductRecord::SERDE_FIELDS.contains(field))
+        )
     }
 
     fn make_translation_record(

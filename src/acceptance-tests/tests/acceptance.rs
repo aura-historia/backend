@@ -1408,8 +1408,6 @@ async fn should_materialize_product_in_dynamodb_for_auction_time_changed_event()
     }
 }
 
-
-
 #[localstack_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_dynamodb_for_enrichment_event() {
     let stack = get_cfn_output();
@@ -4125,9 +4123,6 @@ async fn should_embed_product_when_domain_created_event_triggers_pipeline() {
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
 }
-
-
-
 
 #[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_for_partner_patch_products() {

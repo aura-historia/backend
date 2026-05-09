@@ -180,8 +180,8 @@ impl From<&ProductEventRecord> for ProductEventLog {
 #[cfg(test)]
 mod tests {
     use crate::dynamodb::product_event_record::{
-        domain::ProductDomainEventRecord, enrichment::ProductEnrichmentEventRecord,
-        policy::ProductPolicyEventRecord, ProductEventRecord,
+        ProductEventRecord, domain::ProductDomainEventRecord,
+        enrichment::ProductEnrichmentEventRecord, policy::ProductPolicyEventRecord,
     };
     use fake::{Fake, Faker};
 

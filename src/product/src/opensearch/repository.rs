@@ -497,8 +497,6 @@ pub fn build_filter_clauses(
         filter.push(json!({ "range": { price_field: { "lte": max.deref() } } }));
     }
 
-
-
     if !search.country_query.is_empty() {
         filter.push(json!({
             "terms": {
@@ -526,8 +524,6 @@ pub fn build_filter_clauses(
             }
         }));
     }
-
-
 
     // ---------- AnyOf filters ----------
     apply_any_of_filter(
@@ -570,8 +566,6 @@ pub fn build_filter_clauses(
         ProductDocumentSerdeField::State,
         |v| v.as_str(),
     );
-
-
 
     apply_any_of_filter(
         &mut filter,

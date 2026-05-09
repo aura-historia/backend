@@ -231,7 +231,7 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
 
 #[cfg(feature = "test-data")]
 mod fake {
-    use crate::dynamodb::user_search_filter_record::{mk_pk, mk_sk, UserSearchFilterRecord};
+    use crate::dynamodb::user_search_filter_record::{UserSearchFilterRecord, mk_pk, mk_sk};
     use common::resource_state::record::ResourceStateRecord;
     use fake::{Dummy, Fake, Faker};
     use product::core::product_search::faker::fake_range_query_datetime;

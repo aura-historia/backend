@@ -29,12 +29,7 @@ async fn main() -> Result<(), Error> {
     debug!("Lambda initialized.");
 
     run(service_fn(|event: LambdaEvent<SqsEvent>| async {
-        handler(
-            &opensearch_repository,
-            &dynamodb_repository,
-            event,
-        )
-        .await
+        handler(&opensearch_repository, &dynamodb_repository, event).await
     }))
     .await
 }

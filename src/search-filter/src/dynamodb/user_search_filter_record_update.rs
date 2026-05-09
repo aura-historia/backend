@@ -127,8 +127,10 @@ mod tests {
 
     #[test]
     fn should_be_subset_of_user_search_filter_record() {
-        assert!(UserSearchFilterRecordUpdate::SERDE_FIELDS
-            .iter()
-            .all(|field| UserSearchFilterRecord::SERDE_FIELDS.contains(field)))
+        assert!(
+            UserSearchFilterRecordUpdate::SERDE_FIELDS
+                .iter()
+                .all(|field| UserSearchFilterRecord::SERDE_FIELDS.contains(field))
+        )
     }
 }

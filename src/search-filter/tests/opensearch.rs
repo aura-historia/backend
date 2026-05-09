@@ -167,8 +167,6 @@ async fn should_not_percolate_document_when_product_query_does_not_match() {
     assert!(actual.is_empty());
 }
 
-
-
 #[localstack_test(services = [OpenSearch()])]
 async fn should_percolate_document_when_shop_name_matches() {
     let client = get_opensearch_client().await;

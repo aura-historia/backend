@@ -1,5 +1,5 @@
 use std::time::Duration;
-use tracing::{info, Level};
+use tracing::{Level, info};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
