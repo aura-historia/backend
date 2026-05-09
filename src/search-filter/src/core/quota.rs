@@ -76,8 +76,8 @@ impl SearchFilterQuota for UserTier {
 fn check_search_filter_features_free(
     search: &ProductSearch,
 ) -> Result<(), ProductSearchSerdeField> {
-    // allow product_query, category_id, period_id, price_query, state_query
-    // forbid all others
+    // allow product_query, price_query, state_query
+    // forbid all other scoped filters
 
     if !search.shop_name_query.is_empty() {
         return Err(ProductSearchSerdeField::ShopNameQuery);
@@ -115,21 +115,6 @@ fn check_search_filter_features_free(
     if search.geo_address_distance_query.is_some() {
         return Err(ProductSearchSerdeField::GeoAddressDistanceQuery);
     }
-    if search.origin_year_query.is_some() {
-        return Err(ProductSearchSerdeField::OriginYearQuery);
-    }
-    if !search.authenticity_query.is_empty() {
-        return Err(ProductSearchSerdeField::AuthenticityQuery);
-    }
-    if !search.condition_query.is_empty() {
-        return Err(ProductSearchSerdeField::ConditionQuery);
-    }
-    if !search.provenance_query.is_empty() {
-        return Err(ProductSearchSerdeField::ProvenanceQuery);
-    }
-    if !search.restoration_query.is_empty() {
-        return Err(ProductSearchSerdeField::RestorationQuery);
-    }
     if search.created_query.is_some() {
         return Err(ProductSearchSerdeField::CreatedQuery);
     }
@@ -149,8 +134,8 @@ fn check_search_filter_features_free(
 fn check_search_filter_update_features_free(
     search: &UserSearchFilterUpdate,
 ) -> Result<(), ProductSearchSerdeField> {
-    // allow product_query, category_id, period_id, price_query, state_query
-    // forbid all others
+    // allow product_query, price_query, state_query
+    // forbid all other scoped filters
 
     if search.shop_name_query.is_some() {
         return Err(ProductSearchSerdeField::ShopNameQuery);
@@ -178,21 +163,6 @@ fn check_search_filter_update_features_free(
     }
     if search.shop_type_query.is_some() {
         return Err(ProductSearchSerdeField::ShopTypeQuery);
-    }
-    if search.origin_year_query.is_some() {
-        return Err(ProductSearchSerdeField::OriginYearQuery);
-    }
-    if search.authenticity_query.is_some() {
-        return Err(ProductSearchSerdeField::AuthenticityQuery);
-    }
-    if search.condition_query.is_some() {
-        return Err(ProductSearchSerdeField::ConditionQuery);
-    }
-    if search.provenance_query.is_some() {
-        return Err(ProductSearchSerdeField::ProvenanceQuery);
-    }
-    if search.restoration_query.is_some() {
-        return Err(ProductSearchSerdeField::RestorationQuery);
     }
     if search.created_query.is_some() {
         return Err(ProductSearchSerdeField::CreatedQuery);

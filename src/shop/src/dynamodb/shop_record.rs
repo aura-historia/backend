@@ -9,8 +9,7 @@ use crate::dynamodb::shop_type_record::ShopTypeRecord;
 use crate::dynamodb::utm::append_utm_params;
 use common::error::missing_field::MissingPersistenceField;
 use common::{
-    category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_id::ShopId,
-    shop_name::ShopName, slug_id::SlugId, user_id::UserId,
+    domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::UserId,
 };
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
@@ -63,10 +62,6 @@ pub struct ShopRecord {
     pub phone: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub email: Option<Email>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub specialities_categories: Vec<CategoryId>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub specialities_periods: Vec<PeriodId>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub partner_api_key_short: Option<String>,
@@ -151,8 +146,6 @@ impl From<Shop> for ShopRecord {
             geo_address_lon: shop.geo_address.map(|address| address.lon),
             phone: shop.phone,
             email: shop.email,
-            specialities_categories: shop.specialities_categories,
-            specialities_periods: shop.specialities_periods,
             partner_api_key_short: None,
             partner_api_key_long_hash: None,
             partner_user_id: None,
@@ -185,8 +178,6 @@ impl From<ShopRecord> for Shop {
             geo_address: geo_address_from_flat(record.geo_address_lat, record.geo_address_lon),
             phone: record.phone,
             email: record.email,
-            specialities_categories: record.specialities_categories,
-            specialities_periods: record.specialities_periods,
             partner_status: if record.partner_user_id.is_some() {
                 crate::core::partner_status::ShopPartnerStatus::Partnered
             } else {
@@ -230,8 +221,6 @@ impl TryFrom<ShopRecord> for PartnerShop {
             geo_address: geo_address_from_flat(value.geo_address_lat, value.geo_address_lon),
             phone: value.phone,
             email: value.email,
-            specialities_categories: value.specialities_categories,
-            specialities_periods: value.specialities_periods,
             partner_user_id,
             hashed_api_key,
             created: value.created,

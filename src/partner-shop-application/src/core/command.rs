@@ -1,10 +1,7 @@
 use crate::core::partner_shop_application::{
     PartnerShopApplicationPayload, PartnerShopApplicationPayloadInfo,
 };
-use common::{
-    category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_name::ShopName,
-    user_id::UserId,
-};
+use common::{domain::Domain, shop_name::ShopName, user_id::UserId};
 use serde_email::Email;
 use shop::core::{address::StructuredAddress, shop_type::ShopType};
 use std::collections::HashSet;
@@ -26,8 +23,6 @@ pub struct UpdatePartnerShopApplicationCommand {
     pub shop_structured_address: Option<StructuredAddress>,
     pub shop_phone: Option<String>,
     pub shop_email: Option<Email>,
-    pub shop_specialities_categories: Option<Vec<CategoryId>>,
-    pub shop_specialities_periods: Option<Vec<PeriodId>>,
 }
 
 impl UpdatePartnerShopApplicationCommand {
@@ -40,8 +35,6 @@ impl UpdatePartnerShopApplicationCommand {
             && self.shop_structured_address.is_none()
             && self.shop_phone.is_none()
             && self.shop_email.is_none()
-            && self.shop_specialities_categories.is_none()
-            && self.shop_specialities_periods.is_none()
     }
 
     pub fn has_payload_info_update(&self) -> bool {
@@ -53,8 +46,6 @@ impl UpdatePartnerShopApplicationCommand {
             || self.shop_structured_address.is_some()
             || self.shop_phone.is_some()
             || self.shop_email.is_some()
-            || self.shop_specialities_categories.is_some()
-            || self.shop_specialities_periods.is_some()
     }
 
     pub fn into_payload_info(self) -> Option<PartnerShopApplicationPayloadInfo> {
@@ -70,8 +61,6 @@ impl UpdatePartnerShopApplicationCommand {
             shop_structured_address: self.shop_structured_address,
             shop_phone: self.shop_phone,
             shop_email: self.shop_email,
-            shop_specialities_categories: self.shop_specialities_categories,
-            shop_specialities_periods: self.shop_specialities_periods,
         })
     }
 }
@@ -107,8 +96,6 @@ mod faker {
                 shop_structured_address: None,
                 shop_phone: None,
                 shop_email: None,
-                shop_specialities_categories: None,
-                shop_specialities_periods: None,
             }
         }
     }

@@ -1,8 +1,5 @@
 use crate::dynamodb::shop_type_record::ShopTypeRecord;
-use common::{
-    category_key::CategoryId, domain::Domain, dynamodb_update::DynamoDbUpdate,
-    period_key::PeriodId, user_id::UserId,
-};
+use common::{domain::Domain, dynamodb_update::DynamoDbUpdate, user_id::UserId};
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
@@ -55,10 +52,6 @@ pub struct ShopRecordUpdate {
     pub phone: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub email: Option<Email>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub specialities_categories: Option<Vec<CategoryId>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub specialities_periods: Option<Vec<PeriodId>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub partner_api_key_short: Option<String>,

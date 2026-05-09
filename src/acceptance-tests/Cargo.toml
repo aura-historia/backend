@@ -34,7 +34,6 @@ reqwest = { workspace = true, features = ["default", "json"] }
 common = { workspace = true, features = ["test-data"] }
 serial_test = { workspace = true }
 http = { workspace = true }
-product-classification = { workspace = true, features = ["test-data", "data"] }
 product-watchlist-api = { workspace = true }
 notification-api = { workspace = true }
 search-filter-api = { workspace = true, features = ["test-data"] }

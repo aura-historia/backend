@@ -156,8 +156,6 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             geo_address,
             phone: command.phone,
             email: command.email,
-            specialities_categories: command.specialities_categories,
-            specialities_periods: command.specialities_periods,
             partner_status: ShopPartnerStatus::default(),
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
@@ -223,8 +221,6 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             geo_address_lon: geo_address.as_ref().map(|address| address.lon),
             phone: command.phone.clone(),
             email: command.email.clone(),
-            specialities_categories: command.specialities_categories.clone(),
-            specialities_periods: command.specialities_periods.clone(),
             partner_api_key_short: None,
             partner_api_key_long_hash: None,
             updated: OffsetDateTime::now_utc(),
@@ -284,8 +280,6 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             geo_address_lon: None,
             phone: None,
             email: None,
-            specialities_categories: None,
-            specialities_periods: None,
             partner_api_key_short: Some(hashed.short_token().to_string()),
             partner_api_key_long_hash: Some(hashed.long_token_hash().to_string()),
             updated: OffsetDateTime::now_utc(),
@@ -349,8 +343,6 @@ mod tests {
                 structured_address: None,
                 phone: None,
                 email: None,
-                specialities_categories: Vec::new(),
-                specialities_periods: Vec::new(),
             };
             let actual = service.create(cmd).await.unwrap_err();
             match actual {
@@ -428,8 +420,6 @@ mod tests {
                 structured_address: Some(structured_address),
                 phone: None,
                 email: None,
-                specialities_categories: Vec::new(),
-                specialities_periods: Vec::new(),
             };
 
             let actual = service.create(cmd).await.unwrap();

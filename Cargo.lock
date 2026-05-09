@@ -21,7 +21,6 @@ dependencies = [
  "opensearch",
  "partner-shop-application",
  "product",
- "product-classification",
  "product-watchlist",
  "product-watchlist-api",
  "reqwest 0.12.28",
@@ -224,8 +223,6 @@ dependencies = [
  "product",
  "product-api",
  "product-api-partner",
- "product-classification",
- "product-classification-api",
  "product-lambda",
  "product-personalization",
  "product-pipeline",
@@ -1681,7 +1678,6 @@ dependencies = [
  "once_cell",
  "opensearch",
  "product",
- "product-classification",
  "regex",
  "reqwest 0.12.28",
  "rstest",
@@ -5360,66 +5356,11 @@ dependencies = [
  "llm",
  "opensearch",
  "product",
- "product-classification",
  "rstest",
  "serde",
  "serde_json",
  "serial_test",
  "shop",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "product-classification"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-sdk-dynamodb",
- "common",
- "fake",
- "mockall",
- "opensearch",
- "product",
- "product-classification",
- "reqwest 0.12.28",
- "rstest",
- "serde",
- "serde_dynamo",
- "serde_fields",
- "serde_json",
- "serial_test",
- "strum 0.28.0",
- "strum_macros 0.28.0",
- "test-api",
- "thiserror 2.0.18",
- "time",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "product-classification-api"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "opensearch",
- "product",
- "product-classification",
- "rstest",
- "serde_json",
- "serde_qs",
- "serial_test",
  "test-api",
  "time",
  "tokio",
@@ -5449,7 +5390,6 @@ dependencies = [
  "lambda_runtime",
  "once_cell",
  "product",
- "product-classification",
  "rstest",
  "serde",
  "serde_dynamo",
@@ -5477,7 +5417,6 @@ dependencies = [
  "once_cell",
  "opensearch",
  "product",
- "product-classification",
  "rstest",
  "serde",
  "serde_dynamo",
@@ -5548,39 +5487,8 @@ dependencies = [
 name = "product-pipeline"
 version = "0.1.0"
 dependencies = [
- "product-pipeline-classify",
  "product-pipeline-embed-text",
- "product-pipeline-extract-attribute",
  "product-pipeline-translate",
-]
-
-[[package]]
-name = "product-pipeline-classify"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "lambda_runtime",
- "llm",
- "mockall",
- "opensearch",
- "product",
- "product-classification",
- "reqwest 0.12.28",
- "rstest",
- "serde",
- "serde_dynamo",
- "serde_json",
- "thiserror 2.0.18",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
@@ -5609,34 +5517,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "uuid",
-]
-
-[[package]]
-name = "product-pipeline-extract-attribute"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "lambda_runtime",
- "llm",
- "mockall",
- "product",
- "rstest",
- "serde",
- "serde_dynamo",
- "serde_json",
- "serial_test",
- "test-api",
- "thiserror 2.0.18",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
  "uuid",
 ]
 
@@ -7707,17 +7587,7 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 name = "staging-data"
 version = "0.1.0"
 dependencies = [
- "aws-tests-common",
- "common",
- "fake",
- "opensearch",
- "product",
- "product-classification",
- "serde",
- "serde_json",
- "shop",
  "staging-tests",
- "time",
  "tokio",
 ]
 
@@ -7739,7 +7609,6 @@ dependencies = [
  "opensearch",
  "product",
  "product-api",
- "product-classification",
  "product-watchlist",
  "product-watchlist-api",
  "reqwest 0.12.28",

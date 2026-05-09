@@ -228,8 +228,6 @@ impl<'a> SellerService for SellerServiceImpl<'a> {
                             structured_address: None,
                             phone: None,
                             email: None,
-                            specialities_categories: Vec::new(),
-                            specialities_periods: Vec::new(),
                         })
                         .await?
                 }
@@ -245,8 +243,6 @@ impl<'a> SellerService for SellerServiceImpl<'a> {
                     structured_address: None,
                     phone: None,
                     email: None,
-                    specialities_categories: Vec::new(),
-                    specialities_periods: Vec::new(),
                 })
                 .await?
         };

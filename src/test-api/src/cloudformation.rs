@@ -55,14 +55,11 @@ const LAMBDA_BINARIES: &[&str] = &[
     "partner-shop-application-lambda",
     "partner-api",
     "shop-api",
-    "product-classification-api",
     "search-filter-api",
     "notification-send",
     "product-lambda-materialize-dynamodb",
     "product-lambda-materialize-opensearch",
     "product-pipeline-embed-text",
-    "product-pipeline-classify",
-    "product-pipeline-extract-attribute",
     "product-pipeline-translate",
     "shop-lambda-opensearch-index",
     "user-lambda-index-opensearch",
@@ -197,8 +194,6 @@ impl IntegrationTestService for Cloudformation {
             cfn.product_pipeline_embed_text_queue_url.clone(),
             cfn.product_pipeline_embed_text_dead_letter_queue_url
                 .clone(),
-            cfn.product_pipeline_classify_queue_url.clone(),
-            cfn.product_pipeline_classify_dead_letter_queue_url.clone(),
         ])
         .await;
         debug!("Drained all SQS queues for test isolation");

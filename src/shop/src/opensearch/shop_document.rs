@@ -11,10 +11,7 @@ use crate::{
         shop_type_document::ShopTypeDocument,
     },
 };
-use common::{
-    category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_id::ShopId,
-    shop_name::ShopName, slug_id::SlugId,
-};
+use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
@@ -60,10 +57,6 @@ pub struct ShopDocument {
     pub phone: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub email: Option<Email>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub specialities_categories: Vec<CategoryId>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub specialities_periods: Vec<PeriodId>,
 
     pub partner_status: ShopPartnerStatusDocument,
 
@@ -119,8 +112,6 @@ impl From<Shop> for ShopDocument {
             geo_address: shop.geo_address.map(GeoAddress::to_opensearch_geo_point),
             phone: shop.phone,
             email: shop.email,
-            specialities_categories: shop.specialities_categories,
-            specialities_periods: shop.specialities_periods,
             partner_status: shop.partner_status.into(),
             created: shop.created,
             updated: shop.updated,
@@ -152,8 +143,6 @@ impl From<ShopDocument> for Shop {
                 .and_then(GeoAddress::from_opensearch_geo_point),
             phone: document.phone,
             email: document.email,
-            specialities_categories: document.specialities_categories,
-            specialities_periods: document.specialities_periods,
             partner_status: document.partner_status.into(),
             created: document.created,
             updated: document.updated,
@@ -186,8 +175,6 @@ impl From<ShopRecord> for ShopDocument {
                 .map(|(lat, lon)| GeoAddress { lat, lon }.to_opensearch_geo_point()),
             phone: record.phone,
             email: record.email,
-            specialities_categories: record.specialities_categories,
-            specialities_periods: record.specialities_periods,
             partner_status: if record.partner_user_id.is_some() {
                 ShopPartnerStatusDocument::Partnered
             } else {

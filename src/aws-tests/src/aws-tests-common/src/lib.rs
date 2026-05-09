@@ -30,10 +30,6 @@ pub struct CloudFormationOutput {
     pub product_pipeline_translate_dead_letter_queue_url: String,
     pub product_pipeline_embed_text_queue_url: String,
     pub product_pipeline_embed_text_dead_letter_queue_url: String,
-    pub product_pipeline_classify_queue_url: String,
-    pub product_pipeline_classify_dead_letter_queue_url: String,
-    pub product_pipeline_extract_attribute_queue_url: String,
-    pub product_pipeline_extract_attribute_dead_letter_queue_url: String,
     #[serde(default)]
     pub stripe_event_bus_name: String,
 }

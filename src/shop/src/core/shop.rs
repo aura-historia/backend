@@ -4,10 +4,7 @@ use crate::core::{
     partner_status::ShopPartnerStatus,
     shop_type::ShopType,
 };
-use common::{
-    category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_id::ShopId,
-    shop_name::ShopName, slug_id::SlugId,
-};
+use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use serde_email::Email;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -26,8 +23,6 @@ pub struct Shop {
     pub geo_address: Option<GeoAddress>,
     pub phone: Option<String>,
     pub email: Option<Email>,
-    pub specialities_categories: Vec<CategoryId>,
-    pub specialities_periods: Vec<PeriodId>,
     pub partner_status: ShopPartnerStatus,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -47,8 +42,6 @@ impl From<PartnerShop> for Shop {
             geo_address: partner_shop.geo_address,
             phone: partner_shop.phone,
             email: partner_shop.email,
-            specialities_categories: partner_shop.specialities_categories,
-            specialities_periods: partner_shop.specialities_periods,
             partner_status: ShopPartnerStatus::Partnered,
             created: partner_shop.created,
             updated: partner_shop.updated,
@@ -76,8 +69,6 @@ mod faker {
                 geo_address: None,
                 phone: None,
                 email: None,
-                specialities_categories: Vec::new(),
-                specialities_periods: Vec::new(),
                 partner_status: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),

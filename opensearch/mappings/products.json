@@ -185,42 +185,6 @@
             "shopType": {
                 "type": "keyword"
             },
-            "categoryId": {
-                "type": "keyword"
-            },
-            "categoryNameDe": {
-                "type": "keyword"
-            },
-            "categoryNameEn": {
-                "type": "keyword"
-            },
-            "categoryNameFr": {
-                "type": "keyword"
-            },
-            "categoryNameEs": {
-                "type": "keyword"
-            },
-            "categoryNameIt": {
-                "type": "keyword"
-            },
-            "periodId": {
-                "type": "keyword"
-            },
-            "periodNameDe": {
-                "type": "keyword"
-            },
-            "periodNameEn": {
-                "type": "keyword"
-            },
-            "periodNameFr": {
-                "type": "keyword"
-            },
-            "periodNameEs": {
-                "type": "keyword"
-            },
-            "periodNameIt": {
-                "type": "keyword"
-            },
             "titleNative": {
                 "type": "object",
                 "properties": {
@@ -455,27 +419,6 @@
                         }
                     }
                 }
-            },
-            "originYearMin": {
-                "type": "integer"
-            },
-            "originYear": {
-                "type": "integer"
-            },
-            "originYearMax": {
-                "type": "integer"
-            },
-            "authenticity": {
-                "type": "keyword"
-            },
-            "condition": {
-                "type": "keyword"
-            },
-            "provenance": {
-                "type": "keyword"
-            },
-            "restoration": {
-                "type": "keyword"
             },
             "auctionStart": {
                 "type": "date",

@@ -1,31 +1,20 @@
 use crate::core::user_search_filter::UserSearchFilter;
 use crate::core::user_search_filter_name::UserSearchFilterName;
-use common::category_key::CategoryId;
 use common::distance::data::GeoDistanceQueryData;
-use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::resource_state::record::ResourceStateRecord;
 use common::shop_name::ShopName;
 use common::slug_id::SlugId;
 use common::user_search_filter_id::UserSearchFilterId;
-use common::year::Year;
 use common::{
     currency::record::CurrencyRecord, language::record::LanguageRecord,
     price::domain::MonetaryAmount, product_state::domain::ProductState, user_id::UserId,
 };
 use geo::{core::continent::Continent, data::continent_data::ContinentData};
 use isocountry::CountryCode;
-use product::core::authenticity::Authenticity;
-use product::core::condition::Condition;
 use product::core::product_search::ProductSearch;
-use product::core::provenance::Provenance;
-use product::core::restoration::Restoration;
-use product::dynamodb::authenticity_record::AuthenticityRecord;
-use product::dynamodb::condition_record::ConditionRecord;
 use product::dynamodb::product_state_record::ProductStateRecord;
-use product::dynamodb::provenance_record::ProvenanceRecord;
-use product::dynamodb::restoration_record::RestorationRecord;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use shop::core::shop_type::ShopType;
@@ -49,10 +38,6 @@ pub struct UserSearchFilterRecord {
     pub state: ResourceStateRecord,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub product_query: Option<TextQuery<1>>,
-    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
-    pub category_id: HashSet<CategoryId>,
-    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
-    pub period_id: HashSet<PeriodId>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub shop_name_query: HashSet<ShopName>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
@@ -107,17 +92,6 @@ pub struct UserSearchFilterRecord {
     )]
     pub auction_end_query: Option<RangeQuery<OffsetDateTime>>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub origin_year_query: Option<RangeQuery<Year>>,
-    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
-    pub authenticity_query: HashSet<AuthenticityRecord>,
-    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
-    pub condition_query: HashSet<ConditionRecord>,
-    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
-    pub provenance_query: HashSet<ProvenanceRecord>,
-    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
-    pub restoration_query: HashSet<RestorationRecord>,
-
     pub language: LanguageRecord,
     pub currency: CurrencyRecord,
 
@@ -152,8 +126,6 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                 language: record.language.into(),
                 currency: record.currency.into(),
                 product_query: record.product_query,
-                category_id: record.category_id.into(),
-                period_id: record.period_id.into(),
                 shop_name_query: record.shop_name_query.into(),
                 exclude_shop_name_query: record.exclude_shop_name_query.into(),
                 seller_name_query: record.seller_name_query.into(),
@@ -182,27 +154,6 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                     .into_iter()
                     .map(ProductState::from)
                     .collect(),
-                origin_year_query: record.origin_year_query,
-                authenticity_query: record
-                    .authenticity_query
-                    .into_iter()
-                    .map(Authenticity::from)
-                    .collect(),
-                condition_query: record
-                    .condition_query
-                    .into_iter()
-                    .map(Condition::from)
-                    .collect(),
-                provenance_query: record
-                    .provenance_query
-                    .into_iter()
-                    .map(Provenance::from)
-                    .collect(),
-                restoration_query: record
-                    .restoration_query
-                    .into_iter()
-                    .map(Restoration::from)
-                    .collect(),
                 created_query: record.created_query,
                 updated_query: record.updated_query,
                 auction_start_query: record.auction_start_query,
@@ -228,8 +179,6 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
             notifications: user_search_filter.notifications,
             state: user_search_filter.state.into(),
             product_query: user_search_filter.search.product_query,
-            category_id: user_search_filter.search.category_id.into(),
-            period_id: user_search_filter.search.period_id.into(),
             shop_name_query: user_search_filter.search.shop_name_query.into(),
             exclude_shop_name_query: user_search_filter.search.exclude_shop_name_query.into(),
             seller_name_query: user_search_filter.search.seller_name_query.into(),
@@ -272,31 +221,6 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
             language: user_search_filter.search.language.into(),
             currency: user_search_filter.search.currency.into(),
             updated_query: user_search_filter.search.updated_query,
-            origin_year_query: user_search_filter.search.origin_year_query,
-            authenticity_query: user_search_filter
-                .search
-                .authenticity_query
-                .into_iter()
-                .map(AuthenticityRecord::from)
-                .collect(),
-            condition_query: user_search_filter
-                .search
-                .condition_query
-                .into_iter()
-                .map(ConditionRecord::from)
-                .collect(),
-            provenance_query: user_search_filter
-                .search
-                .provenance_query
-                .into_iter()
-                .map(ProvenanceRecord::from)
-                .collect(),
-            restoration_query: user_search_filter
-                .search
-                .restoration_query
-                .into_iter()
-                .map(RestorationRecord::from)
-                .collect(),
             auction_start_query: user_search_filter.search.auction_start_query,
             auction_end_query: user_search_filter.search.auction_end_query,
             created: user_search_filter.created,
@@ -327,8 +251,6 @@ mod fake {
                 notifications: true,
                 state: ResourceStateRecord::Active,
                 product_query: config.fake_with_rng(rng),
-                category_id: config.fake_with_rng(rng),
-                period_id: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 seller_name_query: config.fake_with_rng(rng),
@@ -349,11 +271,6 @@ mod fake {
                 auction_end_query: fake_range_query_datetime(config, rng),
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
-                origin_year_query: config.fake_with_rng(rng),
-                authenticity_query: config.fake_with_rng(rng),
-                condition_query: config.fake_with_rng(rng),
-                provenance_query: config.fake_with_rng(rng),
-                restoration_query: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

@@ -281,11 +281,6 @@ pub fn normalize_to_upsert(
         images: product.images,
         auction_start: product.auction_start,
         auction_end: product.auction_end,
-        origin_year: Default::default(),
-        authenticity: Default::default(),
-        condition: Default::default(),
-        provenance: Default::default(),
-        restoration: Default::default(),
     })
 }
 

@@ -106,12 +106,7 @@ fn mk_notification_payload(
         ProductDomainEventPayload::EstimatePriceChanged(_)
         | ProductDomainEventPayload::UrlChanged(_)
         | ProductDomainEventPayload::ImagesChanged(_)
-        | ProductDomainEventPayload::AuctionTimeChanged(_)
-        | ProductDomainEventPayload::OriginYearChanged(_)
-        | ProductDomainEventPayload::AuthenticityChanged(_)
-        | ProductDomainEventPayload::ConditionChanged(_)
-        | ProductDomainEventPayload::ProvenanceChanged(_)
-        | ProductDomainEventPayload::RestorationChanged(_) => {
+        | ProductDomainEventPayload::AuctionTimeChanged(_) => {
             unreachable!("Field-level change events are not routed to the notification handler")
         }
     }

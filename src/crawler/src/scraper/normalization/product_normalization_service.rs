@@ -625,7 +625,7 @@ mod tests {
         let mut raw = minimal_raw();
         raw.title = "La Saintongeoise".into();
         raw.description = vec![
-            "This vintage French lithographic poster comes from a private English catalogue description with clear provenance.".into(),
+            "This vintage French lithographic poster comes from a private English catalogue description with clear ownership history.".into(),
         ];
 
         let (result, _) = svc.normalize(raw, base_url(), None).await.unwrap();

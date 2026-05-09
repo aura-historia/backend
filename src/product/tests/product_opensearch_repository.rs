@@ -1,11 +1,9 @@
-use common::category_key::CategoryId;
 use common::currency::domain::Currency;
 use common::distance::domain::{Distance, DistanceUnit, GeoDistanceQuery};
 use common::event_id::EventId;
 use common::language::document::{LanguageDocument, TextDocument};
 use common::language::domain::Language;
 use common::pagination::cursor::Cursor;
-use common::period_key::PeriodId;
 use common::price::domain::MonetaryAmount;
 use common::product_id::ProductId;
 use common::product_state::domain::ProductState;
@@ -14,15 +12,10 @@ use common::query::range_query::RangeQuery;
 use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use common::sort::{Sort, SortOrder};
-use common::year::Year;
-use fake::{Fake, Faker, rand};
+use fake::{Fake, Faker};
 use geo::core::continent::Continent;
 use opensearch::http::Url;
-use product::core::authenticity::Authenticity;
-use product::core::condition::Condition;
 use product::core::product_search::ProductSearch;
-use product::core::provenance::Provenance;
-use product::core::restoration::Restoration;
 use product::core::sort_product_field::SortProductField;
 use product::opensearch::intent::HybridSearchParams;
 use product::opensearch::product_document::ProductDocument;
@@ -66,18 +59,6 @@ async fn should_create_product_document() {
         structured_address_country: None,
         structured_address_continent: None,
         geo_address: None,
-        category_id: Faker.fake(),
-        category_name_de: Faker.fake(),
-        category_name_en: Faker.fake(),
-        category_name_fr: Faker.fake(),
-        category_name_es: Faker.fake(),
-        category_name_it: Faker.fake(),
-        period_id: Faker.fake(),
-        period_name_de: Faker.fake(),
-        period_name_en: Faker.fake(),
-        period_name_fr: Faker.fake(),
-        period_name_es: Faker.fake(),
-        period_name_it: Faker.fake(),
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -145,13 +126,6 @@ async fn should_create_product_document() {
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: Faker.fake(),
         embedding: None,
-        origin_year_min: None,
-        origin_year: None,
-        origin_year_max: None,
-        authenticity: Default::default(),
-        condition: Default::default(),
-        provenance: Default::default(),
-        restoration: Default::default(),
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
         auction_start: None,
@@ -193,18 +167,6 @@ async fn should_create_product_documents() {
         structured_address_country: None,
         structured_address_continent: None,
         geo_address: None,
-        category_id: Faker.fake(),
-        category_name_de: Faker.fake(),
-        category_name_en: Faker.fake(),
-        category_name_fr: Faker.fake(),
-        category_name_es: Faker.fake(),
-        category_name_it: Faker.fake(),
-        period_id: Faker.fake(),
-        period_name_de: Faker.fake(),
-        period_name_en: Faker.fake(),
-        period_name_fr: Faker.fake(),
-        period_name_es: Faker.fake(),
-        period_name_it: Faker.fake(),
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -272,13 +234,6 @@ async fn should_create_product_documents() {
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: Faker.fake(),
         embedding: None,
-        origin_year_min: None,
-        origin_year: None,
-        origin_year_max: None,
-        authenticity: Default::default(),
-        condition: Default::default(),
-        provenance: Default::default(),
-        restoration: Default::default(),
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
         auction_start: None,
@@ -305,18 +260,6 @@ async fn should_create_product_documents() {
         structured_address_country: None,
         structured_address_continent: None,
         geo_address: None,
-        category_id: Faker.fake(),
-        category_name_de: Faker.fake(),
-        category_name_en: Faker.fake(),
-        category_name_fr: Faker.fake(),
-        category_name_es: Faker.fake(),
-        category_name_it: Faker.fake(),
-        period_id: Faker.fake(),
-        period_name_de: Faker.fake(),
-        period_name_en: Faker.fake(),
-        period_name_fr: Faker.fake(),
-        period_name_es: Faker.fake(),
-        period_name_it: Faker.fake(),
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -384,13 +327,6 @@ async fn should_create_product_documents() {
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: Faker.fake(),
         embedding: None,
-        origin_year_min: None,
-        origin_year: None,
-        origin_year_max: None,
-        authenticity: Default::default(),
-        condition: Default::default(),
-        provenance: Default::default(),
-        restoration: Default::default(),
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
         auction_start: None,
@@ -434,18 +370,6 @@ async fn should_update_product_document() {
         structured_address_country: None,
         structured_address_continent: None,
         geo_address: None,
-        category_id: Faker.fake(),
-        category_name_de: Faker.fake(),
-        category_name_en: Faker.fake(),
-        category_name_fr: Faker.fake(),
-        category_name_es: Faker.fake(),
-        category_name_it: Faker.fake(),
-        period_id: Faker.fake(),
-        period_name_de: Faker.fake(),
-        period_name_en: Faker.fake(),
-        period_name_fr: Faker.fake(),
-        period_name_es: Faker.fake(),
-        period_name_it: Faker.fake(),
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -513,13 +437,6 @@ async fn should_update_product_document() {
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: Faker.fake(),
         embedding: None,
-        origin_year_min: None,
-        origin_year: None,
-        origin_year_max: None,
-        authenticity: Default::default(),
-        condition: Default::default(),
-        provenance: Default::default(),
-        restoration: Default::default(),
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
         auction_start: None,
@@ -557,18 +474,6 @@ async fn should_update_product_document() {
         price_sgd: None,
         price_chf: None,
         state: Some(ProductStateDocument::Sold),
-        category_id: Default::default(),
-        period_id: Default::default(),
-        category_name_de: None,
-        category_name_en: None,
-        category_name_fr: None,
-        category_name_es: None,
-        category_name_it: None,
-        period_name_de: None,
-        period_name_en: None,
-        period_name_fr: None,
-        period_name_es: None,
-        period_name_it: None,
         title_de: None,
         title_en: None,
         title_fr: None,
@@ -615,13 +520,6 @@ async fn should_update_product_document() {
         auction_start: None,
         auction_end: None,
         embedding: None,
-        origin_year_min: None,
-        origin_year: None,
-        origin_year_max: None,
-        authenticity: Default::default(),
-        condition: Default::default(),
-        provenance: Default::default(),
-        restoration: Default::default(),
         updated: updated_update_ts,
     };
     let repository = ProductOpenSearchRepositoryImpl::new(client);
@@ -664,18 +562,6 @@ async fn should_search_product_documents() {
         structured_address_country: None,
         structured_address_continent: None,
         geo_address: None,
-        category_id: Faker.fake(),
-        category_name_de: Faker.fake(),
-        category_name_en: Faker.fake(),
-        category_name_fr: Faker.fake(),
-        category_name_es: Faker.fake(),
-        category_name_it: Faker.fake(),
-        period_id: Faker.fake(),
-        period_name_de: Faker.fake(),
-        period_name_en: Faker.fake(),
-        period_name_fr: Faker.fake(),
-        period_name_es: Faker.fake(),
-        period_name_it: Faker.fake(),
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -743,13 +629,6 @@ async fn should_search_product_documents() {
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: Faker.fake(),
         embedding: None,
-        origin_year_min: None,
-        origin_year: None,
-        origin_year_max: None,
-        authenticity: Default::default(),
-        condition: Default::default(),
-        provenance: Default::default(),
-        restoration: Default::default(),
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
         auction_start: None,
@@ -770,8 +649,6 @@ async fn should_search_product_documents() {
         language: Language::De,
         currency: Currency::Eur,
         product_query: Some("Hallo Welt".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -782,11 +659,6 @@ async fn should_search_product_documents() {
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -836,8 +708,6 @@ async fn should_search_product_documents_when_all_arguments_are_given() {
         language: Language::De,
         currency: Currency::Eur,
         product_query: Some("Lorem".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_type_query: Default::default(),
         shop_name_query: HashSet::from_iter(["Wyoming LLC".into()]).into(),
         exclude_shop_name_query: HashSet::from_iter(["Berlin GmbH".into()]).into(),
@@ -854,21 +724,6 @@ async fn should_search_product_documents_when_all_arguments_are_given() {
             ProductState::Available,
             ProductState::Listed,
         ])),
-        origin_year_query: Some(RangeQuery {
-            min: Some((-753).into()),
-            max: Some(2100.into()),
-        }),
-        authenticity_query: AnyOfQuery::from(HashSet::from_iter([
-            Authenticity::Questionable,
-            Authenticity::Reproduction,
-            Authenticity::LaterCopy,
-        ])),
-        condition_query: AnyOfQuery::from(HashSet::from_iter([Condition::Fair, Condition::Poor])),
-        provenance_query: AnyOfQuery::from(HashSet::from_iter([
-            Provenance::Unknown,
-            Provenance::Partial,
-        ])),
-        restoration_query: AnyOfQuery::from(HashSet::from_iter([Restoration::None])),
         created_query: Some(RangeQuery {
             min: Some(datetime!(1000-01-01 0:00 UTC)),
             max: Some(datetime!(3000-01-01 0:00 UTC)),
@@ -927,8 +782,6 @@ async fn should_search_product_documents_when_states_are_given(#[case] states: &
         language: Language::De,
         currency: Currency::Eur,
         product_query: Some("The same title".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -939,11 +792,6 @@ async fn should_search_product_documents_when_states_are_given(#[case] states: &
         geo_address_distance_query: None,
         price_query: None,
         state_query: AnyOfQuery::from(HashSet::from_iter(states.iter().copied())),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -998,8 +846,6 @@ async fn should_search_product_documents_when_no_states_are_given() {
         language: Language::De,
         currency: Currency::Eur,
         product_query: Some("The same title".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -1010,11 +856,6 @@ async fn should_search_product_documents_when_no_states_are_given() {
         geo_address_distance_query: None,
         price_query: None,
         state_query: AnyOfQuery::from(HashSet::new()),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -1052,17 +893,19 @@ async fn should_search_product_documents_when_price_range_is_given(
 ) {
     let cheap_products = fake::vec![ProductDocument; 50]
         .into_iter()
-        .map(|mut product| {
+        .enumerate()
+        .map(|(idx, mut product)| {
             product.title_de = Some("The same title".into());
-            product.price_eur = Some(rand::random_range(150..=1000));
+            product.price_eur = Some(150 + (idx as u64 % 851));
             product
         })
         .collect::<Vec<_>>();
     let expensive_products = fake::vec![ProductDocument; 50]
         .into_iter()
-        .map(|mut product| {
+        .enumerate()
+        .map(|(idx, mut product)| {
             product.title_de = Some("The same title".into());
-            product.price_eur = Some(rand::random_range(1500..=20000));
+            product.price_eur = Some(1500 + (idx as u64 % 18_501));
             product
         })
         .collect::<Vec<_>>();
@@ -1081,8 +924,6 @@ async fn should_search_product_documents_when_price_range_is_given(
         language: Language::De,
         currency: Currency::Eur,
         product_query: Some("The same title".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -1093,11 +934,6 @@ async fn should_search_product_documents_when_price_range_is_given(
         geo_address_distance_query: None,
         price_query: Some(price_query),
         state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -1153,9 +989,10 @@ async fn should_search_product_documents_when_price_range_is_given(
 async fn should_search_product_documents_respecting_paging_when_sorted_by_price() {
     let products = fake::vec![ProductDocument; 1000]
         .into_iter()
-        .map(|mut product| {
+        .enumerate()
+        .map(|(idx, mut product)| {
             product.title_en = Some("The same title".into());
-            product.price_usd = Some(rand::random_range(1500..=20000));
+            product.price_usd = Some(1500 + (idx as u64 % 18_501));
             product
         })
         .collect::<Vec<_>>();
@@ -1173,8 +1010,6 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
         language: Language::En,
         currency: Currency::Usd,
         product_query: Some("The same title".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -1185,11 +1020,6 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -1240,9 +1070,10 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
 async fn should_search_product_documents_respecting_search_after_when_sorted_by_price() {
     let mut expected_products = fake::vec![ProductDocument; 200]
         .into_iter()
-        .map(|mut product| {
+        .enumerate()
+        .map(|(idx, mut product)| {
             product.title_en = Some("The same title".into());
-            product.price_usd = Some(rand::random_range(1500..=20000));
+            product.price_usd = Some(1500 + (idx as u64 % 18_501));
             product
         })
         .collect::<Vec<_>>();
@@ -1269,8 +1100,6 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
         language: Language::En,
         currency: Currency::Usd,
         product_query: Some("The same title".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -1281,11 +1110,6 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -1479,18 +1303,6 @@ async fn should_get_product_document() {
         structured_address_country: None,
         structured_address_continent: None,
         geo_address: None,
-        category_id: Faker.fake(),
-        category_name_de: Faker.fake(),
-        category_name_en: Faker.fake(),
-        category_name_fr: Faker.fake(),
-        category_name_es: Faker.fake(),
-        category_name_it: Faker.fake(),
-        period_id: Faker.fake(),
-        period_name_de: Faker.fake(),
-        period_name_en: Faker.fake(),
-        period_name_fr: Faker.fake(),
-        period_name_es: Faker.fake(),
-        period_name_it: Faker.fake(),
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -1558,13 +1370,6 @@ async fn should_get_product_document() {
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: Faker.fake(),
         embedding: None,
-        origin_year_min: None,
-        origin_year: None,
-        origin_year_max: None,
-        authenticity: Default::default(),
-        condition: Default::default(),
-        provenance: Default::default(),
-        restoration: Default::default(),
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
         auction_start: None,
@@ -2380,1000 +2185,6 @@ async fn should_return_k_nearest_neighbors() {
     assert!(actual.hits.hits.len() > 1);
 }
 
-#[localstack_test(services = [OpenSearch()])]
-async fn should_search_product_documents_when_exact_year_is_given_for_stored_exact_year() {
-    let civilians = fake::vec![ProductDocument; 50]
-        .into_iter()
-        .map(|mut product| {
-            let year = rand::random_range(1830..=1835).into();
-            product.title_de = Some("The same title".into());
-            product.origin_year = Some(year);
-            product.origin_year_min = Some(year);
-            product.origin_year_max = Some(year);
-            product
-        })
-        .collect::<Vec<_>>();
-    let expected = fake::vec![ProductDocument; 42]
-        .into_iter()
-        .map(|mut product| {
-            let year = 1836.into();
-            product.title_de = Some("The same title".into());
-            product.origin_year = Some(year);
-            product.origin_year_min = Some(year);
-            product.origin_year_max = Some(year);
-            product
-        })
-        .collect::<Vec<_>>();
-    let products = [civilians, expected.clone()].concat();
-    let client = get_opensearch_client().await;
-    let repository = ProductOpenSearchRepositoryImpl::new(client);
-    let response = repository
-        .create_product_documents(products.clone())
-        .await
-        .unwrap();
-    assert!(!response.errors);
-    refresh_index("products").await;
-    tokio::time::sleep(Duration::from_millis(5000)).await;
-
-    let search_filter = ProductSearch {
-        language: Language::De,
-        currency: Currency::Eur,
-        product_query: Some("The same title".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
-        shop_name_query: Default::default(),
-        exclude_shop_name_query: Default::default(),
-        seller_name_query: Default::default(),
-        exclude_seller_name_query: Default::default(),
-        shop_type_query: Default::default(),
-        country_query: Default::default(),
-        continent_query: Default::default(),
-        geo_address_distance_query: None,
-        price_query: None,
-        state_query: Default::default(),
-        origin_year_query: Some(RangeQuery {
-            min: Some(1836.into()),
-            max: Some(1836.into()),
-        }),
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
-        created_query: None,
-        updated_query: None,
-        auction_start_query: None,
-        auction_end_query: None,
-        shop_slug_id_query: Default::default(),
-        exclude_shop_slug_id_query: Default::default(),
-        seller_slug_id_query: Default::default(),
-        exclude_seller_slug_id_query: Default::default(),
-    };
-    let response = repository
-        .search_product_documents(
-            &search_filter,
-            &Sort {
-                sort: SortProductField::Score,
-                order: SortOrder::Desc,
-            },
-            &Some(Cursor {
-                size: 100,
-                search_after: None,
-            }),
-        )
-        .await
-        .unwrap();
-    let actual_products = response
-        .hits
-        .hits
-        .into_iter()
-        .map(|hit| hit.source)
-        .collect::<Vec<_>>();
-
-    assert_eq!(expected.len(), actual_products.len());
-    assert!(
-        actual_products
-            .iter()
-            .all(|product| product.origin_year.unwrap() == Year::from(1836))
-    );
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_search_product_documents_when_only_min_year_is_given_for_stored_exact_year() {
-    let civilians = fake::vec![ProductDocument; 50]
-        .into_iter()
-        .map(|mut product| {
-            let year = rand::random_range(1830..=1835).into();
-            product.title_de = Some("The same title".into());
-            product.origin_year = Some(year);
-            product.origin_year_min = Some(year);
-            product.origin_year_max = Some(year);
-            product
-        })
-        .collect::<Vec<_>>();
-    let expected = fake::vec![ProductDocument; 42]
-        .into_iter()
-        .map(|mut product| {
-            let year = 1836.into();
-            product.title_de = Some("The same title".into());
-            product.origin_year = Some(year);
-            product.origin_year_min = Some(year);
-            product.origin_year_max = Some(year);
-            product
-        })
-        .collect::<Vec<_>>();
-    let products = [civilians, expected.clone()].concat();
-    let client = get_opensearch_client().await;
-    let repository = ProductOpenSearchRepositoryImpl::new(client);
-    let response = repository
-        .create_product_documents(products.clone())
-        .await
-        .unwrap();
-    assert!(!response.errors);
-    refresh_index("products").await;
-    tokio::time::sleep(Duration::from_millis(5000)).await;
-
-    let search_filter = ProductSearch {
-        language: Language::De,
-        currency: Currency::Eur,
-        product_query: Some("The same title".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
-        shop_name_query: Default::default(),
-        exclude_shop_name_query: Default::default(),
-        seller_name_query: Default::default(),
-        exclude_seller_name_query: Default::default(),
-        shop_type_query: Default::default(),
-        country_query: Default::default(),
-        continent_query: Default::default(),
-        geo_address_distance_query: None,
-        price_query: None,
-        state_query: Default::default(),
-        origin_year_query: Some(RangeQuery {
-            min: Some(1836.into()),
-            max: None,
-        }),
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
-        created_query: None,
-        updated_query: None,
-        auction_start_query: None,
-        auction_end_query: None,
-        shop_slug_id_query: Default::default(),
-        exclude_shop_slug_id_query: Default::default(),
-        seller_slug_id_query: Default::default(),
-        exclude_seller_slug_id_query: Default::default(),
-    };
-    let response = repository
-        .search_product_documents(
-            &search_filter,
-            &Sort {
-                sort: SortProductField::Score,
-                order: SortOrder::Desc,
-            },
-            &Some(Cursor {
-                size: 100,
-                search_after: None,
-            }),
-        )
-        .await
-        .unwrap();
-    let actual_products = response
-        .hits
-        .hits
-        .into_iter()
-        .map(|hit| hit.source)
-        .collect::<Vec<_>>();
-
-    assert_eq!(expected.len(), actual_products.len());
-    assert!(
-        actual_products
-            .iter()
-            .all(|product| product.origin_year.unwrap() >= Year::from(1836))
-    );
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_search_product_documents_when_only_max_year_is_given_for_stored_exact_year() {
-    let civilians = fake::vec![ProductDocument; 50]
-        .into_iter()
-        .map(|mut product| {
-            let year = rand::random_range(1836..=1840).into();
-            product.title_de = Some("The same title".into());
-            product.origin_year = Some(year);
-            product.origin_year_min = Some(year);
-            product.origin_year_max = Some(year);
-            product
-        })
-        .collect::<Vec<_>>();
-    let expected = fake::vec![ProductDocument; 42]
-        .into_iter()
-        .map(|mut product| {
-            let year = rand::random_range(1830..=1835).into();
-            product.title_de = Some("The same title".into());
-            product.origin_year = Some(year);
-            product.origin_year_min = Some(year);
-            product.origin_year_max = Some(year);
-            product
-        })
-        .collect::<Vec<_>>();
-    let products = [civilians, expected.clone()].concat();
-    let client = get_opensearch_client().await;
-    let repository = ProductOpenSearchRepositoryImpl::new(client);
-    let response = repository
-        .create_product_documents(products.clone())
-        .await
-        .unwrap();
-    assert!(!response.errors);
-    refresh_index("products").await;
-    tokio::time::sleep(Duration::from_millis(5000)).await;
-
-    let search_filter = ProductSearch {
-        language: Language::De,
-        currency: Currency::Eur,
-        product_query: Some("The same title".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
-        shop_name_query: Default::default(),
-        exclude_shop_name_query: Default::default(),
-        seller_name_query: Default::default(),
-        exclude_seller_name_query: Default::default(),
-        shop_type_query: Default::default(),
-        country_query: Default::default(),
-        continent_query: Default::default(),
-        geo_address_distance_query: None,
-        price_query: None,
-        state_query: Default::default(),
-        origin_year_query: Some(RangeQuery {
-            min: None,
-            max: Some(1835.into()),
-        }),
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
-        created_query: None,
-        updated_query: None,
-        auction_start_query: None,
-        auction_end_query: None,
-        shop_slug_id_query: Default::default(),
-        exclude_shop_slug_id_query: Default::default(),
-        seller_slug_id_query: Default::default(),
-        exclude_seller_slug_id_query: Default::default(),
-    };
-    let response = repository
-        .search_product_documents(
-            &search_filter,
-            &Sort {
-                sort: SortProductField::Score,
-                order: SortOrder::Desc,
-            },
-            &Some(Cursor {
-                size: 100,
-                search_after: None,
-            }),
-        )
-        .await
-        .unwrap();
-    let actual_products = response
-        .hits
-        .hits
-        .into_iter()
-        .map(|hit| hit.source)
-        .collect::<Vec<_>>();
-
-    assert_eq!(expected.len(), actual_products.len());
-    assert!(
-        actual_products
-            .iter()
-            .all(|product| product.origin_year.unwrap() <= Year::from(1835))
-    );
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_search_product_documents_when_min_and_max_year_is_given_for_stored_exact_year() {
-    let civilians = fake::vec![ProductDocument; 50]
-        .into_iter()
-        .map(|mut product| {
-            let year = rand::random_range(1830..=1833).into();
-            product.title_de = Some("The same title".into());
-            product.origin_year = Some(year);
-            product.origin_year_min = Some(year);
-            product.origin_year_max = Some(year);
-            product
-        })
-        .collect::<Vec<_>>();
-    let expected = fake::vec![ProductDocument; 42]
-        .into_iter()
-        .map(|mut product| {
-            let year = rand::random_range(1836..=1840).into();
-            product.title_de = Some("The same title".into());
-            product.origin_year = Some(year);
-            product.origin_year_min = Some(year);
-            product.origin_year_max = Some(year);
-            product
-        })
-        .collect::<Vec<_>>();
-    let products = [civilians, expected.clone()].concat();
-    let client = get_opensearch_client().await;
-    let repository = ProductOpenSearchRepositoryImpl::new(client);
-    let response = repository
-        .create_product_documents(products.clone())
-        .await
-        .unwrap();
-    assert!(!response.errors);
-    refresh_index("products").await;
-    tokio::time::sleep(Duration::from_millis(5000)).await;
-
-    let search_filter = ProductSearch {
-        language: Language::De,
-        currency: Currency::Eur,
-        product_query: Some("The same title".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
-        shop_name_query: Default::default(),
-        exclude_shop_name_query: Default::default(),
-        seller_name_query: Default::default(),
-        exclude_seller_name_query: Default::default(),
-        shop_type_query: Default::default(),
-        country_query: Default::default(),
-        continent_query: Default::default(),
-        geo_address_distance_query: None,
-        price_query: None,
-        state_query: Default::default(),
-        origin_year_query: Some(RangeQuery {
-            min: Some(1834.into()),
-            max: Some(1843.into()),
-        }),
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
-        created_query: None,
-        updated_query: None,
-        auction_start_query: None,
-        auction_end_query: None,
-        shop_slug_id_query: Default::default(),
-        exclude_shop_slug_id_query: Default::default(),
-        seller_slug_id_query: Default::default(),
-        exclude_seller_slug_id_query: Default::default(),
-    };
-    let response = repository
-        .search_product_documents(
-            &search_filter,
-            &Sort {
-                sort: SortProductField::Score,
-                order: SortOrder::Desc,
-            },
-            &Some(Cursor {
-                size: 100,
-                search_after: None,
-            }),
-        )
-        .await
-        .unwrap();
-    let actual_products = response
-        .hits
-        .hits
-        .into_iter()
-        .map(|hit| hit.source)
-        .collect::<Vec<_>>();
-
-    assert_eq!(expected.len(), actual_products.len());
-    assert!(
-        actual_products
-            .iter()
-            .all(|product| product.origin_year.unwrap() >= Year::from(1834)
-                && product.origin_year.unwrap() <= Year::from(1843))
-    );
-}
-
-// ------------------------
-#[localstack_test(services = [OpenSearch()])]
-async fn should_search_product_documents_when_only_min_year_is_given_for_stored_year_range() {
-    let civilians = fake::vec![ProductDocument; 50]
-        .into_iter()
-        .map(|mut product| {
-            let year1 = rand::random_range(1830..=1832).into();
-            let year2 = rand::random_range(1833..=1835).into();
-            product.title_de = Some("The same title".into());
-            product.origin_year_min = Some(year1);
-            product.origin_year_max = Some(year2);
-            product
-        })
-        .collect::<Vec<_>>();
-    let expected = fake::vec![ProductDocument; 42]
-        .into_iter()
-        .map(|mut product| {
-            let year1 = rand::random_range(1836..=1840).into();
-            let year2 = rand::random_range(1841..=1847).into();
-            product.title_de = Some("The same title".into());
-            product.origin_year_min = Some(year1);
-            product.origin_year_max = Some(year2);
-            product
-        })
-        .collect::<Vec<_>>();
-    let products = [civilians, expected.clone()].concat();
-    let client = get_opensearch_client().await;
-    let repository = ProductOpenSearchRepositoryImpl::new(client);
-    let response = repository
-        .create_product_documents(products.clone())
-        .await
-        .unwrap();
-    assert!(!response.errors);
-    refresh_index("products").await;
-    tokio::time::sleep(Duration::from_millis(5000)).await;
-
-    let search_filter = ProductSearch {
-        language: Language::De,
-        currency: Currency::Eur,
-        product_query: Some("The same title".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
-        shop_name_query: Default::default(),
-        exclude_shop_name_query: Default::default(),
-        seller_name_query: Default::default(),
-        exclude_seller_name_query: Default::default(),
-        shop_type_query: Default::default(),
-        country_query: Default::default(),
-        continent_query: Default::default(),
-        geo_address_distance_query: None,
-        price_query: None,
-        state_query: Default::default(),
-        origin_year_query: Some(RangeQuery {
-            min: Some(1836.into()),
-            max: None,
-        }),
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
-        created_query: None,
-        updated_query: None,
-        auction_start_query: None,
-        auction_end_query: None,
-        shop_slug_id_query: Default::default(),
-        exclude_shop_slug_id_query: Default::default(),
-        seller_slug_id_query: Default::default(),
-        exclude_seller_slug_id_query: Default::default(),
-    };
-    let response = repository
-        .search_product_documents(
-            &search_filter,
-            &Sort {
-                sort: SortProductField::Score,
-                order: SortOrder::Desc,
-            },
-            &Some(Cursor {
-                size: 100,
-                search_after: None,
-            }),
-        )
-        .await
-        .unwrap();
-    let actual_products = response
-        .hits
-        .hits
-        .into_iter()
-        .map(|hit| hit.source)
-        .collect::<Vec<_>>();
-
-    assert_eq!(expected.len(), actual_products.len());
-    assert!(
-        actual_products
-            .iter()
-            .all(|product| product.origin_year_min.unwrap() >= Year::from(1836))
-    );
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_search_product_documents_when_only_max_year_is_given_for_stored_year_range() {
-    let civilians = fake::vec![ProductDocument; 50]
-        .into_iter()
-        .map(|mut product| {
-            let year1 = rand::random_range(1836..=1837).into();
-            let year2 = rand::random_range(1838..=1840).into();
-            product.title_de = Some("The same title".into());
-            product.origin_year_min = Some(year1);
-            product.origin_year_max = Some(year2);
-            product
-        })
-        .collect::<Vec<_>>();
-    let expected = fake::vec![ProductDocument; 42]
-        .into_iter()
-        .map(|mut product| {
-            let year1 = rand::random_range(1830..=1833).into();
-            let year2 = rand::random_range(1834..=1835).into();
-            product.title_de = Some("The same title".into());
-            product.origin_year_min = Some(year1);
-            product.origin_year_max = Some(year2);
-            product
-        })
-        .collect::<Vec<_>>();
-    let products = [civilians, expected.clone()].concat();
-    let client = get_opensearch_client().await;
-    let repository = ProductOpenSearchRepositoryImpl::new(client);
-    let response = repository
-        .create_product_documents(products.clone())
-        .await
-        .unwrap();
-    assert!(!response.errors);
-    refresh_index("products").await;
-    tokio::time::sleep(Duration::from_millis(5000)).await;
-
-    let search_filter = ProductSearch {
-        language: Language::De,
-        currency: Currency::Eur,
-        product_query: Some("The same title".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
-        shop_name_query: Default::default(),
-        exclude_shop_name_query: Default::default(),
-        seller_name_query: Default::default(),
-        exclude_seller_name_query: Default::default(),
-        shop_type_query: Default::default(),
-        country_query: Default::default(),
-        continent_query: Default::default(),
-        geo_address_distance_query: None,
-        price_query: None,
-        state_query: Default::default(),
-        origin_year_query: Some(RangeQuery {
-            min: None,
-            max: Some(1835.into()),
-        }),
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
-        created_query: None,
-        updated_query: None,
-        auction_start_query: None,
-        auction_end_query: None,
-        shop_slug_id_query: Default::default(),
-        exclude_shop_slug_id_query: Default::default(),
-        seller_slug_id_query: Default::default(),
-        exclude_seller_slug_id_query: Default::default(),
-    };
-    let response = repository
-        .search_product_documents(
-            &search_filter,
-            &Sort {
-                sort: SortProductField::Score,
-                order: SortOrder::Desc,
-            },
-            &Some(Cursor {
-                size: 100,
-                search_after: None,
-            }),
-        )
-        .await
-        .unwrap();
-    let actual_products = response
-        .hits
-        .hits
-        .into_iter()
-        .map(|hit| hit.source)
-        .collect::<Vec<_>>();
-
-    assert_eq!(expected.len(), actual_products.len());
-    assert!(
-        actual_products
-            .iter()
-            .all(|product| product.origin_year_max.unwrap() <= Year::from(1835))
-    );
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_search_product_documents_when_min_and_max_year_is_given_for_stored_year_range() {
-    let civilians = fake::vec![ProductDocument; 50]
-        .into_iter()
-        .map(|mut product| {
-            let year1 = rand::random_range(1830..=1831).into();
-            let year2 = rand::random_range(1832..=1833).into();
-            product.title_de = Some("The same title".into());
-            product.origin_year_min = Some(year1);
-            product.origin_year_max = Some(year2);
-            product
-        })
-        .collect::<Vec<_>>();
-    let expected = fake::vec![ProductDocument; 42]
-        .into_iter()
-        .map(|mut product| {
-            let year1 = rand::random_range(1836..=1838).into();
-            let year2 = rand::random_range(1839..=1840).into();
-            product.title_de = Some("The same title".into());
-            product.origin_year_min = Some(year1);
-            product.origin_year_max = Some(year2);
-            product
-        })
-        .collect::<Vec<_>>();
-    let products = [civilians, expected.clone()].concat();
-    let client = get_opensearch_client().await;
-    let repository = ProductOpenSearchRepositoryImpl::new(client);
-    let response = repository
-        .create_product_documents(products.clone())
-        .await
-        .unwrap();
-    assert!(!response.errors);
-    refresh_index("products").await;
-    tokio::time::sleep(Duration::from_millis(5000)).await;
-
-    let search_filter = ProductSearch {
-        language: Language::De,
-        currency: Currency::Eur,
-        product_query: Some("The same title".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
-        shop_name_query: Default::default(),
-        exclude_shop_name_query: Default::default(),
-        seller_name_query: Default::default(),
-        exclude_seller_name_query: Default::default(),
-        shop_type_query: Default::default(),
-        country_query: Default::default(),
-        continent_query: Default::default(),
-        geo_address_distance_query: None,
-        price_query: None,
-        state_query: Default::default(),
-        origin_year_query: Some(RangeQuery {
-            min: Some(1835.into()),
-            max: Some(1845.into()),
-        }),
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
-        created_query: None,
-        updated_query: None,
-        auction_start_query: None,
-        auction_end_query: None,
-        shop_slug_id_query: Default::default(),
-        exclude_shop_slug_id_query: Default::default(),
-        seller_slug_id_query: Default::default(),
-        exclude_seller_slug_id_query: Default::default(),
-    };
-    let response = repository
-        .search_product_documents(
-            &search_filter,
-            &Sort {
-                sort: SortProductField::Score,
-                order: SortOrder::Desc,
-            },
-            &Some(Cursor {
-                size: 100,
-                search_after: None,
-            }),
-        )
-        .await
-        .unwrap();
-    let actual_products = response
-        .hits
-        .hits
-        .into_iter()
-        .map(|hit| hit.source)
-        .collect::<Vec<_>>();
-
-    assert_eq!(expected.len(), actual_products.len());
-    assert!(
-        actual_products.iter().all(
-            |product| product.origin_year_min.unwrap() >= Year::from(1834)
-                && product.origin_year_max.unwrap() <= Year::from(1843)
-        )
-    );
-}
-
-#[rstest::rstest]
-#[trace]
-#[test_attr(apply(test))]
-#[case(&[Authenticity::Original])]
-#[case(&[Authenticity::Original, Authenticity::LaterCopy])]
-#[localstack_test(services = [OpenSearch()])]
-async fn should_search_product_documents_when_authenticity_filter_is_given(
-    #[case] authenticities: &[Authenticity],
-) {
-    let products = fake::vec![ProductDocument; 3000]
-        .into_iter()
-        .map(|mut item| {
-            item.title_de = Some("The same title".into());
-            item
-        })
-        .collect::<Vec<_>>();
-    let client = get_opensearch_client().await;
-    let repository = ProductOpenSearchRepositoryImpl::new(client);
-    let response = repository
-        .create_product_documents(products.clone())
-        .await
-        .unwrap();
-    assert!(!response.errors);
-    refresh_index("products").await;
-    tokio::time::sleep(Duration::from_millis(3000)).await;
-
-    let search_filter = ProductSearch {
-        language: Language::De,
-        currency: Currency::Eur,
-        product_query: Some("The same title".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
-        shop_name_query: Default::default(),
-        exclude_shop_name_query: Default::default(),
-        seller_name_query: Default::default(),
-        exclude_seller_name_query: Default::default(),
-        shop_type_query: Default::default(),
-        country_query: Default::default(),
-        continent_query: Default::default(),
-        geo_address_distance_query: None,
-        price_query: None,
-        state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: AnyOfQuery::from(HashSet::from_iter(authenticities.iter().copied())),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
-        created_query: None,
-        updated_query: None,
-        auction_start_query: None,
-        auction_end_query: None,
-        shop_slug_id_query: Default::default(),
-        exclude_shop_slug_id_query: Default::default(),
-        seller_slug_id_query: Default::default(),
-        exclude_seller_slug_id_query: Default::default(),
-    };
-    let response = repository
-        .search_product_documents(
-            &search_filter,
-            &Sort {
-                sort: SortProductField::Score,
-                order: SortOrder::Desc,
-            },
-            &None,
-        )
-        .await
-        .unwrap();
-
-    assert!(response.hits.total.value > 0);
-    assert!(
-        response
-            .hits
-            .hits
-            .iter()
-            .all(|hit| { authenticities.contains(&Authenticity::from(hit.source.authenticity)) })
-    );
-}
-
-#[rstest::rstest]
-#[trace]
-#[test_attr(apply(test))]
-#[case(&[Condition::Excellent])]
-#[case(&[Condition::Good, Condition::Fair, Condition::Poor])]
-#[localstack_test(services = [OpenSearch()])]
-async fn should_search_product_documents_when_condition_filter_is_given(
-    #[case] conditions: &[Condition],
-) {
-    let products = fake::vec![ProductDocument; 3000]
-        .into_iter()
-        .map(|mut item| {
-            item.title_de = Some("The same title".into());
-            item
-        })
-        .collect::<Vec<_>>();
-    let client = get_opensearch_client().await;
-    let repository = ProductOpenSearchRepositoryImpl::new(client);
-    let response = repository
-        .create_product_documents(products.clone())
-        .await
-        .unwrap();
-    assert!(!response.errors);
-    refresh_index("products").await;
-    tokio::time::sleep(Duration::from_millis(3000)).await;
-
-    let search_filter = ProductSearch {
-        language: Language::De,
-        currency: Currency::Eur,
-        product_query: Some("The same title".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
-        shop_name_query: Default::default(),
-        exclude_shop_name_query: Default::default(),
-        seller_name_query: Default::default(),
-        exclude_seller_name_query: Default::default(),
-        shop_type_query: Default::default(),
-        country_query: Default::default(),
-        continent_query: Default::default(),
-        geo_address_distance_query: None,
-        price_query: None,
-        state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: AnyOfQuery::from(HashSet::from_iter(conditions.iter().copied())),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
-        created_query: None,
-        updated_query: None,
-        auction_start_query: None,
-        auction_end_query: None,
-        shop_slug_id_query: Default::default(),
-        exclude_shop_slug_id_query: Default::default(),
-        seller_slug_id_query: Default::default(),
-        exclude_seller_slug_id_query: Default::default(),
-    };
-    let response = repository
-        .search_product_documents(
-            &search_filter,
-            &Sort {
-                sort: SortProductField::Score,
-                order: SortOrder::Desc,
-            },
-            &None,
-        )
-        .await
-        .unwrap();
-
-    assert!(response.hits.total.value > 0);
-    assert!(
-        response
-            .hits
-            .hits
-            .iter()
-            .all(|hit| { conditions.contains(&Condition::from(hit.source.condition)) })
-    );
-}
-
-#[rstest::rstest]
-#[trace]
-#[test_attr(apply(test))]
-#[case(&[Provenance::Complete])]
-#[case(&[Provenance::Claimed, Provenance::None, Provenance::Unknown])]
-#[localstack_test(services = [OpenSearch()])]
-async fn should_search_product_documents_when_provenance_filter_is_given(
-    #[case] provenances: &[Provenance],
-) {
-    let products = fake::vec![ProductDocument; 3000]
-        .into_iter()
-        .map(|mut item| {
-            item.title_de = Some("The same title".into());
-            item
-        })
-        .collect::<Vec<_>>();
-    let client = get_opensearch_client().await;
-    let repository = ProductOpenSearchRepositoryImpl::new(client);
-    let response = repository
-        .create_product_documents(products.clone())
-        .await
-        .unwrap();
-    assert!(!response.errors);
-    refresh_index("products").await;
-    tokio::time::sleep(Duration::from_millis(3000)).await;
-
-    let search_filter = ProductSearch {
-        language: Language::De,
-        currency: Currency::Eur,
-        product_query: Some("The same title".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
-        shop_name_query: Default::default(),
-        exclude_shop_name_query: Default::default(),
-        seller_name_query: Default::default(),
-        exclude_seller_name_query: Default::default(),
-        shop_type_query: Default::default(),
-        country_query: Default::default(),
-        continent_query: Default::default(),
-        geo_address_distance_query: None,
-        price_query: None,
-        state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: AnyOfQuery::from(HashSet::from_iter(provenances.iter().copied())),
-        restoration_query: Default::default(),
-        created_query: None,
-        updated_query: None,
-        auction_start_query: None,
-        auction_end_query: None,
-        shop_slug_id_query: Default::default(),
-        exclude_shop_slug_id_query: Default::default(),
-        seller_slug_id_query: Default::default(),
-        exclude_seller_slug_id_query: Default::default(),
-    };
-    let response = repository
-        .search_product_documents(
-            &search_filter,
-            &Sort {
-                sort: SortProductField::Score,
-                order: SortOrder::Desc,
-            },
-            &None,
-        )
-        .await
-        .unwrap();
-
-    assert!(response.hits.total.value > 0);
-    assert!(
-        response
-            .hits
-            .hits
-            .iter()
-            .all(|hit| { provenances.contains(&Provenance::from(hit.source.provenance)) })
-    );
-}
-
-#[rstest::rstest]
-#[trace]
-#[test_attr(apply(test))]
-#[case(&[Restoration::None])]
-#[case(&[Restoration::Major, Restoration::Unknown])]
-#[localstack_test(services = [OpenSearch()])]
-async fn should_search_product_documents_when_restoration_filter_is_given(
-    #[case] restorations: &[Restoration],
-) {
-    let products = fake::vec![ProductDocument; 3000]
-        .into_iter()
-        .map(|mut item| {
-            item.title_de = Some("The same title".into());
-            item
-        })
-        .collect::<Vec<_>>();
-    let client = get_opensearch_client().await;
-    let repository = ProductOpenSearchRepositoryImpl::new(client);
-    let response = repository
-        .create_product_documents(products.clone())
-        .await
-        .unwrap();
-    assert!(!response.errors);
-    refresh_index("products").await;
-    tokio::time::sleep(Duration::from_millis(3000)).await;
-
-    let search_filter = ProductSearch {
-        language: Language::De,
-        currency: Currency::Eur,
-        product_query: Some("The same title".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
-        shop_name_query: Default::default(),
-        exclude_shop_name_query: Default::default(),
-        seller_name_query: Default::default(),
-        exclude_seller_name_query: Default::default(),
-        shop_type_query: Default::default(),
-        country_query: Default::default(),
-        continent_query: Default::default(),
-        geo_address_distance_query: None,
-        price_query: None,
-        state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: AnyOfQuery::from(HashSet::from_iter(restorations.iter().copied())),
-        created_query: None,
-        updated_query: None,
-        auction_start_query: None,
-        auction_end_query: None,
-        shop_slug_id_query: Default::default(),
-        exclude_shop_slug_id_query: Default::default(),
-        seller_slug_id_query: Default::default(),
-        exclude_seller_slug_id_query: Default::default(),
-    };
-    let response = repository
-        .search_product_documents(
-            &search_filter,
-            &Sort {
-                sort: SortProductField::Score,
-                order: SortOrder::Desc,
-            },
-            &None,
-        )
-        .await
-        .unwrap();
-
-    assert!(response.hits.total.value > 0);
-    assert!(
-        response
-            .hits
-            .hits
-            .iter()
-            .all(|hit| { restorations.contains(&Restoration::from(hit.source.restoration)) })
-    );
-}
-
 #[rstest::rstest]
 #[trace]
 #[test_attr(apply(test))]
@@ -3404,8 +2215,6 @@ async fn should_search_product_documents_when_shop_types_are_given(
         language: Language::De,
         currency: Currency::Eur,
         product_query: Some("Test product for shop type filter".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -3416,11 +2225,6 @@ async fn should_search_product_documents_when_shop_types_are_given(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -3450,184 +2254,6 @@ async fn should_search_product_documents_when_shop_types_are_given(
             .iter()
             .all(|hit| { shop_types.contains(&ShopType::from(hit.source.shop_type)) })
     );
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_search_product_documents_when_category_id_is_given() {
-    let category_id = CategoryId::from("furniture");
-    let other_category_id = CategoryId::from("decorative-objects");
-    let products_with_category = fake::vec![ProductDocument; 1500]
-        .into_iter()
-        .map(|mut item| {
-            item.title_de = Some("Test product for category filter".into());
-            item.category_id = Some(category_id.clone());
-            item
-        })
-        .collect::<Vec<_>>();
-    let products_with_other_category = fake::vec![ProductDocument; 1500]
-        .into_iter()
-        .map(|mut item| {
-            item.title_de = Some("Test product for category filter".into());
-            item.category_id = Some(other_category_id.clone());
-            item
-        })
-        .collect::<Vec<_>>();
-    let products = products_with_category
-        .into_iter()
-        .chain(products_with_other_category)
-        .collect::<Vec<_>>();
-    let client = get_opensearch_client().await;
-    let repository = ProductOpenSearchRepositoryImpl::new(client);
-    let response = repository
-        .create_product_documents(products.clone())
-        .await
-        .unwrap();
-    assert!(!response.errors);
-    refresh_index("products").await;
-    tokio::time::sleep(Duration::from_millis(3000)).await;
-
-    let search_filter = ProductSearch {
-        language: Language::De,
-        currency: Currency::Eur,
-        product_query: Some("Test product for category filter".try_into().unwrap()),
-        category_id: HashSet::from_iter([category_id.clone(), other_category_id.clone()]).into(),
-        period_id: Default::default(),
-        shop_name_query: Default::default(),
-        exclude_shop_name_query: Default::default(),
-        seller_name_query: Default::default(),
-        exclude_seller_name_query: Default::default(),
-        shop_type_query: Default::default(),
-        country_query: Default::default(),
-        continent_query: Default::default(),
-        geo_address_distance_query: None,
-        price_query: None,
-        state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
-        created_query: None,
-        updated_query: None,
-        auction_start_query: None,
-        auction_end_query: None,
-        shop_slug_id_query: Default::default(),
-        exclude_shop_slug_id_query: Default::default(),
-        seller_slug_id_query: Default::default(),
-        exclude_seller_slug_id_query: Default::default(),
-    };
-    let response = repository
-        .search_product_documents(
-            &search_filter,
-            &Sort {
-                sort: SortProductField::Score,
-                order: SortOrder::Desc,
-            },
-            &None,
-        )
-        .await
-        .unwrap();
-
-    let expected_category_ids = [category_id, other_category_id]
-        .into_iter()
-        .collect::<HashSet<_>>();
-
-    assert!(response.hits.total.value > 0);
-    assert!(response.hits.hits.iter().all(|hit| {
-        hit.source
-            .category_id
-            .as_ref()
-            .is_some_and(|value| expected_category_ids.contains(value))
-    }));
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_search_product_documents_when_period_id_is_given() {
-    let period_id = PeriodId::from("furniture");
-    let other_period_id = PeriodId::from("decorative-objects");
-    let products_with_category = fake::vec![ProductDocument; 1500]
-        .into_iter()
-        .map(|mut item| {
-            item.title_de = Some("Test product for category filter".into());
-            item.period_id = Some(period_id.clone());
-            item
-        })
-        .collect::<Vec<_>>();
-    let products_with_other_category = fake::vec![ProductDocument; 1500]
-        .into_iter()
-        .map(|mut item| {
-            item.title_de = Some("Test product for category filter".into());
-            item.period_id = Some(other_period_id.clone());
-            item
-        })
-        .collect::<Vec<_>>();
-    let products = products_with_category
-        .into_iter()
-        .chain(products_with_other_category)
-        .collect::<Vec<_>>();
-    let client = get_opensearch_client().await;
-    let repository = ProductOpenSearchRepositoryImpl::new(client);
-    let response = repository
-        .create_product_documents(products.clone())
-        .await
-        .unwrap();
-    assert!(!response.errors);
-    refresh_index("products").await;
-    tokio::time::sleep(Duration::from_millis(3000)).await;
-
-    let search_filter = ProductSearch {
-        language: Language::De,
-        currency: Currency::Eur,
-        product_query: Some("Test product for category filter".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: HashSet::from_iter([period_id.clone(), other_period_id.clone()]).into(),
-        shop_name_query: Default::default(),
-        exclude_shop_name_query: Default::default(),
-        seller_name_query: Default::default(),
-        exclude_seller_name_query: Default::default(),
-        shop_type_query: Default::default(),
-        country_query: Default::default(),
-        continent_query: Default::default(),
-        geo_address_distance_query: None,
-        price_query: None,
-        state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
-        created_query: None,
-        updated_query: None,
-        auction_start_query: None,
-        auction_end_query: None,
-        shop_slug_id_query: Default::default(),
-        exclude_shop_slug_id_query: Default::default(),
-        seller_slug_id_query: Default::default(),
-        exclude_seller_slug_id_query: Default::default(),
-    };
-    let response = repository
-        .search_product_documents(
-            &search_filter,
-            &Sort {
-                sort: SortProductField::Score,
-                order: SortOrder::Desc,
-            },
-            &None,
-        )
-        .await
-        .unwrap();
-
-    let expected_period_ids = [period_id, other_period_id]
-        .into_iter()
-        .collect::<HashSet<_>>();
-
-    assert!(response.hits.total.value > 0);
-    assert!(response.hits.hits.iter().all(|hit| {
-        hit.source
-            .period_id
-            .as_ref()
-            .is_some_and(|value| expected_period_ids.contains(value))
-    }));
 }
 
 #[rstest::rstest]
@@ -3674,8 +2300,6 @@ async fn should_search_product_documents_when_shop_names_are_given_for_keyword_f
         language: Language::De,
         currency: Currency::Eur,
         product_query: Some("Test product for shop name filter".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: AnyOfQuery::from(HashSet::from_iter(
             shop_names.iter().map(|name| name.to_string().into()),
         )),
@@ -3688,11 +2312,6 @@ async fn should_search_product_documents_when_shop_names_are_given_for_keyword_f
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -3769,8 +2388,6 @@ async fn should_search_product_documents_when_excluded_shop_names_are_given(
         language: Language::De,
         currency: Currency::Eur,
         product_query: Some("Test product for shop name filter".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: AnyOfQuery::from(HashSet::from_iter(
             exclude_shop_names
@@ -3785,11 +2402,6 @@ async fn should_search_product_documents_when_excluded_shop_names_are_given(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -3866,8 +2478,6 @@ async fn should_search_product_documents_when_seller_names_are_given_for_keyword
         language: Language::De,
         currency: Currency::Eur,
         product_query: Some("Test product for seller name filter".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: AnyOfQuery::from(HashSet::from_iter(
@@ -3880,11 +2490,6 @@ async fn should_search_product_documents_when_seller_names_are_given_for_keyword
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -3965,8 +2570,6 @@ async fn should_search_product_documents_when_excluded_seller_names_are_given(
                 .try_into()
                 .unwrap(),
         ),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -3981,11 +2584,6 @@ async fn should_search_product_documents_when_excluded_seller_names_are_given(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -4066,8 +2664,6 @@ async fn should_search_product_documents_when_shop_slug_ids_are_given(
         language: Language::De,
         currency: Currency::Eur,
         product_query: Some("Test product for shop slug id filter".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -4084,11 +2680,6 @@ async fn should_search_product_documents_when_shop_slug_ids_are_given(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -4169,8 +2760,6 @@ async fn should_search_product_documents_when_excluded_shop_slug_ids_are_given(
                 .try_into()
                 .unwrap(),
         ),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -4187,11 +2776,6 @@ async fn should_search_product_documents_when_excluded_shop_slug_ids_are_given(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -4269,8 +2853,6 @@ async fn should_search_product_documents_when_seller_slug_ids_are_given(
         language: Language::De,
         currency: Currency::Eur,
         product_query: Some("Test product for seller slug id filter".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -4287,11 +2869,6 @@ async fn should_search_product_documents_when_seller_slug_ids_are_given(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -4372,8 +2949,6 @@ async fn should_search_product_documents_when_excluded_seller_slug_ids_are_given
                 .try_into()
                 .unwrap(),
         ),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -4392,11 +2967,6 @@ async fn should_search_product_documents_when_excluded_seller_slug_ids_are_given
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -4478,8 +3048,6 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
         language: Language::De,
         currency: Currency::Eur,
         product_query: Some("Auction product".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -4490,11 +3058,6 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: Some(auction_start_query),
@@ -4607,8 +3170,6 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
         language: Language::De,
         currency: Currency::Eur,
         product_query: Some("Auction item".try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -4619,11 +3180,6 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -4736,8 +3292,6 @@ async fn should_search_product_documents_when_query_is_empty(
         language: Language::De,
         currency: Currency::Eur,
         product_query: None,
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -4748,11 +3302,6 @@ async fn should_search_product_documents_when_query_is_empty(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -4848,8 +3397,6 @@ fn search_with_query(query: &str) -> ProductSearch {
         language: Language::En,
         currency: Currency::Eur,
         product_query: Some(query.try_into().unwrap()),
-        category_id: Default::default(),
-        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -4860,11 +3407,6 @@ fn search_with_query(query: &str) -> ProductSearch {
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
-        origin_year_query: None,
-        authenticity_query: Default::default(),
-        condition_query: Default::default(),
-        provenance_query: Default::default(),
-        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -4932,69 +3474,6 @@ async fn should_return_results_combining_bm25_and_knn_for_hybrid_search() {
     assert!(
         returned_ids.contains(&knn_only.product_id),
         "kNN-matching document must appear in hybrid results"
-    );
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_apply_category_filter_to_hybrid_search() {
-    // Both documents match BM25 AND kNN, but only one matches the category_id filter.
-    let target_category: CategoryId = Faker.fake();
-    let other_category: CategoryId = loop {
-        let candidate: CategoryId = Faker.fake();
-        if candidate != target_category {
-            break candidate;
-        }
-    };
-
-    let included = make_product_doc(|d| {
-        d.title_en = Some("Antique Brass Lamp".to_string());
-        d.embedding = Some(one_hot_embedding(3, 1.0).into());
-        d.category_id = Some(target_category.clone());
-    });
-    let excluded = make_product_doc(|d| {
-        d.title_en = Some("Antique Brass Lamp".to_string());
-        d.embedding = Some(one_hot_embedding(3, 1.0).into());
-        d.category_id = Some(other_category);
-    });
-
-    let client = get_opensearch_client().await;
-    let repository = ProductOpenSearchRepositoryImpl::new(client);
-    repository
-        .create_product_documents(vec![included.clone(), excluded.clone()])
-        .await
-        .unwrap();
-    refresh_index("products").await;
-    tokio::time::sleep(Duration::from_secs(2)).await;
-
-    let mut search = search_with_query("Antique Brass Lamp");
-    search.category_id = AnyOfQuery::from(HashSet::from([target_category]));
-
-    let response = repository
-        .hybrid_search_product_documents(
-            &search,
-            &one_hot_embedding(3, 1.0),
-            HybridSearchParams {
-                vector_weight: 0.5,
-                candidate_k: 200,
-            },
-            &None,
-        )
-        .await
-        .unwrap();
-
-    let returned_ids: HashSet<_> = response
-        .hits
-        .hits
-        .iter()
-        .map(|h| h.source.product_id)
-        .collect();
-    assert!(
-        returned_ids.contains(&included.product_id),
-        "document matching the category filter must be returned"
-    );
-    assert!(
-        !returned_ids.contains(&excluded.product_id),
-        "document NOT matching the category filter must be excluded by both BM25 and kNN sub-queries"
     );
 }
 

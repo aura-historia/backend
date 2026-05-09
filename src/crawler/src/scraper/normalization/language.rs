@@ -151,14 +151,14 @@ mod tests {
     // -----------------------------------------------------------------------
 
     /// Auction-catalogue prose loaded with Latin loanwords and abbreviations
-    /// that trip up trigram-only detectors (e.g. "circa", "provenance", "verso").
+    /// that trip up trigram-only detectors (e.g. "circa", "ownership", "verso").
     #[test]
     fn should_detect_english_when_text_contains_latin_auction_loanwords() {
         assert_eq!(
             detect_language(
-                "Provenance: private collection, London. \
+                "Ownership history: private collection, London. \
                  Circa 1880, oil on canvas, verso inscribed in pencil. \
-                 Estimate £800–1,200. Condition report available on request."
+                 Estimate £800–1,200. Inspection report available on request."
             ),
             Some(Language::En)
         );
@@ -186,7 +186,7 @@ mod tests {
             detect_language(
                 "Tableau de maître du XVIIe siècle, technique sfumato prononcée \
                  et effets de clair-obscur remarquables, avec un trompe-l'œil \
-                 architectural en arrière-plan. Provenance documentée depuis 1923."
+                 architectural en arrière-plan. Historique documenté depuis 1923."
             ),
             Some(Language::Fr)
         );

@@ -88,8 +88,6 @@ fn to_create_command(data: PostProductData, partner_shop: &PartnerShop) -> Creat
         })
         .collect();
 
-    let origin_year = data.origin_year.map(|oy| oy.into());
-
     CreateProductCommand {
         shop_id: partner_shop.shop_id,
         shops_product_id: data.shops_product_id,
@@ -110,13 +108,6 @@ fn to_create_command(data: PostProductData, partner_shop: &PartnerShop) -> Creat
         images,
         auction_start: data.auction_start,
         auction_end: data.auction_end,
-        origin_year,
-        authenticity: data.authenticity.into(),
-        condition: data.condition.into(),
-        provenance: data.provenance.into(),
-        restoration: data.restoration.into(),
-        category_id: None,
-        period_id: None,
     }
 }
 
@@ -249,11 +240,6 @@ mod tests {
                 images: vec![],
                 auction_start: None,
                 auction_end: None,
-                origin_year: None,
-                authenticity: Default::default(),
-                condition: Default::default(),
-                provenance: Default::default(),
-                restoration: Default::default(),
                 seller_name: None,
                 structured_address: None,
                 geo_address: None,
@@ -380,11 +366,6 @@ mod tests {
             images: vec![url::Url::parse("https://example.com/img.jpg").unwrap()],
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: Default::default(),
-            condition: Default::default(),
-            provenance: Default::default(),
-            restoration: Default::default(),
             seller_name: Some("Test Seller".to_string()),
             structured_address: None,
             geo_address: None,
@@ -399,8 +380,6 @@ mod tests {
         );
         assert_eq!(cmd.images.len(), 1);
         assert!(cmd.native_price.is_none());
-        assert!(cmd.category_id.is_none());
-        assert!(cmd.period_id.is_none());
         assert_eq!(cmd.seller_name_raw.as_deref(), Some("Test Seller"));
     }
 }

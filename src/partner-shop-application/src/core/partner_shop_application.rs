@@ -3,8 +3,8 @@ use crate::core::{
     partner_shop_application_state::PartnerShopApplicationState,
 };
 use common::{
-    category_key::CategoryId, domain::Domain, execution_state::ExecutionState,
-    period_key::PeriodId, shop_id::ShopId, shop_name::ShopName, user_id::UserId,
+    domain::Domain, execution_state::ExecutionState, shop_id::ShopId, shop_name::ShopName,
+    user_id::UserId,
 };
 use serde_email::Email;
 use shop::core::{address::StructuredAddress, shop_type::ShopType};
@@ -42,8 +42,6 @@ pub struct PartnerShopApplicationPayloadInfo {
     pub shop_structured_address: Option<StructuredAddress>,
     pub shop_phone: Option<String>,
     pub shop_email: Option<Email>,
-    pub shop_specialities_categories: Option<Vec<CategoryId>>,
-    pub shop_specialities_periods: Option<Vec<PeriodId>>,
 }
 
 #[cfg(feature = "test-data")]

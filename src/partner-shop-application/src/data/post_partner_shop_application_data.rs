@@ -1,7 +1,4 @@
-use common::{
-    category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_id::ShopId,
-    shop_name::ShopName,
-};
+use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use shop::data::address_data::StructuredAddressData;
@@ -34,10 +31,6 @@ pub enum PostPartnerShopApplicationPayloadData {
         shop_phone: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none", default)]
         shop_email: Option<Email>,
-        #[serde(skip_serializing_if = "Vec::is_empty", default)]
-        shop_specialities_categories: Vec<CategoryId>,
-        #[serde(skip_serializing_if = "Vec::is_empty", default)]
-        shop_specialities_periods: Vec<PeriodId>,
     },
 }
 
@@ -62,8 +55,6 @@ mod faker {
                     shop_structured_address: None,
                     shop_phone: None,
                     shop_email: None,
-                    shop_specialities_categories: Vec::new(),
-                    shop_specialities_periods: Vec::new(),
                 }
             }
         }

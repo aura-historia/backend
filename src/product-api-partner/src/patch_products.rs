@@ -93,11 +93,6 @@ fn to_update_entry(
         images,
         auction_start: data.auction_start,
         auction_end: data.auction_end,
-        origin_year: data.origin_year.map(|oy| oy.into()),
-        authenticity: data.authenticity.map(|a| a.into()),
-        condition: data.condition.map(|c| c.into()),
-        provenance: data.provenance.map(|p| p.into()),
-        restoration: data.restoration.map(|r| r.into()),
     };
     (key, cmd)
 }
@@ -219,11 +214,6 @@ mod tests {
                 images: None,
                 auction_start: None,
                 auction_end: None,
-                origin_year: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
             },
             &partner_shop_with_key,
         );
@@ -307,11 +297,6 @@ mod tests {
             images: None,
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
         };
 
         let (key, cmd) = to_update_entry(data, &partner_shop);
@@ -344,11 +329,6 @@ mod tests {
             images: None,
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
         };
 
         let (key, cmd) = to_update_entry(data, &partner_shop);

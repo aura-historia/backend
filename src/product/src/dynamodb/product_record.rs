@@ -1,15 +1,9 @@
-use crate::core::origin_year::OriginYear;
 use crate::core::product::Product;
 use crate::core::product_image::ProductImage;
-use crate::dynamodb::authenticity_record::AuthenticityRecord;
-use crate::dynamodb::condition_record::ConditionRecord;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
-use crate::dynamodb::provenance_record::ProvenanceRecord;
-use crate::dynamodb::restoration_record::RestorationRecord;
 use crate::dynamodb::utm::append_utm_params;
-use common::category_key::CategoryId;
 use common::currency::domain::Currency;
 use common::error::mapping_error::PersistenceMappingError;
 use common::error::missing_field::MissingPersistenceField;
@@ -18,14 +12,12 @@ use common::has_key::HasKey;
 use common::language::domain::Language;
 use common::language::record::TextRecord;
 use common::localized::Localized;
-use common::period_key::PeriodId;
 use common::price::domain::Price;
 use common::price::record::PriceRecord;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
-use common::year::{Year, YearRange};
 use field::field;
 use geo::dynamodb::{geo_address_from_record, structured_address_from_record};
 use isocountry::CountryCode;
@@ -72,30 +64,6 @@ pub struct ProductRecord {
     pub geo_address_lat: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub geo_address_lon: Option<f64>,
-
-    pub category_id: Option<CategoryId>,
-    pub period_id: Option<PeriodId>,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub category_name_de: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub category_name_en: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub category_name_fr: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub category_name_es: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub category_name_it: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub period_name_de: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub period_name_en: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub period_name_fr: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub period_name_es: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub period_name_it: Option<String>,
 
     pub title_native: TextRecord,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -236,22 +204,6 @@ pub struct ProductRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub embedding: Option<Vec<f32>>,
 
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year_min: Option<Year>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year: Option<Year>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year_max: Option<Year>,
-
-    #[serde(default)]
-    pub authenticity: AuthenticityRecord,
-    #[serde(default)]
-    pub condition: ConditionRecord,
-    #[serde(default)]
-    pub provenance: ProvenanceRecord,
-    #[serde(default)]
-    pub restoration: RestorationRecord,
-
     #[serde(
         with = "time::serde::rfc3339::option",
         skip_serializing_if = "Option::is_none",
@@ -300,39 +252,6 @@ impl HasKey for ProductRecord {
 
 impl From<ProductRecord> for Product {
     fn from(record: ProductRecord) -> Self {
-        let mut category_name = HashMap::with_capacity(Language::COUNT);
-        if let Some(category_en) = record.category_name_en {
-            category_name.insert(Language::En, category_en.into());
-        }
-        if let Some(category_de) = record.category_name_de {
-            category_name.insert(Language::De, category_de.into());
-        }
-        if let Some(category_fr) = record.category_name_fr {
-            category_name.insert(Language::Fr, category_fr.into());
-        }
-        if let Some(category_es) = record.category_name_es {
-            category_name.insert(Language::Es, category_es.into());
-        }
-        if let Some(category_it) = record.category_name_it {
-            category_name.insert(Language::It, category_it.into());
-        }
-        let mut period_name = HashMap::with_capacity(Language::COUNT);
-        if let Some(period_en) = record.period_name_en {
-            period_name.insert(Language::En, period_en.into());
-        }
-        if let Some(period_de) = record.period_name_de {
-            period_name.insert(Language::De, period_de.into());
-        }
-        if let Some(period_fr) = record.period_name_fr {
-            period_name.insert(Language::Fr, period_fr.into());
-        }
-        if let Some(period_es) = record.period_name_es {
-            period_name.insert(Language::Es, period_es.into());
-        }
-        if let Some(period_it) = record.period_name_it {
-            period_name.insert(Language::It, period_it.into());
-        }
-
         let mut other_title = HashMap::with_capacity(Language::COUNT);
         if let Some(title_en) = record.title_en {
             other_title.insert(Language::En, title_en.into());
@@ -539,10 +458,6 @@ impl From<ProductRecord> for Product {
                 record.structured_address_country,
             ),
             geo_address: geo_address_from_record(record.geo_address_lat, record.geo_address_lon),
-            category_id: record.category_id,
-            category_name,
-            period_id: record.period_id,
-            period_name,
             native_title: Localized::new(
                 record.title_native.language.into(),
                 record.title_native.text.into(),
@@ -561,17 +476,6 @@ impl From<ProductRecord> for Product {
             url: append_utm_params(record.url),
             images: record.images.into_iter().map(ProductImage::from).collect(),
             embedding: record.embedding,
-            origin_year: match record.origin_year {
-                Some(exact_year) => Some(OriginYear::ExactYear(exact_year)),
-                None => match (record.origin_year_min, record.origin_year_max) {
-                    (None, None) => None,
-                    (min, max) => Some(OriginYear::EstimatedRange(YearRange { min, max })),
-                },
-            },
-            authenticity: record.authenticity.into(),
-            condition: record.condition.into(),
-            provenance: record.provenance.into(),
-            restoration: record.restoration.into(),
             auction_start: record.auction_start,
             auction_end: record.auction_end,
             created: record.created,
@@ -623,18 +527,6 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
             structured_address_country: event_record.structured_address_country,
             geo_address_lat: event_record.geo_address_lat,
             geo_address_lon: event_record.geo_address_lon,
-            category_id: None,
-            period_id: None,
-            category_name_de: None,
-            category_name_en: None,
-            category_name_fr: None,
-            category_name_es: None,
-            category_name_it: None,
-            period_name_de: None,
-            period_name_en: None,
-            period_name_fr: None,
-            period_name_es: None,
-            period_name_it: None,
             title_native: event_record.title_native.ok_or_else(|| {
                 MissingPersistenceField::new(field!(title_native@ProductDomainEventRecord))
             })?,
@@ -709,13 +601,6 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
             })?,
             images: event_record.images.unwrap_or_default(),
             embedding: None,
-            origin_year_min: None,
-            origin_year: None,
-            origin_year_max: None,
-            authenticity: Default::default(),
-            condition: Default::default(),
-            provenance: Default::default(),
-            restoration: Default::default(),
             auction_start: event_record.auction_start,
             auction_end: event_record.auction_end,
             created: event_record.timestamp,
@@ -742,13 +627,6 @@ mod faker {
             let price_native: Option<PriceRecord> =
                 Some(config.fake_with_rng::<Price, _>(rng).into());
             let state: ProductStateRecord = config.fake_with_rng(rng);
-            let origin_year_min = fake::rand::random_range(1807..=1815).into();
-            let origin_year_max = fake::rand::random_range(1815..=1819).into();
-            let origin_year = if origin_year_min == origin_year_max {
-                Some(origin_year_min)
-            } else {
-                None
-            };
 
             let title_native = TextRecord::new(
                 config.fake_with_rng::<Title, _>(rng).to_string(),
@@ -783,18 +661,6 @@ mod faker {
                 structured_address_country: None,
                 geo_address_lat: config.fake_with_rng(rng),
                 geo_address_lon: config.fake_with_rng(rng),
-                category_id: config.fake_with_rng(rng),
-                period_id: config.fake_with_rng(rng),
-                category_name_de: config.fake_with_rng(rng),
-                category_name_en: config.fake_with_rng(rng),
-                category_name_fr: config.fake_with_rng(rng),
-                category_name_es: config.fake_with_rng(rng),
-                category_name_it: config.fake_with_rng(rng),
-                period_name_de: config.fake_with_rng(rng),
-                period_name_en: config.fake_with_rng(rng),
-                period_name_fr: config.fake_with_rng(rng),
-                period_name_es: config.fake_with_rng(rng),
-                period_name_it: config.fake_with_rng(rng),
                 title_native,
                 title_de: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_en: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
@@ -874,13 +740,6 @@ mod faker {
                 } else {
                     None
                 },
-                origin_year_min: Some(origin_year_min),
-                origin_year,
-                origin_year_max: Some(origin_year_max),
-                authenticity: config.fake_with_rng(rng),
-                condition: config.fake_with_rng(rng),
-                provenance: config.fake_with_rng(rng),
-                restoration: config.fake_with_rng(rng),
                 auction_start: if config.fake_with_rng(rng) {
                     Some(OffsetDateTime::now_utc())
                 } else {
