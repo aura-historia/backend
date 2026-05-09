@@ -32,16 +32,8 @@ Each product change is stored as an immutable event. The sort key encodes the ev
 | Domain | `DOMAIN_URL_CHANGED` |
 | Domain | `DOMAIN_IMAGES_CHANGED` |
 | Domain | `DOMAIN_AUCTION_TIME_CHANGED` |
-| Domain | `DOMAIN_ORIGIN_YEAR_CHANGED` |
-| Domain | `DOMAIN_AUTHENTICITY_CHANGED` |
-| Domain | `DOMAIN_CONDITION_CHANGED` |
-| Domain | `DOMAIN_PROVENANCE_CHANGED` |
-| Domain | `DOMAIN_RESTORATION_CHANGED` |
 | Enrichment | `ENRICHMENT_TRANSLATED_TITLE` |
 | Enrichment | `ENRICHMENT_EMBEDDED` |
-| Enrichment | `ENRICHMENT_EXTRACTED_ATTRIBUTES` |
-| Enrichment | `ENRICHMENT_CLASSIFY_CATEGORY` |
-| Enrichment | `ENRICHMENT_CLASSIFY_PERIOD` |
 | Policy | `POLICY_PROHIBITED_CONTENT_DECISION` |
 
 ---
@@ -164,24 +156,6 @@ Single global record, overwritten on every sync.
 |-----------|---------|
 | `pk` | `global#fx_rate` |
 | `sk` | `fx_rate#details` |
-
----
-
-### Category
-
-| Attribute | Pattern |
-|-----------|---------|
-| `pk` | `global#categories` |
-| `sk` | `category#{category_id}` |
-
----
-
-### Period
-
-| Attribute | Pattern |
-|-----------|---------|
-| `pk` | `global#periods` |
-| `sk` | `period#{period_id}` |
 
 ---
 

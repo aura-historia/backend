@@ -1,5 +1,5 @@
 use crate::core::{address::StructuredAddress, shop_type::ShopType};
-use common::{category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_name::ShopName};
+use common::{domain::Domain, shop_name::ShopName};
 use serde_email::Email;
 use std::collections::HashSet;
 use url::Url;
@@ -14,8 +14,6 @@ pub struct CreateShopCommand {
     pub structured_address: Option<StructuredAddress>,
     pub phone: Option<String>,
     pub email: Option<Email>,
-    pub specialities_categories: Vec<CategoryId>,
-    pub specialities_periods: Vec<PeriodId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -27,8 +25,6 @@ pub struct UpdateShopCommand {
     pub structured_address: Option<StructuredAddress>,
     pub phone: Option<String>,
     pub email: Option<Email>,
-    pub specialities_categories: Option<Vec<CategoryId>>,
-    pub specialities_periods: Option<Vec<PeriodId>>,
 }
 
 impl UpdateShopCommand {
@@ -40,8 +36,6 @@ impl UpdateShopCommand {
             && self.structured_address.is_none()
             && self.phone.is_none()
             && self.email.is_none()
-            && self.specialities_categories.is_none()
-            && self.specialities_periods.is_none()
     }
 }
 
@@ -66,8 +60,6 @@ mod faker {
                 structured_address: None,
                 phone: None,
                 email: None,
-                specialities_categories: Vec::new(),
-                specialities_periods: Vec::new(),
             }
         }
     }
@@ -82,8 +74,6 @@ mod faker {
                 structured_address: None,
                 phone: None,
                 email: None,
-                specialities_categories: None,
-                specialities_periods: None,
             }
         }
     }

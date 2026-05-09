@@ -1,13 +1,9 @@
 use crate::core::product_search::ProductSearch;
 use crate::core::sort_product_field::SortProductField;
-use crate::opensearch::authenticity_document::AuthenticityDocument;
-use crate::opensearch::condition_document::ConditionDocument;
 use crate::opensearch::intent::HybridSearchParams;
 use crate::opensearch::product_document::{ProductDocument, ProductDocumentSerdeField};
 use crate::opensearch::product_state_document::ProductStateDocument;
 use crate::opensearch::product_update_document::ProductUpdateDocument;
-use crate::opensearch::provenance_document::ProvenanceDocument;
-use crate::opensearch::restoration_document::RestorationDocument;
 use async_trait::async_trait;
 use common::currency::domain::Currency;
 use common::language::domain::Language;
@@ -293,7 +289,6 @@ pub fn build_search_request(
     let sort_field = match sort.sort {
         SortProductField::Score => "_score",
         SortProductField::Price => price_field,
-        SortProductField::OriginYear => ProductDocumentSerdeField::OriginYear.as_str(),
         SortProductField::Created => ProductDocumentSerdeField::Created.as_str(),
         SortProductField::Updated => ProductDocumentSerdeField::Updated.as_str(),
     };
@@ -502,21 +497,7 @@ pub fn build_filter_clauses(
         filter.push(json!({ "range": { price_field: { "lte": max.deref() } } }));
     }
 
-    if !search.category_id.is_empty() {
-        filter.push(json!({
-            "terms": {
-                ProductDocumentSerdeField::CategoryId.as_str(): search.category_id.iter().collect::<Vec<_>>()
-            }
-        }));
-    }
 
-    if !search.period_id.is_empty() {
-        filter.push(json!({
-            "terms": {
-                ProductDocumentSerdeField::PeriodId.as_str(): search.period_id.iter().collect::<Vec<_>>()
-            }
-        }));
-    }
 
     if !search.country_query.is_empty() {
         filter.push(json!({
@@ -546,56 +527,7 @@ pub fn build_filter_clauses(
         }));
     }
 
-    // ---------- Origin year (overlap semantics) ----------
-    if let Some(origin_query) = &search.origin_year_query {
-        let mut should = Vec::new();
 
-        match (origin_query.min, origin_query.max) {
-            (None, None) => {}
-            (Some(qmin), Some(qmax)) if qmin == qmax => {
-                should.push(json!({
-                    "term": {
-                        ProductDocumentSerdeField::OriginYear.as_str(): qmin
-                    }
-                }));
-            }
-            (qmin, qmax) => {
-                let mut must = Vec::new();
-                if let Some(qmax) = qmax {
-                    must.push(json!({
-                        "range": {
-                            ProductDocumentSerdeField::OriginYearMin.as_str(): {
-                                "lte": qmax
-                            }
-                        }
-                    }));
-                }
-                if let Some(qmin) = qmin {
-                    must.push(json!({
-                        "range": {
-                            ProductDocumentSerdeField::OriginYearMax.as_str(): {
-                                "gte": qmin
-                            }
-                        }
-                    }));
-                }
-                should.push(json!({
-                    "bool": {
-                        "must": must
-                    }
-                }));
-            }
-        }
-
-        if !should.is_empty() {
-            filter.push(json!({
-                "bool": {
-                    "should": should,
-                    "minimum_should_match": 1
-                }
-            }));
-        }
-    }
 
     // ---------- AnyOf filters ----------
     apply_any_of_filter(
@@ -639,49 +571,7 @@ pub fn build_filter_clauses(
         |v| v.as_str(),
     );
 
-    apply_any_of_filter(
-        &mut filter,
-        &search
-            .authenticity_query
-            .iter()
-            .map(|v| AuthenticityDocument::from(*v))
-            .collect(),
-        ProductDocumentSerdeField::Authenticity,
-        |v| v.as_str(),
-    );
 
-    apply_any_of_filter(
-        &mut filter,
-        &search
-            .condition_query
-            .iter()
-            .map(|v| ConditionDocument::from(*v))
-            .collect(),
-        ProductDocumentSerdeField::Condition,
-        |v| v.as_str(),
-    );
-
-    apply_any_of_filter(
-        &mut filter,
-        &search
-            .provenance_query
-            .iter()
-            .map(|v| ProvenanceDocument::from(*v))
-            .collect(),
-        ProductDocumentSerdeField::Provenance,
-        |v| v.as_str(),
-    );
-
-    apply_any_of_filter(
-        &mut filter,
-        &search
-            .restoration_query
-            .iter()
-            .map(|v| RestorationDocument::from(*v))
-            .collect(),
-        ProductDocumentSerdeField::Restoration,
-        |v| v.as_str(),
-    );
 
     apply_any_of_filter(
         &mut filter,

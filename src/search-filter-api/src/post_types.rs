@@ -1,5 +1,5 @@
-use product::data::product_search_data::ProductSearchData;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
+use search_filter::data::search_filter_search_data::SearchFilterSearchData;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -8,7 +8,7 @@ pub struct PostUserSearchFilterData {
     pub name: UserSearchFilterName,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enhanced_search_description: Option<String>,
-    pub search: ProductSearchData,
+    pub search: SearchFilterSearchData,
 }
 
 #[cfg(feature = "test-data")]
@@ -30,19 +30,17 @@ mod faker {
 #[cfg(test)]
 mod tests {
     use crate::post_types::PostUserSearchFilterData;
-    use common::category_key::CategoryId;
     use common::distance::data::GeoDistanceQueryData;
     use common::distance::data::{DistanceData, DistanceUnitData};
-    use common::period_key::PeriodId;
     use common::query::range_query::RangeQuery;
+    use common::shop_name::ShopName;
+    use common::slug_id::SlugId;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
-    use product::data::authenticity_data::AuthenticityData;
-    use product::data::condition_data::ConditionData;
-    use product::data::product_search_data::ProductSearchData;
+    use geo::data::continent_data::ContinentData;
     use product::data::product_state_data::ProductStateData;
-    use product::data::provenance_data::ProvenanceData;
-    use product::data::restoration_data::RestorationData;
+    use search_filter::data::search_filter_search_data::SearchFilterSearchData;
     use serde_json::json;
+    use shop::data::shop_type_data::ShopTypeData;
     use std::collections::HashSet;
     use time::macros::datetime;
 
@@ -55,10 +53,9 @@ mod tests {
                 "language": "de",
                 "currency": "EUR",
                 "productQuery": "Boop",
-                "categoryId": ["furniture"],
-                "periodId": ["baroque"],
                 "shopName": ["Baap"],
                 "excludeShopName": ["baddlebap"],
+                "shopSlugId": ["imperial-antiques"],
                 "country": ["DE"],
                 "continent": ["EUROPE"],
                 "geoAddress": {
@@ -69,55 +66,48 @@ mod tests {
                         "unit": "KILOMETERS"
                     }
                 },
+                "shopType": ["COMMERCIAL_DEALER"],
                 "price": {
                     "min": 37,
                     "max": 42
                 },
                 "state": ["AVAILABLE"],
-                "originYear": {
-                    "min": 1742,
-                    "max": 1953
-                },
-                "authenticity": ["ORIGINAL"],
-                "condition": ["EXCELLENT"],
-                "provenance": ["PARTIAL"],
-                "restoration": ["UNKNOWN"],
                 "created": {
                     "min": "2000-05-04T00:00:00Z",
-                    "max": "2025-05-04T00:00:00Z",
+                    "max": "2025-05-04T00:00:00Z"
                 },
                 "updated": {
                     "min": "2000-05-04T00:00:00Z",
-                    "max": "2025-05-04T00:00:00Z",
+                    "max": "2025-05-04T00:00:00Z"
                 },
                 "auctionStart": {
                     "min": "2000-05-04T00:00:00Z",
-                    "max": "2025-05-04T00:00:00Z",
+                    "max": "2025-05-04T00:00:00Z"
                 },
                 "auctionEnd": {
                     "min": "2000-05-04T00:00:00Z",
-                    "max": "2025-05-04T00:00:00Z",
+                    "max": "2025-05-04T00:00:00Z"
                 }
             }
         });
         let expected = PostUserSearchFilterData {
             name: "hugos filter for peppino".into(),
             enhanced_search_description: Some("a filter for peppino".into()),
-            search: ProductSearchData {
+            search: SearchFilterSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
                 product_query: Some("Boop".try_into().unwrap()),
-                category_id: HashSet::from_iter([CategoryId::from("furniture")]),
-                period_id: HashSet::from_iter([PeriodId::from("baroque")]),
-                shop_name_query: ["Baap".into()].into(),
-                exclude_shop_name_query: ["baddlebap".into()].into(),
+                shop_name_query: [ShopName::from("Baap")].into(),
+                exclude_shop_name_query: [ShopName::from("baddlebap")].into(),
                 seller_name_query: Default::default(),
                 exclude_seller_name_query: Default::default(),
-                shop_type_query: HashSet::new(),
+                shop_slug_id_query: HashSet::from_iter([SlugId::from("imperial-antiques")]),
+                exclude_shop_slug_id_query: Default::default(),
+                seller_slug_id_query: Default::default(),
+                exclude_seller_slug_id_query: Default::default(),
+                shop_type_query: HashSet::from_iter([ShopTypeData::CommercialDealer]),
                 country_query: HashSet::from_iter([isocountry::CountryCode::DEU]),
-                continent_query: HashSet::from_iter([
-                    geo::data::continent_data::ContinentData::Europe,
-                ]),
+                continent_query: HashSet::from_iter([ContinentData::Europe]),
                 geo_address_distance_query: Some(GeoDistanceQueryData {
                     lat: 52.52,
                     lon: 13.405,
@@ -131,14 +121,6 @@ mod tests {
                     max: Some(42),
                 }),
                 state_query: HashSet::from_iter([ProductStateData::Available]),
-                origin_year_query: Some(RangeQuery {
-                    min: Some(1742.into()),
-                    max: Some(1953.into()),
-                }),
-                authenticity_query: HashSet::from_iter([AuthenticityData::Original]),
-                condition_query: HashSet::from_iter([ConditionData::Excellent]),
-                provenance_query: HashSet::from_iter([ProvenanceData::Partial]),
-                restoration_query: HashSet::from_iter([RestorationData::Unknown]),
                 created_query: Some(RangeQuery {
                     min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
@@ -155,10 +137,6 @@ mod tests {
                     min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
                 }),
-                shop_slug_id_query: Default::default(),
-                exclude_shop_slug_id_query: Default::default(),
-                seller_slug_id_query: Default::default(),
-                exclude_seller_slug_id_query: Default::default(),
             },
         };
 

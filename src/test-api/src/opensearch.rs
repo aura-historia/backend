@@ -287,16 +287,6 @@ static SHOPS_INDEX_MAPPING_STR: &str = include_str!(concat!(
     "opensearch/mappings/shops.json"
 ));
 
-static CATEGORIES_INDEX_MAPPING_STR: &str = include_str!(concat!(
-    env!("CARGO_WORKSPACE_DIR"),
-    "opensearch/mappings/categories.json"
-));
-
-static PERIODS_INDEX_MAPPING_STR: &str = include_str!(concat!(
-    env!("CARGO_WORKSPACE_DIR"),
-    "opensearch/mappings/periods.json"
-));
-
 static USER_SEARCH_FILTER_INDEX_MAPPING_STR: &str = include_str!(concat!(
     env!("CARGO_WORKSPACE_DIR"),
     "opensearch/mappings/user_search_filters.json"
@@ -454,61 +444,6 @@ async fn set_up_indices() -> Result<Response, Error> {
         .await?
         .error_for_status_code()?;
 
-    // Index 'categories'
-    let exists_response = client
-        .indices()
-        .exists(IndicesExistsParts::Index(&["categories"]))
-        .send()
-        .await?;
-    check_status_allow_not_found(&exists_response)?;
-
-    if exists_response.status_code().is_success() {
-        debug!("OpenSearch index 'categories' already exists, skipping creation");
-        // Return a mock response since index exists
-        return Ok(exists_response);
-    }
-
-    debug!("OpenSearch index 'categories' does not exist, creating it");
-
-    get_opensearch_client()
-        .await
-        .indices()
-        .create(opensearch::indices::IndicesCreateParts::Index("categories"))
-        .body(
-            serde_json::from_str::<serde_json::Value>(CATEGORIES_INDEX_MAPPING_STR)
-                .expect("shouldn't fail parsing CATEGORIES_INDEX_MAPPING_STR as serde_json::Value"),
-        )
-        .send()
-        .await?
-        .error_for_status_code()?;
-
-    // Index 'periods'
-    let exists_response = client
-        .indices()
-        .exists(IndicesExistsParts::Index(&["periods"]))
-        .send()
-        .await?;
-    check_status_allow_not_found(&exists_response)?;
-
-    if exists_response.status_code().is_success() {
-        debug!("OpenSearch index 'periods' already exists, skipping creation");
-        return Ok(exists_response);
-    }
-
-    debug!("OpenSearch index 'periods' does not exist, creating it");
-
-    get_opensearch_client()
-        .await
-        .indices()
-        .create(opensearch::indices::IndicesCreateParts::Index("periods"))
-        .body(
-            serde_json::from_str::<serde_json::Value>(PERIODS_INDEX_MAPPING_STR)
-                .expect("shouldn't fail parsing PERIODS_INDEX_MAPPING_STR as serde_json::Value"),
-        )
-        .send()
-        .await?
-        .error_for_status_code()?;
-
     // Index 'user_search_filter'
     let exists_response = client
         .indices()
@@ -572,14 +507,7 @@ async fn set_up_indices() -> Result<Response, Error> {
 /// implementation that needs a full OpenSearch reset, including the
 /// `Cloudformation` service.
 pub(crate) async fn clear_all_indices() {
-    const INDICES: &[&str] = &[
-        "products",
-        "shops",
-        "categories",
-        "periods",
-        "user_search_filters",
-        "users",
-    ];
+    const INDICES: &[&str] = &["products", "shops", "user_search_filters", "users"];
     for index in INDICES {
         match clear_index_data(index).await {
             Ok(_) => refresh_index(index).await,

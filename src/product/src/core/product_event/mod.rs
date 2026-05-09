@@ -161,12 +161,6 @@ impl From<&ProductEvent> for ProductEventLog {
         let key = event.payload.key();
         let (decision, reason, class) = match event.payload {
             ProductEventPayload::ProductDomainEvent(_) => (None, None, None),
-            ProductEventPayload::ProductEnrichmentEvent(
-                ProductEnrichmentEventPayload::ClassifiedCategory(ref payload),
-            ) => (None, None, Some(payload.category_id.to_string())),
-            ProductEventPayload::ProductEnrichmentEvent(
-                ProductEnrichmentEventPayload::ClassifiedPeriod(ref payload),
-            ) => (None, None, Some(payload.period_id.to_string())),
             ProductEventPayload::ProductEnrichmentEvent(_) => (None, None, None),
             ProductEventPayload::ProductPolicyEvent(
                 ProductPolicyEventPayload::ProhibitedContentDecision(ref payload),

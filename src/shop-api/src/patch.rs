@@ -58,8 +58,6 @@ pub async fn handle(
         structured_address: patch_data.structured_address.map(Into::into),
         phone: patch_data.phone,
         email: patch_data.email,
-        specialities_categories: patch_data.specialities_categories,
-        specialities_periods: patch_data.specialities_periods,
     };
 
     let updated_shop = command_shop_service

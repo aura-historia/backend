@@ -288,7 +288,7 @@ mod tests {
     fn should_detect_description_language_when_long_description_provided() {
         use common::language::domain::Language;
         let language = detect_description_language(&[
-            "This vintage poster comes from a private collection and has documented provenance."
+            "This vintage poster comes from a private collection and has documented ownership history."
                 .to_string(),
         ]);
         assert_eq!(language, Some(Language::En));

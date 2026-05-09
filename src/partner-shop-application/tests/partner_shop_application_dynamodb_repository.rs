@@ -80,8 +80,6 @@ fn should_update_partner_shop_application_record_state() {
                 shop_structured_address_country: None,
                 shop_phone: None,
                 shop_email: None,
-                shop_specialities_categories: None,
-                shop_specialities_periods: None,
                 task_token: None,
                 updated: updated_time,
             },

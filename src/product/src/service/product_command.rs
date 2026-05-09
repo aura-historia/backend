@@ -1,17 +1,10 @@
-use crate::core::authenticity::Authenticity;
-use crate::core::condition::Condition;
 use crate::core::description::Description;
-use crate::core::origin_year::OriginYear;
 use crate::core::product_image::ProductImage;
-use crate::core::provenance::Provenance;
-use crate::core::restoration::Restoration;
 use crate::core::title::Title;
-use common::category_key::CategoryId;
 use common::currency::domain::Currency;
 use common::has_key::HasKey;
 use common::language::domain::Language;
 use common::localized::Localized;
-use common::period_key::PeriodId;
 use common::price::domain::{MonetaryAmount, Price};
 use common::product_id::ProductKey;
 use common::product_state::domain::ProductState;
@@ -43,13 +36,6 @@ pub struct CreateProductCommand {
     pub images: Vec<ProductImage>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
-    pub origin_year: Option<OriginYear>,
-    pub authenticity: Authenticity,
-    pub condition: Condition,
-    pub provenance: Provenance,
-    pub restoration: Restoration,
-    pub category_id: Option<CategoryId>,
-    pub period_id: Option<PeriodId>,
 }
 
 impl HasKey for CreateProductCommand {
@@ -73,11 +59,6 @@ pub struct UpdateProductCommand {
     pub images: Option<Vec<ProductImage>>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
-    pub origin_year: Option<OriginYear>,
-    pub authenticity: Option<Authenticity>,
-    pub condition: Option<Condition>,
-    pub provenance: Option<Provenance>,
-    pub restoration: Option<Restoration>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -97,11 +78,6 @@ pub struct UpsertProductCommand {
     pub images: Vec<ProductImage>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
-    pub origin_year: Option<OriginYear>,
-    pub authenticity: Authenticity,
-    pub condition: Condition,
-    pub provenance: Provenance,
-    pub restoration: Restoration,
 }
 
 impl HasKey for UpsertProductCommand {
@@ -141,13 +117,6 @@ impl From<UpsertProductCommand> for CreateProductCommand {
             images: cmd.images,
             auction_start: cmd.auction_start,
             auction_end: cmd.auction_end,
-            origin_year: cmd.origin_year,
-            authenticity: cmd.authenticity,
-            condition: cmd.condition,
-            provenance: cmd.provenance,
-            restoration: cmd.restoration,
-            category_id: None,
-            period_id: None,
         }
     }
 }
@@ -163,11 +132,6 @@ impl From<&UpsertProductCommand> for UpdateProductCommand {
             images: Some(cmd.images.clone()),
             auction_start: cmd.auction_start,
             auction_end: cmd.auction_end,
-            origin_year: cmd.origin_year,
-            authenticity: Some(cmd.authenticity),
-            condition: Some(cmd.condition),
-            provenance: Some(cmd.provenance),
-            restoration: Some(cmd.restoration),
         }
     }
 }
@@ -229,13 +193,6 @@ mod faker {
                 } else {
                     None
                 },
-                origin_year: None,
-                authenticity: Default::default(),
-                condition: Default::default(),
-                provenance: Default::default(),
-                restoration: Default::default(),
-                category_id: None,
-                period_id: None,
             }
         }
     }
@@ -259,11 +216,6 @@ mod faker {
                 } else {
                     None
                 },
-                origin_year: None,
-                authenticity: config.fake_with_rng(rng),
-                condition: config.fake_with_rng(rng),
-                provenance: config.fake_with_rng(rng),
-                restoration: config.fake_with_rng(rng),
             }
         }
     }
@@ -276,14 +228,14 @@ mod faker {
                 seller_name_raw: config.fake_with_rng(rng),
                 structured_address: config.fake_with_rng(rng),
                 geo_address: config.fake_with_rng(rng),
-                native_title: Some(config.fake_with_rng(rng)),
+                native_title: config.fake_with_rng(rng),
                 native_description: config.fake_with_rng(rng),
                 native_price: config.fake_with_rng(rng),
                 native_price_estimate_min: config.fake_with_rng(rng),
                 native_price_estimate_max: config.fake_with_rng(rng),
                 state: config.fake_with_rng(rng),
-                url: Some(Url::parse("https://www.example.com/product/1").unwrap()),
-                images: Faker.fake(),
+                url: Some(Url::parse("https://www.example.com/product/upserted").unwrap()),
+                images: config.fake_with_rng(rng),
                 auction_start: if config.fake_with_rng(rng) {
                     Some(OffsetDateTime::now_utc())
                 } else {
@@ -294,70 +246,7 @@ mod faker {
                 } else {
                     None
                 },
-                origin_year: None,
-                authenticity: Default::default(),
-                condition: Default::default(),
-                provenance: Default::default(),
-                restoration: Default::default(),
             }
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use crate::service::product_command::{
-            CreateProductCommand, UpdateProductCommand, UpsertProductCommand,
-        };
-        use common::has_key::HasKey;
-        use fake::{Fake, Faker};
-
-        #[test]
-        fn should_fake_create_product_command() {
-            let _ = Faker.fake::<CreateProductCommand>();
-        }
-
-        #[test]
-        fn should_fake_update_product_command() {
-            let _ = Faker.fake::<UpdateProductCommand>();
-        }
-
-        #[test]
-        fn should_fake_upsert_product_command() {
-            let _ = Faker.fake::<UpsertProductCommand>();
-        }
-
-        #[test]
-        fn should_convert_upsert_to_create_command() {
-            let upsert: UpsertProductCommand = Faker.fake();
-            let key = upsert.key();
-            let create = CreateProductCommand::from(upsert);
-            assert_eq!(create.shop_id, key.shop_id);
-            assert_eq!(create.shops_product_id, key.shops_product_id);
-        }
-
-        #[test]
-        fn should_convert_upsert_to_update_command() {
-            let upsert: UpsertProductCommand = Faker.fake();
-            let update = UpdateProductCommand::from(&upsert);
-            assert_eq!(update.native_price, upsert.native_price);
-            assert_eq!(update.state, upsert.state);
-            assert_eq!(
-                update.native_price_estimate_min,
-                upsert.native_price_estimate_min
-            );
-            assert_eq!(
-                update.native_price_estimate_max,
-                upsert.native_price_estimate_max
-            );
-            assert_eq!(update.url, upsert.url);
-            assert_eq!(update.images, Some(upsert.images));
-            assert_eq!(update.auction_start, upsert.auction_start);
-            assert_eq!(update.auction_end, upsert.auction_end);
-            assert_eq!(update.origin_year, upsert.origin_year);
-            assert_eq!(update.authenticity, Some(upsert.authenticity));
-            assert_eq!(update.condition, Some(upsert.condition));
-            assert_eq!(update.provenance, Some(upsert.provenance));
-            assert_eq!(update.restoration, Some(upsert.restoration));
         }
     }
 }

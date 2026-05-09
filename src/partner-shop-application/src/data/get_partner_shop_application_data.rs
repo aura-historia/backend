@@ -6,10 +6,7 @@ use crate::{
     data::partner_shop_application_state_data::PartnerShopApplicationStateData,
 };
 use common::execution_state::data::ExecutionStateData;
-use common::{
-    category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_id::ShopId,
-    shop_name::ShopName, user_id::UserId,
-};
+use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, user_id::UserId};
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use shop::data::address_data::StructuredAddressData;
@@ -58,10 +55,6 @@ pub enum GetPartnerShopApplicationPayloadData {
         shop_phone: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none", default)]
         shop_email: Option<Email>,
-        #[serde(skip_serializing_if = "Vec::is_empty", default)]
-        shop_specialities_categories: Vec<CategoryId>,
-        #[serde(skip_serializing_if = "Vec::is_empty", default)]
-        shop_specialities_periods: Vec<PeriodId>,
     },
 }
 
@@ -80,8 +73,6 @@ impl From<PartnerShopApplication> for GetPartnerShopApplicationData {
                 shop_structured_address: cmd.structured_address.map(Into::into),
                 shop_phone: cmd.phone,
                 shop_email: cmd.email,
-                shop_specialities_categories: cmd.specialities_categories,
-                shop_specialities_periods: cmd.specialities_periods,
             },
         };
 

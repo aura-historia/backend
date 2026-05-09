@@ -61,6 +61,6 @@ gothique, néogothique
 antiquité, objet ancien
 vintage, rétro
 patine, finition vieillie
-provenance, origine
+historique, origine
 vente aux enchères, enchères
 pièce de collection, objet de collection

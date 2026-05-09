@@ -47,8 +47,6 @@ pub async fn handle(
         shop_structured_address: patch_data.shop_structured_address.map(Into::into),
         shop_phone: patch_data.shop_phone,
         shop_email: patch_data.shop_email,
-        shop_specialities_categories: patch_data.shop_specialities_categories,
-        shop_specialities_periods: patch_data.shop_specialities_periods,
     };
 
     let data: GetPartnerShopApplicationData = service

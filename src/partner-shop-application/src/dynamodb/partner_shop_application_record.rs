@@ -9,10 +9,7 @@ use crate::dynamodb::{
     partner_shop_application_state_record::PartnerShopApplicationStateRecord,
 };
 use common::execution_state::record::ExecutionStateRecord;
-use common::{
-    category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_id::ShopId,
-    shop_name::ShopName, user_id::UserId,
-};
+use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, user_id::UserId};
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
@@ -70,10 +67,6 @@ pub struct PartnerShopApplicationRecord {
     pub shop_phone: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shop_email: Option<Email>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub shop_specialities_categories: Vec<CategoryId>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub shop_specialities_periods: Vec<PeriodId>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub task_token: Option<String>,
@@ -118,8 +111,6 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
             shop_structured_address_country,
             shop_phone,
             shop_email,
-            shop_specialities_categories,
-            shop_specialities_periods,
         ) = match application.payload {
             PartnerShopApplicationPayload::Existing(shop_id) => (
                 PartnerShopApplicationPayloadTypeRecord::Existing,
@@ -137,8 +128,6 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
                 None,
                 None,
                 None,
-                Vec::new(),
-                Vec::new(),
             ),
             PartnerShopApplicationPayload::New(cmd) => (
                 PartnerShopApplicationPayloadTypeRecord::New,
@@ -166,8 +155,6 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
                 cmd.structured_address.as_ref().and_then(|a| a.country),
                 cmd.phone,
                 cmd.email,
-                cmd.specialities_categories,
-                cmd.specialities_periods,
             ),
         };
 
@@ -195,8 +182,6 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
             shop_structured_address_country,
             shop_phone,
             shop_email,
-            shop_specialities_categories,
-            shop_specialities_periods,
             task_token: None,
             created: application.created,
             updated: application.updated,
@@ -241,8 +226,6 @@ impl TryFrom<PartnerShopApplicationRecord> for PartnerShopApplication {
                     ),
                     phone: record.shop_phone,
                     email: record.shop_email,
-                    specialities_categories: record.shop_specialities_categories,
-                    specialities_periods: record.shop_specialities_periods,
                 })
             }
         };
@@ -339,8 +322,6 @@ mod faker {
                 structured_address: None,
                 phone: None,
                 email: None,
-                specialities_categories: Vec::new(),
-                specialities_periods: Vec::new(),
             };
 
             let application = PartnerShopApplication {

@@ -91,9 +91,9 @@ neoclassical, empire style
 gothic, gothic revival
 
 # === Market Terms ===
-antique, period piece
+antique, historic piece
 vintage, retro
 patina, aged finish
-provenance, origin
+history, origin
 estate sale, estate auction
 collectible, collectable

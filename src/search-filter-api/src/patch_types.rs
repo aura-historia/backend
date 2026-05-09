@@ -1,27 +1,16 @@
-use common::category_key::CategoryId;
-use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::resource_state::data::PatchResourceStateData;
 use common::resource_state::domain::ResourceState;
 use common::shop_name::ShopName;
 use common::slug_id::SlugId;
-use common::year::Year;
 use common::{
     currency::{data::CurrencyData, domain::Currency},
     language::{data::LanguageData, domain::Language},
     price::domain::MonetaryAmount,
     product_state::domain::ProductState,
 };
-use product::core::authenticity::Authenticity;
-use product::core::condition::Condition;
-use product::core::provenance::Provenance;
-use product::core::restoration::Restoration;
-use product::data::authenticity_data::AuthenticityData;
-use product::data::condition_data::ConditionData;
 use product::data::product_state_data::ProductStateData;
-use product::data::provenance_data::ProvenanceData;
-use product::data::restoration_data::RestorationData;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use search_filter::core::user_search_filter_update::UserSearchFilterUpdate;
 use serde::{Deserialize, Serialize};
@@ -65,14 +54,6 @@ pub struct PatchProductSearchData {
         default
     )]
     pub product_query: Option<TextQuery<1>>,
-    #[serde(
-        rename = "categoryId",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub category_id: Option<HashSet<CategoryId>>,
-    #[serde(rename = "periodId", skip_serializing_if = "Option::is_none", default)]
-    pub period_id: Option<HashSet<PeriodId>>,
 
     #[serde(rename = "shopName", skip_serializing_if = "Option::is_none", default)]
     pub shop_name_query: Option<HashSet<ShopName>>,
@@ -136,33 +117,6 @@ pub struct PatchProductSearchData {
     pub state_query: Option<HashSet<ProductStateData>>,
 
     #[serde(
-        rename = "originYear",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub origin_year_query: Option<RangeQuery<Year>>,
-    #[serde(
-        rename = "authenticity",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub authenticity_query: Option<HashSet<AuthenticityData>>,
-    #[serde(rename = "condition", skip_serializing_if = "Option::is_none", default)]
-    pub condition_query: Option<HashSet<ConditionData>>,
-    #[serde(
-        rename = "provenance",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub provenance_query: Option<HashSet<ProvenanceData>>,
-    #[serde(
-        rename = "restoration",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub restoration_query: Option<HashSet<RestorationData>>,
-
-    #[serde(
         rename = "created",
         with = "common::query::range_query::range_rfc3339::option",
         default,
@@ -214,14 +168,6 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
                 .search
                 .as_ref()
                 .and_then(|sf| sf.product_query.clone()),
-            category_id: patch
-                .search
-                .as_ref()
-                .and_then(|sf| sf.category_id.clone().map(Into::into)),
-            period_id: patch
-                .search
-                .as_ref()
-                .and_then(|sf| sf.period_id.clone().map(Into::into)),
             shop_name_query: patch
                 .search
                 .as_ref()
@@ -268,27 +214,6 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
                     .clone()
                     .map(|states| states.into_iter().map(ProductState::from).collect())
             }),
-            origin_year_query: patch.search.as_ref().and_then(|sf| sf.origin_year_query),
-            authenticity_query: patch.search.as_ref().and_then(|sf| {
-                sf.authenticity_query
-                    .clone()
-                    .map(|values| values.into_iter().map(Authenticity::from).collect())
-            }),
-            condition_query: patch.search.as_ref().and_then(|sf| {
-                sf.condition_query
-                    .clone()
-                    .map(|values| values.into_iter().map(Condition::from).collect())
-            }),
-            provenance_query: patch.search.as_ref().and_then(|sf| {
-                sf.provenance_query
-                    .clone()
-                    .map(|values| values.into_iter().map(Provenance::from).collect())
-            }),
-            restoration_query: patch.search.as_ref().and_then(|sf| {
-                sf.restoration_query
-                    .clone()
-                    .map(|values| values.into_iter().map(Restoration::from).collect())
-            }),
             created_query: patch.search.as_ref().and_then(|sf| sf.created_query),
             updated_query: patch.search.as_ref().and_then(|sf| sf.updated_query),
             auction_start_query: patch.search.as_ref().and_then(|sf| sf.auction_start_query),
@@ -310,8 +235,6 @@ mod faker {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
-                category_id: config.fake_with_rng(rng),
-                period_id: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 seller_name_query: config.fake_with_rng(rng),
@@ -323,11 +246,6 @@ mod faker {
                 shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
-                origin_year_query: config.fake_with_rng(rng),
-                authenticity_query: config.fake_with_rng(rng),
-                condition_query: config.fake_with_rng(rng),
-                provenance_query: config.fake_with_rng(rng),
-                restoration_query: config.fake_with_rng(rng),
                 created_query: fake_range_query_datetime(config, rng),
                 updated_query: fake_range_query_datetime(config, rng),
                 auction_start_query: fake_range_query_datetime(config, rng),
@@ -340,17 +258,13 @@ mod faker {
 #[cfg(test)]
 mod tests {
     use crate::patch_types::{PatchProductSearchData, PatchUserSearchFilterData};
-    use common::category_key::CategoryId;
-    use common::period_key::PeriodId;
     use common::query::range_query::RangeQuery;
     use common::shop_name::ShopName;
+    use common::slug_id::SlugId;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
-    use product::data::authenticity_data::AuthenticityData;
-    use product::data::condition_data::ConditionData;
     use product::data::product_state_data::ProductStateData;
-    use product::data::provenance_data::ProvenanceData;
-    use product::data::restoration_data::RestorationData;
     use serde_json::json;
+    use shop::data::shop_type_data::ShopTypeData;
     use std::collections::HashSet;
     use time::macros::datetime;
 
@@ -360,67 +274,49 @@ mod tests {
             "language": "de",
             "currency": "EUR",
             "productQuery": "Boop",
-            "categoryId": ["furniture"],
-            "periodId": ["baroque"],
             "shopName": ["Baap"],
+            "shopSlugId": ["imperial-antiques"],
             "price": {
                 "min": 37,
                 "max": 42
             },
             "state": ["AVAILABLE"],
-            "originYear": {
-                "min": 1742,
-                "max": 1953
-            },
-            "authenticity": ["ORIGINAL"],
-            "condition": ["EXCELLENT"],
-            "provenance": ["PARTIAL"],
-            "restoration": ["UNKNOWN"],
+            "shopType": ["COMMERCIAL_DEALER"],
             "created": {
                 "min": "2000-05-04T00:00:00Z",
-                "max": "2025-05-04T00:00:00Z",
+                "max": "2025-05-04T00:00:00Z"
             },
             "updated": {
                 "min": "2000-05-04T00:00:00Z",
-                "max": "2025-05-04T00:00:00Z",
+                "max": "2025-05-04T00:00:00Z"
             },
             "auctionStart": {
                 "min": "2000-05-04T00:00:00Z",
-                "max": "2025-05-04T00:00:00Z",
+                "max": "2025-05-04T00:00:00Z"
             },
             "auctionEnd": {
                 "min": "2000-05-04T00:00:00Z",
-                "max": "2025-05-04T00:00:00Z",
+                "max": "2025-05-04T00:00:00Z"
             }
         });
         let expected = PatchProductSearchData {
             language: Some(LanguageData::De),
             currency: Some(CurrencyData::Eur),
             product_query: Some("Boop".try_into().unwrap()),
-            category_id: Some(HashSet::from_iter([CategoryId::from("furniture")])),
-            period_id: Some(HashSet::from_iter([PeriodId::from("baroque")])),
             shop_name_query: Some(HashSet::from_iter([ShopName::from("Baap")])),
             exclude_shop_name_query: None,
             seller_name_query: None,
             exclude_seller_name_query: None,
-            shop_slug_id_query: None,
+            shop_slug_id_query: Some(HashSet::from_iter([SlugId::from("imperial-antiques")])),
             exclude_shop_slug_id_query: None,
             seller_slug_id_query: None,
             exclude_seller_slug_id_query: None,
-            shop_type_query: None,
+            shop_type_query: Some(HashSet::from_iter([ShopTypeData::CommercialDealer])),
             price_query: Some(RangeQuery {
                 min: Some(37),
                 max: Some(42),
             }),
             state_query: Some(HashSet::from_iter([ProductStateData::Available])),
-            origin_year_query: Some(RangeQuery {
-                min: Some(1742.into()),
-                max: Some(1953.into()),
-            }),
-            authenticity_query: Some(HashSet::from_iter([AuthenticityData::Original])),
-            condition_query: Some(HashSet::from_iter([ConditionData::Excellent])),
-            provenance_query: Some(HashSet::from_iter([ProvenanceData::Partial])),
-            restoration_query: Some(HashSet::from_iter([RestorationData::Unknown])),
             created_query: Some(RangeQuery {
                 min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                 max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
@@ -453,37 +349,29 @@ mod tests {
                 "language": "de",
                 "currency": "EUR",
                 "productQuery": "Boop",
-                "categoryId": ["furniture"],
-                "periodId": ["baroque"],
                 "shopName": ["Baap"],
+                "shopSlugId": ["imperial-antiques"],
                 "price": {
                     "min": 37,
                     "max": 42
                 },
                 "state": ["AVAILABLE"],
-                "originYear": {
-                    "min": 1742,
-                    "max": 1953
-                },
-                "authenticity": ["ORIGINAL"],
-                "condition": ["EXCELLENT"],
-                "provenance": ["PARTIAL"],
-                "restoration": ["UNKNOWN"],
+                "shopType": ["COMMERCIAL_DEALER"],
                 "created": {
                     "min": "2000-05-04T00:00:00Z",
-                    "max": "2025-05-04T00:00:00Z",
+                    "max": "2025-05-04T00:00:00Z"
                 },
                 "updated": {
                     "min": "2000-05-04T00:00:00Z",
-                    "max": "2025-05-04T00:00:00Z",
+                    "max": "2025-05-04T00:00:00Z"
                 },
                 "auctionStart": {
                     "min": "2000-05-04T00:00:00Z",
-                    "max": "2025-05-04T00:00:00Z",
+                    "max": "2025-05-04T00:00:00Z"
                 },
                 "auctionEnd": {
                     "min": "2000-05-04T00:00:00Z",
-                    "max": "2025-05-04T00:00:00Z",
+                    "max": "2025-05-04T00:00:00Z"
                 }
             }
         });
@@ -496,30 +384,20 @@ mod tests {
                 language: Some(LanguageData::De),
                 currency: Some(CurrencyData::Eur),
                 product_query: Some("Boop".try_into().unwrap()),
-                category_id: Some(HashSet::from_iter([CategoryId::from("furniture")])),
-                period_id: Some(HashSet::from_iter([PeriodId::from("baroque")])),
-                shop_name_query: Some(["Baap".into()].into()),
+                shop_name_query: Some([ShopName::from("Baap")].into()),
                 exclude_shop_name_query: None,
                 seller_name_query: None,
                 exclude_seller_name_query: None,
-                shop_slug_id_query: None,
+                shop_slug_id_query: Some(HashSet::from_iter([SlugId::from("imperial-antiques")])),
                 exclude_shop_slug_id_query: None,
                 seller_slug_id_query: None,
                 exclude_seller_slug_id_query: None,
-                shop_type_query: None,
+                shop_type_query: Some(HashSet::from_iter([ShopTypeData::CommercialDealer])),
                 price_query: Some(RangeQuery {
                     min: Some(37),
                     max: Some(42),
                 }),
                 state_query: Some(HashSet::from_iter([ProductStateData::Available])),
-                origin_year_query: Some(RangeQuery {
-                    min: Some(1742.into()),
-                    max: Some(1953.into()),
-                }),
-                authenticity_query: Some(HashSet::from_iter([AuthenticityData::Original])),
-                condition_query: Some(HashSet::from_iter([ConditionData::Excellent])),
-                provenance_query: Some(HashSet::from_iter([ProvenanceData::Partial])),
-                restoration_query: Some(HashSet::from_iter([RestorationData::Unknown])),
                 created_query: Some(RangeQuery {
                     min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),

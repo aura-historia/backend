@@ -1,28 +1,20 @@
-use crate::core::origin_year::OriginYear;
 use crate::core::product::Product;
 use crate::core::product_image::ProductImage;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_record::ProductRecord;
-use crate::opensearch::authenticity_document::AuthenticityDocument;
-use crate::opensearch::condition_document::ConditionDocument;
 use crate::opensearch::product_image_document::ProductImageDocument;
 use crate::opensearch::product_state_document::ProductStateDocument;
-use crate::opensearch::provenance_document::ProvenanceDocument;
-use crate::opensearch::restoration_document::RestorationDocument;
-use common::category_key::CategoryId;
 use common::currency::domain::Currency;
 use common::error::mapping_error::PersistenceMappingError;
 use common::error::missing_field::MissingPersistenceField;
 use common::language::document::TextDocument;
 use common::language::domain::Language;
 use common::localized::Localized;
-use common::period_key::PeriodId;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use common::utm::append_utm_params;
-use common::year::{Year, YearRange};
 use common::{event_id::EventId, has_key::HasKey};
 use field::field;
 use geo::core::continent::Continent;
@@ -70,31 +62,6 @@ pub struct ProductDocument {
     pub structured_address_continent: Option<ContinentDocument>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub geo_address: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub category_id: Option<CategoryId>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub period_id: Option<PeriodId>,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub category_name_de: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub category_name_en: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub category_name_fr: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub category_name_es: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub category_name_it: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub period_name_de: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub period_name_en: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub period_name_fr: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub period_name_es: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub period_name_it: Option<String>,
 
     pub title_native: TextDocument,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -228,22 +195,6 @@ pub struct ProductDocument {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub embedding: Option<Vec<f32>>,
 
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year_min: Option<Year>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year: Option<Year>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year_max: Option<Year>,
-
-    #[serde(default)]
-    pub authenticity: AuthenticityDocument,
-    #[serde(default)]
-    pub condition: ConditionDocument,
-    #[serde(default)]
-    pub provenance: ProvenanceDocument,
-    #[serde(default)]
-    pub restoration: RestorationDocument,
-
     #[serde(
         with = "time::serde::rfc3339::option",
         skip_serializing_if = "Option::is_none",
@@ -326,23 +277,12 @@ impl TryFrom<ProductDomainEventRecord> for ProductDocument {
             structured_address_country: event_product_document.structured_address_country,
             structured_address_continent: event_product_document
                 .structured_address_country
-                .map(|country| ContinentDocument::from(Continent::from(country))),
+                .map(Continent::from)
+                .map(ContinentDocument::from),
             geo_address: event_product_document
                 .geo_address_lat
                 .zip(event_product_document.geo_address_lon)
                 .map(|(lat, lon)| format!("{lat},{lon}")),
-            category_id: None,
-            period_id: None,
-            category_name_de: None,
-            category_name_en: None,
-            category_name_fr: None,
-            category_name_es: None,
-            category_name_it: None,
-            period_name_de: None,
-            period_name_en: None,
-            period_name_fr: None,
-            period_name_es: None,
-            period_name_it: None,
             title_native: event_product_document
                 .title_native
                 .map(TextDocument::from)
@@ -419,13 +359,6 @@ impl TryFrom<ProductDomainEventRecord> for ProductDocument {
                 .map(ProductImageDocument::from)
                 .collect(),
             embedding: None,
-            origin_year_min: None,
-            origin_year: None,
-            origin_year_max: None,
-            authenticity: Default::default(),
-            condition: Default::default(),
-            provenance: Default::default(),
-            restoration: Default::default(),
             auction_start: event_product_document.auction_start,
             auction_end: event_product_document.auction_end,
             created: event_product_document.timestamp,
@@ -458,23 +391,12 @@ impl From<ProductRecord> for ProductDocument {
             structured_address_country: product_document.structured_address_country,
             structured_address_continent: product_document
                 .structured_address_country
-                .map(|country| ContinentDocument::from(Continent::from(country))),
+                .map(Continent::from)
+                .map(ContinentDocument::from),
             geo_address: product_document
                 .geo_address_lat
                 .zip(product_document.geo_address_lon)
                 .map(|(lat, lon)| format!("{lat},{lon}")),
-            category_id: product_document.category_id,
-            period_id: product_document.period_id,
-            category_name_de: product_document.category_name_de,
-            category_name_en: product_document.category_name_en,
-            category_name_fr: product_document.category_name_fr,
-            category_name_es: product_document.category_name_es,
-            category_name_it: product_document.category_name_it,
-            period_name_de: product_document.period_name_de,
-            period_name_en: product_document.period_name_en,
-            period_name_fr: product_document.period_name_fr,
-            period_name_es: product_document.period_name_es,
-            period_name_it: product_document.period_name_it,
             title_native: product_document.title_native.into(),
             title_de: product_document.title_de,
             title_en: product_document.title_en,
@@ -543,13 +465,6 @@ impl From<ProductRecord> for ProductDocument {
                 .map(ProductImageDocument::from)
                 .collect(),
             embedding: None,
-            origin_year_min: product_document.origin_year_min,
-            origin_year: product_document.origin_year,
-            origin_year_max: product_document.origin_year_max,
-            authenticity: product_document.authenticity.into(),
-            condition: product_document.condition.into(),
-            provenance: product_document.provenance.into(),
-            restoration: product_document.restoration.into(),
             auction_start: product_document.auction_start,
             auction_end: product_document.auction_end,
             created: product_document.created,
@@ -562,44 +477,11 @@ impl From<Product> for ProductDocument {
     fn from(product: Product) -> Self {
         let mut product = product;
 
-        let category_name_de = product
-            .category_name
-            .remove(&Language::De)
-            .map(String::from);
-        let category_name_en = product
-            .category_name
-            .remove(&Language::En)
-            .map(String::from);
-        let category_name_fr = product
-            .category_name
-            .remove(&Language::Fr)
-            .map(String::from);
-        let category_name_es = product
-            .category_name
-            .remove(&Language::Es)
-            .map(String::from);
-        let category_name_it = product
-            .category_name
-            .remove(&Language::It)
-            .map(String::from);
-
-        let period_name_de = product.period_name.remove(&Language::De).map(String::from);
-        let period_name_en = product.period_name.remove(&Language::En).map(String::from);
-        let period_name_fr = product.period_name.remove(&Language::Fr).map(String::from);
-        let period_name_es = product.period_name.remove(&Language::Es).map(String::from);
-        let period_name_it = product.period_name.remove(&Language::It).map(String::from);
-
         let title_de = product.other_title.remove(&Language::De).map(String::from);
         let title_en = product.other_title.remove(&Language::En).map(String::from);
         let title_fr = product.other_title.remove(&Language::Fr).map(String::from);
         let title_es = product.other_title.remove(&Language::Es).map(String::from);
         let title_it = product.other_title.remove(&Language::It).map(String::from);
-
-        let (origin_year_min, origin_year, origin_year_max) = match product.origin_year {
-            Some(OriginYear::ExactYear(y)) => (None, Some(y), None),
-            Some(OriginYear::EstimatedRange(range)) => (range.min, None, range.max),
-            None => (None, None, None),
-        };
 
         ProductDocument {
             product_id: product.product_id,
@@ -643,18 +525,6 @@ impl From<Product> for ProductDocument {
                 .and_then(|address| address.country)
                 .map(|country| ContinentDocument::from(Continent::from(country))),
             geo_address: geo_address_to_document(product.geo_address),
-            category_id: product.category_id,
-            period_id: product.period_id,
-            category_name_de,
-            category_name_en,
-            category_name_fr,
-            category_name_es,
-            category_name_it,
-            period_name_de,
-            period_name_en,
-            period_name_fr,
-            period_name_es,
-            period_name_it,
             title_native: product.native_title.into(),
             title_de,
             title_en,
@@ -939,13 +809,6 @@ impl From<Product> for ProductDocument {
                 .map(ProductImageDocument::from)
                 .collect(),
             embedding: product.embedding,
-            origin_year_min,
-            origin_year,
-            origin_year_max,
-            authenticity: product.authenticity.into(),
-            condition: product.condition.into(),
-            provenance: product.provenance.into(),
-            restoration: product.restoration.into(),
             auction_start: product.auction_start,
             auction_end: product.auction_end,
             created: product.created,
@@ -956,39 +819,6 @@ impl From<Product> for ProductDocument {
 
 impl From<ProductDocument> for Product {
     fn from(product_document: ProductDocument) -> Self {
-        let mut category_name = HashMap::with_capacity(Language::COUNT);
-        if let Some(category_en) = product_document.category_name_en {
-            category_name.insert(Language::En, category_en.into());
-        }
-        if let Some(category_de) = product_document.category_name_de {
-            category_name.insert(Language::De, category_de.into());
-        }
-        if let Some(category_fr) = product_document.category_name_fr {
-            category_name.insert(Language::Fr, category_fr.into());
-        }
-        if let Some(category_es) = product_document.category_name_es {
-            category_name.insert(Language::Es, category_es.into());
-        }
-        if let Some(category_it) = product_document.category_name_it {
-            category_name.insert(Language::It, category_it.into());
-        }
-        let mut period_name = HashMap::with_capacity(Language::COUNT);
-        if let Some(period_en) = product_document.period_name_en {
-            period_name.insert(Language::En, period_en.into());
-        }
-        if let Some(period_de) = product_document.period_name_de {
-            period_name.insert(Language::De, period_de.into());
-        }
-        if let Some(period_fr) = product_document.period_name_fr {
-            period_name.insert(Language::Fr, period_fr.into());
-        }
-        if let Some(period_es) = product_document.period_name_es {
-            period_name.insert(Language::Es, period_es.into());
-        }
-        if let Some(period_it) = product_document.period_name_it {
-            period_name.insert(Language::It, period_it.into());
-        }
-
         let mut other_title = HashMap::with_capacity(Language::COUNT);
         if let Some(title_en) = product_document.title_en {
             other_title.insert(Language::En, title_en.into());
@@ -1195,10 +1025,6 @@ impl From<ProductDocument> for Product {
                 product_document.structured_address_country,
             ),
             geo_address: geo_address_from_document(product_document.geo_address.as_deref()),
-            category_id: product_document.category_id,
-            category_name,
-            period_id: product_document.period_id,
-            period_name,
             native_title: Localized::new(
                 product_document.title_native.language.into(),
                 product_document.title_native.text.into(),
@@ -1219,20 +1045,6 @@ impl From<ProductDocument> for Product {
                 .map(ProductImage::from)
                 .collect(),
             embedding: product_document.embedding,
-            origin_year: match product_document.origin_year {
-                Some(exact_year) => Some(OriginYear::ExactYear(exact_year)),
-                None => match (
-                    product_document.origin_year_min,
-                    product_document.origin_year_max,
-                ) {
-                    (None, None) => None,
-                    (min, max) => Some(OriginYear::EstimatedRange(YearRange { min, max })),
-                },
-            },
-            authenticity: product_document.authenticity.into(),
-            condition: product_document.condition.into(),
-            provenance: product_document.provenance.into(),
-            restoration: product_document.restoration.into(),
             auction_start: product_document.auction_start,
             auction_end: product_document.auction_end,
             created: product_document.created,
@@ -1251,13 +1063,6 @@ mod faker {
     impl Dummy<Faker> for ProductDocument {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let state: ProductStateDocument = config.fake_with_rng(rng);
-            let origin_year_min = fake::rand::random_range(1807..=1815).into();
-            let origin_year_max = fake::rand::random_range(1815..=1819).into();
-            let origin_year = if origin_year_min == origin_year_max {
-                Some(origin_year_min)
-            } else {
-                None
-            };
             let title_native = TextDocument {
                 text: config.fake_with_rng::<Title, _>(rng).to_string(),
                 language: config.fake_with_rng(rng),
@@ -1273,18 +1078,6 @@ mod faker {
                 shop_id: config.fake_with_rng(rng),
                 seller_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
-                category_id: config.fake_with_rng(rng),
-                period_id: config.fake_with_rng(rng),
-                category_name_de: config.fake_with_rng(rng),
-                category_name_en: config.fake_with_rng(rng),
-                category_name_fr: config.fake_with_rng(rng),
-                category_name_es: config.fake_with_rng(rng),
-                category_name_it: config.fake_with_rng(rng),
-                period_name_de: config.fake_with_rng(rng),
-                period_name_en: config.fake_with_rng(rng),
-                period_name_fr: config.fake_with_rng(rng),
-                period_name_es: config.fake_with_rng(rng),
-                period_name_it: config.fake_with_rng(rng),
                 shop_name,
                 seller_name,
                 shop_type: config.fake_with_rng(rng),
@@ -1364,13 +1157,6 @@ mod faker {
                 .unwrap(),
                 images: config.fake_with_rng(rng),
                 embedding: None,
-                origin_year_min: Some(origin_year_min),
-                origin_year,
-                origin_year_max: Some(origin_year_max),
-                authenticity: config.fake_with_rng(rng),
-                condition: config.fake_with_rng(rng),
-                provenance: config.fake_with_rng(rng),
-                restoration: config.fake_with_rng(rng),
                 auction_start: if config.fake_with_rng(rng) {
                     Some(OffsetDateTime::now_utc())
                 } else {

@@ -43,8 +43,6 @@ async fn should_200_respond_updated_shop_when_admin_patches_shop() {
         structured_address: None,
         phone: None,
         email: None,
-        specialities_categories: None,
-        specialities_periods: None,
     };
 
     let lambda_event = LambdaEvent {
@@ -106,8 +104,6 @@ async fn should_200_respond_updated_shop_when_partner_patches_shop() {
                 geo_address_lon: None,
                 phone: None,
                 email: None,
-                specialities_categories: None,
-                specialities_periods: None,
                 partner_api_key_short: None,
                 partner_api_key_long_hash: None,
                 updated: OffsetDateTime::now_utc(),
@@ -129,8 +125,6 @@ async fn should_200_respond_updated_shop_when_partner_patches_shop() {
         structured_address: None,
         phone: None,
         email: None,
-        specialities_categories: None,
-        specialities_periods: None,
     };
 
     let lambda_event = LambdaEvent {

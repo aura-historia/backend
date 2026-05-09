@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use camino::Utf8Path;
 use determinator::Determinator;
-use guppy::{MetadataCommand, graph::DependencyDirection};
+use guppy::{graph::DependencyDirection, MetadataCommand};
 use std::collections::HashSet;
 use std::process::Command;
 
@@ -19,9 +19,6 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/product",
     "src/product-api",
     "src/product-api-partner",
-    "src/product-classification",
-    "src/product-classification-api",
-    "src/product-pipeline/src/product-pipeline-extract-attribute",
     "src/product-pipeline/src/product-pipeline-translate",
     "src/product-watchlist",
     "src/product-watchlist-api",

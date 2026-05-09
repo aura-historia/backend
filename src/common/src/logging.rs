@@ -1,5 +1,5 @@
 use std::time::Duration;
-use tracing::{Level, info};
+use tracing::{info, Level};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -8,7 +8,6 @@ pub enum LogEventType {
     BatchProcessing,
     EntityWrite,
     PolicyDecision,
-    ClassificationDecision,
 }
 
 impl LogEventType {
@@ -18,7 +17,6 @@ impl LogEventType {
             Self::BatchProcessing => "BATCH_PROCESSING",
             Self::EntityWrite => "ENTITY_WRITE",
             Self::PolicyDecision => "POLICY_DECISION",
-            Self::ClassificationDecision => "CLASSIFICATION_DECISION",
         }
     }
 }
@@ -50,18 +48,14 @@ impl std::fmt::Display for LogEntityType {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogPipelineStage {
-    ProductClassification,
     ProductTranslation,
-    ProductAttributeExtraction,
     ProductEmbedding,
 }
 
 impl LogPipelineStage {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::ProductClassification => "PRODUCT_CLASSIFICATION",
             Self::ProductTranslation => "PRODUCT_TRANSLATION",
-            Self::ProductAttributeExtraction => "PRODUCT_ATTRIBUTE_EXTRACTION",
             Self::ProductEmbedding => "PRODUCT_EMBEDDING",
         }
     }
@@ -76,9 +70,7 @@ impl std::fmt::Display for LogPipelineStage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogWriteSource {
     ProductCommandService,
-    ProductClassification,
     ProductTranslation,
-    ProductAttributeExtraction,
     ProductEmbedding,
 }
 
@@ -86,9 +78,7 @@ impl LogWriteSource {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ProductCommandService => "PRODUCT_COMMAND_SERVICE",
-            Self::ProductClassification => "PRODUCT_CLASSIFICATION",
             Self::ProductTranslation => "PRODUCT_TRANSLATION",
-            Self::ProductAttributeExtraction => "PRODUCT_ATTRIBUTE_EXTRACTION",
             Self::ProductEmbedding => "PRODUCT_EMBEDDING",
         }
     }
@@ -123,9 +113,7 @@ impl std::fmt::Display for LogClassificationMethod {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LlmOperation {
-    ProductClassification,
     ProductTitleTranslation,
-    ProductAttributeExtraction,
     ProductEmbedding,
     ProductQueryEmbedding,
     SellerShopDisambiguation,
@@ -134,9 +122,7 @@ pub enum LlmOperation {
 impl LlmOperation {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::ProductClassification => "PRODUCT_CLASSIFICATION",
             Self::ProductTitleTranslation => "PRODUCT_TITLE_TRANSLATION",
-            Self::ProductAttributeExtraction => "PRODUCT_ATTRIBUTE_EXTRACTION",
             Self::ProductEmbedding => "PRODUCT_EMBEDDING",
             Self::ProductQueryEmbedding => "PRODUCT_QUERY_EMBEDDING",
             Self::SellerShopDisambiguation => "SELLER_SHOP_DISAMBIGUATION",

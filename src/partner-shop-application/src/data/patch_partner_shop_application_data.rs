@@ -1,4 +1,4 @@
-use common::{category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_name::ShopName};
+use common::{domain::Domain, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use shop::data::address_data::StructuredAddressData;
@@ -29,10 +29,6 @@ pub struct PatchPartnerShopApplicationData {
     pub shop_phone: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_email: Option<Email>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shop_specialities_categories: Option<Vec<CategoryId>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shop_specialities_periods: Option<Vec<PeriodId>>,
 }
 
 #[cfg(feature = "test-data")]
@@ -51,8 +47,6 @@ mod faker {
                 shop_structured_address: None,
                 shop_phone: None,
                 shop_email: None,
-                shop_specialities_categories: None,
-                shop_specialities_periods: None,
             }
         }
     }

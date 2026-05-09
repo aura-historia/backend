@@ -20,8 +20,6 @@ consumed by a Lambda function.
 | `SearchFilterPercolateProductQ` | SQS + Lambda | Matches products against saved search filters, notifies users |
 | `ProductPipelineTranslateQ` | SQS + Lambda | Translates product titles and descriptions (ML, GPU) |
 | `ProductPipelineEmbedTextQ` | SQS + Lambda | Creates vector embeddings via Gemini Embedding API |
-| `ProductPipelineExtractAttributeQ` | SQS + Lambda | Extracts product attributes (year, condition, …) via Gemini |
-| `ProductPipelineClassifyQ` | SQS + Lambda | Classifies products into categories and periods via Gemini |
 | `ShopOpenSearchIndexQ` | SQS + Lambda | Indexes shop records in OpenSearch |
 | `SearchFilterOpenSearchSyncQ` | SQS + Lambda | Syncs search filters to OpenSearch percolation queries |
 | `NotificationSendQ` | SQS + Lambda | Sends external notifications via SES |
@@ -53,14 +51,10 @@ flowchart TD
     %% Enrichment pipeline
     BUS -->|"DOMAIN_CREATED (INSERT)"| Translate["ProductPipelineTranslateQ\n→ Lambda\n(translate title & description)"]
     BUS -->|"DOMAIN_CREATED (INSERT)"| EmbedText["ProductPipelineEmbedTextQ\n→ Lambda\n(vector embedding via Gemini)"]
-    BUS -->|"ENRICHMENT_EMBEDDED (INSERT)"| Classify["ProductPipelineClassifyQ\n→ Lambda\n(classify category & period via Gemini)"]
-    Classify -->|"ENRICHMENT_CLASSIFY_CATEGORY (INSERT)"| Extract["ProductPipelineExtractAttributeQ\n→ Lambda\n(extract attributes via Gemini)"]
 
     %% Enrichment pipeline writes back to DynamoDB
     Translate -->|"write ENRICHMENT_TRANSLATED_TITLE\n/ ENRICHMENT_TRANSLATED_DESCRIPTION"| DB
     EmbedText -->|"write ENRICHMENT_EMBEDDED"| DB
-    Classify -->|"write ENRICHMENT_CLASSIFY_CATEGORY\n/ ENRICHMENT_CLASSIFY_PERIOD"| DB
-    Extract -->|"write ENRICHMENT_EXTRACTED_ATTRIBUTES"| DB
 
     %% Shop & search filter sync
     BUS -->|"shop#details (INSERT/MODIFY)"| ShopOS["ShopOpenSearchIndexQ\n→ Lambda\n(index shop in OpenSearch)"]
@@ -91,19 +85,10 @@ stateDiagram-v2
     [*] --> DOMAIN_URL_CHANGED
     [*] --> DOMAIN_IMAGES_CHANGED
     [*] --> DOMAIN_AUCTION_TIME_CHANGED
-    [*] --> DOMAIN_ORIGIN_YEAR_CHANGED
-    [*] --> DOMAIN_AUTHENTICITY_CHANGED
-    [*] --> DOMAIN_CONDITION_CHANGED
-    [*] --> DOMAIN_PROVENANCE_CHANGED
-    [*] --> DOMAIN_RESTORATION_CHANGED
 
     DOMAIN_CREATED --> ENRICHMENT_TRANSLATED_TITLE
     DOMAIN_CREATED --> ENRICHMENT_TRANSLATED_DESCRIPTION
     DOMAIN_CREATED --> ENRICHMENT_EMBEDDED
-
-    ENRICHMENT_EMBEDDED --> ENRICHMENT_CLASSIFY_CATEGORY
-    ENRICHMENT_EMBEDDED --> ENRICHMENT_CLASSIFY_PERIOD
-    ENRICHMENT_CLASSIFY_CATEGORY --> ENRICHMENT_EXTRACTED_ATTRIBUTES
 ```
 
 ---

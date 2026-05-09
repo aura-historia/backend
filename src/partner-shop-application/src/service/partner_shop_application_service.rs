@@ -286,8 +286,6 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
                 .and_then(|a| a.country),
             shop_phone: update.shop_phone,
             shop_email: update.shop_email,
-            shop_specialities_categories: update.shop_specialities_categories,
-            shop_specialities_periods: update.shop_specialities_periods,
             task_token: None,
             updated: OffsetDateTime::now_utc(),
         };
@@ -414,8 +412,6 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
                 .and_then(|a| a.country),
             shop_phone: update.shop_phone,
             shop_email: update.shop_email,
-            shop_specialities_categories: update.shop_specialities_categories,
-            shop_specialities_periods: update.shop_specialities_periods,
             task_token: None,
             updated: OffsetDateTime::now_utc(),
         };
@@ -541,8 +537,6 @@ impl<'a> PartnerShopApplicationServiceImpl<'a> {
             shop_structured_address_country: None,
             shop_phone: None,
             shop_email: None,
-            shop_specialities_categories: None,
-            shop_specialities_periods: None,
             task_token: None,
             updated: OffsetDateTime::now_utc(),
         };

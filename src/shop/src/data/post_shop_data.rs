@@ -1,6 +1,6 @@
 use crate::data::address_data::StructuredAddressData;
 use crate::data::shop_type_data::ShopTypeData;
-use common::{category_key::CategoryId, domain::Domain, period_key::PeriodId, shop_name::ShopName};
+use common::{domain::Domain, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use std::collections::HashSet;
@@ -22,10 +22,6 @@ pub struct PostShopData {
     pub phone: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub email: Option<Email>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub specialities_categories: Vec<CategoryId>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub specialities_periods: Vec<PeriodId>,
 }
 
 #[cfg(feature = "test-data")]
@@ -44,8 +40,6 @@ mod faker {
                 structured_address: None,
                 phone: None,
                 email: None,
-                specialities_categories: Vec::new(),
-                specialities_periods: Vec::new(),
             }
         }
     }

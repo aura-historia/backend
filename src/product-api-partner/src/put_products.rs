@@ -89,8 +89,6 @@ fn to_upsert_command(data: PutProductData, partner_shop: &PartnerShop) -> Upsert
         })
         .collect();
 
-    let origin_year = data.origin_year.map(|oy| oy.into());
-
     UpsertProductCommand {
         shop_id: partner_shop.shop_id,
         shops_product_id: data.shops_product_id,
@@ -107,11 +105,6 @@ fn to_upsert_command(data: PutProductData, partner_shop: &PartnerShop) -> Upsert
         images,
         auction_start: data.auction_start,
         auction_end: data.auction_end,
-        origin_year,
-        authenticity: data.authenticity.into(),
-        condition: data.condition.into(),
-        provenance: data.provenance.into(),
-        restoration: data.restoration.into(),
     }
 }
 
@@ -238,11 +231,6 @@ mod tests {
                 images: None,
                 auction_start: None,
                 auction_end: None,
-                origin_year: None,
-                authenticity: Default::default(),
-                condition: Default::default(),
-                provenance: Default::default(),
-                restoration: Default::default(),
                 seller_name: None,
                 structured_address: None,
                 geo_address: None,
@@ -365,11 +353,6 @@ mod tests {
             images: None,
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: Default::default(),
-            condition: Default::default(),
-            provenance: Default::default(),
-            restoration: Default::default(),
             seller_name: Some("Test Seller".to_string()),
             structured_address: None,
             geo_address: None,
@@ -417,11 +400,6 @@ mod tests {
             ]),
             auction_start: None,
             auction_end: None,
-            origin_year: None,
-            authenticity: Default::default(),
-            condition: Default::default(),
-            provenance: Default::default(),
-            restoration: Default::default(),
             seller_name: Some("Full Seller".to_string()),
             structured_address: None,
             geo_address: None,

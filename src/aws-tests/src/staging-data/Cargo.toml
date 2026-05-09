@@ -4,15 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { workspace = true, features = ["test-data", "opensearch"] }
 staging-tests = { workspace = true }
-aws-tests-common = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
-product = { workspace = true, features = ["full"] }
-serde_json = { workspace = true }
-serde = { workspace = true }
-fake = { workspace = true }
-time = { workspace = true }
-opensearch = { workspace = true }
-shop = { workspace = true, features = ["test-data", "dynamodb", "data", "service"] }
-product-classification = { workspace = true, features = ["test-data"] }

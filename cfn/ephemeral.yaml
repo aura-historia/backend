@@ -537,7 +537,6 @@ Resources:
       BatchSize: 1
       MaximumBatchingWindowInSeconds: 0
 
-
   UserTierUpdateDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -819,179 +818,6 @@ Resources:
       FunctionResponseTypes:
         - ReportBatchItemFailures
 
-  ProductPipelineExtractAttributeDlq:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "product-pipeline-extract-attribute-dlq-${StageName}"
-      MessageRetentionPeriod: 1209600
-  ProductPipelineExtractAttributeQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "product-pipeline-extract-attribute-queue-${StageName}"
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ProductPipelineExtractAttributeDlq.Arn
-        maxReceiveCount: 3
-      VisibilityTimeout: 300
-  ProductPipelineExtractAttributeRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "product-pipeline-extract-attribute-role-${StageName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:Query
-                  - dynamodb:PutItem
-                  - dynamodb:BatchWriteItem
-                Resource:
-                  - !GetAtt TableOne.Arn
-                  - !Sub "${TableOne.Arn}/index/*"
-        - PolicyName: SQSPollerAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:ReceiveMessage
-                  - sqs:DeleteMessage
-                  - sqs:GetQueueAttributes
-                  - sqs:GetQueueUrl
-                Resource: !GetAtt ProductPipelineExtractAttributeQ.Arn
-  ProductPipelineExtractAttributeLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub "product-pipeline-extract-attribute-${StageName}"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ProductPipelineExtractAttributeRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-pipeline-extract-attribute-${StageName}-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 60
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-          GEMINI_API_KEY: "test-key"
-          STAGE: "ephemeral"
-  ProductPipelineExtractAttributeMapping:
-    Type: AWS::Lambda::EventSourceMapping
-    Properties:
-      FunctionName: !Ref ProductPipelineExtractAttributeLambda
-      EventSourceArn: !GetAtt ProductPipelineExtractAttributeQ.Arn
-      Enabled: true
-      BatchSize: 10
-      MaximumBatchingWindowInSeconds: 1
-      FunctionResponseTypes:
-        - ReportBatchItemFailures
-
-  ProductPipelineClassifyDlq:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "product-pipeline-classify-dlq-${StageName}"
-      MessageRetentionPeriod: 1209600
-  ProductPipelineClassifyQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "product-pipeline-classify-queue-${StageName}"
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ProductPipelineClassifyDlq.Arn
-        maxReceiveCount: 3
-      VisibilityTimeout: 300
-  ProductPipelineClassifyRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "product-pipeline-classify-role-${StageName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:Query
-                  - dynamodb:PutItem
-                  - dynamodb:BatchWriteItem
-                Resource:
-                  - !GetAtt TableOne.Arn
-                  - !Sub "${TableOne.Arn}/index/*"
-        - PolicyName: SQSPollerAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:ReceiveMessage
-                  - sqs:DeleteMessage
-                  - sqs:GetQueueAttributes
-                  - sqs:GetQueueUrl
-                Resource: !GetAtt ProductPipelineClassifyQ.Arn
-        - PolicyName: OpenSearchAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:ESHttpGet
-                  - es:ESHttpPost
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/*"
-  ProductPipelineClassifyLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub "product-pipeline-classify-${StageName}"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ProductPipelineClassifyRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-pipeline-classify-${StageName}-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 60
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-          GEMINI_API_KEY: "test-key"
-          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
-          STAGE: "ephemeral"
-  ProductPipelineClassifyMapping:
-    Type: AWS::Lambda::EventSourceMapping
-    Properties:
-      FunctionName: !Ref ProductPipelineClassifyLambda
-      EventSourceArn: !GetAtt ProductPipelineClassifyQ.Arn
-      Enabled: true
-      BatchSize: 10
-      MaximumBatchingWindowInSeconds: 1
-      FunctionResponseTypes:
-        - ReportBatchItemFailures
-
   DynamoDbEventBusQueuePolicy:
     Type: AWS::SQS::QueuePolicy
     Properties:
@@ -1006,8 +832,6 @@ Resources:
         - !Ref SearchFilterPercolateProductQ
         - !Ref ProductPipelineTranslateQ
         - !Ref ProductPipelineEmbedTextQ
-        - !Ref ProductPipelineExtractAttributeQ
-        - !Ref ProductPipelineClassifyQ
         - !Ref NotificationSendQ
       PolicyDocument:
         Version: "2012-10-17"
@@ -1027,8 +851,6 @@ Resources:
               - !GetAtt SearchFilterPercolateProductQ.Arn
               - !GetAtt ProductPipelineTranslateQ.Arn
               - !GetAtt ProductPipelineEmbedTextQ.Arn
-              - !GetAtt ProductPipelineExtractAttributeQ.Arn
-              - !GetAtt ProductPipelineClassifyQ.Arn
               - !GetAtt NotificationSendQ.Arn
 
   # ---------------------------------------------------------------------------
@@ -1265,48 +1087,6 @@ Resources:
       Targets:
         - Id: ProductPipelineEmbedTextQ
           Arn: !GetAtt ProductPipelineEmbedTextQ.Arn
-  ProductPipelineExtractAttributeDynamoDbProductEventRecordCreatedEventRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: !Sub "ddb-product-embed-product-pipeline-extract-attr-${StageName}"
-      EventBusName: !Ref DynamoDbEventBus
-      EventPattern:
-        source:
-          - !Ref TableOne
-        detail-type:
-          - "DynamoDBStreamRecord"
-        detail:
-          eventName:
-            - "INSERT"
-          dynamodb:
-            NewImage:
-              event_type:
-                S:
-                  - "ENRICHMENT_CLASSIFY_CATEGORY"
-      Targets:
-        - Id: ProductPipelineExtractAttributeQ
-          Arn: !GetAtt ProductPipelineExtractAttributeQ.Arn
-  ProductPipelineClassifyDynamoDbProductEventRecordCreatedEventRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: !Sub "ddb-product-embed-product-pipeline-classify-product-${StageName}"
-      EventBusName: !Ref DynamoDbEventBus
-      EventPattern:
-        source:
-          - !Ref TableOne
-        detail-type:
-          - "DynamoDBStreamRecord"
-        detail:
-          eventName:
-            - "INSERT"
-          dynamodb:
-            NewImage:
-              event_type:
-                S:
-                  - "ENRICHMENT_EMBEDDED"
-      Targets:
-        - Id: ProductPipelineClassifyQ
-          Arn: !GetAtt ProductPipelineClassifyQ.Arn
 
   # ---------------------------------------------------------------------------
   # API Gateway
@@ -1672,51 +1452,6 @@ Resources:
       ApiId: !Ref Api
       IntegrationType: AWS_PROXY
       IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ShopApiLambda}"
-      PayloadFormatVersion: "2.0"
-
-  # --- Product Classification API Routes ---
-  CategoryApiGetCategoryByIdRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "GET /api/v1/categories/{categoryId}"
-      Target: !Sub "integrations/${ProductClassificationApiLambdaIntegration}"
-  CategoryApiGetAllCategoriesRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "GET /api/v1/categories"
-      Target: !Sub "integrations/${ProductClassificationApiLambdaIntegration}"
-  CategoryApiSearchRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "POST /api/v1/categories/search"
-      Target: !Sub "integrations/${ProductClassificationApiLambdaIntegration}"
-  PeriodApiGetPeriodByIdRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "GET /api/v1/periods/{periodId}"
-      Target: !Sub "integrations/${ProductClassificationApiLambdaIntegration}"
-  PeriodApiGetAllPeriodsRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "GET /api/v1/periods"
-      Target: !Sub "integrations/${ProductClassificationApiLambdaIntegration}"
-  PeriodApiSearchRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "POST /api/v1/periods/search"
-      Target: !Sub "integrations/${ProductClassificationApiLambdaIntegration}"
-  ProductClassificationApiLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref Api
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProductClassificationApiLambda}"
       PayloadFormatVersion: "2.0"
 
   # --- Search Filter API Routes ---
@@ -2709,73 +2444,6 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
-  # --- Product Classification API ---
-  CategoryApiRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "category-api-role-${StageName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:Query
-                  - dynamodb:GetItem
-                  - dynamodb:BatchGetItem
-                Resource:
-                  - !GetAtt TableOne.Arn
-                  - !Sub "${TableOne.Arn}/index/*"
-        - PolicyName: OpenSearchReadOnly
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:Describe*
-                  - es:List*
-                  - es:ESHttpGet
-                  - es:ESHttpHead
-                  - es:ESHttpPost
-                Resource: !Sub "${OpenSearchDomain.Arn}/*"
-  ProductClassificationApiLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub "product-classification-api-${StageName}"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt CategoryApiRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-classification-api-${StageName}-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 10
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          STAGE: !Ref Stage
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
-          LOCALSTACK_MAPPED_PORT: !Ref LocalStackMappedPort
-  ProductClassificationApiLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref ProductClassificationApiLambda
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
-
   # --- Search Filter API ---
   SearchFilterApiRole:
     Type: AWS::IAM::Role
@@ -3502,16 +3170,6 @@ Outputs:
     Value: !Ref ProductPipelineEmbedTextQ
   ProductPipelineEmbedTextDeadLetterQueueUrl:
     Value: !Ref ProductPipelineEmbedTextDlq
-
-  ProductPipelineExtractAttributeQueueUrl:
-    Value: !Ref ProductPipelineExtractAttributeQ
-  ProductPipelineExtractAttributeDeadLetterQueueUrl:
-    Value: !Ref ProductPipelineExtractAttributeDlq
-
-  ProductPipelineClassifyQueueUrl:
-    Value: !Ref ProductPipelineClassifyQ
-  ProductPipelineClassifyDeadLetterQueueUrl:
-    Value: !Ref ProductPipelineClassifyDlq
 
   StripeEventBusName:
     Value: !Ref StripeEventBus

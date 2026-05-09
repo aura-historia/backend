@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 common = { workspace = true, features = ["dynamodb", "event_bridge", "api", "opensearch"] }
 product = { workspace = true, features = ["dynamodb", "opensearch"] }
-product-classification = { workspace = true }
 lambda_runtime = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
@@ -25,7 +24,6 @@ url = { workspace = true }
 once_cell = { workspace = true }
 
 [dev-dependencies]
-product-classification = { workspace = true, features = ["test-data"] }
 product = { workspace = true, features = ["test-data"] }
 rstest = { workspace = true }
 serde = { workspace = true }

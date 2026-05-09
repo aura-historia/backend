@@ -101,47 +101,6 @@ mod tests {
     use fake::{Fake, Faker};
 
     #[test]
-    fn should_build_document_from_record_when_has_category_filter() {
-        use common::category_key::CategoryId;
-        use std::collections::HashSet;
-
-        let mut record = Faker.fake::<UserSearchFilterRecord>();
-        record.product_query = None;
-        record.category_id = HashSet::from([CategoryId::from("furniture")]);
-        record.period_id.clear();
-        record.shop_name_query.clear();
-        record.seller_name_query.clear();
-        record.exclude_shop_name_query.clear();
-        record.exclude_seller_name_query.clear();
-        record.shop_type_query.clear();
-        record.price_query = None;
-        record.state_query.clear();
-        record.origin_year_query = None;
-        record.authenticity_query.clear();
-        record.condition_query.clear();
-        record.provenance_query.clear();
-        record.restoration_query.clear();
-        record.created_query = None;
-        record.updated_query = None;
-        record.auction_start_query = None;
-        record.auction_end_query = None;
-
-        let document: UserSearchFilterDocument = record.try_into().unwrap();
-        let query = &document.query;
-
-        // With no product_query, build_search_query wraps in constant_score instead of bool
-        assert!(query.get("constant_score").is_some());
-        let filter = &query["constant_score"]["filter"]["bool"]["filter"];
-        assert!(filter.is_array());
-        let filter_array = filter.as_array().unwrap();
-        let has_category_terms = filter_array.iter().any(|f| {
-            f.get("terms")
-                .is_some_and(|t| t.get("categoryId").is_some())
-        });
-        assert!(has_category_terms);
-    }
-
-    #[test]
     fn should_fake_user_search_filter_document() {
         let _ = Faker.fake::<UserSearchFilterDocument>();
     }

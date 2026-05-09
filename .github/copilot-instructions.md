@@ -81,8 +81,6 @@ Since this is a serverless backend, manual testing involves:
 - **src/product-watchlist-api**: API Gateway handlers for product watchlist operations (4 handlers)
 - **src/product-lambda**: Lambda function implementations for product event processing (5 lambdas)
 - **src/product-pipeline**: Product data pipeline with auto-scaling and processing (7 modules)
-- **src/product-classification**: Product category and period classification system
-- **src/product-classification-api**: API Gateway handlers for product category and period operations (6 handlers)
 - **src/shop**: Shop/store management system:
   - `core`: Shop domain models and business logic
   - `data`: Shop data models
@@ -131,9 +129,6 @@ Located in various directories:
 **Product Pipeline Modules** (`src/product-pipeline/src/`):
 - `product-pipeline-embed-text`: Embed text for product search
 - `product-pipeline-translate`: Translate product data
-- `product-pipeline-extract-attribute`: Extract product attributes
-- `product-pipeline-classify-category`: Classify product categories
-- `product-pipeline-classify-period`: Classify product periods
 
 **Shop Lambda Functions** (`src/shop-lambda/src/`):
 - `shop-lambda-opensearch-index`: Index shops to OpenSearch
@@ -154,14 +149,6 @@ Located in various directories:
 - `product-api-get-product-similar`: Get similar products
 - `product-api-search`: Search products with filters
 - `product-api-put-products`: Bulk update/create products
-
-**Product Classification API Handlers** (`src/product-classification-api/src/`):
-- `product-classification-api-category-get`: Retrieve a single category by ID
-- `product-classification-api-category-get-all`: List categories
-- `product-classification-api-category-search`: Search categories
-- `product-classification-api-period-get`: Retrieve a single period by ID
-- `product-classification-api-period-get-all`: List periods
-- `product-classification-api-period-search`: Search periods
 
 **Product Watchlist API Handlers** (`src/product-watchlist-api/src/`):
 - `product-watchlist-api-get`: Get user's product watchlist
@@ -245,7 +232,6 @@ src/
 │   └── src/         # Pipeline modules and binaries
 │       ├── product-pipeline-embed-text/         # Lambda for text embedding
 │       ├── product-pipeline-translate/          # Lambda for translation
-│       ├── product-pipeline-extract-attribute/  # Lambda binary for attribute extraction
 ├── shop/           # Shop/store management system
 │   ├── src/core/           # Shop domain models
 │   ├── src/data/           # Shop data models
@@ -288,10 +274,7 @@ src/
 - `.github/workflows/cicd.yml`: Complete CI/CD pipeline with lint, build, test, deploy, and AWS integration phases
 - `.github/workflows/delete_pr_cfn_stack.yml`: CloudFormation stack cleanup for closed PRs
 - `.github/workflows/golden-ami-product-pipeline-embed-text.yml`: Golden AMI workflow for embed-text pipeline
-- `.github/workflows/golden-ami-product-pipeline-extract-attribute.yml`: Golden AMI workflow for extract-attribute pipeline
 - `.github/workflows/golden-ami-product-pipeline-translate.yml`: Golden AMI workflow for translate pipeline
-- `.github/workflows/golden-ami-product-pipeline-classify-category.yml`: Golden AMI workflow for classify-category pipeline
-- `.github/workflows/golden-ami-product-pipeline-classify-period.yml`: Golden AMI workflow for classify-period pipeline
 - `sonar-project.properties`: SonarQube configuration for code quality analysis
 - `cfn/`: CloudFormation templates for different stages (dev, prod, ephemeral, golden-ami)
 
@@ -303,9 +286,9 @@ src/
 
 ### Production CloudFormation Tuning Overview
 - Treat the prod Lambdas in three workload classes when tuning `cfn/prod.yaml`:
-  1. **API Lambdas** (`product-api`, `shop-api`, `user-api`, `search-filter-api`, `product-classification-api`, `stripe-api`, `newsletter-api`, `partner-*`) are short-lived request/response handlers that mainly orchestrate DynamoDB, OpenSearch, Cognito, Stripe, Zoho, or geocoding calls.
+  1. **API Lambdas** (`product-api`, `shop-api`, `user-api`, `search-filter-api`, `stripe-api`, `newsletter-api`, `partner-*`) are short-lived request/response handlers that mainly orchestrate DynamoDB, OpenSearch, Cognito, Stripe, Zoho, or geocoding calls.
   2. **Sequential queue workers** (`notification-send`, `product-lambda-update-notify-user`, `search-filter-lambda-percolate-product`, `shop-lambda-opensearch-index`, `user-lambda-index-opensearch`, `user-lambda-tier-update`, `search-filter-lambda-opensearch-sync`) process SQS records one-by-one and often perform external I/O per record, so batch sizes and SQS visibility timeouts must stay conservative.
-  3. **Product pipeline workers** (`product-pipeline-translate`, `product-pipeline-embed-text`, `product-pipeline-extract-attribute`, `product-pipeline-classify`) call Gemini and/or OpenSearch, then persist enrichment events back to DynamoDB; prod tuning should cap concurrency deliberately and keep queue visibility timeouts at least `6 x` the Lambda timeout.
+  3. **Product pipeline workers** (`product-pipeline-translate`, `product-pipeline-embed-text`) call Gemini and/or OpenSearch, then persist enrichment events back to DynamoDB; prod tuning should cap concurrency deliberately and keep queue visibility timeouts at least `6 x` the Lambda timeout.
 - `product-lambda-materialize-dynamodb` chunks writes into DynamoDB batch-write groups, so it tolerates larger SQS batches than `product-lambda-materialize-opensearch`, whose policy-event path still performs per-record DynamoDB lookups before bulk-indexing to OpenSearch.
 - `fxrate-lambda` is a scheduled single-request sync against fxratesapi plus DynamoDB persistence, so it should fail fast instead of holding a very long timeout window.
 

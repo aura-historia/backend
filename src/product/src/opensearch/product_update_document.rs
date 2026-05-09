@@ -1,17 +1,10 @@
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord;
 use crate::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord;
-use crate::opensearch::authenticity_document::AuthenticityDocument;
-use crate::opensearch::condition_document::ConditionDocument;
 use crate::opensearch::product_image_document::ProductImageDocument;
 use crate::opensearch::product_state_document::ProductStateDocument;
-use crate::opensearch::provenance_document::ProvenanceDocument;
-use crate::opensearch::restoration_document::RestorationDocument;
-use common::category_key::CategoryId;
 use common::event_id::EventId;
 use common::language::record::LanguageRecord;
-use common::period_key::PeriodId;
-use common::year::Year;
 use serde::Serialize;
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
@@ -61,31 +54,6 @@ pub struct ProductUpdateDocument {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub state: Option<ProductStateDocument>,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub category_id: Option<CategoryId>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub period_id: Option<PeriodId>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub category_name_de: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub category_name_en: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub category_name_fr: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub category_name_es: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub category_name_it: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub period_name_de: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub period_name_en: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub period_name_fr: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub period_name_es: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub period_name_it: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_de: Option<String>,
@@ -194,21 +162,6 @@ pub struct ProductUpdateDocument {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub embedding: Option<Vec<f32>>,
 
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year_min: Option<Year>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year: Option<Year>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year_max: Option<Year>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub authenticity: Option<AuthenticityDocument>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub condition: Option<ConditionDocument>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub provenance: Option<ProvenanceDocument>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub restoration: Option<RestorationDocument>,
-
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -236,18 +189,6 @@ impl Default for ProductUpdateDocument {
             price_sgd: None,
             price_chf: None,
             state: None,
-            category_id: None,
-            period_id: None,
-            category_name_de: None,
-            category_name_en: None,
-            category_name_fr: None,
-            category_name_es: None,
-            category_name_it: None,
-            period_name_de: None,
-            period_name_en: None,
-            period_name_fr: None,
-            period_name_es: None,
-            period_name_it: None,
             title_de: None,
             title_en: None,
             title_fr: None,
@@ -294,13 +235,6 @@ impl Default for ProductUpdateDocument {
             auction_start: None,
             auction_end: None,
             embedding: None,
-            origin_year_min: None,
-            origin_year: None,
-            origin_year_max: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             updated: OffsetDateTime::now_utc(),
         }
     }
@@ -377,26 +311,7 @@ impl From<ProductDomainEventRecord> for ProductUpdateDocument {
             auction_start: event_record.auction_start,
             auction_end: event_record.auction_end,
             state,
-            category_id: None,
-            period_id: None,
-            category_name_de: None,
-            category_name_en: None,
-            category_name_fr: None,
-            category_name_es: None,
-            category_name_it: None,
-            period_name_de: None,
-            period_name_en: None,
-            period_name_fr: None,
-            period_name_es: None,
-            period_name_it: None,
             embedding: None,
-            origin_year_min: event_record.origin_year_min,
-            origin_year: event_record.origin_year,
-            origin_year_max: event_record.origin_year_max,
-            authenticity: event_record.authenticity.map(Into::into),
-            condition: event_record.condition.map(Into::into),
-            provenance: event_record.provenance.map(Into::into),
-            restoration: event_record.restoration.map(Into::into),
             updated: event_record.timestamp,
         }
     }
@@ -470,26 +385,7 @@ impl From<ProductEnrichmentEventRecord> for ProductUpdateDocument {
             auction_start: None,
             auction_end: None,
             state: None,
-            category_id: event_record.category_id,
-            period_id: event_record.period_id,
-            category_name_de: None,
-            category_name_en: None,
-            category_name_fr: None,
-            category_name_es: None,
-            category_name_it: None,
-            period_name_de: None,
-            period_name_en: None,
-            period_name_fr: None,
-            period_name_es: None,
-            period_name_it: None,
             embedding: event_record.embedding,
-            origin_year_min: event_record.origin_year_min,
-            origin_year: event_record.origin_year,
-            origin_year_max: event_record.origin_year_max,
-            authenticity: event_record.authenticity.map(Into::into),
-            condition: event_record.condition.map(Into::into),
-            provenance: event_record.provenance.map(Into::into),
-            restoration: event_record.restoration.map(Into::into),
             updated: event_record.timestamp,
         };
         match (
@@ -618,26 +514,7 @@ mod faker {
                     None
                 },
                 state,
-                category_id: Some(config.fake_with_rng(rng)),
-                period_id: Some(config.fake_with_rng(rng)),
-                category_name_de: Some(config.fake_with_rng(rng)),
-                category_name_en: Some(config.fake_with_rng(rng)),
-                category_name_fr: Some(config.fake_with_rng(rng)),
-                category_name_es: Some(config.fake_with_rng(rng)),
-                category_name_it: Some(config.fake_with_rng(rng)),
-                period_name_de: Some(config.fake_with_rng(rng)),
-                period_name_en: Some(config.fake_with_rng(rng)),
-                period_name_fr: Some(config.fake_with_rng(rng)),
-                period_name_es: Some(config.fake_with_rng(rng)),
-                period_name_it: Some(config.fake_with_rng(rng)),
                 embedding: None,
-                origin_year_min: config.fake_with_rng(rng),
-                origin_year: config.fake_with_rng(rng),
-                origin_year_max: config.fake_with_rng(rng),
-                authenticity: config.fake_with_rng(rng),
-                condition: config.fake_with_rng(rng),
-                provenance: config.fake_with_rng(rng),
-                restoration: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),
             }
         }
@@ -658,7 +535,7 @@ mod faker {
 #[cfg(test)]
 mod tests {
     use crate::dynamodb::product_event_record::enrichment::{
-        ProductEnrichmentEventRecord, mk_pk, mk_sk,
+        mk_pk, mk_sk, ProductEnrichmentEventRecord,
     };
     use crate::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord;
     use crate::opensearch::{
@@ -673,11 +550,9 @@ mod tests {
 
     #[test]
     fn should_be_subset_of_product_document() {
-        assert!(
-            ProductUpdateDocument::SERDE_FIELDS
-                .iter()
-                .all(|field| ProductDocument::SERDE_FIELDS.contains(field))
-        )
+        assert!(ProductUpdateDocument::SERDE_FIELDS
+            .iter()
+            .all(|field| ProductDocument::SERDE_FIELDS.contains(field)))
     }
 
     fn make_translation_record(
@@ -698,20 +573,11 @@ mod tests {
             shop_id,
             seller_id: ShopId::new(),
             shops_product_id,
-            category_id: None,
-            period_id: None,
             source_language: Some(LanguageRecord::En),
             target_language: Some(target_language),
             target: Some(target.to_string()),
             embedding: None,
             native_title: None,
-            origin_year_min: None,
-            origin_year: None,
-            origin_year_max: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
             timestamp: OffsetDateTime::now_utc(),
         }
     }

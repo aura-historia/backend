@@ -6,11 +6,7 @@ use common::{
 };
 use notification::service::notification_service::{NotificationError, NotificationService};
 use product::core::{
-    authenticity::Authenticity,
-    condition::Condition,
     product::LocalizedProductView,
-    provenance::Provenance,
-    restoration::Restoration,
     title::Title,
     user_state::{
         NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
@@ -249,10 +245,6 @@ fn anonymize_product(product: &mut LocalizedProductView) {
     product.shops_product_id = common::shops_product_id::ShopsProductId::from(nil.to_string());
     product.shop_name = common::shop_name::ShopName::from("Hidden");
     product.seller_name = common::shop_name::ShopName::from("Hidden");
-    product.category_id = None;
-    product.category_name = None;
-    product.period_id = None;
-    product.period_name = None;
     let lang = product.title.localization;
     product.title = Localized::new(lang, hidden_title(lang));
     product.description = None;
@@ -262,11 +254,6 @@ fn anonymize_product(product: &mut LocalizedProductView) {
     product.state = ProductState::Unknown;
     product.url = url::Url::parse("https://aura-historia.com/pricing").expect("valid url");
     product.images = vec![];
-    product.origin_year = None;
-    product.authenticity = Authenticity::Unknown;
-    product.condition = Condition::Unknown;
-    product.provenance = Provenance::Unknown;
-    product.restoration = Restoration::Unknown;
     product.auction_start = None;
     product.auction_end = None;
     product.created = OffsetDateTime::UNIX_EPOCH;
@@ -1736,22 +1723,6 @@ mod tests {
             "Hidden Product Title"
         );
         assert_eq!(
-            actual.item.condition,
-            product::core::condition::Condition::Unknown
-        );
-        assert_eq!(
-            actual.item.provenance,
-            product::core::provenance::Provenance::Unknown
-        );
-        assert_eq!(
-            actual.item.authenticity,
-            product::core::authenticity::Authenticity::Unknown
-        );
-        assert_eq!(
-            actual.item.restoration,
-            product::core::restoration::Restoration::Unknown
-        );
-        assert_eq!(
             actual.item.state,
             common::product_state::domain::ProductState::Unknown
         );
@@ -2035,31 +2006,10 @@ mod tests {
             common::product_state::domain::ProductState::Unknown
         );
         assert!(product.images.is_empty());
-        assert!(product.origin_year.is_none());
-        assert_eq!(
-            product.authenticity,
-            product::core::authenticity::Authenticity::Unknown
-        );
-        assert_eq!(
-            product.condition,
-            product::core::condition::Condition::Unknown
-        );
-        assert_eq!(
-            product.provenance,
-            product::core::provenance::Provenance::Unknown
-        );
-        assert_eq!(
-            product.restoration,
-            product::core::restoration::Restoration::Unknown
-        );
         assert!(product.auction_start.is_none());
         assert!(product.auction_end.is_none());
         assert_eq!(product.created, OffsetDateTime::UNIX_EPOCH);
         assert_eq!(product.updated, OffsetDateTime::UNIX_EPOCH);
-        assert!(product.category_id.is_none());
-        assert!(product.category_name.is_none());
-        assert!(product.period_id.is_none());
-        assert!(product.period_name.is_none());
         assert_eq!(
             product.shop_name,
             common::shop_name::ShopName::from("Hidden")

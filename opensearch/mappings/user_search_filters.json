@@ -165,12 +165,6 @@
             "query": {
                 "type": "percolator"
             },
-            "categoryId": {
-                "type": "keyword"
-            },
-            "periodId": {
-                "type": "keyword"
-            },
             "shopName": {
                 "type": "keyword"
             },
@@ -235,27 +229,6 @@
                 "type": "unsigned_long"
             },
             "state": {
-                "type": "keyword"
-            },
-            "originYearMin": {
-                "type": "integer"
-            },
-            "originYear": {
-                "type": "integer"
-            },
-            "originYearMax": {
-                "type": "integer"
-            },
-            "authenticity": {
-                "type": "keyword"
-            },
-            "condition": {
-                "type": "keyword"
-            },
-            "provenance": {
-                "type": "keyword"
-            },
-            "restoration": {
                 "type": "keyword"
             },
             "titleNative": {

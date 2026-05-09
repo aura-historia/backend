@@ -1,13 +1,11 @@
-use crate::core::product_event::ProductDomainEvent;
 use crate::core::product_event::domain::{
-    ProductAuctionTimeChangeDomainEventPayload, ProductAuthenticityChangeDomainEventPayload,
-    ProductCommonEventPayload, ProductConditionChangeDomainEventPayload,
+    ProductAuctionTimeChangeDomainEventPayload, ProductCommonEventPayload,
     ProductCreatedDomainEventPayload, ProductDomainEventPayload,
     ProductEstimatePriceChangeDomainEventPayload, ProductImagesChangeDomainEventPayload,
-    ProductOriginYearChangeDomainEventPayload, ProductPriceChangeDomainEventPayload,
-    ProductProvenanceChangeDomainEventPayload, ProductRestorationChangeDomainEventPayload,
-    ProductStateChangeDomainEventPayload, ProductUrlChangeDomainEventPayload,
+    ProductPriceChangeDomainEventPayload, ProductStateChangeDomainEventPayload,
+    ProductUrlChangeDomainEventPayload,
 };
+use crate::core::product_event::ProductDomainEvent;
 use crate::core::product_image::ProductImage;
 use crate::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
 use crate::dynamodb::product_image_record::ProductImageRecord;
@@ -277,22 +275,6 @@ pub struct ProductDomainEventRecord {
         default
     )]
     pub auction_end: Option<OffsetDateTime>,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year_min: Option<common::year::Year>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year: Option<common::year::Year>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year_max: Option<common::year::Year>,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub authenticity: Option<crate::dynamodb::authenticity_record::AuthenticityRecord>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub condition: Option<crate::dynamodb::condition_record::ConditionRecord>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub provenance: Option<crate::dynamodb::provenance_record::ProvenanceRecord>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub restoration: Option<crate::dynamodb::restoration_record::RestorationRecord>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub timestamp: OffsetDateTime,
@@ -734,13 +716,6 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                     ),
                     auction_start: payload.auction_start,
                     auction_end: payload.auction_end,
-                    origin_year_min: None,
-                    origin_year: None,
-                    origin_year_max: None,
-                    authenticity: None,
-                    condition: None,
-                    provenance: None,
-                    restoration: None,
                     timestamp: domain.timestamp,
                 }
             }
@@ -1019,87 +994,6 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                 rec.auction_end = payload.auction_end;
                 rec
             }
-            ProductDomainEventPayload::OriginYearChanged(payload) => {
-                let mut rec = mk_empty_event_record(
-                    pk,
-                    sk,
-                    product_id,
-                    event_id,
-                    event_type,
-                    shop_id,
-                    payload.seller_id,
-                    shops_product_id,
-                    domain.timestamp,
-                );
-                rec.origin_year_min = payload.origin_year.min();
-                rec.origin_year = payload.origin_year.exact();
-                rec.origin_year_max = payload.origin_year.max();
-                rec
-            }
-            ProductDomainEventPayload::AuthenticityChanged(payload) => {
-                use crate::dynamodb::authenticity_record::AuthenticityRecord;
-                let mut rec = mk_empty_event_record(
-                    pk,
-                    sk,
-                    product_id,
-                    event_id,
-                    event_type,
-                    shop_id,
-                    payload.seller_id,
-                    shops_product_id,
-                    domain.timestamp,
-                );
-                rec.authenticity = Some(AuthenticityRecord::from(payload.authenticity));
-                rec
-            }
-            ProductDomainEventPayload::ConditionChanged(payload) => {
-                use crate::dynamodb::condition_record::ConditionRecord;
-                let mut rec = mk_empty_event_record(
-                    pk,
-                    sk,
-                    product_id,
-                    event_id,
-                    event_type,
-                    shop_id,
-                    payload.seller_id,
-                    shops_product_id,
-                    domain.timestamp,
-                );
-                rec.condition = Some(ConditionRecord::from(payload.condition));
-                rec
-            }
-            ProductDomainEventPayload::ProvenanceChanged(payload) => {
-                use crate::dynamodb::provenance_record::ProvenanceRecord;
-                let mut rec = mk_empty_event_record(
-                    pk,
-                    sk,
-                    product_id,
-                    event_id,
-                    event_type,
-                    shop_id,
-                    payload.seller_id,
-                    shops_product_id,
-                    domain.timestamp,
-                );
-                rec.provenance = Some(ProvenanceRecord::from(payload.provenance));
-                rec
-            }
-            ProductDomainEventPayload::RestorationChanged(payload) => {
-                use crate::dynamodb::restoration_record::RestorationRecord;
-                let mut rec = mk_empty_event_record(
-                    pk,
-                    sk,
-                    product_id,
-                    event_id,
-                    event_type,
-                    shop_id,
-                    payload.seller_id,
-                    shops_product_id,
-                    domain.timestamp,
-                );
-                rec.restoration = Some(RestorationRecord::from(payload.restoration));
-                rec
-            }
         }
     }
 }
@@ -1231,13 +1125,6 @@ fn mk_state_event_record(
         images: None,
         auction_start: None,
         auction_end: None,
-        origin_year_min: None,
-        origin_year: None,
-        origin_year_max: None,
-        authenticity: None,
-        condition: None,
-        provenance: None,
-        restoration: None,
         timestamp,
     }
 }
@@ -1512,13 +1399,6 @@ fn mk_price_change_event_record(
         images: None,
         auction_start: None,
         auction_end: None,
-        origin_year_min: None,
-        origin_year: None,
-        origin_year_max: None,
-        authenticity: None,
-        condition: None,
-        provenance: None,
-        restoration: None,
         timestamp,
     }
 }
@@ -1648,13 +1528,6 @@ fn mk_empty_event_record(
         images: None,
         auction_start: None,
         auction_end: None,
-        origin_year_min: None,
-        origin_year: None,
-        origin_year_max: None,
-        authenticity: None,
-        condition: None,
-        provenance: None,
-        restoration: None,
         timestamp,
     }
 }
@@ -2055,82 +1928,6 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                         },
                     )
                 }
-                ProductDomainEventTypeRecord::DomainOriginYearChanged => {
-                    let origin_year = if let Some(exact) = record.origin_year {
-                        crate::core::origin_year::OriginYear::ExactYear(exact)
-                    } else {
-                        crate::core::origin_year::OriginYear::EstimatedRange(
-                            common::year::YearRange {
-                                min: record.origin_year_min,
-                                max: record.origin_year_max,
-                            },
-                        )
-                    };
-                    ProductDomainEventPayload::OriginYearChanged(
-                        ProductOriginYearChangeDomainEventPayload {
-                            shop_id,
-                            seller_id,
-                            shops_product_id,
-                            origin_year,
-                        },
-                    )
-                }
-                ProductDomainEventTypeRecord::DomainAuthenticityChanged => {
-                    ProductDomainEventPayload::AuthenticityChanged(
-                        ProductAuthenticityChangeDomainEventPayload {
-                            shop_id,
-                            seller_id,
-                            shops_product_id,
-                            authenticity: record.authenticity.map(Into::into).ok_or(
-                                MissingPersistenceField::new(
-                                    field!(authenticity@ProductDomainEventRecord),
-                                ),
-                            )?,
-                        },
-                    )
-                }
-                ProductDomainEventTypeRecord::DomainConditionChanged => {
-                    ProductDomainEventPayload::ConditionChanged(
-                        ProductConditionChangeDomainEventPayload {
-                            shop_id,
-                            seller_id,
-                            shops_product_id,
-                            condition: record.condition.map(Into::into).ok_or(
-                                MissingPersistenceField::new(
-                                    field!(condition@ProductDomainEventRecord),
-                                ),
-                            )?,
-                        },
-                    )
-                }
-                ProductDomainEventTypeRecord::DomainProvenanceChanged => {
-                    ProductDomainEventPayload::ProvenanceChanged(
-                        ProductProvenanceChangeDomainEventPayload {
-                            shop_id,
-                            seller_id,
-                            shops_product_id,
-                            provenance: record.provenance.map(Into::into).ok_or(
-                                MissingPersistenceField::new(
-                                    field!(provenance@ProductDomainEventRecord),
-                                ),
-                            )?,
-                        },
-                    )
-                }
-                ProductDomainEventTypeRecord::DomainRestorationChanged => {
-                    ProductDomainEventPayload::RestorationChanged(
-                        ProductRestorationChangeDomainEventPayload {
-                            shop_id,
-                            seller_id,
-                            shops_product_id,
-                            restoration: record.restoration.map(Into::into).ok_or(
-                                MissingPersistenceField::new(
-                                    field!(restoration@ProductDomainEventRecord),
-                                ),
-                            )?,
-                        },
-                    )
-                }
             },
         };
         Ok(event)
@@ -2163,11 +1960,11 @@ mod faker {
 #[cfg(all(test, feature = "test-data"))]
 mod tests {
     use super::*;
-    use crate::core::product_event::ProductDomainEvent;
     use crate::core::product_event::domain::{
         ProductCreatedDomainEventPayload, ProductDomainEventPayload,
         ProductUrlChangeDomainEventPayload,
     };
+    use crate::core::product_event::ProductDomainEvent;
     use fake::{Fake, Faker};
     use time::OffsetDateTime;
     use url::Url;

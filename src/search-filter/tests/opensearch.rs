@@ -1,9 +1,7 @@
-use common::category_key::CategoryId;
 use common::currency::record::CurrencyRecord;
 use common::event_id::EventId;
 use common::language::document::{LanguageDocument, TextDocument};
 use common::language::record::LanguageRecord;
-use common::period_key::PeriodId;
 use common::product_id::ProductId;
 use common::query::range_query::RangeQuery;
 use common::resource_state::record::ResourceStateRecord;
@@ -12,7 +10,6 @@ use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
-use common::year::Year;
 use fake::{Fake, Faker};
 use opensearch::http::Url;
 use product::opensearch::product_document::ProductDocument;
@@ -113,8 +110,6 @@ async fn should_percolate_document_when_query_is_empty() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.category_id.clear();
-    record.period_id.clear();
     record.shop_name_query.clear();
     record.seller_name_query.clear();
     record.exclude_shop_name_query.clear();
@@ -126,11 +121,6 @@ async fn should_percolate_document_when_query_is_empty() {
     record.updated_query = None;
     record.auction_start_query = None;
     record.auction_end_query = None;
-    record.origin_year_query = None;
-    record.authenticity_query.clear();
-    record.condition_query.clear();
-    record.provenance_query.clear();
-    record.restoration_query.clear();
 
     let expected = index_document(&repository, record).await;
     let actual = repository
@@ -177,75 +167,7 @@ async fn should_not_percolate_document_when_product_query_does_not_match() {
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [OpenSearch()])]
-async fn should_percolate_document_when_category_matches() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
-    let mut record = base_record();
-    record.category_id = HashSet::from_iter([CategoryId::from("furniture")]);
-
-    let expected = index_document(&repository, record).await;
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert_eq!(vec![expected], actual);
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_not_percolate_document_when_category_does_not_match() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.category_id = HashSet::from_iter([CategoryId::from("ceramics")]);
-
-    index_document(&repository, record).await;
-
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert!(actual.is_empty());
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_percolate_document_when_period_matches() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.period_id = HashSet::from_iter([PeriodId::from("baroque")]);
-
-    let expected = index_document(&repository, record).await;
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert_eq!(vec![expected], actual);
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_not_percolate_document_when_period_does_not_match() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.period_id = HashSet::from_iter([PeriodId::from("modernism")]);
-
-    index_document(&repository, record).await;
-
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert!(actual.is_empty());
-}
 
 #[localstack_test(services = [OpenSearch()])]
 async fn should_percolate_document_when_shop_name_matches() {
@@ -562,319 +484,6 @@ async fn should_not_percolate_document_when_selected_currency_price_field_is_mis
 }
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_percolate_document_when_origin_year_exactly_matches_stored_exact_year() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.origin_year_query = Some(RangeQuery {
-        min: Some(Year::from(1780)),
-        max: Some(Year::from(1780)),
-    });
-
-    let expected = index_document(&repository, record).await;
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert_eq!(vec![expected], actual);
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_not_percolate_document_when_origin_year_exact_does_not_match_stored_exact_year() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.origin_year_query = Some(RangeQuery {
-        min: Some(Year::from(1781)),
-        max: Some(Year::from(1781)),
-    });
-
-    index_document(&repository, record).await;
-
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert!(actual.is_empty());
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_percolate_document_when_origin_year_min_matches_stored_year_range() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.origin_year_query = Some(RangeQuery {
-        min: Some(Year::from(1770)),
-        max: None,
-    });
-
-    let expected = index_document(&repository, record).await;
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert_eq!(vec![expected], actual);
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_not_percolate_document_when_origin_year_min_exceeds_stored_year_range() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.origin_year_query = Some(RangeQuery {
-        min: Some(Year::from(1810)),
-        max: None,
-    });
-
-    index_document(&repository, record).await;
-
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert!(actual.is_empty());
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_percolate_document_when_origin_year_max_matches_stored_year_range() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.origin_year_query = Some(RangeQuery {
-        min: None,
-        max: Some(Year::from(1790)),
-    });
-
-    let expected = index_document(&repository, record).await;
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert_eq!(vec![expected], actual);
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_not_percolate_document_when_origin_year_max_is_before_stored_year_range() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.origin_year_query = Some(RangeQuery {
-        min: None,
-        max: Some(Year::from(1700)),
-    });
-
-    index_document(&repository, record).await;
-
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert!(actual.is_empty());
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_percolate_document_when_origin_year_range_overlaps_stored_year_range() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.origin_year_query = Some(RangeQuery {
-        min: Some(Year::from(1775)),
-        max: Some(Year::from(1785)),
-    });
-
-    let expected = index_document(&repository, record).await;
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert_eq!(vec![expected], actual);
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_not_percolate_document_when_origin_year_range_does_not_overlap_stored_year_range() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.origin_year_query = Some(RangeQuery {
-        min: Some(Year::from(1600)),
-        max: Some(Year::from(1700)),
-    });
-
-    index_document(&repository, record).await;
-
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert!(actual.is_empty());
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_percolate_document_when_authenticity_matches() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.authenticity_query =
-        HashSet::from_iter([product::dynamodb::authenticity_record::AuthenticityRecord::Original]);
-
-    let expected = index_document(&repository, record).await;
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert_eq!(vec![expected], actual);
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_not_percolate_document_when_authenticity_does_not_match() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.authenticity_query = HashSet::from_iter([
-        product::dynamodb::authenticity_record::AuthenticityRecord::Questionable,
-    ]);
-
-    index_document(&repository, record).await;
-
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert!(actual.is_empty());
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_percolate_document_when_condition_matches() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.condition_query =
-        HashSet::from_iter([product::dynamodb::condition_record::ConditionRecord::Good]);
-
-    let expected = index_document(&repository, record).await;
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert_eq!(vec![expected], actual);
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_not_percolate_document_when_condition_does_not_match() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.condition_query =
-        HashSet::from_iter([product::dynamodb::condition_record::ConditionRecord::Poor]);
-
-    index_document(&repository, record).await;
-
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert!(actual.is_empty());
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_percolate_document_when_provenance_matches() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.provenance_query =
-        HashSet::from_iter([product::dynamodb::provenance_record::ProvenanceRecord::Complete]);
-
-    let expected = index_document(&repository, record).await;
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert_eq!(vec![expected], actual);
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_not_percolate_document_when_provenance_does_not_match() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.provenance_query =
-        HashSet::from_iter([product::dynamodb::provenance_record::ProvenanceRecord::None]);
-
-    index_document(&repository, record).await;
-
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert!(actual.is_empty());
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_percolate_document_when_restoration_matches() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.restoration_query =
-        HashSet::from_iter([product::dynamodb::restoration_record::RestorationRecord::Major]);
-
-    let expected = index_document(&repository, record).await;
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert_eq!(vec![expected], actual);
-}
-
-#[localstack_test(services = [OpenSearch()])]
-async fn should_not_percolate_document_when_restoration_does_not_match() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut record = base_record();
-    record.restoration_query =
-        HashSet::from_iter([product::dynamodb::restoration_record::RestorationRecord::None]);
-
-    index_document(&repository, record).await;
-
-    let actual = repository
-        .percolate(&base_product_document())
-        .await
-        .unwrap();
-
-    assert!(actual.is_empty());
-}
-
-#[localstack_test(services = [OpenSearch()])]
 async fn should_percolate_document_when_created_is_within_min_and_max_range() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -1091,7 +700,6 @@ async fn should_percolate_only_documents_that_match_when_multiple_filters_are_in
     matching_record.user_search_filter_id = UserSearchFilterId::new();
     matching_record.name = "matching".into();
     matching_record.product_query = Some("renaissance cabinet".try_into().unwrap());
-    matching_record.category_id = HashSet::from_iter([CategoryId::from("furniture")]);
     matching_record.shop_name_query = HashSet::from_iter(["Imperial Antiques".into()]);
     matching_record.price_query = Some(RangeQuery {
         min: Some(100),
@@ -1102,8 +710,7 @@ async fn should_percolate_only_documents_that_match_when_multiple_filters_are_in
     non_matching_record.user_search_filter_id = UserSearchFilterId::new();
     non_matching_record.name = "non matching".into();
     non_matching_record.product_query = Some("renaissance cabinet".try_into().unwrap());
-    non_matching_record.category_id = HashSet::from_iter([CategoryId::from("ceramics")]);
-    non_matching_record.shop_name_query = HashSet::from_iter(["Imperial Antiques".into()]);
+    non_matching_record.shop_name_query = HashSet::from_iter(["A Different Shop".into()]);
 
     let expected = index_document(&repository, matching_record).await;
     index_document(&repository, non_matching_record).await;
@@ -1125,7 +732,6 @@ async fn should_percolate_multiple_documents_when_all_match() {
     first_record.user_search_filter_id = UserSearchFilterId::new();
     first_record.name = "first".into();
     first_record.product_query = Some("renaissance cabinet".try_into().unwrap());
-    first_record.category_id = HashSet::from_iter([CategoryId::from("furniture")]);
 
     let mut second_record = base_record();
     second_record.user_search_filter_id = UserSearchFilterId::new();
@@ -1161,8 +767,6 @@ fn base_record() -> UserSearchFilterRecord {
         notifications: true,
         state: ResourceStateRecord::Active,
         product_query: Some("renaissance cabinet".try_into().unwrap()),
-        category_id: HashSet::from_iter([CategoryId::from("furniture")]),
-        period_id: HashSet::from_iter([PeriodId::from("baroque")]),
         shop_name_query: HashSet::new(),
         exclude_shop_name_query: HashSet::new(),
         seller_name_query: HashSet::new(),
@@ -1181,11 +785,6 @@ fn base_record() -> UserSearchFilterRecord {
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
-        origin_year_query: None,
-        authenticity_query: HashSet::new(),
-        condition_query: HashSet::new(),
-        provenance_query: HashSet::new(),
-        restoration_query: HashSet::new(),
         language: common::language::record::LanguageRecord::En,
         currency: common::currency::record::CurrencyRecord::Eur,
         created: datetime!(2024-01-01 00:00:00 UTC),
@@ -1225,18 +824,6 @@ fn base_product_document() -> ProductDocument {
         structured_address_country: None,
         structured_address_continent: None,
         geo_address: None,
-        category_id: Some(CategoryId::from("furniture")),
-        period_id: Some(PeriodId::from("baroque")),
-        category_name_de: Some("Möbel".to_string()),
-        category_name_en: Some("Furniture".to_string()),
-        category_name_fr: Some("Meubles".to_string()),
-        category_name_es: Some("Muebles".to_string()),
-        category_name_it: Some("Mobili".to_string()),
-        period_name_de: Some("Barock".to_string()),
-        period_name_en: Some("Baroque".to_string()),
-        period_name_fr: Some("Baroque".to_string()),
-        period_name_es: Some("Barroco".to_string()),
-        period_name_it: Some("Barocco".to_string()),
         title_native: TextDocument {
             text: "Cabinet renaissance impérial".to_string(),
             language: LanguageDocument::Fr,
@@ -1304,13 +891,6 @@ fn base_product_document() -> ProductDocument {
         url: Url::parse("https://example.com/products/renaissance-cabinet").unwrap(),
         images: Faker.fake(),
         embedding: None,
-        origin_year_min: Some(Year::from(1770)),
-        origin_year: Some(Year::from(1780)),
-        origin_year_max: Some(Year::from(1790)),
-        authenticity: product::opensearch::authenticity_document::AuthenticityDocument::Original,
-        condition: product::opensearch::condition_document::ConditionDocument::Good,
-        provenance: product::opensearch::provenance_document::ProvenanceDocument::Complete,
-        restoration: product::opensearch::restoration_document::RestorationDocument::Major,
         auction_start: Some(datetime!(2024-01-20 10:00:00 UTC)),
         auction_end: Some(datetime!(2024-01-25 18:00:00 UTC)),
         created: datetime!(2024-01-10 08:00:00 UTC),
@@ -1332,8 +912,8 @@ async fn index_document(
 // Helpers for text-query-only percolation tests
 // =============================================================================
 
-/// Returns a filter record with **no** category, period, price, shop or other
-/// structural filters — matching is driven purely by `product_query` text.
+/// Returns a filter record with no price, shop, or other structural filters.
+/// Matching is driven purely by `product_query` text.
 /// Set `product_query` and `language` in each individual test case.
 fn base_query_record() -> UserSearchFilterRecord {
     let user_id = UserId::new();
@@ -1348,8 +928,6 @@ fn base_query_record() -> UserSearchFilterRecord {
         notifications: true,
         state: ResourceStateRecord::Active,
         product_query: None,
-        category_id: HashSet::new(),
-        period_id: HashSet::new(),
         shop_name_query: HashSet::new(),
         exclude_shop_name_query: HashSet::new(),
         seller_name_query: HashSet::new(),
@@ -1368,11 +946,6 @@ fn base_query_record() -> UserSearchFilterRecord {
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
-        origin_year_query: None,
-        authenticity_query: HashSet::new(),
-        condition_query: HashSet::new(),
-        provenance_query: HashSet::new(),
-        restoration_query: HashSet::new(),
         language: LanguageRecord::En,
         currency: CurrencyRecord::Eur,
         created: datetime!(2024-01-01 00:00:00 UTC),
@@ -1406,18 +979,6 @@ fn silver_tea_set_product_document() -> ProductDocument {
         structured_address_country: None,
         structured_address_continent: None,
         geo_address: None,
-        category_id: Some(CategoryId::from("silverware")),
-        period_id: Some(PeriodId::from("victorian")),
-        category_name_de: Some("Silberwaren".to_string()),
-        category_name_en: Some("Silverware".to_string()),
-        category_name_fr: Some("Argenterie".to_string()),
-        category_name_es: Some("Platería".to_string()),
-        category_name_it: Some("Argenteria".to_string()),
-        period_name_de: Some("Viktorianisch".to_string()),
-        period_name_en: Some("Victorian".to_string()),
-        period_name_fr: Some("Victorien".to_string()),
-        period_name_es: Some("Victoriano".to_string()),
-        period_name_it: Some("Vittoriano".to_string()),
         title_native: TextDocument {
             text: "Victorian sterling silver tea service London 1872".to_string(),
             language: LanguageDocument::En,
@@ -1487,13 +1048,6 @@ fn silver_tea_set_product_document() -> ProductDocument {
         url: Url::parse("https://example.com/products/victorian-silver-tea-service").unwrap(),
         images: Faker.fake(),
         embedding: None,
-        origin_year_min: Some(Year::from(1870)),
-        origin_year: Some(Year::from(1872)),
-        origin_year_max: Some(Year::from(1878)),
-        authenticity: product::opensearch::authenticity_document::AuthenticityDocument::Original,
-        condition: product::opensearch::condition_document::ConditionDocument::Great,
-        provenance: product::opensearch::provenance_document::ProvenanceDocument::Partial,
-        restoration: product::opensearch::restoration_document::RestorationDocument::None,
         auction_start: None,
         auction_end: None,
         created: datetime!(2024-03-01 10:00:00 UTC),
@@ -1596,18 +1150,6 @@ fn ming_vase_product_document() -> ProductDocument {
         structured_address_country: None,
         structured_address_continent: None,
         geo_address: None,
-        category_id: Some(CategoryId::from("ceramics")),
-        period_id: Some(PeriodId::from("ming-dynasty")),
-        category_name_de: Some("Keramik".to_string()),
-        category_name_en: Some("Ceramics".to_string()),
-        category_name_fr: Some("Céramique".to_string()),
-        category_name_es: Some("Cerámica".to_string()),
-        category_name_it: Some("Ceramica".to_string()),
-        period_name_de: Some("Ming-Dynastie".to_string()),
-        period_name_en: Some("Ming Dynasty".to_string()),
-        period_name_fr: Some("Dynastie Ming".to_string()),
-        period_name_es: Some("Dinastía Ming".to_string()),
-        period_name_it: Some("Dinastia Ming".to_string()),
         title_native: TextDocument {
             text: "Ming dynasty blue white porcelain vase Jiajing period dragon cloud".to_string(),
             language: LanguageDocument::En,
@@ -1677,13 +1219,6 @@ fn ming_vase_product_document() -> ProductDocument {
         url: Url::parse("https://example.com/products/ming-dynasty-blue-white-vase").unwrap(),
         images: Faker.fake(),
         embedding: None,
-        origin_year_min: Some(Year::from(1530)),
-        origin_year: Some(Year::from(1545)),
-        origin_year_max: Some(Year::from(1560)),
-        authenticity: product::opensearch::authenticity_document::AuthenticityDocument::Original,
-        condition: product::opensearch::condition_document::ConditionDocument::Good,
-        provenance: product::opensearch::provenance_document::ProvenanceDocument::Complete,
-        restoration: product::opensearch::restoration_document::RestorationDocument::None,
         auction_start: None,
         auction_end: None,
         created: datetime!(2024-03-10 10:00:00 UTC),
@@ -1780,18 +1315,6 @@ fn louis_xv_fauteuil_product_document() -> ProductDocument {
         structured_address_country: None,
         structured_address_continent: None,
         geo_address: None,
-        category_id: Some(CategoryId::from("furniture")),
-        period_id: Some(PeriodId::from("rococo")),
-        category_name_de: Some("Möbel".to_string()),
-        category_name_en: Some("Furniture".to_string()),
-        category_name_fr: Some("Mobilier".to_string()),
-        category_name_es: Some("Muebles".to_string()),
-        category_name_it: Some("Mobili".to_string()),
-        period_name_de: Some("Rokoko".to_string()),
-        period_name_en: Some("Rococo".to_string()),
-        period_name_fr: Some("Rococo".to_string()),
-        period_name_es: Some("Rococó".to_string()),
-        period_name_it: Some("Rococò".to_string()),
         title_native: TextDocument {
             text: "Louis XV carved walnut fauteuil Aubusson tapestry Rococo 1750".to_string(),
             language: LanguageDocument::En,
@@ -1861,13 +1384,6 @@ fn louis_xv_fauteuil_product_document() -> ProductDocument {
         url: Url::parse("https://example.com/products/louis-xv-walnut-fauteuil").unwrap(),
         images: Faker.fake(),
         embedding: None,
-        origin_year_min: Some(Year::from(1745)),
-        origin_year: Some(Year::from(1750)),
-        origin_year_max: Some(Year::from(1758)),
-        authenticity: product::opensearch::authenticity_document::AuthenticityDocument::Original,
-        condition: product::opensearch::condition_document::ConditionDocument::Good,
-        provenance: product::opensearch::provenance_document::ProvenanceDocument::Claimed,
-        restoration: product::opensearch::restoration_document::RestorationDocument::Minor,
         auction_start: None,
         auction_end: None,
         created: datetime!(2024-03-15 10:00:00 UTC),

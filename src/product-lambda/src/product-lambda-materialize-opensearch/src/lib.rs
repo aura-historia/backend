@@ -1,39 +1,23 @@
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use common::category_key::CategoryId;
 use common::dynamodb_stream::extract_from_dynamodb_stream;
 use common::opensearch::bulk_response::{BulkItemResult, BulkResponse};
 use common::product_id::ProductId;
 use lambda_runtime::LambdaEvent;
-use once_cell::sync::OnceCell;
 use product::dynamodb::product_event_record::ProductEventRecord;
 use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use product::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
-use product::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord;
 use product::dynamodb::repository::ProductDynamoDbRepository;
 use product::opensearch::product_document::ProductDocument;
 use product::opensearch::product_image_document::ProductImageDocument;
 use product::opensearch::product_update_document::ProductUpdateDocument;
 use product::opensearch::repository::ProductOpenSearchRepository;
-use product_classification::category::dynamodb_repository::CategoryDynamoDbRepository;
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use tracing::{error, info, warn};
-
-struct CategoryNames {
-    category_name_de: String,
-    category_name_en: String,
-    category_name_fr: String,
-    category_name_es: String,
-    category_name_it: String,
-}
-static CATEGORY_CACHE: OnceCell<Arc<RwLock<HashMap<CategoryId, CategoryNames>>>> = OnceCell::new();
 
 #[tracing::instrument(
     skip(
         opensearch_repository,
         product_dynamodb_repository,
-        category_dynamodb_repository,
         event
     ),
     fields(requestId = %event.context.request_id)
@@ -41,7 +25,6 @@ static CATEGORY_CACHE: OnceCell<Arc<RwLock<HashMap<CategoryId, CategoryNames>>>>
 pub async fn handler(
     opensearch_repository: &impl ProductOpenSearchRepository,
     product_dynamodb_repository: &impl ProductDynamoDbRepository,
-    category_dynamodb_repository: &impl CategoryDynamoDbRepository,
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let count = event.payload.records.len();
@@ -65,8 +48,7 @@ pub async fn handler(
             }
             ProductEventRecord::Enrichment(enrichment_record) => {
                 let product_id = enrichment_record.product_id;
-                let update =
-                    build_enrichment_update(enrichment_record, category_dynamodb_repository).await;
+                let update = build_enrichment_update(enrichment_record);
                 updates.insert(message_id, (product_id, update));
             }
             ProductEventRecord::Policy(policy_record) => {
@@ -161,87 +143,10 @@ fn handle_domain_event(
     }
 }
 
-async fn build_enrichment_update(
+fn build_enrichment_update(
     event_record: product::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord,
-    category_repository: &impl CategoryDynamoDbRepository,
 ) -> ProductUpdateDocument {
-    match event_record.event_type {
-        ProductEnrichmentEventTypeRecord::EnrichmentClassifyCategory => {
-            let category_cache_rw =
-                CATEGORY_CACHE.get_or_init(|| Arc::new(RwLock::new(HashMap::new())));
-            match event_record.category_id {
-                Some(ref category_id) => {
-                    let category_id = category_id.clone();
-                    let mut update_document = ProductUpdateDocument::from(event_record);
-                    {
-                        let category_cache_r = category_cache_rw.read().await;
-                        if let Some(resolved) = category_cache_r.get(&category_id) {
-                            update_document.category_name_de =
-                                Some(resolved.category_name_de.clone());
-                            update_document.category_name_en =
-                                Some(resolved.category_name_en.clone());
-                            update_document.category_name_fr =
-                                Some(resolved.category_name_fr.clone());
-                            update_document.category_name_es =
-                                Some(resolved.category_name_es.clone());
-                            update_document.category_name_it =
-                                Some(resolved.category_name_it.clone());
-                        }
-                    }
-                    if update_document.category_name_de.is_none() {
-                        let category_res =
-                            category_repository.get_category_record(&category_id).await;
-                        let mut category_cache_w = category_cache_rw.write().await;
-                        match category_res {
-                            Ok(Some(category_record)) => {
-                                let category_names = CategoryNames {
-                                    category_name_de: category_record.display_name_de.clone(),
-                                    category_name_en: category_record.display_name_en.clone(),
-                                    category_name_fr: category_record.display_name_fr.clone(),
-                                    category_name_es: category_record.display_name_es.clone(),
-                                    category_name_it: category_record.display_name_it.clone(),
-                                };
-                                update_document.category_name_de =
-                                    Some(category_names.category_name_de.clone());
-                                update_document.category_name_en =
-                                    Some(category_names.category_name_en.clone());
-                                update_document.category_name_fr =
-                                    Some(category_names.category_name_fr.clone());
-                                update_document.category_name_es =
-                                    Some(category_names.category_name_es.clone());
-                                update_document.category_name_it =
-                                    Some(category_names.category_name_it.clone());
-                                category_cache_w.insert(category_id, category_names);
-                            }
-                            Ok(None) => {
-                                error!(
-                                    categoryId = %category_id,
-                                    "Failed to find category name for category_id because no CategoryRecord exists for this category_id.",
-                                );
-                            }
-                            Err(err) => {
-                                warn!(
-                                    error = ?err,
-                                    categoryId = %category_id,
-                                    "Failed to find category name for category_id.",
-                                );
-                            }
-                        }
-                    }
-                    update_document
-                }
-                None => {
-                    error!(
-                        "Failed to resolve category name because category_id is None. \
-                         This is a logic error. \
-                         EnrichmentClassifyCategory event should always contain category_id."
-                    );
-                    ProductUpdateDocument::from(event_record)
-                }
-            }
-        }
-        _ => ProductUpdateDocument::from(event_record),
-    }
+    ProductUpdateDocument::from(event_record)
 }
 
 async fn persist_creates(
@@ -368,7 +273,6 @@ mod tests {
     use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
     use product::dynamodb::repository::MockProductDynamoDbRepository;
     use product::opensearch::repository::MockProductOpenSearchRepository;
-    use product_classification::category::dynamodb_repository::MockCategoryDynamoDbRepository;
     use std::collections::HashMap;
     use std::time::SystemTime;
     use time::OffsetDateTime;
@@ -406,14 +310,6 @@ mod tests {
         msg.message_id = Some(message_id);
         msg.body = Some(mk_event_bridge_payload(record));
         msg
-    }
-
-    fn mk_default_category_repository() -> MockCategoryDynamoDbRepository {
-        let mut category_repository = MockCategoryDynamoDbRepository::default();
-        category_repository
-            .expect_get_category_record()
-            .returning(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
-        category_repository
     }
 
     fn mk_default_dynamodb_repository() -> MockProductDynamoDbRepository {
@@ -476,16 +372,9 @@ mod tests {
             context: Context::default(),
         };
         let dynamodb_repository = mk_default_dynamodb_repository();
-        let category_repository = mk_default_category_repository();
-
-        let actual = handler(
-            &opensearch_repository,
-            &dynamodb_repository,
-            &category_repository,
-            lambda_event,
-        )
-        .await
-        .unwrap();
+        let actual = handler(&opensearch_repository, &dynamodb_repository, lambda_event)
+            .await
+            .unwrap();
         assert!(actual.batch_item_failures.is_empty());
     }
 
@@ -590,20 +479,14 @@ mod tests {
                 })
             });
         let dynamodb_repository = mk_default_dynamodb_repository();
-        let category_repository = mk_default_category_repository();
-
-        let mut actual_failed_message_ids = handler(
-            &opensearch_repository,
-            &dynamodb_repository,
-            &category_repository,
-            lambda_event,
-        )
-        .await
-        .unwrap()
-        .batch_item_failures
-        .into_iter()
-        .map(|failure| failure.item_identifier)
-        .collect::<Vec<_>>();
+        let mut actual_failed_message_ids =
+            handler(&opensearch_repository, &dynamodb_repository, lambda_event)
+                .await
+                .unwrap()
+                .batch_item_failures
+                .into_iter()
+                .map(|failure| failure.item_identifier)
+                .collect::<Vec<_>>();
         actual_failed_message_ids.sort();
         let mut expected_failed_message_ids = expected_failures
             .into_iter()
@@ -661,8 +544,6 @@ mod tests {
                     })
                 })
             });
-        let category_repository = mk_default_category_repository();
-
         let records = fake::vec![ProductEventPayload; record_count]
             .into_iter()
             .map(|event_payload| Event {
@@ -682,14 +563,9 @@ mod tests {
             context: Context::default(),
         };
 
-        let actual = handler(
-            &opensearch_repository,
-            &dynamodb_repository,
-            &category_repository,
-            lambda_event,
-        )
-        .await
-        .unwrap();
+        let actual = handler(&opensearch_repository, &dynamodb_repository, lambda_event)
+            .await
+            .unwrap();
         assert!(actual.batch_item_failures.is_empty());
     }
 
@@ -838,20 +714,14 @@ mod tests {
                     })
                 })
             });
-        let category_repository = mk_default_category_repository();
-
-        let mut actual_failed_message_ids = handler(
-            &opensearch_repository,
-            &dynamodb_repository,
-            &category_repository,
-            lambda_event,
-        )
-        .await
-        .unwrap()
-        .batch_item_failures
-        .into_iter()
-        .map(|failure| failure.item_identifier)
-        .collect::<Vec<_>>();
+        let mut actual_failed_message_ids =
+            handler(&opensearch_repository, &dynamodb_repository, lambda_event)
+                .await
+                .unwrap()
+                .batch_item_failures
+                .into_iter()
+                .map(|failure| failure.item_identifier)
+                .collect::<Vec<_>>();
         actual_failed_message_ids.sort();
         let mut expected_failed_message_ids = expected_failures
             .into_iter()
@@ -921,16 +791,9 @@ mod tests {
                     })
                 })
             });
-        let category_repository = mk_default_category_repository();
-
-        let actual = handler(
-            &opensearch_repository,
-            &dynamodb_repository,
-            &category_repository,
-            lambda_event,
-        )
-        .await
-        .unwrap();
+        let actual = handler(&opensearch_repository, &dynamodb_repository, lambda_event)
+            .await
+            .unwrap();
         assert!(actual.batch_item_failures.is_empty());
     }
 
@@ -943,16 +806,9 @@ mod tests {
         };
         let opensearch_repository = MockProductOpenSearchRepository::default();
         let dynamodb_repository = MockProductDynamoDbRepository::default();
-        let category_repository = MockCategoryDynamoDbRepository::default();
-
-        let actual = handler(
-            &opensearch_repository,
-            &dynamodb_repository,
-            &category_repository,
-            lambda_event,
-        )
-        .await
-        .unwrap();
+        let actual = handler(&opensearch_repository, &dynamodb_repository, lambda_event)
+            .await
+            .unwrap();
         assert!(actual.batch_item_failures.is_empty());
     }
 
@@ -970,16 +826,9 @@ mod tests {
         };
         let opensearch_repository = MockProductOpenSearchRepository::default();
         let dynamodb_repository = MockProductDynamoDbRepository::default();
-        let category_repository = MockCategoryDynamoDbRepository::default();
-
-        let actual = handler(
-            &opensearch_repository,
-            &dynamodb_repository,
-            &category_repository,
-            lambda_event,
-        )
-        .await
-        .unwrap();
+        let actual = handler(&opensearch_repository, &dynamodb_repository, lambda_event)
+            .await
+            .unwrap();
         assert!(actual.batch_item_failures.is_empty());
     }
 
@@ -998,16 +847,9 @@ mod tests {
         };
         let opensearch_repository = MockProductOpenSearchRepository::default();
         let dynamodb_repository = MockProductDynamoDbRepository::default();
-        let category_repository = MockCategoryDynamoDbRepository::default();
-
-        let actual = handler(
-            &opensearch_repository,
-            &dynamodb_repository,
-            &category_repository,
-            lambda_event,
-        )
-        .await
-        .unwrap();
+        let actual = handler(&opensearch_repository, &dynamodb_repository, lambda_event)
+            .await
+            .unwrap();
         assert_eq!(1, actual.batch_item_failures.len());
         assert_eq!(message_id, actual.batch_item_failures[0].item_identifier);
     }

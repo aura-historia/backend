@@ -7,9 +7,6 @@ use serde::{Deserialize, Serialize};
 pub enum ProductEnrichmentEventTypeRecord {
     EnrichmentTranslatedTitle,
     EnrichmentEmbedded,
-    EnrichmentExtractedAttributes,
-    EnrichmentClassifyCategory,
-    EnrichmentClassifyPeriod,
 }
 
 impl ProductEnrichmentEventTypeRecord {
@@ -19,15 +16,6 @@ impl ProductEnrichmentEventTypeRecord {
                 "ENRICHMENT_TRANSLATED_TITLE"
             }
             ProductEnrichmentEventTypeRecord::EnrichmentEmbedded => "ENRICHMENT_EMBEDDED",
-            ProductEnrichmentEventTypeRecord::EnrichmentExtractedAttributes => {
-                "ENRICHMENT_EXTRACTED_ATTRIBUTES"
-            }
-            ProductEnrichmentEventTypeRecord::EnrichmentClassifyCategory => {
-                "ENRICHMENT_CLASSIFY_CATEGORY"
-            }
-            ProductEnrichmentEventTypeRecord::EnrichmentClassifyPeriod => {
-                "ENRICHMENT_CLASSIFY_PERIOD"
-            }
         }
     }
 }
@@ -40,15 +28,6 @@ impl From<&ProductEnrichmentEventPayload> for ProductEnrichmentEventTypeRecord {
             }
             ProductEnrichmentEventPayload::Embedded(_) => {
                 ProductEnrichmentEventTypeRecord::EnrichmentEmbedded
-            }
-            ProductEnrichmentEventPayload::ExtractedAttributes(_) => {
-                ProductEnrichmentEventTypeRecord::EnrichmentExtractedAttributes
-            }
-            ProductEnrichmentEventPayload::ClassifiedCategory(_) => {
-                ProductEnrichmentEventTypeRecord::EnrichmentClassifyCategory
-            }
-            ProductEnrichmentEventPayload::ClassifiedPeriod(_) => {
-                ProductEnrichmentEventTypeRecord::EnrichmentClassifyPeriod
             }
         }
     }
