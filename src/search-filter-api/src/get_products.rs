@@ -141,7 +141,7 @@ pub async fn handle(
                     .unwrap_or_else(|| product::core::description::Description::from(""));
                 let images: Vec<_> = p.item.images.iter().take(5).cloned().collect();
 
-                let override_search_filter = match match_service
+                let match_evaluation = match match_service
                     .evaluate(
                         enhanced_desc,
                         &title,
@@ -172,7 +172,7 @@ pub async fn handle(
                     .map(|s| s.prohibited_content.consent)
                     .unwrap_or(false);
                 let user_state = p.user_state.map(|mut state| {
-                    state.search_filter = override_search_filter;
+                    state.search_filter = match_evaluation;
                     state
                 });
 
@@ -185,11 +185,11 @@ pub async fn handle(
         } else {
             // EnhancedSearchDescription present but no match service available — fall through
             // to standard mapping so the endpoint still works without GEMINI_API_KEY.
-            map_personalized_to_summary(personalized)
+            convert_to_summary_response(personalized)
         }
     } else {
         // No enhanced description: act like the normal product-search endpoint.
-        map_personalized_to_summary(personalized)
+        convert_to_summary_response(personalized)
     };
 
     let cursored_result = CursoredResult {
@@ -208,7 +208,7 @@ pub async fn handle(
         .build())
 }
 
-fn map_personalized_to_summary(
+fn convert_to_summary_response(
     personalized: Vec<
         common::personalized::Personalized<
             product::core::product::LocalizedProductView,
