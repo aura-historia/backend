@@ -1,32 +1,41 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
-use common::api::error::ApiError;
-use common::currency::data::api::extract_currency_query;
-use common::language::data::api::extract_language_query;
-use common::pagination::cursor::api::{TimeCursoredData, extract_time_cursor_query};
-use common::pagination::cursor::{Cursor, CursoredResult};
-use common::personalized::api::PersonalizedData;
-use common::product_id::ProductKey;
-use common::user_id::api::extract_user_id_request_context;
-use common::user_search_filter_id::api::extract_user_search_filter_id_path;
 use common::{
-    api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
-    sort::api::extract_sort_query,
+    api::{
+        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError,
+        error_code::BAD_QUERY_PARAMETER_VALUE,
+    },
+    currency::data::api::extract_currency_query,
+    language::data::api::extract_language_query,
+    pagination::cursor::{
+        Cursor, CursoredResult,
+        api::{JsonCursoredData, extract_json_cursor_query},
+    },
+    personalized::{Personalized, api::PersonalizedData},
+    user_id::api::extract_user_id_request_context,
+    user_search_filter_id::api::extract_user_search_filter_id_path,
 };
 use lambda_runtime::LambdaEvent;
-use product::core::product::LocalizedProductView;
-use product::data::get_data::GetProductData;
-use product::data::user_state_data::ProductUserStateData;
-use product::service::get_service::GetProductService;
+use product::core::sort_product_field::SortProductField;
+use product::core::user_state::SearchFilterUserState;
+use product::data::{
+    get_summary_data::GetProductSummaryData, user_state_data::ProductUserStateData,
+};
+use product::service::query_service::QueryProductService;
 use product_personalization::service::ProductPersonalizationService;
-use search_filter::core::sort_search_filter_match_field::SortSearchFilterMatchField;
-use search_filter::data::sort_search_filter_match_field_data::SortSearchFilterMatchFieldData;
+use product_pipeline_embed_text::service::MultimodalEmbeddingService;
+use search_filter::service::enhanced_search_match_service::EnhancedSearchMatchService;
 use search_filter::service::user_search_filter_service::UserSearchFilterService;
-use std::collections::HashMap;
+use tracing::warn;
 
+const MAX_PAGE_SIZE: u64 = 10;
+
+#[allow(clippy::too_many_arguments)]
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl UserSearchFilterService,
-    get_product_service: &(impl GetProductService + Sync),
+    query_service: &(impl QueryProductService + Sync),
+    embedding_service: Option<&(dyn MultimodalEmbeddingService + Sync + Send)>,
+    enhanced_match_service: Option<&(dyn EnhancedSearchMatchService + Sync + Send)>,
     personalization_service: &(impl ProductPersonalizationService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
@@ -34,107 +43,249 @@ pub async fn handle(
     let search_filter_id = extract_user_search_filter_id_path(&event.payload.path_parameters)?;
     let language = extract_language_query(&event.payload.query_string_parameters)?;
     let currency = extract_currency_query(&event.payload.query_string_parameters)?;
-    let sort = extract_sort_query::<SortSearchFilterMatchFieldData>(
-        &event.payload.query_string_parameters,
-    )?
-    .map(|sort_data| sort_data.map(SortSearchFilterMatchField::from));
-    let cursor = extract_time_cursor_query(&event.payload.query_string_parameters)?;
 
-    // 1. Get paged search filter match entries (sorted by created timestamp)
-    let matches_page = service
-        .view_search_filter_matches(&user_id, &search_filter_id, &sort, cursor)
+    // Forbid paging: reject any searchAfter parameter
+    let cursor_from_query = extract_json_cursor_query(&event.payload.query_string_parameters)?;
+    if let Some(ref cursor) = cursor_from_query
+        && cursor.search_after.is_some()
+    {
+        return Err(ApiError::bad_request(
+            BAD_QUERY_PARAMETER_VALUE,
+            "Paging is not supported for this endpoint.".into(),
+        )
+        .with_query_field("searchAfter")
+        .with_detail(
+            "Remove the 'searchAfter' parameter; this endpoint does not support pagination.",
+        ));
+    }
+    let size = cursor_from_query
+        .map(|c| c.size)
+        .unwrap_or(MAX_PAGE_SIZE)
+        .min(MAX_PAGE_SIZE);
+
+    // Load the user search filter to get search criteria and optional enhanced description
+    let search_filter = service
+        .find_user_search_filter(&user_id, &search_filter_id)
         .await?;
 
-    // 2. Fetch localized products for current page (batch, unordered)
-    let product_keys: Vec<ProductKey> = matches_page
-        .items
-        .iter()
-        .map(|m| ProductKey::new(m.shop_id, m.shops_product_id.clone()))
-        .collect();
-    let localized_products = get_product_service
-        .view_products(product_keys, &[language.into()], &currency.into())
-        .await?;
+    // Build product search from the filter's search, overriding language and currency
+    let mut product_search = search_filter.search.clone();
+    product_search.language = language.into();
+    product_search.currency = currency.into();
 
-    // 3. Map by product_id to restore match sort order (batch-get returns in arbitrary order)
-    let mut product_map: HashMap<_, LocalizedProductView> = localized_products
-        .into_iter()
-        .map(|p| (p.product_id, p))
-        .collect();
-    let ordered_localized: Vec<LocalizedProductView> = matches_page
-        .items
-        .iter()
-        .filter_map(|m| {
-            if let Some(p) = product_map.remove(&m.product_id) {
-                Some(p)
-            } else {
-                tracing::warn!(
-                    productId = %m.product_id,
-                    "Could not find product for search filter match entry. Skipping."
-                );
-                None
+    // Adaptive hybrid retrieval: only when an embedding service is available and the filter
+    // contains a non-empty textual product_query.
+    let sort = None::<common::sort::Sort<SortProductField>>;
+    let use_hybrid = embedding_service.is_some()
+        && product_search
+            .product_query
+            .as_ref()
+            .map(|q| !q.as_ref().trim().is_empty())
+            .unwrap_or(false);
+
+    let cursor = Some(Cursor {
+        size,
+        search_after: None,
+    });
+
+    let search_result = if use_hybrid {
+        let es = embedding_service.expect("guarded above");
+        let query_text = product_search
+            .product_query
+            .as_ref()
+            .map(|q| q.as_ref().to_string())
+            .unwrap_or_default();
+        match es.embed_query(&query_text).await {
+            Ok(embedding) => {
+                query_service
+                    .search_products_with_dynamic_semantics(&product_search, &embedding, &cursor)
+                    .await?
             }
-        })
-        .collect();
+            Err(err) => {
+                // Fail-open: log and fall back to BM25 so we never break the search path
+                // because of an embedding-service hiccup.
+                warn!(error = %err, "embed_query failed; falling back to BM25 path");
+                query_service
+                    .search_products(&product_search, &sort, &cursor)
+                    .await?
+            }
+        }
+    } else {
+        query_service
+            .search_products(&product_search, &sort, &cursor)
+            .await?
+    };
 
-    // 4. Personalize all products for the authenticated user
+    // Personalize all products for the authenticated user
     let personalized = personalization_service
-        .personalize_all(&user_id, ordered_localized)
+        .personalize_all(&user_id, search_result.items)
         .await?;
 
-    // 5. Map to PersonalizedData and rebuild cursor with final item count
-    let items: Vec<PersonalizedData<GetProductData, ProductUserStateData>> = personalized
+    // If the filter has an EnhancedSearchDescription, evaluate each product and
+    // overwrite user_state.search_filter with the LLM match result.
+    let filter_language: common::language::domain::Language = language.into();
+    let items: Vec<Personalized<GetProductSummaryData, ProductUserStateData>> = if let Some(
+        enhanced_desc,
+    ) =
+        &search_filter.enhanced_search_description
+    {
+        if let Some(match_service) = enhanced_match_service {
+            let mut result_items = Vec::with_capacity(personalized.len());
+            for p in personalized {
+                let title = p.item.title.payload.clone();
+                let description = p
+                    .item
+                    .description
+                    .as_ref()
+                    .map(|d| d.payload.clone())
+                    .unwrap_or_else(|| product::core::description::Description::from(""));
+                let images: Vec<_> = p.item.images.iter().take(5).cloned().collect();
+
+                let override_search_filter = match match_service
+                    .evaluate(
+                        enhanced_desc,
+                        &title,
+                        &description,
+                        filter_language,
+                        &images,
+                    )
+                    .await
+                {
+                    Ok(result) => SearchFilterUserState {
+                        matched: result.matches,
+                        match_reason: result.reason,
+                        ..Default::default()
+                    },
+                    Err(err) => {
+                        warn!(
+                            error = %err,
+                            productId = %p.item.product_id,
+                            "Enhanced search match evaluation failed. Returning product without match reason."
+                        );
+                        SearchFilterUserState::default()
+                    }
+                };
+
+                let consent = p
+                    .user_state
+                    .as_ref()
+                    .map(|s| s.prohibited_content.consent)
+                    .unwrap_or(false);
+                let user_state = p.user_state.map(|mut state| {
+                    state.search_filter = override_search_filter;
+                    state
+                });
+
+                result_items.push(Personalized {
+                    item: GetProductSummaryData::from_view(p.item, consent),
+                    user_state: user_state.map(ProductUserStateData::from),
+                });
+            }
+            result_items
+        } else {
+            // EnhancedSearchDescription present but no match service available — fall through
+            // to standard mapping so the endpoint still works without GEMINI_API_KEY.
+            map_personalized_to_summary(personalized)
+        }
+    } else {
+        // No enhanced description: act like the normal product-search endpoint.
+        map_personalized_to_summary(personalized)
+    };
+
+    let cursored_result = CursoredResult {
+        items,
+        cursor: search_result.cursor,
+        total: search_result.total,
+    };
+
+    let json_cursored_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = JsonCursoredData::from(cursored_result);
+
+    Ok(ApiGatewayV2HttpResponseBuilder::json(200)
+        .cache_control("no-store", None, None)
+        .body_serde(json_cursored_data)?
+        .build())
+}
+
+fn map_personalized_to_summary(
+    personalized: Vec<
+        common::personalized::Personalized<
+            product::core::product::LocalizedProductView,
+            product::core::user_state::ProductUserState,
+        >,
+    >,
+) -> Vec<Personalized<GetProductSummaryData, ProductUserStateData>> {
+    personalized
         .into_iter()
         .map(|p| {
             let consent = p
                 .user_state
-                .clone()
+                .as_ref()
                 .map(|s| s.prohibited_content.consent)
                 .unwrap_or(false);
-            PersonalizedData {
-                item: GetProductData::from_view(p.item, consent),
+            Personalized {
+                item: GetProductSummaryData::from_view(p.item, consent),
                 user_state: p.user_state.map(ProductUserStateData::from),
             }
         })
-        .collect();
-
-    let result = CursoredResult {
-        cursor: Cursor {
-            size: items.len() as u64,
-            search_after: matches_page.cursor.search_after,
-        },
-        items,
-        total: matches_page.total,
-    };
-
-    Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .cache_control("no-store", None, None)
-        .body_serde(TimeCursoredData::from(result))?
-        .build())
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::handle;
-    use common::{user_id::UserId, user_search_filter_id::UserSearchFilterId};
+    use common::{
+        pagination::cursor::{Cursor, CursoredResult},
+        user_id::UserId,
+        user_search_filter_id::UserSearchFilterId,
+    };
     use fake::{Fake, Faker};
     use http::header::CACHE_CONTROL;
     use lambda_runtime::LambdaEvent;
-    use product::service::get_service::MockGetProductService;
+    use product::{
+        core::product::LocalizedProductView, service::query_service::MockQueryProductService,
+    };
     use product_personalization::service::MockProductPersonalizationService;
-    use search_filter::service::user_search_filter_service::MockUserSearchFilterService;
+    use search_filter::{
+        core::user_search_filter::UserSearchFilter,
+        service::user_search_filter_service::MockUserSearchFilterService,
+    };
+    use serde_json::json;
     use test_api::ApiGatewayV2httpRequestProxy;
-    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+
+    fn filter_without_enhanced_description() -> UserSearchFilter {
+        let mut filter: UserSearchFilter = Faker.fake();
+        filter.enhanced_search_description = None;
+        filter
+    }
+
+    fn filter_with_enhanced_description() -> UserSearchFilter {
+        use search_filter::core::user_search_filter::EnhancedSearchDescription;
+        let mut filter: UserSearchFilter = Faker.fake();
+        filter.enhanced_search_description =
+            Some(EnhancedSearchDescription::from("golden cufflinks"));
+        filter
+    }
 
     #[tokio::test]
-    async fn should_200_when_success() {
+    async fn should_200_when_success_without_enhanced_description() {
         let mut service = MockUserSearchFilterService::default();
         service
-            .expect_view_search_filter_matches()
-            .return_once(|_, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
-        let mut get_product_service = MockGetProductService::default();
-        get_product_service
-            .expect_view_products()
-            .return_once(|_, _, _| Box::pin(async { Ok(vec![]) }));
+            .expect_find_user_search_filter()
+            .return_once(|_, _| Box::pin(async { Ok(filter_without_enhanced_description()) }));
+        let mut query_service = MockQueryProductService::default();
+        query_service
+            .expect_search_products()
+            .return_once(|_, _, _| {
+                Box::pin(async {
+                    Ok(CursoredResult {
+                        items: vec![],
+                        cursor: Cursor::default(),
+                        total: Some(0),
+                    })
+                })
+            });
         let mut personalization_service = MockProductPersonalizationService::default();
         personalization_service
             .expect_personalize_all()
@@ -147,10 +298,6 @@ mod tests {
                 .path_parameter("userSearchFilterId", UserSearchFilterId::new())
                 .query_string_parameter("language", "de")
                 .query_string_parameter("currency", "EUR")
-                .query_string_parameter("sort", "created")
-                .query_string_parameter("order", "asc")
-                .query_string_parameter("from", OffsetDateTime::now_utc().format(&Rfc3339).unwrap())
-                .query_string_parameter("size", "10")
                 .build(),
             context: Default::default(),
         };
@@ -158,7 +305,88 @@ mod tests {
         let response = handle(
             lambda_event,
             &service,
-            &get_product_service,
+            &query_service,
+            None,
+            None,
+            &personalization_service,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(200, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_200_when_success_with_enhanced_description() {
+        use search_filter::service::enhanced_search_match_service::{
+            EnhancedSearchMatchResult, MockEnhancedSearchMatchService,
+        };
+
+        let mut service = MockUserSearchFilterService::default();
+        service
+            .expect_find_user_search_filter()
+            .return_once(|_, _| Box::pin(async { Ok(filter_with_enhanced_description()) }));
+
+        let mut query_service = MockQueryProductService::default();
+        query_service
+            .expect_search_products()
+            .return_once(|_, _, _| {
+                Box::pin(async {
+                    Ok(CursoredResult {
+                        items: fake::vec![LocalizedProductView; 2],
+                        cursor: Cursor::default(),
+                        total: Some(2),
+                    })
+                })
+            });
+
+        let mut personalization_service = MockProductPersonalizationService::default();
+        personalization_service
+            .expect_personalize_all()
+            .return_once(|_, products| {
+                Box::pin(async move {
+                    Ok(products
+                        .into_iter()
+                        .map(|p| common::personalized::Personalized {
+                            item: p,
+                            user_state: None,
+                        })
+                        .collect())
+                })
+            });
+
+        let mut match_service = MockEnhancedSearchMatchService::default();
+        match_service
+            .expect_evaluate()
+            .times(2)
+            .returning(|_, _, _, _, _| {
+                Box::pin(async {
+                    Ok(EnhancedSearchMatchResult {
+                        matches: true,
+                        reason: Some(common::enhanced_match_reason::EnhancedMatchReason::from(
+                            "Vintage cufflinks match",
+                        )),
+                    })
+                })
+            });
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .jwt_claim("sub", UserId::new())
+                .path_parameter("userSearchFilterId", UserSearchFilterId::new())
+                .query_string_parameter("language", "de")
+                .query_string_parameter("currency", "EUR")
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(
+            lambda_event,
+            &service,
+            &query_service,
+            None,
+            Some(&match_service),
             &personalization_service,
         )
         .await
@@ -169,9 +397,8 @@ mod tests {
 
     #[tokio::test]
     async fn should_401_when_sub_missing() {
-        let mut service = MockUserSearchFilterService::default();
-        service.expect_view_search_filter_matches().never();
-        let get_product_service = MockGetProductService::default();
+        let service = MockUserSearchFilterService::default();
+        let query_service = MockQueryProductService::default();
         let personalization_service = MockProductPersonalizationService::default();
 
         let lambda_event = LambdaEvent {
@@ -187,24 +414,80 @@ mod tests {
         let actual = handle(
             lambda_event,
             &service,
-            &get_product_service,
+            &query_service,
+            None,
+            None,
             &personalization_service,
         )
         .await
         .unwrap_err();
+
         assert_eq!(401, actual.status);
     }
 
     #[tokio::test]
-    async fn should_set_cache_control_to_no_store() {
+    async fn should_400_when_search_after_provided() {
+        let mut service = MockUserSearchFilterService::default();
+        service.expect_find_user_search_filter().never();
+        let query_service = MockQueryProductService::default();
+        let personalization_service = MockProductPersonalizationService::default();
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .jwt_claim("sub", UserId::new())
+                .path_parameter("userSearchFilterId", UserSearchFilterId::new())
+                .query_string_parameter("language", "de")
+                .query_string_parameter("currency", "EUR")
+                .query_string_parameter("searchAfter", "somevalue")
+                .query_string_parameter("size", "5")
+                .build(),
+            context: Default::default(),
+        };
+
+        let actual = handle(
+            lambda_event,
+            &service,
+            &query_service,
+            None,
+            None,
+            &personalization_service,
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(400, actual.status);
+    }
+
+    #[tokio::test]
+    async fn should_cap_size_at_max_page_size() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
         let mut service = MockUserSearchFilterService::default();
         service
-            .expect_view_search_filter_matches()
-            .return_once(|_, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
-        let mut get_product_service = MockGetProductService::default();
-        get_product_service
-            .expect_view_products()
-            .return_once(|_, _, _| Box::pin(async { Ok(vec![]) }));
+            .expect_find_user_search_filter()
+            .return_once(|_, _| Box::pin(async { Ok(filter_without_enhanced_description()) }));
+
+        let captured_size = Arc::new(AtomicU64::new(0));
+        let captured_size_clone = captured_size.clone();
+
+        let mut query_service = MockQueryProductService::default();
+        query_service
+            .expect_search_products()
+            .return_once(move |_, _, cursor| {
+                if let Some(c) = cursor {
+                    captured_size_clone.store(c.size, Ordering::SeqCst);
+                }
+                Box::pin(async {
+                    Ok(CursoredResult {
+                        items: vec![],
+                        cursor: Cursor::default(),
+                        total: Some(0),
+                    })
+                })
+            });
+
         let mut personalization_service = MockProductPersonalizationService::default();
         personalization_service
             .expect_personalize_all()
@@ -217,10 +500,7 @@ mod tests {
                 .path_parameter("userSearchFilterId", UserSearchFilterId::new())
                 .query_string_parameter("language", "de")
                 .query_string_parameter("currency", "EUR")
-                .query_string_parameter("sort", "created")
-                .query_string_parameter("order", "asc")
-                .query_string_parameter("from", OffsetDateTime::now_utc().format(&Rfc3339).unwrap())
-                .query_string_parameter("size", "10")
+                .query_string_parameter("size", "100") // request 100, should be capped at 10
                 .build(),
             context: Default::default(),
         };
@@ -228,7 +508,58 @@ mod tests {
         let response = handle(
             lambda_event,
             &service,
-            &get_product_service,
+            &query_service,
+            None,
+            None,
+            &personalization_service,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(200, response.status_code);
+        assert_eq!(10, captured_size.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn should_set_cache_control_to_no_store() {
+        let mut service = MockUserSearchFilterService::default();
+        service
+            .expect_find_user_search_filter()
+            .return_once(|_, _| Box::pin(async { Ok(filter_without_enhanced_description()) }));
+        let mut query_service = MockQueryProductService::default();
+        query_service
+            .expect_search_products()
+            .return_once(|_, _, _| {
+                Box::pin(async {
+                    Ok(CursoredResult {
+                        items: vec![],
+                        cursor: Cursor::default(),
+                        total: Some(0),
+                    })
+                })
+            });
+        let mut personalization_service = MockProductPersonalizationService::default();
+        personalization_service
+            .expect_personalize_all()
+            .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .jwt_claim("sub", UserId::new())
+                .path_parameter("userSearchFilterId", UserSearchFilterId::new())
+                .query_string_parameter("language", "de")
+                .query_string_parameter("currency", "EUR")
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(
+            lambda_event,
+            &service,
+            &query_service,
+            None,
+            None,
             &personalization_service,
         )
         .await
@@ -244,5 +575,78 @@ mod tests {
                 .to_str()
                 .unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn should_use_hybrid_search_when_embedding_service_available_and_query_present() {
+        use product_pipeline_embed_text::service::MockMultimodalEmbeddingService;
+
+        let mut service = MockUserSearchFilterService::default();
+        service
+            .expect_find_user_search_filter()
+            .return_once(|_, _| {
+                Box::pin(async {
+                    use common::query::text_query::TextQuery;
+                    use product::core::product_search::ProductSearch;
+                    let mut filter: UserSearchFilter = Faker.fake();
+                    filter.enhanced_search_description = None;
+                    filter.search = {
+                        let mut search: ProductSearch = Faker.fake();
+                        search.product_query = Some(TextQuery::try_from("antique vase").unwrap());
+                        search
+                    };
+                    Ok(filter)
+                })
+            });
+
+        let mut embedding_service = MockMultimodalEmbeddingService::default();
+        embedding_service
+            .expect_embed_query()
+            .return_once(|_| Box::pin(async { Ok(vec![0.1f32; 768]) }));
+
+        let mut query_service = MockQueryProductService::default();
+        query_service
+            .expect_search_products_with_dynamic_semantics()
+            .return_once(|_, _, _| {
+                Box::pin(async {
+                    Ok(CursoredResult {
+                        items: vec![],
+                        cursor: Cursor {
+                            size: 10,
+                            search_after: Some(json!([0.99])),
+                        },
+                        total: Some(0),
+                    })
+                })
+            });
+
+        let mut personalization_service = MockProductPersonalizationService::default();
+        personalization_service
+            .expect_personalize_all()
+            .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .jwt_claim("sub", UserId::new())
+                .path_parameter("userSearchFilterId", UserSearchFilterId::new())
+                .query_string_parameter("language", "de")
+                .query_string_parameter("currency", "EUR")
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(
+            lambda_event,
+            &service,
+            &query_service,
+            Some(&embedding_service),
+            None,
+            &personalization_service,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(200, response.status_code);
     }
 }

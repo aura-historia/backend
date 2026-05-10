@@ -14,6 +14,7 @@ use product::dynamodb::{
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
 };
 use product::service::get_service::GetProductServiceImpl;
+use product::service::query_service::MockQueryProductService;
 use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use search_filter::dynamodb::repository::{
@@ -25,7 +26,6 @@ use search_filter::dynamodb::user_search_filter_match_record::{
 use search_filter::service::user_search_filter_service::{
     UserSearchFilterService, UserSearchFilterServiceImpl,
 };
-use product::service::query_service::MockQueryProductService;
 use search_filter_api::handle;
 use test_api::*;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
