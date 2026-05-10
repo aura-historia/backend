@@ -1,7 +1,7 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
 use aws_sdk_dynamodb::Client;
-use lambda_runtime::tracing::debug;
+use lambda_runtime::tracing::{debug, error};
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use notification::dynamodb::repository::NotificationDynamoDbRepositoryImpl;
 use notification::service::noop_adapters::{NoopS3Adapter, NoopSesAdapter};
@@ -43,7 +43,7 @@ async fn main() -> Result<(), Error> {
 
     let opensearch = common::opensearch::client::load_client()
         .await
-        .expect("shouldn't fail loading OpenSearch-Client");
+        .inspect_err(|e| error!(error = %e, "Failed to initialize OpenSearch client"))?;
 
     let repository = UserSearchFilterDynamoDbRepositoryImpl::new(&client, &table_name);
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(&client, &table_name);
