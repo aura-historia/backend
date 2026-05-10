@@ -1,14 +1,23 @@
 use crate::core::product::Product;
 use crate::core::product_event::ProductEventLog;
+use crate::core::product_event::ProductPolicyEvent;
+use crate::core::product_event::policy::{
+    ProductPolicyEventPayload, ProhibitedContentProductPolicyEventPayload,
+};
+use crate::core::prohibited_content::{ProhibitedContent, ProhibitedContentReason};
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+use crate::dynamodb::product_event_record::policy::ProductPolicyEventRecord;
 use crate::dynamodb::repository::{ProductDynamoDbRepository, extract_product_key};
 use crate::dynamodb::utm::strip_utm_params;
+use crate::service::heuristics;
 use crate::service::product_command::{
     CreateProductCommand, UpdateProductCommand, UpsertProductCommand,
 };
 use async_trait::async_trait;
 use common::batch::Batch;
+use common::event::Event;
+use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::logging::{LogEventType, LogWriteSource};
 use common::price::domain::FxRate;
@@ -19,6 +28,7 @@ use shop::core::shop_type::ShopType;
 use shop::service::get_service::GetShopService;
 use shop::service::seller_service::SellerService;
 use std::collections::{HashMap, HashSet};
+use time::OffsetDateTime;
 use tracing::{error, warn};
 
 #[async_trait]
@@ -44,6 +54,39 @@ struct ResolvedShopInformation {
     seller_name: ShopName,
     shop_name: ShopName,
     shop_type: ShopType,
+}
+
+/// Returns `true` when any of the command's images are flagged as
+/// [`ProhibitedContent::NaziGermany`] by the text heuristic.
+fn has_nazi_image_content(cmd: &CreateProductCommand) -> bool {
+    cmd.images
+        .iter()
+        .any(|img| img.prohibited_content == ProhibitedContent::NaziGermany)
+}
+
+/// Builds a [`ProductPolicyEventRecord`] that records a text-based
+/// [`ProhibitedContent::NaziGermany`] decision for a newly created product.
+fn make_nazi_text_policy_event(
+    domain_event: &crate::core::product_event::ProductDomainEvent,
+    shop_id: ShopId,
+    seller_id: ShopId,
+    shops_product_id: common::shops_product_id::ShopsProductId,
+) -> ProductEventRecord {
+    let policy_event: ProductPolicyEvent = Event {
+        aggregate_id: domain_event.aggregate_id,
+        event_id: EventId::new(),
+        timestamp: OffsetDateTime::now_utc(),
+        payload: ProductPolicyEventPayload::ProhibitedContentDecision(
+            ProhibitedContentProductPolicyEventPayload {
+                shop_id,
+                seller_id,
+                shops_product_id,
+                decision: ProhibitedContent::NaziGermany,
+                reason: ProhibitedContentReason::ProductText,
+            },
+        ),
+    };
+    ProductEventRecord::from(ProductPolicyEventRecord::from(policy_event))
 }
 
 impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
@@ -259,30 +302,42 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                     for mut cmd in working.into_values() {
                         if let Some(resolved) = self.enrich_shop_information(&mut cmd).await {
                             self.enrich_price(&mut cmd);
-                            events.push(ProductEventRecord::Domain(
-                                ProductDomainEventRecord::from(Product::create(
+                            heuristics::classify_images(&mut cmd);
+                            let has_nazi_content = has_nazi_image_content(&cmd);
+                            let seller_id = resolved.seller_id;
+                            let domain_event = Product::create(
+                                cmd.shop_id,
+                                seller_id,
+                                cmd.shops_product_id.clone(),
+                                resolved.shop_name,
+                                resolved.seller_name,
+                                resolved.shop_type,
+                                cmd.structured_address,
+                                cmd.geo_address,
+                                cmd.native_title,
+                                cmd.native_description,
+                                cmd.native_price,
+                                cmd.other_price,
+                                cmd.native_price_estimate_min,
+                                cmd.other_price_estimate_min,
+                                cmd.native_price_estimate_max,
+                                cmd.other_price_estimate_max,
+                                cmd.state,
+                                cmd.url,
+                                cmd.images,
+                                cmd.auction_start,
+                                cmd.auction_end,
+                            );
+                            if has_nazi_content {
+                                events.push(make_nazi_text_policy_event(
+                                    &domain_event,
                                     cmd.shop_id,
-                                    resolved.seller_id,
+                                    seller_id,
                                     cmd.shops_product_id,
-                                    resolved.shop_name,
-                                    resolved.seller_name,
-                                    resolved.shop_type,
-                                    cmd.structured_address,
-                                    cmd.geo_address,
-                                    cmd.native_title,
-                                    cmd.native_description,
-                                    cmd.native_price,
-                                    cmd.other_price,
-                                    cmd.native_price_estimate_min,
-                                    cmd.other_price_estimate_min,
-                                    cmd.native_price_estimate_max,
-                                    cmd.other_price_estimate_max,
-                                    cmd.state,
-                                    cmd.url,
-                                    cmd.images,
-                                    cmd.auction_start,
-                                    cmd.auction_end,
-                                )),
+                                ));
+                            }
+                            events.push(ProductEventRecord::Domain(
+                                ProductDomainEventRecord::from(domain_event),
                             ));
                         } else {
                             key_cmds.remove(&cmd.key());
@@ -404,30 +459,42 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                         if let Some(resolved) = self.enrich_shop_information(&mut create_cmd).await
                         {
                             self.enrich_price(&mut create_cmd);
-                            create_events.push(ProductEventRecord::Domain(
-                                ProductDomainEventRecord::from(Product::create(
+                            heuristics::classify_images(&mut create_cmd);
+                            let has_nazi_content = has_nazi_image_content(&create_cmd);
+                            let seller_id = resolved.seller_id;
+                            let domain_event = Product::create(
+                                create_cmd.shop_id,
+                                seller_id,
+                                create_cmd.shops_product_id.clone(),
+                                resolved.shop_name,
+                                resolved.seller_name,
+                                resolved.shop_type,
+                                create_cmd.structured_address,
+                                create_cmd.geo_address,
+                                create_cmd.native_title,
+                                create_cmd.native_description,
+                                create_cmd.native_price,
+                                create_cmd.other_price,
+                                create_cmd.native_price_estimate_min,
+                                create_cmd.other_price_estimate_min,
+                                create_cmd.native_price_estimate_max,
+                                create_cmd.other_price_estimate_max,
+                                create_cmd.state,
+                                create_cmd.url,
+                                create_cmd.images,
+                                create_cmd.auction_start,
+                                create_cmd.auction_end,
+                            );
+                            if has_nazi_content {
+                                create_events.push(make_nazi_text_policy_event(
+                                    &domain_event,
                                     create_cmd.shop_id,
-                                    resolved.seller_id,
+                                    seller_id,
                                     create_cmd.shops_product_id,
-                                    resolved.shop_name,
-                                    resolved.seller_name,
-                                    resolved.shop_type,
-                                    create_cmd.structured_address,
-                                    create_cmd.geo_address,
-                                    create_cmd.native_title,
-                                    create_cmd.native_description,
-                                    create_cmd.native_price,
-                                    create_cmd.other_price,
-                                    create_cmd.native_price_estimate_min,
-                                    create_cmd.other_price_estimate_min,
-                                    create_cmd.native_price_estimate_max,
-                                    create_cmd.other_price_estimate_max,
-                                    create_cmd.state,
-                                    create_cmd.url,
-                                    create_cmd.images,
-                                    create_cmd.auction_start,
-                                    create_cmd.auction_end,
-                                )),
+                                ));
+                            }
+                            create_events.push(ProductEventRecord::Domain(
+                                ProductDomainEventRecord::from(domain_event),
                             ));
                         } else {
                             key_cmds.remove(&cmd.key());
@@ -1142,6 +1209,370 @@ mod tests {
 
             let failures = service.create(vec![cmd]).await;
             assert!(failures.is_empty());
+        }
+
+        /// Helper: build a `CreateProductCommand` with a given title and no description.
+        fn cmd_with_title(title: &str) -> CreateProductCommand {
+            use crate::core::product_image::ProductImage;
+            use crate::core::title::Title;
+            use common::language::domain::Language;
+            use common::localized::Localized;
+
+            let mut cmd = Faker.fake::<CreateProductCommand>();
+            cmd.native_title = Localized::new(Language::De, Title::from(title));
+            cmd.native_description = None;
+            cmd.images = vec![ProductImage {
+                url: url::Url::parse("https://img.example.com/item.jpg").unwrap(),
+                prohibited_content: crate::core::prohibited_content::ProhibitedContent::Unknown,
+            }];
+            cmd
+        }
+
+        fn empty_items_repository() -> MockProductDynamoDbRepository {
+            let mut repository = MockProductDynamoDbRepository::default();
+            repository.expect_get_product_records().returning(|_| {
+                Box::pin(async {
+                    Ok(BatchGetItemResult {
+                        items: vec![],
+                        unprocessed: None,
+                    })
+                })
+            });
+            repository
+        }
+
+        #[tokio::test]
+        async fn should_create_policy_event_when_title_contains_drittes_reich() {
+            use crate::dynamodb::prohibited_content_record::ProhibitedContentRecord;
+            use std::sync::{Arc, Mutex};
+
+            let cmd = cmd_with_title("Orden aus dem Dritten Reich 1940");
+
+            let captured: Arc<Mutex<Vec<ProductEventRecord>>> = Arc::new(Mutex::new(Vec::new()));
+            let captured_clone = captured.clone();
+
+            let mut repository = empty_items_repository();
+            repository
+                .expect_put_product_event_records()
+                .returning(move |batch| {
+                    captured_clone.lock().unwrap().extend(batch.into_iter());
+                    Box::pin(async {
+                        Ok(aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput::builder().build())
+                    })
+                });
+
+            let service = make_command_product_service(&repository, &FixedFxRate());
+            let failures = service.create(vec![cmd]).await;
+
+            assert!(failures.is_empty());
+            let events = captured.lock().unwrap();
+            assert!(
+                events
+                    .iter()
+                    .any(|e| matches!(e, ProductEventRecord::Policy(_))),
+                "expected a policy event to be created"
+            );
+            assert!(
+                events
+                    .iter()
+                    .any(|e| matches!(e, ProductEventRecord::Domain(_))),
+                "expected a domain create event to be created"
+            );
+            let policy = events
+                .iter()
+                .find_map(|e| {
+                    if let ProductEventRecord::Policy(p) = e {
+                        Some(p)
+                    } else {
+                        None
+                    }
+                })
+                .expect("policy event must be present");
+            assert_eq!(
+                policy.prohibited_content_decision,
+                ProhibitedContentRecord::NaziGermany
+            );
+        }
+
+        #[tokio::test]
+        async fn should_create_policy_event_when_title_contains_nsdap() {
+            use crate::dynamodb::prohibited_content_record::ProhibitedContentRecord;
+            use std::sync::{Arc, Mutex};
+
+            let cmd = cmd_with_title("NSDAP Abzeichen 1935 Original");
+
+            let captured: Arc<Mutex<Vec<ProductEventRecord>>> = Arc::new(Mutex::new(Vec::new()));
+            let captured_clone = captured.clone();
+
+            let mut repository = empty_items_repository();
+            repository
+                .expect_put_product_event_records()
+                .returning(move |batch| {
+                    captured_clone.lock().unwrap().extend(batch.into_iter());
+                    Box::pin(async {
+                        Ok(aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput::builder().build())
+                    })
+                });
+
+            let service = make_command_product_service(&repository, &FixedFxRate());
+            let failures = service.create(vec![cmd]).await;
+
+            assert!(failures.is_empty());
+            let events = captured.lock().unwrap();
+            let policy = events
+                .iter()
+                .find_map(|e| {
+                    if let ProductEventRecord::Policy(p) = e {
+                        Some(p)
+                    } else {
+                        None
+                    }
+                })
+                .expect("policy event must be present for NSDAP listing");
+            assert_eq!(
+                policy.prohibited_content_decision,
+                ProhibitedContentRecord::NaziGermany
+            );
+        }
+
+        #[tokio::test]
+        async fn should_create_policy_event_when_title_contains_waffen_ss() {
+            use crate::dynamodb::prohibited_content_record::ProhibitedContentRecord;
+            use std::sync::{Arc, Mutex};
+
+            let cmd = cmd_with_title("Waffen-SS Feldmütze WWII Original");
+
+            let captured: Arc<Mutex<Vec<ProductEventRecord>>> = Arc::new(Mutex::new(Vec::new()));
+            let captured_clone = captured.clone();
+
+            let mut repository = empty_items_repository();
+            repository
+                .expect_put_product_event_records()
+                .returning(move |batch| {
+                    captured_clone.lock().unwrap().extend(batch.into_iter());
+                    Box::pin(async {
+                        Ok(aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput::builder().build())
+                    })
+                });
+
+            let service = make_command_product_service(&repository, &FixedFxRate());
+            let failures = service.create(vec![cmd]).await;
+
+            assert!(failures.is_empty());
+            let events = captured.lock().unwrap();
+            let policy = events
+                .iter()
+                .find_map(|e| {
+                    if let ProductEventRecord::Policy(p) = e {
+                        Some(p)
+                    } else {
+                        None
+                    }
+                })
+                .expect("policy event must be present for Waffen-SS listing");
+            assert_eq!(
+                policy.prohibited_content_decision,
+                ProhibitedContentRecord::NaziGermany
+            );
+        }
+
+        #[tokio::test]
+        async fn should_create_policy_event_when_english_nazi_germany_title() {
+            use crate::dynamodb::prohibited_content_record::ProhibitedContentRecord;
+            use std::sync::{Arc, Mutex};
+
+            let cmd = cmd_with_title("Badge from Nazi Germany WWII collection");
+
+            let captured: Arc<Mutex<Vec<ProductEventRecord>>> = Arc::new(Mutex::new(Vec::new()));
+            let captured_clone = captured.clone();
+
+            let mut repository = empty_items_repository();
+            repository
+                .expect_put_product_event_records()
+                .returning(move |batch| {
+                    captured_clone.lock().unwrap().extend(batch.into_iter());
+                    Box::pin(async {
+                        Ok(aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput::builder().build())
+                    })
+                });
+
+            let service = make_command_product_service(&repository, &FixedFxRate());
+            let failures = service.create(vec![cmd]).await;
+
+            assert!(failures.is_empty());
+            let events = captured.lock().unwrap();
+            assert!(
+                events
+                    .iter()
+                    .any(|e| matches!(e, ProductEventRecord::Policy(_))),
+                "expected a policy event for 'Nazi Germany' title"
+            );
+            let policy = events
+                .iter()
+                .find_map(|e| {
+                    if let ProductEventRecord::Policy(p) = e {
+                        Some(p)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            assert_eq!(
+                policy.prohibited_content_decision,
+                ProhibitedContentRecord::NaziGermany
+            );
+        }
+
+        #[tokio::test]
+        async fn should_not_create_policy_event_when_title_is_benign() {
+            use std::sync::{Arc, Mutex};
+
+            let cmd = cmd_with_title("Biedermeier Sekretär 19. Jahrhundert Mahagoni");
+
+            let captured: Arc<Mutex<Vec<ProductEventRecord>>> = Arc::new(Mutex::new(Vec::new()));
+            let captured_clone = captured.clone();
+
+            let mut repository = empty_items_repository();
+            repository
+                .expect_put_product_event_records()
+                .returning(move |batch| {
+                    captured_clone.lock().unwrap().extend(batch.into_iter());
+                    Box::pin(async {
+                        Ok(aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput::builder().build())
+                    })
+                });
+
+            let service = make_command_product_service(&repository, &FixedFxRate());
+            let failures = service.create(vec![cmd]).await;
+
+            assert!(failures.is_empty());
+            let events = captured.lock().unwrap();
+            assert!(
+                !events
+                    .iter()
+                    .any(|e| matches!(e, ProductEventRecord::Policy(_))),
+                "expected no policy event for a benign antique furniture listing"
+            );
+        }
+
+        #[tokio::test]
+        async fn should_create_policy_event_for_hitlerjugend_listing() {
+            use crate::dynamodb::prohibited_content_record::ProhibitedContentRecord;
+            use std::sync::{Arc, Mutex};
+
+            let cmd = cmd_with_title("Hitlerjugend Messer HJ M1937 mit Scheide");
+
+            let captured: Arc<Mutex<Vec<ProductEventRecord>>> = Arc::new(Mutex::new(Vec::new()));
+            let captured_clone = captured.clone();
+
+            let mut repository = empty_items_repository();
+            repository
+                .expect_put_product_event_records()
+                .returning(move |batch| {
+                    captured_clone.lock().unwrap().extend(batch.into_iter());
+                    Box::pin(async {
+                        Ok(aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput::builder().build())
+                    })
+                });
+
+            let service = make_command_product_service(&repository, &FixedFxRate());
+            let failures = service.create(vec![cmd]).await;
+
+            assert!(failures.is_empty());
+            let events = captured.lock().unwrap();
+            let policy = events
+                .iter()
+                .find_map(|e| {
+                    if let ProductEventRecord::Policy(p) = e {
+                        Some(p)
+                    } else {
+                        None
+                    }
+                })
+                .expect("policy event must be present for Hitlerjugend listing");
+            assert_eq!(
+                policy.prohibited_content_decision,
+                ProhibitedContentRecord::NaziGermany
+            );
+        }
+
+        #[tokio::test]
+        async fn should_create_policy_event_for_swastika_listing() {
+            use crate::dynamodb::prohibited_content_record::ProhibitedContentRecord;
+            use std::sync::{Arc, Mutex};
+
+            let cmd = cmd_with_title("Bronze pendant with Swastika symbol WWII original");
+
+            let captured: Arc<Mutex<Vec<ProductEventRecord>>> = Arc::new(Mutex::new(Vec::new()));
+            let captured_clone = captured.clone();
+
+            let mut repository = empty_items_repository();
+            repository
+                .expect_put_product_event_records()
+                .returning(move |batch| {
+                    captured_clone.lock().unwrap().extend(batch.into_iter());
+                    Box::pin(async {
+                        Ok(aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput::builder().build())
+                    })
+                });
+
+            let service = make_command_product_service(&repository, &FixedFxRate());
+            let failures = service.create(vec![cmd]).await;
+
+            assert!(failures.is_empty());
+            let events = captured.lock().unwrap();
+            let policy = events
+                .iter()
+                .find_map(|e| {
+                    if let ProductEventRecord::Policy(p) = e {
+                        Some(p)
+                    } else {
+                        None
+                    }
+                })
+                .expect("policy event must be present for swastika listing");
+            assert_eq!(
+                policy.prohibited_content_decision,
+                ProhibitedContentRecord::NaziGermany
+            );
+        }
+
+        #[tokio::test]
+        async fn should_create_both_domain_and_policy_events_for_nazi_listing() {
+            use std::sync::{Arc, Mutex};
+
+            let cmd = cmd_with_title("Hakenkreuz Wanddeko Porzellan 1938");
+
+            let captured: Arc<Mutex<Vec<ProductEventRecord>>> = Arc::new(Mutex::new(Vec::new()));
+            let captured_clone = captured.clone();
+
+            let mut repository = empty_items_repository();
+            repository
+                .expect_put_product_event_records()
+                .returning(move |batch| {
+                    captured_clone.lock().unwrap().extend(batch.into_iter());
+                    Box::pin(async {
+                        Ok(aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput::builder().build())
+                    })
+                });
+
+            let service = make_command_product_service(&repository, &FixedFxRate());
+            let failures = service.create(vec![cmd]).await;
+
+            assert!(failures.is_empty());
+            let events = captured.lock().unwrap();
+            assert!(
+                events
+                    .iter()
+                    .any(|e| matches!(e, ProductEventRecord::Policy(_))),
+                "expected a policy event"
+            );
+            assert!(
+                events
+                    .iter()
+                    .any(|e| matches!(e, ProductEventRecord::Domain(_))),
+                "expected a domain event"
+            );
         }
     }
 
