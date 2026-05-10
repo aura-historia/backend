@@ -6,9 +6,11 @@ use crawler::scraper::css_selector::product_schema_repository::{
     ShopsProductSchemaRepository, ShopsProductSchemaRepositoryImpl,
 };
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
+use sqlx::PgPool;
 
 use test_api::*;
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 const RDS: Rds = Rds {
     migrations_dir: "src/crawler/migrations",
@@ -133,6 +135,14 @@ fn make_shops_product_schema(
     }
 }
 
+async fn insert_shop(pool: &PgPool, shop_id: ShopId) {
+    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
+        .bind(Uuid::from(shop_id))
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
 // ---------------------------------------------------------------------------
 // find_product_schema
 // ---------------------------------------------------------------------------
@@ -156,6 +166,7 @@ async fn should_return_schema_when_exists_for_find() {
     let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
 
     let shop_id = ShopId::new();
+    insert_shop(&pool, shop_id).await;
     let schema = make_shops_product_schema(shop_id, minimal_css_schema());
     repository
         .insert_product_schema(&shop_id, &schema)
@@ -178,6 +189,7 @@ async fn should_return_none_for_unknown_shop_id_when_other_schemas_exist_for_fin
     let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
 
     let known_shop_id = ShopId::new();
+    insert_shop(&pool, known_shop_id).await;
     let schema = make_shops_product_schema(known_shop_id, minimal_css_schema());
     repository
         .insert_product_schema(&known_shop_id, &schema)
@@ -203,6 +215,7 @@ async fn should_persist_and_return_schema_when_inserting_minimal_schema_for_inse
     let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
 
     let shop_id = ShopId::new();
+    insert_shop(&pool, shop_id).await;
     let schema = make_shops_product_schema(shop_id, minimal_css_schema());
     let returned = repository
         .insert_product_schema(&shop_id, &schema)
@@ -219,6 +232,7 @@ async fn should_persist_and_return_schema_when_inserting_full_schema_for_insert(
     let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
 
     let shop_id = ShopId::new();
+    insert_shop(&pool, shop_id).await;
     let schema = make_shops_product_schema(shop_id, full_css_schema());
     let returned = repository
         .insert_product_schema(&shop_id, &schema)
@@ -235,6 +249,7 @@ async fn should_preserve_created_and_updated_timestamps_for_insert() {
     let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
 
     let shop_id = ShopId::new();
+    insert_shop(&pool, shop_id).await;
     let schema = make_shops_product_schema(shop_id, minimal_css_schema());
     let created_before = schema.created;
     let updated_before = schema.updated;
@@ -262,6 +277,8 @@ async fn should_allow_inserting_schemas_for_different_shop_ids_for_insert() {
 
     let shop_id_a = ShopId::new();
     let shop_id_b = ShopId::new();
+    insert_shop(&pool, shop_id_a).await;
+    insert_shop(&pool, shop_id_b).await;
 
     repository
         .insert_product_schema(
@@ -299,6 +316,7 @@ async fn should_fail_when_inserting_duplicate_shop_id_for_insert() {
     let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
 
     let shop_id = ShopId::new();
+    insert_shop(&pool, shop_id).await;
     let schema = make_shops_product_schema(shop_id, minimal_css_schema());
 
     repository
@@ -335,6 +353,7 @@ async fn should_replace_schema_and_refresh_updated_timestamp_for_update() {
     let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
 
     let shop_id = ShopId::new();
+    insert_shop(&pool, shop_id).await;
     let original = make_shops_product_schema(shop_id, minimal_css_schema());
     repository
         .insert_product_schema(&shop_id, &original)
@@ -371,6 +390,7 @@ async fn should_persist_updated_schema_so_find_returns_new_value_for_update() {
     let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
 
     let shop_id = ShopId::new();
+    insert_shop(&pool, shop_id).await;
     repository
         .insert_product_schema(
             &shop_id,
@@ -416,6 +436,8 @@ async fn should_only_update_targeted_shop_id_and_leave_others_intact_for_update(
 
     let shop_id_a = ShopId::new();
     let shop_id_b = ShopId::new();
+    insert_shop(&pool, shop_id_a).await;
+    insert_shop(&pool, shop_id_b).await;
 
     repository
         .insert_product_schema(
@@ -462,6 +484,7 @@ async fn should_preserve_all_fields_across_full_round_trip_for_repository() {
     let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
 
     let shop_id = ShopId::new();
+    insert_shop(&pool, shop_id).await;
 
     // 1. insert
     let inserted = repository
@@ -505,4 +528,30 @@ async fn should_preserve_all_fields_across_full_round_trip_for_repository() {
 
     assert_eq!(found_after_update.product_schemas[0], minimal_css_schema());
     assert_eq!(found_after_update.created, found_after_insert.created);
+}
+
+#[localstack_test(services = [RDS])]
+async fn should_delete_product_schema_when_parent_shop_is_deleted() {
+    let pool = get_postgres_client().await;
+    let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
+
+    let shop_id = ShopId::new();
+    insert_shop(&pool, shop_id).await;
+
+    repository
+        .insert_product_schema(
+            &shop_id,
+            &make_shops_product_schema(shop_id, minimal_css_schema()),
+        )
+        .await
+        .unwrap();
+
+    sqlx::query("DELETE FROM shops WHERE shop_id = $1")
+        .bind(Uuid::from(shop_id))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let found = repository.find_product_schema(&shop_id).await.unwrap();
+    assert!(found.is_none());
 }
