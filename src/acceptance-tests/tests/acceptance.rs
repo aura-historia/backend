@@ -2894,6 +2894,7 @@ async fn should_post_get_patch_delete_search_filter() {
     assert_eq!(404, get_after_delete.status());
 }
 
+#[ignore = "Cannot get Localstack-Lambda to reach OpenSearch"]
 #[localstack_test(services = [Cloudformation()])]
 async fn should_get_search_filter_products_when_authorized() {
     let repository = UserSearchFilterDynamoDbRepositoryImpl::new(
@@ -2987,7 +2988,7 @@ async fn should_patch_search_filter_product_match_feedback_when_authorized() {
         feedback: Some(true),
     };
     let url = format!(
-        "{}/api/v1/me/search-filters/{}/products/{}/{}",
+        "{}/api/v1/me/search-filters/{}/matches/{}/{}",
         cfn.api_gateway_endpoint_url, filter_id, shop_id, shops_product_id,
     );
     let response = reqwest::Client::new()
