@@ -2,6 +2,7 @@ use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use product::core::product_search::ProductSearch;
 use product::service::get_service::MockGetProductService;
+use product::service::query_service::MockQueryProductService;
 use product_personalization::service::MockProductPersonalizationService;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
 use search_filter::service::user_search_filter_service::{
@@ -24,6 +25,7 @@ async fn should_return_actual_search_filter() {
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
     let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
     let get_product_service = MockGetProductService::default();
+    let query_product_service = MockQueryProductService::default();
     let personalization_service = MockProductPersonalizationService::default();
 
     let user = user_service.create_user(Faker.fake()).await.unwrap();
@@ -59,6 +61,9 @@ async fn should_return_actual_search_filter() {
         lambda_event,
         &service,
         &get_product_service,
+        &query_product_service,
+        None,
+        None,
         &personalization_service,
     )
     .await

@@ -1881,19 +1881,27 @@ Resources:
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${SearchFilterApiLambdaIntegration}"
+  SearchFilterApiGetSearchFilterMatchesRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/me/search-filters/{userSearchFilterId}/matches"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${SearchFilterApiLambdaIntegration}"
+  SearchFilterApiPatchSearchFilterMatchRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PATCH /api/v1/me/search-filters/{userSearchFilterId}/matches/{shopId}/{shopsProductId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${SearchFilterApiLambdaIntegration}"
   SearchFilterApiGetSearchFilterProductsRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/me/search-filters/{userSearchFilterId}/products"
-      AuthorizationType: JWT
-      AuthorizerId: !Ref ApiCognitoAuthorizer
-      Target: !Sub "integrations/${SearchFilterApiLambdaIntegration}"
-  SearchFilterApiPatchSearchFilterProductRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "PATCH /api/v1/me/search-filters/{userSearchFilterId}/products/{shopId}/{shopsProductId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${SearchFilterApiLambdaIntegration}"
@@ -1951,6 +1959,10 @@ Resources:
         Variables:
           STAGE: "prod"
           DYNAMODB_TABLE_NAME: !Ref TableOne
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/prod/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/prod/password}}"
+          GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/gemini-api-key}}"
   SearchFilterApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:

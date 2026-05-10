@@ -4,6 +4,7 @@ use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use product::core::product_search::ProductSearch;
 use product::service::get_service::MockGetProductService;
+use product::service::query_service::MockQueryProductService;
 use product_personalization::service::MockProductPersonalizationService;
 use search_filter::core::user_search_filter::UserSearchFilter;
 use search_filter::dynamodb::repository::{
@@ -25,6 +26,7 @@ async fn should_return_actual_search_filters_sorted_oldest_for_order_asc() {
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
     let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
     let get_product_service = MockGetProductService::default();
+    let query_product_service = MockQueryProductService::default();
     let personalization_service = MockProductPersonalizationService::default();
 
     let user_id = user_service
@@ -72,6 +74,9 @@ async fn should_return_actual_search_filters_sorted_oldest_for_order_asc() {
         lambda_event,
         &service,
         &get_product_service,
+        &query_product_service,
+        None,
+        None,
         &personalization_service,
     )
     .await
@@ -106,6 +111,7 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
     let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
     let get_product_service = MockGetProductService::default();
+    let query_product_service = MockQueryProductService::default();
     let personalization_service = MockProductPersonalizationService::default();
 
     let user_id = user_service
@@ -153,6 +159,9 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
         lambda_event,
         &service,
         &get_product_service,
+        &query_product_service,
+        None,
+        None,
         &personalization_service,
     )
     .await

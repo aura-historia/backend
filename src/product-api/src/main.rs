@@ -18,6 +18,7 @@ use product_pipeline_embed_text::service::{
 };
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
+use tracing::error;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::UserServiceImpl;
 
@@ -44,7 +45,9 @@ async fn main() -> Result<(), Error> {
     // Hybrid (BM25 + kNN, OpenSearch-native RRF) search is opt-in via the GEMINI_API_KEY
     // env-var. When unset, the lambda falls back to the existing pure-BM25 query path so
     // the lambda continues to work in environments without an embedding provider.
-    let gemini_api_key = std::env::var("GEMINI_API_KEY").ok();
+    let gemini_api_key = std::env::var("GEMINI_API_KEY")
+        .inspect_err(|_| error!("Failed loading GEMINI_API_KEY"))
+        .ok();
 
     let dynamodb = aws_sdk_dynamodb::Client::new(&aws_config);
     let opensearch = common::opensearch::client::load_client()

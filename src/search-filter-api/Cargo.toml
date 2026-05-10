@@ -4,14 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { workspace = true, features = ["api"] }
+common = { workspace = true, features = ["api", "opensearch"] }
 search-filter = { workspace = true, features = ["data", "service", "dynamodb"] }
 shop = { workspace = true, features = ["dynamodb"] }
-product = { workspace = true, features = ["data", "service", "dynamodb"] }
+product = { workspace = true, features = ["data", "service", "dynamodb", "opensearch"] }
 geo = { workspace = true, features = ["data"] }
 isocountry = { workspace = true }
 product-watchlist = { workspace = true, features = ["data", "service", "dynamodb"] }
 product-personalization = { workspace = true }
+product-pipeline-embed-text = { workspace = true }
 notification = { workspace = true, features = ["service"] }
 user = { workspace = true, features = ["dynamodb", "service", "data"] }
 tracing = { workspace = true }
@@ -31,7 +32,8 @@ fake = { workspace = true, optional = true }
 
 [dev-dependencies]
 search-filter-api = { workspace = true, features = ["test-data"] }
-test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
+test-api = { workspace = true, features = ["api-gateway", "dynamodb", "opensearch"] }
+opensearch = { workspace = true }
 product = { workspace = true, features = ["test-data"] }
 product-watchlist = { workspace = true, features = ["dynamodb"] }
 product-personalization = { workspace = true }
@@ -41,6 +43,7 @@ url = { workspace = true }
 serial_test = { workspace = true }
 rstest = { workspace = true }
 search-filter = { workspace = true, features = ["test-data"] }
+product-pipeline-embed-text = { workspace = true }
 
 [features]
 default = []

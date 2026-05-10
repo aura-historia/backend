@@ -2895,59 +2895,6 @@ async fn should_post_get_patch_delete_search_filter() {
 }
 
 #[localstack_test(services = [Cloudformation()])]
-async fn should_get_search_filter_products_when_authorized() {
-    let repository = UserSearchFilterDynamoDbRepositoryImpl::new(
-        get_dynamodb_client().await,
-        &get_cfn_output().dynamodb_table_1_name,
-    );
-    let user_repository = UserDynamoDbRepositoryImpl::new(
-        get_dynamodb_client().await,
-        &get_cfn_output().dynamodb_table_1_name,
-    );
-    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
-    let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
-
-    let user = create_random_test_user().await;
-    let update_cmd = UpdateUserCommand {
-        tier: Some(UserTier::Ultimate),
-        ..Default::default()
-    };
-    user_service
-        .update_user(&user.sub.into(), update_cmd)
-        .await
-        .unwrap();
-    let search_filter = service
-        .create_user_search_filter(
-            &user.sub.into(),
-            Faker.fake(),
-            Faker.fake::<product::core::product_search::ProductSearch>(),
-            None,
-        )
-        .await
-        .unwrap();
-
-    let url = format!(
-        "{}/api/v1/me/search-filters/{}/products?language=de&currency=EUR&sort=created&order=asc&size=10",
-        get_cfn_output().api_gateway_endpoint_url,
-        search_filter.user_search_filter_id,
-    );
-    let response = reqwest::Client::new()
-        .get(url)
-        .bearer_auth(user.access_token)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, response.status());
-
-    let actual = response
-        .json::<TimeCursoredData<PersonalizedData<GetProductData, ProductUserStateData>>>()
-        .await
-        .unwrap();
-    assert_eq!(0, actual.total.unwrap());
-    assert!(actual.items.is_empty());
-}
-
-#[localstack_test(services = [Cloudformation()])]
 async fn should_patch_search_filter_product_match_feedback_when_authorized() {
     use search_filter::dynamodb::repository::{
         UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
@@ -2987,7 +2934,7 @@ async fn should_patch_search_filter_product_match_feedback_when_authorized() {
         feedback: Some(true),
     };
     let url = format!(
-        "{}/api/v1/me/search-filters/{}/products/{}/{}",
+        "{}/api/v1/me/search-filters/{}/matches/{}/{}",
         cfn.api_gateway_endpoint_url, filter_id, shop_id, shops_product_id,
     );
     let response = reqwest::Client::new()

@@ -39,6 +39,7 @@ mod tests {
     use http::header::CACHE_CONTROL;
     use lambda_runtime::LambdaEvent;
     use product::service::get_service::MockGetProductService;
+    use product::service::query_service::MockQueryProductService;
     use product_personalization::service::MockProductPersonalizationService;
     use search_filter::service::user_search_filter_service::{
         MockUserSearchFilterService, UserSearchFilterError,
@@ -63,11 +64,15 @@ mod tests {
             .return_once(|_, _| Box::pin(async { Ok(Faker.fake()) }));
 
         let get_product_service = MockGetProductService::default();
+        let query_product_service = MockQueryProductService::default();
         let personalization_service = MockProductPersonalizationService::default();
         let response = handle(
             lambda_event,
             &service,
             &get_product_service,
+            &query_product_service,
+            None,
+            None,
             &personalization_service,
         )
         .await
@@ -91,11 +96,15 @@ mod tests {
         service.expect_find_user_search_filter().never();
 
         let get_product_service = MockGetProductService::default();
+        let query_product_service = MockQueryProductService::default();
         let personalization_service = MockProductPersonalizationService::default();
         let expected = handle(
             lambda_event,
             &service,
             &get_product_service,
+            &query_product_service,
+            None,
+            None,
             &personalization_service,
         )
         .await
@@ -128,11 +137,15 @@ mod tests {
             });
 
         let get_product_service = MockGetProductService::default();
+        let query_product_service = MockQueryProductService::default();
         let personalization_service = MockProductPersonalizationService::default();
         let expected = handle(
             lambda_event,
             &service,
             &get_product_service,
+            &query_product_service,
+            None,
+            None,
             &personalization_service,
         )
         .await
@@ -165,11 +178,15 @@ mod tests {
             });
 
         let get_product_service = MockGetProductService::default();
+        let query_product_service = MockQueryProductService::default();
         let personalization_service = MockProductPersonalizationService::default();
         let expected = handle(
             lambda_event,
             &service,
             &get_product_service,
+            &query_product_service,
+            None,
+            None,
             &personalization_service,
         )
         .await
@@ -195,11 +212,15 @@ mod tests {
             .return_once(|_, _| Box::pin(async { Ok(Faker.fake()) }));
 
         let get_product_service = MockGetProductService::default();
+        let query_product_service = MockQueryProductService::default();
         let personalization_service = MockProductPersonalizationService::default();
         let response = handle(
             lambda_event,
             &service,
             &get_product_service,
+            &query_product_service,
+            None,
+            None,
             &personalization_service,
         )
         .await

@@ -5,6 +5,7 @@ use common::user_search_filter_id::UserSearchFilterId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use product::service::get_service::MockGetProductService;
+use product::service::query_service::MockQueryProductService;
 use product_personalization::service::MockProductPersonalizationService;
 use search_filter::data::search_filter_product_match_data::SearchFilterProductMatchData;
 use search_filter::dynamodb::repository::{
@@ -59,6 +60,7 @@ async fn patch_existing_match(
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
     let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
     let get_product_service = MockGetProductService::default();
+    let query_product_service = MockQueryProductService::default();
     let personalization_service = MockProductPersonalizationService::default();
     let user = user_service.create_user(Faker.fake()).await.unwrap();
     let filter_id = UserSearchFilterId::new();
@@ -77,7 +79,7 @@ async fn patch_existing_match(
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::PATCH)
-            .route_key("PATCH /api/v1/me/search-filters/{userSearchFilterId}/products/{shopId}/{shopsProductId}")
+            .route_key("PATCH /api/v1/me/search-filters/{userSearchFilterId}/matches/{shopId}/{shopsProductId}")
             .jwt_claim("sub", user.user_id)
             .path_parameter("userSearchFilterId", filter_id)
             .path_parameter("shopId", shop_id)
@@ -91,6 +93,9 @@ async fn patch_existing_match(
         lambda_event,
         &service,
         &get_product_service,
+        &query_product_service,
+        None,
+        None,
         &personalization_service,
     )
     .await
@@ -158,13 +163,14 @@ async fn should_404_when_search_filter_product_match_not_found() {
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
     let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
     let get_product_service = MockGetProductService::default();
+    let query_product_service = MockQueryProductService::default();
     let personalization_service = MockProductPersonalizationService::default();
     let user = user_service.create_user(Faker.fake()).await.unwrap();
 
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::PATCH)
-            .route_key("PATCH /api/v1/me/search-filters/{userSearchFilterId}/products/{shopId}/{shopsProductId}")
+            .route_key("PATCH /api/v1/me/search-filters/{userSearchFilterId}/matches/{shopId}/{shopsProductId}")
             .jwt_claim("sub", user.user_id)
             .path_parameter("userSearchFilterId", UserSearchFilterId::new())
             .path_parameter("shopId", ShopId::new())
@@ -180,6 +186,9 @@ async fn should_404_when_search_filter_product_match_not_found() {
         lambda_event,
         &service,
         &get_product_service,
+        &query_product_service,
+        None,
+        None,
         &personalization_service,
     )
     .await
