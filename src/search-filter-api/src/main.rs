@@ -39,7 +39,9 @@ async fn main() -> Result<(), Error> {
     // Hybrid search and enhanced match evaluation are opt-in via GEMINI_API_KEY.
     // When unset the new /products endpoint falls back to plain BM25 search without
     // LLM-powered match evaluation.
-    let gemini_api_key = std::env::var("GEMINI_API_KEY").ok();
+    let gemini_api_key = std::env::var("GEMINI_API_KEY")
+        .inspect_err(|_| error!("Failed loading GEMINI_API_KEY"))
+        .ok();
 
     let opensearch = common::opensearch::client::load_client()
         .await
