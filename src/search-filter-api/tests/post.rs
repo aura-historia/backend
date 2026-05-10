@@ -2,6 +2,7 @@ use common::user_search_filter_id::UserSearchFilterId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use product::service::get_service::MockGetProductService;
+use product::service::query_service::MockQueryProductService;
 use product_personalization::service::MockProductPersonalizationService;
 use search_filter::core::quota::SearchFilterQuota;
 use search_filter::data::user_search_filter_data::UserSearchFilterData;
@@ -49,11 +50,15 @@ async fn should_save_search_filter() {
 
     let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
     let get_product_service = MockGetProductService::default();
+    let query_product_service = MockQueryProductService::default();
     let personalization_service = MockProductPersonalizationService::default();
     let response = handle(
         lambda_event,
         &service,
         &get_product_service,
+        &query_product_service,
+        None,
+        None,
         &personalization_service,
     )
     .await
@@ -112,11 +117,15 @@ async fn should_422_when_search_filter_quota_is_exceeded() {
 
     let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
     let get_product_service = MockGetProductService::default();
+    let query_product_service = MockQueryProductService::default();
     let personalization_service = MockProductPersonalizationService::default();
     let response = handle(
         lambda_event,
         &service,
         &get_product_service,
+        &query_product_service,
+        None,
+        None,
         &personalization_service,
     )
     .await
