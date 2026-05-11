@@ -23,6 +23,10 @@ pub struct ShopRecord {
     pub pk: String,
     pub sk: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub gsi3_pk: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub gsi3_sk: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub gsi2_pk: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub gsi2_sk: Option<String>,
@@ -33,6 +37,9 @@ pub struct ShopRecord {
 
     #[serde(skip_serializing_if = "HashSet::is_empty", default)]
     pub domains: HashSet<Domain>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shopify_domain: Option<Domain>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
@@ -107,11 +114,26 @@ pub fn mk_gsi1_sk(shop_id: &ShopId) -> String {
     format!("partner_shop_id#{shop_id}")
 }
 
+pub fn mk_gsi3_pk(shopify_domain: &Domain) -> String {
+    format!("shop#shopify_domain#{shopify_domain}")
+}
+
+pub fn mk_gsi3_sk() -> &'static str {
+    "shop#details"
+}
+
 impl From<Shop> for ShopRecord {
     fn from(shop: Shop) -> Self {
+        let (gsi3_pk, gsi3_sk) = shop
+            .shopify_domain
+            .as_ref()
+            .map(|domain| (Some(mk_gsi3_pk(domain)), Some(mk_gsi3_sk().to_owned())))
+            .unwrap_or((None, None));
         ShopRecord {
             pk: mk_pk(&shop.shop_id),
             sk: mk_sk().to_owned(),
+            gsi3_pk,
+            gsi3_sk,
             gsi2_pk: Some(mk_gsi2_pk(&shop.shop_slug_id)),
             gsi2_sk: Some(mk_gsi2_sk().to_owned()),
             shop_id: shop.shop_id,
@@ -119,6 +141,7 @@ impl From<Shop> for ShopRecord {
             name: shop.name,
             shop_type: shop.shop_type.into(),
             domains: shop.domains,
+            shopify_domain: shop.shopify_domain,
             url: shop.url,
             image: shop.image,
             structured_address_addressline: shop
@@ -165,6 +188,7 @@ impl From<ShopRecord> for Shop {
             name: record.name,
             shop_type: record.shop_type.into(),
             domains: record.domains,
+            shopify_domain: record.shopify_domain,
             url: record.url.map(append_utm_params),
             image: record.image,
             structured_address: structured_address_from_flat(
@@ -208,6 +232,7 @@ impl TryFrom<ShopRecord> for PartnerShop {
             name: value.name,
             shop_type: value.shop_type.into(),
             domains: value.domains,
+            shopify_domain: value.shopify_domain,
             url: value.url.map(append_utm_params),
             image: value.image,
             structured_address: structured_address_from_flat(
@@ -337,5 +362,15 @@ mod key_tests {
     fn should_format_gsi1_sk_correctly() {
         let shop_id = ShopId::new();
         assert_eq!(mk_gsi1_sk(&shop_id), format!("partner_shop_id#{shop_id}"));
+    }
+
+    #[test]
+    fn should_format_gsi3_keys_correctly() {
+        let shopify_domain = Domain::try_from("example.myshopify.com").unwrap();
+        assert_eq!(
+            mk_gsi3_pk(&shopify_domain),
+            "shop#shopify_domain#example.myshopify.com"
+        );
+        assert_eq!(mk_gsi3_sk(), "shop#details");
     }
 }

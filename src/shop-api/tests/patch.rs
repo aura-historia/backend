@@ -92,6 +92,7 @@ async fn should_200_respond_updated_shop_when_partner_patches_shop() {
                 gsi1_sk: Some(shop::dynamodb::shop_record::mk_gsi1_sk(&shop.shop_id)),
                 shop_type: None,
                 domains: None,
+                shopify_domain: None,
                 url: None,
                 image: None,
                 structured_address_addressline: None,

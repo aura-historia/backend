@@ -150,6 +150,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             name: command.name,
             shop_type: command.shop_type,
             domains: command.domains,
+            shopify_domain: command.shopify_domain,
             url: command.url,
             image: command.image,
             structured_address: command.structured_address,
@@ -192,8 +193,17 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             partner_user_id: None,
             gsi1_pk: None,
             gsi1_sk: None,
+            gsi3_pk: command
+                .shopify_domain
+                .as_ref()
+                .map(crate::dynamodb::shop_record::mk_gsi3_pk),
+            gsi3_sk: command
+                .shopify_domain
+                .as_ref()
+                .map(|_| crate::dynamodb::shop_record::mk_gsi3_sk().to_owned()),
             shop_type: command.shop_type.map(Into::into),
             domains: command.domains.clone(),
+            shopify_domain: command.shopify_domain.clone(),
             url: command.url.clone(),
             image: command.image.clone(),
             structured_address_addressline: command
@@ -266,8 +276,11 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             partner_user_id: None,
             gsi1_pk: None,
             gsi1_sk: None,
+            gsi3_pk: None,
+            gsi3_sk: None,
             shop_type: None,
             domains: None,
+            shopify_domain: None,
             url: None,
             image: None,
             structured_address_addressline: None,
@@ -338,6 +351,7 @@ mod tests {
                 name: Faker.fake(),
                 shop_type: Faker.fake(),
                 domains: HashSet::new(),
+                shopify_domain: None,
                 url: None,
                 image: None,
                 structured_address: None,
@@ -415,6 +429,7 @@ mod tests {
                 name: Faker.fake(),
                 shop_type: Faker.fake(),
                 domains: HashSet::new(),
+                shopify_domain: None,
                 url: None,
                 image: None,
                 structured_address: Some(structured_address),
@@ -643,6 +658,7 @@ mod tests {
             let cmd = UpdateShopCommand {
                 shop_type: None,
                 domains: Some(new_domains.clone()),
+                shopify_domain: None,
                 image: None,
                 ..Default::default()
             };
@@ -689,6 +705,7 @@ mod tests {
             let cmd = UpdateShopCommand {
                 shop_type: None,
                 domains: Some(reduced_domains.clone()),
+                shopify_domain: None,
                 image: None,
                 ..Default::default()
             };

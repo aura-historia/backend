@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use aws_sdk_dynamodb::config::http::HttpResponse;
 use aws_sdk_dynamodb::error::SdkError;
 use common::error::missing_field::MissingPersistenceField;
-use common::{batch::Batch, shop_id::ShopId, slug_id::SlugId};
+use common::{batch::Batch, domain::Domain, shop_id::ShopId, slug_id::SlugId};
 
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
@@ -16,6 +16,9 @@ pub enum GetShopError {
 
     #[error("Shop with SlugId '{0}' not found")]
     ShopSlugIdNotFound(SlugId<0>),
+
+    #[error("Shop with Shopify domain '{0}' not found")]
+    ShopifyDomainNotFound(Domain),
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(
@@ -70,6 +73,9 @@ pub mod api {
                 GetShopError::ShopSlugIdNotFound(_) => {
                     ApiError::not_found(SHOP_NOT_FOUND, Box::new(err))
                 }
+                GetShopError::ShopifyDomainNotFound(_) => {
+                    ApiError::not_found(SHOP_NOT_FOUND, Box::new(err))
+                }
                 GetShopError::SdkGetItemError(err) => err.into(),
                 GetShopError::SdkQueryError(err) => err.into(),
                 GetShopError::SdkBatchGetItemError(err) => err.into(),
@@ -118,6 +124,11 @@ pub trait GetShopService {
         &self,
         partner_user_id: &common::user_id::UserId,
     ) -> Result<Vec<Shop>, GetShopError>;
+
+    async fn find_shop_by_shopify_domain(
+        &self,
+        shopify_domain: &Domain,
+    ) -> Result<Shop, GetShopError>;
 
     async fn find_partner_shop(
         &self,
@@ -198,6 +209,18 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
             .query_shops_by_partner(partner_user_id)
             .await?;
         Ok(records.into_iter().map(Shop::from).collect())
+    }
+
+    async fn find_shop_by_shopify_domain(
+        &self,
+        shopify_domain: &Domain,
+    ) -> Result<Shop, GetShopError> {
+        let record = self
+            .repository
+            .query_shop_by_shopify_domain(shopify_domain)
+            .await?
+            .ok_or_else(|| GetShopError::ShopifyDomainNotFound(shopify_domain.clone()))?;
+        Ok(record.into())
     }
 
     async fn find_partner_shop(

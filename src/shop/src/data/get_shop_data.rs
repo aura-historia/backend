@@ -22,6 +22,8 @@ pub struct GetShopData {
     pub shop_type: ShopTypeData,
     pub domains: HashSet<Domain>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shopify_domain: Option<Domain>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
@@ -49,6 +51,7 @@ impl From<Shop> for GetShopData {
             name: shop.name,
             shop_type: shop.shop_type.into(),
             domains: shop.domains,
+            shopify_domain: shop.shopify_domain,
             url: shop.url,
             image: shop.image,
             structured_address: shop.structured_address.map(Into::into),
@@ -81,6 +84,7 @@ mod tests {
             name: "Woaah & Co. Ltd.".into(),
             shop_type: ShopTypeData::CommercialDealer,
             domains: [Domain::try_from("https://woaah.co.ltd.com").unwrap()].into(),
+            shopify_domain: Some(Domain::try_from("woaah.myshopify.com").unwrap()),
             url: Some(Url::parse("https://woaah.co.ltd.com").unwrap()),
             image: Some(Url::parse("https://woaah.co.ltd.com/logo.svg").unwrap()),
             structured_address: None,
@@ -98,6 +102,7 @@ mod tests {
             "name": "Woaah & Co. Ltd.",
             "shopType": "COMMERCIAL_DEALER",
             "domains": ["woaah.co.ltd.com"],
+            "shopifyDomain": "woaah.myshopify.com",
             "url": "https://woaah.co.ltd.com/",
             "image": "https://woaah.co.ltd.com/logo.svg",
             "partnerStatus": "PARTNERED",

@@ -13,6 +13,8 @@ pub struct PostShopData {
     pub shop_type: ShopTypeData,
     pub domains: HashSet<Domain>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shopify_domain: Option<Domain>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
@@ -35,6 +37,7 @@ mod faker {
                 name: config.fake_with_rng(rng),
                 shop_type: config.fake_with_rng(rng),
                 domains: vec![config.fake_with_rng(rng)].into_iter().collect(),
+                shopify_domain: config.fake_with_rng(rng),
                 url: None,
                 image: None,
                 structured_address: None,

@@ -19,10 +19,19 @@ pub struct ShopRecordUpdate {
     pub gsi1_sk: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub gsi3_pk: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub gsi3_sk: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shop_type: Option<ShopTypeRecord>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub domains: Option<HashSet<Domain>>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shopify_domain: Option<Domain>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
