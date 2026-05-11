@@ -51,45 +51,56 @@ pub struct ProductCssSelectorSchema {
     #[schemars(description = "Title of the product")]
     pub title: ExtractionRule,
 
-    #[schemars(description = "Description of the product. May be fragmented.")]
+    #[schemars(
+        description = "Main product description/body content. May be fragmented across multiple nodes. Prefer the central product-description area for this item. Avoid shipping info, legal disclaimers, navigation text, marketing banners, and recommendation or related-products sections."
+    )]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<ExtractionRule>,
 
-    #[schemars(description = "Price of the product.")]
+    #[schemars(
+        description = "Visible product price text. Prefer the actual price element for this product and extract human-visible text, not attributes. Avoid wrapper containers, struck-through comparison prices, totals for other products, shipping costs, and unrelated price widgets."
+    )]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price: Option<ExtractionRule>,
 
     #[schemars(
-        description = "Lower bound for explicitly mentioned esitmate-price of the product."
+        description = "Lower bound of an explicitly shown estimate price range for this product. Use only when the page clearly presents an estimate minimum/bound. Avoid deriving it from a single sale price, bid price, or unrelated range/filter widget."
     )]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_estimate_min: Option<ExtractionRule>,
 
     #[schemars(
-        description = "Upper bound for explicitly mentioned esitmate-price of the product."
+        description = "Upper bound of an explicitly shown estimate price range for this product. Use only when the page clearly presents an estimate maximum/bound. Avoid deriving it from a single sale price, bid price, or unrelated range/filter widget."
     )]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_estimate_max: Option<ExtractionRule>,
 
     #[schemars(
-        description = "Availability state of the product. E.g. 'in stock', 'out of stock', 'preorder', 'add to cart', etc."
+        description = "Availability state of the product. E.g. 'in stock', 'out of stock', 'preorder', 'add to cart', etc. Prioritize state sources in this order: (1) clear explicit state text such as 'available', 'sold', or 'out of stock'; (2) visible text from a product-specific add-to-cart or buy button; (3) visible text from other product-specific buttons that clearly indicate availability such as preorder, reserve, or sold-out actions. Prefer dedicated availability labels or visible button text over generic class names or whole script blobs. Never use price elements, image galleries, or generic layout wrappers as the state selector."
     )]
     pub state: ExtractionRule,
 
-    #[schemars(description = "Images of the product. May be fragmented.")]
+    #[schemars(
+        description = "Product media URLs. May be fragmented across multiple gallery nodes. Prefer canonical product image/media URLs from src, srcset, href-like media links, or gallery-specific attributes. Avoid logos, icons, placeholders, sprites, and unrelated thumbnails from navigation or recommendations."
+    )]
     pub images: ExtractionRule,
 
-    #[schemars(description = "Start-Date/Time of the auction for the product")]
+    #[schemars(
+        description = "Auction start date/time for this product. Prefer machine-readable datetime-bearing nodes such as time[datetime], structured data, or clearly labeled auction metadata. Avoid generic date text unless it clearly refers to the auction start timestamp for this product."
+    )]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub auction_start: Option<ExtractionRule>,
 
-    #[schemars(description = "End-Date/Time of the auction for the product")]
+    #[schemars(
+        description = "Auction end date/time for this product. Prefer machine-readable datetime-bearing nodes such as time[datetime], structured data, or clearly labeled auction metadata. Avoid generic date text unless it clearly refers to the auction end timestamp for this product."
+    )]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub auction_end: Option<ExtractionRule>,
 
     #[schemars(
         description = "The default currency for this shop's prices, as an ISO 4217 code (e.g. \
         \"EUR\", \"GBP\", \"USD\", \"AUD\", \"CAD\", \"NZD\"). \
+        This is full-page fallback context, not a selector rule. \
         Set this when the price elements on the page do not include a currency symbol or code \
         themselves — for example when the currency appears in a sibling element \
         (e.g. <span class=\"currency\">EUR</span>), a page-level label \
