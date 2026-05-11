@@ -7203,11 +7203,15 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "serial_test",
  "shop",
+ "test-api",
  "thiserror 2.0.18",
+ "time",
  "tokio",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]
