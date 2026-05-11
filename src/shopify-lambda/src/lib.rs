@@ -161,7 +161,16 @@ pub async fn handler(
 
         match resolve_command(eb_event, shop_service).await {
             Ok(Some(cmd)) => {
-                message_id_by_key.insert(cmd.key(), message_id);
+                if let Some(displaced_msg_id) = message_id_by_key.insert(cmd.key(), message_id) {
+                    // Two messages in the same batch share the same ProductKey. The
+                    // earlier message is displaced in the map; report it as failed so
+                    // it is retried rather than silently dropped.
+                    warn!(
+                        messageId = %displaced_msg_id,
+                        "Duplicate ProductKey in batch; earlier message displaced, reporting as failure."
+                    );
+                    failed_message_ids.push(displaced_msg_id);
+                }
                 commands.push(cmd);
             }
             Ok(None) => {}
@@ -177,6 +186,10 @@ pub async fn handler(
         for failed_cmd in failed_commands {
             if let Some(msg_id) = message_id_by_key.remove(&failed_cmd.key()) {
                 failed_message_ids.push(msg_id);
+            } else {
+                warn!(
+                    "Failed command has no matching message ID in batch tracking map; failure may be underreported."
+                );
             }
         }
     }
