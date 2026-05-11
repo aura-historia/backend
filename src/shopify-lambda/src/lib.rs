@@ -282,10 +282,7 @@ fn parse_price(price: Option<&str>) -> Result<Option<Price>, ShopifyProductEvent
         return Ok(None);
     };
     let trimmed = price.trim();
-    let (major, minor) = trimmed
-        .split_once('.')
-        .map(|(major, minor)| (major, minor))
-        .unwrap_or((trimmed, ""));
+    let (major, minor) = trimmed.split_once('.').unwrap_or((trimmed, ""));
     if !major.chars().all(|c| c.is_ascii_digit()) || !minor.chars().all(|c| c.is_ascii_digit()) {
         return Err(ShopifyProductEventError::InvalidPrice(trimmed.to_owned()));
     }
@@ -341,21 +338,21 @@ fn detect_language(text: &str) -> Option<Language> {
     });
     detector
         .detect_language_of(text)
-        .and_then(|language| match language {
-            LinguaLanguage::English => Some(Language::En),
-            LinguaLanguage::German => Some(Language::De),
-            LinguaLanguage::French => Some(Language::Fr),
-            LinguaLanguage::Spanish => Some(Language::Es),
-            LinguaLanguage::Italian => Some(Language::It),
-            LinguaLanguage::Chinese => Some(Language::Zh),
-            LinguaLanguage::Portuguese => Some(Language::Pt),
-            LinguaLanguage::Polish => Some(Language::Pl),
-            LinguaLanguage::Turkish => Some(Language::Tr),
-            LinguaLanguage::Dutch => Some(Language::Nl),
-            LinguaLanguage::Czech => Some(Language::Cs),
-            LinguaLanguage::Japanese => Some(Language::Ja),
-            LinguaLanguage::Russian => Some(Language::Ru),
-            LinguaLanguage::Arabic => Some(Language::Ar),
+        .map(|language| match language {
+            LinguaLanguage::English => Language::En,
+            LinguaLanguage::German => Language::De,
+            LinguaLanguage::French => Language::Fr,
+            LinguaLanguage::Spanish => Language::Es,
+            LinguaLanguage::Italian => Language::It,
+            LinguaLanguage::Chinese => Language::Zh,
+            LinguaLanguage::Portuguese => Language::Pt,
+            LinguaLanguage::Polish => Language::Pl,
+            LinguaLanguage::Turkish => Language::Tr,
+            LinguaLanguage::Dutch => Language::Nl,
+            LinguaLanguage::Czech => Language::Cs,
+            LinguaLanguage::Japanese => Language::Ja,
+            LinguaLanguage::Russian => Language::Ru,
+            LinguaLanguage::Arabic => Language::Ar,
         })
 }
 

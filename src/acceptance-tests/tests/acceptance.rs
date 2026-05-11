@@ -3073,6 +3073,7 @@ async fn should_respond_200_for_shop_patch_by_partner() {
     let patch_data = PatchShopData {
         shop_type: None,
         domains: None,
+        shopify_domain: None,
         url: None,
         image: Some(url::Url::parse("https://new-image.example.com/logo.png").unwrap()),
         structured_address: None,
