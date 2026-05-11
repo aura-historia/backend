@@ -4,6 +4,8 @@ use common::price::domain::FixedFxRate;
 use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
 use lambda_runtime::{Context, LambdaEvent};
+use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+use product::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
 use product::dynamodb::product_state_record::ProductStateRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::service::command_service::CommandProductServiceImpl;
@@ -20,7 +22,7 @@ use shopify_lambda::{
 use test_api::*;
 use time::OffsetDateTime;
 
-// The Shopify product id used in all real-world payload tests.
+// The Shopify product id used across all payload tests.
 const SHOPIFY_PRODUCT_ID: u64 = 10_231_453_024_539;
 const SHOPIFY_DOMAIN: &str = "aura-historia-partner-connect-dev-store.myshopify.com";
 
@@ -161,36 +163,27 @@ async fn get_repositories() -> (
     )
 }
 
-#[localstack_test(services = [DynamoDB()])]
-async fn should_upsert_product_when_shopify_update_event_with_real_payload() {
-    let (shop_repo, product_repo) = get_repositories().await;
-
-    let shop_record = seed_shopify_partner_shop(&shop_repo).await;
-    let shop_id = shop_record.shop_id;
-
-    let get_shop_service = GetShopServiceImpl::new(&shop_repo);
-    let fx_rate = FixedFxRate();
-    let seller_service = MockSellerService::default();
-    let product_service =
-        CommandProductServiceImpl::new(&product_repo, &fx_rate, &get_shop_service, &seller_service);
-
-    let event = real_shopify_event(SHOPIFY_TOPIC_PRODUCTS_UPDATE);
-    handler(event, &get_shop_service, &product_service)
-        .await
-        .unwrap();
-
+/// Returns all domain event records for the given shop and product.
+async fn query_events(
+    product_repo: &ProductDynamoDbRepositoryImpl<'_>,
+    shop_id: common::shop_id::ShopId,
+) -> Vec<ProductDomainEventRecord> {
     let shops_product_id = ShopsProductId::from(SHOPIFY_PRODUCT_ID.to_string());
-    let record = product_repo
-        .get_product_record(&shop_id, &shops_product_id)
+    product_repo
+        .query_product_domain_event_records(&shop_id, &shops_product_id)
         .await
         .unwrap()
-        .expect("expected product record to be upserted");
-    assert_eq!(record.shop_id, shop_id);
-    assert_eq!(record.shops_product_id, shops_product_id);
 }
 
+// ─── Tests ───────────────────────────────────────────────────────────────────
+//
+// The `upsert()` service method writes `ProductEventRecord` entries to DynamoDB.
+// A `ProductRecord` (materialized product state) is only created later by the
+// product-lambda-materialize-dynamodb Lambda via DynamoDB Streams. Integration
+// tests therefore assert on domain event records, not on the materialized record.
+
 #[localstack_test(services = [DynamoDB()])]
-async fn should_upsert_product_when_shopify_create_event_with_real_payload() {
+async fn should_write_domain_created_event_when_shopify_create_event_with_real_payload() {
     let (shop_repo, product_repo) = get_repositories().await;
 
     let shop_record = seed_shopify_partner_shop(&shop_repo).await;
@@ -202,55 +195,109 @@ async fn should_upsert_product_when_shopify_create_event_with_real_payload() {
     let product_service =
         CommandProductServiceImpl::new(&product_repo, &fx_rate, &get_shop_service, &seller_service);
 
-    let event = real_shopify_event(SHOPIFY_TOPIC_PRODUCTS_CREATE);
-    handler(event, &get_shop_service, &product_service)
-        .await
-        .unwrap();
+    handler(
+        real_shopify_event(SHOPIFY_TOPIC_PRODUCTS_CREATE),
+        &get_shop_service,
+        &product_service,
+    )
+    .await
+    .unwrap();
 
-    let shops_product_id = ShopsProductId::from(SHOPIFY_PRODUCT_ID.to_string());
-    let record = product_repo
-        .get_product_record(&shop_id, &shops_product_id)
-        .await
-        .unwrap()
-        .expect("expected product record to be created");
-    assert_eq!(record.shop_id, shop_id);
-    assert_eq!(record.shops_product_id, shops_product_id);
-}
-
-#[localstack_test(services = [DynamoDB()])]
-async fn should_set_removed_state_when_shopify_delete_event_with_real_payload() {
-    let (shop_repo, product_repo) = get_repositories().await;
-
-    let shop_record = seed_shopify_partner_shop(&shop_repo).await;
-    let shop_id = shop_record.shop_id;
-
-    let get_shop_service = GetShopServiceImpl::new(&shop_repo);
-    let fx_rate = FixedFxRate();
-    let seller_service = MockSellerService::default();
-    let product_service =
-        CommandProductServiceImpl::new(&product_repo, &fx_rate, &get_shop_service, &seller_service);
-
-    // First create the product
-    let create_event = real_shopify_event(SHOPIFY_TOPIC_PRODUCTS_CREATE);
-    handler(create_event, &get_shop_service, &product_service)
-        .await
-        .unwrap();
-
-    // Then delete it
-    let delete_event = real_shopify_event(SHOPIFY_TOPIC_PRODUCTS_DELETE);
-    handler(delete_event, &get_shop_service, &product_service)
-        .await
-        .unwrap();
-
-    let shops_product_id = ShopsProductId::from(SHOPIFY_PRODUCT_ID.to_string());
-    let record = product_repo
-        .get_product_record(&shop_id, &shops_product_id)
-        .await
-        .unwrap()
-        .expect("expected product record to exist after delete (state set to Removed)");
+    let events = query_events(&product_repo, shop_id).await;
+    assert!(
+        !events.is_empty(),
+        "expected at least one domain event record after products/create"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e.event_type == ProductDomainEventTypeRecord::DomainCreated),
+        "expected a DOMAIN_CREATED event record; got: {:?}",
+        events.iter().map(|e| &e.event_type).collect::<Vec<_>>()
+    );
+    assert_eq!(events[0].shop_id, shop_id);
     assert_eq!(
-        record.state,
-        ProductStateRecord::Removed,
-        "expected product state to be Removed after delete event"
+        events[0].shops_product_id,
+        ShopsProductId::from(SHOPIFY_PRODUCT_ID.to_string())
+    );
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_write_domain_created_event_when_shopify_update_event_with_real_payload() {
+    let (shop_repo, product_repo) = get_repositories().await;
+
+    let shop_record = seed_shopify_partner_shop(&shop_repo).await;
+    let shop_id = shop_record.shop_id;
+
+    let get_shop_service = GetShopServiceImpl::new(&shop_repo);
+    let fx_rate = FixedFxRate();
+    let seller_service = MockSellerService::default();
+    let product_service =
+        CommandProductServiceImpl::new(&product_repo, &fx_rate, &get_shop_service, &seller_service);
+
+    // Without a materialized ProductRecord, upsert treats the update as a new
+    // product and writes a DOMAIN_CREATED event.
+    handler(
+        real_shopify_event(SHOPIFY_TOPIC_PRODUCTS_UPDATE),
+        &get_shop_service,
+        &product_service,
+    )
+    .await
+    .unwrap();
+
+    let events = query_events(&product_repo, shop_id).await;
+    assert!(
+        !events.is_empty(),
+        "expected at least one domain event record after products/update"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e.event_type == ProductDomainEventTypeRecord::DomainCreated),
+        "expected a DOMAIN_CREATED event record; got: {:?}",
+        events.iter().map(|e| &e.event_type).collect::<Vec<_>>()
+    );
+    assert_eq!(events[0].shop_id, shop_id);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_write_removed_state_event_when_shopify_delete_event_with_real_payload() {
+    let (shop_repo, product_repo) = get_repositories().await;
+
+    let shop_record = seed_shopify_partner_shop(&shop_repo).await;
+    let shop_id = shop_record.shop_id;
+
+    let get_shop_service = GetShopServiceImpl::new(&shop_repo);
+    let fx_rate = FixedFxRate();
+    let seller_service = MockSellerService::default();
+    let product_service =
+        CommandProductServiceImpl::new(&product_repo, &fx_rate, &get_shop_service, &seller_service);
+
+    // products/delete maps to ProductState::Removed. Without a materialized
+    // ProductRecord the delete is processed as a new product creation with
+    // state=Removed, producing a DOMAIN_CREATED event whose new_state is Removed.
+    handler(
+        real_shopify_event(SHOPIFY_TOPIC_PRODUCTS_DELETE),
+        &get_shop_service,
+        &product_service,
+    )
+    .await
+    .unwrap();
+
+    let events = query_events(&product_repo, shop_id).await;
+    assert!(
+        !events.is_empty(),
+        "expected at least one domain event record after products/delete"
+    );
+    let removed_event = events
+        .iter()
+        .find(|e| e.new_state == Some(ProductStateRecord::Removed));
+    assert!(
+        removed_event.is_some(),
+        "expected a domain event with new_state=Removed; got: {:?}",
+        events
+            .iter()
+            .map(|e| (&e.event_type, &e.new_state))
+            .collect::<Vec<_>>()
     );
 }
