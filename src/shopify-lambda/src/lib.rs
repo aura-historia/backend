@@ -92,6 +92,8 @@ pub struct ShopifyProductEvent {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ShopifyProductEventError {
+    #[error("Missing product title")]
+    MissingTitle,
     #[error("Missing product handle")]
     MissingHandle,
     #[error("Invalid product URL: {0}")]
@@ -193,14 +195,19 @@ impl TryFrom<ShopifyProductEvent> for UpsertProductCommand {
     type Error = ShopifyProductEventError;
 
     fn try_from(event: ShopifyProductEvent) -> Result<Self, Self::Error> {
-        let title = event.payload.title.clone().unwrap_or_default();
+        let title = event
+            .payload
+            .title
+            .as_deref()
+            .filter(|title| !title.trim().is_empty())
+            .ok_or(ShopifyProductEventError::MissingTitle)?;
         let description = event
             .payload
             .body_html
             .as_deref()
             .map(html_to_text)
             .filter(|description| !description.is_empty());
-        let language = infer_language(description.as_deref(), Some(title.as_str()));
+        let language = infer_language(description.as_deref(), Some(title));
         let handle = event
             .payload
             .handle
@@ -218,7 +225,7 @@ impl TryFrom<ShopifyProductEvent> for UpsertProductCommand {
         Ok(UpsertProductCommand {
             shop_id: event.shop_id,
             shops_product_id: ShopsProductId::from(event.payload.id.to_string()),
-            seller_name_raw: event.payload.vendor.clone(),
+            seller_name_raw: None,
             structured_address: None,
             geo_address: None,
             native_title: Some(Localized::new(language, Title::from(title))),
@@ -450,6 +457,14 @@ mod tests {
         let actual = UpsertProductCommand::try_from(event).unwrap();
 
         assert_eq!(actual.state, Some(ProductState::Removed));
+    }
+
+    #[test]
+    fn should_convert_html_description_to_text_when_html_is_malformed_for_html_to_text() {
+        let actual = html_to_text("<p>Hello <strong>World");
+
+        assert!(actual.contains("Hello"));
+        assert!(actual.contains("World"));
     }
 
     #[tokio::test]

@@ -111,7 +111,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "cognito-post-confirmation-prod-${CommitSHA}.zip"
-      MemorySize: 128
+      MemorySize: 256
       Timeout: 10
       # ReservedConcurrentExecutions: 20
       EphemeralStorage:
