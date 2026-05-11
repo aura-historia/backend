@@ -26,6 +26,10 @@ async fn main() -> Result<(), Error> {
         .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
 
     let dynamodb = aws_sdk_dynamodb::Client::new(&aws_config);
+    // Box::leak is used throughout this initialization block to satisfy the
+    // 'static lifetime bounds required by the `service_fn` closure. Lambda
+    // processes run for the entire lifetime of the process, so the memory is
+    // never reclaimed, but that is acceptable here.
     let shop_repository = Box::leak(Box::new(ShopDynamoDbRepositoryImpl::new(
         &dynamodb,
         &table_name,
@@ -40,7 +44,7 @@ async fn main() -> Result<(), Error> {
             let opensearch = Box::leak(Box::new(
                 common::opensearch::client::load_client()
                     .await
-                    .expect("shouldn't fail loading OpenSearch-Client"),
+                    .expect("shouldn't fail loading OpenSearch-Client (check OPENSEARCH_ENDPOINT_URL and network access)"),
             ));
             let shop_opensearch_repository =
                 Box::leak(Box::new(ShopOpenSearchRepositoryImpl::new(opensearch)));
