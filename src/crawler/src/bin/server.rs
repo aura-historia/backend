@@ -216,7 +216,7 @@ fn build_log_filter() -> EnvFilter {
 fn init_crawler_logging(
     cloudwatch_config: Option<&CloudWatchLoggingConfig>,
     cloudwatch_client: Option<CloudWatchLogsClient>,
-) {
+) -> Option<tracing_cloudwatch::CloudWatchWorkerGuard> {
     let stdout_layer = tracing_subscriber::fmt::layer()
         .json()
         .with_current_span(true)
@@ -224,15 +224,7 @@ fn init_crawler_logging(
         .with_ansi(false);
 
     if let (Some(config), Some(client)) = (cloudwatch_config, cloudwatch_client) {
-        let cloudwatch_layer = tracing_cloudwatch::layer()
-            .with_client(
-                client,
-                tracing_cloudwatch::ExportConfig::default()
-                    .with_batch_size(50usize)
-                    .with_interval(Duration::from_secs(1))
-                    .with_log_group_name(config.log_group_name.clone())
-                    .with_log_stream_name(config.log_stream_name.clone()),
-            )
+        let (cloudwatch_layer, cloudwatch_guard) = tracing_cloudwatch::layer()
             .with_fmt_layer(
                 tracing_subscriber::fmt::layer()
                     .json()
@@ -241,18 +233,28 @@ fn init_crawler_logging(
                     .with_ansi(false),
             )
             .with_code_location(false)
-            .with_target(false);
+            .with_target(false)
+            .with_client(
+                client,
+                tracing_cloudwatch::ExportConfig::default()
+                    .with_batch_size(50usize)
+                    .with_interval(Duration::from_secs(1))
+                    .with_log_group_name(config.log_group_name.clone())
+                    .with_log_stream_name(config.log_stream_name.clone()),
+            );
 
         tracing_subscriber::registry()
             .with(build_log_filter())
             .with(stdout_layer)
             .with(cloudwatch_layer)
             .init();
+        Some(cloudwatch_guard)
     } else {
         tracing_subscriber::registry()
             .with(build_log_filter())
             .with(stdout_layer)
             .init();
+        None
     }
 }
 
@@ -296,7 +298,8 @@ async fn main() {
             .expect("Failed to ensure CloudWatch log group and stream for crawler server");
     }
 
-    init_crawler_logging(cloudwatch_logging.as_ref(), cloudwatch_client.clone());
+    let _cloudwatch_guard =
+        init_crawler_logging(cloudwatch_logging.as_ref(), cloudwatch_client.clone());
 
     async move {
         info!("Starting Crawler Server");

@@ -8449,9 +8449,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-cloudwatch"
-version = "0.3.1"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec48341e3c62d48b43fd79952314c9a9e869115e0848f497016db46cb15f3ba3"
+checksum = "a0e1fec30254587f2147dd79c692643f327eae7163b361fe6aaa153786436bd9"
 dependencies = [
  "anyhow",
  "async-trait",
