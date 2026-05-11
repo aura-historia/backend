@@ -62,6 +62,7 @@ const LAMBDA_BINARIES: &[&str] = &[
     "product-pipeline-embed-text",
     "product-pipeline-translate",
     "shop-lambda-opensearch-index",
+    "shopify-lambda",
     "user-lambda-index-opensearch",
     "user-lambda-tier-update",
     "search-filter-lambda-opensearch-sync",

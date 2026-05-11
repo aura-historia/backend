@@ -30,15 +30,17 @@ async fn main() -> Result<(), Error> {
     let product_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let fx_rate = FixedFxRate();
     let mut seller_service = MockSellerService::default();
-    seller_service.expect_get_seller_shop_details().returning(|_| {
-        Box::pin(async {
-            Ok((
-                ShopId::new(),
-                SlugId::raw("shopify-seller"),
-                ShopName::from("Shopify Seller"),
-            ))
-        })
-    });
+    seller_service
+        .expect_get_seller_shop_details()
+        .returning(|_| {
+            Box::pin(async {
+                Ok((
+                    ShopId::new(),
+                    SlugId::raw("shopify-seller"),
+                    ShopName::from("Shopify Seller"),
+                ))
+            })
+        });
     let seller_service: Box<dyn SellerService + Sync> = Box::new(seller_service);
     let product_service = CommandProductServiceImpl::new(
         &product_repository,

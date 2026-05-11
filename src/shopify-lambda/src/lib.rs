@@ -225,7 +225,13 @@ impl TryFrom<ShopifyProductEvent> for UpsertProductCommand {
             native_description: description
                 .map(Description::from)
                 .map(|description| Localized::new(language, description)),
-            native_price: parse_price(event.payload.variants.first().and_then(|v| v.price.as_deref()))?,
+            native_price: parse_price(
+                event
+                    .payload
+                    .variants
+                    .first()
+                    .and_then(|v| v.price.as_deref()),
+            )?,
             native_price_estimate_min: None,
             native_price_estimate_max: None,
             state: Some(state),
@@ -333,22 +339,24 @@ fn detect_language(text: &str) -> Option<Language> {
         ])
         .build()
     });
-    detector.detect_language_of(text).and_then(|language| match language {
-        LinguaLanguage::English => Some(Language::En),
-        LinguaLanguage::German => Some(Language::De),
-        LinguaLanguage::French => Some(Language::Fr),
-        LinguaLanguage::Spanish => Some(Language::Es),
-        LinguaLanguage::Italian => Some(Language::It),
-        LinguaLanguage::Chinese => Some(Language::Zh),
-        LinguaLanguage::Portuguese => Some(Language::Pt),
-        LinguaLanguage::Polish => Some(Language::Pl),
-        LinguaLanguage::Turkish => Some(Language::Tr),
-        LinguaLanguage::Dutch => Some(Language::Nl),
-        LinguaLanguage::Czech => Some(Language::Cs),
-        LinguaLanguage::Japanese => Some(Language::Ja),
-        LinguaLanguage::Russian => Some(Language::Ru),
-        LinguaLanguage::Arabic => Some(Language::Ar),
-    })
+    detector
+        .detect_language_of(text)
+        .and_then(|language| match language {
+            LinguaLanguage::English => Some(Language::En),
+            LinguaLanguage::German => Some(Language::De),
+            LinguaLanguage::French => Some(Language::Fr),
+            LinguaLanguage::Spanish => Some(Language::Es),
+            LinguaLanguage::Italian => Some(Language::It),
+            LinguaLanguage::Chinese => Some(Language::Zh),
+            LinguaLanguage::Portuguese => Some(Language::Pt),
+            LinguaLanguage::Polish => Some(Language::Pl),
+            LinguaLanguage::Turkish => Some(Language::Tr),
+            LinguaLanguage::Dutch => Some(Language::Nl),
+            LinguaLanguage::Czech => Some(Language::Cs),
+            LinguaLanguage::Japanese => Some(Language::Ja),
+            LinguaLanguage::Russian => Some(Language::Ru),
+            LinguaLanguage::Arabic => Some(Language::Ar),
+        })
 }
 
 #[cfg(test)]
@@ -407,7 +415,10 @@ mod tests {
             shop_id: shop.shop_id,
             shop_domain: shop.shopify_domain.clone().unwrap(),
             kind: ShopifyProductEventKind::Update,
-            payload: serde_json::from_value(shopify_detail(SHOPIFY_TOPIC_PRODUCTS_UPDATE)["payload"].clone()).unwrap(),
+            payload: serde_json::from_value(
+                shopify_detail(SHOPIFY_TOPIC_PRODUCTS_UPDATE)["payload"].clone(),
+            )
+            .unwrap(),
         };
 
         let actual = UpsertProductCommand::try_from(event).unwrap();
@@ -433,7 +444,10 @@ mod tests {
             shop_id: shop.shop_id,
             shop_domain: shop.shopify_domain.clone().unwrap(),
             kind: ShopifyProductEventKind::Delete,
-            payload: serde_json::from_value(shopify_detail(SHOPIFY_TOPIC_PRODUCTS_DELETE)["payload"].clone()).unwrap(),
+            payload: serde_json::from_value(
+                shopify_detail(SHOPIFY_TOPIC_PRODUCTS_DELETE)["payload"].clone(),
+            )
+            .unwrap(),
         };
 
         let actual = UpsertProductCommand::try_from(event).unwrap();
@@ -449,12 +463,12 @@ mod tests {
             .expect_find_shop_by_shopify_domain()
             .return_once(move |_| Box::pin(async move { Ok(shop) }));
         let mut product_service = MockCommandProductService::default();
-        product_service
-            .expect_upsert()
-            .return_once(|cmds| Box::pin(async move {
+        product_service.expect_upsert().return_once(|cmds| {
+            Box::pin(async move {
                 assert_eq!(cmds.len(), 1);
                 vec![]
-            }));
+            })
+        });
 
         let actual = handler(
             lambda_event(SHOPIFY_TOPIC_PRODUCTS_UPDATE),

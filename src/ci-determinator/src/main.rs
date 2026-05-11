@@ -28,6 +28,7 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/shop",
     "src/shop-api",
     "src/shop-lambda/src/shop-lambda-opensearch-index",
+    "src/shopify-lambda",
     "src/test-api",
     "src/user",
     "src/user-api",

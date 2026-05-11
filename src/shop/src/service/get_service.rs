@@ -313,6 +313,7 @@ mod tests {
         config::http::HttpResponse,
         error::{ConnectorError, SdkError},
     };
+    use common::domain::Domain;
     use common::shop_id::ShopId;
     use common::user_id::UserId;
     use fake::{Fake, Faker};
@@ -513,6 +514,47 @@ mod tests {
         };
         let result = service.find_shops_by_partner(&user_id).await.unwrap();
         assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_return_shop_when_shopify_domain_exists_for_find_shop_by_shopify_domain() {
+        let shopify_domain = Domain::try_from("partner-shop.myshopify.com").unwrap();
+        let mut record: ShopRecord = Faker.fake();
+        record.shopify_domain = Some(shopify_domain.clone());
+        let shop_id = record.shop_id;
+
+        let mut repository = MockShopDynamoDbRepository::default();
+        repository
+            .expect_query_shop_by_shopify_domain()
+            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+        let service = GetShopServiceImpl {
+            repository: &repository,
+        };
+        let result = service
+            .find_shop_by_shopify_domain(&shopify_domain)
+            .await
+            .unwrap();
+        assert_eq!(result.shop_id, shop_id);
+    }
+
+    #[tokio::test]
+    async fn should_return_not_found_when_shopify_domain_missing_for_find_shop_by_shopify_domain() {
+        let shopify_domain = Domain::try_from("missing.myshopify.com").unwrap();
+
+        let mut repository = MockShopDynamoDbRepository::default();
+        repository
+            .expect_query_shop_by_shopify_domain()
+            .return_once(move |_| Box::pin(async move { Ok(None) }));
+
+        let service = GetShopServiceImpl {
+            repository: &repository,
+        };
+        let result = service.find_shop_by_shopify_domain(&shopify_domain).await;
+        assert!(matches!(
+            result.unwrap_err(),
+            GetShopError::ShopifyDomainNotFound(_)
+        ));
     }
 
     #[tokio::test]

@@ -19,6 +19,9 @@ Parameters:
   StripeEventBusName:
     Type: String
     Description: "Name of the AWS EventBridge Partner-Event-Bus connected to Stripe (created manually in the AWS Console — see https://docs.stripe.com/event-destinations/eventbridge)."
+  ShopifyEventBusName:
+    Type: String
+    Description: "Name of the AWS EventBridge Partner-Event-Bus connected to Shopify."
   StripeProProductId:
     Type: String
     Description: "Stripe product-id (prod_…) corresponding to the 'Pro' user-tier."
@@ -222,6 +225,10 @@ Resources:
           AttributeType: S
         - AttributeName: gsi2_sk
           AttributeType: S
+        - AttributeName: gsi3_pk
+          AttributeType: S
+        - AttributeName: gsi3_sk
+          AttributeType: S
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
@@ -285,6 +292,14 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: KEYS_ONLY
+        - IndexName: gsi3
+          KeySchema:
+            - AttributeName: gsi3_pk
+              KeyType: HASH
+            - AttributeName: gsi3_sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
       TimeToLiveSpecification:
         AttributeName: "ttl"
         Enabled: true
@@ -3779,6 +3794,97 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
+  # ---------------------------------------------------------------------------
+  # Shopify integration
+  # Shopify product webhooks are delivered through EventBridge and forwarded to
+  # the Lambda for partner-shop product synchronization.
+  # ---------------------------------------------------------------------------
+  ShopifyLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "shopify-lambda-role-prod"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+  ShopifyLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "shopify-lambda-prod"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ShopifyLambdaRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "shopify-lambda-prod-${CommitSHA}.zip"
+      MemorySize: 128
+      Timeout: 15
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ShopifyEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "shopify-product-events-prod"
+      EventBusName: !Ref ShopifyEventBusName
+      EventPattern:
+        detail:
+          metadata:
+            X-Shopify-Topic:
+              - "products/create"
+              - "products/update"
+              - "products/delete"
+      Targets:
+        - Id: ShopifyLambda
+          Arn: !GetAtt ShopifyLambda.Arn
+  AllowEventBridgeInvokeShopifyLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ShopifyLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ShopifyEventRule.Arn
+  ShopifyLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-shopify-lambda-errors"
+      AlarmDescription: "Alarm when Shopify Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ShopifyLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
+
 Outputs:
   CognitoHostedUIDomain:
     Value: !Sub "https://${PrimaryUserPoolDomain}.auth.${AWS::Region}.amazoncognito.com"
@@ -3847,3 +3953,5 @@ Outputs:
 
   StripeEventBusName:
     Value: !Ref StripeEventBusName
+  ShopifyEventBusName:
+    Value: !Ref ShopifyEventBusName

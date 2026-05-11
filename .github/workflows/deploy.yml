@@ -80,6 +80,7 @@ jobs:
           - src/product-lambda/src/product-lambda-update-notify-user
           - src/shop-api
           - src/shop-lambda/src/shop-lambda-opensearch-index
+          - src/shopify-lambda
           - src/user-api
           - src/user-lambda/src/user-lambda-index-opensearch
           - src/user-lambda/src/user-lambda-tier-update
@@ -257,6 +258,7 @@ jobs:
                 CommitSHA=${GITHUB_SHA} \
                 OpenSearchEndpointUrl=${{ vars.OPENSEARCH_ENDPOINT_URL }} \
                 StripeEventBusName=${{ vars.STRIPE_EVENT_BUS_NAME }} \
+                ShopifyEventBusName=${{ vars.SHOPIFY_EVENT_BUS_NAME }} \
                 StripeProProductId=${{ vars.STRIPE_PRO_PRODUCT_ID }} \
                 StripeUltimateProductId=${{ vars.STRIPE_ULTIMATE_PRODUCT_ID }} \
                 StripeProMonthlyPriceId=${{ vars.STRIPE_PRO_MONTHLY_PRICE_ID }} \
