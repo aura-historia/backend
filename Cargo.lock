@@ -7199,6 +7199,8 @@ dependencies = [
  "html2text",
  "lambda_runtime",
  "lingua",
+ "llm",
+ "opensearch",
  "product",
  "rstest",
  "serde",

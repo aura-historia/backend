@@ -1,129 +1,49 @@
+mod types;
+
+pub use types::{
+    ShopifyEventDetail, ShopifyEventMetadata, ShopifyImagePayload, ShopifyProductEvent,
+    ShopifyProductEventError, ShopifyProductEventKind, ShopifyProductPayload,
+    ShopifyVariantPayload, html_to_text, infer_language, parse_price, product_state,
+};
+
 use aws_lambda_events::eventbridge::EventBridgeEvent;
-use common::currency::domain::Currency;
+use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use common::domain::Domain;
-use common::language::domain::Language;
-use common::localized::Localized;
-use common::price::domain::{MonetaryAmount, Price};
-use common::product_state::domain::ProductState;
-use common::shops_product_id::ShopsProductId;
 use lambda_runtime::LambdaEvent;
-use lingua::{Language as LinguaLanguage, LanguageDetector, LanguageDetectorBuilder};
-use product::core::description::Description;
-use product::core::product_image::ProductImage;
-use product::core::prohibited_content::ProhibitedContent;
-use product::core::title::Title;
 use product::service::command_service::CommandProductService;
 use product::service::product_command::UpsertProductCommand;
-use serde::Deserialize;
 use serde_json::Value;
 use shop::core::partner_status::ShopPartnerStatus;
 use shop::service::get_service::{GetShopError, GetShopService};
-use std::sync::OnceLock;
-use tracing::{error, warn};
-use url::Url;
+use tracing::{error, info, warn};
 
 pub const SHOPIFY_TOPIC_PRODUCTS_CREATE: &str = "products/create";
 pub const SHOPIFY_TOPIC_PRODUCTS_UPDATE: &str = "products/update";
 pub const SHOPIFY_TOPIC_PRODUCTS_DELETE: &str = "products/delete";
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct ShopifyEventDetail {
-    pub payload: ShopifyProductPayload,
-    pub metadata: ShopifyEventMetadata,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct ShopifyEventMetadata {
-    #[serde(rename = "X-Shopify-Topic")]
-    pub topic: String,
-    #[serde(rename = "X-Shopify-Shop-Domain")]
-    pub shop_domain: String,
-    #[serde(rename = "X-Shopify-Event-Id", default)]
-    pub event_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ShopifyProductPayload {
-    pub id: u64,
-    #[serde(default)]
-    pub title: Option<String>,
-    #[serde(default)]
-    pub body_html: Option<String>,
-    #[serde(default)]
-    pub handle: Option<String>,
-    #[serde(default)]
-    pub vendor: Option<String>,
-    #[serde(default)]
-    pub status: Option<String>,
-    #[serde(default)]
-    pub variants: Vec<ShopifyVariantPayload>,
-    #[serde(default)]
-    pub images: Vec<ShopifyImagePayload>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ShopifyVariantPayload {
-    #[serde(default)]
-    pub price: Option<String>,
-    #[serde(default)]
-    pub inventory_quantity: Option<i64>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ShopifyImagePayload {
-    pub src: Url,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShopifyProductEventKind {
-    Create,
-    Update,
-    Delete,
-}
-
-#[derive(Debug, Clone)]
-pub struct ShopifyProductEvent {
-    pub shop_id: common::shop_id::ShopId,
-    pub shop_domain: Domain,
-    pub kind: ShopifyProductEventKind,
-    pub payload: ShopifyProductPayload,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ShopifyProductEventError {
-    #[error("Missing product title")]
-    MissingTitle,
-    #[error("Missing product handle")]
-    MissingHandle,
-    #[error("Invalid product URL: {0}")]
-    InvalidUrl(#[from] url::ParseError),
-    #[error("Invalid Shopify price '{0}'")]
-    InvalidPrice(String),
-}
-
+/// Processes a single EventBridge event containing a Shopify product webhook.
+/// Returns an error string if the product upsert fails (triggering SQS retry).
+/// Returns `Ok(())` for ignorable events (unknown shop, unsupported topic, etc.).
 #[tracing::instrument(
     skip(event, shop_service, product_service),
     fields(
-        requestId = %event.context.request_id,
         eventBridgeEventId = tracing::field::Empty,
         shopifyEventId = tracing::field::Empty,
         shopifyTopic = tracing::field::Empty,
         shopifyDomain = tracing::field::Empty,
     )
 )]
-pub async fn handler(
-    event: LambdaEvent<EventBridgeEvent<Value>>,
+pub async fn handle_event(
+    event: EventBridgeEvent<Value>,
     shop_service: &(impl GetShopService + Sync),
     product_service: &(impl CommandProductService + Sync),
-) -> Result<(), lambda_runtime::Error> {
-    let payload = event.payload;
+) -> Result<(), String> {
     let span = tracing::Span::current();
-    if let Some(event_bridge_event_id) = payload.id.as_deref() {
+    if let Some(event_bridge_event_id) = event.id.as_deref() {
         span.record("eventBridgeEventId", event_bridge_event_id);
     }
 
-    let detail = match serde_json::from_value::<ShopifyEventDetail>(payload.detail) {
+    let detail = match serde_json::from_value::<ShopifyEventDetail>(event.detail) {
         Ok(detail) => detail,
         Err(err) => {
             error!(error = %err, "Failed deserializing Shopify EventBridge detail.");
@@ -150,7 +70,7 @@ pub async fn handler(
     let shop_domain = match Domain::try_from(detail.metadata.shop_domain.as_str()) {
         Ok(domain) => domain,
         Err(err) => {
-            warn!(error = %err, "Shopify event contains invalid shop domain, ignoring.");
+            warn!(error = %err, domain = detail.metadata.shop_domain.as_str(), "Shopify event contains invalid shop domain, ignoring.");
             return Ok(());
         }
     };
@@ -161,7 +81,7 @@ pub async fn handler(
             warn!(shopifyDomain = %shop_domain, "Shopify event references unknown shop, ignoring.");
             return Ok(());
         }
-        Err(err) => return Err(Box::new(err)),
+        Err(err) => return Err(err.to_string()),
     };
 
     if shop.partner_status != ShopPartnerStatus::Partnered {
@@ -187,192 +107,87 @@ pub async fn handler(
     if failures.is_empty() {
         Ok(())
     } else {
-        Err("Failed upserting Shopify product event".into())
+        Err("Failed upserting Shopify product event".to_owned())
     }
 }
 
-impl TryFrom<ShopifyProductEvent> for UpsertProductCommand {
-    type Error = ShopifyProductEventError;
+/// SQS batch handler. Each SQS message body is an EventBridge event JSON
+/// envelope published by the Shopify event rule. Failures are reported as
+/// partial batch failures so only the failed messages are retried.
+#[tracing::instrument(skip(event, shop_service, product_service), fields(requestId = %event.context.request_id))]
+pub async fn handler(
+    event: LambdaEvent<SqsEvent>,
+    shop_service: &(impl GetShopService + Sync),
+    product_service: &(impl CommandProductService + Sync),
+) -> Result<SqsBatchResponse, lambda_runtime::Error> {
+    let count = event.payload.records.len();
+    info!(count = count, "Handler invoked.");
 
-    fn try_from(event: ShopifyProductEvent) -> Result<Self, Self::Error> {
-        let title = event
-            .payload
-            .title
-            .as_deref()
-            .filter(|title| !title.trim().is_empty())
-            .ok_or(ShopifyProductEventError::MissingTitle)?;
-        let description = event
-            .payload
-            .body_html
-            .as_deref()
-            .map(html_to_text)
-            .filter(|description| !description.is_empty());
-        let language = infer_language(description.as_deref(), Some(title));
-        let handle = event
-            .payload
-            .handle
-            .clone()
-            .filter(|handle| !handle.is_empty())
-            .ok_or(ShopifyProductEventError::MissingHandle)?;
-        let url = Url::parse(&format!("https://{}/products/{handle}", event.shop_domain))?;
-        let state = match event.kind {
-            ShopifyProductEventKind::Delete => ProductState::Removed,
-            ShopifyProductEventKind::Create | ShopifyProductEventKind::Update => {
-                product_state(&event.payload)
+    let mut failed_message_ids: Vec<String> = Vec::new();
+
+    for message in event.payload.records {
+        let message_id = match message.message_id {
+            Some(id) => id,
+            None => {
+                warn!("Received SQS message without message_id, skipping.");
+                continue;
             }
         };
 
-        Ok(UpsertProductCommand {
-            shop_id: event.shop_id,
-            shops_product_id: ShopsProductId::from(event.payload.id.to_string()),
-            seller_name_raw: None,
-            structured_address: None,
-            geo_address: None,
-            native_title: Some(Localized::new(language, Title::from(title))),
-            native_description: description
-                .map(Description::from)
-                .map(|description| Localized::new(language, description)),
-            native_price: parse_price(
-                event
-                    .payload
-                    .variants
-                    .first()
-                    .and_then(|v| v.price.as_deref()),
-            )?,
-            native_price_estimate_min: None,
-            native_price_estimate_max: None,
-            state: Some(state),
-            url: Some(url),
-            images: event
-                .payload
-                .images
-                .into_iter()
-                .map(|image| ProductImage {
-                    url: image.src,
-                    prohibited_content: ProhibitedContent::Unknown,
-                })
-                .collect(),
-            auction_start: None,
-            auction_end: None,
-        })
-    }
-}
-
-fn html_to_text(html: &str) -> String {
-    html2text::from_read(html.as_bytes(), 120)
-        .unwrap_or_else(|_| String::new())
-        .trim()
-        .to_owned()
-}
-
-fn product_state(payload: &ShopifyProductPayload) -> ProductState {
-    match payload.status.as_deref() {
-        Some("active") => {
-            if payload
-                .variants
-                .iter()
-                .any(|variant| variant.inventory_quantity.unwrap_or_default() > 0)
-            {
-                ProductState::Available
-            } else {
-                ProductState::Sold
+        let body = match message.body {
+            Some(b) => b,
+            None => {
+                info!(messageId = %message_id, "Received empty SQS body, skipping.");
+                continue;
             }
+        };
+
+        let eb_event = match serde_json::from_str::<EventBridgeEvent<Value>>(&body) {
+            Ok(e) => e,
+            Err(err) => {
+                error!(messageId = %message_id, error = %err, "Failed deserializing SQS body as EventBridgeEvent.");
+                failed_message_ids.push(message_id);
+                continue;
+            }
+        };
+
+        if let Err(err) = handle_event(eb_event, shop_service, product_service).await {
+            warn!(messageId = %message_id, error = %err, "Failed processing Shopify event.");
+            failed_message_ids.push(message_id);
         }
-        Some("draft") => ProductState::Listed,
-        Some("archived") => ProductState::Removed,
-        _ => ProductState::Unknown,
     }
-}
 
-fn parse_price(price: Option<&str>) -> Result<Option<Price>, ShopifyProductEventError> {
-    let Some(price) = price.filter(|price| !price.trim().is_empty()) else {
-        return Ok(None);
-    };
-    let trimmed = price.trim();
-    let (major, minor) = trimmed.split_once('.').unwrap_or((trimmed, ""));
-    if !major.chars().all(|c| c.is_ascii_digit()) || !minor.chars().all(|c| c.is_ascii_digit()) {
-        return Err(ShopifyProductEventError::InvalidPrice(trimmed.to_owned()));
-    }
-    let major: u64 = major
-        .parse()
-        .map_err(|_| ShopifyProductEventError::InvalidPrice(trimmed.to_owned()))?;
-    let mut minor = minor.chars().take(2).collect::<String>();
-    while minor.len() < 2 {
-        minor.push('0');
-    }
-    let minor: u64 = minor
-        .parse()
-        .map_err(|_| ShopifyProductEventError::InvalidPrice(trimmed.to_owned()))?;
-    // TODO: Retrieve the Shopify shop currency instead of assuming USD.
-    Ok(Some(Price::new(
-        MonetaryAmount::from(major * 100 + minor),
-        Currency::Usd,
-    )))
-}
+    let failures = failed_message_ids.len();
+    info!(
+        successful = count - failures,
+        failures = failures,
+        "Handler finished.",
+    );
 
-fn infer_language(description: Option<&str>, title: Option<&str>) -> Language {
-    description
-        .filter(|text| !text.trim().is_empty())
-        .and_then(detect_language)
-        .or_else(|| {
-            title
-                .filter(|text| !text.trim().is_empty())
-                .and_then(detect_language)
+    let mut response = SqsBatchResponse::default();
+    response.batch_item_failures = failed_message_ids
+        .into_iter()
+        .map(|item_identifier| {
+            let mut failure = BatchItemFailure::default();
+            failure.item_identifier = item_identifier;
+            failure
         })
-        .unwrap_or(Language::En)
-}
-
-fn detect_language(text: &str) -> Option<Language> {
-    static DETECTOR: OnceLock<LanguageDetector> = OnceLock::new();
-    let detector = DETECTOR.get_or_init(|| {
-        LanguageDetectorBuilder::from_languages(&[
-            LinguaLanguage::English,
-            LinguaLanguage::German,
-            LinguaLanguage::French,
-            LinguaLanguage::Spanish,
-            LinguaLanguage::Italian,
-            LinguaLanguage::Chinese,
-            LinguaLanguage::Portuguese,
-            LinguaLanguage::Polish,
-            LinguaLanguage::Turkish,
-            LinguaLanguage::Dutch,
-            LinguaLanguage::Czech,
-            LinguaLanguage::Japanese,
-            LinguaLanguage::Russian,
-            LinguaLanguage::Arabic,
-        ])
-        .build()
-    });
-    detector
-        .detect_language_of(text)
-        .map(|language| match language {
-            LinguaLanguage::English => Language::En,
-            LinguaLanguage::German => Language::De,
-            LinguaLanguage::French => Language::Fr,
-            LinguaLanguage::Spanish => Language::Es,
-            LinguaLanguage::Italian => Language::It,
-            LinguaLanguage::Chinese => Language::Zh,
-            LinguaLanguage::Portuguese => Language::Pt,
-            LinguaLanguage::Polish => Language::Pl,
-            LinguaLanguage::Turkish => Language::Tr,
-            LinguaLanguage::Dutch => Language::Nl,
-            LinguaLanguage::Czech => Language::Cs,
-            LinguaLanguage::Japanese => Language::Ja,
-            LinguaLanguage::Russian => Language::Ru,
-            LinguaLanguage::Arabic => Language::Ar,
-        })
+        .collect();
+    Ok(response)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use aws_lambda_events::eventbridge::EventBridgeEvent;
-    use common::price::domain::MonetaryAmount;
+    use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
+    use common::domain::Domain;
     use common::shop_id::ShopId;
     use fake::{Fake, Faker};
-    use lambda_runtime::Context;
+    use lambda_runtime::{Context, LambdaEvent};
     use product::service::command_service::MockCommandProductService;
-    use serde_json::json;
+    use serde_json::{Value, json};
+    use shop::core::partner_status::ShopPartnerStatus;
     use shop::core::shop::Shop;
     use shop::service::get_service::MockGetShopService;
 
@@ -396,12 +211,27 @@ mod tests {
         })
     }
 
-    fn lambda_event(topic: &str) -> LambdaEvent<EventBridgeEvent<Value>> {
+    fn make_eb_event(topic: &str) -> EventBridgeEvent<Value> {
         let mut event = EventBridgeEvent::<Value>::default();
         event.detail_type = "shopifyWebhook".to_string();
         event.source = "aws.partner/shopify.com/test".to_string();
         event.detail = shopify_detail(topic);
-        LambdaEvent::new(event, Context::default())
+        event
+    }
+
+    fn make_sqs_event(topic: &str) -> LambdaEvent<SqsEvent> {
+        make_sqs_event_with_id(topic, "msg-1")
+    }
+
+    fn make_sqs_event_with_id(topic: &str, message_id: &str) -> LambdaEvent<SqsEvent> {
+        let eb_event = make_eb_event(topic);
+        let body = serde_json::to_string(&eb_event).unwrap();
+        let mut msg = SqsMessage::default();
+        msg.message_id = Some(message_id.to_string());
+        msg.body = Some(body);
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = vec![msg];
+        LambdaEvent::new(sqs_event, Context::default())
     }
 
     fn partnered_shop() -> Shop {
@@ -410,61 +240,6 @@ mod tests {
         shop.shopify_domain = Some(Domain::try_from("partner-shop.myshopify.com").unwrap());
         shop.partner_status = ShopPartnerStatus::Partnered;
         shop
-    }
-
-    #[test]
-    fn should_map_update_event_to_upsert_command_for_shopify_product() {
-        let shop = partnered_shop();
-        let event = ShopifyProductEvent {
-            shop_id: shop.shop_id,
-            shop_domain: shop.shopify_domain.clone().unwrap(),
-            kind: ShopifyProductEventKind::Update,
-            payload: serde_json::from_value(
-                shopify_detail(SHOPIFY_TOPIC_PRODUCTS_UPDATE)["payload"].clone(),
-            )
-            .unwrap(),
-        };
-
-        let actual = UpsertProductCommand::try_from(event).unwrap();
-
-        assert_eq!(actual.shop_id, shop.shop_id);
-        assert_eq!(actual.shops_product_id.to_string(), "10231453024539");
-        assert_eq!(actual.state, Some(ProductState::Available));
-        assert_eq!(
-            actual.native_price.unwrap(),
-            Price::new(MonetaryAmount::from(42_000_u64), Currency::Usd)
-        );
-        assert_eq!(
-            actual.url.unwrap().as_str(),
-            "https://partner-shop.myshopify.com/products/thomas-testprodukt"
-        );
-        assert_eq!(actual.images.len(), 1);
-    }
-
-    #[test]
-    fn should_map_delete_event_to_removed_state_for_shopify_product() {
-        let shop = partnered_shop();
-        let event = ShopifyProductEvent {
-            shop_id: shop.shop_id,
-            shop_domain: shop.shopify_domain.clone().unwrap(),
-            kind: ShopifyProductEventKind::Delete,
-            payload: serde_json::from_value(
-                shopify_detail(SHOPIFY_TOPIC_PRODUCTS_DELETE)["payload"].clone(),
-            )
-            .unwrap(),
-        };
-
-        let actual = UpsertProductCommand::try_from(event).unwrap();
-
-        assert_eq!(actual.state, Some(ProductState::Removed));
-    }
-
-    #[test]
-    fn should_convert_html_description_to_text_when_html_is_malformed_for_html_to_text() {
-        let actual = html_to_text("<p>Hello <strong>World");
-
-        assert!(actual.contains("Hello"));
-        assert!(actual.contains("World"));
     }
 
     #[tokio::test]
@@ -482,14 +257,15 @@ mod tests {
             })
         });
 
-        let actual = handler(
-            lambda_event(SHOPIFY_TOPIC_PRODUCTS_UPDATE),
+        let result = handler(
+            make_sqs_event(SHOPIFY_TOPIC_PRODUCTS_UPDATE),
             &shop_service,
             &product_service,
         )
-        .await;
+        .await
+        .unwrap();
 
-        assert!(actual.is_ok());
+        assert!(result.batch_item_failures.is_empty());
     }
 
     #[tokio::test]
@@ -503,18 +279,19 @@ mod tests {
         let mut product_service = MockCommandProductService::default();
         product_service.expect_upsert().never();
 
-        let actual = handler(
-            lambda_event(SHOPIFY_TOPIC_PRODUCTS_UPDATE),
+        let result = handler(
+            make_sqs_event(SHOPIFY_TOPIC_PRODUCTS_UPDATE),
             &shop_service,
             &product_service,
         )
-        .await;
+        .await
+        .unwrap();
 
-        assert!(actual.is_ok());
+        assert!(result.batch_item_failures.is_empty());
     }
 
     #[tokio::test]
-    async fn should_return_error_when_product_upsert_fails_for_handler() {
+    async fn should_return_partial_failure_when_product_upsert_fails_for_handler() {
         let shop = partnered_shop();
         let mut shop_service = MockGetShopService::default();
         shop_service
@@ -525,13 +302,111 @@ mod tests {
             .expect_upsert()
             .return_once(|cmds| Box::pin(async move { cmds }));
 
-        let actual = handler(
-            lambda_event(SHOPIFY_TOPIC_PRODUCTS_UPDATE),
+        let result = handler(
+            make_sqs_event_with_id(SHOPIFY_TOPIC_PRODUCTS_UPDATE, "failing-msg"),
             &shop_service,
             &product_service,
         )
-        .await;
+        .await
+        .unwrap();
 
-        assert!(actual.is_err());
+        assert_eq!(1, result.batch_item_failures.len());
+        assert_eq!("failing-msg", result.batch_item_failures[0].item_identifier);
+    }
+
+    #[tokio::test]
+    async fn should_report_partial_failure_while_other_messages_succeed_for_handler() {
+        let shop1 = partnered_shop();
+        let mut shop2 = partnered_shop();
+        // Give the second shop a different domain so we can differentiate via the message
+        shop2.shopify_domain = Some(Domain::try_from("partner-shop.myshopify.com").unwrap());
+
+        let mut shop_service = MockGetShopService::default();
+        // First call succeeds, second fails upsert
+        shop_service
+            .expect_find_shop_by_shopify_domain()
+            .times(2)
+            .returning(move |_| {
+                let s = shop1.clone();
+                Box::pin(async move { Ok(s) })
+            });
+
+        let mut product_service = MockCommandProductService::default();
+        // First upsert succeeds, second fails
+        product_service
+            .expect_upsert()
+            .once()
+            .returning(|_| Box::pin(async { vec![] }));
+        product_service
+            .expect_upsert()
+            .once()
+            .returning(|cmds| Box::pin(async move { cmds }));
+
+        // Build an SQS event with two messages
+        let body1 = serde_json::to_string(&make_eb_event(SHOPIFY_TOPIC_PRODUCTS_CREATE)).unwrap();
+        let body2 = serde_json::to_string(&make_eb_event(SHOPIFY_TOPIC_PRODUCTS_UPDATE)).unwrap();
+
+        let mut msg1 = SqsMessage::default();
+        msg1.message_id = Some("success-msg".to_string());
+        msg1.body = Some(body1);
+
+        let mut msg2 = SqsMessage::default();
+        msg2.message_id = Some("fail-msg".to_string());
+        msg2.body = Some(body2);
+
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = vec![msg1, msg2];
+        let event = LambdaEvent::new(sqs_event, Context::default());
+
+        let result = handler(event, &shop_service, &product_service)
+            .await
+            .unwrap();
+
+        assert_eq!(1, result.batch_item_failures.len());
+        assert_eq!("fail-msg", result.batch_item_failures[0].item_identifier);
+    }
+
+    #[tokio::test]
+    async fn should_fail_message_when_body_is_invalid_json_for_handler() {
+        let shop_service = MockGetShopService::default();
+        let product_service = MockCommandProductService::default();
+
+        let mut msg = SqsMessage::default();
+        msg.message_id = Some("bad-json-msg".to_string());
+        msg.body = Some("not valid json {".to_string());
+
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = vec![msg];
+        let event = LambdaEvent::new(sqs_event, Context::default());
+
+        let result = handler(event, &shop_service, &product_service)
+            .await
+            .unwrap();
+
+        assert_eq!(1, result.batch_item_failures.len());
+        assert_eq!(
+            "bad-json-msg",
+            result.batch_item_failures[0].item_identifier
+        );
+    }
+
+    #[tokio::test]
+    async fn should_skip_message_when_body_is_empty_for_handler() {
+        let shop_service = MockGetShopService::default();
+        let product_service = MockCommandProductService::default();
+
+        let mut msg = SqsMessage::default();
+        msg.message_id = Some("empty-msg".to_string());
+        msg.body = None;
+
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = vec![msg];
+        let event = LambdaEvent::new(sqs_event, Context::default());
+
+        let result = handler(event, &shop_service, &product_service)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
     }
 }

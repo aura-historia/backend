@@ -6,15 +6,17 @@ edition = "2024"
 [dependencies]
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
-aws_lambda_events = { workspace = true, features = ["eventbridge"] }
-common = { workspace = true }
+aws_lambda_events = { workspace = true, features = ["eventbridge", "sqs"] }
+common = { workspace = true, features = ["api", "opensearch"] }
 html2text = { workspace = true }
 lambda_runtime = { workspace = true }
 lingua = { workspace = true }
+llm = { workspace = true, features = ["google"] }
+opensearch = { workspace = true }
 product = { workspace = true, features = ["dynamodb", "service"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-shop = { workspace = true, features = ["dynamodb", "service"] }
+shop = { workspace = true, features = ["dynamodb", "service", "seller"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 tracing = { workspace = true }

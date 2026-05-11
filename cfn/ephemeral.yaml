@@ -459,6 +459,20 @@ Resources:
         maxReceiveCount: 5
       VisibilityTimeout: 360
 
+  ShopifyLambdaDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "shopify-lambda-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  ShopifyLambdaQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "shopify-lambda-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ShopifyLambdaDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 180
+
   ShopOpenSearchIndexDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -868,6 +882,19 @@ Resources:
   # ---------------------------------------------------------------------------
   # EventBridge Rules
   # ---------------------------------------------------------------------------
+  ShopifyEventBusQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref ShopifyLambdaQ
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt ShopifyLambdaQ.Arn
   DynamoDbProductMaterializeDynamoDbEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -3127,6 +3154,8 @@ Resources:
       Name: !Sub "stripe-subscription-events-${StageName}"
       EventBusName: !Ref StripeEventBus
       EventPattern:
+        source:
+          - prefix: "aws.partner/stripe.com"
         detail:
           type:
             - "customer.subscription.created"
@@ -3180,6 +3209,17 @@ Resources:
                 Resource:
                   - !GetAtt TableOne.Arn
                   - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ShopifyLambdaQ.Arn
   ShopifyLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -3197,12 +3237,24 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+  ShopifyLambdaMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ShopifyLambda
+      EventSourceArn: !GetAtt ShopifyLambdaQ.Arn
+      Enabled: true
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
   ShopifyEventRule:
     Type: AWS::Events::Rule
     Properties:
       Name: !Sub "shopify-product-events-${StageName}"
       EventBusName: !Ref ShopifyEventBus
       EventPattern:
+        source:
+          - prefix: "aws.partner/shopify.com"
         detail:
           metadata:
             X-Shopify-Topic:
@@ -3210,15 +3262,8 @@ Resources:
               - "products/update"
               - "products/delete"
       Targets:
-        - Id: ShopifyLambda
-          Arn: !GetAtt ShopifyLambda.Arn
-  AllowEventBridgeInvokeShopifyLambda:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref ShopifyLambda
-      Principal: events.amazonaws.com
-      SourceArn: !GetAtt ShopifyEventRule.Arn
+        - Id: ShopifyLambdaQ
+          Arn: !GetAtt ShopifyLambdaQ.Arn
 
 # ---------------------------------------------------------------------------
 # Outputs
@@ -3287,3 +3332,7 @@ Outputs:
     Value: !Ref StripeEventBus
   ShopifyEventBusName:
     Value: !Ref ShopifyEventBus
+  ShopifyLambdaQueueUrl:
+    Value: !Ref ShopifyLambdaQ
+  ShopifyLambdaDeadLetterQueueUrl:
+    Value: !Ref ShopifyLambdaDlq

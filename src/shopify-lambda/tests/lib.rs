@@ -1,11 +1,15 @@
 use aws_lambda_events::eventbridge::EventBridgeEvent;
+use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
+use common::batch::Batch;
 use common::domain::Domain;
 use common::price::domain::FixedFxRate;
 use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
+use fake::{Fake, Faker};
 use lambda_runtime::{Context, LambdaEvent};
 use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use product::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
+use product::dynamodb::product_record::ProductRecord;
 use product::dynamodb::product_state_record::ProductStateRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::service::command_service::CommandProductServiceImpl;
@@ -26,9 +30,9 @@ use time::OffsetDateTime;
 const SHOPIFY_PRODUCT_ID: u64 = 10_231_453_024_539;
 const SHOPIFY_DOMAIN: &str = "aura-historia-partner-connect-dev-store.myshopify.com";
 
-/// Builds a real-world Shopify EventBridge payload for the given topic.
-fn real_shopify_event(topic: &str) -> LambdaEvent<EventBridgeEvent<Value>> {
-    let detail = json!({
+/// Builds a real-world Shopify EventBridge detail for the given topic.
+fn real_shopify_eb_detail(topic: &str) -> Value {
+    json!({
         "payload": {
             "admin_graphql_api_id": "gid://shopify/Product/10231453024539",
             "body_html": "<p>Hallo Test Beschreibung!</p>",
@@ -95,14 +99,39 @@ fn real_shopify_event(topic: &str) -> LambdaEvent<EventBridgeEvent<Value>> {
             "X-Shopify-Event-Id": "a2533945-511e-45bb-a0fa-1dba0ad9ecb1",
             "X-Shopify-Triggered-At": "2026-05-11T15:06:59.110521905Z"
         }
-    });
+    })
+}
 
-    let mut event = EventBridgeEvent::<Value>::default();
-    event.id = Some("33305a23-4886-4909-8a6a-42ef59c41fe2".to_owned());
-    event.detail_type = "shopifyWebhook".to_owned();
-    event.source = "aws.partner/shopify.com/359227195393/aura-historia-backend-dev".to_owned();
-    event.detail = detail;
-    LambdaEvent::new(event, Context::default())
+/// Builds a Shopify EventBridge detail with inventory > 0 (state=Available).
+fn real_shopify_eb_detail_available(topic: &str) -> Value {
+    let mut detail = real_shopify_eb_detail(topic);
+    detail["payload"]["variants"][0]["inventory_quantity"] = json!(5);
+    detail
+}
+
+/// Wraps an EventBridge detail into an SQS LambdaEvent with a single message.
+fn real_shopify_sqs_event(topic: &str) -> LambdaEvent<SqsEvent> {
+    real_shopify_sqs_event_from_detail(real_shopify_eb_detail(topic))
+}
+
+fn real_shopify_sqs_event_available(topic: &str) -> LambdaEvent<SqsEvent> {
+    real_shopify_sqs_event_from_detail(real_shopify_eb_detail_available(topic))
+}
+
+fn real_shopify_sqs_event_from_detail(detail: Value) -> LambdaEvent<SqsEvent> {
+    let mut eb_event = EventBridgeEvent::<Value>::default();
+    eb_event.id = Some("33305a23-4886-4909-8a6a-42ef59c41fe2".to_owned());
+    eb_event.detail_type = "shopifyWebhook".to_owned();
+    eb_event.source = "aws.partner/shopify.com/359227195393/aura-historia-backend-dev".to_owned();
+    eb_event.detail = detail;
+
+    let body = serde_json::to_string(&eb_event).unwrap();
+    let mut msg = SqsMessage::default();
+    msg.message_id = Some("test-msg-id".to_owned());
+    msg.body = Some(body);
+    let mut sqs_event = SqsEvent::default();
+    sqs_event.records = vec![msg];
+    LambdaEvent::new(sqs_event, Context::default())
 }
 
 /// Seeds a Shopify partner shop record in DynamoDB and returns the shop record.
@@ -151,6 +180,27 @@ async fn seed_shopify_partner_shop(repository: &ShopDynamoDbRepositoryImpl<'_>) 
     record
 }
 
+/// Seeds a materialized ProductRecord for the Shopify product so that subsequent
+/// `upsert()` calls treat it as an update rather than a create.
+async fn seed_product_record(
+    product_repo: &ProductDynamoDbRepositoryImpl<'_>,
+    shop_id: common::shop_id::ShopId,
+    state: ProductStateRecord,
+) -> ProductRecord {
+    let shops_product_id = ShopsProductId::from(SHOPIFY_PRODUCT_ID.to_string());
+    let mut record: ProductRecord = Faker.fake();
+    record.shop_id = shop_id;
+    record.shops_product_id = shops_product_id.clone();
+    record.pk = product::dynamodb::product_record::mk_pk(&shop_id, &shops_product_id);
+    record.sk = product::dynamodb::product_record::mk_sk().to_owned();
+    record.state = state;
+    product_repo
+        .put_product_records(Batch::from([record.clone()]))
+        .await
+        .unwrap();
+    record
+}
+
 async fn get_repositories() -> (
     ShopDynamoDbRepositoryImpl<'static>,
     ProductDynamoDbRepositoryImpl<'static>,
@@ -195,13 +245,18 @@ async fn should_write_domain_created_event_when_shopify_create_event_with_real_p
     let product_service =
         CommandProductServiceImpl::new(&product_repo, &fx_rate, &get_shop_service, &seller_service);
 
-    handler(
-        real_shopify_event(SHOPIFY_TOPIC_PRODUCTS_CREATE),
+    let result = handler(
+        real_shopify_sqs_event(SHOPIFY_TOPIC_PRODUCTS_CREATE),
         &get_shop_service,
         &product_service,
     )
     .await
     .unwrap();
+
+    assert!(
+        result.batch_item_failures.is_empty(),
+        "expected no batch failures"
+    );
 
     let events = query_events(&product_repo, shop_id).await;
     assert!(
@@ -223,7 +278,7 @@ async fn should_write_domain_created_event_when_shopify_create_event_with_real_p
 }
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_write_domain_created_event_when_shopify_update_event_with_real_payload() {
+async fn should_write_domain_created_event_when_shopify_update_event_without_existing_product() {
     let (shop_repo, product_repo) = get_repositories().await;
 
     let shop_record = seed_shopify_partner_shop(&shop_repo).await;
@@ -237,13 +292,18 @@ async fn should_write_domain_created_event_when_shopify_update_event_with_real_p
 
     // Without a materialized ProductRecord, upsert treats the update as a new
     // product and writes a DOMAIN_CREATED event.
-    handler(
-        real_shopify_event(SHOPIFY_TOPIC_PRODUCTS_UPDATE),
+    let result = handler(
+        real_shopify_sqs_event(SHOPIFY_TOPIC_PRODUCTS_UPDATE),
         &get_shop_service,
         &product_service,
     )
     .await
     .unwrap();
+
+    assert!(
+        result.batch_item_failures.is_empty(),
+        "expected no batch failures"
+    );
 
     let events = query_events(&product_repo, shop_id).await;
     assert!(
@@ -258,6 +318,61 @@ async fn should_write_domain_created_event_when_shopify_update_event_with_real_p
         events.iter().map(|e| &e.event_type).collect::<Vec<_>>()
     );
     assert_eq!(events[0].shop_id, shop_id);
+}
+
+/// This test seeds a materialized ProductRecord (state=Sold) and then fires a
+/// products/update event with inventory_quantity > 0 (state=Available). Because
+/// the product already exists, the service generates a DOMAIN_STATE_CHANGED event
+/// rather than a DOMAIN_CREATED one.
+#[localstack_test(services = [DynamoDB()])]
+async fn should_write_state_changed_event_when_shopify_update_event_with_existing_product() {
+    let (shop_repo, product_repo) = get_repositories().await;
+
+    let shop_record = seed_shopify_partner_shop(&shop_repo).await;
+    let shop_id = shop_record.shop_id;
+
+    // Seed a materialized record with state=Sold so that a subsequent update
+    // from Available triggers a DOMAIN_STATE_CHANGED event.
+    seed_product_record(&product_repo, shop_id, ProductStateRecord::Sold).await;
+
+    let get_shop_service = GetShopServiceImpl::new(&shop_repo);
+    let fx_rate = FixedFxRate();
+    let seller_service = MockSellerService::default();
+    let product_service =
+        CommandProductServiceImpl::new(&product_repo, &fx_rate, &get_shop_service, &seller_service);
+
+    // inventory_quantity = 5 → state=Available, which differs from Sold.
+    let result = handler(
+        real_shopify_sqs_event_available(SHOPIFY_TOPIC_PRODUCTS_UPDATE),
+        &get_shop_service,
+        &product_service,
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        result.batch_item_failures.is_empty(),
+        "expected no batch failures"
+    );
+
+    let events = query_events(&product_repo, shop_id).await;
+    assert!(
+        !events.is_empty(),
+        "expected at least one domain event record after update"
+    );
+    let state_changed = events
+        .iter()
+        .find(|e| e.event_type == ProductDomainEventTypeRecord::DomainStateChanged);
+    assert!(
+        state_changed.is_some(),
+        "expected a DOMAIN_STATE_CHANGED event; got: {:?}",
+        events.iter().map(|e| &e.event_type).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        state_changed.unwrap().new_state,
+        Some(ProductStateRecord::Available),
+        "expected new_state=Available"
+    );
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -276,13 +391,18 @@ async fn should_write_removed_state_event_when_shopify_delete_event_with_real_pa
     // products/delete maps to ProductState::Removed. Without a materialized
     // ProductRecord the delete is processed as a new product creation with
     // state=Removed, producing a DOMAIN_CREATED event whose new_state is Removed.
-    handler(
-        real_shopify_event(SHOPIFY_TOPIC_PRODUCTS_DELETE),
+    let result = handler(
+        real_shopify_sqs_event(SHOPIFY_TOPIC_PRODUCTS_DELETE),
         &get_shop_service,
         &product_service,
     )
     .await
     .unwrap();
+
+    assert!(
+        result.batch_item_failures.is_empty(),
+        "expected no batch failures"
+    );
 
     let events = query_events(&product_repo, shop_id).await;
     assert!(
@@ -299,5 +419,60 @@ async fn should_write_removed_state_event_when_shopify_delete_event_with_real_pa
             .iter()
             .map(|e| (&e.event_type, &e.new_state))
             .collect::<Vec<_>>()
+    );
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_report_partial_failure_when_one_message_cannot_be_processed() {
+    let (shop_repo, product_repo) = get_repositories().await;
+
+    let shop_record = seed_shopify_partner_shop(&shop_repo).await;
+    let shop_id = shop_record.shop_id;
+
+    let get_shop_service = GetShopServiceImpl::new(&shop_repo);
+    let fx_rate = FixedFxRate();
+    let seller_service = MockSellerService::default();
+    let product_service =
+        CommandProductServiceImpl::new(&product_repo, &fx_rate, &get_shop_service, &seller_service);
+
+    // Build a two-message SQS event: one valid, one with invalid JSON body.
+    let valid_eb_event = {
+        let mut eb = EventBridgeEvent::<Value>::default();
+        eb.id = Some("valid-id".to_owned());
+        eb.detail_type = "shopifyWebhook".to_owned();
+        eb.source = "aws.partner/shopify.com/test".to_owned();
+        eb.detail = real_shopify_eb_detail(SHOPIFY_TOPIC_PRODUCTS_CREATE);
+        eb
+    };
+
+    let mut valid_msg = SqsMessage::default();
+    valid_msg.message_id = Some("valid-msg".to_owned());
+    valid_msg.body = Some(serde_json::to_string(&valid_eb_event).unwrap());
+
+    let mut invalid_msg = SqsMessage::default();
+    invalid_msg.message_id = Some("invalid-msg".to_owned());
+    invalid_msg.body = Some("not valid json {{{".to_owned());
+
+    let mut sqs_event = SqsEvent::default();
+    sqs_event.records = vec![valid_msg, invalid_msg];
+    let event = LambdaEvent::new(sqs_event, Context::default());
+
+    let result = handler(event, &get_shop_service, &product_service)
+        .await
+        .unwrap();
+
+    // Only the invalid message should be reported as a failure.
+    assert_eq!(
+        1,
+        result.batch_item_failures.len(),
+        "expected exactly one partial failure"
+    );
+    assert_eq!("invalid-msg", result.batch_item_failures[0].item_identifier);
+
+    // The valid message should have produced a domain event.
+    let events = query_events(&product_repo, shop_id).await;
+    assert!(
+        !events.is_empty(),
+        "expected domain events from valid message"
     );
 }
