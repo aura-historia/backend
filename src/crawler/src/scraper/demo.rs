@@ -45,9 +45,7 @@ use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
-use crawler::google_llm::{
-    google_llm_builder, google_service_tier_from_env, google_service_tier_label,
-};
+use crawler::google_llm::{gemini_flex_enabled, google_llm_builder};
 use crawler::local_db::{DEMO_SCRAPER_DB_NAME, bootstrap_local_database, demo_scraper_db_url};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
@@ -279,18 +277,18 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     unsafe {
         std::env::set_var("GEMINI_MODEL", &model);
     }
-    let gemini_service_tier = google_service_tier_from_env();
-    let gemini_service_tier_label = google_service_tier_label(gemini_service_tier.as_ref());
+    let gemini_flex = gemini_flex_enabled();
+    let gemini_service_tier = if gemini_flex { "flex" } else { "default" };
 
     info!(
         gemini_model = %model,
-        gemini_service_tier = gemini_service_tier_label,
+        gemini_service_tier,
         "Crawler scraper demo Gemini configuration resolved"
     );
 
-    let schema_llm_builder = google_llm_builder(&api_key, &model, gemini_service_tier.clone());
+    let schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
-    let state_llm_builder = google_llm_builder(&api_key, &model, gemini_service_tier.clone());
+    let state_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
     // State-mapping service (DB-backed + LLM fallback).
     let state_mapping_repo = Box::new(ProductStateMappingRepositoryImpl::new(pool));
