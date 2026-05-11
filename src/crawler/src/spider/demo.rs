@@ -15,12 +15,14 @@
 //! | `LOCAL_DB_URL`   | Hardcoded local DB URL | `.../crawler_demo_spider`      |
 //! | `GEMINI_API_KEY` | API key for Gemini      | *(required)*                    |
 //! | `GEMINI_MODEL`   | Model name to use       | `gemini-3.1-flash-lite-preview` |
+//! | `GEMINI_FLEX`    | Enable Gemini Flex inference | unset / `false`             |
 //! | `LOG_LEVEL`      | Log level for this demo | `info`                          |
 //!
 //! # Running
 //!
 //! ```powershell
 //! $env:GEMINI_API_KEY="..."
+//! $env:GEMINI_FLEX="true" # optional
 //! cargo run --bin demo-spider -p crawler -- https://www.christies.com/en
 //! ```
 
@@ -30,6 +32,9 @@ use std::io::BufWriter;
 use std::sync::Arc;
 
 use common::shop_id::ShopId;
+use crawler::google_llm::{
+    google_llm_builder, google_service_tier_from_env, google_service_tier_label,
+};
 use crawler::local_db::{DEMO_SPIDER_DB_NAME, bootstrap_local_database, demo_spider_db_url};
 use crawler::spider::SpiderRunResult;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
@@ -106,10 +111,14 @@ async fn main() {
         unsafe {
             env::set_var("GEMINI_MODEL", &model);
         }
-        let llm_builder = llm::builder::LLMBuilder::new()
-            .backend(llm::builder::LLMBackend::Google)
-            .api_key(&api_key)
-            .model(&model);
+        let gemini_service_tier = google_service_tier_from_env();
+        let gemini_service_tier_label = google_service_tier_label(gemini_service_tier.as_ref());
+        info!(
+            gemini_model = %model,
+            gemini_service_tier = gemini_service_tier_label,
+            "Crawler spider demo Gemini configuration resolved"
+        );
+        let llm_builder = google_llm_builder(&api_key, &model, gemini_service_tier.clone());
         let classification_service = Box::new(
             UrlClassificationServiceImpl::new(llm_builder)
                 .expect("Failed to initialize UrlClassificationService"),

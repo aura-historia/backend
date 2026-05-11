@@ -4010,8 +4010,7 @@ checksum = "241eaef5fd12c88705a01fc1066c48c4b36e0dd4377dcdc7ec3942cea7a69956"
 [[package]]
 name = "llm"
 version = "1.3.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9bceab1ad0261ca65a160f53421dc92e102669bd182c9db07ef58d5c8c57047c"
+source = "git+https://github.com/graniet/llm?rev=85d5ac4771ff00dad1ccb9845b4b0c2f0dadb074#85d5ac4771ff00dad1ccb9845b4b0c2f0dadb074"
 dependencies = [
  "async-trait",
  "base64 0.22.1",

@@ -7,6 +7,7 @@
 //!
 //! ```powershell
 //! $env:GEMINI_API_KEY="..."
+//! $env:GEMINI_FLEX="true" # optional
 //! cargo run -p crawler --bin demo
 //! ```
 //!
@@ -16,6 +17,7 @@
 //! |------------------|--------------------------------------|--------------------------------------------------|
 //! | `GEMINI_API_KEY` | API key for the Gemini backend       | *(required)*                                     |
 //! | `GEMINI_MODEL`   | Model to use for LLM calls           | `gemini-3.1-pro-preview`                  |
+//! | `GEMINI_FLEX`    | Enable Gemini Flex inference         | unset / `false`                                  |
 //! | `LOCAL_DB_URL`   | Hardcoded local DB URL                | `postgres://postgres:postgres@localhost:5432/crawler_demo` |
 //! | `LOG_LEVEL`      | Log level                            | `info`                                           |
 //!
@@ -29,6 +31,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use common::domain::Domain;
 use common::shop_id::ShopId;
+use crawler::google_llm::{
+    google_llm_builder, google_service_tier_from_env, google_service_tier_label,
+};
 use crawler::local_db::{DEMO_DB_NAME, bootstrap_local_database, demo_db_url};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
@@ -53,7 +58,6 @@ use crawler::spider::classification::url_pattern_repository::ShopUrlPatternRepos
 use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
-use llm::builder::{LLMBackend, LLMBuilder};
 use shop::core::shop_type::ShopType;
 use tracing::{Instrument, error, info};
 
@@ -123,6 +127,8 @@ async fn main() {
         unsafe {
             std::env::set_var("GEMINI_MODEL", &model);
         }
+        let gemini_service_tier = google_service_tier_from_env();
+        let gemini_service_tier_label = google_service_tier_label(gemini_service_tier.as_ref());
 
         let config = CrawlerCronConfig {
             spider_interval: Duration::from_secs(120),
@@ -157,12 +163,13 @@ async fn main() {
         }
         info!("Database migrations applied successfully");
 
-        info!("Wiring crawler dependencies...");
+        info!(
+            gemini_model = %model,
+            gemini_service_tier = gemini_service_tier_label,
+            "Wiring crawler dependencies..."
+        );
 
-        let state_llm_builder = LLMBuilder::new()
-            .backend(LLMBackend::Google)
-            .api_key(&api_key)
-            .model(&model);
+        let state_llm_builder = google_llm_builder(&api_key, &model, gemini_service_tier.clone());
 
         let state_mapping_repo = Box::new(ProductStateMappingRepositoryImpl::new(Box::leak(
             Box::new(pool.clone()),
@@ -172,10 +179,7 @@ async fn main() {
                 .expect("failed to build ProductStateMappingServiceImpl");
         let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
-        let schema_llm_builder = LLMBuilder::new()
-            .backend(LLMBackend::Google)
-            .api_key(&api_key)
-            .model(&model);
+        let schema_llm_builder = google_llm_builder(&api_key, &model, gemini_service_tier.clone());
 
         let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
             pool.clone(),
@@ -209,10 +213,7 @@ async fn main() {
         let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
         let url_pattern_repo = Box::new(ShopUrlPatternRepositoryImpl::new(pool.clone()));
 
-        let class_llm_builder = LLMBuilder::new()
-            .backend(LLMBackend::Google)
-            .api_key(&api_key)
-            .model(&model);
+        let class_llm_builder = google_llm_builder(&api_key, &model, gemini_service_tier.clone());
         let class_svc = Box::new(UrlClassificationServiceImpl::new(class_llm_builder).unwrap());
         let pattern_svc = Box::new(UrlPatternServiceImpl::new(
             Arc::new(*url_pattern_repo),
@@ -250,6 +251,8 @@ async fn main() {
 
         info!(
             shop_count = demo_shops().len(),
+            gemini_model = %model,
+            gemini_service_tier = gemini_service_tier_label,
             "Crawler demo is fully initialized. Starting background tasks. Press Ctrl+C to stop."
         );
         cron_job.run_loop().await;

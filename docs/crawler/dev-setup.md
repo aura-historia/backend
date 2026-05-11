@@ -51,6 +51,7 @@ Run `demo` once — it handles everything:
 
 ```powershell
 $env:GEMINI_API_KEY = "your-key-here"
+$env:GEMINI_FLEX = "true"   # optional
 cargo run -p crawler --bin demo
 ```
 
@@ -68,6 +69,7 @@ Then run the individual binaries:
 ```powershell
 $env:DATABASE_URL = "postgres://postgres:postgres@localhost:5432/postgres"
 $env:GEMINI_API_KEY = "your-key-here"
+$env:GEMINI_FLEX = "true"   # optional
 cargo run -p crawler --bin demo-scraper
 cargo run -p crawler --bin demo-spider
 ```
@@ -87,6 +89,7 @@ Just set the API key and run:
 
 ```powershell
 $env:GEMINI_API_KEY = "your-key-here"
+$env:GEMINI_FLEX = "true"   # optional
 cargo run -p crawler --bin demo
 ```
 
@@ -96,6 +99,7 @@ cargo run -p crawler --bin demo
 |----------|---------|----------|
 | `GEMINI_API_KEY` | — | **Yes** |
 | `GEMINI_MODEL` | `gemini-3.1-pro-preview` | No |
+| `GEMINI_FLEX` | unset / `false` | No |
 | `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/postgres` | No |
 | `LOG_LEVEL` | `info` | No |
 
