@@ -3154,8 +3154,6 @@ Resources:
       Name: !Sub "stripe-subscription-events-${StageName}"
       EventBusName: !Ref StripeEventBus
       EventPattern:
-        source:
-          - prefix: "aws.partner/stripe.com"
         detail:
           type:
             - "customer.subscription.created"
@@ -3237,6 +3235,9 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          GEMINI_API_KEY: "test-key"
+          GOOGLE_GEOCODING_API_KEY: "test-key"
   ShopifyLambdaMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -3253,8 +3254,6 @@ Resources:
       Name: !Sub "shopify-product-events-${StageName}"
       EventBusName: !Ref ShopifyEventBus
       EventPattern:
-        source:
-          - prefix: "aws.partner/shopify.com"
         detail:
           metadata:
             X-Shopify-Topic:

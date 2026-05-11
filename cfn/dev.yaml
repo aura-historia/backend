@@ -3176,14 +3176,19 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
+          GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/dev/gemini-api-key}}"
+          GOOGLE_GEOCODING_API_KEY: !Sub "{{resolve:ssm:/secrets/dev/google-geocoding-api-key}}"
   ShopifyLambdaMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
       FunctionName: !Ref ShopifyLambda
       EventSourceArn: !GetAtt ShopifyLambdaQ.Arn
       Enabled: true
-      BatchSize: 10
-      MaximumBatchingWindowInSeconds: 1
+      BatchSize: 100
+      MaximumBatchingWindowInSeconds: 10
       FunctionResponseTypes:
         - ReportBatchItemFailures
   ShopifyEventRule:

@@ -9,23 +9,29 @@ pub use types::{
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use common::domain::Domain;
+use common::has_key::HasKey;
+use common::product_id::ProductKey;
 use lambda_runtime::LambdaEvent;
 use product::service::command_service::CommandProductService;
 use product::service::product_command::UpsertProductCommand;
 use serde_json::Value;
 use shop::core::partner_status::ShopPartnerStatus;
 use shop::service::get_service::{GetShopError, GetShopService};
+use std::collections::HashMap;
 use tracing::{error, info, warn};
 
 pub const SHOPIFY_TOPIC_PRODUCTS_CREATE: &str = "products/create";
 pub const SHOPIFY_TOPIC_PRODUCTS_UPDATE: &str = "products/update";
 pub const SHOPIFY_TOPIC_PRODUCTS_DELETE: &str = "products/delete";
 
-/// Processes a single EventBridge event containing a Shopify product webhook.
-/// Returns an error string if the product upsert fails (triggering SQS retry).
-/// Returns `Ok(())` for ignorable events (unknown shop, unsupported topic, etc.).
+/// Resolves a single EventBridge event to an `UpsertProductCommand`.
+///
+/// Returns:
+/// - `Ok(Some(cmd))` — valid command ready for batch upsert.
+/// - `Ok(None)` — ignorable event (unknown shop, unsupported topic, etc.).
+/// - `Err(msg)` — transient error; the corresponding SQS message should be retried.
 #[tracing::instrument(
-    skip(event, shop_service, product_service),
+    skip(event, shop_service),
     fields(
         eventBridgeEventId = tracing::field::Empty,
         shopifyEventId = tracing::field::Empty,
@@ -33,11 +39,10 @@ pub const SHOPIFY_TOPIC_PRODUCTS_DELETE: &str = "products/delete";
         shopifyDomain = tracing::field::Empty,
     )
 )]
-pub async fn handle_event(
+async fn resolve_command(
     event: EventBridgeEvent<Value>,
     shop_service: &(impl GetShopService + Sync),
-    product_service: &(impl CommandProductService + Sync),
-) -> Result<(), String> {
+) -> Result<Option<UpsertProductCommand>, String> {
     let span = tracing::Span::current();
     if let Some(event_bridge_event_id) = event.id.as_deref() {
         span.record("eventBridgeEventId", event_bridge_event_id);
@@ -47,7 +52,7 @@ pub async fn handle_event(
         Ok(detail) => detail,
         Err(err) => {
             error!(error = %err, "Failed deserializing Shopify EventBridge detail.");
-            return Ok(());
+            return Ok(None);
         }
     };
 
@@ -63,7 +68,7 @@ pub async fn handle_event(
         SHOPIFY_TOPIC_PRODUCTS_DELETE => ShopifyProductEventKind::Delete,
         other => {
             warn!(shopifyTopic = %other, "Received unsupported Shopify topic, ignoring.");
-            return Ok(());
+            return Ok(None);
         }
     };
 
@@ -71,7 +76,7 @@ pub async fn handle_event(
         Ok(domain) => domain,
         Err(err) => {
             warn!(error = %err, domain = detail.metadata.shop_domain.as_str(), "Shopify event contains invalid shop domain, ignoring.");
-            return Ok(());
+            return Ok(None);
         }
     };
 
@@ -79,41 +84,40 @@ pub async fn handle_event(
         Ok(shop) => shop,
         Err(GetShopError::ShopifyDomainNotFound(_)) => {
             warn!(shopifyDomain = %shop_domain, "Shopify event references unknown shop, ignoring.");
-            return Ok(());
+            return Ok(None);
         }
         Err(err) => return Err(err.to_string()),
     };
 
     if shop.partner_status != ShopPartnerStatus::Partnered {
         warn!(shopId = %shop.shop_id, shopifyDomain = %shop_domain, "Shopify event references non-partner shop, ignoring.");
-        return Ok(());
+        return Ok(None);
     }
 
-    let event = ShopifyProductEvent {
+    let shopify_event = ShopifyProductEvent {
         shop_id: shop.shop_id,
         shop_domain,
         kind,
         payload: detail.payload,
     };
-    let command = match UpsertProductCommand::try_from(event) {
+    let command = match UpsertProductCommand::try_from(shopify_event) {
         Ok(command) => command,
         Err(err) => {
             error!(error = %err, "Failed mapping Shopify product event.");
-            return Ok(());
+            return Ok(None);
         }
     };
 
-    let failures = product_service.upsert(vec![command]).await;
-    if failures.is_empty() {
-        Ok(())
-    } else {
-        Err("Failed upserting Shopify product event".to_owned())
-    }
+    Ok(Some(command))
 }
 
 /// SQS batch handler. Each SQS message body is an EventBridge event JSON
-/// envelope published by the Shopify event rule. Failures are reported as
-/// partial batch failures so only the failed messages are retried.
+/// envelope published by the Shopify event rule.
+///
+/// All valid commands from the batch are collected and passed to
+/// `product_service.upsert()` in a single call. Returned failures are mapped
+/// back to their originating message IDs and reported as partial batch failures
+/// so only the failed messages are retried.
 #[tracing::instrument(skip(event, shop_service, product_service), fields(requestId = %event.context.request_id))]
 pub async fn handler(
     event: LambdaEvent<SqsEvent>,
@@ -124,6 +128,10 @@ pub async fn handler(
     info!(count = count, "Handler invoked.");
 
     let mut failed_message_ids: Vec<String> = Vec::new();
+    // Tracks which message ID produced each command so failed commands can be
+    // mapped back to their SQS message after the batch upsert.
+    let mut message_id_by_key: HashMap<ProductKey, String> = HashMap::new();
+    let mut commands: Vec<UpsertProductCommand> = Vec::new();
 
     for message in event.payload.records {
         let message_id = match message.message_id {
@@ -151,9 +159,25 @@ pub async fn handler(
             }
         };
 
-        if let Err(err) = handle_event(eb_event, shop_service, product_service).await {
-            warn!(messageId = %message_id, error = %err, "Failed processing Shopify event.");
-            failed_message_ids.push(message_id);
+        match resolve_command(eb_event, shop_service).await {
+            Ok(Some(cmd)) => {
+                message_id_by_key.insert(cmd.key(), message_id);
+                commands.push(cmd);
+            }
+            Ok(None) => {}
+            Err(err) => {
+                warn!(messageId = %message_id, error = %err, "Failed processing Shopify event.");
+                failed_message_ids.push(message_id);
+            }
+        }
+    }
+
+    if !commands.is_empty() {
+        let failed_commands = product_service.upsert(commands).await;
+        for failed_cmd in failed_commands {
+            if let Some(msg_id) = message_id_by_key.remove(&failed_cmd.key()) {
+                failed_message_ids.push(msg_id);
+            }
         }
     }
 
@@ -191,10 +215,10 @@ mod tests {
     use shop::core::shop::Shop;
     use shop::service::get_service::MockGetShopService;
 
-    fn shopify_detail(topic: &str) -> Value {
+    fn shopify_detail_with_product_id(topic: &str, product_id: u64) -> Value {
         json!({
             "payload": {
-                "id": 10231453024539_u64,
+                "id": product_id,
                 "body_html": "<p>Hallo Test Beschreibung!</p>",
                 "handle": "thomas-testprodukt",
                 "title": "Thomas Testprodukt",
@@ -211,11 +235,11 @@ mod tests {
         })
     }
 
-    fn make_eb_event(topic: &str) -> EventBridgeEvent<Value> {
+    fn make_eb_event_with_product_id(topic: &str, product_id: u64) -> EventBridgeEvent<Value> {
         let mut event = EventBridgeEvent::<Value>::default();
         event.detail_type = "shopifyWebhook".to_string();
         event.source = "aws.partner/shopify.com/test".to_string();
-        event.detail = shopify_detail(topic);
+        event.detail = shopify_detail_with_product_id(topic, product_id);
         event
     }
 
@@ -224,7 +248,15 @@ mod tests {
     }
 
     fn make_sqs_event_with_id(topic: &str, message_id: &str) -> LambdaEvent<SqsEvent> {
-        let eb_event = make_eb_event(topic);
+        make_sqs_event_with_id_and_product(topic, message_id, 10_231_453_024_539_u64)
+    }
+
+    fn make_sqs_event_with_id_and_product(
+        topic: &str,
+        message_id: &str,
+        product_id: u64,
+    ) -> LambdaEvent<SqsEvent> {
+        let eb_event = make_eb_event_with_product_id(topic, product_id);
         let body = serde_json::to_string(&eb_event).unwrap();
         let mut msg = SqsMessage::default();
         msg.message_id = Some(message_id.to_string());
@@ -316,35 +348,37 @@ mod tests {
 
     #[tokio::test]
     async fn should_report_partial_failure_while_other_messages_succeed_for_handler() {
-        let shop1 = partnered_shop();
-        let mut shop2 = partnered_shop();
-        // Give the second shop a different domain so we can differentiate via the message
-        shop2.shopify_domain = Some(Domain::try_from("partner-shop.myshopify.com").unwrap());
-
+        let shop = partnered_shop();
         let mut shop_service = MockGetShopService::default();
-        // First call succeeds, second fails upsert
+        // Both messages use the same shop domain — two shop lookups expected.
         shop_service
             .expect_find_shop_by_shopify_domain()
             .times(2)
             .returning(move |_| {
-                let s = shop1.clone();
+                let s = shop.clone();
                 Box::pin(async move { Ok(s) })
             });
 
         let mut product_service = MockCommandProductService::default();
-        // First upsert succeeds, second fails
-        product_service
-            .expect_upsert()
-            .once()
-            .returning(|_| Box::pin(async { vec![] }));
-        product_service
-            .expect_upsert()
-            .once()
-            .returning(|cmds| Box::pin(async move { cmds }));
+        // Single batched upsert call; only the second command (product 222) fails.
+        product_service.expect_upsert().once().returning(|cmds| {
+            Box::pin(async move {
+                // Return only the second command as a failure.
+                cmds.into_iter().skip(1).take(1).collect()
+            })
+        });
 
-        // Build an SQS event with two messages
-        let body1 = serde_json::to_string(&make_eb_event(SHOPIFY_TOPIC_PRODUCTS_CREATE)).unwrap();
-        let body2 = serde_json::to_string(&make_eb_event(SHOPIFY_TOPIC_PRODUCTS_UPDATE)).unwrap();
+        // Two messages with DIFFERENT product IDs so they produce distinct ProductKeys.
+        let body1 = serde_json::to_string(&make_eb_event_with_product_id(
+            SHOPIFY_TOPIC_PRODUCTS_CREATE,
+            111,
+        ))
+        .unwrap();
+        let body2 = serde_json::to_string(&make_eb_event_with_product_id(
+            SHOPIFY_TOPIC_PRODUCTS_UPDATE,
+            222,
+        ))
+        .unwrap();
 
         let mut msg1 = SqsMessage::default();
         msg1.message_id = Some("success-msg".to_string());
