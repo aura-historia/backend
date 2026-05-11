@@ -234,6 +234,7 @@ dependencies = [
  "shop",
  "shop-api",
  "shop-lambda",
+ "shopify-lambda",
  "stripe-api",
  "stripe-lambda",
  "test-api",
@@ -3073,6 +3074,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6d1ad449764d627e22bfd7cd5e8868264fc9236e07c752972b4080cd351cb476"
 dependencies = [
  "utf8-width",
+]
+
+[[package]]
+name = "html2text"
+version = "0.17.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1c97eea9d3e6524d8d2a4643ce0e3135500c4c7ca1d02393a485f871bef69d8"
+dependencies = [
+ "html5ever 0.39.0",
+ "tendril 0.5.0",
+ "thiserror 2.0.18",
+ "unicode-width",
 ]
 
 [[package]]
@@ -7172,6 +7185,29 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "shopify-lambda"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "html2text",
+ "lambda_runtime",
+ "lingua",
+ "product",
+ "rstest",
+ "serde",
+ "serde_json",
+ "shop",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]
