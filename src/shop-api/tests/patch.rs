@@ -1,3 +1,4 @@
+use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
 use common::user_id::UserId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
@@ -63,6 +64,7 @@ async fn should_200_respond_updated_shop_when_admin_patches_shop() {
         &MockQueryShopService::default(),
         &command_service,
         &user_service,
+        &MockAccessTokenVerifierService::default(),
     )
     .await
     .unwrap();
@@ -149,6 +151,7 @@ async fn should_200_respond_updated_shop_when_partner_patches_shop() {
         &MockQueryShopService::default(),
         &command_service,
         &user_service,
+        &MockAccessTokenVerifierService::default(),
     )
     .await
     .unwrap();

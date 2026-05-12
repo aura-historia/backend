@@ -1862,6 +1862,9 @@ Resources:
           OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/prod/username}}"
           OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/prod/password}}"
           GOOGLE_GEOCODING_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/google-geocoding-api-key}}"
+          USER_POOL_ID: !Ref PrimaryUserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
   ShopApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:

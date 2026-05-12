@@ -7160,6 +7160,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-dynamodb",
  "aws_lambda_events",
+ "cognito",
  "common",
  "fake",
  "http 1.4.0",

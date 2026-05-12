@@ -1,6 +1,7 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
 use aws_sdk_dynamodb::Client;
+use cognito::load_access_token_verifier_service;
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
@@ -25,6 +26,17 @@ async fn main() -> Result<(), Error> {
 
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")
         .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
+    let user_pool_id =
+        std::env::var("USER_POOL_ID").expect("shouldn't fail loading env-var 'USER_POOL_ID'");
+    let user_pool_public_client_id = std::env::var("USER_POOL_PUBLIC_CLIENT_ID")
+        .expect("shouldn't fail loading env-var 'USER_POOL_PUBLIC_CLIENT_ID'");
+    let user_pool_admin_client_id = std::env::var("USER_POOL_ADMIN_CLIENT_ID")
+        .expect("shouldn't fail loading env-var 'USER_POOL_ADMIN_CLIENT_ID'");
+    let user_pool_client_ids = [
+        user_pool_public_client_id.as_str(),
+        user_pool_admin_client_id.as_str(),
+    ];
+
     let dynamodb = Client::new(&aws_config);
     let shop_dynamodb_repository = ShopDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let get_shop_service = GetShopServiceImpl::new(&shop_dynamodb_repository);
@@ -43,6 +55,9 @@ async fn main() -> Result<(), Error> {
     let shop_opensearch_repository = ShopOpenSearchRepositoryImpl::new(&opensearch);
     let query_shop_service = QueryShopServiceImpl::new(&shop_opensearch_repository);
 
+    let access_token_verifier_service =
+        load_access_token_verifier_service(&user_pool_id, &user_pool_client_ids);
+
     debug!("Lambda initialized.");
 
     run(service_fn(
@@ -53,6 +68,7 @@ async fn main() -> Result<(), Error> {
                 &query_shop_service,
                 &command_shop_service,
                 &user_service,
+                &access_token_verifier_service,
             )
             .await
         },
