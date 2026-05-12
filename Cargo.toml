@@ -217,7 +217,7 @@ fxrate-lambda = { path = "src/fxrate-lambda" }
 slug = "0.1.6"
 crawler = { path = "src/crawler" }
 spider = { version = "2", default-features = false, features = ["sync", "reqwest_rustls_tls"] }
-scraper = "0.26.0"
+scraper = "0.27.0"
 schemars = "1.2.1"
 llm = { version = "1.3.8", default-features = false, features = ["rustls-tls"] }
 kuchiki = "0.8.1"
