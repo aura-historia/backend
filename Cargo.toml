@@ -16,6 +16,7 @@ search-filter-lambda = { workspace = true }
 shop = { workspace = true }
 shop-api = { workspace = true }
 shop-lambda = { workspace = true }
+shopify-lambda = { workspace = true }
 stripe-lambda = { workspace = true }
 stripe-api = { workspace = true }
 product = { workspace = true }
@@ -63,6 +64,7 @@ members = [
     "src/shop",
     "src/shop-api",
     "src/shop-lambda",
+    "src/shopify-lambda",
     "src/stripe-lambda",
     "src/stripe-api",
     "src/user",
@@ -200,6 +202,7 @@ cognito = { path = "src/cognito" }
 cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 serde-email = "3.2.0"
 handlebars = "6.4.0"
+html2text = "0.17.1"
 once_cell = "1.21.4"
 openssl = { version = "0.10.79", default-features = false }
 jsonwebtokens = "1.2.0"
@@ -226,3 +229,4 @@ partner-shop-application = { path = "src/partner-shop-application" }
 partner-shop-application-api = { path = "src/partner-shop-application-api" }
 partner-shop-application-lambda = { path = "src/partner-shop-application-lambda" }
 partner-api = { path = "src/partner-api" }
+shopify-lambda = { path = "src/shopify-lambda" }

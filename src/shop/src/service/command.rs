@@ -9,6 +9,7 @@ pub struct CreateShopCommand {
     pub name: ShopName,
     pub shop_type: ShopType,
     pub domains: HashSet<Domain>,
+    pub shopify_domain: Option<Domain>,
     pub url: Option<Url>,
     pub image: Option<Url>,
     pub structured_address: Option<StructuredAddress>,
@@ -20,6 +21,7 @@ pub struct CreateShopCommand {
 pub struct UpdateShopCommand {
     pub shop_type: Option<ShopType>,
     pub domains: Option<HashSet<Domain>>,
+    pub shopify_domain: Option<Domain>,
     pub url: Option<Url>,
     pub image: Option<Url>,
     pub structured_address: Option<StructuredAddress>,
@@ -31,6 +33,7 @@ impl UpdateShopCommand {
     pub fn is_empty(&self) -> bool {
         self.shop_type.is_none()
             && self.domains.is_none()
+            && self.shopify_domain.is_none()
             && self.url.is_none()
             && self.image.is_none()
             && self.structured_address.is_none()
@@ -55,6 +58,7 @@ mod faker {
                 ))
                 .unwrap()]
                 .into(),
+                shopify_domain: config.fake_with_rng(rng),
                 url: config.fake_with_rng(rng),
                 image: config.fake_with_rng(rng),
                 structured_address: None,
@@ -69,6 +73,7 @@ mod faker {
             UpdateShopCommand {
                 shop_type: config.fake_with_rng(rng),
                 domains: config.fake_with_rng(rng),
+                shopify_domain: config.fake_with_rng(rng),
                 url: config.fake_with_rng(rng),
                 image: config.fake_with_rng(rng),
                 structured_address: None,

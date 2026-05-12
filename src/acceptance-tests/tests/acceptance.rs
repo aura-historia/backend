@@ -3073,6 +3073,7 @@ async fn should_respond_200_for_shop_patch_by_partner() {
     let patch_data = PatchShopData {
         shop_type: None,
         domains: None,
+        shopify_domain: None,
         url: None,
         image: Some(url::Url::parse("https://new-image.example.com/logo.png").unwrap()),
         structured_address: None,
@@ -5405,6 +5406,251 @@ async fn should_reactivate_plan_restricted_watchlist_entries_when_tier_is_upgrad
             panic!(
                 "Timeout: expected {} active watchlist entries after upgrade to Ultimate, got {}",
                 entry_count, active_count
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shopify product lifecycle
+// Verifies EventBridge (Shopify event bus) → ShopifyLambda → DynamoDB routing
+// and IAM access for each of the three Shopify product event types.
+// ---------------------------------------------------------------------------
+
+const SHOPIFY_ACCEPTANCE_DOMAIN: &str = "aura-historia-partner-connect-acc-test.myshopify.com";
+const SHOPIFY_ACCEPTANCE_PRODUCT_ID: u64 = 99_999_000_000_001;
+
+/// Seeds a partner shop with the acceptance-test Shopify domain in DynamoDB.
+async fn seed_shopify_acceptance_shop() -> ShopRecord {
+    let stack = get_cfn_output();
+    let dynamodb_client = get_dynamodb_client().await;
+    let shop_repo = ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+
+    let shopify_domain = common::domain::Domain::try_from(SHOPIFY_ACCEPTANCE_DOMAIN).unwrap();
+    let user_id = UserId::new();
+    let shop_id = common::shop_id::ShopId::new();
+    let slug = common::slug_id::SlugId::raw("shopify-acc-test-shop");
+
+    let record = ShopRecord {
+        pk: shop::dynamodb::shop_record::mk_pk(&shop_id),
+        sk: shop::dynamodb::shop_record::mk_sk().to_owned(),
+        shop_id,
+        shop_slug_id: slug.clone(),
+        name: common::shop_name::ShopName::from("Shopify Acceptance Shop"),
+        shop_type: shop::dynamodb::shop_type_record::ShopTypeRecord::Marketplace,
+        domains: Default::default(),
+        shopify_domain: Some(shopify_domain.clone()),
+        url: None,
+        image: None,
+        structured_address_addressline: None,
+        structured_address_addressline_extra: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        geo_address_lat: None,
+        geo_address_lon: None,
+        phone: None,
+        email: None,
+        partner_api_key_short: None,
+        partner_api_key_long_hash: None,
+        partner_user_id: Some(user_id),
+        gsi1_pk: Some(shop::dynamodb::shop_record::mk_gsi1_pk(&user_id)),
+        gsi1_sk: Some(shop::dynamodb::shop_record::mk_gsi1_sk(&shop_id)),
+        gsi2_pk: Some(shop::dynamodb::shop_record::mk_gsi2_pk(&slug)),
+        gsi2_sk: Some(shop::dynamodb::shop_record::mk_gsi2_sk().to_owned()),
+        gsi3_pk: Some(shop::dynamodb::shop_record::mk_gsi3_pk(&shopify_domain)),
+        gsi3_sk: Some(shop::dynamodb::shop_record::mk_gsi3_sk().to_owned()),
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+    };
+
+    shop_repo.put_shop_record(record.clone()).await.unwrap();
+    record
+}
+
+/// Publishes a real-world Shopify webhook EventBridge entry.
+async fn put_shopify_event(topic: &str, product_id: u64) {
+    let cfn = get_cfn_output();
+    let eb = get_eventbridge_client().await;
+
+    let detail = serde_json::json!({
+        "payload": {
+            "admin_graphql_api_id": format!("gid://shopify/Product/{product_id}"),
+            "body_html": "<p>Hallo Test Beschreibung!</p>",
+            "created_at": "2026-05-11T11:02:26-04:00",
+            "handle": "acceptance-test-produkt",
+            "id": product_id,
+            "product_type": "",
+            "published_at": "2026-05-11T11:02:29-04:00",
+            "template_suffix": "",
+            "title": "Acceptance Testprodukt",
+            "updated_at": "2026-05-11T11:06:59-04:00",
+            "vendor": "aura-historia-partner-connect-acc-test",
+            "status": "active",
+            "published_scope": "global",
+            "tags": "",
+            "variants": [
+                {
+                    "admin_graphql_api_id": "gid://shopify/ProductVariant/99000000001",
+                    "barcode": "",
+                    "compare_at_price": null,
+                    "created_at": "2026-05-11T11:02:28-04:00",
+                    "id": 99_000_000_001_u64,
+                    "inventory_policy": "deny",
+                    "position": 1,
+                    "price": "49.99",
+                    "product_id": product_id,
+                    "sku": null,
+                    "taxable": false,
+                    "title": "Default Title",
+                    "updated_at": "2026-05-11T11:06:59-04:00",
+                    "option1": "Default Title",
+                    "option2": null,
+                    "option3": null,
+                    "image_id": null,
+                    "inventory_item_id": 99_000_000_002_u64,
+                    "inventory_quantity": 5,
+                    "old_inventory_quantity": 0
+                }
+            ],
+            "images": []
+        },
+        "metadata": {
+            "Content-Type": "application/json",
+            "X-Shopify-Topic": topic,
+            "X-Shopify-Shop-Domain": SHOPIFY_ACCEPTANCE_DOMAIN,
+            "X-Shopify-Product-Id": product_id.to_string(),
+            "X-Shopify-Hmac-SHA256": "acceptance-test-hmac",
+            "X-Shopify-Webhook-Id": "acc-test-webhook-id",
+            "X-Shopify-API-Version": "2026-04",
+            "X-Shopify-Event-Id": "acc-test-event-id",
+            "X-Shopify-Triggered-At": "2026-05-11T15:06:59.110521905Z"
+        }
+    });
+
+    let res = eb
+        .put_events()
+        .entries(
+            aws_sdk_eventbridge::types::PutEventsRequestEntry::builder()
+                .event_bus_name(&cfn.shopify_event_bus_name)
+                .source("aws.partner/shopify.com/test/aura-historia-backend-acc")
+                .detail_type("shopifyWebhook")
+                .detail(detail.to_string())
+                .build(),
+        )
+        .send()
+        .await
+        .expect("shouldn't fail publishing Shopify event to EventBridge");
+
+    assert_eq!(
+        res.failed_entry_count(),
+        0,
+        "EventBridge rejected the Shopify event: {:?}",
+        res.entries()
+    );
+}
+
+/// Polls DynamoDB until the product record for the given shop_id / product_id appears (or times out).
+async fn wait_for_shopify_product(
+    shop_id: common::shop_id::ShopId,
+    product_id: u64,
+) -> product::dynamodb::product_record::ProductRecord {
+    let stack = get_cfn_output();
+    let dynamodb_client = get_dynamodb_client().await;
+    let product_repo =
+        ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+
+    let shops_product_id = common::shops_product_id::ShopsProductId::from(product_id.to_string());
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        if let Some(record) = product_repo
+            .get_product_record(&shop_id, &shops_product_id)
+            .await
+            .unwrap()
+        {
+            return record;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: product '{product_id}' not found in DynamoDB for shop '{shop_id}' after 60s"
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_create_product_in_dynamodb_when_shopify_create_event() {
+    let shop_record = seed_shopify_acceptance_shop().await;
+    let shop_id = shop_record.shop_id;
+
+    put_shopify_event("products/create", SHOPIFY_ACCEPTANCE_PRODUCT_ID).await;
+
+    let record = wait_for_shopify_product(shop_id, SHOPIFY_ACCEPTANCE_PRODUCT_ID).await;
+    assert_eq!(record.shop_id, shop_id);
+    assert_eq!(
+        record.shops_product_id,
+        common::shops_product_id::ShopsProductId::from(SHOPIFY_ACCEPTANCE_PRODUCT_ID.to_string())
+    );
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_update_product_in_dynamodb_when_shopify_update_event() {
+    // Use a different product id to keep tests independent
+    const PRODUCT_ID: u64 = SHOPIFY_ACCEPTANCE_PRODUCT_ID + 1;
+    let shop_record = seed_shopify_acceptance_shop().await;
+    let shop_id = shop_record.shop_id;
+
+    // Seed the product first
+    put_shopify_event("products/create", PRODUCT_ID).await;
+    wait_for_shopify_product(shop_id, PRODUCT_ID).await;
+
+    // Now send an update
+    put_shopify_event("products/update", PRODUCT_ID).await;
+
+    // Poll until the product is still present (update is idempotent here)
+    let record = wait_for_shopify_product(shop_id, PRODUCT_ID).await;
+    assert_eq!(record.shop_id, shop_id);
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_set_product_removed_in_dynamodb_when_shopify_delete_event() {
+    const PRODUCT_ID: u64 = SHOPIFY_ACCEPTANCE_PRODUCT_ID + 2;
+    let shop_record = seed_shopify_acceptance_shop().await;
+    let shop_id = shop_record.shop_id;
+
+    // Create first
+    put_shopify_event("products/create", PRODUCT_ID).await;
+    wait_for_shopify_product(shop_id, PRODUCT_ID).await;
+
+    // Now delete
+    put_shopify_event("products/delete", PRODUCT_ID).await;
+
+    // Poll until state = Removed
+    let stack = get_cfn_output();
+    let dynamodb_client = get_dynamodb_client().await;
+    let product_repo =
+        ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let shops_product_id = common::shops_product_id::ShopsProductId::from(PRODUCT_ID.to_string());
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        if product_repo
+            .get_product_record(&shop_id, &shops_product_id)
+            .await
+            .unwrap()
+            .is_some_and(|r| {
+                r.state == product::dynamodb::product_state_record::ProductStateRecord::Removed
+            })
+        {
+            break;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: product '{PRODUCT_ID}' not set to Removed for shop '{shop_id}' after 60s"
             );
         }
         tokio::time::sleep(Duration::from_secs(3)).await;

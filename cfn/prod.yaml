@@ -19,6 +19,9 @@ Parameters:
   StripeEventBusName:
     Type: String
     Description: "Name of the AWS EventBridge Partner-Event-Bus connected to Stripe (created manually in the AWS Console — see https://docs.stripe.com/event-destinations/eventbridge)."
+  ShopifyEventBusName:
+    Type: String
+    Description: "Name of the AWS EventBridge Partner-Event-Bus connected to Shopify."
   StripeProProductId:
     Type: String
     Description: "Stripe product-id (prod_…) corresponding to the 'Pro' user-tier."
@@ -108,7 +111,7 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "cognito-post-confirmation-prod-${CommitSHA}.zip"
-      MemorySize: 128
+      MemorySize: 256
       Timeout: 10
       # ReservedConcurrentExecutions: 20
       EphemeralStorage:
@@ -222,6 +225,10 @@ Resources:
           AttributeType: S
         - AttributeName: gsi2_sk
           AttributeType: S
+        - AttributeName: gsi3_pk
+          AttributeType: S
+        - AttributeName: gsi3_sk
+          AttributeType: S
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
@@ -285,6 +292,14 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: KEYS_ONLY
+        - IndexName: gsi3
+          KeySchema:
+            - AttributeName: gsi3_pk
+              KeyType: HASH
+            - AttributeName: gsi3_sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
       TimeToLiveSpecification:
         AttributeName: "ttl"
         Enabled: true
@@ -523,6 +538,20 @@ Resources:
               - !GetAtt ProductPipelineTranslateQ.Arn
               - !GetAtt ProductPipelineEmbedTextQ.Arn
               - !GetAtt NotificationSendQ.Arn
+
+  ShopifyEventBusQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref ShopifyLambdaQ
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt ShopifyLambdaQ.Arn
 
   ApiLogGroup:
     Type: AWS::Logs::LogGroup
@@ -2606,6 +2635,22 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
+  ShopifyLambdaDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: "shopify-lambda-dlq-prod"
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+  ShopifyLambdaQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: "shopify-lambda-queue-prod"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ShopifyLambdaDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 90
+      SqsManagedSseEnabled: true
+
   ShopOpenSearchIndexDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -3743,6 +3788,8 @@ Resources:
       Name: "stripe-subscription-events-prod"
       EventBusName: !Ref StripeEventBusName
       EventPattern:
+        source:
+          - prefix: "aws.partner/stripe.com"
         detail:
           type:
             - "customer.subscription.created"
@@ -3778,6 +3825,118 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
+
+  # ---------------------------------------------------------------------------
+  # Shopify integration
+  # Shopify product webhooks are delivered through EventBridge and forwarded to
+  # the Lambda for partner-shop product synchronization.
+  # ---------------------------------------------------------------------------
+  ShopifyLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "shopify-lambda-role-prod"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ShopifyLambdaQ.Arn
+  ShopifyLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "shopify-lambda-prod"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ShopifyLambdaRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "shopify-lambda-prod-${CommitSHA}.zip"
+      MemorySize: 128
+      Timeout: 15
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/prod/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/prod/password}}"
+          GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/gemini-api-key}}"
+          GOOGLE_GEOCODING_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/google-geocoding-api-key}}"
+  ShopifyLambdaMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ShopifyLambda
+      EventSourceArn: !GetAtt ShopifyLambdaQ.Arn
+      Enabled: true
+      BatchSize: 100
+      MaximumBatchingWindowInSeconds: 10
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+  ShopifyEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "shopify-product-events-prod"
+      EventBusName: !Ref ShopifyEventBusName
+      EventPattern:
+        source:
+          - prefix: "aws.partner/shopify.com"
+        detail:
+          metadata:
+            X-Shopify-Topic:
+              - "products/create"
+              - "products/update"
+              - "products/delete"
+      Targets:
+        - Id: ShopifyLambdaQ
+          Arn: !GetAtt ShopifyLambdaQ.Arn
+  ShopifyLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-shopify-lambda-errors"
+      AlarmDescription: "Alarm when Shopify Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ShopifyLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
 
 Outputs:
   CognitoHostedUIDomain:
@@ -3847,3 +4006,9 @@ Outputs:
 
   StripeEventBusName:
     Value: !Ref StripeEventBusName
+  ShopifyEventBusName:
+    Value: !Ref ShopifyEventBusName
+  ShopifyLambdaQueueUrl:
+    Value: !Ref ShopifyLambdaQ
+  ShopifyLambdaDeadLetterQueueUrl:
+    Value: !Ref ShopifyLambdaDlq

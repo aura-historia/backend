@@ -32,6 +32,8 @@ pub struct CloudFormationOutput {
     pub product_pipeline_embed_text_dead_letter_queue_url: String,
     #[serde(default)]
     pub stripe_event_bus_name: String,
+    #[serde(default)]
+    pub shopify_event_bus_name: String,
 }
 
 static CFN_OUTPUT: OnceLock<CloudFormationOutput> = OnceLock::new();

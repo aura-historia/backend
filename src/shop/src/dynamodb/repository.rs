@@ -18,6 +18,7 @@ use aws_sdk_dynamodb::{
 };
 use common::{
     batch::{Batch, dynamodb::BatchGetItemResult},
+    domain::Domain,
     dynamodb_update::DynamoDbUpdate,
     shop_id::ShopId,
     shop_name::ShopName,
@@ -69,6 +70,11 @@ pub trait ShopDynamoDbRepository {
         &self,
         partner_user_id: &common::user_id::UserId,
     ) -> Result<Vec<ShopRecord>, SdkError<QueryError, HttpResponse>>;
+
+    async fn query_shop_by_shopify_domain(
+        &self,
+        shopify_domain: &Domain,
+    ) -> Result<Option<ShopRecord>, SdkError<QueryError, HttpResponse>>;
 }
 
 #[derive(Debug, Clone)]
@@ -372,6 +378,43 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
             .collect();
 
         Ok(records)
+    }
+
+    async fn query_shop_by_shopify_domain(
+        &self,
+        shopify_domain: &Domain,
+    ) -> Result<Option<ShopRecord>, SdkError<QueryError, HttpResponse>> {
+        let maybe_item = self
+            .client
+            .query()
+            .table_name(&self.table)
+            .index_name("gsi3")
+            .key_condition_expression("#gsi3_pk = :gsi3_pk_val AND #gsi3_sk = :gsi3_sk_val")
+            .expression_attribute_names("#gsi3_pk", "gsi3_pk")
+            .expression_attribute_names("#gsi3_sk", "gsi3_sk")
+            .expression_attribute_values(
+                ":gsi3_pk_val",
+                AttributeValue::S(shop_record::mk_gsi3_pk(shopify_domain)),
+            )
+            .expression_attribute_values(
+                ":gsi3_sk_val",
+                AttributeValue::S(shop_record::mk_gsi3_sk().to_owned()),
+            )
+            .limit(1)
+            .send()
+            .await?
+            .items
+            .unwrap_or_default()
+            .into_iter()
+            .next();
+
+        let Some(item) = maybe_item else {
+            return Ok(None);
+        };
+
+        serde_dynamo::from_item::<_, ShopRecord>(item)
+            .map(Some)
+            .map_err(SdkError::construction_failure)
     }
 }
 

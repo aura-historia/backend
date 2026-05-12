@@ -30,6 +30,9 @@ pub struct ShopDocument {
     pub domains: HashSet<Domain>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shopify_domain: Option<Domain>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -81,6 +84,7 @@ impl From<Shop> for ShopDocument {
             name: shop.name,
             shop_type: shop.shop_type.into(),
             domains: shop.domains,
+            shopify_domain: shop.shopify_domain,
             url: shop.url,
             image: shop.image,
             structured_address_addressline: shop
@@ -127,6 +131,7 @@ impl From<ShopDocument> for Shop {
             name: document.name,
             shop_type: document.shop_type.into(),
             domains: document.domains,
+            shopify_domain: document.shopify_domain,
             url: document.url.map(append_utm_params),
             image: document.image,
             structured_address: structured_address_from_flat(
@@ -158,6 +163,7 @@ impl From<ShopRecord> for ShopDocument {
             name: record.name,
             shop_type: record.shop_type.into(),
             domains: record.domains,
+            shopify_domain: record.shopify_domain,
             url: record.url,
             image: record.image,
             structured_address_addressline: record.structured_address_addressline,

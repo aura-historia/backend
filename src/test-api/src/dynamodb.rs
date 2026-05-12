@@ -157,6 +157,18 @@ async fn set_up_table_1() -> Result<(), Error> {
                 .attribute_type(S)
                 .build()?,
         )
+        .attribute_definitions(
+            AttributeDefinition::builder()
+                .attribute_name("gsi3_pk")
+                .attribute_type(S)
+                .build()?,
+        )
+        .attribute_definitions(
+            AttributeDefinition::builder()
+                .attribute_name("gsi3_sk")
+                .attribute_type(S)
+                .build()?,
+        )
         .key_schema(
             KeySchemaElement::builder()
                 .attribute_name("pk")
@@ -319,6 +331,28 @@ async fn set_up_table_1() -> Result<(), Error> {
                 .projection(
                     Projection::builder()
                         .projection_type(ProjectionType::KeysOnly)
+                        .build(),
+                )
+                .build()?,
+        )
+        .global_secondary_indexes(
+            GlobalSecondaryIndex::builder()
+                .index_name("gsi3")
+                .key_schema(
+                    KeySchemaElement::builder()
+                        .attribute_name("gsi3_pk")
+                        .key_type(KeyType::Hash)
+                        .build()?,
+                )
+                .key_schema(
+                    KeySchemaElement::builder()
+                        .attribute_name("gsi3_sk")
+                        .key_type(KeyType::Range)
+                        .build()?,
+                )
+                .projection(
+                    Projection::builder()
+                        .projection_type(ProjectionType::All)
                         .build(),
                 )
                 .build()?,

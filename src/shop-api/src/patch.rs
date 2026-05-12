@@ -53,6 +53,7 @@ pub async fn handle(
     let update_command = UpdateShopCommand {
         shop_type: patch_data.shop_type.map(Into::into),
         domains: patch_data.domains,
+        shopify_domain: patch_data.shopify_domain,
         url: patch_data.url,
         image: patch_data.image,
         structured_address: patch_data.structured_address.map(Into::into),

@@ -38,6 +38,7 @@ async fn should_200_respond_updated_shop_when_admin_patches_shop() {
     let patch_data = PatchShopData {
         shop_type: None,
         domains: None,
+        shopify_domain: None,
         url: None,
         image: Some(url::Url::parse("https://new-image.com/logo.png").unwrap()),
         structured_address: None,
@@ -90,8 +91,11 @@ async fn should_200_respond_updated_shop_when_partner_patches_shop() {
                 partner_user_id: Some(user_id),
                 gsi1_pk: Some(shop::dynamodb::shop_record::mk_gsi1_pk(&user_id)),
                 gsi1_sk: Some(shop::dynamodb::shop_record::mk_gsi1_sk(&shop.shop_id)),
+                gsi3_pk: None,
+                gsi3_sk: None,
                 shop_type: None,
                 domains: None,
+                shopify_domain: None,
                 url: None,
                 image: None,
                 structured_address_addressline: None,
@@ -120,6 +124,7 @@ async fn should_200_respond_updated_shop_when_partner_patches_shop() {
     let patch_data = PatchShopData {
         shop_type: None,
         domains: None,
+        shopify_domain: None,
         url: None,
         image: Some(url::Url::parse("https://new-image.com/logo.png").unwrap()),
         structured_address: None,
