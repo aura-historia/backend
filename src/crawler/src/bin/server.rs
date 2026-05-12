@@ -17,6 +17,7 @@
 //! | `LOCAL_DB_URL`                  | Hardcoded local Postgres URL (`crawler_server`)                |
 //! | `GEMINI_API_KEY`                | API key for the Gemini LLM backend                             |
 //! | `GEMINI_MODEL`                  | Gemini model name (default: `gemini-3.1-flash-lite-preview`)   |
+//! | `GEMINI_FLEX`                   | Enable Gemini Flex inference when set to `true`                |
 //! | `DYNAMODB_TABLE_NAME`           | DynamoDB table for product events                              |
 //! | `OPENSEARCH_ENDPOINT_URL`       | OpenSearch base URL                                            |
 //! | `OPENSEARCH_USERNAME`           | OpenSearch username                                            |
@@ -38,9 +39,11 @@ use aws_sdk_cloudwatchlogs::Client as CloudWatchLogsClient;
 use aws_sdk_cloudwatchlogs::error::SdkError;
 use aws_sdk_cloudwatchlogs::operation::create_log_group::CreateLogGroupError;
 use aws_sdk_cloudwatchlogs::operation::create_log_stream::CreateLogStreamError;
+use common::logging::GeminiServiceTier;
 use common::pagination::cursor::Cursor;
 use common::price::domain::FixedFxRate;
 use common::shop_id::ShopId;
+use crawler::google_llm::{gemini_flex_enabled, google_llm_builder};
 use crawler::local_db::{SERVER_DB_NAME, bootstrap_local_database, server_db_url};
 use crawler::logging::{
     CloudWatchBootstrapClient, CloudWatchBootstrapError, CloudWatchLoggingConfig,
@@ -69,7 +72,6 @@ use crawler::spider::classification::url_pattern_repository::ShopUrlPatternRepos
 use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
-use llm::builder::{LLMBackend, LLMBuilder};
 use opensearch::auth::Credentials;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
@@ -367,31 +369,36 @@ async fn main() {
         unsafe {
             std::env::set_var("GEMINI_MODEL", &model);
         }
+        let gemini_flex = gemini_flex_enabled();
+        let gemini_service_tier = if gemini_flex { "flex" } else { "default" };
+        let llm_service_tier = Some(if gemini_flex {
+            GeminiServiceTier::Flex
+        } else {
+            GeminiServiceTier::Standard
+        });
 
-        let state_llm_builder = LLMBuilder::new()
-            .backend(LLMBackend::Google)
-            .api_key(&api_key)
-            .model(&model);
+        let state_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
         let state_mapping_repo = Box::new(ProductStateMappingRepositoryImpl::new(Box::leak(
             Box::new(pool.clone()),
         )));
-        let state_mapping_svc =
-            ProductStateMappingServiceImpl::new(state_llm_builder, state_mapping_repo)
-                .expect("failed to build ProductStateMappingServiceImpl");
+        let state_mapping_svc = ProductStateMappingServiceImpl::new(
+            state_llm_builder,
+            llm_service_tier,
+            state_mapping_repo,
+        )
+        .expect("failed to build ProductStateMappingServiceImpl");
 
         let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
-        let schema_llm_builder = LLMBuilder::new()
-            .backend(LLMBackend::Google)
-            .api_key(&api_key)
-            .model(&model);
+        let schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
         let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
             pool.clone(),
         ))));
-        let schema_svc = ProductSchemaServiceImpl::new(schema_llm_builder, schema_repo)
-            .expect("failed to build ProductSchemaServiceImpl");
+        let schema_svc =
+            ProductSchemaServiceImpl::new(schema_llm_builder, llm_service_tier, schema_repo)
+                .expect("failed to build ProductSchemaServiceImpl");
 
         let scraper_candidates = Box::new(
             ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
@@ -419,11 +426,10 @@ async fn main() {
         let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
         let url_pattern_repo = Box::new(ShopUrlPatternRepositoryImpl::new(pool.clone()));
 
-        let class_llm_builder = LLMBuilder::new()
-            .backend(LLMBackend::Google)
-            .api_key(&api_key)
-            .model(&model);
-        let class_svc = Box::new(UrlClassificationServiceImpl::new(class_llm_builder).unwrap());
+        let class_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+        let class_svc = Box::new(
+            UrlClassificationServiceImpl::new(class_llm_builder, llm_service_tier).unwrap(),
+        );
 
         let pattern_svc = Box::new(UrlPatternServiceImpl::new(
             Arc::new(*url_pattern_repo),
@@ -495,6 +501,7 @@ async fn main() {
             db_max_connections,
             scraper_max_llm_calls_per_shop,
             gemini_model = %model,
+            gemini_service_tier,
             "Crawler Server is fully initialized. Starting background tasks..."
         );
         cron_job.run_loop().await;

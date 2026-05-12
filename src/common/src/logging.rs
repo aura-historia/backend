@@ -190,8 +190,30 @@ impl std::fmt::Display for LlmModel {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GeminiServiceTier {
+    Standard,
+    Flex,
+}
+
+impl GeminiServiceTier {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Standard => "STANDARD",
+            Self::Flex => "FLEX",
+        }
+    }
+}
+
+impl std::fmt::Display for GeminiServiceTier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LlmInvocationMetrics {
+    pub service_tier: Option<GeminiServiceTier>,
     pub batch_size: Option<usize>,
     pub prompt_tokens: Option<u32>,
     pub completion_tokens: Option<u32>,
@@ -250,6 +272,7 @@ pub fn log_llm_invocation(
         llmOperation = %operation,
         llmProvider = %provider,
         llmModel = %model,
+        llmServiceTier = metrics.service_tier.map(|tier| tier.as_str()),
         latencyMs = duration_millis(latency),
         batchSize = metrics.batch_size,
         promptTokens = metrics.prompt_tokens,
@@ -417,6 +440,7 @@ mod tests {
                 LlmModel::Configured,
                 Duration::from_millis(42),
                 LlmInvocationMetrics {
+                    service_tier: Some(GeminiServiceTier::Flex),
                     batch_size: Some(3),
                     prompt_tokens: Some(12),
                     completion_tokens: Some(4),
@@ -445,8 +469,78 @@ mod tests {
             event["fields"]["llmOperation"],
             "CRAWLER_URL_CLASSIFICATION"
         );
+        assert_eq!(event["fields"]["llmServiceTier"], "FLEX");
         assert_eq!(event["fields"]["latencyMs"], 42);
         assert_eq!(event["span"]["shop_url"], "https://example.com");
         assert_eq!(event["span"]["url_count"], 3);
+    }
+
+    #[test]
+    fn should_include_null_service_tier_when_not_provided_for_llm_invocation() {
+        #[derive(Clone, Default)]
+        struct SharedWriter {
+            output: Arc<Mutex<Vec<u8>>>,
+        }
+
+        struct GuardedWriter {
+            output: Arc<Mutex<Vec<u8>>>,
+        }
+
+        impl<'a> MakeWriter<'a> for SharedWriter {
+            type Writer = GuardedWriter;
+
+            fn make_writer(&'a self) -> Self::Writer {
+                GuardedWriter {
+                    output: Arc::clone(&self.output),
+                }
+            }
+        }
+
+        impl io::Write for GuardedWriter {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                self.output
+                    .lock()
+                    .expect("log capture mutex poisoned")
+                    .extend_from_slice(buf);
+                Ok(buf.len())
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let writer = SharedWriter::default();
+        let captured = Arc::clone(&writer.output);
+        let subscriber = tracing_subscriber::fmt()
+            .json()
+            .with_current_span(true)
+            .with_ansi(false)
+            .with_writer(writer)
+            .finish();
+
+        let dispatch = Dispatch::new(subscriber);
+        tracing::dispatcher::with_default(&dispatch, || {
+            log_llm_invocation(
+                LlmOperation::ProductTitleTranslation,
+                LlmProvider::Google,
+                LlmModel::Gemini25FlashLite,
+                Duration::from_millis(7),
+                LlmInvocationMetrics::default(),
+            );
+        });
+
+        let output =
+            String::from_utf8(captured.lock().expect("log capture mutex poisoned").clone())
+                .expect("captured logs must be utf-8");
+        let event: Value = serde_json::from_str(
+            output
+                .lines()
+                .find(|line| !line.trim().is_empty())
+                .expect("expected one log line"),
+        )
+        .expect("log output must be valid json");
+
+        assert!(event["fields"]["llmServiceTier"].is_null());
     }
 }

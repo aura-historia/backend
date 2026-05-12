@@ -1,12 +1,5 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
-CREATE TABLE IF NOT EXISTS shops_product_schema (
-    shop_id         UUID        PRIMARY KEY,
-    product_schema  JSONB       NOT NULL,
-    created         TIMESTAMPTZ NOT NULL,
-    updated         TIMESTAMPTZ NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS product_state_mapping (
     raw             TEXT        PRIMARY KEY,
     normalized      TEXT        NOT NULL,
@@ -124,9 +117,17 @@ CREATE TABLE IF NOT EXISTS shops (
     shop_slug   TEXT,
     shop_type   TEXT        CHECK (shop_type IN ('AUCTION_HOUSE', 'AUCTION_PLATFORM', 'COMMERCIAL_DEALER', 'MARKETPLACE')),
     active      BOOLEAN     NOT NULL DEFAULT TRUE,
+    llm_calls_count BIGINT  NOT NULL DEFAULT 0,
     url_pattern TEXT,
     created     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS shops_product_schema (
+    shop_id         UUID        PRIMARY KEY REFERENCES shops(shop_id) ON DELETE CASCADE,
+    product_schema  JSONB       NOT NULL,
+    created         TIMESTAMPTZ NOT NULL,
+    updated         TIMESTAMPTZ NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS shop_domains (

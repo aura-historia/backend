@@ -26,12 +26,14 @@
 //! | `LOCAL_DB_URL`   | Hardcoded local DB URL               | `.../crawler_demo_scraper` |
 //! | `GEMINI_API_KEY` | API key forwarded to the LLM builder | *(required)*       |
 //! | `GEMINI_MODEL`   | Model name to use                    | `gemini-3.1-flash-lite-preview` |
+//! | `GEMINI_FLEX`    | Enable Gemini Flex inference         | unset / `false` |
 //! | `LOG_LEVEL`      | Log level for `init_logging`         | `info`             |
 //!
 //! # Running
 //!
 //! ```powershell
 //! $env:GEMINI_API_KEY="sk-..."
+//! $env:GEMINI_FLEX="true" # optional
 //! cargo run --bin demo-scraper -p crawler
 //! ```
 
@@ -40,9 +42,11 @@ use std::io::BufWriter;
 use std::sync::Arc;
 
 use common::language::data::LocalizedTextData;
+use common::logging::GeminiServiceTier;
 use common::price::data::PriceData;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
+use crawler::google_llm::{gemini_flex_enabled, google_llm_builder};
 use crawler::local_db::{DEMO_SCRAPER_DB_NAME, bootstrap_local_database, demo_scraper_db_url};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
@@ -54,7 +58,6 @@ use crawler::scraper::normalization::state_mapping_service::ProductStateMappingS
 use crawler::scraper::scraper_service::{
     DEFAULT_MAX_LLM_CALLS_PER_SHOP, ReqwestHtmlFetcher, ScraperService, ScraperServiceImpl,
 };
-use llm::builder::{LLMBackend, LLMBuilder};
 use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
 use sqlx::PgPool;
@@ -275,30 +278,41 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     unsafe {
         std::env::set_var("GEMINI_MODEL", &model);
     }
+    let gemini_flex = gemini_flex_enabled();
+    let gemini_service_tier = if gemini_flex { "flex" } else { "default" };
+    let llm_service_tier = Some(if gemini_flex {
+        GeminiServiceTier::Flex
+    } else {
+        GeminiServiceTier::Standard
+    });
 
-    let schema_llm_builder = LLMBuilder::new()
-        .backend(LLMBackend::Google)
-        .api_key(&api_key)
-        .model(&model);
+    info!(
+        gemini_model = %model,
+        gemini_service_tier,
+        "Crawler scraper demo Gemini configuration resolved"
+    );
 
-    let state_llm_builder = LLMBuilder::new()
-        .backend(LLMBackend::Google)
-        .api_key(&api_key)
-        .model(&model);
+    let schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+
+    let state_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
     // State-mapping service (DB-backed + LLM fallback).
     let state_mapping_repo = Box::new(ProductStateMappingRepositoryImpl::new(pool));
-    let state_mapping_svc =
-        ProductStateMappingServiceImpl::new(state_llm_builder, state_mapping_repo)
-            .expect("failed to build ProductStateMappingServiceImpl");
+    let state_mapping_svc = ProductStateMappingServiceImpl::new(
+        state_llm_builder,
+        llm_service_tier,
+        state_mapping_repo,
+    )
+    .expect("failed to build ProductStateMappingServiceImpl");
 
     // Normalization service.
     let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
     // Schema service (DB-backed + LLM creation/fix).
     let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(pool));
-    let schema_svc = ProductSchemaServiceImpl::new(schema_llm_builder, schema_repo)
-        .expect("failed to build ProductSchemaServiceImpl");
+    let schema_svc =
+        ProductSchemaServiceImpl::new(schema_llm_builder, llm_service_tier, schema_repo)
+            .expect("failed to build ProductSchemaServiceImpl");
 
     // HTTP fetcher using spider.
     let fetcher = Box::new(ReqwestHtmlFetcher::new());
