@@ -386,9 +386,7 @@ impl Product {
             .map(|mut img| {
                 img.prohibited_content = match existing_by_url.get(&img.url).copied() {
                     // Preserve a previously established (non-Unknown) classification.
-                    Some(ProhibitedContent::None) | Some(ProhibitedContent::NaziGermany) => {
-                        existing_by_url[&img.url]
-                    }
+                    Some(pc @ (ProhibitedContent::None | ProhibitedContent::NaziGermany)) => pc,
                     // Unknown or new image: apply the text-based heuristic.
                     _ => decision,
                 };

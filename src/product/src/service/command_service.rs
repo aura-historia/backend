@@ -723,8 +723,8 @@ mod tests {
             };
             let mut working = HashMap::from([(key.clone(), cmd)]);
             let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
-            assert!(events.iter().any(|e| e.event_type()
-                == ProductDomainEventTypeRecord::DomainEstimatePriceChanged.as_str()));
+            let expected = ProductDomainEventTypeRecord::DomainEstimatePriceChanged.as_str();
+            assert!(events.iter().any(|e| e.event_type() == expected));
         }
 
         #[test]
@@ -744,12 +744,8 @@ mod tests {
             };
             let mut working = HashMap::from([(key.clone(), cmd)]);
             let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
-            assert!(
-                events
-                    .iter()
-                    .any(|e| e.event_type()
-                        == ProductDomainEventTypeRecord::DomainUrlChanged.as_str())
-            );
+            let expected = ProductDomainEventTypeRecord::DomainUrlChanged.as_str();
+            assert!(events.iter().any(|e| e.event_type() == expected));
         }
 
         #[test]
@@ -776,10 +772,8 @@ mod tests {
             };
             let mut working = HashMap::from([(key.clone(), cmd)]);
             let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
-            assert!(
-                events.iter().any(|e| e.event_type()
-                    == ProductDomainEventTypeRecord::DomainImagesChanged.as_str())
-            );
+            let expected = ProductDomainEventTypeRecord::DomainImagesChanged.as_str();
+            assert!(events.iter().any(|e| e.event_type() == expected));
         }
 
         #[test]
@@ -800,8 +794,8 @@ mod tests {
             };
             let mut working = HashMap::from([(key.clone(), cmd)]);
             let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
-            assert!(events.iter().any(|e| e.event_type()
-                == ProductDomainEventTypeRecord::DomainAuctionTimeChanged.as_str()));
+            let expected = ProductDomainEventTypeRecord::DomainAuctionTimeChanged.as_str();
+            assert!(events.iter().any(|e| e.event_type() == expected));
         }
 
         #[test]
@@ -841,14 +835,10 @@ mod tests {
             let mut working = HashMap::from([(key.clone(), cmd)]);
             let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
             assert!(events.len() >= 2);
-            assert!(
-                events
-                    .iter()
-                    .any(|e| e.event_type()
-                        == ProductDomainEventTypeRecord::DomainUrlChanged.as_str())
-            );
-            assert!(events.iter().any(|e| e.event_type()
-                == ProductDomainEventTypeRecord::DomainAuctionTimeChanged.as_str()));
+            let url_changed = ProductDomainEventTypeRecord::DomainUrlChanged.as_str();
+            let auction_changed = ProductDomainEventTypeRecord::DomainAuctionTimeChanged.as_str();
+            assert!(events.iter().any(|e| e.event_type() == url_changed));
+            assert!(events.iter().any(|e| e.event_type() == auction_changed));
         }
     }
 
