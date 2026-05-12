@@ -1,23 +1,14 @@
 use crate::core::product::Product;
 use crate::core::product_event::ProductEventLog;
-use crate::core::product_event::ProductPolicyEvent;
-use crate::core::product_event::policy::{
-    ProductPolicyEventPayload, ProhibitedContentProductPolicyEventPayload,
-};
-use crate::core::prohibited_content::{ProhibitedContent, ProhibitedContentReason};
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
-use crate::dynamodb::product_event_record::policy::ProductPolicyEventRecord;
 use crate::dynamodb::repository::{ProductDynamoDbRepository, extract_product_key};
 use crate::dynamodb::utm::strip_utm_params;
-use crate::service::heuristics;
 use crate::service::product_command::{
     CreateProductCommand, UpdateProductCommand, UpsertProductCommand,
 };
 use async_trait::async_trait;
 use common::batch::Batch;
-use common::event::Event;
-use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::logging::{LogEventType, LogWriteSource};
 use common::price::domain::FxRate;
@@ -28,7 +19,6 @@ use shop::core::shop_type::ShopType;
 use shop::service::get_service::GetShopService;
 use shop::service::seller_service::SellerService;
 use std::collections::{HashMap, HashSet};
-use time::OffsetDateTime;
 use tracing::{error, warn};
 
 #[async_trait]
@@ -54,39 +44,6 @@ struct ResolvedShopInformation {
     seller_name: ShopName,
     shop_name: ShopName,
     shop_type: ShopType,
-}
-
-/// Returns `true` when any of the command's images are flagged as
-/// [`ProhibitedContent::NaziGermany`] by the text heuristic.
-fn has_nazi_image_content(cmd: &CreateProductCommand) -> bool {
-    cmd.images
-        .iter()
-        .any(|img| img.prohibited_content == ProhibitedContent::NaziGermany)
-}
-
-/// Builds a [`ProductPolicyEventRecord`] that records a text-based
-/// [`ProhibitedContent::NaziGermany`] decision for a newly created product.
-fn make_nazi_text_policy_event(
-    domain_event: &crate::core::product_event::ProductDomainEvent,
-    shop_id: ShopId,
-    seller_id: ShopId,
-    shops_product_id: common::shops_product_id::ShopsProductId,
-) -> ProductEventRecord {
-    let policy_event: ProductPolicyEvent = Event {
-        aggregate_id: domain_event.aggregate_id,
-        event_id: EventId::new(),
-        timestamp: OffsetDateTime::now_utc(),
-        payload: ProductPolicyEventPayload::ProhibitedContentDecision(
-            ProhibitedContentProductPolicyEventPayload {
-                shop_id,
-                seller_id,
-                shops_product_id,
-                decision: ProhibitedContent::NaziGermany,
-                reason: ProhibitedContentReason::ProductText,
-            },
-        ),
-    };
-    ProductEventRecord::from(ProductPolicyEventRecord::from(policy_event))
 }
 
 impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
@@ -302,8 +259,6 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                     for mut cmd in working.into_values() {
                         if let Some(resolved) = self.enrich_shop_information(&mut cmd).await {
                             self.enrich_price(&mut cmd);
-                            heuristics::classify_images(&mut cmd);
-                            let has_nazi_content = has_nazi_image_content(&cmd);
                             let seller_id = resolved.seller_id;
                             let domain_event = Product::create(
                                 cmd.shop_id,
@@ -328,14 +283,6 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                                 cmd.auction_start,
                                 cmd.auction_end,
                             );
-                            if has_nazi_content {
-                                events.push(make_nazi_text_policy_event(
-                                    &domain_event,
-                                    cmd.shop_id,
-                                    seller_id,
-                                    cmd.shops_product_id,
-                                ));
-                            }
                             events.push(ProductEventRecord::Domain(
                                 ProductDomainEventRecord::from(domain_event),
                             ));
@@ -388,8 +335,6 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                     }
 
                     let events = determine_update_events(&mut working, records.items, self.fx_rate);
-                    let events: Vec<ProductEventRecord> =
-                        events.into_iter().map(ProductEventRecord::from).collect();
 
                     // Remaining items in `working` are products not found in DynamoDB —
                     // `determine_update_events` removes matched keys.
@@ -459,8 +404,6 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                         if let Some(resolved) = self.enrich_shop_information(&mut create_cmd).await
                         {
                             self.enrich_price(&mut create_cmd);
-                            heuristics::classify_images(&mut create_cmd);
-                            let has_nazi_content = has_nazi_image_content(&create_cmd);
                             let seller_id = resolved.seller_id;
                             let domain_event = Product::create(
                                 create_cmd.shop_id,
@@ -485,14 +428,6 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                                 create_cmd.auction_start,
                                 create_cmd.auction_end,
                             );
-                            if has_nazi_content {
-                                create_events.push(make_nazi_text_policy_event(
-                                    &domain_event,
-                                    create_cmd.shop_id,
-                                    seller_id,
-                                    create_cmd.shops_product_id,
-                                ));
-                            }
                             create_events.push(ProductEventRecord::Domain(
                                 ProductDomainEventRecord::from(domain_event),
                             ));
@@ -502,11 +437,8 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                         }
                     }
 
-                    let all_events: Vec<ProductEventRecord> = update_events
-                        .into_iter()
-                        .map(ProductEventRecord::from)
-                        .chain(create_events)
-                        .collect();
+                    let all_events: Vec<ProductEventRecord> =
+                        update_events.into_iter().chain(create_events).collect();
 
                     let persist_failures = self.persist_events(all_events, &mut key_cmds).await;
                     failures.extend(persist_failures.into_iter().map(|(_, cmd)| cmd));
@@ -526,7 +458,7 @@ fn determine_update_events(
     working: &mut HashMap<ProductKey, UpdateProductCommand>,
     records: Vec<impl HasKey<Key = ProductKey> + Into<Product>>,
     fx_rate: &impl FxRate,
-) -> Vec<ProductDomainEventRecord> {
+) -> Vec<ProductEventRecord> {
     let mut events = Vec::new();
 
     for record in records {
@@ -539,34 +471,44 @@ fn determine_update_events(
             // than the already-enriched one.
             product.url = strip_utm_params(product.url.clone());
             if let Some(price_event) = product.new_price(cmd.native_price, fx_rate) {
-                events.push(ProductDomainEventRecord::from(price_event));
+                events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
+                    price_event,
+                )));
             }
             if let Some(new_state) = cmd.state
                 && let Some(state_event) = product.change_state(new_state)
             {
-                events.push(ProductDomainEventRecord::from(state_event));
+                events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
+                    state_event,
+                )));
             }
             if let Some(event) = product.change_estimate_price(
                 cmd.native_price_estimate_min,
                 cmd.native_price_estimate_max,
                 fx_rate,
             ) {
-                events.push(ProductDomainEventRecord::from(event));
+                events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
+                    event,
+                )));
             }
             if let Some(url) = cmd.url
                 && let Some(event) = product.change_url(url)
             {
-                events.push(ProductDomainEventRecord::from(event));
+                events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
+                    event,
+                )));
             }
-            if let Some(images) = cmd.images
-                && let Some(event) = product.change_images(images)
-            {
-                events.push(ProductDomainEventRecord::from(event));
+            if let Some(images) = cmd.images {
+                for event in product.change_images(images) {
+                    events.push(ProductEventRecord::from(event));
+                }
             }
             if (cmd.auction_start.is_some() || cmd.auction_end.is_some())
                 && let Some(event) = product.change_auction_time(cmd.auction_start, cmd.auction_end)
             {
-                events.push(ProductDomainEventRecord::from(event));
+                events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
+                    event,
+                )));
             }
         }
     }
@@ -781,12 +723,8 @@ mod tests {
             };
             let mut working = HashMap::from([(key.clone(), cmd)]);
             let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
-            assert!(
-                events
-                    .iter()
-                    .any(|e| e.event_type
-                        == ProductDomainEventTypeRecord::DomainEstimatePriceChanged)
-            );
+            let expected = ProductDomainEventTypeRecord::DomainEstimatePriceChanged.as_str();
+            assert!(events.iter().any(|e| e.event_type() == expected));
         }
 
         #[test]
@@ -806,11 +744,8 @@ mod tests {
             };
             let mut working = HashMap::from([(key.clone(), cmd)]);
             let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
-            assert!(
-                events
-                    .iter()
-                    .any(|e| e.event_type == ProductDomainEventTypeRecord::DomainUrlChanged)
-            );
+            let expected = ProductDomainEventTypeRecord::DomainUrlChanged.as_str();
+            assert!(events.iter().any(|e| e.event_type() == expected));
         }
 
         #[test]
@@ -837,11 +772,8 @@ mod tests {
             };
             let mut working = HashMap::from([(key.clone(), cmd)]);
             let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
-            assert!(
-                events
-                    .iter()
-                    .any(|e| e.event_type == ProductDomainEventTypeRecord::DomainImagesChanged)
-            );
+            let expected = ProductDomainEventTypeRecord::DomainImagesChanged.as_str();
+            assert!(events.iter().any(|e| e.event_type() == expected));
         }
 
         #[test]
@@ -862,9 +794,8 @@ mod tests {
             };
             let mut working = HashMap::from([(key.clone(), cmd)]);
             let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
-            assert!(events.iter().any(
-                |e| e.event_type == ProductDomainEventTypeRecord::DomainAuctionTimeChanged
-            ));
+            let expected = ProductDomainEventTypeRecord::DomainAuctionTimeChanged.as_str();
+            assert!(events.iter().any(|e| e.event_type() == expected));
         }
 
         #[test]
@@ -904,16 +835,10 @@ mod tests {
             let mut working = HashMap::from([(key.clone(), cmd)]);
             let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
             assert!(events.len() >= 2);
-            assert!(
-                events
-                    .iter()
-                    .any(|e| e.event_type == ProductDomainEventTypeRecord::DomainUrlChanged)
-            );
-            assert!(
-                events
-                    .iter()
-                    .any(|e| e.event_type == ProductDomainEventTypeRecord::DomainAuctionTimeChanged)
-            );
+            let url_changed = ProductDomainEventTypeRecord::DomainUrlChanged.as_str();
+            let auction_changed = ProductDomainEventTypeRecord::DomainAuctionTimeChanged.as_str();
+            assert!(events.iter().any(|e| e.event_type() == url_changed));
+            assert!(events.iter().any(|e| e.event_type() == auction_changed));
         }
     }
 
@@ -1242,8 +1167,8 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn should_create_policy_event_when_title_contains_drittes_reich() {
-            use crate::dynamodb::prohibited_content_record::ProhibitedContentRecord;
+        async fn should_create_domain_event_with_nazi_classification_when_title_contains_drittes_reich()
+         {
             use std::sync::{Arc, Mutex};
 
             let cmd = cmd_with_title("Orden aus dem Dritten Reich 1940");
@@ -1266,11 +1191,13 @@ mod tests {
 
             assert!(failures.is_empty());
             let events = captured.lock().unwrap();
+            // With the new design, classification is embedded in the domain event;
+            // no separate policy event is created for creates.
             assert!(
-                events
+                !events
                     .iter()
                     .any(|e| matches!(e, ProductEventRecord::Policy(_))),
-                "expected a policy event to be created"
+                "no policy event should be created for create operations"
             );
             assert!(
                 events
@@ -1278,25 +1205,10 @@ mod tests {
                     .any(|e| matches!(e, ProductEventRecord::Domain(_))),
                 "expected a domain create event to be created"
             );
-            let policy = events
-                .iter()
-                .find_map(|e| {
-                    if let ProductEventRecord::Policy(p) = e {
-                        Some(p)
-                    } else {
-                        None
-                    }
-                })
-                .expect("policy event must be present");
-            assert_eq!(
-                policy.prohibited_content_decision,
-                ProhibitedContentRecord::NaziGermany
-            );
         }
 
         #[tokio::test]
-        async fn should_create_policy_event_when_title_contains_nsdap() {
-            use crate::dynamodb::prohibited_content_record::ProhibitedContentRecord;
+        async fn should_create_domain_event_when_title_contains_nsdap() {
             use std::sync::{Arc, Mutex};
 
             let cmd = cmd_with_title("NSDAP Abzeichen 1935 Original");
@@ -1319,25 +1231,22 @@ mod tests {
 
             assert!(failures.is_empty());
             let events = captured.lock().unwrap();
-            let policy = events
-                .iter()
-                .find_map(|e| {
-                    if let ProductEventRecord::Policy(p) = e {
-                        Some(p)
-                    } else {
-                        None
-                    }
-                })
-                .expect("policy event must be present for NSDAP listing");
-            assert_eq!(
-                policy.prohibited_content_decision,
-                ProhibitedContentRecord::NaziGermany
+            assert!(
+                events
+                    .iter()
+                    .any(|e| matches!(e, ProductEventRecord::Domain(_))),
+                "expected a domain create event to be created for NSDAP listing"
+            );
+            assert!(
+                !events
+                    .iter()
+                    .any(|e| matches!(e, ProductEventRecord::Policy(_))),
+                "no policy event for create – classification is embedded in the domain event"
             );
         }
 
         #[tokio::test]
-        async fn should_create_policy_event_when_title_contains_waffen_ss() {
-            use crate::dynamodb::prohibited_content_record::ProhibitedContentRecord;
+        async fn should_create_domain_event_when_title_contains_waffen_ss() {
             use std::sync::{Arc, Mutex};
 
             let cmd = cmd_with_title("Waffen-SS Feldmütze WWII Original");
@@ -1360,25 +1269,22 @@ mod tests {
 
             assert!(failures.is_empty());
             let events = captured.lock().unwrap();
-            let policy = events
-                .iter()
-                .find_map(|e| {
-                    if let ProductEventRecord::Policy(p) = e {
-                        Some(p)
-                    } else {
-                        None
-                    }
-                })
-                .expect("policy event must be present for Waffen-SS listing");
-            assert_eq!(
-                policy.prohibited_content_decision,
-                ProhibitedContentRecord::NaziGermany
+            assert!(
+                events
+                    .iter()
+                    .any(|e| matches!(e, ProductEventRecord::Domain(_))),
+                "expected a domain create event to be created for Waffen-SS listing"
+            );
+            assert!(
+                !events
+                    .iter()
+                    .any(|e| matches!(e, ProductEventRecord::Policy(_))),
+                "no policy event for create – classification is embedded in the domain event"
             );
         }
 
         #[tokio::test]
-        async fn should_create_policy_event_when_english_nazi_germany_title() {
-            use crate::dynamodb::prohibited_content_record::ProhibitedContentRecord;
+        async fn should_create_domain_event_when_english_nazi_germany_title() {
             use std::sync::{Arc, Mutex};
 
             let cmd = cmd_with_title("Badge from Nazi Germany WWII collection");
@@ -1404,22 +1310,130 @@ mod tests {
             assert!(
                 events
                     .iter()
-                    .any(|e| matches!(e, ProductEventRecord::Policy(_))),
-                "expected a policy event for 'Nazi Germany' title"
+                    .any(|e| matches!(e, ProductEventRecord::Domain(_))),
+                "expected a domain create event for 'Nazi Germany' title"
             );
-            let policy = events
-                .iter()
-                .find_map(|e| {
-                    if let ProductEventRecord::Policy(p) = e {
-                        Some(p)
-                    } else {
-                        None
-                    }
-                })
-                .unwrap();
-            assert_eq!(
-                policy.prohibited_content_decision,
-                ProhibitedContentRecord::NaziGermany
+            assert!(
+                !events
+                    .iter()
+                    .any(|e| matches!(e, ProductEventRecord::Policy(_))),
+                "no policy event for create – classification is embedded in images"
+            );
+        }
+
+        #[tokio::test]
+        async fn should_create_domain_event_for_hitlerjugend_listing() {
+            use std::sync::{Arc, Mutex};
+
+            let cmd = cmd_with_title("Hitlerjugend Messer HJ M1937 mit Scheide");
+
+            let captured: Arc<Mutex<Vec<ProductEventRecord>>> = Arc::new(Mutex::new(Vec::new()));
+            let captured_clone = captured.clone();
+
+            let mut repository = empty_items_repository();
+            repository
+                .expect_put_product_event_records()
+                .returning(move |batch| {
+                    captured_clone.lock().unwrap().extend(batch.into_iter());
+                    Box::pin(async {
+                        Ok(aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput::builder().build())
+                    })
+                });
+
+            let service = make_command_product_service(&repository, &FixedFxRate());
+            let failures = service.create(vec![cmd]).await;
+
+            assert!(failures.is_empty());
+            let events = captured.lock().unwrap();
+            assert!(
+                events
+                    .iter()
+                    .any(|e| matches!(e, ProductEventRecord::Domain(_))),
+                "expected a domain create event for Hitlerjugend listing"
+            );
+            assert!(
+                !events
+                    .iter()
+                    .any(|e| matches!(e, ProductEventRecord::Policy(_))),
+                "no policy event for create – classification is embedded in images"
+            );
+        }
+
+        #[tokio::test]
+        async fn should_create_domain_event_for_swastika_listing() {
+            use std::sync::{Arc, Mutex};
+
+            let cmd = cmd_with_title("Bronze pendant with Swastika symbol WWII original");
+
+            let captured: Arc<Mutex<Vec<ProductEventRecord>>> = Arc::new(Mutex::new(Vec::new()));
+            let captured_clone = captured.clone();
+
+            let mut repository = empty_items_repository();
+            repository
+                .expect_put_product_event_records()
+                .returning(move |batch| {
+                    captured_clone.lock().unwrap().extend(batch.into_iter());
+                    Box::pin(async {
+                        Ok(aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput::builder().build())
+                    })
+                });
+
+            let service = make_command_product_service(&repository, &FixedFxRate());
+            let failures = service.create(vec![cmd]).await;
+
+            assert!(failures.is_empty());
+            let events = captured.lock().unwrap();
+            assert!(
+                events
+                    .iter()
+                    .any(|e| matches!(e, ProductEventRecord::Domain(_))),
+                "expected a domain create event for Swastika listing"
+            );
+            assert!(
+                !events
+                    .iter()
+                    .any(|e| matches!(e, ProductEventRecord::Policy(_))),
+                "no policy event for create – classification is embedded in images"
+            );
+        }
+
+        #[tokio::test]
+        async fn should_create_only_domain_event_for_nazi_listing() {
+            use std::sync::{Arc, Mutex};
+
+            let cmd = cmd_with_title("Hakenkreuz Wanddeko Porzellan 1938");
+
+            let captured: Arc<Mutex<Vec<ProductEventRecord>>> = Arc::new(Mutex::new(Vec::new()));
+            let captured_clone = captured.clone();
+
+            let mut repository = empty_items_repository();
+            repository
+                .expect_put_product_event_records()
+                .returning(move |batch| {
+                    captured_clone.lock().unwrap().extend(batch.into_iter());
+                    Box::pin(async {
+                        Ok(aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput::builder().build())
+                    })
+                });
+
+            let service = make_command_product_service(&repository, &FixedFxRate());
+            let failures = service.create(vec![cmd]).await;
+
+            assert!(failures.is_empty());
+            let events = captured.lock().unwrap();
+            // Classification is embedded in the Created domain event's images;
+            // no separate policy event is created for creates.
+            assert!(
+                events
+                    .iter()
+                    .any(|e| matches!(e, ProductEventRecord::Domain(_))),
+                "expected a domain event"
+            );
+            assert!(
+                !events
+                    .iter()
+                    .any(|e| matches!(e, ProductEventRecord::Policy(_))),
+                "no policy event should be created for create – classification is in the domain event"
             );
         }
 
@@ -1452,126 +1466,6 @@ mod tests {
                     .iter()
                     .any(|e| matches!(e, ProductEventRecord::Policy(_))),
                 "expected no policy event for a benign antique furniture listing"
-            );
-        }
-
-        #[tokio::test]
-        async fn should_create_policy_event_for_hitlerjugend_listing() {
-            use crate::dynamodb::prohibited_content_record::ProhibitedContentRecord;
-            use std::sync::{Arc, Mutex};
-
-            let cmd = cmd_with_title("Hitlerjugend Messer HJ M1937 mit Scheide");
-
-            let captured: Arc<Mutex<Vec<ProductEventRecord>>> = Arc::new(Mutex::new(Vec::new()));
-            let captured_clone = captured.clone();
-
-            let mut repository = empty_items_repository();
-            repository
-                .expect_put_product_event_records()
-                .returning(move |batch| {
-                    captured_clone.lock().unwrap().extend(batch.into_iter());
-                    Box::pin(async {
-                        Ok(aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput::builder().build())
-                    })
-                });
-
-            let service = make_command_product_service(&repository, &FixedFxRate());
-            let failures = service.create(vec![cmd]).await;
-
-            assert!(failures.is_empty());
-            let events = captured.lock().unwrap();
-            let policy = events
-                .iter()
-                .find_map(|e| {
-                    if let ProductEventRecord::Policy(p) = e {
-                        Some(p)
-                    } else {
-                        None
-                    }
-                })
-                .expect("policy event must be present for Hitlerjugend listing");
-            assert_eq!(
-                policy.prohibited_content_decision,
-                ProhibitedContentRecord::NaziGermany
-            );
-        }
-
-        #[tokio::test]
-        async fn should_create_policy_event_for_swastika_listing() {
-            use crate::dynamodb::prohibited_content_record::ProhibitedContentRecord;
-            use std::sync::{Arc, Mutex};
-
-            let cmd = cmd_with_title("Bronze pendant with Swastika symbol WWII original");
-
-            let captured: Arc<Mutex<Vec<ProductEventRecord>>> = Arc::new(Mutex::new(Vec::new()));
-            let captured_clone = captured.clone();
-
-            let mut repository = empty_items_repository();
-            repository
-                .expect_put_product_event_records()
-                .returning(move |batch| {
-                    captured_clone.lock().unwrap().extend(batch.into_iter());
-                    Box::pin(async {
-                        Ok(aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput::builder().build())
-                    })
-                });
-
-            let service = make_command_product_service(&repository, &FixedFxRate());
-            let failures = service.create(vec![cmd]).await;
-
-            assert!(failures.is_empty());
-            let events = captured.lock().unwrap();
-            let policy = events
-                .iter()
-                .find_map(|e| {
-                    if let ProductEventRecord::Policy(p) = e {
-                        Some(p)
-                    } else {
-                        None
-                    }
-                })
-                .expect("policy event must be present for swastika listing");
-            assert_eq!(
-                policy.prohibited_content_decision,
-                ProhibitedContentRecord::NaziGermany
-            );
-        }
-
-        #[tokio::test]
-        async fn should_create_both_domain_and_policy_events_for_nazi_listing() {
-            use std::sync::{Arc, Mutex};
-
-            let cmd = cmd_with_title("Hakenkreuz Wanddeko Porzellan 1938");
-
-            let captured: Arc<Mutex<Vec<ProductEventRecord>>> = Arc::new(Mutex::new(Vec::new()));
-            let captured_clone = captured.clone();
-
-            let mut repository = empty_items_repository();
-            repository
-                .expect_put_product_event_records()
-                .returning(move |batch| {
-                    captured_clone.lock().unwrap().extend(batch.into_iter());
-                    Box::pin(async {
-                        Ok(aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput::builder().build())
-                    })
-                });
-
-            let service = make_command_product_service(&repository, &FixedFxRate());
-            let failures = service.create(vec![cmd]).await;
-
-            assert!(failures.is_empty());
-            let events = captured.lock().unwrap();
-            assert!(
-                events
-                    .iter()
-                    .any(|e| matches!(e, ProductEventRecord::Policy(_))),
-                "expected a policy event"
-            );
-            assert!(
-                events
-                    .iter()
-                    .any(|e| matches!(e, ProductEventRecord::Domain(_))),
-                "expected a domain event"
             );
         }
     }

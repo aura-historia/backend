@@ -1,4 +1,5 @@
 pub mod description;
+pub mod heuristics;
 pub mod product;
 pub mod product_event;
 pub mod product_image;
