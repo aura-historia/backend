@@ -413,9 +413,10 @@ impl Product {
             ),
         });
 
-        // Emit a policy event when heuristics detect Nazi content and new
-        // images are being added, recording the classification decision.
-        if decision == ProhibitedContent::NaziGermany && has_new_images {
+        // Emit a policy event whenever new images are added, recording the
+        // heuristic classification decision (None or NaziGermany) so that
+        // downstream consumers can act on it regardless of the decision outcome.
+        if has_new_images {
             events.push(Event {
                 aggregate_id: self.product_id,
                 event_id: EventId::new(),
@@ -426,7 +427,7 @@ impl Product {
                             shop_id: self.shop_id,
                             seller_id: self.seller_id,
                             shops_product_id: self.shops_product_id.clone(),
-                            decision: ProhibitedContent::NaziGermany,
+                            decision,
                             reason: ProhibitedContentReason::ProductText,
                         },
                     ),
@@ -1277,15 +1278,18 @@ mod tests {
         }
 
         #[test]
-        fn should_not_emit_policy_event_when_benign_content_and_new_images_added() {
+        fn should_emit_policy_event_with_none_decision_when_benign_content_and_new_images_added() {
             let mut product = product_with_benign_title();
             product.images = vec![];
             let events = product.change_images(vec![img("https://img.example.com/new.jpg")]);
             assert!(
-                !events
-                    .iter()
-                    .any(|e| matches!(&e.payload, ProductEventPayload::ProductPolicyEvent(_))),
-                "no policy event expected for benign listing"
+                events.iter().any(|e| matches!(
+                    &e.payload,
+                    ProductEventPayload::ProductPolicyEvent(
+                        ProductPolicyEventPayload::ProhibitedContentDecision(p)
+                    ) if p.decision == ProhibitedContent::None
+                )),
+                "expected a None policy event when new images added to benign listing"
             );
         }
 
@@ -1335,16 +1339,22 @@ mod tests {
         }
 
         #[test]
-        fn should_emit_only_domain_event_when_benign_new_images() {
+        fn should_emit_both_domain_and_policy_events_when_benign_new_images() {
             let mut product = product_with_benign_title();
             product.images = vec![];
             let events = product.change_images(vec![img("https://img.example.com/new.jpg")]);
-            assert_eq!(1, events.len(), "expected only domain event");
+            assert_eq!(2, events.len(), "expected domain + policy event");
             assert!(events.iter().any(|e| matches!(
                 &e.payload,
                 ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::ImagesChanged(
                     _
                 ))
+            )));
+            assert!(events.iter().any(|e| matches!(
+                &e.payload,
+                ProductEventPayload::ProductPolicyEvent(
+                    ProductPolicyEventPayload::ProhibitedContentDecision(p)
+                ) if p.decision == ProhibitedContent::None
             )));
         }
     }
