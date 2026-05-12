@@ -17,7 +17,7 @@ use product::service::product_command::UpsertProductCommand;
 use serde_json::Value;
 use shop::core::partner_status::ShopPartnerStatus;
 use shop::service::get_service::{GetShopError, GetShopService};
-use std::collections::HashMap;
+use std::collections::HashSet;
 use tracing::{error, info, warn};
 
 pub const SHOPIFY_TOPIC_PRODUCTS_CREATE: &str = "products/create";
@@ -128,10 +128,12 @@ pub async fn handler(
     info!(count = count, "Handler invoked.");
 
     let mut failed_message_ids: Vec<String> = Vec::new();
-    // Tracks which message ID produced each command so failed commands can be
-    // mapped back to their SQS message after the batch upsert.
-    let mut message_id_by_key: HashMap<ProductKey, String> = HashMap::new();
-    let mut commands: Vec<UpsertProductCommand> = Vec::new();
+    // Tracks the SQS message ID for each resolved command so that failed
+    // commands returned by the batch upsert can be mapped back to their
+    // originating message IDs.  A Vec (not a map keyed by ProductKey) is
+    // used intentionally so that a batch containing multiple events for the
+    // same product does not displace earlier entries.
+    let mut pending: Vec<(String, UpsertProductCommand)> = Vec::new();
 
     for message in event.payload.records {
         let message_id = match message.message_id {
@@ -160,19 +162,7 @@ pub async fn handler(
         };
 
         match resolve_command(eb_event, shop_service).await {
-            Ok(Some(cmd)) => {
-                if let Some(displaced_msg_id) = message_id_by_key.insert(cmd.key(), message_id) {
-                    // Two messages in the same batch share the same ProductKey. The
-                    // earlier message is displaced in the map; report it as failed so
-                    // it is retried rather than silently dropped.
-                    warn!(
-                        messageId = %displaced_msg_id,
-                        "Duplicate ProductKey in batch; earlier message displaced, reporting as failure."
-                    );
-                    failed_message_ids.push(displaced_msg_id);
-                }
-                commands.push(cmd);
-            }
+            Ok(Some(cmd)) => pending.push((message_id, cmd)),
             Ok(None) => {}
             Err(err) => {
                 warn!(messageId = %message_id, error = %err, "Failed processing Shopify event.");
@@ -181,15 +171,18 @@ pub async fn handler(
         }
     }
 
-    if !commands.is_empty() {
+    if !pending.is_empty() {
+        let commands: Vec<UpsertProductCommand> =
+            pending.iter().map(|(_, cmd)| cmd.clone()).collect();
         let failed_commands = product_service.upsert(commands).await;
-        for failed_cmd in failed_commands {
-            if let Some(msg_id) = message_id_by_key.remove(&failed_cmd.key()) {
-                failed_message_ids.push(msg_id);
-            } else {
-                warn!(
-                    "Failed command has no matching message ID in batch tracking map; failure may be underreported."
-                );
+        // Collect the ProductKeys of every command that the upsert reported as
+        // failed.  All pending messages that contributed a command with one of
+        // those keys are reported as SQS failures so they are retried.
+        let failed_keys: HashSet<ProductKey> =
+            failed_commands.into_iter().map(|c| c.key()).collect();
+        for (msg_id, cmd) in &pending {
+            if failed_keys.contains(&cmd.key()) {
+                failed_message_ids.push(msg_id.clone());
             }
         }
     }
