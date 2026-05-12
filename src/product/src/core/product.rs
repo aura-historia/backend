@@ -1,4 +1,5 @@
 use crate::core::description::Description;
+use crate::core::heuristics;
 use crate::core::product_event::domain::{
     ProductAuctionTimeChangeDomainEventPayload, ProductCreatedDomainEventPayload,
     ProductDomainEventPayload, ProductEstimatePriceChangeDomainEventPayload,
@@ -34,7 +35,7 @@ use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use shop::core::shop_type::ShopType;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
 use tracing::{error, warn};
 use url::Url;
@@ -98,6 +99,17 @@ impl Product {
         auction_start: Option<OffsetDateTime>,
         auction_end: Option<OffsetDateTime>,
     ) -> ProductDomainEvent {
+        let decision = heuristics::classify_by_text(
+            native_title.payload.as_ref(),
+            native_description.as_ref().map(|d| d.payload.as_ref()),
+        );
+        let images = images
+            .into_iter()
+            .map(|mut img| {
+                img.prohibited_content = decision;
+                img
+            })
+            .collect::<Vec<_>>();
         let payload = ProductCreatedDomainEventPayload {
             product_slug_id: SlugId::from(native_title.payload.as_ref()),
             shop_slug_id: SlugId::from(shop_name.as_ref()),
@@ -344,24 +356,87 @@ impl Product {
         })
     }
 
-    pub fn change_images(&mut self, images: Vec<ProductImage>) -> Option<ProductDomainEvent> {
-        if self.images == images {
-            return None;
+    pub fn change_images(&mut self, images: Vec<ProductImage>) -> Vec<ProductEvent> {
+        let existing_urls: HashSet<&Url> = self.images.iter().map(|img| &img.url).collect();
+        let new_urls: HashSet<&Url> = images.iter().map(|img| &img.url).collect();
+
+        if existing_urls == new_urls {
+            return vec![];
         }
-        self.images = images.clone();
-        Some(Event {
+
+        let has_new_images = images.iter().any(|img| !existing_urls.contains(&img.url));
+
+        // Text-based heuristic decision for new or previously-unclassified images.
+        let decision = heuristics::classify_by_text(
+            self.native_title.payload.as_ref(),
+            self.native_description.as_ref().map(|d| d.payload.as_ref()),
+        );
+
+        // Build a lookup of existing image classifications by URL so that
+        // already-classified images (None or NaziGermany) are not downgraded
+        // to Unknown when the caller sends raw/unclassified images.
+        let existing_by_url: HashMap<&Url, ProhibitedContent> = self
+            .images
+            .iter()
+            .map(|img| (&img.url, img.prohibited_content))
+            .collect();
+
+        let new_images: Vec<ProductImage> = images
+            .into_iter()
+            .map(|mut img| {
+                img.prohibited_content = match existing_by_url.get(&img.url).copied() {
+                    // Preserve a previously established (non-Unknown) classification.
+                    Some(ProhibitedContent::None) | Some(ProhibitedContent::NaziGermany) => {
+                        existing_by_url[&img.url]
+                    }
+                    // Unknown or new image: apply the text-based heuristic.
+                    _ => decision,
+                };
+                img
+            })
+            .collect();
+
+        self.images = new_images.clone();
+
+        let timestamp = OffsetDateTime::now_utc();
+        let mut events: Vec<ProductEvent> = Vec::new();
+
+        events.push(Event {
             aggregate_id: self.product_id,
             event_id: EventId::new(),
-            timestamp: OffsetDateTime::now_utc(),
-            payload: ProductDomainEventPayload::ImagesChanged(
-                ProductImagesChangeDomainEventPayload {
+            timestamp,
+            payload: ProductEventPayload::ProductDomainEvent(
+                ProductDomainEventPayload::ImagesChanged(ProductImagesChangeDomainEventPayload {
                     shop_id: self.shop_id,
                     seller_id: self.seller_id,
                     shops_product_id: self.shops_product_id.clone(),
-                    images,
-                },
+                    images: new_images,
+                }),
             ),
-        })
+        });
+
+        // Emit a policy event when heuristics detect Nazi content and new
+        // images are being added, recording the classification decision.
+        if decision == ProhibitedContent::NaziGermany && has_new_images {
+            events.push(Event {
+                aggregate_id: self.product_id,
+                event_id: EventId::new(),
+                timestamp,
+                payload: ProductEventPayload::ProductPolicyEvent(
+                    ProductPolicyEventPayload::ProhibitedContentDecision(
+                        ProhibitedContentProductPolicyEventPayload {
+                            shop_id: self.shop_id,
+                            seller_id: self.seller_id,
+                            shops_product_id: self.shops_product_id.clone(),
+                            decision: ProhibitedContent::NaziGermany,
+                            reason: ProhibitedContentReason::ProductText,
+                        },
+                    ),
+                ),
+            });
+        }
+
+        events
     }
 
     pub fn change_auction_time(
@@ -536,7 +611,9 @@ impl Product {
                 ProductPolicyEventPayload::ProhibitedContentDecision(p) => {
                     if p.decision != ProhibitedContent::Unknown {
                         for image in &mut self.images {
-                            image.prohibited_content = p.decision;
+                            if image.prohibited_content == ProhibitedContent::Unknown {
+                                image.prohibited_content = p.decision;
+                            }
                         }
                     }
                 }
@@ -758,6 +835,633 @@ mod faker {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let product: Product = config.fake_with_rng(rng);
             product.localized(&Currency::Eur, &[Language::En])
+        }
+    }
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::product_event::domain::ProductDomainEventPayload;
+    use crate::core::product_event::policy::ProductPolicyEventPayload;
+    use fake::{Fake, Faker};
+    use url::Url;
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
+    fn make_url(path: &str) -> Url {
+        Url::parse(&format!("https://example.com{path}")).unwrap()
+    }
+
+    fn img(url: &str) -> ProductImage {
+        ProductImage {
+            url: Url::parse(url).unwrap(),
+            prohibited_content: ProhibitedContent::Unknown,
+        }
+    }
+
+    fn img_with(url: &str, pc: ProhibitedContent) -> ProductImage {
+        ProductImage {
+            url: Url::parse(url).unwrap(),
+            prohibited_content: pc,
+        }
+    }
+
+    fn product_with_nazi_title() -> Product {
+        let mut p: Product = Faker.fake();
+        p.native_title = Localized::new(Language::De, Title::from("NSDAP Abzeichen 1935"));
+        p.native_description = None;
+        p
+    }
+
+    fn product_with_benign_title() -> Product {
+        let mut p: Product = Faker.fake();
+        p.native_title = Localized::new(Language::De, Title::from("Barocker Schrank Mahagoni"));
+        p.native_description = None;
+        p
+    }
+
+    fn create_event_for(title: &str, images: Vec<ProductImage>) -> ProductDomainEvent {
+        Product::create(
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            ShopType::AuctionHouse,
+            None,
+            None,
+            Localized::new(Language::De, Title::from(title)),
+            None,
+            None,
+            HashMap::new(),
+            None,
+            HashMap::new(),
+            None,
+            HashMap::new(),
+            ProductState::Available,
+            make_url("/item"),
+            images,
+            None,
+            None,
+        )
+    }
+
+    // -------------------------------------------------------------------------
+    // Product::create — image classification
+    // -------------------------------------------------------------------------
+
+    mod create_image_classification {
+        use super::*;
+
+        #[test]
+        fn should_classify_images_as_nazi_germany_when_title_contains_nazi_keyword() {
+            let images = vec![img("https://img.example.com/a.jpg")];
+            let event = create_event_for("Drittes Reich Orden", images);
+            if let ProductDomainEventPayload::Created(payload) = event.payload {
+                assert!(
+                    payload
+                        .images
+                        .iter()
+                        .all(|i| i.prohibited_content == ProhibitedContent::NaziGermany),
+                    "all images should be NaziGermany for a nazi listing"
+                );
+            } else {
+                panic!("expected Created event");
+            }
+        }
+
+        #[test]
+        fn should_classify_images_as_none_when_title_is_benign() {
+            let images = vec![img("https://img.example.com/b.jpg")];
+            let event = create_event_for("Antiker Stuhl 19. Jahrhundert", images);
+            if let ProductDomainEventPayload::Created(payload) = event.payload {
+                assert!(
+                    payload
+                        .images
+                        .iter()
+                        .all(|i| i.prohibited_content == ProhibitedContent::None),
+                    "all images should be None for a benign listing"
+                );
+            } else {
+                panic!("expected Created event");
+            }
+        }
+
+        #[test]
+        fn should_classify_all_images_uniformly_when_multiple_images_and_nazi_title() {
+            let images = vec![
+                img("https://img.example.com/1.jpg"),
+                img("https://img.example.com/2.jpg"),
+                img("https://img.example.com/3.jpg"),
+            ];
+            let event = create_event_for("Hakenkreuz Wanddeko 1938", images);
+            if let ProductDomainEventPayload::Created(payload) = event.payload {
+                assert_eq!(3, payload.images.len());
+                assert!(
+                    payload
+                        .images
+                        .iter()
+                        .all(|i| i.prohibited_content == ProhibitedContent::NaziGermany)
+                );
+            } else {
+                panic!("expected Created event");
+            }
+        }
+
+        #[test]
+        fn should_return_empty_images_in_created_event_when_no_images_provided() {
+            let event = create_event_for("Waffen-SS Uniform 1943", vec![]);
+            if let ProductDomainEventPayload::Created(payload) = event.payload {
+                assert!(payload.images.is_empty());
+            } else {
+                panic!("expected Created event");
+            }
+        }
+
+        #[test]
+        fn should_override_any_incoming_prohibited_content_with_heuristic_decision_for_nazi() {
+            // Even if the caller sets Unknown, the heuristic should classify correctly.
+            let images = vec![img_with(
+                "https://img.example.com/c.jpg",
+                ProhibitedContent::Unknown,
+            )];
+            let event = create_event_for("NSDAP Abzeichen 1935", images);
+            if let ProductDomainEventPayload::Created(payload) = event.payload {
+                assert_eq!(
+                    payload.images[0].prohibited_content,
+                    ProhibitedContent::NaziGermany
+                );
+            } else {
+                panic!("expected Created event");
+            }
+        }
+
+        #[test]
+        fn should_override_any_incoming_prohibited_content_with_heuristic_decision_for_benign() {
+            // Even if the caller sets Unknown, benign heuristic gives None.
+            let images = vec![img_with(
+                "https://img.example.com/d.jpg",
+                ProhibitedContent::Unknown,
+            )];
+            let event = create_event_for("Antiker Schrank", images);
+            if let ProductDomainEventPayload::Created(payload) = event.payload {
+                assert_eq!(
+                    payload.images[0].prohibited_content,
+                    ProhibitedContent::None
+                );
+            } else {
+                panic!("expected Created event");
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Product::change_images — change detection
+    // -------------------------------------------------------------------------
+
+    mod change_images_detection {
+        use super::*;
+
+        #[test]
+        fn should_return_empty_when_same_images_same_order() {
+            let mut product = product_with_benign_title();
+            product.images = vec![
+                img_with("https://img.example.com/1.jpg", ProhibitedContent::None),
+                img_with("https://img.example.com/2.jpg", ProhibitedContent::None),
+            ];
+            let events = product.change_images(vec![
+                img("https://img.example.com/1.jpg"),
+                img("https://img.example.com/2.jpg"),
+            ]);
+            assert!(events.is_empty(), "no change expected when same URLs");
+        }
+
+        #[test]
+        fn should_return_empty_when_same_images_different_order() {
+            let mut product = product_with_benign_title();
+            product.images = vec![
+                img_with("https://img.example.com/1.jpg", ProhibitedContent::None),
+                img_with("https://img.example.com/2.jpg", ProhibitedContent::None),
+            ];
+            // Same URLs but reversed order → no change
+            let events = product.change_images(vec![
+                img("https://img.example.com/2.jpg"),
+                img("https://img.example.com/1.jpg"),
+            ]);
+            assert!(
+                events.is_empty(),
+                "no change expected for reordered identical images"
+            );
+        }
+
+        #[test]
+        fn should_emit_domain_event_when_image_is_added() {
+            let mut product = product_with_benign_title();
+            product.images = vec![img_with(
+                "https://img.example.com/existing.jpg",
+                ProhibitedContent::None,
+            )];
+            let events = product.change_images(vec![
+                img("https://img.example.com/existing.jpg"),
+                img("https://img.example.com/new.jpg"),
+            ]);
+            assert!(!events.is_empty(), "expected events when image is added");
+            assert!(events.iter().any(|e| matches!(
+                &e.payload,
+                ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::ImagesChanged(
+                    _
+                ))
+            )));
+        }
+
+        #[test]
+        fn should_emit_domain_event_when_image_is_removed() {
+            let mut product = product_with_benign_title();
+            product.images = vec![
+                img_with("https://img.example.com/1.jpg", ProhibitedContent::None),
+                img_with("https://img.example.com/2.jpg", ProhibitedContent::None),
+            ];
+            // Remove the second image
+            let events = product.change_images(vec![img("https://img.example.com/1.jpg")]);
+            assert!(!events.is_empty(), "expected event when image is removed");
+        }
+
+        #[test]
+        fn should_emit_domain_event_when_all_images_replaced() {
+            let mut product = product_with_benign_title();
+            product.images = vec![img_with(
+                "https://img.example.com/old.jpg",
+                ProhibitedContent::None,
+            )];
+            let events = product.change_images(vec![img("https://img.example.com/new.jpg")]);
+            assert!(
+                !events.is_empty(),
+                "expected event when all images replaced"
+            );
+        }
+
+        #[test]
+        fn should_update_product_images_after_change() {
+            let mut product = product_with_benign_title();
+            product.images = vec![];
+            let new_url = "https://img.example.com/added.jpg";
+            product.change_images(vec![img(new_url)]);
+            assert_eq!(1, product.images.len());
+            assert_eq!(product.images[0].url, Url::parse(new_url).unwrap());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Product::change_images — ProhibitedContent preservation
+    // -------------------------------------------------------------------------
+
+    mod change_images_preservation {
+        use super::*;
+
+        #[test]
+        fn should_preserve_none_classification_for_continuing_image_when_incoming_is_unknown() {
+            let mut product = product_with_nazi_title(); // Nazi title → heuristic = NaziGermany
+            product.images = vec![img_with(
+                "https://img.example.com/1.jpg",
+                ProhibitedContent::None, // Explicitly classified as safe
+            )];
+            // Update with the same URL but Unknown (as external system would send)
+            let events = product.change_images(vec![img("https://img.example.com/1.jpg")]);
+            assert!(events.is_empty(), "no change if same URLs");
+            // The image should still be None, not overridden by Nazi heuristic
+            assert_eq!(
+                product.images[0].prohibited_content,
+                ProhibitedContent::None
+            );
+        }
+
+        #[test]
+        fn should_preserve_nazi_germany_classification_for_continuing_image_when_incoming_is_unknown()
+         {
+            let mut product = product_with_benign_title(); // Benign title → heuristic = None
+            product.images = vec![img_with(
+                "https://img.example.com/1.jpg",
+                ProhibitedContent::NaziGermany, // Explicitly classified as prohibited
+            )];
+            // Caller sends same URL with Unknown – benign product
+            let events = product.change_images(vec![img("https://img.example.com/1.jpg")]);
+            assert!(events.is_empty(), "no change if same URLs");
+            // Should preserve NaziGermany, not reset to None from benign heuristic
+            assert_eq!(
+                product.images[0].prohibited_content,
+                ProhibitedContent::NaziGermany
+            );
+        }
+
+        #[test]
+        fn should_apply_heuristic_to_new_images_when_nazi_title() {
+            let mut product = product_with_nazi_title();
+            product.images = vec![img_with(
+                "https://img.example.com/existing.jpg",
+                ProhibitedContent::None,
+            )];
+            // Add a brand-new image
+            let events = product.change_images(vec![
+                img("https://img.example.com/existing.jpg"),
+                img("https://img.example.com/new.jpg"),
+            ]);
+            assert!(!events.is_empty());
+            // New image should be classified as NaziGermany
+            let new_img = product
+                .images
+                .iter()
+                .find(|i| i.url == Url::parse("https://img.example.com/new.jpg").unwrap())
+                .expect("new image should be present");
+            assert_eq!(
+                new_img.prohibited_content,
+                ProhibitedContent::NaziGermany,
+                "new image should be classified by heuristic"
+            );
+            // Existing None image should be preserved
+            let existing = product
+                .images
+                .iter()
+                .find(|i| i.url == Url::parse("https://img.example.com/existing.jpg").unwrap())
+                .expect("existing image should be present");
+            assert_eq!(
+                existing.prohibited_content,
+                ProhibitedContent::None,
+                "existing None classification should be preserved"
+            );
+        }
+
+        #[test]
+        fn should_apply_heuristic_to_new_images_when_benign_title() {
+            let mut product = product_with_benign_title();
+            product.images = vec![img_with(
+                "https://img.example.com/existing.jpg",
+                ProhibitedContent::NaziGermany,
+            )];
+            // Add a brand-new image
+            let events = product.change_images(vec![
+                img("https://img.example.com/existing.jpg"),
+                img("https://img.example.com/new.jpg"),
+            ]);
+            assert!(!events.is_empty());
+            // New image should be classified as None (benign title)
+            let new_img = product
+                .images
+                .iter()
+                .find(|i| i.url == Url::parse("https://img.example.com/new.jpg").unwrap())
+                .unwrap();
+            assert_eq!(new_img.prohibited_content, ProhibitedContent::None);
+            // Existing NaziGermany should be preserved
+            let existing = product
+                .images
+                .iter()
+                .find(|i| i.url == Url::parse("https://img.example.com/existing.jpg").unwrap())
+                .unwrap();
+            assert_eq!(existing.prohibited_content, ProhibitedContent::NaziGermany);
+        }
+
+        #[test]
+        fn should_apply_heuristic_to_unknown_continuing_images() {
+            let mut product = product_with_nazi_title();
+            product.images = vec![img_with(
+                "https://img.example.com/1.jpg",
+                ProhibitedContent::Unknown, // Not yet classified
+            )];
+            // Force a change by removing then re-adding (simulating a new image)
+            // Actually, same URL = no change. Let's instead test with a second image
+            // to force a change event, and keep the Unknown image continuing.
+            let events = product.change_images(vec![
+                img("https://img.example.com/1.jpg"), // continuing Unknown → apply heuristic
+                img("https://img.example.com/2.jpg"), // new image
+            ]);
+            assert!(!events.is_empty());
+            // The Unknown continuing image should be reclassified via heuristic
+            let first = product
+                .images
+                .iter()
+                .find(|i| i.url == Url::parse("https://img.example.com/1.jpg").unwrap())
+                .unwrap();
+            assert_eq!(
+                first.prohibited_content,
+                ProhibitedContent::NaziGermany,
+                "Unknown continuing image should be classified by heuristic"
+            );
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Product::change_images — policy event emission
+    // -------------------------------------------------------------------------
+
+    mod change_images_policy_events {
+        use super::*;
+
+        #[test]
+        fn should_emit_policy_event_when_nazi_content_and_new_images_added() {
+            let mut product = product_with_nazi_title();
+            product.images = vec![];
+            let events = product.change_images(vec![img("https://img.example.com/new.jpg")]);
+            assert!(
+                events.iter().any(|e| matches!(
+                    &e.payload,
+                    ProductEventPayload::ProductPolicyEvent(
+                        ProductPolicyEventPayload::ProhibitedContentDecision(p)
+                    ) if p.decision == ProhibitedContent::NaziGermany
+                )),
+                "expected a NaziGermany policy event when new images added to Nazi listing"
+            );
+        }
+
+        #[test]
+        fn should_not_emit_policy_event_when_benign_content_and_new_images_added() {
+            let mut product = product_with_benign_title();
+            product.images = vec![];
+            let events = product.change_images(vec![img("https://img.example.com/new.jpg")]);
+            assert!(
+                !events
+                    .iter()
+                    .any(|e| matches!(&e.payload, ProductEventPayload::ProductPolicyEvent(_))),
+                "no policy event expected for benign listing"
+            );
+        }
+
+        #[test]
+        fn should_not_emit_policy_event_when_only_images_removed_with_nazi_title() {
+            let mut product = product_with_nazi_title();
+            product.images = vec![
+                img_with(
+                    "https://img.example.com/1.jpg",
+                    ProhibitedContent::NaziGermany,
+                ),
+                img_with(
+                    "https://img.example.com/2.jpg",
+                    ProhibitedContent::NaziGermany,
+                ),
+            ];
+            // Remove an image – no new images added
+            let events = product.change_images(vec![img_with(
+                "https://img.example.com/1.jpg",
+                ProhibitedContent::NaziGermany,
+            )]);
+            assert!(
+                !events
+                    .iter()
+                    .any(|e| matches!(&e.payload, ProductEventPayload::ProductPolicyEvent(_))),
+                "no policy event when only removing images (no new images)"
+            );
+        }
+
+        #[test]
+        fn should_emit_both_domain_and_policy_events_when_nazi_new_images() {
+            let mut product = product_with_nazi_title();
+            product.images = vec![];
+            let events = product.change_images(vec![img("https://img.example.com/new.jpg")]);
+            assert_eq!(2, events.len(), "expected domain + policy event");
+            assert!(events.iter().any(|e| matches!(
+                &e.payload,
+                ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::ImagesChanged(
+                    _
+                ))
+            )));
+            assert!(
+                events
+                    .iter()
+                    .any(|e| matches!(&e.payload, ProductEventPayload::ProductPolicyEvent(_)))
+            );
+        }
+
+        #[test]
+        fn should_emit_only_domain_event_when_benign_new_images() {
+            let mut product = product_with_benign_title();
+            product.images = vec![];
+            let events = product.change_images(vec![img("https://img.example.com/new.jpg")]);
+            assert_eq!(1, events.len(), "expected only domain event");
+            assert!(events.iter().any(|e| matches!(
+                &e.payload,
+                ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::ImagesChanged(
+                    _
+                ))
+            )));
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Product::apply — policy event replay
+    // -------------------------------------------------------------------------
+
+    mod apply_policy_event {
+        use super::*;
+        use crate::core::product_event::ProductEventPayload;
+        use crate::core::product_event::policy::ProductPolicyEventPayload;
+
+        fn make_policy_event(product: &Product, decision: ProhibitedContent) -> ProductEvent {
+            Event {
+                aggregate_id: product.product_id,
+                event_id: EventId::new(),
+                timestamp: OffsetDateTime::now_utc(),
+                payload: ProductEventPayload::ProductPolicyEvent(
+                    ProductPolicyEventPayload::ProhibitedContentDecision(
+                        ProhibitedContentProductPolicyEventPayload {
+                            shop_id: product.shop_id,
+                            seller_id: product.seller_id,
+                            shops_product_id: product.shops_product_id.clone(),
+                            decision,
+                            reason: ProhibitedContentReason::ProductText,
+                        },
+                    ),
+                ),
+            }
+        }
+
+        #[test]
+        fn should_classify_unknown_images_when_policy_event_applied() {
+            let mut product: Product = Faker.fake();
+            product.images = vec![img("https://img.example.com/1.jpg")]; // Unknown
+
+            let policy = make_policy_event(&product, ProhibitedContent::NaziGermany);
+            product.apply(policy);
+
+            assert_eq!(
+                product.images[0].prohibited_content,
+                ProhibitedContent::NaziGermany
+            );
+        }
+
+        #[test]
+        fn should_not_override_none_classification_when_policy_event_applied() {
+            let mut product: Product = Faker.fake();
+            product.images = vec![img_with(
+                "https://img.example.com/1.jpg",
+                ProhibitedContent::None,
+            )];
+
+            let policy = make_policy_event(&product, ProhibitedContent::NaziGermany);
+            product.apply(policy);
+
+            assert_eq!(
+                product.images[0].prohibited_content,
+                ProhibitedContent::None,
+                "None classification must not be overridden by policy event"
+            );
+        }
+
+        #[test]
+        fn should_not_override_nazi_germany_classification_when_policy_event_applied() {
+            let mut product: Product = Faker.fake();
+            product.images = vec![img_with(
+                "https://img.example.com/1.jpg",
+                ProhibitedContent::NaziGermany,
+            )];
+
+            // Even if a second NaziGermany policy event is applied, it's a no-op on Unknown check
+            let policy = make_policy_event(&product, ProhibitedContent::NaziGermany);
+            product.apply(policy);
+
+            assert_eq!(
+                product.images[0].prohibited_content,
+                ProhibitedContent::NaziGermany
+            );
+        }
+
+        #[test]
+        fn should_only_update_unknown_images_when_policy_event_applied_to_mixed_images() {
+            let mut product: Product = Faker.fake();
+            product.images = vec![
+                img_with(
+                    "https://img.example.com/classified.jpg",
+                    ProhibitedContent::None,
+                ),
+                img("https://img.example.com/unclassified.jpg"), // Unknown
+                img_with(
+                    "https://img.example.com/nazi.jpg",
+                    ProhibitedContent::NaziGermany,
+                ),
+            ];
+
+            let policy = make_policy_event(&product, ProhibitedContent::NaziGermany);
+            product.apply(policy);
+
+            // None → unchanged
+            assert_eq!(
+                product.images[0].prohibited_content,
+                ProhibitedContent::None
+            );
+            // Unknown → NaziGermany
+            assert_eq!(
+                product.images[1].prohibited_content,
+                ProhibitedContent::NaziGermany
+            );
+            // NaziGermany → unchanged
+            assert_eq!(
+                product.images[2].prohibited_content,
+                ProhibitedContent::NaziGermany
+            );
         }
     }
 }

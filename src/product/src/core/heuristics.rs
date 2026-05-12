@@ -1,18 +1,7 @@
 use crate::core::prohibited_content::ProhibitedContent;
-use crate::service::product_command::CreateProductCommand;
-
-/// Extracts all searchable text from a product command by combining
-/// the native title with the native description (if present).
-fn extract_text(cmd: &CreateProductCommand) -> String {
-    let title = cmd.native_title.payload.as_ref();
-    match &cmd.native_description {
-        Some(desc) => format!("{} {}", title, desc.payload.as_ref()),
-        None => title.to_owned(),
-    }
-}
 
 // ---------------------------------------------------------------------------
-// classify_images – ProhibitedContent::NaziGermany detection
+// classify_by_text – ProhibitedContent::NaziGermany detection
 // ---------------------------------------------------------------------------
 
 /// High-confidence terms that strongly indicate Nazi-era imagery or
@@ -214,29 +203,28 @@ fn contains_keyword(text: &str, keyword: &str) -> bool {
     false
 }
 
-/// Analyses the product text and decides on a `ProhibitedContent` flag for
-/// the images.
+/// Analyses the product title and optional description text and returns the
+/// appropriate [`ProhibitedContent`] decision for images.
 ///
 /// * If the text **clearly** suggests Nazi-related content →
-///   `ProhibitedContent::NaziGermany` on every image.
-/// * If no indicator is found → `ProhibitedContent::None`.
-/// * `ProhibitedContent::Unknown` is **never** set by this function – it is
-///   the default before any analysis runs.
-pub fn classify_images(cmd: &mut CreateProductCommand) {
-    let text = extract_text(cmd).to_lowercase();
+///   [`ProhibitedContent::NaziGermany`].
+/// * If no indicator is found → [`ProhibitedContent::None`].
+/// * [`ProhibitedContent::Unknown`] is **never** returned by this function –
+///   it is the default before any analysis runs.
+pub fn classify_by_text(title: &str, description: Option<&str>) -> ProhibitedContent {
+    let text = match description {
+        Some(desc) => format!("{title} {desc}").to_lowercase(),
+        None => title.to_lowercase(),
+    };
 
     let is_nazi = NAZI_KEYWORDS
         .iter()
         .any(|keyword| contains_keyword(&text, keyword));
 
-    let decision = if is_nazi {
+    if is_nazi {
         ProhibitedContent::NaziGermany
     } else {
         ProhibitedContent::None
-    };
-
-    for image in &mut cmd.images {
-        image.prohibited_content = decision;
     }
 }
 
@@ -247,26 +235,6 @@ pub fn classify_images(cmd: &mut CreateProductCommand) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::description::Description;
-    use crate::core::product_image::ProductImage;
-    use crate::core::title::Title;
-    use common::language::domain::Language;
-    use common::localized::Localized;
-    use fake::{Fake, Faker};
-
-    /// Helper: build a `CreateProductCommand` with the given title and
-    /// optional description text.
-    fn cmd_with(title: &str, description: Option<&str>) -> CreateProductCommand {
-        let mut cmd = Faker.fake::<CreateProductCommand>();
-        cmd.native_title = Localized::new(Language::De, Title::from(title));
-        cmd.native_description =
-            description.map(|d| Localized::new(Language::De, Description::from(d)));
-        cmd
-    }
-
-    fn make_images(n: usize) -> Vec<ProductImage> {
-        fake::vec![ProductImage; n]
-    }
 
     // =======================================================================
     // Safe / benign listings – must NOT be flagged
@@ -276,89 +244,81 @@ mod tests {
         use super::*;
 
         #[test]
-        fn should_set_none_when_no_nazi_keywords() {
-            let mut cmd = cmd_with("Barocker Schrank aus dem 18. Jahrhundert", None);
-            cmd.images = make_images(2);
-            classify_images(&mut cmd);
-            for img in &cmd.images {
-                assert_eq!(img.prohibited_content, ProhibitedContent::None);
-            }
+        fn should_return_none_when_no_nazi_keywords() {
+            assert_eq!(
+                classify_by_text("Barocker Schrank aus dem 18. Jahrhundert", None),
+                ProhibitedContent::None
+            );
         }
 
         #[test]
-        fn should_set_none_when_no_images() {
-            let mut cmd = cmd_with("Drittes Reich Medaille", None);
-            cmd.images = vec![];
-            classify_images(&mut cmd);
-            assert!(cmd.images.is_empty());
+        fn should_return_none_when_empty_title() {
+            assert_eq!(classify_by_text("", None), ProhibitedContent::None);
         }
 
         #[test]
         fn should_not_flag_when_keyword_is_substring_of_another_word() {
             // "nsdapping" contains "nsdap" as prefix but must not match
-            let mut cmd = cmd_with("Some nsdapping decoration", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
-            assert_eq!(cmd.images[0].prohibited_content, ProhibitedContent::None);
+            assert_eq!(
+                classify_by_text("Some nsdapping decoration", None),
+                ProhibitedContent::None
+            );
         }
 
         #[test]
         fn should_not_flag_antique_furniture_listing() {
-            let mut cmd = cmd_with(
-                "Biedermeier Kommode 19. Jahrhundert Mahagoni",
-                Some("Sehr gut erhalten, aus südddeutschem Privatbesitz"),
+            assert_eq!(
+                classify_by_text(
+                    "Biedermeier Kommode 19. Jahrhundert Mahagoni",
+                    Some("Sehr gut erhalten, aus südddeutschem Privatbesitz")
+                ),
+                ProhibitedContent::None
             );
-            cmd.images = make_images(2);
-            classify_images(&mut cmd);
-            for img in &cmd.images {
-                assert_eq!(img.prohibited_content, ProhibitedContent::None);
-            }
         }
 
         #[test]
         fn should_not_flag_iron_cross_ww1_listing() {
             // An Iron Cross can be WWI – no additional Nazi qualifier here
-            let mut cmd = cmd_with("Eisernes Kreuz 1914 Erster Weltkrieg", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
-            assert_eq!(cmd.images[0].prohibited_content, ProhibitedContent::None);
+            assert_eq!(
+                classify_by_text("Eisernes Kreuz 1914 Erster Weltkrieg", None),
+                ProhibitedContent::None
+            );
         }
 
         #[test]
         fn should_not_flag_generic_eagle_sculpture() {
-            let mut cmd = cmd_with("Bronze Adlerfigur Jugendstil", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
-            assert_eq!(cmd.images[0].prohibited_content, ProhibitedContent::None);
+            assert_eq!(
+                classify_by_text("Bronze Adlerfigur Jugendstil", None),
+                ProhibitedContent::None
+            );
         }
 
         #[test]
         fn should_not_flag_general_ww2_book() {
-            let mut cmd = cmd_with(
-                "Der Zweite Weltkrieg – Geschichte und Ursachen",
-                Some("Umfassendes Werk über den Verlauf des Zweiten Weltkriegs"),
+            assert_eq!(
+                classify_by_text(
+                    "Der Zweite Weltkrieg – Geschichte und Ursachen",
+                    Some("Umfassendes Werk über den Verlauf des Zweiten Weltkriegs")
+                ),
+                ProhibitedContent::None
             );
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
-            assert_eq!(cmd.images[0].prohibited_content, ProhibitedContent::None);
         }
 
         #[test]
         fn should_not_flag_word_ending_with_keyword_fragment() {
-            // "hakenkreuzförmig" starts with "hakenkreuz" – must still flag
-            // but plain "kreuz" alone must NOT flag
-            let mut cmd = cmd_with("Antikes Silberkreuz", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
-            assert_eq!(cmd.images[0].prohibited_content, ProhibitedContent::None);
+            // plain "kreuz" alone must NOT flag
+            assert_eq!(
+                classify_by_text("Antikes Silberkreuz", None),
+                ProhibitedContent::None
+            );
         }
 
         #[test]
         fn should_not_flag_generic_military_uniform() {
-            let mut cmd = cmd_with("Uniform Bundeswehr 1970er Jahre", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
-            assert_eq!(cmd.images[0].prohibited_content, ProhibitedContent::None);
+            assert_eq!(
+                classify_by_text("Uniform Bundeswehr 1970er Jahre", None),
+                ProhibitedContent::None
+            );
         }
     }
 
@@ -371,279 +331,206 @@ mod tests {
 
         #[test]
         fn should_flag_when_title_contains_drittes_reich() {
-            let mut cmd = cmd_with("Orden aus dem Dritten Reich", None);
-            cmd.images = make_images(3);
-            classify_images(&mut cmd);
-            for img in &cmd.images {
-                assert_eq!(img.prohibited_content, ProhibitedContent::NaziGermany);
-            }
+            assert_eq!(
+                classify_by_text("Orden aus dem Dritten Reich", None),
+                ProhibitedContent::NaziGermany
+            );
         }
 
         #[test]
         fn should_flag_when_title_contains_dritte_reich_variant() {
-            let mut cmd = cmd_with("Abzeichen Dritte Reich 1940", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Abzeichen Dritte Reich 1940", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_when_title_contains_3_punkt_reich() {
-            let mut cmd = cmd_with("Medaille 3. Reich Silber Original", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Medaille 3. Reich Silber Original", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_when_title_contains_iii_punkt_reich() {
-            let mut cmd = cmd_with("Feldmütze III. Reich WWII", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Feldmütze III. Reich WWII", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_when_description_contains_hakenkreuz() {
-            let mut cmd = cmd_with(
-                "Antike Medaille",
-                Some("Medaille mit Hakenkreuz-Symbol graviert"),
+            assert_eq!(
+                classify_by_text(
+                    "Antike Medaille",
+                    Some("Medaille mit Hakenkreuz-Symbol graviert")
+                ),
+                ProhibitedContent::NaziGermany
             );
-            cmd.images = make_images(2);
-            classify_images(&mut cmd);
-            for img in &cmd.images {
-                assert_eq!(img.prohibited_content, ProhibitedContent::NaziGermany);
-            }
         }
 
         #[test]
         fn should_flag_hakenkreuzfahne() {
-            let mut cmd = cmd_with("Hakenkreuzfahne original 1935", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Hakenkreuzfahne original 1935", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_reichsadler() {
-            let mut cmd = cmd_with("Reichsadler Briefbeschwerer Bronze 1938", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Reichsadler Briefbeschwerer Bronze 1938", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_nsdap_badge() {
-            let mut cmd = cmd_with("NSDAP Abzeichen 1935 Original", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("NSDAP Abzeichen 1935 Original", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_hitlerjugend_knife() {
-            let mut cmd = cmd_with("Hitlerjugend Messer mit Scheide 1935", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Hitlerjugend Messer mit Scheide 1935", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_schutzstaffel() {
-            let mut cmd = cmd_with("Schutzstaffel Dienstglas 8x30", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Schutzstaffel Dienstglas 8x30", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_sturmabteilung() {
-            let mut cmd = cmd_with("Sturmabteilung SA Dolch M1933", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Sturmabteilung SA Dolch M1933", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_waffen_ss_with_hyphen() {
-            let mut cmd = cmd_with("Waffen-SS Feldmütze WWII Original", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Waffen-SS Feldmütze WWII Original", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_waffen_ss_without_hyphen() {
-            let mut cmd = cmd_with("Waffen SS Uniformjacke 1943", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Waffen SS Uniformjacke 1943", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_totenkopfring() {
-            let mut cmd = cmd_with("SS Totenkopfring Silber Replik", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("SS Totenkopfring Silber Replik", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_gestapo_badge() {
-            let mut cmd = cmd_with("Gestapo Dienstmarke original", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Gestapo Dienstmarke original", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_nationalsozialismus_in_description() {
-            let mut cmd = cmd_with(
-                "Antike Medaille Konvolut",
-                Some("Aus der Zeit des Nationalsozialismus, guter Zustand"),
-            );
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text(
+                    "Antike Medaille Konvolut",
+                    Some("Aus der Zeit des Nationalsozialismus, guter Zustand")
+                ),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_bund_deutscher_maedel() {
-            let mut cmd = cmd_with("Bund Deutscher Mädel Abzeichen BDM", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Bund Deutscher Mädel Abzeichen BDM", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_ss_rune() {
-            let mut cmd = cmd_with("SS-Rune Silber Anhänger Original", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("SS-Rune Silber Anhänger Original", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_schwarze_sonne() {
-            let mut cmd = cmd_with("Schwarze Sonne Wandteller Keramik", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Schwarze Sonne Wandteller Keramik", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_adolf_hitler_portrait() {
-            let mut cmd = cmd_with("Ölgemälde Porträt Adolf Hitler signiert", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Ölgemälde Porträt Adolf Hitler signiert", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_heil_hitler_inscription() {
-            let mut cmd = cmd_with("Postkarte mit Aufschrift Heil Hitler 1937", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Postkarte mit Aufschrift Heil Hitler 1937", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_heinrich_himmler_signature() {
-            let mut cmd = cmd_with("Autogramm Heinrich Himmler", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Autogramm Heinrich Himmler", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_reichsparteitag_photo() {
-            let mut cmd = cmd_with("Originalfoto Reichsparteitag Nürnberg 1937", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Originalfoto Reichsparteitag Nürnberg 1937", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_leibstandarte() {
-            let mut cmd = cmd_with("Leibstandarte SS Adolf Hitler Manschettenknöpfe", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Leibstandarte SS Adolf Hitler Manschettenknöpfe", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_kristallnacht_photo() {
-            let mut cmd = cmd_with("Originaldokument Reichskristallnacht November 1938", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Originaldokument Reichskristallnacht November 1938", None),
                 ProhibitedContent::NaziGermany
             );
         }
@@ -658,145 +545,107 @@ mod tests {
 
         #[test]
         fn should_flag_third_reich() {
-            let mut cmd = cmd_with("Medal from the Third Reich 1939", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Medal from the Third Reich 1939", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_nazi_germany() {
-            let mut cmd = cmd_with("Badge from Nazi Germany WWII", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Badge from Nazi Germany WWII", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_swastika() {
-            let mut cmd = cmd_with("Bronze pendant with Swastika symbol", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Bronze pendant with Swastika symbol", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_nazi_medal_lot() {
-            let mut cmd = cmd_with("Nazi medal lot – original WWII collection", None);
-            cmd.images = make_images(2);
-            classify_images(&mut cmd);
-            for img in &cmd.images {
-                assert_eq!(img.prohibited_content, ProhibitedContent::NaziGermany);
-            }
+            assert_eq!(
+                classify_by_text("Nazi medal lot – original WWII collection", None),
+                ProhibitedContent::NaziGermany
+            );
         }
 
         #[test]
         fn should_flag_hitler_youth_dagger() {
-            let mut cmd = cmd_with("Hitler Youth Dagger HJ 1937 original", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Hitler Youth Dagger HJ 1937 original", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_waffen_ss_helmet() {
-            let mut cmd = cmd_with("Waffen-SS Steel Helmet M42 WWII", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Waffen-SS Steel Helmet M42 WWII", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_ss_dagger() {
-            let mut cmd = cmd_with("SS Dagger Model 1936 with scabbard", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("SS Dagger Model 1936 with scabbard", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_nazi_armband() {
-            let mut cmd = cmd_with("Original Nazi armband with eagle insignia", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Original Nazi armband with eagle insignia", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_national_socialism_in_description() {
-            let mut cmd = cmd_with(
-                "Historical artefact",
-                Some("Object related to National Socialism from 1938"),
-            );
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text(
+                    "Historical artefact",
+                    Some("Object related to National Socialism from 1938")
+                ),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_gestapo_badge_english() {
-            let mut cmd = cmd_with("Gestapo Secret Police badge original WW2", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Gestapo Secret Police badge original WW2", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_case_insensitive_upper() {
-            let mut cmd = cmd_with("Medal from the THIRD REICH era", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Medal from the THIRD REICH era", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_case_insensitive_mixed() {
-            let mut cmd = cmd_with("Rare Nazi Memorabilia Collection", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Rare Nazi Memorabilia Collection", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_reinhard_heydrich_portrait() {
-            let mut cmd = cmd_with("Portrait photograph Reinhard Heydrich", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Portrait photograph Reinhard Heydrich", None),
                 ProhibitedContent::NaziGermany
             );
         }
@@ -811,47 +660,35 @@ mod tests {
 
         #[test]
         fn should_flag_troisieme_reich() {
-            let mut cmd = cmd_with("Médaille du Troisième Reich 1939", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Médaille du Troisième Reich 1939", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_croix_gammee() {
-            let mut cmd = cmd_with("Médaille avec croix gammée originale", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Médaille avec croix gammée originale", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_allemagne_nazie() {
-            let mut cmd = cmd_with("Objet de l'Allemagne nazie seconde guerre", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Objet de l'Allemagne nazie seconde guerre", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_national_socialisme() {
-            let mut cmd = cmd_with(
-                "Document historique",
-                Some("Lié au national-socialisme allemand"),
-            );
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text(
+                    "Document historique",
+                    Some("Lié au national-socialisme allemand")
+                ),
                 ProhibitedContent::NaziGermany
             );
         }
@@ -866,33 +703,24 @@ mod tests {
 
         #[test]
         fn should_flag_tercer_reich() {
-            let mut cmd = cmd_with("Medalla del Tercer Reich Segunda Guerra", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Medalla del Tercer Reich Segunda Guerra", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_cruz_gamada() {
-            let mut cmd = cmd_with("Colgante de plata con cruz gamada", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Colgante de plata con cruz gamada", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_alemania_nazi() {
-            let mut cmd = cmd_with("Insignia de la Alemania Nazi WWII", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Insignia de la Alemania Nazi WWII", None),
                 ProhibitedContent::NaziGermany
             );
         }
@@ -907,33 +735,24 @@ mod tests {
 
         #[test]
         fn should_flag_terzo_reich() {
-            let mut cmd = cmd_with("Medaglia del Terzo Reich 1940", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Medaglia del Terzo Reich 1940", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_svastica() {
-            let mut cmd = cmd_with("Pendente argento con svastica originale", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Pendente argento con svastica originale", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_germania_nazista() {
-            let mut cmd = cmd_with("Oggetto della Germania Nazista seconda guerra", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Oggetto della Germania Nazista seconda guerra", None),
                 ProhibitedContent::NaziGermany
             );
         }
@@ -948,22 +767,16 @@ mod tests {
 
         #[test]
         fn should_flag_derde_rijk() {
-            let mut cmd = cmd_with("Medaille Derde Rijk WOII origineel", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Medaille Derde Rijk WOII origineel", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_hakenkruis() {
-            let mut cmd = cmd_with("Zilveren hanger met hakenkruis 1938", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Zilveren hanger met hakenkruis 1938", None),
                 ProhibitedContent::NaziGermany
             );
         }
@@ -978,22 +791,16 @@ mod tests {
 
         #[test]
         fn should_flag_terceiro_reich() {
-            let mut cmd = cmd_with("Medalha do Terceiro Reich 1939", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Medalha do Terceiro Reich 1939", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_suastica() {
-            let mut cmd = cmd_with("Pendente prata com suástica original", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Pendente prata com suástica original", None),
                 ProhibitedContent::NaziGermany
             );
         }
@@ -1008,22 +815,16 @@ mod tests {
 
         #[test]
         fn should_flag_trzecia_rzesza() {
-            let mut cmd = cmd_with("Medal Trzecia Rzesza II Wojna Światowa", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Medal Trzecia Rzesza II Wojna Światowa", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_swastyka() {
-            let mut cmd = cmd_with("Rzadka swastyka z 1938 oryginał", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Rzadka swastyka z 1938 oryginał", None),
                 ProhibitedContent::NaziGermany
             );
         }
@@ -1037,66 +838,43 @@ mod tests {
         use super::*;
 
         #[test]
-        fn should_flag_all_images_when_multi_image_listing_has_nazi_term() {
-            let mut cmd = cmd_with("NSDAP Lot mit mehreren Orden", None);
-            cmd.images = make_images(5);
-            classify_images(&mut cmd);
-            assert!(
-                cmd.images
-                    .iter()
-                    .all(|img| img.prohibited_content == ProhibitedContent::NaziGermany)
-            );
-        }
-
-        #[test]
         fn should_flag_when_keyword_only_in_description() {
-            let mut cmd = cmd_with("Antike Uniform", Some("Schutzstaffel Dienstuniform"));
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Antike Uniform", Some("Schutzstaffel Dienstuniform")),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_when_keyword_at_start_of_text() {
-            let mut cmd = cmd_with("Hakenkreuz Wanddeko", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Hakenkreuz Wanddeko", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_when_keyword_at_end_of_text() {
-            let mut cmd = cmd_with("Silbernes Abzeichen Drittes Reich", None);
-            cmd.images = make_images(1);
-            classify_images(&mut cmd);
             assert_eq!(
-                cmd.images[0].prohibited_content,
+                classify_by_text("Silbernes Abzeichen Drittes Reich", None),
                 ProhibitedContent::NaziGermany
             );
         }
 
         #[test]
         fn should_flag_when_multiple_keywords_present() {
-            let mut cmd = cmd_with("NSDAP Abzeichen Waffen-SS Orden Hakenkreuz", None);
-            cmd.images = make_images(2);
-            classify_images(&mut cmd);
-            for img in &cmd.images {
-                assert_eq!(img.prohibited_content, ProhibitedContent::NaziGermany);
-            }
+            assert_eq!(
+                classify_by_text("NSDAP Abzeichen Waffen-SS Orden Hakenkreuz", None),
+                ProhibitedContent::NaziGermany
+            );
         }
 
         #[test]
-        fn should_set_none_for_listing_with_zero_images() {
-            let mut cmd = cmd_with("Völlig harmloses Gemälde", None);
-            cmd.images = vec![];
-            classify_images(&mut cmd);
-            assert!(cmd.images.is_empty());
+        fn should_return_none_when_description_is_none_and_title_is_benign() {
+            assert_eq!(
+                classify_by_text("Völlig harmloses Gemälde", None),
+                ProhibitedContent::None
+            );
         }
     }
 }
