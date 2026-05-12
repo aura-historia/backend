@@ -5,7 +5,7 @@ use tracing::{debug, info, warn};
 
 use crate::logging::llm_metrics;
 use crate::scraper::css_selector::product_schema_service::strip_markdown_json_embedding;
-use common::logging::{LlmModel, LlmOperation, LlmProvider, LlmServiceTier, log_llm_invocation};
+use common::logging::{GeminiServiceTier, LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
 use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -49,13 +49,13 @@ pub enum UrlClassificationError {
 
 pub struct UrlClassificationServiceImpl {
     llm: Box<dyn LLMProvider>,
-    service_tier: Option<LlmServiceTier>,
+    service_tier: Option<GeminiServiceTier>,
 }
 
 impl UrlClassificationServiceImpl {
     pub fn new(
         llm: llm::builder::LLMBuilder,
-        service_tier: Option<LlmServiceTier>,
+        service_tier: Option<GeminiServiceTier>,
     ) -> Result<Self, LLMError> {
         let schema = schemars::schema_for!(PatternResponse);
         let schema_json = serde_json::to_string_pretty(&schema)

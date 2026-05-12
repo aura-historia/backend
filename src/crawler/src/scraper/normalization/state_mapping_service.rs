@@ -1,7 +1,7 @@
 use crate::logging::llm_metrics;
 use crate::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
 use crate::scraper::normalization::state_mapping_repository::ProductStateMappingRepository;
-use common::logging::{LlmModel, LlmOperation, LlmProvider, LlmServiceTier, log_llm_invocation};
+use common::logging::{GeminiServiceTier, LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
 use common::product_state::domain::ProductState;
 use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
 use product::dynamodb::product_state_record::ProductStateRecord;
@@ -117,14 +117,14 @@ pub trait ProductStateMappingService {
 
 pub struct ProductStateMappingServiceImpl {
     llm: Box<dyn LLMProvider>,
-    service_tier: Option<LlmServiceTier>,
+    service_tier: Option<GeminiServiceTier>,
     repository: Box<dyn ProductStateMappingRepository + Send + Sync>,
 }
 
 impl ProductStateMappingServiceImpl {
     pub fn new(
         llm: llm::builder::LLMBuilder,
-        service_tier: Option<LlmServiceTier>,
+        service_tier: Option<GeminiServiceTier>,
         repository: Box<dyn ProductStateMappingRepository + Send + Sync>,
     ) -> Result<Self, LLMError> {
         let system_prompt = "\

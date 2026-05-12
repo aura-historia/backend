@@ -42,7 +42,7 @@ use std::io::BufWriter;
 use std::sync::Arc;
 
 use common::language::data::LocalizedTextData;
-use common::logging::LlmServiceTier;
+use common::logging::GeminiServiceTier;
 use common::price::data::PriceData;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
@@ -281,9 +281,9 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     let gemini_flex = gemini_flex_enabled();
     let gemini_service_tier = if gemini_flex { "flex" } else { "default" };
     let llm_service_tier = Some(if gemini_flex {
-        LlmServiceTier::Flex
+        GeminiServiceTier::Flex
     } else {
-        LlmServiceTier::Default
+        GeminiServiceTier::Standard
     });
 
     info!(

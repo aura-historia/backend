@@ -30,7 +30,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use common::domain::Domain;
-use common::logging::LlmServiceTier;
+use common::logging::GeminiServiceTier;
 use common::shop_id::ShopId;
 use crawler::google_llm::{gemini_flex_enabled, google_llm_builder};
 use crawler::local_db::{DEMO_DB_NAME, bootstrap_local_database, demo_db_url};
@@ -129,9 +129,9 @@ async fn main() {
         let gemini_flex = gemini_flex_enabled();
         let gemini_service_tier = if gemini_flex { "flex" } else { "default" };
         let llm_service_tier = Some(if gemini_flex {
-            LlmServiceTier::Flex
+            GeminiServiceTier::Flex
         } else {
-            LlmServiceTier::Default
+            GeminiServiceTier::Standard
         });
 
         let config = CrawlerCronConfig {

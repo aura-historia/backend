@@ -191,21 +191,21 @@ impl std::fmt::Display for LlmModel {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LlmServiceTier {
-    Default,
+pub enum GeminiServiceTier {
+    Standard,
     Flex,
 }
 
-impl LlmServiceTier {
+impl GeminiServiceTier {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Default => "DEFAULT",
+            Self::Standard => "STANDARD",
             Self::Flex => "FLEX",
         }
     }
 }
 
-impl std::fmt::Display for LlmServiceTier {
+impl std::fmt::Display for GeminiServiceTier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
@@ -213,7 +213,7 @@ impl std::fmt::Display for LlmServiceTier {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LlmInvocationMetrics {
-    pub service_tier: Option<LlmServiceTier>,
+    pub service_tier: Option<GeminiServiceTier>,
     pub batch_size: Option<usize>,
     pub prompt_tokens: Option<u32>,
     pub completion_tokens: Option<u32>,
@@ -440,7 +440,7 @@ mod tests {
                 LlmModel::Configured,
                 Duration::from_millis(42),
                 LlmInvocationMetrics {
-                    service_tier: Some(LlmServiceTier::Flex),
+                    service_tier: Some(GeminiServiceTier::Flex),
                     batch_size: Some(3),
                     prompt_tokens: Some(12),
                     completion_tokens: Some(4),

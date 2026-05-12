@@ -3,7 +3,7 @@ use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, ShopsProductSchema,
 };
 use crate::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepository;
-use common::logging::{LlmModel, LlmOperation, LlmProvider, LlmServiceTier, log_llm_invocation};
+use common::logging::{GeminiServiceTier, LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
 use common::shop_id::ShopId;
 use kuchiki::traits::*;
 use kuchiki::{NodeRef, parse_html};
@@ -77,14 +77,14 @@ pub trait ProductSchemaService {
 
 pub struct ProductSchemaServiceImpl {
     llm: Box<dyn LLMProvider>,
-    service_tier: Option<LlmServiceTier>,
+    service_tier: Option<GeminiServiceTier>,
     repository: Box<dyn ShopsProductSchemaRepository + Send + Sync>,
 }
 
 impl ProductSchemaServiceImpl {
     pub fn new(
         llm: llm::builder::LLMBuilder,
-        service_tier: Option<LlmServiceTier>,
+        service_tier: Option<GeminiServiceTier>,
         repository: Box<dyn ShopsProductSchemaRepository + Send + Sync>,
     ) -> Result<Self, LLMError> {
         let schema = serde_json::to_string_pretty(&schema_for!(ProductCssSelectorSchema))

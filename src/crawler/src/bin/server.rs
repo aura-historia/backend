@@ -39,7 +39,7 @@ use aws_sdk_cloudwatchlogs::Client as CloudWatchLogsClient;
 use aws_sdk_cloudwatchlogs::error::SdkError;
 use aws_sdk_cloudwatchlogs::operation::create_log_group::CreateLogGroupError;
 use aws_sdk_cloudwatchlogs::operation::create_log_stream::CreateLogStreamError;
-use common::logging::LlmServiceTier;
+use common::logging::GeminiServiceTier;
 use common::pagination::cursor::Cursor;
 use common::price::domain::FixedFxRate;
 use common::shop_id::ShopId;
@@ -372,9 +372,9 @@ async fn main() {
         let gemini_flex = gemini_flex_enabled();
         let gemini_service_tier = if gemini_flex { "flex" } else { "default" };
         let llm_service_tier = Some(if gemini_flex {
-            LlmServiceTier::Flex
+            GeminiServiceTier::Flex
         } else {
-            LlmServiceTier::Default
+            GeminiServiceTier::Standard
         });
 
         let state_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
