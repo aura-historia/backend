@@ -5,7 +5,7 @@ use tracing::{debug, info, warn};
 
 use crate::logging::llm_metrics;
 use crate::scraper::css_selector::product_schema_service::strip_markdown_json_embedding;
-use common::logging::{LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
+use common::logging::{LlmModel, LlmOperation, LlmProvider, LlmServiceTier, log_llm_invocation};
 use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -26,7 +26,6 @@ struct PatternResponse {
 pub trait UrlClassificationService: Send + Sync {
     async fn find_product_url_pattern(
         &self,
-        shop_url: &str,
         all_urls: &[String],
     ) -> Result<Option<Regex>, UrlClassificationError>;
     fn filter_product_urls(
@@ -50,10 +49,14 @@ pub enum UrlClassificationError {
 
 pub struct UrlClassificationServiceImpl {
     llm: Box<dyn LLMProvider>,
+    service_tier: Option<LlmServiceTier>,
 }
 
 impl UrlClassificationServiceImpl {
-    pub fn new(llm: llm::builder::LLMBuilder) -> Result<Self, LLMError> {
+    pub fn new(
+        llm: llm::builder::LLMBuilder,
+        service_tier: Option<LlmServiceTier>,
+    ) -> Result<Self, LLMError> {
         let schema = schemars::schema_for!(PatternResponse);
         let schema_json = serde_json::to_string_pretty(&schema)
             .unwrap_or_else(|_| "Failed to generate schema".to_string());
@@ -107,12 +110,15 @@ impl UrlClassificationServiceImpl {
             .validator_attempts(3)
             .build()?;
 
-        Ok(Self { llm })
+        Ok(Self { llm, service_tier })
     }
 
     #[cfg(test)]
     pub fn new_with_provider(llm: Box<dyn LLMProvider>) -> Self {
-        Self { llm }
+        Self {
+            llm,
+            service_tier: None,
+        }
     }
 
     fn dedupe_urls(urls: Vec<CrawledUrl>) -> Vec<CrawledUrl> {
@@ -172,12 +178,11 @@ impl UrlClassificationServiceImpl {
 impl UrlClassificationService for UrlClassificationServiceImpl {
     #[tracing::instrument(
         name = "spider_classify_product_url_pattern",
-        skip(self, shop_url, all_urls),
-        fields(shop_url = %shop_url, url_count = all_urls.len())
+        skip(self, all_urls),
+        fields(url_count = all_urls.len())
     )]
     async fn find_product_url_pattern(
         &self,
-        shop_url: &str,
         all_urls: &[String],
     ) -> Result<Option<Regex>, UrlClassificationError> {
         info!("Analyzing crawled URLs with LLM");
@@ -200,7 +205,7 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
             LlmProvider::Google,
             LlmModel::Configured,
             started_at.elapsed(),
-            llm_metrics(response.usage(), Some(all_urls.len())),
+            llm_metrics(response.usage(), Some(all_urls.len()), self.service_tier),
         );
 
         let response_text = response.text().ok_or_else(|| {

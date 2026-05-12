@@ -42,6 +42,7 @@ use std::io::BufWriter;
 use std::sync::Arc;
 
 use common::language::data::LocalizedTextData;
+use common::logging::LlmServiceTier;
 use common::price::data::PriceData;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
@@ -279,6 +280,11 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     }
     let gemini_flex = gemini_flex_enabled();
     let gemini_service_tier = if gemini_flex { "flex" } else { "default" };
+    let llm_service_tier = Some(if gemini_flex {
+        LlmServiceTier::Flex
+    } else {
+        LlmServiceTier::Default
+    });
 
     info!(
         gemini_model = %model,
@@ -292,17 +298,21 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
 
     // State-mapping service (DB-backed + LLM fallback).
     let state_mapping_repo = Box::new(ProductStateMappingRepositoryImpl::new(pool));
-    let state_mapping_svc =
-        ProductStateMappingServiceImpl::new(state_llm_builder, state_mapping_repo)
-            .expect("failed to build ProductStateMappingServiceImpl");
+    let state_mapping_svc = ProductStateMappingServiceImpl::new(
+        state_llm_builder,
+        llm_service_tier,
+        state_mapping_repo,
+    )
+    .expect("failed to build ProductStateMappingServiceImpl");
 
     // Normalization service.
     let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
     // Schema service (DB-backed + LLM creation/fix).
     let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(pool));
-    let schema_svc = ProductSchemaServiceImpl::new(schema_llm_builder, schema_repo)
-        .expect("failed to build ProductSchemaServiceImpl");
+    let schema_svc =
+        ProductSchemaServiceImpl::new(schema_llm_builder, llm_service_tier, schema_repo)
+            .expect("failed to build ProductSchemaServiceImpl");
 
     // HTTP fetcher using spider.
     let fetcher = Box::new(ReqwestHtmlFetcher::new());

@@ -3,7 +3,7 @@ use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, ShopsProductSchema,
 };
 use crate::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepository;
-use common::logging::{LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
+use common::logging::{LlmModel, LlmOperation, LlmProvider, LlmServiceTier, log_llm_invocation};
 use common::shop_id::ShopId;
 use kuchiki::traits::*;
 use kuchiki::{NodeRef, parse_html};
@@ -77,12 +77,14 @@ pub trait ProductSchemaService {
 
 pub struct ProductSchemaServiceImpl {
     llm: Box<dyn LLMProvider>,
+    service_tier: Option<LlmServiceTier>,
     repository: Box<dyn ShopsProductSchemaRepository + Send + Sync>,
 }
 
 impl ProductSchemaServiceImpl {
     pub fn new(
         llm: llm::builder::LLMBuilder,
+        service_tier: Option<LlmServiceTier>,
         repository: Box<dyn ShopsProductSchemaRepository + Send + Sync>,
     ) -> Result<Self, LLMError> {
         let schema = serde_json::to_string_pretty(&schema_for!(ProductCssSelectorSchema))
@@ -108,7 +110,11 @@ impl ProductSchemaServiceImpl {
             })
             .validator_attempts(3)
             .build()?;
-        Ok(Self { llm, repository })
+        Ok(Self {
+            llm,
+            service_tier,
+            repository,
+        })
     }
 }
 
@@ -149,7 +155,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
             LlmProvider::Google,
             LlmModel::Configured,
             started_at.elapsed(),
-            llm_metrics(response.usage(), Some(html_pages.len())),
+            llm_metrics(response.usage(), Some(html_pages.len()), self.service_tier),
         );
         let res = response.text().ok_or_else(|| {
             ProductSchemaServiceError::NoTextResponse("Expected text response".to_string())
@@ -193,7 +199,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
             LlmProvider::Google,
             LlmModel::Configured,
             started_at.elapsed(),
-            llm_metrics(response.usage(), Some(1)),
+            llm_metrics(response.usage(), Some(1), self.service_tier),
         );
         let res = response.text().ok_or_else(|| {
             ProductSchemaServiceError::NoTextResponse("Expected text response".to_string())
@@ -522,6 +528,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repository),
         };
 
@@ -543,6 +550,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repository),
         };
 
@@ -561,6 +569,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repository),
         };
 
@@ -594,6 +603,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repository),
         };
 
@@ -625,6 +635,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repository),
         };
 
@@ -647,6 +658,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repository),
         };
 
@@ -673,6 +685,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repository),
         };
 
@@ -704,6 +717,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repository),
         };
 
@@ -743,6 +757,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProviderReturning(css_schema)),
+            service_tier: None,
             repository: Box::new(repository),
         };
 
@@ -765,6 +780,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repository),
         };
 

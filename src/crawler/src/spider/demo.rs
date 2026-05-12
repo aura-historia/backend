@@ -31,6 +31,7 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::sync::Arc;
 
+use common::logging::LlmServiceTier;
 use common::shop_id::ShopId;
 use crawler::google_llm::{gemini_flex_enabled, google_llm_builder};
 use crawler::local_db::{DEMO_SPIDER_DB_NAME, bootstrap_local_database, demo_spider_db_url};
@@ -111,6 +112,11 @@ async fn main() {
         }
         let gemini_flex = gemini_flex_enabled();
         let gemini_service_tier = if gemini_flex { "flex" } else { "default" };
+        let llm_service_tier = Some(if gemini_flex {
+            LlmServiceTier::Flex
+        } else {
+            LlmServiceTier::Default
+        });
         info!(
             gemini_model = %model,
             gemini_service_tier,
@@ -118,7 +124,7 @@ async fn main() {
         );
         let llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
         let classification_service = Box::new(
-            UrlClassificationServiceImpl::new(llm_builder)
+            UrlClassificationServiceImpl::new(llm_builder, llm_service_tier)
                 .expect("Failed to initialize UrlClassificationService"),
         );
         let pattern_service = Box::new(UrlPatternServiceImpl::new(

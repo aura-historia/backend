@@ -1,7 +1,7 @@
 use crate::logging::llm_metrics;
 use crate::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
 use crate::scraper::normalization::state_mapping_repository::ProductStateMappingRepository;
-use common::logging::{LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
+use common::logging::{LlmModel, LlmOperation, LlmProvider, LlmServiceTier, log_llm_invocation};
 use common::product_state::domain::ProductState;
 use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
 use product::dynamodb::product_state_record::ProductStateRecord;
@@ -117,12 +117,14 @@ pub trait ProductStateMappingService {
 
 pub struct ProductStateMappingServiceImpl {
     llm: Box<dyn LLMProvider>,
+    service_tier: Option<LlmServiceTier>,
     repository: Box<dyn ProductStateMappingRepository + Send + Sync>,
 }
 
 impl ProductStateMappingServiceImpl {
     pub fn new(
         llm: llm::builder::LLMBuilder,
+        service_tier: Option<LlmServiceTier>,
         repository: Box<dyn ProductStateMappingRepository + Send + Sync>,
     ) -> Result<Self, LLMError> {
         let system_prompt = "\
@@ -163,7 +165,11 @@ Rules:\n\
             .timeout_seconds(60)
             .build()?;
 
-        Ok(Self { llm, repository })
+        Ok(Self {
+            llm,
+            service_tier,
+            repository,
+        })
     }
 }
 
@@ -248,7 +254,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
             LlmProvider::Google,
             LlmModel::Configured,
             started_at.elapsed(),
-            llm_metrics(response.usage(), Some(1)),
+            llm_metrics(response.usage(), Some(1), self.service_tier),
         );
         let res = response.text().ok_or_else(|| {
             StateMappingServiceError::NoTextResponse("Expected text response".to_string())
@@ -717,6 +723,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -738,6 +745,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -753,6 +761,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -768,6 +777,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -795,6 +805,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -827,6 +838,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -859,6 +871,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -877,6 +890,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -898,6 +912,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -966,6 +981,7 @@ mod tests {
         let repo = MockProductStateMappingRepository::new();
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProviderReturning(llm_response)),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -981,6 +997,7 @@ mod tests {
         let repo = MockProductStateMappingRepository::new();
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProviderReturning(llm_response)),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -997,6 +1014,7 @@ mod tests {
         let repo = MockProductStateMappingRepository::new();
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProviderReturning(llm_response)),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1012,6 +1030,7 @@ mod tests {
         let repo = MockProductStateMappingRepository::new();
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProviderReturning("STATE:SOLD")),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1025,6 +1044,7 @@ mod tests {
         let repo = MockProductStateMappingRepository::new();
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProviderReturning("AVAILABLE")),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1041,6 +1061,7 @@ mod tests {
         let svc = ProductStateMappingServiceImpl {
             // Pattern "[unclosed" is syntactically invalid for the Rust regex crate.
             llm: Box::new(MockLlmProviderReturning("REGEX:[unclosed:AVAILABLE")),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1058,6 +1079,7 @@ mod tests {
             llm: Box::new(MockLlmProviderReturning(
                 "I think it might be available or sold",
             )),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1114,6 +1136,7 @@ mod tests {
         let repo = MockProductStateMappingRepository::new();
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(NoTextLlm),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1164,6 +1187,7 @@ mod tests {
         let repo = MockProductStateMappingRepository::new();
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(ErrorLlm),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1187,6 +1211,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1208,6 +1233,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1238,6 +1264,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider), // must NOT be called
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1265,6 +1292,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1287,6 +1315,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1310,6 +1339,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1336,6 +1366,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1371,6 +1402,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProviderReturning("STATE:LISTED")),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1416,6 +1448,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProviderReturning(llm_resp_str)),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1437,6 +1470,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1454,6 +1488,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1640,6 +1675,7 @@ mod tests {
         let repo = MockProductStateMappingRepository::new(); // no expectations set
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider), // panics if called
+            service_tier: None,
             repository: Box::new(repo),
         };
 
@@ -1676,6 +1712,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProviderReturning("STATE:UNKNOWN")),
+            service_tier: None,
             repository: Box::new(repo),
         };
 

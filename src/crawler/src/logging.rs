@@ -107,15 +107,18 @@ pub fn current_gemini_model() -> String {
 pub fn llm_metrics(
     usage: Option<llm::chat::Usage>,
     batch_size: Option<usize>,
+    service_tier: Option<common::logging::LlmServiceTier>,
 ) -> common::logging::LlmInvocationMetrics {
     let Some(usage) = usage else {
         return common::logging::LlmInvocationMetrics {
+            service_tier,
             batch_size,
             ..Default::default()
         };
     };
 
     common::logging::LlmInvocationMetrics {
+        service_tier,
         batch_size,
         prompt_tokens: Some(usage.prompt_tokens),
         completion_tokens: Some(usage.completion_tokens),

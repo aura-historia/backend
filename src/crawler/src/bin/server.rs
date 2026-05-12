@@ -39,6 +39,7 @@ use aws_sdk_cloudwatchlogs::Client as CloudWatchLogsClient;
 use aws_sdk_cloudwatchlogs::error::SdkError;
 use aws_sdk_cloudwatchlogs::operation::create_log_group::CreateLogGroupError;
 use aws_sdk_cloudwatchlogs::operation::create_log_stream::CreateLogStreamError;
+use common::logging::LlmServiceTier;
 use common::pagination::cursor::Cursor;
 use common::price::domain::FixedFxRate;
 use common::shop_id::ShopId;
@@ -370,15 +371,23 @@ async fn main() {
         }
         let gemini_flex = gemini_flex_enabled();
         let gemini_service_tier = if gemini_flex { "flex" } else { "default" };
+        let llm_service_tier = Some(if gemini_flex {
+            LlmServiceTier::Flex
+        } else {
+            LlmServiceTier::Default
+        });
 
         let state_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
         let state_mapping_repo = Box::new(ProductStateMappingRepositoryImpl::new(Box::leak(
             Box::new(pool.clone()),
         )));
-        let state_mapping_svc =
-            ProductStateMappingServiceImpl::new(state_llm_builder, state_mapping_repo)
-                .expect("failed to build ProductStateMappingServiceImpl");
+        let state_mapping_svc = ProductStateMappingServiceImpl::new(
+            state_llm_builder,
+            llm_service_tier,
+            state_mapping_repo,
+        )
+        .expect("failed to build ProductStateMappingServiceImpl");
 
         let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
@@ -387,8 +396,9 @@ async fn main() {
         let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
             pool.clone(),
         ))));
-        let schema_svc = ProductSchemaServiceImpl::new(schema_llm_builder, schema_repo)
-            .expect("failed to build ProductSchemaServiceImpl");
+        let schema_svc =
+            ProductSchemaServiceImpl::new(schema_llm_builder, llm_service_tier, schema_repo)
+                .expect("failed to build ProductSchemaServiceImpl");
 
         let scraper_candidates = Box::new(
             ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
@@ -417,7 +427,9 @@ async fn main() {
         let url_pattern_repo = Box::new(ShopUrlPatternRepositoryImpl::new(pool.clone()));
 
         let class_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
-        let class_svc = Box::new(UrlClassificationServiceImpl::new(class_llm_builder).unwrap());
+        let class_svc = Box::new(
+            UrlClassificationServiceImpl::new(class_llm_builder, llm_service_tier).unwrap(),
+        );
 
         let pattern_svc = Box::new(UrlPatternServiceImpl::new(
             Arc::new(*url_pattern_repo),
