@@ -1,3 +1,4 @@
+use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use shop::{
@@ -34,6 +35,10 @@ async fn should_200_respond_shop() {
             .build(),
         context: Default::default(),
     };
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .return_once(|_| Box::pin(async { Ok(None) }));
 
     let response = handle(
         lambda_event,
@@ -41,6 +46,7 @@ async fn should_200_respond_shop() {
         &MockQueryShopService::default(),
         &command_service,
         &MockUserService::default(),
+        &access_token_verifier_service,
     )
     .await
     .unwrap();
@@ -69,6 +75,10 @@ async fn should_200_respond_shop_for_slug() {
             .build(),
         context: Default::default(),
     };
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .return_once(|_| Box::pin(async { Ok(None) }));
 
     let response = handle(
         lambda_event,
@@ -76,6 +86,7 @@ async fn should_200_respond_shop_for_slug() {
         &MockQueryShopService::default(),
         &command_service,
         &MockUserService::default(),
+        &access_token_verifier_service,
     )
     .await
     .unwrap();

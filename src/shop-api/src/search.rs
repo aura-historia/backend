@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use cognito::access_token_verifier_service::AccessTokenVerifierService;
 use common::{
     api::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError,
@@ -22,7 +23,15 @@ use shop::service::query_service::QueryShopService;
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl QueryShopService,
+    access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
+    let user_id_opt = access_token_verifier_service
+        .verify_extract_user_id(&event.payload.headers)
+        .await?;
+    if let Some(user_id) = user_id_opt {
+        tracing::Span::current().record("userId", user_id.to_string());
+    }
+
     let sort = extract_sort_query::<SortShopFieldData>(&event.payload.query_string_parameters)?
         .map(|sort_data| sort_data.map(SortShopField::from));
     let cursor =
@@ -92,10 +101,14 @@ pub async fn handle(
     let search_result_data: JsonCursoredData<GetShopData> = JsonCursoredData::from(search_result);
 
     let response_builder = ApiGatewayV2HttpResponseBuilder::json(200);
-    let response_builder = if event.payload.route_key.as_deref() == Some("GET /api/v1/shops") {
-        response_builder.cache_control("public", Some(600), Some(3600))
-    } else {
-        response_builder
+    let response_builder = match (event.payload.route_key.as_deref(), user_id_opt) {
+        (Some("GET /api/v1/shops"), Some(_)) => {
+            response_builder.cache_control("no-store", None, None)
+        }
+        (Some("GET /api/v1/shops"), None) => {
+            response_builder.cache_control("public", Some(600), Some(3600))
+        }
+        _ => response_builder,
     };
 
     Ok(response_builder.body_serde(search_result_data)?.build())
@@ -104,6 +117,7 @@ pub async fn handle(
 #[cfg(test)]
 mod tests {
     use crate::handle;
+    use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
     use common::pagination::cursor::{Cursor, CursoredResult};
     use fake::Fake;
     use fake::Faker;
@@ -150,12 +164,17 @@ mod tests {
                 };
                 Box::pin(async move { Ok(search_result) })
             });
+        let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+        access_token_verifier_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
         let response = handle(
             lambda_event,
             &MockGetShopService::default(),
             &service,
             &MockCommandShopService::default(),
             &MockUserService::default(),
+            &access_token_verifier_service,
         )
         .await
         .unwrap();
@@ -197,12 +216,17 @@ mod tests {
                 })
             })
         });
+        let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+        access_token_verifier_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
         let response = handle(
             lambda_event,
             &MockGetShopService::default(),
             &service,
             &MockCommandShopService::default(),
             &MockUserService::default(),
+            &access_token_verifier_service,
         )
         .await
         .unwrap();
@@ -211,7 +235,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_handle_get_simple_search_with_query_params() {
+    async fn should_handle_get_simple_search_with_query_params_when_unauthenticated() {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -237,12 +261,17 @@ mod tests {
                 })
             })
         });
+        let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+        access_token_verifier_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
         let response = handle(
             lambda_event,
             &MockGetShopService::default(),
             &service,
             &MockCommandShopService::default(),
             &MockUserService::default(),
+            &access_token_verifier_service,
         )
         .await
         .unwrap();
@@ -250,6 +279,60 @@ mod tests {
         assert_eq!(200, response.status_code);
         assert_eq!(
             "public, max-age=600, s-maxage=3600",
+            response
+                .headers
+                .get(http::header::CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn should_set_cache_control_to_no_store_when_authenticated_for_get_shops() {
+        use common::user_id::UserId;
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/shops")
+                .query_string_parameter("shopNameQuery", "House")
+                .build(),
+            context: Default::default(),
+        };
+
+        let mut service = MockQueryShopService::default();
+        service.expect_search_shops().return_once(|_, _, _| {
+            Box::pin(async move {
+                Ok(CursoredResult {
+                    items: vec![],
+                    total: Some(0),
+                    cursor: Cursor {
+                        size: 21,
+                        search_after: None,
+                    },
+                })
+            })
+        });
+        let user_id = UserId::new();
+        let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+        access_token_verifier_service
+            .expect_verify_extract_user_id()
+            .return_once(move |_| Box::pin(async move { Ok(Some(user_id)) }));
+        let response = handle(
+            lambda_event,
+            &MockGetShopService::default(),
+            &service,
+            &MockCommandShopService::default(),
+            &MockUserService::default(),
+            &access_token_verifier_service,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(200, response.status_code);
+        assert_eq!(
+            "no-store",
             response
                 .headers
                 .get(http::header::CACHE_CONTROL)
@@ -283,12 +366,17 @@ mod tests {
             };
             Box::pin(async move { Ok(search_result) })
         });
+        let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+        access_token_verifier_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
         let response = handle(
             lambda_event,
             &MockGetShopService::default(),
             &service,
             &MockCommandShopService::default(),
             &MockUserService::default(),
+            &access_token_verifier_service,
         )
         .await
         .unwrap();
