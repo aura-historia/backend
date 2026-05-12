@@ -76,6 +76,8 @@ use opensearch::auth::Credentials;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::command_service::CommandProductServiceImpl;
+use shop::core::partner_status::ShopPartnerStatus;
+use shop::core::shop::Shop;
 use shop::core::shop_search::ShopSearch;
 use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
 use shop::opensearch::repository::ShopOpenSearchRepositoryImpl;
@@ -97,6 +99,13 @@ struct OpenSearchShopSource {
     opensearch_client: opensearch::OpenSearch,
 }
 
+fn should_sync_shop(shop: &Shop) -> bool {
+    !matches!(shop.partner_status, ShopPartnerStatus::Partnered)
+        && shop.domains.iter().any(|domain| {
+            ["anticoantico.com", "antik-und-stil.com", "antixx.de"].contains(&domain.as_str())
+        })
+}
+
 #[async_trait]
 impl ShopRegistrationSource for OpenSearchShopSource {
     async fn fetch_registered_shops(&self) -> Result<Vec<RegisteredShop>, ShopSyncError> {
@@ -104,7 +113,7 @@ impl ShopRegistrationSource for OpenSearchShopSource {
         let query_service = QueryShopServiceImpl::new(&repository);
 
         let search = ShopSearch::default();
-        let mut all_shops = Vec::new();
+        let mut registered_shops = Vec::new();
         let mut cursor: Option<Cursor<serde_json::Value>> = None;
 
         loop {
@@ -115,12 +124,16 @@ impl ShopRegistrationSource for OpenSearchShopSource {
 
             let page_size = result.items.len();
             for shop in result.items {
+                if !should_sync_shop(&shop) {
+                    continue;
+                }
+
                 let slug: String = shop.shop_slug_id.into();
                 let name: String = shop.name.into();
                 let shop_id: ShopId = shop.shop_id;
                 let shop_type = shop.shop_type;
 
-                all_shops.push(RegisteredShop {
+                registered_shops.push(RegisteredShop {
                     shop_id,
                     shop_name: name,
                     shop_slug: slug,
@@ -136,16 +149,7 @@ impl ShopRegistrationSource for OpenSearchShopSource {
             cursor = Some(result.cursor);
         }
 
-        let filtered: Vec<_> = all_shops
-            .into_iter()
-            .filter(|shop| {
-                shop.domains.iter().any(|domain| {
-                    ["anticoantico.com", "antik-und-stil.com", "antixx.de"]
-                        .contains(&domain.as_str())
-                })
-            })
-            .collect();
-        Ok(filtered)
+        Ok(registered_shops)
     }
 }
 
@@ -508,4 +512,54 @@ async fn main() {
     }
     .instrument(tracing::info_span!("crawler_startup"))
     .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_sync_shop;
+    use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
+    use shop::core::shop_type::ShopType;
+    use shop::core::{partner_status::ShopPartnerStatus, shop::Shop};
+    use time::OffsetDateTime;
+
+    fn mk_shop(partner_status: ShopPartnerStatus, domain: &str) -> Shop {
+        Shop {
+            shop_id: ShopId::new(),
+            shop_slug_id: SlugId::from("test-shop"),
+            name: ShopName::from("Test Shop"),
+            shop_type: ShopType::CommercialDealer,
+            domains: [Domain::try_from(domain).unwrap()].into(),
+            shopify_domain: None,
+            url: None,
+            image: None,
+            structured_address: None,
+            geo_address: None,
+            phone: None,
+            email: None,
+            partner_status,
+            created: OffsetDateTime::now_utc(),
+            updated: OffsetDateTime::now_utc(),
+        }
+    }
+
+    #[test]
+    fn should_exclude_partnered_shop_even_when_domain_is_allowed() {
+        let shop = mk_shop(ShopPartnerStatus::Partnered, "anticoantico.com");
+
+        assert!(!should_sync_shop(&shop));
+    }
+
+    #[test]
+    fn should_include_scraped_shop_when_domain_is_allowed() {
+        let shop = mk_shop(ShopPartnerStatus::Scraped, "anticoantico.com");
+
+        assert!(should_sync_shop(&shop));
+    }
+
+    #[test]
+    fn should_exclude_scraped_shop_when_domain_is_not_allowed() {
+        let shop = mk_shop(ShopPartnerStatus::Scraped, "example.com");
+
+        assert!(!should_sync_shop(&shop));
+    }
 }
