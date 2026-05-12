@@ -1328,7 +1328,12 @@ async fn should_materialize_product_in_dynamodb_for_images_changed_event() {
         {
             let materialized_images: Vec<ProductImage> =
                 materialized.images.into_iter().map(|i| i.into()).collect();
-            assert_eq!(new_images, materialized_images);
+            // `prohibited_content` is now managed by the domain's heuristic and
+            // will differ from the caller-provided value; compare only URLs.
+            let materialized_urls: Vec<&url::Url> =
+                materialized_images.iter().map(|i| &i.url).collect();
+            let expected_urls: Vec<&url::Url> = new_images.iter().map(|i| &i.url).collect();
+            assert_eq!(expected_urls, materialized_urls);
             break;
         }
 
