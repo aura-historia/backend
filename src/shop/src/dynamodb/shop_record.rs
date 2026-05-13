@@ -4,6 +4,7 @@ use crate::core::{
     continent::Continent,
     partner_shop::PartnerShop,
     shop::Shop,
+    woocommerce_webhook_secret::WoocommerceWebhookSecret,
 };
 use crate::dynamodb::shop_type_record::ShopTypeRecord;
 use crate::dynamodb::utm::append_utm_params;
@@ -44,6 +45,9 @@ pub struct ShopRecord {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shopify_currency: Option<CurrencyRecord>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub woocommerce_webhook_secret: Option<WoocommerceWebhookSecret>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
@@ -147,6 +151,7 @@ impl From<Shop> for ShopRecord {
             domains: shop.domains,
             shopify_domain: shop.shopify_domain,
             shopify_currency: shop.shopify_currency.map(Into::into),
+            woocommerce_webhook_secret: shop.woocommerce_webhook_secret,
             url: shop.url,
             image: shop.image,
             structured_address_addressline: shop
@@ -195,6 +200,7 @@ impl From<ShopRecord> for Shop {
             domains: record.domains,
             shopify_domain: record.shopify_domain,
             shopify_currency: record.shopify_currency.map(Into::into),
+            woocommerce_webhook_secret: record.woocommerce_webhook_secret,
             url: record.url.map(append_utm_params),
             image: record.image,
             structured_address: structured_address_from_flat(
@@ -240,6 +246,7 @@ impl TryFrom<ShopRecord> for PartnerShop {
             domains: value.domains,
             shopify_domain: value.shopify_domain,
             shopify_currency: value.shopify_currency.map(Into::into),
+            woocommerce_webhook_secret: value.woocommerce_webhook_secret,
             url: value.url.map(append_utm_params),
             image: value.image,
             structured_address: structured_address_from_flat(

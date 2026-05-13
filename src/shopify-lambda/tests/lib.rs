@@ -152,6 +152,7 @@ async fn seed_shopify_partner_shop(repository: &ShopDynamoDbRepositoryImpl<'_>) 
         domains: Default::default(),
         shopify_domain: Some(shopify_domain.clone()),
         shopify_currency: Some(common::currency::record::CurrencyRecord::Usd),
+        woocommerce_webhook_secret: None,
         url: None,
         image: None,
         structured_address_addressline: None,

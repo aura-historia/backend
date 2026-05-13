@@ -191,6 +191,7 @@ async fn should_update_shop_document_for_index() {
         ]),
         shopify_domain: None,
         shopify_currency: None,
+        woocommerce_webhook_secret: None,
         url: None,
         image: Some(Url::parse("https://hansi-hanseatic.es/foo.png").unwrap()),
         structured_address_addressline: None,

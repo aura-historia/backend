@@ -1,4 +1,7 @@
-use crate::core::{address::StructuredAddress, shop_type::ShopType};
+use crate::core::{
+    address::StructuredAddress, shop_type::ShopType,
+    woocommerce_webhook_secret::WoocommerceWebhookSecret,
+};
 use common::currency::domain::Currency;
 use common::{domain::Domain, shop_name::ShopName};
 use serde_email::Email;
@@ -12,6 +15,7 @@ pub struct CreateShopCommand {
     pub domains: HashSet<Domain>,
     pub shopify_domain: Option<Domain>,
     pub shopify_currency: Option<Currency>,
+    pub woocommerce_webhook_secret: Option<WoocommerceWebhookSecret>,
     pub url: Option<Url>,
     pub image: Option<Url>,
     pub structured_address: Option<StructuredAddress>,
@@ -25,6 +29,7 @@ pub struct UpdateShopCommand {
     pub domains: Option<HashSet<Domain>>,
     pub shopify_domain: Option<Domain>,
     pub shopify_currency: Option<Currency>,
+    pub woocommerce_webhook_secret: Option<WoocommerceWebhookSecret>,
     pub url: Option<Url>,
     pub image: Option<Url>,
     pub structured_address: Option<StructuredAddress>,
@@ -38,6 +43,7 @@ impl UpdateShopCommand {
             && self.domains.is_none()
             && self.shopify_domain.is_none()
             && self.shopify_currency.is_none()
+            && self.woocommerce_webhook_secret.is_none()
             && self.url.is_none()
             && self.image.is_none()
             && self.structured_address.is_none()
@@ -64,6 +70,7 @@ mod faker {
                 .into(),
                 shopify_domain: config.fake_with_rng(rng),
                 shopify_currency: config.fake_with_rng(rng),
+                woocommerce_webhook_secret: config.fake_with_rng(rng),
                 url: config.fake_with_rng(rng),
                 image: config.fake_with_rng(rng),
                 structured_address: None,
@@ -80,6 +87,7 @@ mod faker {
                 domains: config.fake_with_rng(rng),
                 shopify_domain: config.fake_with_rng(rng),
                 shopify_currency: config.fake_with_rng(rng),
+                woocommerce_webhook_secret: config.fake_with_rng(rng),
                 url: config.fake_with_rng(rng),
                 image: config.fake_with_rng(rng),
                 structured_address: None,

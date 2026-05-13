@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use cognito::access_token_verifier_service::AccessTokenVerifierService;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
@@ -7,6 +8,7 @@ use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
 use shop::data::get_shop_data::GetShopData;
 use shop::data::patch_shop_data::PatchShopData;
+use shop::core::partner_shop_api_key::api::extract_api_key;
 use shop::service::command::UpdateShopCommand;
 use shop::service::command_service::CommandShopService;
 use shop::service::get_service::GetShopService;
@@ -17,22 +19,34 @@ pub async fn handle(
     command_shop_service: &(impl CommandShopService + Sync),
     get_shop_service: &(impl GetShopService + Sync),
     user_service: &(impl UserService + Sync),
+    access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let user_id = extract_user_id_request_context(&event.payload.request_context)?;
-    tracing::Span::current().record("userId", user_id.to_string());
-
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
 
-    let is_admin = user_service.check_admin(&user_id).await.is_ok();
-    if !is_admin {
-        let partner_shop = get_shop_service.find_partner_shop(&shop_id).await?;
-        if partner_shop.partner_user_id != user_id {
-            return Err(
-                shop::service::command_service::CommandShopError::NotThePartnerUser(
-                    user_id, shop_id,
-                )
-                .into(),
-            );
+    let cognito_user_id = access_token_verifier_service
+        .verify_extract_user_id(&event.payload.headers)
+        .await?
+        .or_else(|| extract_user_id_request_context(&event.payload.request_context).ok());
+
+    match cognito_user_id {
+        Some(user_id) => {
+            tracing::Span::current().record("userId", user_id.to_string());
+            let is_admin = user_service.check_admin(&user_id).await.is_ok();
+            if !is_admin {
+                let partner_shop = get_shop_service.find_partner_shop(&shop_id).await?;
+                if partner_shop.partner_user_id != user_id {
+                    return Err(
+                        shop::service::command_service::CommandShopError::NotThePartnerUser(
+                            user_id, shop_id,
+                        )
+                        .into(),
+                    );
+                }
+            }
+        }
+        None => {
+            let api_key = extract_api_key(&event.payload)?;
+            let _ = get_shop_service.verify_partner_shop(&api_key, &shop_id).await?;
         }
     }
 
@@ -55,6 +69,7 @@ pub async fn handle(
         domains: patch_data.domains,
         shopify_domain: patch_data.shopify_domain,
         shopify_currency: patch_data.shopify_currency.map(Into::into),
+        woocommerce_webhook_secret: patch_data.woocommerce_webhook_secret,
         url: patch_data.url,
         image: patch_data.image,
         structured_address: patch_data.structured_address.map(Into::into),

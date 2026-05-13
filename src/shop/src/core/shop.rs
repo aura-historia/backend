@@ -3,6 +3,7 @@ use crate::core::{
     partner_shop::PartnerShop,
     partner_status::ShopPartnerStatus,
     shop_type::ShopType,
+    woocommerce_webhook_secret::WoocommerceWebhookSecret,
 };
 use common::currency::domain::Currency;
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
@@ -20,6 +21,7 @@ pub struct Shop {
     pub domains: HashSet<Domain>,
     pub shopify_domain: Option<Domain>,
     pub shopify_currency: Option<Currency>,
+    pub woocommerce_webhook_secret: Option<WoocommerceWebhookSecret>,
     pub url: Option<Url>,
     pub image: Option<Url>,
     pub structured_address: Option<StructuredAddress>,
@@ -41,6 +43,7 @@ impl From<PartnerShop> for Shop {
             domains: partner_shop.domains,
             shopify_domain: partner_shop.shopify_domain,
             shopify_currency: partner_shop.shopify_currency,
+            woocommerce_webhook_secret: partner_shop.woocommerce_webhook_secret,
             url: partner_shop.url,
             image: partner_shop.image,
             structured_address: partner_shop.structured_address,
@@ -70,6 +73,7 @@ mod faker {
                 domains: [Faker.fake()].into(),
                 shopify_domain: config.fake_with_rng(rng),
                 shopify_currency: config.fake_with_rng(rng),
+                woocommerce_webhook_secret: config.fake_with_rng(rng),
                 url: config.fake_with_rng(rng),
                 image: config.fake_with_rng(rng),
                 structured_address: None,

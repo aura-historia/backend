@@ -138,6 +138,7 @@ impl From<ShopDocument> for Shop {
             domains: document.domains,
             shopify_domain: document.shopify_domain,
             shopify_currency: document.shopify_currency.map(Into::into),
+            woocommerce_webhook_secret: None,
             url: document.url.map(append_utm_params),
             image: document.image,
             structured_address: structured_address_from_flat(

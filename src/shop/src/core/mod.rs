@@ -6,4 +6,5 @@ pub mod partner_status;
 pub mod shop;
 pub mod shop_search;
 pub mod shop_type;
+pub mod woocommerce_webhook_secret;
 pub mod sort_shop_field;
