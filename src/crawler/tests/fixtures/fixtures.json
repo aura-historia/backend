@@ -18,12 +18,17 @@
       },
       "price": {
         "selector": "span[itemprop='price']",
-        "additional_selectors": [".preis .wert", ".preis"],
+        "additional_selectors": [
+          ".preis .wert",
+          ".preis"
+        ],
         "type": "text"
       },
       "state": {
         "selector": ".cart",
-        "additional_selectors": [".wert"],
+        "additional_selectors": [
+          ".wert"
+        ],
         "type": "attribute",
         "name": "class"
       },
@@ -65,6 +70,98 @@
       "url": "https://www.weitze.net/antiquitaeten/auktionen/Reichswehr_Wehrmacht_Paar_Schulterknopfe_fur_einen_Soldaten_der_6_Kompanie/405500/",
       "images": [
         "https://www.weitze.net/onload/shop/gastfotos/00/405500/405500.webp"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    }
+  },
+  {
+    "html": "tests/fixtures/html/chairish_available.html",
+    "raw_state": "instock",
+    "state_record": "AVAILABLE",
+    "schema": {
+      "price": {
+        "type": "text",
+        "selector": ".your-price .product-price-value",
+        "cardinality": "first",
+        "additional_selectors": [
+          "meta[property='product:price:amount']"
+        ]
+      },
+      "state": {
+        "name": "content",
+        "type": "attribute",
+        "selector": "meta[property='product:availability']",
+        "cardinality": "first"
+      },
+      "title": {
+        "type": "text",
+        "selector": "h1.product-title",
+        "cardinality": "first"
+      },
+      "images": {
+        "name": "src",
+        "type": "attribute",
+        "selector": ".js-carousel-slide img",
+        "cardinality": "all"
+      },
+      "description": {
+        "type": "text",
+        "selector": ".js-product-description",
+        "cardinality": "first"
+      },
+      "default_currency": "USD",
+      "shops_product_id": {
+        "name": "content",
+        "type": "attribute",
+        "selector": "meta[property='og:product-id']",
+        "cardinality": "first"
+      }
+    },
+    "raw": {
+      "shops_product_id": "26206792",
+      "title": "Tall Pair of Palm Beach Style Palm Tree Candle Holders",
+      "description": [
+        "Handcrafted ceramic palm tree candleholders. Each candle holder is unique and well crafted. Base is ivory with blue/green fronds.Manufactured \u2026\n          Read more\n          Handcrafted ceramic palm tree candleholders. Each candle holder is unique and well crafted. Base is ivory with blue/green fronds.Manufactured by Chuanlhong Ceramic*no makers mark*made in Thailand on the underside\n          See less"
+      ],
+      "price": "$1,125",
+      "price_estimate_min": null,
+      "price_estimate_max": null,
+      "state": "instock",
+      "images": [
+        "https://chairish-prod.freetls.fastly.net/image/product/sized/058b3ad3-36af-4540-940c-3ce7dcb9ec73/tall-pair-of-palm-beach-style-palm-tree-candle-holders-4107?aspect=fit&width=640&height=640",
+        "https://chairish-prod.freetls.fastly.net/image/product/sized/a8d9f8d0-3db9-4341-8ebd-e6fa60040ae4/tall-pair-of-palm-beach-style-palm-tree-candle-holders-1920?aspect=fit&width=640&height=640",
+        "https://chairish-prod.freetls.fastly.net/image/product/sized/25a8597d-ac3b-44d1-9cc0-e84e525ab022/tall-pair-of-palm-beach-style-palm-tree-candle-holders-4451?aspect=fit&width=640&height=640",
+        "https://chairish-prod.freetls.fastly.net/image/product/sized/44f7c109-c5c6-4baf-a519-ea30c05630d4/tall-pair-of-palm-beach-style-palm-tree-candle-holders-5397?aspect=fit&width=640&height=640",
+        "https://chairish-prod.freetls.fastly.net/image/product/sized/dea0f196-fc12-46ff-90e3-1f2e0fd1b108/tall-pair-of-palm-beach-style-palm-tree-candle-holders-5296?aspect=fit&width=640&height=640",
+        "https://chairish-prod.freetls.fastly.net/image/product/sized/17507987-5708-4194-8704-a2ec9c9e37ab/tall-pair-of-palm-beach-style-palm-tree-candle-holders-1680?aspect=fit&width=640&height=640",
+        "https://chairish-prod.freetls.fastly.net/image/product/sized/4138a531-e5d7-4551-b1c0-8fc750826c2d/tall-pair-of-palm-beach-style-palm-tree-candle-holders-5997?aspect=fit&width=640&height=640",
+        "https://chairish-prod.freetls.fastly.net/image/product/sized/b216f0dc-8306-44e0-8828-2f51233b77cb/tall-pair-of-palm-beach-style-palm-tree-candle-holders-2378?aspect=fit&width=640&height=640"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    },
+    "normalized": {
+      "shops_product_id": "26206792",
+      "title": "Tall Pair of Palm Beach Style Palm Tree Candle Holders",
+      "description": "Handcrafted ceramic palm tree candleholders. Each candle holder is unique and well crafted. Base is ivory with blue/green fronds.Manufactured \u2026\n          Read more\n          Handcrafted ceramic palm tree candleholders. Each candle holder is unique and well crafted. Base is ivory with blue/green fronds.Manufactured by Chuanlhong Ceramic*no makers mark*made in Thailand on the underside\n          See less",
+      "price": 112500,
+      "price_currency": "USD",
+      "price_estimate_min": null,
+      "price_estimate_min_currency": null,
+      "price_estimate_max": null,
+      "price_estimate_max_currency": null,
+      "state": "AVAILABLE",
+      "url": "https://www.chairish.com/product/26206792/tall-pair-of-palm-beach-style-palm-tree-candle-holders",
+      "images": [
+        "https://chairish-prod.freetls.fastly.net/image/product/sized/058b3ad3-36af-4540-940c-3ce7dcb9ec73/tall-pair-of-palm-beach-style-palm-tree-candle-holders-4107?aspect=fit&width=640&height=640",
+        "https://chairish-prod.freetls.fastly.net/image/product/sized/a8d9f8d0-3db9-4341-8ebd-e6fa60040ae4/tall-pair-of-palm-beach-style-palm-tree-candle-holders-1920?aspect=fit&width=640&height=640",
+        "https://chairish-prod.freetls.fastly.net/image/product/sized/25a8597d-ac3b-44d1-9cc0-e84e525ab022/tall-pair-of-palm-beach-style-palm-tree-candle-holders-4451?aspect=fit&width=640&height=640",
+        "https://chairish-prod.freetls.fastly.net/image/product/sized/44f7c109-c5c6-4baf-a519-ea30c05630d4/tall-pair-of-palm-beach-style-palm-tree-candle-holders-5397?aspect=fit&width=640&height=640",
+        "https://chairish-prod.freetls.fastly.net/image/product/sized/dea0f196-fc12-46ff-90e3-1f2e0fd1b108/tall-pair-of-palm-beach-style-palm-tree-candle-holders-5296?aspect=fit&width=640&height=640",
+        "https://chairish-prod.freetls.fastly.net/image/product/sized/17507987-5708-4194-8704-a2ec9c9e37ab/tall-pair-of-palm-beach-style-palm-tree-candle-holders-1680?aspect=fit&width=640&height=640",
+        "https://chairish-prod.freetls.fastly.net/image/product/sized/4138a531-e5d7-4551-b1c0-8fc750826c2d/tall-pair-of-palm-beach-style-palm-tree-candle-holders-5997?aspect=fit&width=640&height=640",
+        "https://chairish-prod.freetls.fastly.net/image/product/sized/b216f0dc-8306-44e0-8828-2f51233b77cb/tall-pair-of-palm-beach-style-palm-tree-candle-holders-2378?aspect=fit&width=640&height=640"
       ],
       "auction_start": null,
       "auction_end": null

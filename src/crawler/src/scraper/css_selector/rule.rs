@@ -65,10 +65,12 @@ impl ExtractionRule {
     /// Results from each selector are aggregated into a single `Vec<String>`.
     ///
     /// - **`First` cardinality**: takes the first matched element per selector.
+    ///   For text extraction, empty/whitespace-only matches are skipped until a
+    ///   non-empty value is found.
     /// - **`All` cardinality**: takes all matched elements per selector.
     ///
     /// Returns `Err(NoElementMatched)` only when *no* selector produced any
-    /// match at all.
+    /// usable value.
     pub fn apply(&self, html: &Html) -> Result<Vec<String>, ExtractionError> {
         let all_selectors = std::iter::once(&self.selector).chain(self.additional_selectors.iter());
 
@@ -76,21 +78,28 @@ impl ExtractionRule {
 
         for css_selector in all_selectors {
             let parsed = parse_selector(css_selector)?;
-            let mut elements = html.select(&parsed).peekable();
-
-            if elements.peek().is_none() {
-                continue;
-            }
+            let elements = html.select(&parsed);
 
             match self.cardinality {
-                ExtractionCardinality::First => {
-                    let element = elements.next().expect("peek confirmed element exists");
-                    results.push(extract_from_element(
-                        &element,
-                        &self.extract,
-                        css_selector.as_ref(),
-                    )?);
-                }
+                ExtractionCardinality::First => match &self.extract {
+                    ExtractionKind::Text => {
+                        if let Some(value) =
+                            extract_first_non_empty_text(elements, css_selector.as_ref())?
+                        {
+                            results.push(value);
+                        }
+                    }
+                    ExtractionKind::Attribute { .. } => {
+                        let mut elements = elements.peekable();
+                        if let Some(element) = elements.next() {
+                            results.push(extract_from_element(
+                                &element,
+                                &self.extract,
+                                css_selector.as_ref(),
+                            )?);
+                        }
+                    }
+                },
                 ExtractionCardinality::All => {
                     for el in elements {
                         results.push(extract_from_element(
@@ -118,6 +127,20 @@ fn parse_selector(css_selector: &CssSelector) -> Result<Selector, ExtractionErro
         selector: css_selector.to_string(),
         reason: format!("{err:?}"),
     })
+}
+
+fn extract_first_non_empty_text(
+    elements: scraper::html::Select<'_, '_>,
+    selector_str: &str,
+) -> Result<Option<String>, ExtractionError> {
+    for element in elements {
+        let value = extract_from_element(&element, &ExtractionKind::Text, selector_str)?;
+        if !value.is_empty() {
+            return Ok(Some(value));
+        }
+    }
+
+    Ok(None)
 }
 
 fn extract_from_element(
@@ -221,10 +244,11 @@ mod tests {
     }
 
     #[test]
-    fn should_extract_empty_string_when_element_has_no_text_for_text_kind() {
+    fn should_return_no_element_matched_when_only_empty_text_is_found_for_first_cardinality() {
         let doc = html("<div><br/></div>");
         let r = rule("br", text_kind(), ExtractionCardinality::First);
-        assert_eq!(r.apply(&doc).unwrap(), vec![""]);
+        let err = r.apply(&doc).unwrap_err();
+        assert!(matches!(err, ExtractionError::NoElementMatched { .. }));
     }
 
     // ─── Text / All ────────────────────────────────────────────────────
@@ -320,6 +344,29 @@ mod tests {
         let doc = html("<h2>Additional only</h2>");
         let r = rule_with_additional("h1", vec!["h2"], text_kind(), ExtractionCardinality::First);
         assert_eq!(r.apply(&doc).unwrap(), vec!["Additional only"]);
+    }
+
+    #[test]
+    fn should_skip_empty_text_match_and_take_later_non_empty_match_for_first_cardinality() {
+        let doc = html(
+            r#"<div class="price"></div><div class="price">
+                $1,125
+            </div>"#,
+        );
+        let r = rule(".price", text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["$1,125"]);
+    }
+
+    #[test]
+    fn should_skip_empty_text_matches_from_primary_and_use_additional_text_selector() {
+        let doc = html(r#"<div class="price"></div><div class="fallback">$1,125</div>"#);
+        let r = rule_with_additional(
+            ".price",
+            vec![".fallback"],
+            text_kind(),
+            ExtractionCardinality::First,
+        );
+        assert_eq!(r.apply(&doc).unwrap(), vec!["$1,125"]);
     }
 
     #[test]
@@ -453,6 +500,19 @@ mod tests {
     fn should_return_no_element_matched_for_all_cardinality_when_nothing_matches() {
         let doc = html("<p>Hello</p>");
         let r = rule("span", text_kind(), ExtractionCardinality::All);
+        let err = r.apply(&doc).unwrap_err();
+        assert!(matches!(err, ExtractionError::NoElementMatched { .. }));
+    }
+
+    #[test]
+    fn should_return_no_element_matched_when_all_text_matches_are_empty() {
+        let doc = html(r#"<div class="price"></div><div class="fallback">   </div>"#);
+        let r = rule_with_additional(
+            ".price",
+            vec![".fallback"],
+            text_kind(),
+            ExtractionCardinality::First,
+        );
         let err = r.apply(&doc).unwrap_err();
         assert!(matches!(err, ExtractionError::NoElementMatched { .. }));
     }
