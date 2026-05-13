@@ -7,6 +7,7 @@ use crate::core::{
 };
 use crate::dynamodb::shop_type_record::ShopTypeRecord;
 use crate::dynamodb::utm::append_utm_params;
+use common::currency::record::CurrencyRecord;
 use common::error::missing_field::MissingPersistenceField;
 use common::{
     domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::UserId,
@@ -40,6 +41,9 @@ pub struct ShopRecord {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shopify_domain: Option<Domain>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shopify_currency: Option<CurrencyRecord>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
@@ -142,6 +146,7 @@ impl From<Shop> for ShopRecord {
             shop_type: shop.shop_type.into(),
             domains: shop.domains,
             shopify_domain: shop.shopify_domain,
+            shopify_currency: shop.shopify_currency.map(Into::into),
             url: shop.url,
             image: shop.image,
             structured_address_addressline: shop
@@ -189,6 +194,7 @@ impl From<ShopRecord> for Shop {
             shop_type: record.shop_type.into(),
             domains: record.domains,
             shopify_domain: record.shopify_domain,
+            shopify_currency: record.shopify_currency.map(Into::into),
             url: record.url.map(append_utm_params),
             image: record.image,
             structured_address: structured_address_from_flat(
@@ -233,6 +239,7 @@ impl TryFrom<ShopRecord> for PartnerShop {
             shop_type: value.shop_type.into(),
             domains: value.domains,
             shopify_domain: value.shopify_domain,
+            shopify_currency: value.shopify_currency.map(Into::into),
             url: value.url.map(append_utm_params),
             image: value.image,
             structured_address: structured_address_from_flat(

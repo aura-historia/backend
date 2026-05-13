@@ -530,6 +530,7 @@ mod tests {
             shop_type: ShopType::CommercialDealer,
             domains: [Domain::try_from(domain).unwrap()].into(),
             shopify_domain: None,
+            shopify_currency: None,
             url: None,
             image: None,
             structured_address: None,

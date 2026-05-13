@@ -11,6 +11,7 @@ use crate::{
         shop_type_document::ShopTypeDocument,
     },
 };
+use common::currency::data::CurrencyData;
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
@@ -31,6 +32,9 @@ pub struct ShopDocument {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shopify_domain: Option<Domain>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shopify_currency: Option<CurrencyData>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
@@ -85,6 +89,7 @@ impl From<Shop> for ShopDocument {
             shop_type: shop.shop_type.into(),
             domains: shop.domains,
             shopify_domain: shop.shopify_domain,
+            shopify_currency: shop.shopify_currency.map(Into::into),
             url: shop.url,
             image: shop.image,
             structured_address_addressline: shop
@@ -132,6 +137,7 @@ impl From<ShopDocument> for Shop {
             shop_type: document.shop_type.into(),
             domains: document.domains,
             shopify_domain: document.shopify_domain,
+            shopify_currency: document.shopify_currency.map(Into::into),
             url: document.url.map(append_utm_params),
             image: document.image,
             structured_address: structured_address_from_flat(
@@ -164,6 +170,9 @@ impl From<ShopRecord> for ShopDocument {
             shop_type: record.shop_type.into(),
             domains: record.domains,
             shopify_domain: record.shopify_domain,
+            shopify_currency: record
+                .shopify_currency
+                .map(|r| CurrencyData::from(common::currency::domain::Currency::from(r))),
             url: record.url,
             image: record.image,
             structured_address_addressline: record.structured_address_addressline,

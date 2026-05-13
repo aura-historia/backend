@@ -1,5 +1,6 @@
 use crate::data::address_data::StructuredAddressData;
 use crate::data::shop_type_data::ShopTypeData;
+use common::currency::data::CurrencyData;
 use common::{domain::Domain, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
@@ -14,6 +15,8 @@ pub struct PostShopData {
     pub domains: HashSet<Domain>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shopify_domain: Option<Domain>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shopify_currency: Option<CurrencyData>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -38,6 +41,7 @@ mod faker {
                 shop_type: config.fake_with_rng(rng),
                 domains: vec![config.fake_with_rng(rng)].into_iter().collect(),
                 shopify_domain: config.fake_with_rng(rng),
+                shopify_currency: config.fake_with_rng(rng),
                 url: None,
                 image: None,
                 structured_address: None,

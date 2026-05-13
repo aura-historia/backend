@@ -50,6 +50,7 @@ pub async fn handle(
             shop_type: shop_type.into(),
             domains: shop_domains,
             shopify_domain: None,
+            shopify_currency: None,
             url: shop_url,
             image: shop_image,
             structured_address: shop_structured_address.map(Into::into),

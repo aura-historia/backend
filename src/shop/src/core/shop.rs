@@ -4,6 +4,7 @@ use crate::core::{
     partner_status::ShopPartnerStatus,
     shop_type::ShopType,
 };
+use common::currency::domain::Currency;
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use serde_email::Email;
 use std::collections::HashSet;
@@ -18,6 +19,7 @@ pub struct Shop {
     pub shop_type: ShopType,
     pub domains: HashSet<Domain>,
     pub shopify_domain: Option<Domain>,
+    pub shopify_currency: Option<Currency>,
     pub url: Option<Url>,
     pub image: Option<Url>,
     pub structured_address: Option<StructuredAddress>,
@@ -38,6 +40,7 @@ impl From<PartnerShop> for Shop {
             shop_type: partner_shop.shop_type,
             domains: partner_shop.domains,
             shopify_domain: partner_shop.shopify_domain,
+            shopify_currency: partner_shop.shopify_currency,
             url: partner_shop.url,
             image: partner_shop.image,
             structured_address: partner_shop.structured_address,
@@ -66,6 +69,7 @@ mod faker {
                 shop_type: config.fake_with_rng(rng),
                 domains: [Faker.fake()].into(),
                 shopify_domain: config.fake_with_rng(rng),
+                shopify_currency: config.fake_with_rng(rng),
                 url: config.fake_with_rng(rng),
                 image: config.fake_with_rng(rng),
                 structured_address: None,
