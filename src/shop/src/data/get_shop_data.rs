@@ -6,6 +6,7 @@ use crate::{
         shop_type_data::ShopTypeData,
     },
 };
+use common::currency::data::CurrencyData;
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
@@ -23,6 +24,8 @@ pub struct GetShopData {
     pub domains: HashSet<Domain>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shopify_domain: Option<Domain>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shopify_currency: Option<CurrencyData>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -52,6 +55,7 @@ impl From<Shop> for GetShopData {
             shop_type: shop.shop_type.into(),
             domains: shop.domains,
             shopify_domain: shop.shopify_domain,
+            shopify_currency: shop.shopify_currency.map(Into::into),
             url: shop.url,
             image: shop.image,
             structured_address: shop.structured_address.map(Into::into),
@@ -85,6 +89,7 @@ mod tests {
             shop_type: ShopTypeData::CommercialDealer,
             domains: [Domain::try_from("https://woaah.co.ltd.com").unwrap()].into(),
             shopify_domain: Some(Domain::try_from("woaah.myshopify.com").unwrap()),
+            shopify_currency: None,
             url: Some(Url::parse("https://woaah.co.ltd.com").unwrap()),
             image: Some(Url::parse("https://woaah.co.ltd.com/logo.svg").unwrap()),
             structured_address: None,

@@ -215,6 +215,7 @@ impl TryFrom<PartnerShopApplicationRecord> for PartnerShopApplication {
                     shop_type: shop_type_record.into(),
                     domains,
                     shopify_domain: None,
+                    shopify_currency: None,
                     url: record.shop_url,
                     image,
                     structured_address: structured_address_from_flat(
@@ -319,6 +320,7 @@ mod faker {
                 shop_type: ShopType::CommercialDealer,
                 domains: [Domain::try_from("https://www.test.com/".to_string()).unwrap()].into(),
                 shopify_domain: None,
+                shopify_currency: None,
                 url: None,
                 image: None,
                 structured_address: None,

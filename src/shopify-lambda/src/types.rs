@@ -77,6 +77,7 @@ pub struct ShopifyProductEvent {
     pub shop_domain: Domain,
     pub kind: ShopifyProductEventKind,
     pub payload: ShopifyProductPayload,
+    pub currency: Option<Currency>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -89,6 +90,8 @@ pub enum ShopifyProductEventError {
     InvalidUrl(#[from] url::ParseError),
     #[error("Invalid Shopify price '{0}'")]
     InvalidPrice(String),
+    #[error("Shop has no Shopify currency configured")]
+    MissingCurrency,
 }
 
 impl TryFrom<ShopifyProductEvent> for UpsertProductCommand {
@@ -138,6 +141,7 @@ impl TryFrom<ShopifyProductEvent> for UpsertProductCommand {
                     .variants
                     .first()
                     .and_then(|v| v.price.as_deref()),
+                event.currency,
             )?,
             native_price_estimate_min: None,
             native_price_estimate_max: None,
@@ -184,10 +188,14 @@ pub fn product_state(payload: &ShopifyProductPayload) -> ProductState {
     }
 }
 
-pub fn parse_price(price: Option<&str>) -> Result<Option<Price>, ShopifyProductEventError> {
+pub fn parse_price(
+    price: Option<&str>,
+    currency: Option<Currency>,
+) -> Result<Option<Price>, ShopifyProductEventError> {
     let Some(price) = price.filter(|price| !price.trim().is_empty()) else {
         return Ok(None);
     };
+    let currency = currency.ok_or(ShopifyProductEventError::MissingCurrency)?;
     let trimmed = price.trim();
     let (major, minor) = trimmed.split_once('.').unwrap_or((trimmed, ""));
     if !major.chars().all(|c| c.is_ascii_digit()) || !minor.chars().all(|c| c.is_ascii_digit()) {
@@ -203,10 +211,9 @@ pub fn parse_price(price: Option<&str>) -> Result<Option<Price>, ShopifyProductE
     let minor: u64 = minor
         .parse()
         .map_err(|_| ShopifyProductEventError::InvalidPrice(trimmed.to_owned()))?;
-    // TODO: Retrieve the Shopify shop currency instead of assuming USD.
     Ok(Some(Price::new(
         MonetaryAmount::from(major * 100 + minor),
-        Currency::Usd,
+        currency,
     )))
 }
 
@@ -298,6 +305,7 @@ mod tests {
         let mut shop: Shop = Faker.fake();
         shop.shop_id = ShopId::new();
         shop.shopify_domain = Some(Domain::try_from("partner-shop.myshopify.com").unwrap());
+        shop.shopify_currency = Some(Currency::Usd);
         shop.partner_status = ShopPartnerStatus::Partnered;
         shop
     }
@@ -309,6 +317,7 @@ mod tests {
             shop_id: shop.shop_id,
             shop_domain: shop.shopify_domain.clone().unwrap(),
             kind: ShopifyProductEventKind::Update,
+            currency: shop.shopify_currency,
             payload: serde_json::from_value(shopify_detail("products/update")["payload"].clone())
                 .unwrap(),
         };
@@ -336,6 +345,7 @@ mod tests {
             shop_id: shop.shop_id,
             shop_domain: shop.shopify_domain.clone().unwrap(),
             kind: ShopifyProductEventKind::Delete,
+            currency: shop.shopify_currency,
             payload: serde_json::from_value(shopify_detail("products/delete")["payload"].clone())
                 .unwrap(),
         };

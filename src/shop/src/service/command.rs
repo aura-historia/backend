@@ -1,4 +1,5 @@
 use crate::core::{address::StructuredAddress, shop_type::ShopType};
+use common::currency::domain::Currency;
 use common::{domain::Domain, shop_name::ShopName};
 use serde_email::Email;
 use std::collections::HashSet;
@@ -10,6 +11,7 @@ pub struct CreateShopCommand {
     pub shop_type: ShopType,
     pub domains: HashSet<Domain>,
     pub shopify_domain: Option<Domain>,
+    pub shopify_currency: Option<Currency>,
     pub url: Option<Url>,
     pub image: Option<Url>,
     pub structured_address: Option<StructuredAddress>,
@@ -22,6 +24,7 @@ pub struct UpdateShopCommand {
     pub shop_type: Option<ShopType>,
     pub domains: Option<HashSet<Domain>>,
     pub shopify_domain: Option<Domain>,
+    pub shopify_currency: Option<Currency>,
     pub url: Option<Url>,
     pub image: Option<Url>,
     pub structured_address: Option<StructuredAddress>,
@@ -34,6 +37,7 @@ impl UpdateShopCommand {
         self.shop_type.is_none()
             && self.domains.is_none()
             && self.shopify_domain.is_none()
+            && self.shopify_currency.is_none()
             && self.url.is_none()
             && self.image.is_none()
             && self.structured_address.is_none()
@@ -59,6 +63,7 @@ mod faker {
                 .unwrap()]
                 .into(),
                 shopify_domain: config.fake_with_rng(rng),
+                shopify_currency: config.fake_with_rng(rng),
                 url: config.fake_with_rng(rng),
                 image: config.fake_with_rng(rng),
                 structured_address: None,
@@ -74,6 +79,7 @@ mod faker {
                 shop_type: config.fake_with_rng(rng),
                 domains: config.fake_with_rng(rng),
                 shopify_domain: config.fake_with_rng(rng),
+                shopify_currency: config.fake_with_rng(rng),
                 url: config.fake_with_rng(rng),
                 image: config.fake_with_rng(rng),
                 structured_address: None,

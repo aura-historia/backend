@@ -98,10 +98,18 @@ async fn resolve_command(
         shop_id: shop.shop_id,
         shop_domain,
         kind,
+        currency: shop.shopify_currency,
         payload: detail.payload,
     };
     let command = match UpsertProductCommand::try_from(shopify_event) {
         Ok(command) => command,
+        Err(ShopifyProductEventError::MissingCurrency) => {
+            error!(shopId = %shop.shop_id, "Shop has no Shopify currency configured, failing SQS message.");
+            return Err(format!(
+                "Shop {} has no Shopify currency configured",
+                shop.shop_id
+            ));
+        }
         Err(err) => {
             error!(error = %err, "Failed mapping Shopify product event.");
             return Ok(None);
@@ -276,6 +284,7 @@ mod tests {
         let mut shop: Shop = Faker.fake();
         shop.shop_id = ShopId::new();
         shop.shopify_domain = Some(Domain::try_from("partner-shop.myshopify.com").unwrap());
+        shop.shopify_currency = Some(common::currency::domain::Currency::Usd);
         shop.partner_status = ShopPartnerStatus::Partnered;
         shop
     }

@@ -132,6 +132,7 @@ impl From<ShopDocument> for Shop {
             shop_type: document.shop_type.into(),
             domains: document.domains,
             shopify_domain: document.shopify_domain,
+            shopify_currency: None,
             url: document.url.map(append_utm_params),
             image: document.image,
             structured_address: structured_address_from_flat(

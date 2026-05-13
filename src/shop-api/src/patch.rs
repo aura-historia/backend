@@ -54,6 +54,7 @@ pub async fn handle(
         shop_type: patch_data.shop_type.map(Into::into),
         domains: patch_data.domains,
         shopify_domain: patch_data.shopify_domain,
+        shopify_currency: patch_data.shopify_currency.map(Into::into),
         url: patch_data.url,
         image: patch_data.image,
         structured_address: patch_data.structured_address.map(Into::into),

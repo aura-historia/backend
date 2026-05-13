@@ -151,6 +151,7 @@ async fn seed_shopify_partner_shop(repository: &ShopDynamoDbRepositoryImpl<'_>) 
         shop_type: ShopTypeRecord::Marketplace,
         domains: Default::default(),
         shopify_domain: Some(shopify_domain.clone()),
+        shopify_currency: Some(common::currency::record::CurrencyRecord::Usd),
         url: None,
         image: None,
         structured_address_addressline: None,
