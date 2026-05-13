@@ -216,7 +216,10 @@ fn verify_signature(
     let secret = partner_shop
         .woocommerce_webhook_secret
         .as_ref()
-        .ok_or_else(|| ApiError::unauthorized(BAD_HEADER_VALUE).with_detail("Missing WooCommerce webhook secret for shop."))?;
+        .ok_or_else(|| {
+            ApiError::unauthorized(BAD_HEADER_VALUE)
+                .with_detail("Missing WooCommerce webhook secret for shop.")
+        })?;
     let signature = request
         .headers
         .get(WOOCOMMERCE_SIGNATURE_HEADER)
@@ -247,11 +250,9 @@ fn verify_signature(
     if memcmp::eq(&expected, &signature) {
         Ok(())
     } else {
-        Err(
-        ApiError::unauthorized(BAD_HEADER_VALUE)
+        Err(ApiError::unauthorized(BAD_HEADER_VALUE)
             .with_header_field(WOOCOMMERCE_SIGNATURE_HEADER)
-            .with_detail("WooCommerce signature mismatch.")
-        )
+            .with_detail("WooCommerce signature mismatch."))
     }
 }
 
@@ -279,9 +280,9 @@ impl TryFrom<WoocommerceProductEvent> for UpsertProductCommand {
             }
         };
         let native_title = match event.kind {
-            WoocommerceProductEventKind::Delete => title.map(|title| {
-                Localized::new(language, Title::from(title))
-            }),
+            WoocommerceProductEventKind::Delete => {
+                title.map(|title| Localized::new(language, Title::from(title)))
+            }
             _ => Some(Localized::new(
                 language,
                 Title::from(title.ok_or(WoocommerceProductEventError::MissingTitle)?),
@@ -414,22 +415,24 @@ fn detect_language(text: &str) -> Option<Language> {
         ])
         .build()
     });
-    detector.detect_language_of(text).map(|language| match language {
-        LinguaLanguage::English => Language::En,
-        LinguaLanguage::German => Language::De,
-        LinguaLanguage::French => Language::Fr,
-        LinguaLanguage::Spanish => Language::Es,
-        LinguaLanguage::Italian => Language::It,
-        LinguaLanguage::Chinese => Language::Zh,
-        LinguaLanguage::Portuguese => Language::Pt,
-        LinguaLanguage::Polish => Language::Pl,
-        LinguaLanguage::Turkish => Language::Tr,
-        LinguaLanguage::Dutch => Language::Nl,
-        LinguaLanguage::Czech => Language::Cs,
-        LinguaLanguage::Japanese => Language::Ja,
-        LinguaLanguage::Russian => Language::Ru,
-        LinguaLanguage::Arabic => Language::Ar,
-    })
+    detector
+        .detect_language_of(text)
+        .map(|language| match language {
+            LinguaLanguage::English => Language::En,
+            LinguaLanguage::German => Language::De,
+            LinguaLanguage::French => Language::Fr,
+            LinguaLanguage::Spanish => Language::Es,
+            LinguaLanguage::Italian => Language::It,
+            LinguaLanguage::Chinese => Language::Zh,
+            LinguaLanguage::Portuguese => Language::Pt,
+            LinguaLanguage::Polish => Language::Pl,
+            LinguaLanguage::Turkish => Language::Tr,
+            LinguaLanguage::Dutch => Language::Nl,
+            LinguaLanguage::Czech => Language::Cs,
+            LinguaLanguage::Japanese => Language::Ja,
+            LinguaLanguage::Russian => Language::Ru,
+            LinguaLanguage::Arabic => Language::Ar,
+        })
 }
 
 #[cfg(test)]
@@ -532,7 +535,10 @@ mod tests {
                 assert_eq!(cmds[0].shops_product_id.to_string(), "17");
                 assert_eq!(cmds[0].state, Some(ProductState::Available));
                 assert_eq!(
-                    cmds[0].native_price.as_ref().map(|price| price.monetary_amount),
+                    cmds[0]
+                        .native_price
+                        .as_ref()
+                        .map(|price| price.monetary_amount),
                     Some(MonetaryAmount::from(4269_u64))
                 );
                 vec![]

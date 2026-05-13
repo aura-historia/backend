@@ -1,6 +1,6 @@
+use crate::core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use crate::data::address_data::StructuredAddressData;
 use crate::data::shop_type_data::ShopTypeData;
-use crate::core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use common::currency::data::CurrencyData;
 use common::{domain::Domain, shop_name::ShopName};
 use serde::{Deserialize, Serialize};

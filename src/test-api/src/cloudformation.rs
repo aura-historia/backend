@@ -55,6 +55,7 @@ const LAMBDA_BINARIES: &[&str] = &[
     "partner-shop-application-lambda",
     "partner-api",
     "shop-api",
+    "webhook-api",
     "search-filter-api",
     "notification-send",
     "product-lambda-materialize-dynamodb",

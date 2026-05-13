@@ -1,5 +1,5 @@
-use crate::dynamodb::shop_type_record::ShopTypeRecord;
 use crate::core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
+use crate::dynamodb::shop_type_record::ShopTypeRecord;
 use common::currency::record::CurrencyRecord;
 use common::{domain::Domain, dynamodb_update::DynamoDbUpdate, user_id::UserId};
 use isocountry::CountryCode;
