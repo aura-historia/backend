@@ -369,7 +369,11 @@ pub fn parse_price(
     let major: u64 = major
         .parse()
         .map_err(|_| WoocommerceProductEventError::InvalidPrice(trimmed.to_owned()))?;
-    let mut minor = minor.chars().take(2).collect::<String>();
+    let mut minor = if minor.is_empty() {
+        "0".to_owned()
+    } else {
+        minor.chars().take(2).collect::<String>()
+    };
     while minor.len() < 2 {
         minor.push('0');
     }

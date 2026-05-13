@@ -46,6 +46,7 @@ pub async fn handle(
         }
         None => {
             let api_key = extract_api_key(&event.payload)?;
+            // Authorization only: the update itself is applied by shop id from the path.
             let _ = get_shop_service
                 .verify_partner_shop(&api_key, &shop_id)
                 .await?;
