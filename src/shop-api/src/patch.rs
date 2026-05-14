@@ -73,6 +73,7 @@ pub async fn handle(
         shopify_domain: patch_data.shopify_domain,
         shopify_currency: patch_data.shopify_currency.map(Into::into),
         woocommerce_webhook_secret: patch_data.woocommerce_webhook_secret,
+        woocommerce_currency: patch_data.woocommerce_currency.map(Into::into),
         url: patch_data.url,
         image: patch_data.image,
         structured_address: patch_data.structured_address.map(Into::into),

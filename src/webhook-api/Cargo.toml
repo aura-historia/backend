@@ -34,7 +34,3 @@ rstest = { workspace = true }
 serial_test = { workspace = true }
 shop = { workspace = true, features = ["test-data", "seller"] }
 test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
-
-[[test]]
-name = "woocommerce"
-path = "tests/woocommerce.rs"

@@ -27,6 +27,8 @@ pub struct GetShopData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shopify_currency: Option<CurrencyData>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub woocommerce_currency: Option<CurrencyData>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
@@ -56,6 +58,7 @@ impl From<Shop> for GetShopData {
             domains: shop.domains,
             shopify_domain: shop.shopify_domain,
             shopify_currency: shop.shopify_currency.map(Into::into),
+            woocommerce_currency: shop.woocommerce_currency.map(Into::into),
             url: shop.url,
             image: shop.image,
             structured_address: shop.structured_address.map(Into::into),
@@ -90,6 +93,7 @@ mod tests {
             domains: [Domain::try_from("https://woaah.co.ltd.com").unwrap()].into(),
             shopify_domain: Some(Domain::try_from("woaah.myshopify.com").unwrap()),
             shopify_currency: None,
+            woocommerce_currency: None,
             url: Some(Url::parse("https://woaah.co.ltd.com").unwrap()),
             image: Some(Url::parse("https://woaah.co.ltd.com/logo.svg").unwrap()),
             structured_address: None,

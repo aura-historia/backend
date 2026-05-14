@@ -42,12 +42,13 @@ pub struct ShopRecord {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shopify_domain: Option<Domain>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shopify_currency: Option<CurrencyRecord>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub woocommerce_webhook_secret: Option<WoocommerceWebhookSecret>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub woocommerce_currency: Option<CurrencyRecord>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
@@ -152,6 +153,7 @@ impl From<Shop> for ShopRecord {
             shopify_domain: shop.shopify_domain,
             shopify_currency: shop.shopify_currency.map(Into::into),
             woocommerce_webhook_secret: shop.woocommerce_webhook_secret,
+            woocommerce_currency: shop.woocommerce_currency.map(Into::into),
             url: shop.url,
             image: shop.image,
             structured_address_addressline: shop
@@ -201,6 +203,7 @@ impl From<ShopRecord> for Shop {
             shopify_domain: record.shopify_domain,
             shopify_currency: record.shopify_currency.map(Into::into),
             woocommerce_webhook_secret: record.woocommerce_webhook_secret,
+            woocommerce_currency: record.woocommerce_currency.map(Into::into),
             url: record.url.map(append_utm_params),
             image: record.image,
             structured_address: structured_address_from_flat(
@@ -247,6 +250,7 @@ impl TryFrom<ShopRecord> for PartnerShop {
             shopify_domain: value.shopify_domain,
             shopify_currency: value.shopify_currency.map(Into::into),
             woocommerce_webhook_secret: value.woocommerce_webhook_secret,
+            woocommerce_currency: value.woocommerce_currency.map(Into::into),
             url: value.url.map(append_utm_params),
             image: value.image,
             structured_address: structured_address_from_flat(

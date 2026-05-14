@@ -32,7 +32,3 @@ test-api = { workspace = true, features = ["dynamodb"] }
 time = { workspace = true }
 serial_test = { workspace = true }
 uuid = { workspace = true }
-
-[[test]]
-name = "lib"
-path = "tests/lib.rs"

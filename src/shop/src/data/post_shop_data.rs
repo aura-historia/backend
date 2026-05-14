@@ -21,6 +21,8 @@ pub struct PostShopData {
     #[serde(skip_serializing, default)]
     pub woocommerce_webhook_secret: Option<WoocommerceWebhookSecret>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub woocommerce_currency: Option<CurrencyData>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
@@ -46,6 +48,7 @@ mod faker {
                 shopify_domain: config.fake_with_rng(rng),
                 shopify_currency: config.fake_with_rng(rng),
                 woocommerce_webhook_secret: config.fake_with_rng(rng),
+                woocommerce_currency: config.fake_with_rng(rng),
                 url: None,
                 image: None,
                 structured_address: None,
