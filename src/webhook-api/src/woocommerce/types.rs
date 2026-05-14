@@ -119,7 +119,10 @@ impl TryFrom<WoocommerceProductEvent> for UpsertProductCommand {
             native_description: description
                 .map(Description::from)
                 .map(|description| Localized::new(language, description)),
-            native_price: parse_price(event.payload.price.as_deref(), event.shop.shopify_currency)?,
+            native_price: parse_price(
+                event.payload.price.as_deref(),
+                event.shop.woocommerce_currency,
+            )?,
             native_price_estimate_min: None,
             native_price_estimate_max: None,
             state: Some(state),

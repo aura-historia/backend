@@ -187,7 +187,7 @@ mod tests {
         let hashed: HashedPartnerShopApiKey = api_key.clone().into();
         shop.hashed_api_key = Some(hashed);
         shop.woocommerce_webhook_secret = Some(WoocommerceWebhookSecret::from(SECRET));
-        shop.shopify_currency = Some(Currency::Eur);
+        shop.woocommerce_currency = Some(Currency::Eur);
         shop
     }
 

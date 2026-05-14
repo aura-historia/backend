@@ -25,13 +25,17 @@ pub struct ShopRecord {
     pub pk: String,
     pub sk: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub gsi3_pk: Option<String>,
+    pub gsi1_pk: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub gsi3_sk: Option<String>,
+    pub gsi1_sk: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub gsi2_pk: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub gsi2_sk: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub gsi3_pk: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub gsi3_sk: Option<String>,
     pub shop_id: ShopId,
     pub shop_slug_id: SlugId<0>,
     pub name: ShopName,
@@ -83,18 +87,11 @@ pub struct ShopRecord {
     pub partner_api_key_short: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub partner_api_key_long_hash: Option<String>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub partner_user_id: Option<UserId>,
 
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub gsi1_pk: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub gsi1_sk: Option<String>,
-
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
-
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
