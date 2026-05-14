@@ -71,7 +71,14 @@ pub async fn handle(
             search::handle(event, query_shop_service, access_token_verifier_service).await
         }
         Some("PATCH /api/v1/shops/{shopId}") => {
-            patch::handle(event, command_shop_service, get_shop_service, user_service).await
+            patch::handle(
+                event,
+                command_shop_service,
+                get_shop_service,
+                user_service,
+                access_token_verifier_service,
+            )
+            .await
         }
         Some("POST /api/v1/shops") => post::handle(event, command_shop_service, user_service).await,
         Some("PUT /api/v1/shops/{shopId}/api-key") => {

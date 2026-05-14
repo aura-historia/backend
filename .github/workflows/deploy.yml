@@ -79,6 +79,7 @@ jobs:
           - src/product-lambda/src/product-lambda-materialize-opensearch
           - src/product-lambda/src/product-lambda-update-notify-user
           - src/shop-api
+          - src/webhook-api
           - src/shop-lambda/src/shop-lambda-opensearch-index
           - src/shopify-lambda
           - src/user-api

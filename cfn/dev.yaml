@@ -643,6 +643,20 @@ Resources:
       IntegrationType: AWS_PROXY
       IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProductApiPartnerLambda}"
       PayloadFormatVersion: "2.0"
+  WebhookApiWoocommerceRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/webhooks/woocommerce/{shopId}"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${WebhookApiLambdaIntegration}"
+  WebhookApiLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${WebhookApiLambda}"
+      PayloadFormatVersion: "2.0"
   ProductApiPartnerRole:
     Type: AWS::IAM::Role
     Properties:
@@ -702,6 +716,67 @@ Resources:
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Ref ProductApiPartnerLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
+
+  WebhookApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "webhook-api-role-dev"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+  WebhookApiLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "webhook-api-dev"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt WebhookApiRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "webhook-api-dev-${CommitSHA}.zip"
+      MemorySize: 128
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "dev"
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/dev/gemini-api-key}}"
+  WebhookApiLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WebhookApiLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 

@@ -1,3 +1,4 @@
+use crate::core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use crate::dynamodb::shop_type_record::ShopTypeRecord;
 use common::currency::record::CurrencyRecord;
 use common::{domain::Domain, dynamodb_update::DynamoDbUpdate, user_id::UserId};
@@ -33,9 +34,13 @@ pub struct ShopRecordUpdate {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shopify_domain: Option<Domain>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shopify_currency: Option<CurrencyRecord>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub woocommerce_webhook_secret: Option<WoocommerceWebhookSecret>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub woocommerce_currency: Option<CurrencyRecord>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,

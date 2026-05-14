@@ -12,6 +12,7 @@ dependencies = [
  "aws-sdk-eventbridge",
  "aws-sdk-sqs",
  "aws-tests-common",
+ "base64 0.22.1",
  "common",
  "fake",
  "futures-util",
@@ -19,6 +20,7 @@ dependencies = [
  "notification",
  "notification-api",
  "opensearch",
+ "openssl",
  "partner-shop-application",
  "product",
  "product-watchlist",
@@ -241,6 +243,7 @@ dependencies = [
  "user",
  "user-api",
  "user-lambda",
+ "webhook-api",
 ]
 
 [[package]]
@@ -9117,6 +9120,37 @@ dependencies = [
  "phf_codegen 0.13.1",
  "string_cache 0.9.0",
  "string_cache_codegen 0.6.1",
+]
+
+[[package]]
+name = "webhook-api"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "base64 0.22.1",
+ "common",
+ "fake",
+ "geo",
+ "html2text",
+ "http 1.4.0",
+ "lambda_runtime",
+ "lingua",
+ "llm",
+ "opensearch",
+ "openssl",
+ "product",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "shop",
+ "test-api",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]

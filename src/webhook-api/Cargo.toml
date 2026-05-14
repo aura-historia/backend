@@ -1,22 +1,25 @@
 [package]
-name = "shopify-lambda"
+name = "webhook-api"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
-aws_lambda_events = { workspace = true, features = ["eventbridge", "sqs"] }
+aws_lambda_events = { workspace = true, features = ["apigw"] }
+base64 = { workspace = true }
 common = { workspace = true, features = ["api", "opensearch"] }
+geo = { workspace = true }
 html2text = { workspace = true }
 lambda_runtime = { workspace = true }
 lingua = { workspace = true }
 llm = { workspace = true, features = ["google"] }
 opensearch = { workspace = true }
+openssl = { workspace = true }
 product = { workspace = true, features = ["dynamodb", "service"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-shop = { workspace = true, features = ["dynamodb", "service", "seller"] }
+shop = { workspace = true, features = ["dynamodb", "api", "service", "seller"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 tracing = { workspace = true }
@@ -25,10 +28,9 @@ url = { workspace = true }
 [dev-dependencies]
 common = { workspace = true, features = ["test-data"] }
 fake = { workspace = true }
-product = { workspace = true, features = ["full"] }
+http = { workspace = true }
+product = { workspace = true, features = ["test-data"] }
 rstest = { workspace = true }
-shop = { workspace = true, features = ["full"] }
-test-api = { workspace = true, features = ["dynamodb"] }
-time = { workspace = true }
 serial_test = { workspace = true }
-uuid = { workspace = true }
+shop = { workspace = true, features = ["test-data", "seller"] }
+test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }

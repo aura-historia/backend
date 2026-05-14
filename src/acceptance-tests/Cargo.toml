@@ -7,6 +7,7 @@ edition = "2024"
 common = { workspace = true, features = ["opensearch"] }
 test-api = { workspace = true, features = ["cloudformation", "dynamodb", "opensearch", "sqs", "api-gateway", "eventbridge"] }
 aws-tests-common = { workspace = true }
+base64 = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 product = { workspace = true, features = ["full"] }
 product-watchlist = { workspace = true, features = ["full"] }
@@ -22,6 +23,7 @@ aws-sdk-dynamodb = { workspace = true }
 aws-sdk-sqs = { workspace = true }
 aws-sdk-eventbridge = { workspace = true }
 opensearch = { workspace = true }
+openssl = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tracing = { workspace = true }

@@ -14,7 +14,8 @@ search-filter = { workspace = true }
 search-filter-api = { workspace = true }
 search-filter-lambda = { workspace = true }
 shop = { workspace = true }
-shop-api = { workspace = true }
+    shop-api = { workspace = true }
+    webhook-api = { workspace = true }
 shop-lambda = { workspace = true }
 shopify-lambda = { workspace = true }
 stripe-lambda = { workspace = true }
@@ -63,6 +64,7 @@ members = [
     "src/test-api",
     "src/shop",
     "src/shop-api",
+    "src/webhook-api",
     "src/shop-lambda",
     "src/shopify-lambda",
     "src/stripe-lambda",
@@ -230,3 +232,4 @@ partner-shop-application-api = { path = "src/partner-shop-application-api" }
 partner-shop-application-lambda = { path = "src/partner-shop-application-lambda" }
 partner-api = { path = "src/partner-api" }
 shopify-lambda = { path = "src/shopify-lambda" }
+webhook-api = { path = "src/webhook-api" }

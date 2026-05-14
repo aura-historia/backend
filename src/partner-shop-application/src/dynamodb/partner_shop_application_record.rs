@@ -216,6 +216,8 @@ impl TryFrom<PartnerShopApplicationRecord> for PartnerShopApplication {
                     domains,
                     shopify_domain: None,
                     shopify_currency: None,
+                    woocommerce_webhook_secret: None,
+                    woocommerce_currency: None,
                     url: record.shop_url,
                     image,
                     structured_address: structured_address_from_flat(
@@ -321,6 +323,8 @@ mod faker {
                 domains: [Domain::try_from("https://www.test.com/".to_string()).unwrap()].into(),
                 shopify_domain: None,
                 shopify_currency: None,
+                woocommerce_webhook_secret: None,
+                woocommerce_currency: None,
                 url: None,
                 image: None,
                 structured_address: None,

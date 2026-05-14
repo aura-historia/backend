@@ -1,4 +1,5 @@
 use aws_tests_common::get_cfn_output;
+use base64::Engine;
 use common::execution_state::data::ExecutionStateData;
 use common::personalized::api::PersonalizedData;
 use common::resource_state::record::ResourceStateRecord;
@@ -28,6 +29,7 @@ use notification::{
 };
 use notification_api::notification_get::EventIdCursoredData;
 use opensearch::GetParts;
+use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
 use partner_shop_application::data::{
     admin_patch_partner_shop_application_data::AdminPatchPartnerShopApplicationData,
     decision_data::{PartnerShopApplicationDecisionData, PostPartnerShopApplicationDecisionData},
@@ -84,6 +86,7 @@ use search_filter_api::{
 };
 use serde::de::DeserializeOwned;
 use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
+use shop::core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop::data::get_shop_data::GetShopData;
 use shop::data::patch_shop_data::PatchShopData;
 use shop::data::post_shop_data::PostShopData;
@@ -3080,6 +3083,8 @@ async fn should_respond_200_for_shop_patch_by_partner() {
         domains: None,
         shopify_domain: None,
         shopify_currency: None,
+        woocommerce_webhook_secret: None,
+        woocommerce_currency: None,
         url: None,
         image: Some(url::Url::parse("https://new-image.example.com/logo.png").unwrap()),
         structured_address: None,
@@ -3976,6 +3981,73 @@ async fn prepare_partner_shop() -> (ShopRecord, PartnerShopApiKey) {
         .await
         .unwrap();
     (record, api_key)
+}
+
+const WOOCOMMERCE_WEBHOOK_SECRET: &str = "woocommerce-acceptance-secret";
+const WOOCOMMERCE_CREATED_BODY: &str = r#"{"id":17,"name":"Test Produkt Titel","slug":"test-produkt-titel","permalink":"http://aura-historia-test.local/product/test-produkt-titel/","date_created":"2026-05-13T19:22:31","date_modified":"2026-05-13T19:23:23","type":"simple","status":"publish","description":"<p>Hayde yallah test beschreibung</p>\n","short_description":"<p>Hayde yallah kurze test beschreibung</p>\n","price":"42.69","regular_price":"42.69","stock_status":"instock","categories":[{"id":15,"name":"Uncategorized","slug":"uncategorized"}],"images":[]}"#;
+const WOOCOMMERCE_UPDATED_BODY: &str = r#"{"id":17,"name":"Test Produkt Titel","slug":"test-produkt-titel","permalink":"http://aura-historia-test.local/product/test-produkt-titel/","date_created":"2026-05-13T19:22:31","date_modified":"2026-05-13T19:24:54","type":"simple","status":"publish","description":"<p>Hayde yallah test beschreibung</p>\n","short_description":"<p>Hayde yallah kurze test beschreibung</p>\n","price":"123.45","regular_price":"123.45","stock_status":"instock","categories":[{"id":15,"name":"Uncategorized","slug":"uncategorized"}],"images":[]}"#;
+const WOOCOMMERCE_DELETED_BODY: &str = r#"{"id":17}"#;
+
+fn woocommerce_signature(body: &str) -> String {
+    let key = PKey::hmac(WOOCOMMERCE_WEBHOOK_SECRET.as_bytes()).unwrap();
+    let mut signer = Signer::new(MessageDigest::sha256(), &key).unwrap();
+    signer.update(body.as_bytes()).unwrap();
+    base64::engine::general_purpose::STANDARD.encode(signer.sign_to_vec().unwrap())
+}
+
+async fn prepare_woocommerce_partner_shop() -> (ShopRecord, PartnerShopApiKey) {
+    let (mut shop_record, api_key) = prepare_partner_shop().await;
+    shop_record.woocommerce_webhook_secret =
+        Some(WoocommerceWebhookSecret::from(WOOCOMMERCE_WEBHOOK_SECRET));
+    shop_record.woocommerce_currency = Some(common::currency::record::CurrencyRecord::Eur);
+    let dynamodb_repository = ShopDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &get_cfn_output().dynamodb_table_1_name,
+    );
+    dynamodb_repository
+        .put_shop_record(shop_record.clone())
+        .await
+        .unwrap();
+    (shop_record, api_key)
+}
+
+async fn post_woocommerce_webhook(topic: &str, body: &str) {
+    let (shop_record, api_key) = prepare_woocommerce_partner_shop().await;
+    let api_key: String = api_key.into();
+    let url = format!(
+        "{}/api/v1/webhooks/woocommerce/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        shop_record.shop_id,
+    );
+
+    let response = reqwest::Client::new()
+        .post(url)
+        .header("x-api-key", api_key)
+        .header("x-wc-webhook-topic", topic)
+        .header("x-wc-webhook-signature", woocommerce_signature(body))
+        .header("content-type", "application/json")
+        .body(body.to_owned())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(0, body["errors"]);
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_woocommerce_created_webhook() {
+    post_woocommerce_webhook("product.created", WOOCOMMERCE_CREATED_BODY).await;
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_woocommerce_updated_webhook() {
+    post_woocommerce_webhook("product.updated", WOOCOMMERCE_UPDATED_BODY).await;
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_200_for_woocommerce_deleted_webhook() {
+    post_woocommerce_webhook("product.deleted", WOOCOMMERCE_DELETED_BODY).await;
 }
 
 #[localstack_test(services = [Cloudformation()])]
@@ -5448,6 +5520,8 @@ async fn seed_shopify_acceptance_shop() -> ShopRecord {
         domains: Default::default(),
         shopify_domain: Some(shopify_domain.clone()),
         shopify_currency: Some(common::currency::record::CurrencyRecord::Usd),
+        woocommerce_webhook_secret: None,
+        woocommerce_currency: None,
         url: None,
         image: None,
         structured_address_addressline: None,

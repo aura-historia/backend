@@ -1,10 +1,12 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use cognito::access_token_verifier_service::AccessTokenVerifierService;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::shop_id::api::extract_shop_id_path;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
+use shop::core::partner_shop_api_key::api::extract_api_key;
 use shop::data::get_shop_data::GetShopData;
 use shop::data::patch_shop_data::PatchShopData;
 use shop::service::command::UpdateShopCommand;
@@ -17,22 +19,37 @@ pub async fn handle(
     command_shop_service: &(impl CommandShopService + Sync),
     get_shop_service: &(impl GetShopService + Sync),
     user_service: &(impl UserService + Sync),
+    access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let user_id = extract_user_id_request_context(&event.payload.request_context)?;
-    tracing::Span::current().record("userId", user_id.to_string());
-
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
 
-    let is_admin = user_service.check_admin(&user_id).await.is_ok();
-    if !is_admin {
-        let partner_shop = get_shop_service.find_partner_shop(&shop_id).await?;
-        if partner_shop.partner_user_id != user_id {
-            return Err(
-                shop::service::command_service::CommandShopError::NotThePartnerUser(
-                    user_id, shop_id,
-                )
-                .into(),
-            );
+    let cognito_user_id = access_token_verifier_service
+        .verify_extract_user_id(&event.payload.headers)
+        .await?
+        .or_else(|| extract_user_id_request_context(&event.payload.request_context).ok());
+
+    match cognito_user_id {
+        Some(user_id) => {
+            tracing::Span::current().record("userId", user_id.to_string());
+            let is_admin = user_service.check_admin(&user_id).await.is_ok();
+            if !is_admin {
+                let partner_shop = get_shop_service.find_partner_shop(&shop_id).await?;
+                if partner_shop.partner_user_id != user_id {
+                    return Err(
+                        shop::service::command_service::CommandShopError::NotThePartnerUser(
+                            user_id, shop_id,
+                        )
+                        .into(),
+                    );
+                }
+            }
+        }
+        None => {
+            let api_key = extract_api_key(&event.payload)?;
+            // Authorization only: the update itself is applied by shop id from the path.
+            let _ = get_shop_service
+                .verify_partner_shop(&api_key, &shop_id)
+                .await?;
         }
     }
 
@@ -55,6 +72,8 @@ pub async fn handle(
         domains: patch_data.domains,
         shopify_domain: patch_data.shopify_domain,
         shopify_currency: patch_data.shopify_currency.map(Into::into),
+        woocommerce_webhook_secret: patch_data.woocommerce_webhook_secret,
+        woocommerce_currency: patch_data.woocommerce_currency.map(Into::into),
         url: patch_data.url,
         image: patch_data.image,
         structured_address: patch_data.structured_address.map(Into::into),
@@ -77,17 +96,27 @@ pub async fn handle(
 #[cfg(test)]
 mod tests {
     use super::handle;
+    use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
     use common::shop_id::ShopId;
     use common::user_id::UserId;
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
     use shop::core::partner_shop::PartnerShop;
+    use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
     use shop::core::shop::Shop;
     use shop::data::patch_shop_data::PatchShopData;
     use shop::service::command_service::MockCommandShopService;
     use shop::service::get_service::MockGetShopService;
     use test_api::ApiGatewayV2httpRequestProxy;
     use user::service::user_service::{MockUserService, UserServiceError};
+
+    fn no_access_token_verifier() -> MockAccessTokenVerifierService {
+        let mut verifier = MockAccessTokenVerifierService::default();
+        verifier
+            .expect_verify_extract_user_id()
+            .returning(|_| Box::pin(async { Ok(None) }));
+        verifier
+    }
 
     #[tokio::test]
     async fn should_return_200_when_partner_user_updates_shop() {
@@ -130,6 +159,7 @@ mod tests {
             &command_service,
             &get_shop_service,
             &user_service,
+            &no_access_token_verifier(),
         )
         .await
         .unwrap();
@@ -170,6 +200,58 @@ mod tests {
             &command_service,
             &get_shop_service,
             &user_service,
+            &no_access_token_verifier(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(200, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_return_200_when_api_key_updates_shop_without_cognito() {
+        let api_key = PartnerShopApiKey::new();
+        let shop_id = ShopId::new();
+
+        let mut partner_shop: PartnerShop = Faker.fake();
+        partner_shop.shop_id = shop_id;
+        partner_shop.hashed_api_key = Some(HashedPartnerShopApiKey::from(api_key.clone()));
+
+        let mut get_shop_service = MockGetShopService::default();
+        get_shop_service
+            .expect_verify_partner_shop()
+            .return_once(move |_, _| Box::pin(async move { Ok(partner_shop) }));
+
+        let mut command_service = MockCommandShopService::default();
+        command_service
+            .expect_update()
+            .return_once(move |_, command| {
+                Box::pin(async move {
+                    assert!(command.woocommerce_webhook_secret.is_some());
+                    let shop: Shop = Faker.fake();
+                    Ok(shop)
+                })
+            });
+
+        let api_key_header: String = api_key.into();
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::PATCH)
+                .route_key("PATCH /api/v1/shops/{shopId}")
+                .path_parameter("shopId", shop_id.to_string())
+                .header("x-api-key", api_key_header)
+                .body_serde(&serde_json::json!({
+                    "woocommerceWebhookSecret": "secret"
+                }))
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(
+            lambda_event,
+            &command_service,
+            &get_shop_service,
+            &MockUserService::default(),
+            &no_access_token_verifier(),
         )
         .await
         .unwrap();
@@ -193,6 +275,7 @@ mod tests {
             &MockCommandShopService::default(),
             &MockGetShopService::default(),
             &MockUserService::default(),
+            &no_access_token_verifier(),
         )
         .await
         .unwrap_err();
@@ -234,6 +317,7 @@ mod tests {
             &MockCommandShopService::default(),
             &get_shop_service,
             &user_service,
+            &no_access_token_verifier(),
         )
         .await
         .unwrap_err();
@@ -265,6 +349,7 @@ mod tests {
             &MockCommandShopService::default(),
             &MockGetShopService::default(),
             &user_service,
+            &no_access_token_verifier(),
         )
         .await
         .unwrap_err();

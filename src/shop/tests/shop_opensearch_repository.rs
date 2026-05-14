@@ -189,8 +189,6 @@ async fn should_update_shop_document_for_index() {
             Domain::try_from("hansi-hans.de").unwrap(),
             Domain::try_from("hansi-hans.com").unwrap(),
         ]),
-        shopify_domain: None,
-        shopify_currency: None,
         url: None,
         image: Some(Url::parse("https://hansi-hanseatic.es/foo.png").unwrap()),
         structured_address_addressline: None,

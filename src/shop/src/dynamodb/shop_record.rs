@@ -4,6 +4,7 @@ use crate::core::{
     continent::Continent,
     partner_shop::PartnerShop,
     shop::Shop,
+    woocommerce_webhook_secret::WoocommerceWebhookSecret,
 };
 use crate::dynamodb::shop_type_record::ShopTypeRecord;
 use crate::dynamodb::utm::append_utm_params;
@@ -24,13 +25,17 @@ pub struct ShopRecord {
     pub pk: String,
     pub sk: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub gsi3_pk: Option<String>,
+    pub gsi1_pk: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub gsi3_sk: Option<String>,
+    pub gsi1_sk: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub gsi2_pk: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub gsi2_sk: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub gsi3_pk: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub gsi3_sk: Option<String>,
     pub shop_id: ShopId,
     pub shop_slug_id: SlugId<0>,
     pub name: ShopName,
@@ -41,9 +46,13 @@ pub struct ShopRecord {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shopify_domain: Option<Domain>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shopify_currency: Option<CurrencyRecord>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub woocommerce_webhook_secret: Option<WoocommerceWebhookSecret>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub woocommerce_currency: Option<CurrencyRecord>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
@@ -78,18 +87,11 @@ pub struct ShopRecord {
     pub partner_api_key_short: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub partner_api_key_long_hash: Option<String>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub partner_user_id: Option<UserId>,
 
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub gsi1_pk: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub gsi1_sk: Option<String>,
-
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
-
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -147,6 +149,8 @@ impl From<Shop> for ShopRecord {
             domains: shop.domains,
             shopify_domain: shop.shopify_domain,
             shopify_currency: shop.shopify_currency.map(Into::into),
+            woocommerce_webhook_secret: shop.woocommerce_webhook_secret,
+            woocommerce_currency: shop.woocommerce_currency.map(Into::into),
             url: shop.url,
             image: shop.image,
             structured_address_addressline: shop
@@ -195,6 +199,8 @@ impl From<ShopRecord> for Shop {
             domains: record.domains,
             shopify_domain: record.shopify_domain,
             shopify_currency: record.shopify_currency.map(Into::into),
+            woocommerce_webhook_secret: record.woocommerce_webhook_secret,
+            woocommerce_currency: record.woocommerce_currency.map(Into::into),
             url: record.url.map(append_utm_params),
             image: record.image,
             structured_address: structured_address_from_flat(
@@ -240,6 +246,8 @@ impl TryFrom<ShopRecord> for PartnerShop {
             domains: value.domains,
             shopify_domain: value.shopify_domain,
             shopify_currency: value.shopify_currency.map(Into::into),
+            woocommerce_webhook_secret: value.woocommerce_webhook_secret,
+            woocommerce_currency: value.woocommerce_currency.map(Into::into),
             url: value.url.map(append_utm_params),
             image: value.image,
             structured_address: structured_address_from_flat(

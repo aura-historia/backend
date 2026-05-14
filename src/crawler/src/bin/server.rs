@@ -531,6 +531,8 @@ mod tests {
             domains: [Domain::try_from(domain).unwrap()].into(),
             shopify_domain: None,
             shopify_currency: None,
+            woocommerce_webhook_secret: None,
+            woocommerce_currency: None,
             url: None,
             image: None,
             structured_address: None,
