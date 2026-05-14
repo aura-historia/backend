@@ -1,0 +1,251 @@
+use common::language::domain::Language;
+use common::localized::Localized;
+use common::price::domain::{MonetaryAmount, Price};
+use common::product_state::domain::ProductState;
+use common::shops_product_id::ShopsProductId;
+use lingua::{Language as LinguaLanguage, LanguageDetector, LanguageDetectorBuilder};
+use product::core::description::Description;
+use product::core::product_image::ProductImage;
+use product::core::prohibited_content::ProhibitedContent;
+use product::core::title::Title;
+use product::service::product_command::UpsertProductCommand;
+use serde::Deserialize;
+use shop::core::partner_shop::PartnerShop;
+use std::sync::OnceLock;
+use tracing::warn;
+use url::Url;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WoocommerceProductPayload {
+    pub id: u64,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub permalink: Option<Url>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub short_description: Option<String>,
+    #[serde(default)]
+    pub price: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub stock_status: Option<String>,
+    #[serde(default)]
+    pub images: Vec<WoocommerceImagePayload>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WoocommerceImagePayload {
+    pub src: Url,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WoocommerceProductEventKind {
+    Create,
+    Update,
+    Delete,
+}
+
+#[derive(Debug, Clone)]
+pub struct WoocommerceProductEvent {
+    pub shop: PartnerShop,
+    pub kind: WoocommerceProductEventKind,
+    pub payload: WoocommerceProductPayload,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum WoocommerceProductEventError {
+    #[error("Missing product title")]
+    MissingTitle,
+    #[error("Missing product URL")]
+    MissingUrl,
+    #[error("Invalid WooCommerce price '{0}'")]
+    InvalidPrice(String),
+    #[error("Shop has no currency configured")]
+    MissingCurrency,
+}
+
+impl TryFrom<WoocommerceProductEvent> for UpsertProductCommand {
+    type Error = WoocommerceProductEventError;
+
+    fn try_from(event: WoocommerceProductEvent) -> Result<Self, Self::Error> {
+        let title = event
+            .payload
+            .name
+            .as_deref()
+            .filter(|title| !title.trim().is_empty());
+        let description = event
+            .payload
+            .description
+            .as_deref()
+            .or(event.payload.short_description.as_deref())
+            .map(html_to_text)
+            .filter(|description| !description.is_empty());
+        let language = infer_language(description.as_deref(), title);
+        let state = match event.kind {
+            WoocommerceProductEventKind::Delete => ProductState::Removed,
+            WoocommerceProductEventKind::Create | WoocommerceProductEventKind::Update => {
+                product_state(&event.payload)
+            }
+        };
+        let native_title = match event.kind {
+            WoocommerceProductEventKind::Delete => {
+                title.map(|title| Localized::new(language, Title::from(title)))
+            }
+            _ => Some(Localized::new(
+                language,
+                Title::from(title.ok_or(WoocommerceProductEventError::MissingTitle)?),
+            )),
+        };
+        let url = match event.kind {
+            WoocommerceProductEventKind::Delete => event.payload.permalink,
+            _ => Some(
+                event
+                    .payload
+                    .permalink
+                    .ok_or(WoocommerceProductEventError::MissingUrl)?,
+            ),
+        };
+
+        Ok(UpsertProductCommand {
+            shop_id: event.shop.shop_id,
+            shops_product_id: ShopsProductId::from(event.payload.id.to_string()),
+            seller_name_raw: None,
+            structured_address: None,
+            geo_address: None,
+            native_title,
+            native_description: description
+                .map(Description::from)
+                .map(|description| Localized::new(language, description)),
+            native_price: parse_price(event.payload.price.as_deref(), event.shop.shopify_currency)?,
+            native_price_estimate_min: None,
+            native_price_estimate_max: None,
+            state: Some(state),
+            url,
+            images: event
+                .payload
+                .images
+                .into_iter()
+                .map(|image| ProductImage {
+                    url: image.src,
+                    prohibited_content: ProhibitedContent::Unknown,
+                })
+                .collect(),
+            auction_start: None,
+            auction_end: None,
+        })
+    }
+}
+
+pub fn html_to_text(html: &str) -> String {
+    html2text::from_read(html.as_bytes(), 120)
+        .unwrap_or_else(|_| String::new())
+        .trim()
+        .to_owned()
+}
+
+pub fn product_state(payload: &WoocommerceProductPayload) -> ProductState {
+    match payload.status.as_deref() {
+        Some("publish") => match payload.stock_status.as_deref() {
+            Some("outofstock") => ProductState::Sold,
+            _ => ProductState::Available,
+        },
+        Some("draft") | Some("pending") | Some("private") => ProductState::Listed,
+        Some("trash") => ProductState::Removed,
+        Some(other) => {
+            warn!(woocommerceStatus = %other, "Unknown WooCommerce product status.");
+            ProductState::Unknown
+        }
+        None => ProductState::Unknown,
+    }
+}
+
+pub fn parse_price(
+    price: Option<&str>,
+    currency: Option<common::currency::domain::Currency>,
+) -> Result<Option<Price>, WoocommerceProductEventError> {
+    let Some(price) = price.filter(|price| !price.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let currency = currency.ok_or(WoocommerceProductEventError::MissingCurrency)?;
+    let trimmed = price.trim();
+    let (major, minor) = trimmed.split_once('.').unwrap_or((trimmed, ""));
+    if !major.chars().all(|c| c.is_ascii_digit()) || !minor.chars().all(|c| c.is_ascii_digit()) {
+        return Err(WoocommerceProductEventError::InvalidPrice(
+            trimmed.to_owned(),
+        ));
+    }
+    let major: u64 = major
+        .parse()
+        .map_err(|_| WoocommerceProductEventError::InvalidPrice(trimmed.to_owned()))?;
+    let mut minor = if minor.is_empty() {
+        "0".to_owned()
+    } else {
+        minor.chars().take(2).collect::<String>()
+    };
+    while minor.len() < 2 {
+        minor.push('0');
+    }
+    let minor: u64 = minor
+        .parse()
+        .map_err(|_| WoocommerceProductEventError::InvalidPrice(trimmed.to_owned()))?;
+    Ok(Some(Price::new(
+        MonetaryAmount::from(major * 100 + minor),
+        currency,
+    )))
+}
+
+pub fn infer_language(description: Option<&str>, title: Option<&str>) -> Language {
+    description
+        .filter(|text| !text.trim().is_empty())
+        .and_then(detect_language)
+        .or_else(|| {
+            title
+                .filter(|text| !text.trim().is_empty())
+                .and_then(detect_language)
+        })
+        .unwrap_or(Language::En)
+}
+
+fn detect_language(text: &str) -> Option<Language> {
+    static DETECTOR: OnceLock<LanguageDetector> = OnceLock::new();
+    let detector = DETECTOR.get_or_init(|| {
+        LanguageDetectorBuilder::from_languages(&[
+            LinguaLanguage::English,
+            LinguaLanguage::German,
+            LinguaLanguage::French,
+            LinguaLanguage::Spanish,
+            LinguaLanguage::Italian,
+            LinguaLanguage::Chinese,
+            LinguaLanguage::Portuguese,
+            LinguaLanguage::Polish,
+            LinguaLanguage::Turkish,
+            LinguaLanguage::Dutch,
+            LinguaLanguage::Czech,
+            LinguaLanguage::Japanese,
+            LinguaLanguage::Russian,
+            LinguaLanguage::Arabic,
+        ])
+        .build()
+    });
+    detector
+        .detect_language_of(text)
+        .map(|language| match language {
+            LinguaLanguage::English => Language::En,
+            LinguaLanguage::German => Language::De,
+            LinguaLanguage::French => Language::Fr,
+            LinguaLanguage::Spanish => Language::Es,
+            LinguaLanguage::Italian => Language::It,
+            LinguaLanguage::Chinese => Language::Zh,
+            LinguaLanguage::Portuguese => Language::Pt,
+            LinguaLanguage::Polish => Language::Pl,
+            LinguaLanguage::Turkish => Language::Tr,
+            LinguaLanguage::Dutch => Language::Nl,
+            LinguaLanguage::Czech => Language::Cs,
+            LinguaLanguage::Japanese => Language::Ja,
+            LinguaLanguage::Russian => Language::Ru,
+            LinguaLanguage::Arabic => Language::Ar,
+        })
+}

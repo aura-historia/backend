@@ -34,7 +34,6 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/user-api",
     "src/user-lambda/src/user-lambda-index-opensearch",
     "src/user-lambda/src/user-lambda-tier-update",
-    "src/webhook-api",
 ];
 
 /// Acceptance test crates that run on self-hosted runners with cargo-lambda.
