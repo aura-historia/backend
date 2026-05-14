@@ -7,6 +7,8 @@ use common::{
     shop_name::ShopName,
 };
 use fake::{Fake, Faker};
+use fxrate::dynamodb::record::FxRatesRecord;
+use fxrate::service::MockFxRateService;
 use product::core::product::Product;
 use product::dynamodb::product_event_record::domain::ProductDomainEventRecordSerdeField;
 use product::dynamodb::{
@@ -41,13 +43,28 @@ fn default_seller_service() -> MockSellerService {
     MockSellerService::default()
 }
 
-fn command_product_service<'a>(
+fn default_fx_rate_service() -> MockFxRateService {
+    let mut service = MockFxRateService::new();
+    service
+        .expect_get_current()
+        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
+    service
+}
+
+async fn command_product_service<'a>(
     repository: &'a (dyn ProductDynamoDbRepository + Sync),
-    fx_rate: &'a FixedFxRate,
-) -> CommandProductServiceImpl<'a, FixedFxRate> {
+) -> CommandProductServiceImpl<'a> {
     let get_shop_service = Box::leak(Box::new(default_shop_service()));
     let seller_service = Box::leak(Box::new(default_seller_service()));
-    CommandProductServiceImpl::new(repository, fx_rate, get_shop_service, seller_service)
+    let fx_rate_service = default_fx_rate_service();
+    CommandProductServiceImpl::new(
+        repository,
+        &fx_rate_service,
+        get_shop_service,
+        seller_service,
+    )
+    .await
+    .expect("failed to create CommandProductServiceImpl in test")
 }
 
 /// Scans all items across all pages from `table_1`.
@@ -122,7 +139,7 @@ fn make_product_record(cmd: &CreateProductCommand) -> ProductRecord {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_write_all_products_to_dynamodb_as_created_when_none_exist() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = command_product_service(&repository, &FixedFxRate());
+    let service = command_product_service(&repository).await;
 
     let commands = fake::vec![CreateProductCommand; 543];
     let failures = service.create(commands.clone()).await;
@@ -146,7 +163,7 @@ async fn should_write_all_products_to_dynamodb_as_created_when_none_exist() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_not_create_duplicate_products_when_already_exist() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = command_product_service(&repository, &FixedFxRate());
+    let service = command_product_service(&repository).await;
 
     // Simulate already-materialized products by writing ProductRecord items directly.
     // The create service checks for ProductRecord existence (not event records) to
@@ -192,7 +209,7 @@ async fn should_not_create_duplicate_products_when_already_exist() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_write_no_product_update_events_when_all_exist_and_no_changes() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = command_product_service(&repository, &FixedFxRate());
+    let service = command_product_service(&repository).await;
 
     let cmds = fake::vec![CreateProductCommand; 400];
     for cmd in &cmds {
@@ -246,7 +263,7 @@ async fn should_write_no_product_update_events_when_all_exist_and_no_changes() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_write_product_updates_when_all_exist_and_actual_changes() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = command_product_service(&repository, &FixedFxRate());
+    let service = command_product_service(&repository).await;
 
     let cmds = fake::vec![CreateProductCommand; 400];
     for cmd in &cmds {
@@ -300,7 +317,7 @@ async fn should_write_product_updates_when_all_exist_and_actual_changes() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_return_failures_when_updating_non_existent_products() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = command_product_service(&repository, &FixedFxRate());
+    let service = command_product_service(&repository).await;
 
     let cmds: HashMap<ProductKey, UpdateProductCommand> = (0..5)
         .map(|_| {
@@ -334,7 +351,7 @@ async fn should_return_failures_when_updating_non_existent_products() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_create_new_products_via_upsert_when_none_exist() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = command_product_service(&repository, &FixedFxRate());
+    let service = command_product_service(&repository).await;
 
     let cmds: Vec<product::service::product_command::UpsertProductCommand> =
         fake::vec![product::service::product_command::UpsertProductCommand; 5];
@@ -367,7 +384,7 @@ async fn should_create_new_products_via_upsert_when_none_exist() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_update_existing_products_via_upsert_when_all_exist() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = command_product_service(&repository, &FixedFxRate());
+    let service = command_product_service(&repository).await;
 
     let create_cmds = fake::vec![CreateProductCommand; 5];
     for cmd in &create_cmds {
@@ -426,7 +443,7 @@ async fn should_update_existing_products_via_upsert_when_all_exist() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_create_and_update_mixed_products_via_upsert() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = command_product_service(&repository, &FixedFxRate());
+    let service = command_product_service(&repository).await;
 
     // Create 3 existing products
     let existing_cmds = fake::vec![CreateProductCommand; 3];

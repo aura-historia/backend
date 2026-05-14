@@ -1,5 +1,7 @@
 use common::price::domain::FixedFxRate;
 use fake::{Fake, Faker};
+use fxrate::dynamodb::record::FxRatesRecord;
+use fxrate::service::MockFxRateService;
 use lambda_runtime::LambdaEvent;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::command_service::CommandProductServiceImpl;
@@ -25,14 +27,19 @@ async fn should_return_200_with_empty_errors_when_products_created_successfully(
     let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let fx_rate = FixedFxRate();
     let seller_service = MockSellerService::default();
+    let mut fx_rate_service = MockFxRateService::new();
+    fx_rate_service
+        .expect_get_current()
+        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
     let command_product_service = CommandProductServiceImpl::new(
         &product_repository,
-        &fx_rate,
+        &fx_rate_service,
         &get_shop_service,
         &seller_service,
-    );
+    )
+    .await
+    .expect("shouldn't fail creating CommandProductServiceImpl");
 
     let api_key = PartnerShopApiKey::new();
     let shop_record = make_partner_shop_record(&api_key);
@@ -84,14 +91,19 @@ async fn should_return_401_when_api_key_does_not_match() {
     let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let fx_rate = FixedFxRate();
     let seller_service = MockSellerService::default();
+    let mut fx_rate_service = MockFxRateService::new();
+    fx_rate_service
+        .expect_get_current()
+        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
     let command_product_service = CommandProductServiceImpl::new(
         &product_repository,
-        &fx_rate,
+        &fx_rate_service,
         &get_shop_service,
         &seller_service,
-    );
+    )
+    .await
+    .expect("shouldn't fail creating CommandProductServiceImpl");
 
     let correct_key = PartnerShopApiKey::new();
     let wrong_key = PartnerShopApiKey::new();
@@ -131,14 +143,19 @@ async fn should_return_404_when_shop_does_not_exist() {
     let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let fx_rate = FixedFxRate();
     let seller_service = MockSellerService::default();
+    let mut fx_rate_service = MockFxRateService::new();
+    fx_rate_service
+        .expect_get_current()
+        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
     let command_product_service = CommandProductServiceImpl::new(
         &product_repository,
-        &fx_rate,
+        &fx_rate_service,
         &get_shop_service,
         &seller_service,
-    );
+    )
+    .await
+    .expect("shouldn't fail creating CommandProductServiceImpl");
 
     let api_key = PartnerShopApiKey::new();
     let non_existent_shop_id = common::shop_id::ShopId::new();
@@ -175,14 +192,19 @@ async fn should_return_403_when_shop_is_not_a_partner() {
     let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let fx_rate = FixedFxRate();
     let seller_service = MockSellerService::default();
+    let mut fx_rate_service = MockFxRateService::new();
+    fx_rate_service
+        .expect_get_current()
+        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
     let command_product_service = CommandProductServiceImpl::new(
         &product_repository,
-        &fx_rate,
+        &fx_rate_service,
         &get_shop_service,
         &seller_service,
-    );
+    )
+    .await
+    .expect("shouldn't fail creating CommandProductServiceImpl");
 
     let api_key = PartnerShopApiKey::new();
     let mut shop_record: ShopRecord = Faker.fake();

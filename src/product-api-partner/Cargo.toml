@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 geo = { workspace = true }
 common = { workspace = true, features = ["api", "opensearch"] }
+fxrate = { workspace = true }
 product = { workspace = true, features = ["data", "service", "dynamodb"] }
 shop = { workspace = true, features = ["dynamodb", "api", "service", "seller"] }
 llm = { workspace = true, features = ["google"] }

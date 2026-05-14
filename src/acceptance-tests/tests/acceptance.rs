@@ -18,6 +18,8 @@ use common::{
     user_id::UserId,
 };
 use fake::{Fake, Faker};
+use fxrate::dynamodb::record::FxRatesRecord;
+use fxrate::service::MockFxRateService;
 use notification::{
     data::{
         get_notification_data::GetNotificationData, patch_notification_data::PatchNotificationData,
@@ -919,13 +921,18 @@ async fn create_products(commands: Vec<CreateProductCommand>) {
     seller_service
         .expect_get_seller_shop_details()
         .returning(|_| Box::pin(async { Ok((Faker.fake(), "foo".into(), "Foo".into())) }));
-    let fx_rate = FixedFxRate();
+    let mut fx_rate_service = MockFxRateService::new();
+    fx_rate_service
+        .expect_get_current()
+        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
     let command_service = CommandProductServiceImpl::new(
         &product_repository,
-        &fx_rate,
+        &fx_rate_service,
         &get_shop_service,
         &seller_service,
-    );
+    )
+    .await
+    .expect("shouldn't fail creating CommandProductServiceImpl");
 
     let result = command_service.create(commands).await;
     assert!(result.is_empty(), "Some products failed to create");
@@ -940,13 +947,18 @@ async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
         ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
     let seller_service = MockSellerService::default();
-    let fx_rate = FixedFxRate();
+    let mut fx_rate_service = MockFxRateService::new();
+    fx_rate_service
+        .expect_get_current()
+        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
     let command_service = CommandProductServiceImpl::new(
         &product_repository,
-        &fx_rate,
+        &fx_rate_service,
         &get_shop_service,
         &seller_service,
-    );
+    )
+    .await
+    .expect("shouldn't fail creating CommandProductServiceImpl");
 
     let result = command_service.update(commands).await;
     assert!(result.is_empty(), "Some products failed to update");
