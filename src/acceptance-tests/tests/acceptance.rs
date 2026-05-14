@@ -3999,7 +3999,7 @@ async fn prepare_woocommerce_partner_shop() -> (ShopRecord, PartnerShopApiKey) {
     let (mut shop_record, api_key) = prepare_partner_shop().await;
     shop_record.woocommerce_webhook_secret =
         Some(WoocommerceWebhookSecret::from(WOOCOMMERCE_WEBHOOK_SECRET));
-    shop_record.shopify_currency = Some(common::currency::record::CurrencyRecord::Eur);
+    shop_record.woocommerce_currency = Some(common::currency::record::CurrencyRecord::Eur);
     let dynamodb_repository = ShopDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
         &get_cfn_output().dynamodb_table_1_name,
