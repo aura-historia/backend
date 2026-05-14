@@ -509,9 +509,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-opensearch"
-version = "1.127.0"
+version = "1.128.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12ebbee9a3a49c94b6b179b3124299f5e488046b9b687ebb78bb15c3f7913c5a"
+checksum = "52b521759ce2b8bab3d8fe5a0e09b24cae5769c47394a9bca0bbdfaffe23f340"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -592,9 +592,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sfn"
-version = "1.103.0"
+version = "1.104.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46bc825a06186c0ea8181cc4e06e1f1e458b7eebe83fd0e1c374679b1e396a9f"
+checksum = "77cd9b678e99e5241b1467faf99f9d9ba1840a2aaa609e5fefd4a4a3556b66bb"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
