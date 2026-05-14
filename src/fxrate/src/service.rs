@@ -61,6 +61,9 @@ impl<'a> FxRateServiceImpl<'a> {
         }
     }
 
+    /// Creates an instance that only supports reading the current FX rates via
+    /// [`FxRateService::get_current`]. Panics if [`FxRateService::update_current`]
+    /// is called. Use [`Self::new`] instead if you also need to update rates.
     pub fn new_read_only(repository: &'a (dyn FxRateDynamoDbRepository + Send + Sync)) -> Self {
         Self {
             fxrates_api: None,
@@ -74,7 +77,7 @@ impl<'a> FxRateService for FxRateServiceImpl<'a> {
     async fn update_current(&self) -> Result<FxRatesRecord, FxRateServiceError> {
         let fxrates_api = self
             .fxrates_api
-            .expect("fxrates_api is required to call update_current");
+            .expect("Cannot call update_current on a read-only FxRateService. Use new() instead of new_read_only() if you need to update rates.");
         let mut rates: HashMap<(Currency, Currency), Rate> =
             HashMap::with_capacity(Currency::COUNT.pow(2));
         for src in Currency::iter() {
