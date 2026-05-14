@@ -1699,6 +1699,7 @@ dependencies = [
  "dotenvy",
  "fake",
  "futures",
+ "fxrate",
  "kuchiki",
  "libc",
  "lingua",

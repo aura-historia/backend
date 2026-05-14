@@ -41,7 +41,6 @@ use aws_sdk_cloudwatchlogs::operation::create_log_group::CreateLogGroupError;
 use aws_sdk_cloudwatchlogs::operation::create_log_stream::CreateLogStreamError;
 use common::logging::GeminiServiceTier;
 use common::pagination::cursor::Cursor;
-use common::price::domain::FixedFxRate;
 use common::shop_id::ShopId;
 use crawler::google_llm::{gemini_flex_enabled, google_llm_builder};
 use crawler::local_db::{SERVER_DB_NAME, bootstrap_local_database, server_db_url};
@@ -59,6 +58,7 @@ use crawler::scraper::scraper_service::{
     DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
 };
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
+use crawler::service::current_fx_rate_command_product_service::CurrentFxRateCommandProductService;
 use crawler::service::product_push::ProductPushServiceImpl;
 use crawler::service::shop_registration::{
     RegisteredShop, ShopRegistrationRepositoryImpl, ShopRegistrationService,
@@ -72,10 +72,13 @@ use crawler::spider::classification::url_pattern_repository::ShopUrlPatternRepos
 use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
+use fxrate::{
+    dynamodb::repository::FxRateDynamoDbRepositoryImpl, fxratesapi::FxRatesApiClientImpl,
+    service::FxRateServiceImpl,
+};
 use opensearch::auth::Credentials;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
-use product::service::command_service::CommandProductServiceImpl;
 use shop::core::partner_status::ShopPartnerStatus;
 use shop::core::shop::Shop;
 use shop::core::shop_search::ShopSearch;
@@ -463,23 +466,33 @@ async fn main() {
         // 6. Wire product push — backed by DynamoDB in production
         let table_name =
             std::env::var("DYNAMODB_TABLE_NAME").expect("DYNAMODB_TABLE_NAME must be set");
-        let dynamodb = aws_sdk_dynamodb::Client::new(&aws_config);
+        let dynamodb = Box::leak(Box::new(aws_sdk_dynamodb::Client::new(&aws_config)));
+        let reqwest = Box::leak(Box::new(reqwest::Client::new()));
 
         let product_dynamodb_repo = Box::leak(Box::new(ProductDynamoDbRepositoryImpl::new(
-            Box::leak(Box::new(dynamodb.clone())),
+            dynamodb,
             table_name.clone(),
         )));
         let shop_dynamodb_repo = Box::leak(Box::new(ShopDynamoDbRepositoryImpl::new(
-            Box::leak(Box::new(dynamodb.clone())),
+            dynamodb,
             table_name.clone(),
+        )));
+        // Crawler only consumes persisted FX snapshots via `get_current`.
+        let fx_rate_repository = Box::leak(Box::new(FxRateDynamoDbRepositoryImpl::new(
+            dynamodb,
+            table_name.clone(),
+        )));
+        let fxrates_api = Box::leak(Box::new(FxRatesApiClientImpl::new(reqwest, "")));
+        let fx_rate_service = Box::leak(Box::new(FxRateServiceImpl::new(
+            fxrates_api,
+            fx_rate_repository,
         )));
         let get_shop_service = Box::leak(Box::new(GetShopServiceImpl::new(shop_dynamodb_repo)));
         let seller_service = Box::leak(Box::new(MockSellerService::default()));
-        let fx_rate = Box::leak(Box::new(FixedFxRate()));
 
-        let command_product_service = Box::new(CommandProductServiceImpl::new(
+        let command_product_service = Box::new(CurrentFxRateCommandProductService::new(
             product_dynamodb_repo,
-            fx_rate,
+            fx_rate_service,
             get_shop_service,
             seller_service,
         ));
