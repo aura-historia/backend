@@ -40,6 +40,17 @@ pub enum SpiderServiceError {
 
     #[error(transparent)]
     Database(#[from] sqlx::Error),
+
+    #[error("Spider crawl emitted no pages for shop URL '{shop_url}'")]
+    EmptyCrawl { shop_url: String },
+
+    #[error(
+        "Cannot classify product URL pattern for shop URL '{shop_url}' at stage '{stage}' because the inference sample is empty"
+    )]
+    EmptyClassificationSample {
+        shop_url: String,
+        stage: &'static str,
+    },
 }
 
 impl Default for SpiderServiceConfig {
@@ -151,6 +162,13 @@ impl SpiderServiceImpl {
         shop_url: &str,
         stage: &'static str,
     ) -> Result<(), SpiderServiceError> {
+        if state.inference_sample.is_empty() {
+            return Err(SpiderServiceError::EmptyClassificationSample {
+                shop_url: shop_url.to_string(),
+                stage,
+            });
+        }
+
         state.pattern = self
             .pattern_service
             .classify_and_save(shop_id, shop_url, &state.inference_sample)
@@ -343,6 +361,12 @@ impl SpiderServiceImpl {
         }
 
         info!(total_crawled = state.total_crawled, "Crawl complete");
+
+        if state.total_crawled == 0 {
+            return Err(SpiderServiceError::EmptyCrawl {
+                shop_url: shop_url.to_string(),
+            });
+        }
 
         self.classify_at_end_if_needed(&mut state, shop_id, shop_url)
             .await?;
@@ -663,5 +687,79 @@ mod service_tests {
         assert!(result.is_ok());
         let run_result = result.unwrap();
         assert_eq!(run_result.product_urls_count, 1);
+    }
+
+    #[tokio::test]
+    async fn should_return_empty_crawl_error_without_classifying_or_marking_crawled() {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+
+        let shop_id: ShopId = uuid::Uuid::new_v4().into();
+        let domain_id = uuid::Uuid::new_v4();
+        let shop_url = "https://example.com";
+
+        mock_spider
+            .expect_crawl()
+            .with(mockall::predicate::eq(shop_url))
+            .returning(|_| {
+                let (_tx, rx) = mpsc::channel(10);
+                Box::pin(async { Ok(rx) })
+            });
+
+        mock_pattern_service
+            .expect_load_pattern_for_shop()
+            .times(1)
+            .returning(|_| Box::pin(async { Ok(None) }));
+
+        mock_pattern_service.expect_classify_and_save().times(0);
+        mock_pattern_service.expect_mark_as_crawled().times(0);
+        mock_url_repo.expect_upsert_links_batch().times(0);
+
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
+
+        assert!(matches!(
+            result,
+            Err(SpiderServiceError::EmptyCrawl { shop_url: url }) if url == shop_url
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_return_empty_classification_sample_error_without_calling_pattern_service() {
+        let mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mock_url_repo = MockUrlMetadataRepository::new();
+
+        let shop_id: ShopId = uuid::Uuid::new_v4().into();
+        let shop_url = "https://example.com";
+        let mut state = CrawlRunState::new(None);
+
+        mock_pattern_service.expect_classify_and_save().times(0);
+
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let result = service
+            .classify_and_save_for_stage(&mut state, &shop_id, shop_url, "test")
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(SpiderServiceError::EmptyClassificationSample {
+                shop_url: url,
+                stage: "test"
+            }) if url == shop_url
+        ));
     }
 }
