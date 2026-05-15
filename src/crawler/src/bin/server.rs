@@ -18,6 +18,8 @@
 //! | `GEMINI_API_KEY`                | API key for the Gemini LLM backend                             |
 //! | `GEMINI_MODEL`                  | Gemini model name (default: `gemini-3.1-flash-lite-preview`)   |
 //! | `GEMINI_FLEX`                   | Enable Gemini Flex inference when set to `true`                |
+//! | `GEMINI_MAX_CONCURRENT_REQUESTS`| Max in-flight crawler Gemini calls (default: `1`)              |
+//! | `GEMINI_MIN_REQUEST_INTERVAL_MS`| Minimum delay between crawler Gemini request starts (default: `2000`) |
 //! | `DYNAMODB_TABLE_NAME`           | DynamoDB table for product events                              |
 //! | `OPENSEARCH_ENDPOINT_URL`       | OpenSearch base URL                                            |
 //! | `OPENSEARCH_USERNAME`           | OpenSearch username                                            |
@@ -42,7 +44,9 @@ use aws_sdk_cloudwatchlogs::operation::create_log_stream::CreateLogStreamError;
 use common::logging::GeminiServiceTier;
 use common::pagination::cursor::Cursor;
 use common::shop_id::ShopId;
-use crawler::google_llm::{gemini_flex_enabled, google_llm_builder};
+use crawler::google_llm::{
+    GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
+};
 use crawler::local_db::{SERVER_DB_NAME, bootstrap_local_database, server_db_url};
 use crawler::logging::{
     CloudWatchBootstrapClient, CloudWatchBootstrapError, CloudWatchLoggingConfig,
@@ -381,6 +385,16 @@ async fn main() {
         } else {
             GeminiServiceTier::Standard
         });
+        let gemini_rate_limit_config = GeminiRateLimitConfig::from_env();
+        let gemini_rate_limiter = Arc::new(GeminiRateLimiter::new(gemini_rate_limit_config));
+
+        info!(
+            gemini_model = %model,
+            gemini_service_tier,
+            gemini_max_concurrent_requests = gemini_rate_limit_config.max_concurrent_requests,
+            gemini_min_request_interval_ms = gemini_rate_limit_config.min_request_interval.as_millis(),
+            "Gemini crawler rate limiter configured"
+        );
 
         let state_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
@@ -391,6 +405,7 @@ async fn main() {
             state_llm_builder,
             llm_service_tier,
             state_mapping_repo,
+            Some(Arc::clone(&gemini_rate_limiter)),
         )
         .expect("failed to build ProductStateMappingServiceImpl");
 
@@ -402,7 +417,12 @@ async fn main() {
             pool.clone(),
         ))));
         let schema_svc =
-            ProductSchemaServiceImpl::new(schema_llm_builder, llm_service_tier, schema_repo)
+            ProductSchemaServiceImpl::new(
+                schema_llm_builder,
+                llm_service_tier,
+                schema_repo,
+                Some(Arc::clone(&gemini_rate_limiter)),
+            )
                 .expect("failed to build ProductSchemaServiceImpl");
 
         let scraper_candidates = Box::new(
@@ -433,7 +453,12 @@ async fn main() {
 
         let class_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
         let class_svc = Box::new(
-            UrlClassificationServiceImpl::new(class_llm_builder, llm_service_tier).unwrap(),
+            UrlClassificationServiceImpl::new(
+                class_llm_builder,
+                llm_service_tier,
+                Some(Arc::clone(&gemini_rate_limiter)),
+            )
+            .unwrap(),
         );
 
         let pattern_svc = Box::new(UrlPatternServiceImpl::new(

@@ -1,3 +1,4 @@
+use crate::google_llm::GeminiRateLimiter;
 use crate::logging::llm_metrics;
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, ShopsProductSchema,
@@ -7,8 +8,12 @@ use common::logging::{GeminiServiceTier, LlmModel, LlmOperation, LlmProvider, lo
 use common::shop_id::ShopId;
 use kuchiki::traits::*;
 use kuchiki::{NodeRef, parse_html};
-use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
+use llm::{
+    chat::{ChatMessage, ChatProvider},
+    error::LLMError,
+};
 use schemars::schema_for;
+use std::sync::Arc;
 use std::time::Instant;
 use time::OffsetDateTime;
 use tracing::{debug, info};
@@ -76,7 +81,8 @@ pub trait ProductSchemaService {
 }
 
 pub struct ProductSchemaServiceImpl {
-    llm: Box<dyn LLMProvider>,
+    llm: Box<dyn ChatProvider>,
+    rate_limiter: Option<Arc<GeminiRateLimiter>>,
     service_tier: Option<GeminiServiceTier>,
     repository: Box<dyn ShopsProductSchemaRepository + Send + Sync>,
 }
@@ -86,6 +92,7 @@ impl ProductSchemaServiceImpl {
         llm: llm::builder::LLMBuilder,
         service_tier: Option<GeminiServiceTier>,
         repository: Box<dyn ShopsProductSchemaRepository + Send + Sync>,
+        rate_limiter: Option<Arc<GeminiRateLimiter>>,
     ) -> Result<Self, LLMError> {
         let schema = serde_json::to_string_pretty(&schema_for!(ProductCssSelectorSchema))
             .unwrap_or_else(|_| "Failed to generate schema".to_string());
@@ -110,8 +117,10 @@ impl ProductSchemaServiceImpl {
             })
             .validator_attempts(3)
             .build()?;
+        let llm: Box<dyn ChatProvider> = llm;
         Ok(Self {
             llm,
+            rate_limiter,
             service_tier,
             repository,
         })
@@ -149,7 +158,12 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         let messages = vec![message];
 
         let started_at = Instant::now();
+        let permit = match &self.rate_limiter {
+            Some(limiter) => Some(limiter.acquire().await?),
+            None => None,
+        };
         let response = self.llm.chat(&messages).await?;
+        drop(permit);
         log_llm_invocation(
             LlmOperation::CrawlerProductSchemaGeneration,
             LlmProvider::Google,
@@ -193,7 +207,12 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         let messages = vec![message];
 
         let started_at = Instant::now();
+        let permit = match &self.rate_limiter {
+            Some(limiter) => Some(limiter.acquire().await?),
+            None => None,
+        };
         let response = self.llm.chat(&messages).await?;
+        drop(permit);
         log_llm_invocation(
             LlmOperation::CrawlerProductSchemaRepair,
             LlmProvider::Google,
@@ -528,6 +547,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
         };
@@ -550,6 +570,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
         };
@@ -569,6 +590,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
         };
@@ -603,6 +625,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
         };
@@ -635,6 +658,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
         };
@@ -658,6 +682,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
         };
@@ -685,6 +710,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
         };
@@ -717,6 +743,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
         };
@@ -757,6 +784,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProviderReturning(css_schema)),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
         };
@@ -780,6 +808,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
         };
@@ -867,38 +896,6 @@ mod tests {
         }
     }
 
-    #[async_trait::async_trait]
-    impl llm::completion::CompletionProvider for MockLlmProvider {
-        async fn complete(
-            &self,
-            _req: &llm::completion::CompletionRequest,
-        ) -> Result<llm::completion::CompletionResponse, LLMError> {
-            unimplemented!()
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl llm::embedding::EmbeddingProvider for MockLlmProvider {
-        async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
-            unimplemented!()
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl llm::stt::SpeechToTextProvider for MockLlmProvider {
-        async fn transcribe(&self, _audio: Vec<u8>) -> Result<String, LLMError> {
-            unimplemented!()
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl llm::tts::TextToSpeechProvider for MockLlmProvider {}
-
-    #[async_trait::async_trait]
-    impl llm::models::ModelsProvider for MockLlmProvider {}
-
-    impl LLMProvider for MockLlmProvider {}
-
     /// A mock LLM provider that returns a fixed `ProductCssSelectorSchema`.
     struct MockLlmProviderReturning(ProductCssSelectorSchema);
 
@@ -913,36 +910,4 @@ mod tests {
             Ok(Box::new(FakeChatResponse(Some(json))))
         }
     }
-
-    #[async_trait::async_trait]
-    impl llm::completion::CompletionProvider for MockLlmProviderReturning {
-        async fn complete(
-            &self,
-            _req: &llm::completion::CompletionRequest,
-        ) -> Result<llm::completion::CompletionResponse, LLMError> {
-            unimplemented!()
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl llm::embedding::EmbeddingProvider for MockLlmProviderReturning {
-        async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
-            unimplemented!()
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl llm::stt::SpeechToTextProvider for MockLlmProviderReturning {
-        async fn transcribe(&self, _audio: Vec<u8>) -> Result<String, LLMError> {
-            unimplemented!()
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl llm::tts::TextToSpeechProvider for MockLlmProviderReturning {}
-
-    #[async_trait::async_trait]
-    impl llm::models::ModelsProvider for MockLlmProviderReturning {}
-
-    impl LLMProvider for MockLlmProviderReturning {}
 }
