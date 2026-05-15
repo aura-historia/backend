@@ -1,6 +1,7 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::sqs::SqsEvent;
-use common::price::domain::FixedFxRate;
+use fxrate::dynamodb::repository::FxRateDynamoDbRepositoryImpl;
+use fxrate::service::FxRateServiceImpl;
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use llm::builder::{LLMBackend, LLMBuilder};
@@ -36,7 +37,6 @@ async fn main() -> Result<(), Error> {
     )));
     let get_shop_service = Box::leak(Box::new(GetShopServiceImpl::new(shop_repository)));
     let product_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
-    let fx_rate = FixedFxRate();
 
     let seller_service: Box<dyn SellerService + Sync> = match std::env::var("LOCALSTACK_HOSTNAME") {
         Ok(_) => Box::new(MockSellerService::default()),
@@ -74,12 +74,15 @@ async fn main() -> Result<(), Error> {
         }
     };
 
+    let fxrate_repository = FxRateDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
+    let fxrate_service = FxRateServiceImpl::new_read_only(&fxrate_repository);
     let product_service = CommandProductServiceImpl::new(
         &product_repository,
-        &fx_rate,
+        &fxrate_service,
         get_shop_service,
         seller_service.as_ref(),
-    );
+    )
+    .await?;
 
     debug!("Lambda initialized.");
 

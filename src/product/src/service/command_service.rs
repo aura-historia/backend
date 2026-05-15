@@ -15,6 +15,8 @@ use common::price::domain::FxRate;
 use common::product_id::ProductKey;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
+use fxrate::dynamodb::record::FxRatesRecord;
+use fxrate::service::{FxRateService, FxRateServiceError};
 use shop::core::shop_type::ShopType;
 use shop::service::get_service::GetShopService;
 use shop::service::seller_service::SellerService;
@@ -32,9 +34,9 @@ pub trait CommandProductService {
     async fn upsert(&self, cmds: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand>;
 }
 
-pub struct CommandProductServiceImpl<'a, T: FxRate + Sync> {
+pub struct CommandProductServiceImpl<'a> {
     dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
-    fx_rate: &'a T,
+    fx_rate: FxRatesRecord,
     get_shop_service: &'a (dyn GetShopService + Sync),
     seller_service: &'a (dyn SellerService + Sync),
 }
@@ -46,19 +48,20 @@ struct ResolvedShopInformation {
     shop_type: ShopType,
 }
 
-impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
-    pub fn new(
+impl<'a> CommandProductServiceImpl<'a> {
+    pub async fn new(
         dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
-        fx_rate: &'a T,
+        fx_rate_service: &(dyn FxRateService + Sync),
         get_shop_service: &'a (dyn GetShopService + Sync),
         seller_service: &'a (dyn SellerService + Sync),
-    ) -> Self {
-        Self {
+    ) -> Result<Self, FxRateServiceError> {
+        let fx_rate = fx_rate_service.get_current().await?;
+        Ok(Self {
             dynamodb_repository,
             fx_rate,
             get_shop_service,
             seller_service,
-        }
+        })
     }
 
     fn enrich_price(&self, cmd: &mut CreateProductCommand) {
@@ -219,7 +222,7 @@ impl<'a, T: FxRate + Sync> CommandProductServiceImpl<'a, T> {
 }
 
 #[async_trait]
-impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T> {
+impl CommandProductService for CommandProductServiceImpl<'_> {
     async fn create(&self, cmds: Vec<CreateProductCommand>) -> Vec<CreateProductCommand> {
         let mut failures = Vec::new();
 
@@ -334,7 +337,8 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
                         }
                     }
 
-                    let events = determine_update_events(&mut working, records.items, self.fx_rate);
+                    let events =
+                        determine_update_events(&mut working, records.items, &self.fx_rate);
 
                     // Remaining items in `working` are products not found in DynamoDB —
                     // `determine_update_events` removes matched keys.
@@ -395,7 +399,7 @@ impl<T: FxRate + Sync> CommandProductService for CommandProductServiceImpl<'_, T
 
                     // Determine update events for existing products
                     let update_events =
-                        determine_update_events(&mut update_cmds, records.items, self.fx_rate);
+                        determine_update_events(&mut update_cmds, records.items, &self.fx_rate);
 
                     let mut create_events: Vec<ProductEventRecord> =
                         Vec::with_capacity(working.len());
@@ -526,6 +530,8 @@ mod tests {
     use common::has_key::HasKey;
     use common::{price::domain::FixedFxRate, product_state::domain::ProductState};
     use fake::{Fake, Faker};
+    use fxrate::dynamodb::record::FxRatesRecord;
+    use fxrate::service::MockFxRateService;
     use rstest;
     use shop::core::shop::Shop;
     use shop::core::shop_type::ShopType;
@@ -547,13 +553,28 @@ mod tests {
         MockSellerService::default()
     }
 
-    fn make_command_product_service<'a, T: FxRate + Sync>(
+    fn default_fx_rate_service() -> MockFxRateService {
+        let mut service = MockFxRateService::new();
+        service
+            .expect_get_current()
+            .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
+        service
+    }
+
+    async fn make_command_product_service<'a>(
         repository: &'a (dyn ProductDynamoDbRepository + Sync),
-        fx_rate: &'a T,
-    ) -> CommandProductServiceImpl<'a, T> {
+    ) -> CommandProductServiceImpl<'a> {
         let get_shop_service = Box::leak(Box::new(default_shop_service()));
         let seller_service = Box::leak(Box::new(default_seller_service()));
-        CommandProductServiceImpl::new(repository, fx_rate, get_shop_service, seller_service)
+        let fx_rate_service = default_fx_rate_service();
+        CommandProductServiceImpl::new(
+            repository,
+            &fx_rate_service,
+            get_shop_service,
+            seller_service,
+        )
+        .await
+        .expect("failed to create CommandProductServiceImpl in test")
     }
 
     mod determine_update_events {
@@ -848,13 +869,20 @@ mod tests {
         use common::batch::dynamodb::BatchGetItemResult;
         use common::slug_id::SlugId;
 
-        fn service_for_shop_information<'a>(
+        async fn service_for_shop_information<'a>(
             repository: &'a (dyn ProductDynamoDbRepository + Sync),
             get_shop_service: &'a (dyn GetShopService + Sync),
             seller_service: &'a (dyn SellerService + Sync),
-        ) -> CommandProductServiceImpl<'a, FixedFxRate> {
-            let fx_rate = Box::leak(Box::new(FixedFxRate()));
-            CommandProductServiceImpl::new(repository, fx_rate, get_shop_service, seller_service)
+        ) -> CommandProductServiceImpl<'a> {
+            let fx_rate_service = default_fx_rate_service();
+            CommandProductServiceImpl::new(
+                repository,
+                &fx_rate_service,
+                get_shop_service,
+                seller_service,
+            )
+            .await
+            .expect("failed to create CommandProductServiceImpl in test")
         }
 
         #[tokio::test]
@@ -889,7 +917,7 @@ mod tests {
 
             let repository = MockProductDynamoDbRepository::default();
             let service =
-                service_for_shop_information(&repository, &get_shop_service, &seller_service);
+                service_for_shop_information(&repository, &get_shop_service, &seller_service).await;
 
             let resolved = service
                 .enrich_shop_information(&mut cmd)
@@ -923,7 +951,7 @@ mod tests {
             let repository = MockProductDynamoDbRepository::default();
             let seller_service = MockSellerService::default();
             let service =
-                service_for_shop_information(&repository, &get_shop_service, &seller_service);
+                service_for_shop_information(&repository, &get_shop_service, &seller_service).await;
 
             service
                 .enrich_shop_information(&mut cmd)
@@ -957,7 +985,7 @@ mod tests {
             let repository = MockProductDynamoDbRepository::default();
             let seller_service = MockSellerService::default();
             let service =
-                service_for_shop_information(&repository, &get_shop_service, &seller_service);
+                service_for_shop_information(&repository, &get_shop_service, &seller_service).await;
 
             service
                 .enrich_shop_information(&mut cmd)
@@ -993,7 +1021,7 @@ mod tests {
                 .expect_get_product_records()
                 .return_once(|_| Box::pin(async { Err(expected) }));
 
-            let service = make_command_product_service(&repository, &FixedFxRate());
+            let service = make_command_product_service(&repository).await;
 
             let mut expected = fake::vec![CreateProductCommand; 89];
             let mut actual = service.create(expected.clone()).await;
@@ -1023,7 +1051,7 @@ mod tests {
                     })
                 });
 
-            let service = make_command_product_service(&repository, &FixedFxRate());
+            let service = make_command_product_service(&repository).await;
             let cmds = fake::vec![CreateProductCommand; 5];
             let failures = service.create(cmds).await;
 
@@ -1057,7 +1085,7 @@ mod tests {
                     })
                 });
 
-            let service = make_command_product_service(&repository, &FixedFxRate());
+            let service = make_command_product_service(&repository).await;
 
             let mut cmds = fake::vec![CreateProductCommand; 3];
             cmds.push(existing_cmd);
@@ -1082,7 +1110,7 @@ mod tests {
                 })
             });
 
-            let service = make_command_product_service(&repository, &FixedFxRate());
+            let service = make_command_product_service(&repository).await;
 
             let mut expected = cmds.clone();
             let mut actual = service.create(cmds).await;
@@ -1123,7 +1151,7 @@ mod tests {
                     })
                 });
 
-            let service = make_command_product_service(&repository, &FixedFxRate());
+            let service = make_command_product_service(&repository).await;
 
             // Verify enrich_price directly
             let mut test_cmd = cmd.clone();
@@ -1186,7 +1214,7 @@ mod tests {
                     })
                 });
 
-            let service = make_command_product_service(&repository, &FixedFxRate());
+            let service = make_command_product_service(&repository).await;
             let failures = service.create(vec![cmd]).await;
 
             assert!(failures.is_empty());
@@ -1226,7 +1254,7 @@ mod tests {
                     })
                 });
 
-            let service = make_command_product_service(&repository, &FixedFxRate());
+            let service = make_command_product_service(&repository).await;
             let failures = service.create(vec![cmd]).await;
 
             assert!(failures.is_empty());
@@ -1264,7 +1292,7 @@ mod tests {
                     })
                 });
 
-            let service = make_command_product_service(&repository, &FixedFxRate());
+            let service = make_command_product_service(&repository).await;
             let failures = service.create(vec![cmd]).await;
 
             assert!(failures.is_empty());
@@ -1302,7 +1330,7 @@ mod tests {
                     })
                 });
 
-            let service = make_command_product_service(&repository, &FixedFxRate());
+            let service = make_command_product_service(&repository).await;
             let failures = service.create(vec![cmd]).await;
 
             assert!(failures.is_empty());
@@ -1340,7 +1368,7 @@ mod tests {
                     })
                 });
 
-            let service = make_command_product_service(&repository, &FixedFxRate());
+            let service = make_command_product_service(&repository).await;
             let failures = service.create(vec![cmd]).await;
 
             assert!(failures.is_empty());
@@ -1378,7 +1406,7 @@ mod tests {
                     })
                 });
 
-            let service = make_command_product_service(&repository, &FixedFxRate());
+            let service = make_command_product_service(&repository).await;
             let failures = service.create(vec![cmd]).await;
 
             assert!(failures.is_empty());
@@ -1416,7 +1444,7 @@ mod tests {
                     })
                 });
 
-            let service = make_command_product_service(&repository, &FixedFxRate());
+            let service = make_command_product_service(&repository).await;
             let failures = service.create(vec![cmd]).await;
 
             assert!(failures.is_empty());
@@ -1456,7 +1484,7 @@ mod tests {
                     })
                 });
 
-            let service = make_command_product_service(&repository, &FixedFxRate());
+            let service = make_command_product_service(&repository).await;
             let failures = service.create(vec![cmd]).await;
 
             assert!(failures.is_empty());
@@ -1500,7 +1528,7 @@ mod tests {
                 .expect_get_product_records()
                 .return_once(|_| Box::pin(async { Err(expected) }));
 
-            let service = make_command_product_service(&repository, &FixedFxRate());
+            let service = make_command_product_service(&repository).await;
 
             let cmds: HashMap<ProductKey, UpdateProductCommand> = (0..5)
                 .map(|_| {
@@ -1557,7 +1585,7 @@ mod tests {
                     })
                 });
 
-            let service = make_command_product_service(&repository, &FixedFxRate());
+            let service = make_command_product_service(&repository).await;
             let failures = service.update(HashMap::from([(key, cmd)])).await;
 
             assert!(failures.is_empty());
@@ -1575,7 +1603,7 @@ mod tests {
                 })
             });
 
-            let service = make_command_product_service(&repository, &FixedFxRate());
+            let service = make_command_product_service(&repository).await;
 
             let cmds: HashMap<ProductKey, UpdateProductCommand> = (0..3)
                 .map(|_| {
@@ -1612,7 +1640,7 @@ mod tests {
                 })
             });
 
-            let service = make_command_product_service(&repository, &FixedFxRate());
+            let service = make_command_product_service(&repository).await;
 
             let actual = service
                 .update(HashMap::from([(key.clone(), cmd.clone())]))
@@ -1651,7 +1679,7 @@ mod tests {
             // put_product_event_records should NOT be called since there are no events
             repository.expect_put_product_event_records().never();
 
-            let service = make_command_product_service(&repository, &FixedFxRate());
+            let service = make_command_product_service(&repository).await;
             let failures = service.update(HashMap::from([(key, cmd)])).await;
 
             assert!(failures.is_empty());

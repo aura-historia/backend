@@ -41,7 +41,6 @@ use aws_sdk_cloudwatchlogs::operation::create_log_group::CreateLogGroupError;
 use aws_sdk_cloudwatchlogs::operation::create_log_stream::CreateLogStreamError;
 use common::logging::GeminiServiceTier;
 use common::pagination::cursor::Cursor;
-use common::price::domain::FixedFxRate;
 use common::shop_id::ShopId;
 use crawler::google_llm::{gemini_flex_enabled, google_llm_builder};
 use crawler::local_db::{SERVER_DB_NAME, bootstrap_local_database, server_db_url};
@@ -72,6 +71,8 @@ use crawler::spider::classification::url_pattern_repository::ShopUrlPatternRepos
 use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
+use fxrate::dynamodb::repository::FxRateDynamoDbRepositoryImpl;
+use fxrate::service::FxRateServiceImpl;
 use opensearch::auth::Credentials;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
@@ -475,14 +476,22 @@ async fn main() {
         )));
         let get_shop_service = Box::leak(Box::new(GetShopServiceImpl::new(shop_dynamodb_repo)));
         let seller_service = Box::leak(Box::new(MockSellerService::default()));
-        let fx_rate = Box::leak(Box::new(FixedFxRate()));
 
-        let command_product_service = Box::new(CommandProductServiceImpl::new(
-            product_dynamodb_repo,
-            fx_rate,
-            get_shop_service,
-            seller_service,
-        ));
+        let fxrate_repository = Box::leak(Box::new(FxRateDynamoDbRepositoryImpl::new(
+            Box::leak(Box::new(dynamodb.clone())),
+            table_name.clone(),
+        )));
+        let fxrate_service = FxRateServiceImpl::new_read_only(fxrate_repository);
+        let command_product_service = Box::new(
+            CommandProductServiceImpl::new(
+                product_dynamodb_repo,
+                &fxrate_service,
+                get_shop_service,
+                seller_service,
+            )
+            .await
+            .expect("shouldn't fail creating CommandProductServiceImpl (check FxRates record in DynamoDB)"),
+        );
         let product_push = Box::new(ProductPushServiceImpl::new(command_product_service));
 
         let db_max_connections = config.effective_db_max_connections();
