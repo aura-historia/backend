@@ -1680,8 +1680,6 @@ Resources:
     Properties:
       ApiId: !Ref Api
       RouteKey: "PATCH /api/v1/shops/{shopId}"
-      AuthorizationType: JWT
-      AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${ShopApiLambdaIntegration}"
   ShopApiPostShopRoute:
     Type: AWS::ApiGatewayV2::Route
