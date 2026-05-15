@@ -86,13 +86,22 @@ impl SpiderImpl {
             }
         };
 
-        let response = match client.head(original_url.clone()).send().await {
+        let response = match client.get(original_url.clone()).send().await {
             Ok(response) => response,
             Err(error) => {
                 warn!(shop_url, error = %error, "Canonical URL resolution failed");
                 return shop_url.to_string();
             }
         };
+
+        if !response.status().is_success() {
+            warn!(
+                shop_url,
+                status = %response.status(),
+                "Canonical URL resolution returned non-success status"
+            );
+            return shop_url.to_string();
+        }
 
         let resolved_url = response.url().clone();
         if !is_same_or_www_host(&original_url, &resolved_url) {
