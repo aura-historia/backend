@@ -33,7 +33,9 @@ use std::sync::Arc;
 
 use common::logging::GeminiServiceTier;
 use common::shop_id::ShopId;
-use crawler::google_llm::{gemini_flex_enabled, google_llm_builder};
+use crawler::google_llm::{
+    GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
+};
 use crawler::local_db::{DEMO_SPIDER_DB_NAME, bootstrap_local_database, demo_spider_db_url};
 use crawler::spider::SpiderRunResult;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
@@ -122,10 +124,16 @@ async fn main() {
             gemini_service_tier,
             "Crawler spider demo Gemini configuration resolved"
         );
+        let gemini_rate_limiter =
+            Arc::new(GeminiRateLimiter::new(GeminiRateLimitConfig::from_env()));
         let llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
         let classification_service = Box::new(
-            UrlClassificationServiceImpl::new(llm_builder, llm_service_tier)
-                .expect("Failed to initialize UrlClassificationService"),
+            UrlClassificationServiceImpl::new(
+                llm_builder,
+                llm_service_tier,
+                Some(gemini_rate_limiter),
+            )
+            .expect("Failed to initialize UrlClassificationService"),
         );
         let pattern_service = Box::new(UrlPatternServiceImpl::new(
             pattern_repository.clone(),
