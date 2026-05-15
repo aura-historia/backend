@@ -33,9 +33,9 @@ use common::domain::Domain;
 use common::logging::GeminiServiceTier;
 use common::shop_id::ShopId;
 use crawler::google_llm::{
-    gemini_flex_enabled, google_llm_builder, GeminiRateLimitConfig, GeminiRateLimiter,
+    GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
 };
-use crawler::local_db::{bootstrap_local_database, demo_db_url, DEMO_DB_NAME};
+use crawler::local_db::{DEMO_DB_NAME, bootstrap_local_database, demo_db_url};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
@@ -43,7 +43,7 @@ use crawler::scraper::normalization::product_normalization_service::ProductNorma
 use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
 use crawler::scraper::scraper_service::{
-    ReqwestHtmlFetcher, ScraperServiceImpl, DEFAULT_SCHEMA_SEED_PAGES,
+    DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
 };
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crawler::service::product_push::FileProductPushService;
@@ -60,7 +60,7 @@ use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
 use shop::core::shop_type::ShopType;
-use tracing::{error, info, Instrument};
+use tracing::{Instrument, error, info};
 
 // ---------------------------------------------------------------------------
 // Demo shop source — returns hardcoded shops (no OpenSearch needed)
