@@ -4,6 +4,7 @@ use regex::Regex;
 use thiserror::Error;
 use tracing::info;
 
+use crate::review::repository::{ARTIFACT_URL_PATTERN, CrawlerReviewRepository};
 use crate::spider::classification::url_classification_service::{
     UrlClassificationError, UrlClassificationService,
 };
@@ -27,6 +28,12 @@ pub enum UrlPatternServiceError {
 
     #[error(transparent)]
     Classification(#[from] UrlClassificationError),
+
+    #[error("URL pattern generation is blocked pending review '{review_id}' for shop '{shop_id}'")]
+    PendingReview {
+        shop_id: ShopId,
+        review_id: uuid::Uuid,
+    },
 }
 
 #[async_trait::async_trait]
@@ -72,6 +79,8 @@ pub trait UrlPatternService: Send + Sync {
 pub struct UrlPatternServiceImpl {
     repository: Arc<dyn ShopUrlPatternRepository>,
     classification_service: Box<dyn UrlClassificationService>,
+    review_repository: Option<CrawlerReviewRepository>,
+    review_required: bool,
 }
 
 impl UrlPatternServiceImpl {
@@ -82,6 +91,22 @@ impl UrlPatternServiceImpl {
         Self {
             repository,
             classification_service,
+            review_repository: None,
+            review_required: false,
+        }
+    }
+
+    pub fn new_with_review(
+        repository: Arc<dyn ShopUrlPatternRepository>,
+        classification_service: Box<dyn UrlClassificationService>,
+        review_repository: CrawlerReviewRepository,
+        review_required: bool,
+    ) -> Self {
+        Self {
+            repository,
+            classification_service,
+            review_repository: Some(review_repository),
+            review_required,
         }
     }
 }
@@ -135,11 +160,50 @@ impl UrlPatternService for UrlPatternServiceImpl {
         shop_url: &str,
         urls: &[String],
     ) -> Result<Option<Regex>, UrlPatternServiceError> {
+        if self.review_required
+            && let Some(review_repository) = &self.review_repository
+            && review_repository
+                .has_pending_review(shop_id, ARTIFACT_URL_PATTERN)
+                .await?
+        {
+            let review_id = review_repository
+                .latest_pending_review_id(shop_id, ARTIFACT_URL_PATTERN)
+                .await?
+                .unwrap_or_else(uuid::Uuid::nil);
+            return Err(UrlPatternServiceError::PendingReview {
+                shop_id: *shop_id,
+                review_id,
+            });
+        }
+
         self.repository.increment_shop_llm_calls(shop_id, 1).await?;
         let pattern = self
             .classification_service
             .find_product_url_pattern(urls)
             .await?;
+
+        if self.review_required {
+            if let Some(review_repository) = &self.review_repository {
+                let current_pattern = self.load_pattern_for_shop(shop_id).await?;
+                let review_id = review_repository
+                    .create_url_pattern_review(
+                        shop_id,
+                        None,
+                        "url_pattern_generation",
+                        pattern.as_ref(),
+                        urls,
+                        current_pattern.as_ref(),
+                    )
+                    .await
+                    .map_err(|err| {
+                        UrlPatternServiceError::Repository(sqlx::Error::Protocol(err.to_string()))
+                    })?;
+                return Err(UrlPatternServiceError::PendingReview {
+                    shop_id: *shop_id,
+                    review_id,
+                });
+            }
+        }
 
         if let Some(ref p) = pattern {
             self.save_pattern_for_shop(shop_id, shop_url, p).await?;

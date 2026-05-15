@@ -328,10 +328,18 @@ impl CrawlerCronJob {
                                 let cooldown = retry_cooldown_for(NetworkErrorKind::Unknown);
                                 let next_crawl_at = time::OffsetDateTime::now_utc()
                                     + time::Duration::seconds(cooldown.as_secs() as i64);
+                                let error_kind = match &e {
+                                    crate::spider::service::SpiderServiceError::UrlPattern(
+                                        crate::spider::classification::url_pattern_service::UrlPatternServiceError::PendingReview {
+                                            ..
+                                        },
+                                    ) => "PendingUrlPatternReview",
+                                    _ => "spider_run_error",
+                                };
                                 if let Err(err) = spider_candidates
                                     .mark_crawl_failure(
                                         &candidate.domain_id,
-                                        "spider_run_error",
+                                        error_kind,
                                         next_crawl_at,
                                     )
                                     .await
@@ -544,7 +552,8 @@ async fn scrape_candidate(
                 match &e {
                     ScraperError::SchemaRegenerationExhausted { .. }
                     | ScraperError::NormalizationFixExhausted { .. }
-                    | ScraperError::LlmBudgetExceeded { .. } => {
+                    | ScraperError::LlmBudgetExceeded { .. }
+                    | ScraperError::PendingSchemaReview { .. } => {
                         let cooldown = std::time::Duration::from_secs(30 * 60);
                         let next_retry_at = time::OffsetDateTime::now_utc()
                             + time::Duration::seconds(cooldown.as_secs() as i64);
@@ -630,6 +639,7 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::NormalizationFixExhausted { .. } => "NormalizationFixExhausted",
         ScraperError::LlmBudgetExceeded { .. } => "LlmBudgetExceeded",
         ScraperError::NormalizationError(_) => "NormalizationError",
+        ScraperError::PendingSchemaReview { .. } => "PendingSchemaReview",
     }
 }
 

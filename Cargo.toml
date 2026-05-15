@@ -188,7 +188,7 @@ tracing-cloudwatch = { version = "=0.4.1", features = ["awssdk", "ordered_logs"]
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 typed-builder = "0.23.2"
 url = "2.5.8"
-uuid = "1.23.1"
+uuid = { version = "1.23.1", features = ["serde"] }
 walkdir = "2.5.0"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 futures-util = "0.3.32"

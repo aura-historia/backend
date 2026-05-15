@@ -1,3 +1,4 @@
+use crate::review::repository::{PAGE_ROLE_TRIGGERING_REPAIR_PAGE, SchemaReviewPageInput};
 use crate::scraper::css_selector::product_schema::{ApplySchemaError, ProductCssSelectorSchema};
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::normalization::error::NormalizationError;
@@ -7,6 +8,7 @@ use crate::scraper::scraper_service::extraction::engine::try_apply_schemas;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::scraper::scraper_service::util::html::normalization_error_to_schema_hint;
 use common::shop_id::ShopId;
+use serde_json::json;
 use tracing::info;
 use url::Url;
 
@@ -154,6 +156,36 @@ impl ScraperServiceImpl {
                 Ok((product, norm_llm_calls)) => {
                     self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, norm_llm_calls)
                         .await?;
+                    if self.review_required
+                        && let Some(review_repository) = &self.review_repository
+                    {
+                        let review_id = review_repository
+                            .create_schema_review(
+                                ctx.shop_id,
+                                "normalization_schema_repair",
+                                std::slice::from_ref(&generated_schema),
+                                vec![SchemaReviewPageInput {
+                                    url: ctx.url.to_string(),
+                                    role: PAGE_ROLE_TRIGGERING_REPAIR_PAGE.to_string(),
+                                    raw_html: ctx.html.to_string(),
+                                }],
+                                json!({
+                                    "attempt": attempt,
+                                    "schema_applied": true,
+                                    "normalization_fixed": true,
+                                }),
+                            )
+                            .await
+                            .map_err(|err| {
+                                crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError::DatabaseError(
+                                    sqlx::Error::Protocol(err.to_string()),
+                                )
+                            })?;
+                        return Err(ScraperError::PendingSchemaReview {
+                            url: ctx.url.clone(),
+                            review_id,
+                        });
+                    }
                     let mut persisted_schemas = ctx.existing_schemas.to_vec();
                     persisted_schemas.push(generated_schema);
                     self.schema_service

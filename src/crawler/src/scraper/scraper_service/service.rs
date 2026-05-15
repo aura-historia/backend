@@ -2,6 +2,7 @@ use crate::network::policy::{
     NetworkAction, NetworkErrorKind, RetryPolicy, action_for, backoff_delay,
     classify_reqwest_error, retry_cooldown_for,
 };
+use crate::review::repository::CrawlerReviewRepository;
 use crate::scraper::candidate_service::ScraperCandidateService;
 use crate::scraper::css_selector::product_schema_service::ProductSchemaService;
 use crate::scraper::normalization::product_normalization_service::ProductNormalizationService;
@@ -179,6 +180,8 @@ pub struct ScraperServiceImpl {
     pub(crate) schema_seed_pages: usize,
     /// Hard limit for total LLM calls per shop across the whole scrape.
     pub(crate) max_llm_calls_per_shop: i64,
+    pub(crate) review_repository: Option<CrawlerReviewRepository>,
+    pub(crate) review_required: bool,
 }
 
 impl ScraperServiceImpl {
@@ -217,6 +220,18 @@ impl ScraperServiceImpl {
             max_schema_fix_attempts,
             schema_seed_pages: schema_seed_pages.max(1),
             max_llm_calls_per_shop,
+            review_repository: None,
+            review_required: false,
         }
+    }
+
+    pub fn with_review_gate(
+        mut self,
+        review_repository: CrawlerReviewRepository,
+        review_required: bool,
+    ) -> Self {
+        self.review_repository = Some(review_repository);
+        self.review_required = review_required;
+        self
     }
 }
