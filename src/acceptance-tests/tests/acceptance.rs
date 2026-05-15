@@ -19,6 +19,7 @@ use common::{
 };
 use fake::{Fake, Faker};
 use fxrate::dynamodb::record::FxRatesRecord;
+use fxrate::dynamodb::repository::FxRateDynamoDbRepositoryImpl;
 use fxrate::service::MockFxRateService;
 use notification::{
     data::{
@@ -3978,7 +3979,20 @@ async fn should_respond_200_for_admin_decision_reject() {
 // creation endpoint with x-api-key authentication (no Cognito JWT).
 // ---------------------------------------------------------------------------
 
+async fn seed_fixed_fx_rates() {
+    let stack = get_cfn_output();
+    let dynamodb_client = get_dynamodb_client().await;
+    let repository =
+        FxRateDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    use fxrate::dynamodb::repository::FxRateDynamoDbRepository;
+    repository
+        .put_fx_rates_record(FxRatesRecord::from(FixedFxRate()))
+        .await
+        .expect("shouldn't fail seeding FX rates record");
+}
+
 async fn prepare_partner_shop() -> (ShopRecord, PartnerShopApiKey) {
+    seed_fixed_fx_rates().await;
     let stack = get_cfn_output();
     let api_key = PartnerShopApiKey::new();
     let hashed: HashedPartnerShopApiKey = api_key.clone().into();
@@ -5513,6 +5527,7 @@ const SHOPIFY_ACCEPTANCE_PRODUCT_ID: u64 = 99_999_000_000_001;
 
 /// Seeds a partner shop with the acceptance-test Shopify domain in DynamoDB.
 async fn seed_shopify_acceptance_shop() -> ShopRecord {
+    seed_fixed_fx_rates().await;
     let stack = get_cfn_output();
     let dynamodb_client = get_dynamodb_client().await;
     let shop_repo = ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
