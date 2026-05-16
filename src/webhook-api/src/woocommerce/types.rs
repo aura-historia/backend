@@ -3,7 +3,6 @@ use common::localized::Localized;
 use common::price::domain::{MonetaryAmount, Price};
 use common::product_state::domain::ProductState;
 use common::shops_product_id::ShopsProductId;
-use lingua::{Language as LinguaLanguage, LanguageDetector, LanguageDetectorBuilder};
 use product::core::description::Description;
 use product::core::product_image::ProductImage;
 use product::core::prohibited_content::ProhibitedContent;
@@ -11,7 +10,6 @@ use product::core::title::Title;
 use product::service::product_command::UpsertProductCommand;
 use serde::Deserialize;
 use shop::core::partner_shop::PartnerShop;
-use std::sync::OnceLock;
 use tracing::warn;
 use url::Url;
 
@@ -83,7 +81,7 @@ impl TryFrom<WoocommerceProductEvent> for UpsertProductCommand {
             .or(event.payload.short_description.as_deref())
             .map(html_to_text)
             .filter(|description| !description.is_empty());
-        let language = infer_language(description.as_deref(), title);
+        let language = event.shop.woocommerce_language.unwrap_or(Language::En);
         let state = match event.kind {
             WoocommerceProductEventKind::Delete => ProductState::Removed,
             WoocommerceProductEventKind::Create | WoocommerceProductEventKind::Update => {
@@ -198,57 +196,4 @@ pub fn parse_price(
         MonetaryAmount::from(major * 100 + minor),
         currency,
     )))
-}
-
-pub fn infer_language(description: Option<&str>, title: Option<&str>) -> Language {
-    description
-        .filter(|text| !text.trim().is_empty())
-        .and_then(detect_language)
-        .or_else(|| {
-            title
-                .filter(|text| !text.trim().is_empty())
-                .and_then(detect_language)
-        })
-        .unwrap_or(Language::En)
-}
-
-fn detect_language(text: &str) -> Option<Language> {
-    static DETECTOR: OnceLock<LanguageDetector> = OnceLock::new();
-    let detector = DETECTOR.get_or_init(|| {
-        LanguageDetectorBuilder::from_languages(&[
-            LinguaLanguage::English,
-            LinguaLanguage::German,
-            LinguaLanguage::French,
-            LinguaLanguage::Spanish,
-            LinguaLanguage::Italian,
-            LinguaLanguage::Chinese,
-            LinguaLanguage::Portuguese,
-            LinguaLanguage::Polish,
-            LinguaLanguage::Turkish,
-            LinguaLanguage::Dutch,
-            LinguaLanguage::Czech,
-            LinguaLanguage::Japanese,
-            LinguaLanguage::Russian,
-            LinguaLanguage::Arabic,
-        ])
-        .build()
-    });
-    detector
-        .detect_language_of(text)
-        .map(|language| match language {
-            LinguaLanguage::English => Language::En,
-            LinguaLanguage::German => Language::De,
-            LinguaLanguage::French => Language::Fr,
-            LinguaLanguage::Spanish => Language::Es,
-            LinguaLanguage::Italian => Language::It,
-            LinguaLanguage::Chinese => Language::Zh,
-            LinguaLanguage::Portuguese => Language::Pt,
-            LinguaLanguage::Polish => Language::Pl,
-            LinguaLanguage::Turkish => Language::Tr,
-            LinguaLanguage::Dutch => Language::Nl,
-            LinguaLanguage::Czech => Language::Cs,
-            LinguaLanguage::Japanese => Language::Ja,
-            LinguaLanguage::Russian => Language::Ru,
-            LinguaLanguage::Arabic => Language::Ar,
-        })
 }

@@ -7,6 +7,7 @@ use crate::{
     },
 };
 use common::currency::data::CurrencyData;
+use common::language::data::LanguageData;
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
@@ -27,7 +28,11 @@ pub struct GetShopData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shopify_currency: Option<CurrencyData>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shopify_language: Option<LanguageData>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub woocommerce_currency: Option<CurrencyData>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub woocommerce_language: Option<LanguageData>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -58,7 +63,9 @@ impl From<Shop> for GetShopData {
             domains: shop.domains,
             shopify_domain: shop.shopify_domain,
             shopify_currency: shop.shopify_currency.map(Into::into),
+            shopify_language: shop.shopify_language.map(Into::into),
             woocommerce_currency: shop.woocommerce_currency.map(Into::into),
+            woocommerce_language: shop.woocommerce_language.map(Into::into),
             url: shop.url,
             image: shop.image,
             structured_address: shop.structured_address.map(Into::into),
@@ -93,7 +100,9 @@ mod tests {
             domains: [Domain::try_from("https://woaah.co.ltd.com").unwrap()].into(),
             shopify_domain: Some(Domain::try_from("woaah.myshopify.com").unwrap()),
             shopify_currency: None,
+            shopify_language: None,
             woocommerce_currency: None,
+            woocommerce_language: None,
             url: Some(Url::parse("https://woaah.co.ltd.com").unwrap()),
             image: Some(Url::parse("https://woaah.co.ltd.com/logo.svg").unwrap()),
             structured_address: None,

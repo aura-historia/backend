@@ -5,6 +5,7 @@ use crate::core::{
     woocommerce_webhook_secret::WoocommerceWebhookSecret,
 };
 use common::currency::domain::Currency;
+use common::language::domain::Language;
 use common::{
     domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::UserId,
 };
@@ -23,8 +24,10 @@ pub struct PartnerShop {
     pub domains: HashSet<Domain>,
     pub shopify_domain: Option<Domain>,
     pub shopify_currency: Option<Currency>,
+    pub shopify_language: Option<Language>,
     pub woocommerce_webhook_secret: Option<WoocommerceWebhookSecret>,
     pub woocommerce_currency: Option<Currency>,
+    pub woocommerce_language: Option<Language>,
     pub url: Option<Url>,
     pub image: Option<Url>,
     pub structured_address: Option<StructuredAddress>,
@@ -53,8 +56,10 @@ mod faker {
                 domains: [Faker.fake()].into(),
                 shopify_domain: config.fake_with_rng(rng),
                 shopify_currency: config.fake_with_rng(rng),
+                shopify_language: config.fake_with_rng(rng),
                 woocommerce_webhook_secret: config.fake_with_rng(rng),
                 woocommerce_currency: config.fake_with_rng(rng),
+                woocommerce_language: config.fake_with_rng(rng),
                 url: config.fake_with_rng(rng),
                 image: config.fake_with_rng(rng),
                 structured_address: None,

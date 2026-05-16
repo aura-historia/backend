@@ -3,13 +3,14 @@ mod types;
 pub use types::{
     ShopifyEventDetail, ShopifyEventMetadata, ShopifyImagePayload, ShopifyProductEvent,
     ShopifyProductEventError, ShopifyProductEventKind, ShopifyProductPayload,
-    ShopifyVariantPayload, html_to_text, infer_language, parse_price, product_state,
+    ShopifyVariantPayload, html_to_text, parse_price, product_state,
 };
 
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use common::domain::Domain;
 use common::has_key::HasKey;
+use common::language::domain::Language;
 use common::product_id::ProductKey;
 use lambda_runtime::LambdaEvent;
 use product::service::command_service::CommandProductService;
@@ -99,6 +100,7 @@ async fn resolve_command(
         shop_domain,
         kind,
         currency: shop.shopify_currency,
+        language: shop.shopify_language.unwrap_or(Language::En),
         payload: detail.payload,
     };
     let command = match UpsertProductCommand::try_from(shopify_event) {

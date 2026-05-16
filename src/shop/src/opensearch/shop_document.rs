@@ -128,8 +128,10 @@ impl From<ShopDocument> for Shop {
             domains: document.domains,
             shopify_domain: None,
             shopify_currency: None,
+            shopify_language: None,
             woocommerce_webhook_secret: None,
             woocommerce_currency: None,
+            woocommerce_language: None,
             url: document.url.map(append_utm_params),
             image: document.image,
             structured_address: structured_address_from_flat(

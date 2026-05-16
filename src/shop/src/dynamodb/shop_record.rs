@@ -10,6 +10,7 @@ use crate::dynamodb::shop_type_record::ShopTypeRecord;
 use crate::dynamodb::utm::append_utm_params;
 use common::currency::record::CurrencyRecord;
 use common::error::missing_field::MissingPersistenceField;
+use common::language::record::LanguageRecord;
 use common::{
     domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::UserId,
 };
@@ -48,11 +49,15 @@ pub struct ShopRecord {
     pub shopify_domain: Option<Domain>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shopify_currency: Option<CurrencyRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shopify_language: Option<LanguageRecord>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub woocommerce_webhook_secret: Option<WoocommerceWebhookSecret>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub woocommerce_currency: Option<CurrencyRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub woocommerce_language: Option<LanguageRecord>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
@@ -149,8 +154,10 @@ impl From<Shop> for ShopRecord {
             domains: shop.domains,
             shopify_domain: shop.shopify_domain,
             shopify_currency: shop.shopify_currency.map(Into::into),
+            shopify_language: shop.shopify_language.map(Into::into),
             woocommerce_webhook_secret: shop.woocommerce_webhook_secret,
             woocommerce_currency: shop.woocommerce_currency.map(Into::into),
+            woocommerce_language: shop.woocommerce_language.map(Into::into),
             url: shop.url,
             image: shop.image,
             structured_address_addressline: shop
@@ -199,8 +206,10 @@ impl From<ShopRecord> for Shop {
             domains: record.domains,
             shopify_domain: record.shopify_domain,
             shopify_currency: record.shopify_currency.map(Into::into),
+            shopify_language: record.shopify_language.map(Into::into),
             woocommerce_webhook_secret: record.woocommerce_webhook_secret,
             woocommerce_currency: record.woocommerce_currency.map(Into::into),
+            woocommerce_language: record.woocommerce_language.map(Into::into),
             url: record.url.map(append_utm_params),
             image: record.image,
             structured_address: structured_address_from_flat(
@@ -246,8 +255,10 @@ impl TryFrom<ShopRecord> for PartnerShop {
             domains: value.domains,
             shopify_domain: value.shopify_domain,
             shopify_currency: value.shopify_currency.map(Into::into),
+            shopify_language: value.shopify_language.map(Into::into),
             woocommerce_webhook_secret: value.woocommerce_webhook_secret,
             woocommerce_currency: value.woocommerce_currency.map(Into::into),
+            woocommerce_language: value.woocommerce_language.map(Into::into),
             url: value.url.map(append_utm_params),
             image: value.image,
             structured_address: structured_address_from_flat(
