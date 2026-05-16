@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info, warn};
 
-use crate::google_llm::GeminiRateLimiter;
+use crate::google_llm::{GeminiRateLimiter, run_with_gemini_rate_limiter};
 use crate::logging::llm_metrics;
 use crate::scraper::css_selector::product_schema_service::strip_markdown_json_embedding;
 use common::logging::{GeminiServiceTier, LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
@@ -104,8 +104,6 @@ impl UrlClassificationServiceImpl {
         );
 
         let llm = llm
-            .resilient(true)
-            .resilient_attempts(3)
             .system(system_prompt)
             .reasoning(true)
             .timeout_seconds(180)
@@ -204,25 +202,18 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
         let messages = vec![ChatMessage::user().content(prompt).build()];
 
         let started_at = Instant::now();
-        let permit = match &self.rate_limiter {
-            Some(limiter) => Some(
-                limiter
-                    .acquire()
-                    .await
-                    .map_err(|e| UrlClassificationError::Llm(format!("LLM chat error: {}", e)))?,
-            ),
-            None => None,
-        };
-        let response = match self.llm.chat(&messages).await {
-            Ok(r) => r,
-            Err(e) => {
-                return Err(UrlClassificationError::Llm(format!(
-                    "LLM chat error: {}",
-                    e
-                )));
-            }
-        };
-        drop(permit);
+        let response =
+            match run_with_gemini_rate_limiter(&*self.llm, self.rate_limiter.as_deref(), &messages)
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    return Err(UrlClassificationError::Llm(format!(
+                        "LLM chat error: {}",
+                        e
+                    )));
+                }
+            };
         log_llm_invocation(
             LlmOperation::CrawlerUrlClassification,
             LlmProvider::Google,

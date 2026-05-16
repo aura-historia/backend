@@ -1,4 +1,4 @@
-use crate::google_llm::GeminiRateLimiter;
+use crate::google_llm::{GeminiRateLimiter, run_with_gemini_rate_limiter};
 use crate::logging::llm_metrics;
 use crate::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
 use crate::scraper::normalization::state_mapping_repository::ProductStateMappingRepository;
@@ -164,8 +164,6 @@ Rules:\n\
             .to_string();
 
         let llm = llm
-            .resilient(true)
-            .resilient_attempts(3)
             .system(system_prompt)
             .openai_enable_web_search(false)
             .reasoning(true)
@@ -258,12 +256,9 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
         let started_at = std::time::Instant::now();
         let messages = [message];
-        let permit = match &self.rate_limiter {
-            Some(limiter) => Some(limiter.acquire().await?),
-            None => None,
-        };
-        let response = self.llm.chat(&messages).await?;
-        drop(permit);
+        let response =
+            run_with_gemini_rate_limiter(&*self.llm, self.rate_limiter.as_deref(), &messages)
+                .await?;
         log_llm_invocation(
             LlmOperation::CrawlerProductStateMapping,
             LlmProvider::Google,

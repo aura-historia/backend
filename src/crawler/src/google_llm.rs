@@ -1,12 +1,20 @@
 use llm::backends::google::GoogleServiceTier;
 use llm::builder::{LLMBackend, LLMBuilder};
+use llm::chat::{ChatMessage, ChatProvider, ChatResponse};
 use llm::error::LLMError;
 use std::time::Duration;
 use tokio::sync::{Mutex, Semaphore, SemaphorePermit};
 use tokio::time::{Instant, sleep};
+use tracing::warn;
 
 const DEFAULT_GEMINI_MAX_CONCURRENT_REQUESTS: usize = 1;
 const DEFAULT_GEMINI_MIN_REQUEST_INTERVAL: Duration = Duration::from_secs(2);
+const GEMINI_CHAT_MAX_ATTEMPTS: usize = 3;
+const GEMINI_RATE_LIMIT_DELAY: Duration = Duration::from_secs(30);
+const GEMINI_SERVICE_UNAVAILABLE_DELAY: Duration = Duration::from_secs(10 * 60);
+const GEMINI_TRANSIENT_ERROR_DELAY: Duration = Duration::from_secs(1);
+#[cfg(test)]
+const GEMINI_TEST_RETRY_DELAY: Duration = Duration::from_millis(1);
 
 pub fn google_llm_builder(api_key: &str, model: &str, gemini_flex: bool) -> LLMBuilder {
     let builder = LLMBuilder::new()
@@ -125,9 +133,103 @@ impl GeminiRateLimiter {
     }
 }
 
+pub(crate) async fn run_with_gemini_rate_limiter(
+    llm: &dyn ChatProvider,
+    rate_limiter: Option<&GeminiRateLimiter>,
+    messages: &[ChatMessage],
+) -> Result<Box<dyn ChatResponse>, LLMError> {
+    for attempt in 1..=GEMINI_CHAT_MAX_ATTEMPTS {
+        let permit = match rate_limiter {
+            Some(limiter) => Some(limiter.acquire().await?),
+            None => None,
+        };
+        let result = llm.chat(messages).await;
+        drop(permit);
+
+        match result {
+            Ok(response) => return Ok(response),
+            Err(error) => {
+                let Some(status_code) = retryable_gemini_status_code(&error) else {
+                    return Err(error);
+                };
+                if attempt == GEMINI_CHAT_MAX_ATTEMPTS {
+                    return Err(error);
+                }
+
+                let delay = gemini_retry_sleep_delay(status_code, attempt - 1);
+                warn!(
+                    status_code,
+                    attempt,
+                    max_attempts = GEMINI_CHAT_MAX_ATTEMPTS,
+                    delay_ms = delay.as_millis(),
+                    error = %error,
+                    "Retrying Gemini chat request after retryable provider error"
+                );
+                sleep(delay).await;
+            }
+        }
+    }
+
+    unreachable!("Gemini chat retry loop always returns from an attempt")
+}
+
+fn retryable_gemini_status_code(error: &LLMError) -> Option<u16> {
+    let status_code = llm_error_status_code(error)?;
+    is_retryable_gemini_status_code(status_code).then_some(status_code)
+}
+
+fn is_retryable_gemini_status_code(status_code: u16) -> bool {
+    matches!(status_code, 408 | 429 | 500 | 502 | 503 | 504)
+}
+
+fn gemini_retry_delay(status_code: u16, attempt_index: usize) -> Duration {
+    let base_delay = match status_code {
+        429 => GEMINI_RATE_LIMIT_DELAY,
+        503 => GEMINI_SERVICE_UNAVAILABLE_DELAY,
+        408 | 500 | 502 | 504 => GEMINI_TRANSIENT_ERROR_DELAY,
+        _ => return Duration::ZERO,
+    };
+
+    base_delay.saturating_mul(1_u32 << attempt_index.min(4))
+}
+
+#[cfg(not(test))]
+fn gemini_retry_sleep_delay(status_code: u16, attempt_index: usize) -> Duration {
+    gemini_retry_delay(status_code, attempt_index)
+}
+
+#[cfg(test)]
+fn gemini_retry_sleep_delay(_status_code: u16, _attempt_index: usize) -> Duration {
+    GEMINI_TEST_RETRY_DELAY
+}
+
+fn llm_error_status_code(error: &LLMError) -> Option<u16> {
+    match error {
+        LLMError::HttpError(message)
+        | LLMError::ProviderError(message)
+        | LLMError::Generic(message) => status_code_in_message(message),
+        LLMError::RetryExceeded { last_error, .. } => status_code_in_message(last_error),
+        LLMError::AuthError(_)
+        | LLMError::InvalidRequest(_)
+        | LLMError::ResponseFormatError { .. }
+        | LLMError::JsonError(_)
+        | LLMError::ToolConfigError(_) => None,
+    }
+}
+
+fn status_code_in_message(message: &str) -> Option<u16> {
+    message
+        .split(|character: char| !character.is_ascii_digit())
+        .filter_map(|token| token.parse::<u16>().ok())
+        .find(|status_code| (400..=599).contains(status_code))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use llm::chat::Tool;
+    use std::collections::VecDeque;
+    use std::fmt::{Display, Formatter};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex as StdMutex, MutexGuard};
     use tokio::sync::Barrier;
@@ -200,6 +302,113 @@ mod tests {
         assert_eq!(config.max_concurrent_requests, 2);
         assert_eq!(config.min_request_interval, Duration::from_millis(50));
         drop(env_lock);
+    }
+
+    #[test]
+    fn should_classify_retryable_gemini_status_codes() {
+        for status_code in [408, 429, 500, 502, 503, 504] {
+            let error =
+                LLMError::HttpError(format!("HTTP status server error ({status_code}) for url"));
+
+            assert_eq!(retryable_gemini_status_code(&error), Some(status_code));
+        }
+    }
+
+    #[test]
+    fn should_not_retry_non_transient_gemini_status_codes() {
+        for status_code in [400, 401, 403, 404, 422] {
+            let error =
+                LLMError::HttpError(format!("HTTP status client error ({status_code}) for url"));
+
+            assert_eq!(retryable_gemini_status_code(&error), None);
+        }
+    }
+
+    #[test]
+    fn should_use_configured_rate_limit_retry_backoff() {
+        assert_eq!(gemini_retry_delay(429, 0), Duration::from_secs(30));
+        assert_eq!(gemini_retry_delay(429, 1), Duration::from_secs(60));
+    }
+
+    #[test]
+    fn should_use_configured_service_unavailable_retry_backoff() {
+        assert_eq!(gemini_retry_delay(503, 0), Duration::from_secs(10 * 60));
+        assert_eq!(gemini_retry_delay(503, 1), Duration::from_secs(20 * 60));
+    }
+
+    #[test]
+    fn should_keep_short_transient_error_retry_backoff() {
+        for status_code in [408, 500, 502, 504] {
+            assert_eq!(
+                gemini_retry_delay(status_code, 0),
+                Duration::from_secs(1),
+                "unexpected first retry delay for status {status_code}"
+            );
+            assert_eq!(
+                gemini_retry_delay(status_code, 1),
+                Duration::from_secs(2),
+                "unexpected second retry delay for status {status_code}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn should_retry_chat_after_retryable_status_error() {
+        let provider = SequenceChatProvider::new([
+            Err(LLMError::HttpError(
+                "HTTP status client error (429 Too Many Requests) for url".to_string(),
+            )),
+            Ok("ok"),
+        ]);
+        let messages = [ChatMessage::user().content("hello").build()];
+
+        let response = run_with_gemini_rate_limiter(&provider, None, &messages)
+            .await
+            .expect("retryable request should eventually succeed");
+
+        assert_eq!(response.text().as_deref(), Some("ok"));
+        assert_eq!(provider.attempts(), 2);
+    }
+
+    #[tokio::test]
+    async fn should_not_retry_chat_after_non_retryable_status_error() {
+        let provider = SequenceChatProvider::new([
+            Err(LLMError::HttpError(
+                "HTTP status client error (400 Bad Request) for url".to_string(),
+            )),
+            Ok("should not be used"),
+        ]);
+        let messages = [ChatMessage::user().content("hello").build()];
+
+        let error = run_with_gemini_rate_limiter(&provider, None, &messages)
+            .await
+            .expect_err("non-retryable request should fail immediately");
+
+        assert!(matches!(error, LLMError::HttpError(_)));
+        assert_eq!(provider.attempts(), 1);
+    }
+
+    #[tokio::test]
+    async fn should_stop_retrying_after_max_attempts() {
+        let provider = SequenceChatProvider::new([
+            Err(LLMError::HttpError(
+                "HTTP status server error (503 Service Unavailable) for url".to_string(),
+            )),
+            Err(LLMError::HttpError(
+                "HTTP status server error (503 Service Unavailable) for url".to_string(),
+            )),
+            Err(LLMError::HttpError(
+                "HTTP status server error (503 Service Unavailable) for url".to_string(),
+            )),
+        ]);
+        let messages = [ChatMessage::user().content("hello").build()];
+
+        let error = run_with_gemini_rate_limiter(&provider, None, &messages)
+            .await
+            .expect_err("exhausted retries should return the last error");
+
+        assert!(matches!(error, LLMError::HttpError(_)));
+        assert_eq!(provider.attempts(), GEMINI_CHAT_MAX_ATTEMPTS);
     }
 
     #[tokio::test]
@@ -275,5 +484,64 @@ mod tests {
         MAX_ACTIVE_REQUESTS.fetch_max(active, Ordering::SeqCst);
         sleep(Duration::from_millis(20)).await;
         ACTIVE_REQUESTS.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    struct SequenceChatProvider {
+        responses: StdMutex<VecDeque<Result<&'static str, LLMError>>>,
+        attempts: AtomicUsize,
+    }
+
+    impl SequenceChatProvider {
+        fn new<const N: usize>(responses: [Result<&'static str, LLMError>; N]) -> Self {
+            Self {
+                responses: StdMutex::new(VecDeque::from(responses)),
+                attempts: AtomicUsize::new(0),
+            }
+        }
+
+        fn attempts(&self) -> usize {
+            self.attempts.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ChatProvider for SequenceChatProvider {
+        async fn chat_with_tools(
+            &self,
+            messages: &[ChatMessage],
+            tools: Option<&[Tool]>,
+        ) -> Result<Box<dyn ChatResponse>, LLMError> {
+            assert!(!messages.is_empty());
+            assert!(tools.is_none());
+            self.attempts.fetch_add(1, Ordering::SeqCst);
+
+            let response = self
+                .responses
+                .lock()
+                .expect("responses lock should not be poisoned")
+                .pop_front()
+                .expect("test should configure enough responses");
+
+            response.map(|text| Box::new(TextChatResponse(text)) as Box<dyn ChatResponse>)
+        }
+    }
+
+    #[derive(Debug)]
+    struct TextChatResponse(&'static str);
+
+    impl Display for TextChatResponse {
+        fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str(self.0)
+        }
+    }
+
+    impl ChatResponse for TextChatResponse {
+        fn text(&self) -> Option<String> {
+            Some(self.0.to_string())
+        }
+
+        fn tool_calls(&self) -> Option<Vec<llm::ToolCall>> {
+            None
+        }
     }
 }
