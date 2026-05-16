@@ -10,7 +10,6 @@ use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use common::domain::Domain;
 use common::has_key::HasKey;
-use common::language::domain::Language;
 use common::product_id::ProductKey;
 use lambda_runtime::LambdaEvent;
 use product::service::command_service::CommandProductService;
@@ -100,7 +99,7 @@ async fn resolve_command(
         shop_domain,
         kind,
         currency: shop.shopify_currency,
-        language: shop.shopify_language.unwrap_or(Language::En),
+        language: shop.shopify_language,
         payload: detail.payload,
     };
     let command = match UpsertProductCommand::try_from(shopify_event) {
@@ -109,6 +108,13 @@ async fn resolve_command(
             error!(shopId = %shop.shop_id, "Shop has no Shopify currency configured, failing SQS message.");
             return Err(format!(
                 "Shop {} has no Shopify currency configured",
+                shop.shop_id
+            ));
+        }
+        Err(ShopifyProductEventError::MissingLanguage) => {
+            error!(shopId = %shop.shop_id, "Shop has no Shopify language configured, failing SQS message.");
+            return Err(format!(
+                "Shop {} has no Shopify language configured",
                 shop.shop_id
             ));
         }
@@ -287,6 +293,7 @@ mod tests {
         shop.shop_id = ShopId::new();
         shop.shopify_domain = Some(Domain::try_from("partner-shop.myshopify.com").unwrap());
         shop.shopify_currency = Some(common::currency::domain::Currency::Usd);
+        shop.shopify_language = Some(common::language::domain::Language::En);
         shop.partner_status = ShopPartnerStatus::Partnered;
         shop
     }

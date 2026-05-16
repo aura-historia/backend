@@ -1,4 +1,3 @@
-use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::{MonetaryAmount, Price};
 use common::product_state::domain::ProductState;
@@ -63,6 +62,8 @@ pub enum WoocommerceProductEventError {
     InvalidPrice(String),
     #[error("Shop has no currency configured")]
     MissingCurrency,
+    #[error("Shop has no language configured")]
+    MissingLanguage,
 }
 
 impl TryFrom<WoocommerceProductEvent> for UpsertProductCommand {
@@ -81,7 +82,10 @@ impl TryFrom<WoocommerceProductEvent> for UpsertProductCommand {
             .or(event.payload.short_description.as_deref())
             .map(html_to_text)
             .filter(|description| !description.is_empty());
-        let language = event.shop.woocommerce_language.unwrap_or(Language::En);
+        let language = event
+            .shop
+            .woocommerce_language
+            .ok_or(WoocommerceProductEventError::MissingLanguage)?;
         let state = match event.kind {
             WoocommerceProductEventKind::Delete => ProductState::Removed,
             WoocommerceProductEventKind::Create | WoocommerceProductEventKind::Update => {

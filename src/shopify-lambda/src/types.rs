@@ -76,7 +76,7 @@ pub struct ShopifyProductEvent {
     pub kind: ShopifyProductEventKind,
     pub payload: ShopifyProductPayload,
     pub currency: Option<Currency>,
-    pub language: Language,
+    pub language: Option<Language>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -91,6 +91,8 @@ pub enum ShopifyProductEventError {
     InvalidPrice(String),
     #[error("Shop has no Shopify currency configured")]
     MissingCurrency,
+    #[error("Shop has no Shopify language configured")]
+    MissingLanguage,
 }
 
 impl TryFrom<ShopifyProductEvent> for UpsertProductCommand {
@@ -109,7 +111,9 @@ impl TryFrom<ShopifyProductEvent> for UpsertProductCommand {
             .as_deref()
             .map(html_to_text)
             .filter(|description| !description.is_empty());
-        let language = event.language;
+        let language = event
+            .language
+            .ok_or(ShopifyProductEventError::MissingLanguage)?;
         let handle = event
             .payload
             .handle
@@ -265,7 +269,7 @@ mod tests {
             shop_domain: shop.shopify_domain.clone().unwrap(),
             kind: ShopifyProductEventKind::Update,
             currency: shop.shopify_currency,
-            language: shop.shopify_language.unwrap_or(Language::En),
+            language: shop.shopify_language,
             payload: serde_json::from_value(shopify_detail("products/update")["payload"].clone())
                 .unwrap(),
         };
@@ -298,7 +302,7 @@ mod tests {
             shop_domain: shop.shopify_domain.clone().unwrap(),
             kind: ShopifyProductEventKind::Delete,
             currency: shop.shopify_currency,
-            language: shop.shopify_language.unwrap_or(Language::En),
+            language: shop.shopify_language,
             payload: serde_json::from_value(shopify_detail("products/delete")["payload"].clone())
                 .unwrap(),
         };
