@@ -10,7 +10,6 @@ aws_lambda_events = { workspace = true, features = ["eventbridge", "sqs"] }
 common = { workspace = true, features = ["api", "opensearch"] }
 html2text = { workspace = true }
 lambda_runtime = { workspace = true }
-lingua = { workspace = true }
 llm = { workspace = true, features = ["google"] }
 opensearch = { workspace = true }
 fxrate = { workspace = true }

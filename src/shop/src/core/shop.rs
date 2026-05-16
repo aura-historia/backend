@@ -6,6 +6,7 @@ use crate::core::{
     woocommerce_webhook_secret::WoocommerceWebhookSecret,
 };
 use common::currency::domain::Currency;
+use common::language::domain::Language;
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use serde_email::Email;
 use std::collections::HashSet;
@@ -21,8 +22,10 @@ pub struct Shop {
     pub domains: HashSet<Domain>,
     pub shopify_domain: Option<Domain>,
     pub shopify_currency: Option<Currency>,
+    pub shopify_language: Option<Language>,
     pub woocommerce_webhook_secret: Option<WoocommerceWebhookSecret>,
     pub woocommerce_currency: Option<Currency>,
+    pub woocommerce_language: Option<Language>,
     pub url: Option<Url>,
     pub image: Option<Url>,
     pub structured_address: Option<StructuredAddress>,
@@ -44,8 +47,10 @@ impl From<PartnerShop> for Shop {
             domains: partner_shop.domains,
             shopify_domain: partner_shop.shopify_domain,
             shopify_currency: partner_shop.shopify_currency,
+            shopify_language: partner_shop.shopify_language,
             woocommerce_webhook_secret: partner_shop.woocommerce_webhook_secret,
             woocommerce_currency: partner_shop.woocommerce_currency,
+            woocommerce_language: partner_shop.woocommerce_language,
             url: partner_shop.url,
             image: partner_shop.image,
             structured_address: partner_shop.structured_address,
@@ -75,7 +80,9 @@ mod faker {
                 domains: [Faker.fake()].into(),
                 shopify_domain: config.fake_with_rng(rng),
                 shopify_currency: config.fake_with_rng(rng),
+                shopify_language: config.fake_with_rng(rng),
                 woocommerce_currency: config.fake_with_rng(rng),
+                woocommerce_language: config.fake_with_rng(rng),
                 woocommerce_webhook_secret: config.fake_with_rng(rng),
                 url: config.fake_with_rng(rng),
                 image: config.fake_with_rng(rng),

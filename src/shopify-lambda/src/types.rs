@@ -5,14 +5,12 @@ use common::localized::Localized;
 use common::price::domain::{MonetaryAmount, Price};
 use common::product_state::domain::ProductState;
 use common::shops_product_id::ShopsProductId;
-use lingua::{Language as LinguaLanguage, LanguageDetector, LanguageDetectorBuilder};
 use product::core::description::Description;
 use product::core::product_image::ProductImage;
 use product::core::prohibited_content::ProhibitedContent;
 use product::core::title::Title;
 use product::service::product_command::UpsertProductCommand;
 use serde::Deserialize;
-use std::sync::OnceLock;
 use url::Url;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -78,6 +76,7 @@ pub struct ShopifyProductEvent {
     pub kind: ShopifyProductEventKind,
     pub payload: ShopifyProductPayload,
     pub currency: Option<Currency>,
+    pub language: Option<Language>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -92,6 +91,8 @@ pub enum ShopifyProductEventError {
     InvalidPrice(String),
     #[error("Shop has no Shopify currency configured")]
     MissingCurrency,
+    #[error("Shop has no Shopify language configured")]
+    MissingLanguage,
 }
 
 impl TryFrom<ShopifyProductEvent> for UpsertProductCommand {
@@ -110,7 +111,9 @@ impl TryFrom<ShopifyProductEvent> for UpsertProductCommand {
             .as_deref()
             .map(html_to_text)
             .filter(|description| !description.is_empty());
-        let language = infer_language(description.as_deref(), Some(title));
+        let language = event
+            .language
+            .ok_or(ShopifyProductEventError::MissingLanguage)?;
         let handle = event
             .payload
             .handle
@@ -217,59 +220,6 @@ pub fn parse_price(
     )))
 }
 
-pub fn infer_language(description: Option<&str>, title: Option<&str>) -> Language {
-    description
-        .filter(|text| !text.trim().is_empty())
-        .and_then(detect_language)
-        .or_else(|| {
-            title
-                .filter(|text| !text.trim().is_empty())
-                .and_then(detect_language)
-        })
-        .unwrap_or(Language::En)
-}
-
-fn detect_language(text: &str) -> Option<Language> {
-    static DETECTOR: OnceLock<LanguageDetector> = OnceLock::new();
-    let detector = DETECTOR.get_or_init(|| {
-        LanguageDetectorBuilder::from_languages(&[
-            LinguaLanguage::English,
-            LinguaLanguage::German,
-            LinguaLanguage::French,
-            LinguaLanguage::Spanish,
-            LinguaLanguage::Italian,
-            LinguaLanguage::Chinese,
-            LinguaLanguage::Portuguese,
-            LinguaLanguage::Polish,
-            LinguaLanguage::Turkish,
-            LinguaLanguage::Dutch,
-            LinguaLanguage::Czech,
-            LinguaLanguage::Japanese,
-            LinguaLanguage::Russian,
-            LinguaLanguage::Arabic,
-        ])
-        .build()
-    });
-    detector
-        .detect_language_of(text)
-        .map(|language| match language {
-            LinguaLanguage::English => Language::En,
-            LinguaLanguage::German => Language::De,
-            LinguaLanguage::French => Language::Fr,
-            LinguaLanguage::Spanish => Language::Es,
-            LinguaLanguage::Italian => Language::It,
-            LinguaLanguage::Chinese => Language::Zh,
-            LinguaLanguage::Portuguese => Language::Pt,
-            LinguaLanguage::Polish => Language::Pl,
-            LinguaLanguage::Turkish => Language::Tr,
-            LinguaLanguage::Dutch => Language::Nl,
-            LinguaLanguage::Czech => Language::Cs,
-            LinguaLanguage::Japanese => Language::Ja,
-            LinguaLanguage::Russian => Language::Ru,
-            LinguaLanguage::Arabic => Language::Ar,
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,6 +256,7 @@ mod tests {
         shop.shop_id = ShopId::new();
         shop.shopify_domain = Some(Domain::try_from("partner-shop.myshopify.com").unwrap());
         shop.shopify_currency = Some(Currency::Usd);
+        shop.shopify_language = Some(Language::De);
         shop.partner_status = ShopPartnerStatus::Partnered;
         shop
     }
@@ -318,6 +269,7 @@ mod tests {
             shop_domain: shop.shopify_domain.clone().unwrap(),
             kind: ShopifyProductEventKind::Update,
             currency: shop.shopify_currency,
+            language: shop.shopify_language,
             payload: serde_json::from_value(shopify_detail("products/update")["payload"].clone())
                 .unwrap(),
         };
@@ -336,6 +288,10 @@ mod tests {
             "https://partner-shop.myshopify.com/products/thomas-testprodukt"
         );
         assert_eq!(actual.images.len(), 1);
+        assert_eq!(
+            actual.native_title.map(|t| t.localization),
+            Some(Language::De)
+        );
     }
 
     #[test]
@@ -346,6 +302,7 @@ mod tests {
             shop_domain: shop.shopify_domain.clone().unwrap(),
             kind: ShopifyProductEventKind::Delete,
             currency: shop.shopify_currency,
+            language: shop.shopify_language,
             payload: serde_json::from_value(shopify_detail("products/delete")["payload"].clone())
                 .unwrap(),
         };

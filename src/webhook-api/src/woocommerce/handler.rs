@@ -188,6 +188,7 @@ mod tests {
         shop.hashed_api_key = Some(hashed);
         shop.woocommerce_webhook_secret = Some(WoocommerceWebhookSecret::from(SECRET));
         shop.woocommerce_currency = Some(Currency::Eur);
+        shop.woocommerce_language = Some(common::language::domain::Language::En);
         shop
     }
 
