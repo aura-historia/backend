@@ -30,6 +30,7 @@ pub async fn handle_woocommerce(
     get_shop_service: &(impl GetShopService + Sync),
     command_product_service: &(impl CommandProductService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
+    tracing::info!(headers = ?event.payload.headers);
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
     let api_key = extract_api_key(&event.payload)?;
     let partner_shop = get_shop_service
