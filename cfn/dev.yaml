@@ -482,6 +482,14 @@ Resources:
           - Authorization
           - Content-Type
           - Accept
+          - X-WC-Webhook-Source
+          - X-WC-Webhook-Topic
+          - X-WC-Webhook-Signature
+          - X-WC-Webhook-Resource
+          - X-WC-Webhook-Event
+          - X-WC-Webhook-ID
+          - X-WC-Webhook-Delivery-ID
+          - X-Api-Key
   ApiStage:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
