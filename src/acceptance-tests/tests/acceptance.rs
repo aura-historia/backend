@@ -4028,6 +4028,7 @@ async fn prepare_woocommerce_partner_shop() -> (ShopRecord, PartnerShopApiKey) {
     shop_record.woocommerce_webhook_secret =
         Some(WoocommerceWebhookSecret::from(WOOCOMMERCE_WEBHOOK_SECRET));
     shop_record.woocommerce_currency = Some(common::currency::record::CurrencyRecord::Eur);
+    shop_record.woocommerce_language = Some(common::language::record::LanguageRecord::De);
     let dynamodb_repository = ShopDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
         &get_cfn_output().dynamodb_table_1_name,
@@ -5549,7 +5550,7 @@ async fn seed_shopify_acceptance_shop() -> ShopRecord {
         domains: Default::default(),
         shopify_domain: Some(shopify_domain.clone()),
         shopify_currency: Some(common::currency::record::CurrencyRecord::Usd),
-        shopify_language: None,
+        shopify_language: Some(common::language::record::LanguageRecord::De),
         woocommerce_webhook_secret: None,
         woocommerce_currency: None,
         woocommerce_language: None,
