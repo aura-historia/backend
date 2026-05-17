@@ -20,6 +20,7 @@ use crate::core::product_event::{
 use crate::core::product_image::ProductImage;
 use crate::core::prohibited_content::{ProhibitedContent, ProhibitedContentReason};
 use crate::core::title::Title;
+use common::aggregate::Aggregate;
 use common::currency::domain::Currency;
 use common::event::Event;
 use common::event_id::EventId;
@@ -39,6 +40,18 @@ use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
 use tracing::{error, warn};
 use url::Url;
+
+#[derive(thiserror::Error, Debug)]
+pub enum ProductReplayError {
+    #[error("Cannot replay product without events.")]
+    EmptyEventStream,
+
+    #[error("Product event stream must start with DOMAIN_CREATED.")]
+    MissingCreatedEvent,
+
+    #[error("Product event stream contains duplicate DOMAIN_CREATED event.")]
+    DuplicateCreatedEvent,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Product {
@@ -620,6 +633,51 @@ impl Product {
         }
     }
 
+    fn from_created_event(event: ProductDomainEvent) -> Result<Self, ProductReplayError> {
+        let ProductDomainEvent {
+            aggregate_id,
+            event_id,
+            timestamp,
+            payload,
+        } = event;
+        let ProductDomainEventPayload::Created(payload) = payload else {
+            return Err(ProductReplayError::MissingCreatedEvent);
+        };
+
+        Ok(Product {
+            product_id: aggregate_id,
+            product_slug_id: payload.product_slug_id,
+            shop_slug_id: payload.shop_slug_id,
+            seller_slug_id: payload.seller_slug_id,
+            event_id,
+            shop_id: payload.shop_id,
+            seller_id: payload.seller_id,
+            shops_product_id: payload.shops_product_id,
+            shop_name: payload.shop_name,
+            seller_name: payload.seller_name,
+            shop_type: payload.shop_type,
+            structured_address: payload.structured_address,
+            geo_address: payload.geo_address,
+            native_title: payload.native_title,
+            other_title: HashMap::new(),
+            native_description: payload.native_description,
+            native_price: payload.native_price,
+            other_price: payload.other_price,
+            native_price_estimate_min: payload.native_price_estimate_min,
+            other_price_estimate_min: payload.other_price_estimate_min,
+            native_price_estimate_max: payload.native_price_estimate_max,
+            other_price_estimate_max: payload.other_price_estimate_max,
+            state: payload.state,
+            url: payload.url,
+            images: payload.images,
+            embedding: None,
+            auction_start: payload.auction_start,
+            auction_end: payload.auction_end,
+            created: timestamp,
+            updated: timestamp,
+        })
+    }
+
     pub fn localized(
         self,
         currency: &Currency,
@@ -712,6 +770,129 @@ impl Product {
                 .or_insert(description_native.payload.clone());
         }
         descriptions
+    }
+}
+
+impl Aggregate for Product {
+    type Event = ProductEvent;
+    type Error = ProductReplayError;
+
+    fn replay(events: impl IntoIterator<Item = Self::Event>) -> Result<Self, Self::Error> {
+        let mut events = events.into_iter();
+        let first = events.next().ok_or(ProductReplayError::EmptyEventStream)?;
+        let ProductEventPayload::ProductDomainEvent(_) = first.payload else {
+            return Err(ProductReplayError::MissingCreatedEvent);
+        };
+        let mut product =
+            Product::from_created_event(first.map_payload(|payload| match payload {
+                ProductEventPayload::ProductDomainEvent(payload) => payload,
+                _ => unreachable!("first product event payload was checked above"),
+            }))?;
+
+        for event in events {
+            product.apply_event(event)?;
+        }
+
+        Ok(product)
+    }
+
+    fn apply_event(&mut self, event: Self::Event) -> Result<(), Self::Error> {
+        if matches!(
+            event.payload,
+            ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::Created(_))
+        ) {
+            return Err(ProductReplayError::DuplicateCreatedEvent);
+        }
+        self.apply(event);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod replay_tests {
+    use super::*;
+    use common::aggregate::Aggregate;
+    use fake::{Fake, Faker};
+
+    #[test]
+    fn should_replay_product_when_created_event_exists() {
+        let event = Product::create(
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+        )
+        .map_payload(ProductEventPayload::ProductDomainEvent);
+
+        let actual = Product::replay(vec![event]);
+
+        assert!(actual.is_ok());
+    }
+
+    #[test]
+    fn should_return_error_when_replay_has_no_created_event() {
+        let event = Faker
+            .fake::<ProductEnrichmentEvent>()
+            .map_payload(ProductEventPayload::ProductEnrichmentEvent);
+
+        let actual = Product::replay(vec![event]);
+
+        assert!(matches!(
+            actual,
+            Err(ProductReplayError::MissingCreatedEvent)
+        ));
+    }
+
+    #[test]
+    fn should_return_error_when_replay_contains_duplicate_created_event() {
+        let event = Product::create(
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+        )
+        .map_payload(ProductEventPayload::ProductDomainEvent);
+
+        let actual = Product::replay(vec![event.clone(), event]);
+
+        assert!(matches!(
+            actual,
+            Err(ProductReplayError::DuplicateCreatedEvent)
+        ));
     }
 }
 

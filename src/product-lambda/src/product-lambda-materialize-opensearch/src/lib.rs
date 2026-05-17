@@ -1,8 +1,11 @@
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
+use common::aggregate::Aggregate;
 use common::dynamodb_stream::extract_from_dynamodb_stream;
 use common::opensearch::bulk_response::{BulkItemResult, BulkResponse};
 use common::product_id::ProductId;
 use lambda_runtime::LambdaEvent;
+use product::core::product::Product;
+use product::core::product_event::ProductEvent;
 use product::dynamodb::product_event_record::ProductEventRecord;
 use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use product::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
@@ -54,17 +57,32 @@ pub async fn handler(
             ProductEventRecord::Policy(policy_record) => {
                 let product_id = policy_record.product_id;
                 let record_res = product_dynamodb_repository
-                    .get_product_record(&policy_record.shop_id, &policy_record.shops_product_id)
+                    .query_product_event_records(
+                        &policy_record.shop_id,
+                        &policy_record.shops_product_id,
+                    )
                     .await;
                 match record_res {
-                    Ok(Some(record)) => {
+                    Ok(records) if !records.is_empty() => {
+                        let product = match Product::replay(records.into_iter().filter_map(|record| {
+                            ProductEvent::try_from(record)
+                                .map_err(|err| warn!(error = %err, "Failed mapping ProductEventRecord."))
+                                .ok()
+                        })) {
+                            Ok(product) => product,
+                            Err(err) => {
+                                warn!(error = %err, "Failed replaying product for policy update.");
+                                failed_message_ids.push(message_id);
+                                continue;
+                            }
+                        };
                         let mut update_document = ProductUpdateDocument::default();
-                        let prohibited_images = record
+                        let prohibited_images = product
                             .images
                             .into_iter()
                             .map(|mut image| {
                                 image.prohibited_content =
-                                    policy_record.prohibited_content_decision;
+                                    policy_record.prohibited_content_decision.into();
                                 image
                             })
                             .map(ProductImageDocument::from)
@@ -72,11 +90,11 @@ pub async fn handler(
                         update_document.images = Some(prohibited_images);
                         updates.insert(message_id, (product_id, update_document));
                     }
-                    Ok(None) => {
+                    Ok(_) => {
                         error!(
                             shopId = %policy_record.shop_id,
                             shopsProductId = %policy_record.shops_product_id,
-                            "ProductRecord doesn't exist. This is a logic error. Impossible to apply policy to non-existent product."
+                            "Product event stream doesn't exist. This is a logic error. Impossible to apply policy to non-existent product."
                         );
                         failed_message_ids.push(message_id);
                     }

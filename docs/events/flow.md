@@ -14,7 +14,6 @@ consumed by a Lambda function.
 | `table_1` | DynamoDB Table | Single event-store and read-model table |
 | `DynamoDbEventBus` | EventBridge Bus | Central routing bus for all DynamoDB stream events |
 | `TableOneStreamToEventBusPipe` | EventBridge Pipe | Filters DynamoDB stream records and publishes to the event bus |
-| `ProductMaterializeDynamoDbQ` | SQS + Lambda | Writes materialized product view to DynamoDB |
 | `ProductMaterializeOpenSearchQ` | SQS + Lambda | Indexes products in OpenSearch |
 | `ProductUpdateNotifyUserQ` | SQS + Lambda | Notifies watchlist users on price/state changes |
 | `SearchFilterPercolateProductQ` | SQS + Lambda | Matches products against saved search filters, notifies users |
@@ -41,7 +40,6 @@ flowchart TD
     PIPE -->|"filtered INSERT/MODIFY/REMOVE"| BUS
 
     %% Materialization
-    BUS -->|"DOMAIN_* / ENRICHMENT_* / POLICY_* (INSERT)"| MatDDB["ProductMaterializeDynamoDbQ\n→ Lambda\n(write materialized view)"]
     BUS -->|"DOMAIN_* / ENRICHMENT_* / POLICY_* (INSERT)"| MatOS["ProductMaterializeOpenSearchQ\n→ Lambda\n(index in OpenSearch)"]
 
     %% User notifications (only price & state changes)

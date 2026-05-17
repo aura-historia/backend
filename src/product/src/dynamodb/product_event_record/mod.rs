@@ -1,6 +1,9 @@
 use crate::{
     core::{
-        product_event::{ProductEvent, ProductEventLog, ProductEventPayload},
+        product_event::{
+            ProductDomainEvent, ProductEnrichmentEvent, ProductEvent, ProductEventLog,
+            ProductEventPayload, ProductPolicyEvent,
+        },
         prohibited_content::{ProhibitedContent, ProhibitedContentReason},
     },
     dynamodb::product_event_record::{
@@ -9,6 +12,7 @@ use crate::{
     },
 };
 use common::{
+    error::missing_field::MissingPersistenceField,
     event::Event,
     event_id::EventId,
     has_key::HasKey,
@@ -136,6 +140,33 @@ impl From<ProductEvent> for ProductEventRecord {
                 };
                 let helper_record = helper.into();
                 ProductEventRecord::Policy(helper_record)
+            }
+        }
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ProductEventRecordMappingError {
+    #[error("{0}")]
+    MissingPersistenceField(#[from] MissingPersistenceField),
+}
+
+impl TryFrom<ProductEventRecord> for ProductEvent {
+    type Error = ProductEventRecordMappingError;
+
+    fn try_from(record: ProductEventRecord) -> Result<Self, Self::Error> {
+        match record {
+            ProductEventRecord::Domain(record) => {
+                let event = ProductDomainEvent::try_from(record)?;
+                Ok(event.map_payload(ProductEventPayload::ProductDomainEvent))
+            }
+            ProductEventRecord::Enrichment(record) => {
+                let event = ProductEnrichmentEvent::try_from(record)?;
+                Ok(event.map_payload(ProductEventPayload::ProductEnrichmentEvent))
+            }
+            ProductEventRecord::Policy(record) => {
+                let event = ProductPolicyEvent::from(record);
+                Ok(event.map_payload(ProductEventPayload::ProductPolicyEvent))
             }
         }
     }

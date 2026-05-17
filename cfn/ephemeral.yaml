@@ -431,20 +431,6 @@ Resources:
         maxReceiveCount: 5
       VisibilityTimeout: 180
 
-  ProductMaterializeDynamoDbDlq:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "product-lambda-materialize-dynamodb-dlq-${StageName}"
-      MessageRetentionPeriod: 1209600
-  ProductMaterializeDynamoDbQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "product-lambda-materialize-dynamodb-queue-${StageName}"
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ProductMaterializeDynamoDbDlq.Arn
-        maxReceiveCount: 5
-      VisibilityTimeout: 360
-
   ProductMaterializeOpenSearchDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -848,7 +834,6 @@ Resources:
     Type: AWS::SQS::QueuePolicy
     Properties:
       Queues:
-        - !Ref ProductMaterializeDynamoDbQ
         - !Ref ProductMaterializeOpenSearchQ
         - !Ref ShopOpenSearchIndexQ
         - !Ref UserOpenSearchIndexQ
@@ -867,7 +852,6 @@ Resources:
               Service: events.amazonaws.com
             Action: sqs:SendMessage
             Resource:
-              - !GetAtt ProductMaterializeDynamoDbQ.Arn
               - !GetAtt ProductMaterializeOpenSearchQ.Arn
               - !GetAtt ShopOpenSearchIndexQ.Arn
               - !GetAtt UserOpenSearchIndexQ.Arn
@@ -895,29 +879,6 @@ Resources:
               Service: events.amazonaws.com
             Action: sqs:SendMessage
             Resource: !GetAtt ShopifyLambdaQ.Arn
-  DynamoDbProductMaterializeDynamoDbEventRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: !Sub "ddb-product-mat-ddb-${StageName}"
-      EventBusName: !Ref DynamoDbEventBus
-      EventPattern:
-        source:
-          - !Ref TableOne
-        detail-type:
-          - "DynamoDBStreamRecord"
-        detail:
-          eventName:
-            - "INSERT"
-          dynamodb:
-            NewImage:
-              event_type:
-                S:
-                  - prefix: "DOMAIN_"
-                  - prefix: "ENRICHMENT_"
-                  - prefix: "POLICY_"
-      Targets:
-        - Id: ProductMaterializeDynamoDbQ
-          Arn: !GetAtt ProductMaterializeDynamoDbQ.Arn
   DynamoDbProductMaterializeOpenSearchEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -2747,68 +2708,6 @@ Resources:
         - ReportBatchItemFailures
 
   # --- Product Materialize DynamoDB ---
-  ProductMaterializeDynamoDbRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "product-lambda-materialize-dynamodb-role-${StageName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:*
-                Resource: !GetAtt TableOne.Arn
-        - PolicyName: SQSPollerAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:ReceiveMessage
-                  - sqs:DeleteMessage
-                  - sqs:GetQueueAttributes
-                  - sqs:GetQueueUrl
-                Resource: !GetAtt ProductMaterializeDynamoDbQ.Arn
-  ProductMaterializeDynamoDbLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub "product-lambda-materialize-dynamodb-${StageName}"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ProductMaterializeDynamoDbRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-lambda-materialize-dynamodb-${StageName}-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 60
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-  ProductMaterializeDynamoDbMapping:
-    Type: AWS::Lambda::EventSourceMapping
-    Properties:
-      FunctionName: !Ref ProductMaterializeDynamoDbLambda
-      EventSourceArn: !GetAtt ProductMaterializeDynamoDbQ.Arn
-      Enabled: true
-      BatchSize: 200
-      MaximumBatchingWindowInSeconds: 1
-      FunctionResponseTypes:
-        - ReportBatchItemFailures
-
-  # --- Product Materialize OpenSearch ---
   ProductMaterializeOpenSearchRole:
     Type: AWS::IAM::Role
     Properties:
@@ -3383,11 +3282,6 @@ Outputs:
     Value: !Ref NotificationSendQ
   NotificationSendDeadLetterQueueUrl:
     Value: !Ref NotificationSendDlq
-
-  ProductMaterializeDynamodbQueueUrl:
-    Value: !Ref ProductMaterializeDynamoDbQ
-  ProductMaterializeDynamodbDeadLetterQueueUrl:
-    Value: !Ref ProductMaterializeDynamoDbDlq
 
   ProductMaterializeOpensearchQueueUrl:
     Value: !Ref ProductMaterializeOpenSearchQ

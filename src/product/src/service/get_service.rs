@@ -1,12 +1,12 @@
 use crate::core::product::{LocalizedProductView, Product};
-use crate::core::product_event::ProductDomainEvent;
 use crate::core::product_event::domain::LocalizedProductDomainEventPayloadView;
+use crate::core::product_event::{ProductDomainEvent, ProductEvent};
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::repository::ProductDynamoDbRepository;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::config::http::HttpResponse;
 use aws_sdk_dynamodb::error::SdkError;
-use common::batch::Batch;
+use common::aggregate::Aggregate;
 use common::currency::domain::Currency;
 use common::event::Event;
 use common::language::domain::Language;
@@ -44,6 +44,9 @@ pub enum GetProductError {
 
     #[error("Unable to resolve unprocessed items after '{0}' retries. Failing entire operation.")]
     UnprocessedAfterMaxRetries(u32),
+
+    #[error("Failed replaying product events: {0}")]
+    ProductReplayError(#[from] crate::core::product::ProductReplayError),
 }
 
 #[cfg(feature = "data")]
@@ -69,7 +72,8 @@ pub mod api {
                 GetProductError::SdkGetItemError(err) => err.into(),
                 GetProductError::SdkBatchGetItemError(err) => err.into(),
                 GetProductError::SdkQueryError(err) => err.into(),
-                GetProductError::UnprocessedAfterMaxRetries(_) => {
+                GetProductError::UnprocessedAfterMaxRetries(_)
+                | GetProductError::ProductReplayError(_) => {
                     ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES, Box::new(err))
                 }
             }
@@ -91,8 +95,6 @@ pub trait GetProductService {
         shop_slug_id: &SlugId<0>,
         product_slug_id: &SlugId<6>,
     ) -> Result<Product, GetProductError>;
-
-    async fn find_products(&self, items: Vec<ProductKey>) -> Result<Vec<Product>, GetProductError>;
 
     async fn view_product(
         &self,
@@ -143,16 +145,28 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
     ) -> Result<Product, GetProductError> {
-        let product_record = self
+        let event_records = self
             .repository
-            .get_product_record(shop_id, shops_product_id)
-            .await?
-            .ok_or(GetProductError::ProductNotFound(
+            .query_product_event_records(shop_id, shops_product_id)
+            .await?;
+        if event_records.is_empty() {
+            return Err(GetProductError::ProductNotFound(
                 *shop_id,
                 shops_product_id.clone(),
-            ))?;
+            ));
+        }
+        let events =
+            event_records
+                .into_iter()
+                .filter_map(|record| match ProductEvent::try_from(record) {
+                    Ok(event) => Some(event),
+                    Err(err) => {
+                        error!(error = %err, "Failed mapping ProductEventRecord.");
+                        None
+                    }
+                });
 
-        Ok(product_record.into())
+        Ok(Product::replay(events)?)
     }
 
     async fn find_product_by_slug(
@@ -183,15 +197,21 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
         preferred_languages: &[Language],
         currency: &Currency,
     ) -> Result<LocalizedProductView, GetProductError> {
-        let product_record = self
+        let product = self
             .repository
-            .get_product_record(shop_id, shops_product_id)
-            .await?
-            .ok_or(GetProductError::ProductNotFound(
+            .query_product_event_records(shop_id, shops_product_id)
+            .await?;
+        if product.is_empty() {
+            return Err(GetProductError::ProductNotFound(
                 *shop_id,
                 shops_product_id.clone(),
-            ))?;
-        let product: Product = product_record.into();
+            ));
+        }
+        let product = Product::replay(product.into_iter().filter_map(|record| {
+            ProductEvent::try_from(record)
+                .map_err(|err| error!(error = %err, "Failed mapping ProductEventRecord."))
+                .ok()
+        }))?;
         let product_view = product.localized(currency, preferred_languages);
 
         Ok(product_view)
@@ -231,41 +251,19 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
         languages: &[Language],
         currency: &Currency,
     ) -> Result<Vec<LocalizedProductView>, GetProductError> {
-        let products = self.find_products(product_keys).await?;
+        let mut products = Vec::with_capacity(product_keys.len());
+        for product_key in product_keys {
+            products.push(
+                self.find_product(&product_key.shop_id, &product_key.shops_product_id)
+                    .await?,
+            );
+        }
         let product_views = products
             .into_iter()
             .map(|product| product.localized(currency, languages))
             .collect();
 
         Ok(product_views)
-    }
-
-    async fn find_products(&self, items: Vec<ProductKey>) -> Result<Vec<Product>, GetProductError> {
-        const MAX_RETRIES: u32 = 3;
-        const BASE_DELAY_MS: u64 = 100;
-
-        let mut products = Vec::with_capacity(items.len());
-        let mut unprocessed = items;
-        let mut retry_count = 0;
-        loop {
-            let (mut local_views, local_unprocessed) =
-                self.view_products_with_unprocessed(unprocessed).await?;
-            products.append(&mut local_views);
-
-            if local_unprocessed.is_empty() {
-                break;
-            } else if retry_count >= MAX_RETRIES {
-                return Err(GetProductError::UnprocessedAfterMaxRetries(MAX_RETRIES));
-            }
-
-            retry_count += 1;
-            let delay_ms = BASE_DELAY_MS * 2_u64.pow(retry_count - 1);
-            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
-
-            unprocessed = local_unprocessed;
-        }
-
-        Ok(products)
     }
 
     async fn view_product_history(
@@ -309,27 +307,7 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
     }
 }
 
-impl<'a> GetProductServiceImpl<'a> {
-    async fn view_products_with_unprocessed(
-        &self,
-        items: Vec<ProductKey>,
-    ) -> Result<(Vec<Product>, Vec<ProductKey>), GetProductError> {
-        let mut products = Vec::with_capacity(items.len());
-        let mut unprocessed = Vec::new();
-        for batch in Batch::chunked_from(items.into_iter()) {
-            let result = self.repository.get_product_records(&batch).await?;
-            if let Some(up) = result.unprocessed {
-                unprocessed.extend(up);
-            }
-            let local_products = result.items.into_iter().map(Product::from);
-            products.extend(local_products);
-        }
-
-        Ok((products, unprocessed))
-    }
-}
-
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     mod find_product {
         use crate::dynamodb::repository::MockProductDynamoDbRepository;

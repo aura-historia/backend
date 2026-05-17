@@ -250,9 +250,9 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
                 other => WatchProductError::UserServiceError(other),
             })?;
 
-        let product_record = self
+        let product_id = self
             .product_repository
-            .get_product_record(shop_id, shops_product_id)
+            .get_product_id(shop_id, shops_product_id)
             .await?
             .ok_or(WatchProductError::ProductNotFound(
                 *shop_id,
@@ -274,12 +274,12 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
             pk: mk_pk(user_id),
             sk: mk_sk(shop_id, shops_product_id),
             lsi1_sk: mk_lsi1_sk(&now),
-            gsi1_pk: mk_gsi1_pk(&product_record.product_id),
+            gsi1_pk: mk_gsi1_pk(&product_id),
             gsi1_sk: mk_gsi1_sk(user_id),
             user_id: *user_id,
-            product_id: product_record.product_id,
-            shop_id: product_record.shop_id,
-            shops_product_id: product_record.shops_product_id,
+            product_id,
+            shop_id: *shop_id,
+            shops_product_id: shops_product_id.clone(),
             notifications: false,
             state: ResourceState::Active.into(),
             created: now,

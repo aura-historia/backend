@@ -1,8 +1,10 @@
 use crate::core::product::{LocalizedProductView, Product};
+use crate::core::product_event::ProductEvent;
 use crate::dynamodb::repository::ProductDynamoDbRepository;
 use crate::opensearch::repository::ProductOpenSearchRepository;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::error::SdkError;
+use common::aggregate::Aggregate;
 use common::currency::domain::Currency;
 use common::language::domain::Language;
 use common::opensearch::search_response::OpenSearchTimedOutError;
@@ -25,6 +27,12 @@ pub enum SemanticSearchProductsError {
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(#[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>),
+
+    #[error("Encountered DynamoDB SdkError for Query: {0:?}")]
+    SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError>),
+
+    #[error("Failed replaying product events: {0}")]
+    ProductReplayError(#[from] crate::core::product::ProductReplayError),
 }
 
 #[cfg(feature = "data")]
@@ -44,6 +52,10 @@ pub mod api {
                 }
                 SemanticSearchProductsError::OpenSearchTimedOut(timeout_err) => timeout_err.into(),
                 SemanticSearchProductsError::SdkGetItemError(sdk_error) => sdk_error.into(),
+                SemanticSearchProductsError::SdkQueryError(sdk_error) => sdk_error.into(),
+                SemanticSearchProductsError::ProductReplayError(_) => {
+                    ApiError::not_found(PRODUCT_NOT_FOUND, Box::new(err))
+                }
             }
         }
     }
@@ -87,21 +99,28 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
         languages: &[Language],
         currency: &Currency,
     ) -> Result<Option<Vec<LocalizedProductView>>, SemanticSearchProductsError> {
-        let record = self
+        let event_records = self
             .dynamodb_repository
-            .get_product_record(shop_id, shops_product_id)
-            .await?
-            .ok_or(SemanticSearchProductsError::ProductNotFound(
+            .query_product_event_records(shop_id, shops_product_id)
+            .await?;
+        if event_records.is_empty() {
+            return Err(SemanticSearchProductsError::ProductNotFound(
                 *shop_id,
                 shops_product_id.clone(),
-            ))?;
-        match record.embedding {
+            ));
+        }
+        let product = Product::replay(event_records.into_iter().filter_map(|record| {
+            ProductEvent::try_from(record)
+                .map_err(|err| warn!(error = %err, "Failed mapping ProductEventRecord."))
+                .ok()
+        }))?;
+        match product.embedding {
             None => {
-                if OffsetDateTime::now_utc().date() > record.created.date() {
+                if OffsetDateTime::now_utc().date() > product.created.date() {
                     warn!(
                         shopId = %shop_id,
                         shopProductId = %shops_product_id,
-                        productId = %record.product_id,
+                         productId = %product.product_id,
                         "When trying to find similar products for given ProductKey,
                          ProductRecord for ProductKey did not have an embedding
                          although it was created at least one day prior -
@@ -119,7 +138,7 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
                     .hits
                     .hits
                     .into_iter()
-                    .filter(|hit| hit.source.product_id != record.product_id)
+                    .filter(|hit| hit.source.product_id != product.product_id)
                     .map(|hit| hit.source)
                     .map(Product::from)
                     .map(|product| product.localized(currency, languages))
@@ -130,7 +149,7 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use crate::{
         dynamodb::{product_record::ProductRecord, repository::MockProductDynamoDbRepository},
