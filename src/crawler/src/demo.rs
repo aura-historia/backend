@@ -32,7 +32,9 @@ use async_trait::async_trait;
 use common::domain::Domain;
 use common::logging::GeminiServiceTier;
 use common::shop_id::ShopId;
-use crawler::google_llm::{gemini_flex_enabled, google_llm_builder};
+use crawler::google_llm::{
+    GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
+};
 use crawler::local_db::{DEMO_DB_NAME, bootstrap_local_database, demo_db_url};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
@@ -172,6 +174,8 @@ async fn main() {
             gemini_service_tier,
             "Wiring crawler dependencies..."
         );
+        let gemini_rate_limiter =
+            Arc::new(GeminiRateLimiter::new(GeminiRateLimitConfig::from_env()));
 
         let state_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
@@ -182,6 +186,7 @@ async fn main() {
             state_llm_builder,
             llm_service_tier,
             state_mapping_repo,
+            Some(Arc::clone(&gemini_rate_limiter)),
         )
         .expect("failed to build ProductStateMappingServiceImpl");
         let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
@@ -191,9 +196,13 @@ async fn main() {
         let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
             pool.clone(),
         ))));
-        let schema_svc =
-            ProductSchemaServiceImpl::new(schema_llm_builder, llm_service_tier, schema_repo)
-                .expect("failed to build ProductSchemaServiceImpl");
+        let schema_svc = ProductSchemaServiceImpl::new(
+            schema_llm_builder,
+            llm_service_tier,
+            schema_repo,
+            Some(Arc::clone(&gemini_rate_limiter)),
+        )
+        .expect("failed to build ProductSchemaServiceImpl");
 
         let scraper_candidates = Box::new(
             ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
@@ -223,7 +232,12 @@ async fn main() {
 
         let class_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
         let class_svc = Box::new(
-            UrlClassificationServiceImpl::new(class_llm_builder, llm_service_tier).unwrap(),
+            UrlClassificationServiceImpl::new(
+                class_llm_builder,
+                llm_service_tier,
+                Some(Arc::clone(&gemini_rate_limiter)),
+            )
+            .unwrap(),
         );
         let pattern_svc = Box::new(UrlPatternServiceImpl::new(
             Arc::new(*url_pattern_repo),

@@ -46,7 +46,9 @@ use common::logging::GeminiServiceTier;
 use common::price::data::PriceData;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
-use crawler::google_llm::{gemini_flex_enabled, google_llm_builder};
+use crawler::google_llm::{
+    GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
+};
 use crawler::local_db::{DEMO_SCRAPER_DB_NAME, bootstrap_local_database, demo_scraper_db_url};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
@@ -291,6 +293,7 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
         gemini_service_tier,
         "Crawler scraper demo Gemini configuration resolved"
     );
+    let gemini_rate_limiter = Arc::new(GeminiRateLimiter::new(GeminiRateLimitConfig::from_env()));
 
     let schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
@@ -302,6 +305,7 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
         state_llm_builder,
         llm_service_tier,
         state_mapping_repo,
+        Some(Arc::clone(&gemini_rate_limiter)),
     )
     .expect("failed to build ProductStateMappingServiceImpl");
 
@@ -310,9 +314,13 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
 
     // Schema service (DB-backed + LLM creation/fix).
     let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(pool));
-    let schema_svc =
-        ProductSchemaServiceImpl::new(schema_llm_builder, llm_service_tier, schema_repo)
-            .expect("failed to build ProductSchemaServiceImpl");
+    let schema_svc = ProductSchemaServiceImpl::new(
+        schema_llm_builder,
+        llm_service_tier,
+        schema_repo,
+        Some(Arc::clone(&gemini_rate_limiter)),
+    )
+    .expect("failed to build ProductSchemaServiceImpl");
 
     // HTTP fetcher using spider.
     let fetcher = Box::new(ReqwestHtmlFetcher::new());

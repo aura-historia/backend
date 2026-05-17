@@ -1,12 +1,17 @@
 use regex::Regex;
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info, warn};
 
+use crate::google_llm::{GeminiRateLimiter, run_with_gemini_rate_limiter};
 use crate::logging::llm_metrics;
 use crate::scraper::css_selector::product_schema_service::strip_markdown_json_embedding;
 use common::logging::{GeminiServiceTier, LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
-use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
+use llm::{
+    chat::{ChatMessage, ChatProvider},
+    error::LLMError,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -48,7 +53,8 @@ pub enum UrlClassificationError {
 }
 
 pub struct UrlClassificationServiceImpl {
-    llm: Box<dyn LLMProvider>,
+    llm: Box<dyn ChatProvider>,
+    rate_limiter: Option<Arc<GeminiRateLimiter>>,
     service_tier: Option<GeminiServiceTier>,
 }
 
@@ -56,6 +62,7 @@ impl UrlClassificationServiceImpl {
     pub fn new(
         llm: llm::builder::LLMBuilder,
         service_tier: Option<GeminiServiceTier>,
+        rate_limiter: Option<Arc<GeminiRateLimiter>>,
     ) -> Result<Self, LLMError> {
         let schema = schemars::schema_for!(PatternResponse);
         let schema_json = serde_json::to_string_pretty(&schema)
@@ -97,8 +104,6 @@ impl UrlClassificationServiceImpl {
         );
 
         let llm = llm
-            .resilient(true)
-            .resilient_attempts(3)
             .system(system_prompt)
             .reasoning(true)
             .timeout_seconds(180)
@@ -109,14 +114,20 @@ impl UrlClassificationServiceImpl {
             })
             .validator_attempts(3)
             .build()?;
+        let llm: Box<dyn ChatProvider> = llm;
 
-        Ok(Self { llm, service_tier })
+        Ok(Self {
+            llm,
+            rate_limiter,
+            service_tier,
+        })
     }
 
     #[cfg(test)]
-    pub fn new_with_provider(llm: Box<dyn LLMProvider>) -> Self {
+    pub fn new_with_provider(llm: Box<dyn ChatProvider>) -> Self {
         Self {
             llm,
+            rate_limiter: None,
             service_tier: None,
         }
     }
@@ -191,15 +202,18 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
         let messages = vec![ChatMessage::user().content(prompt).build()];
 
         let started_at = Instant::now();
-        let response = match self.llm.chat(&messages).await {
-            Ok(r) => r,
-            Err(e) => {
-                return Err(UrlClassificationError::Llm(format!(
-                    "LLM chat error: {}",
-                    e
-                )));
-            }
-        };
+        let response =
+            match run_with_gemini_rate_limiter(&*self.llm, self.rate_limiter.as_deref(), &messages)
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    return Err(UrlClassificationError::Llm(format!(
+                        "LLM chat error: {}",
+                        e
+                    )));
+                }
+            };
         log_llm_invocation(
             LlmOperation::CrawlerUrlClassification,
             LlmProvider::Google,

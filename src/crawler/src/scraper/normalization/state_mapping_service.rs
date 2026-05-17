@@ -1,11 +1,16 @@
+use crate::google_llm::{GeminiRateLimiter, run_with_gemini_rate_limiter};
 use crate::logging::llm_metrics;
 use crate::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
 use crate::scraper::normalization::state_mapping_repository::ProductStateMappingRepository;
 use common::logging::{GeminiServiceTier, LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
 use common::product_state::domain::ProductState;
-use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
+use llm::{
+    chat::{ChatMessage, ChatProvider},
+    error::LLMError,
+};
 use product::dynamodb::product_state_record::ProductStateRecord;
 use regex::Regex;
+use std::sync::Arc;
 use time::OffsetDateTime;
 use tracing::{debug, info, warn};
 
@@ -116,7 +121,8 @@ pub trait ProductStateMappingService {
 // ---------------------------------------------------------------------------
 
 pub struct ProductStateMappingServiceImpl {
-    llm: Box<dyn LLMProvider>,
+    llm: Box<dyn ChatProvider>,
+    rate_limiter: Option<Arc<GeminiRateLimiter>>,
     service_tier: Option<GeminiServiceTier>,
     repository: Box<dyn ProductStateMappingRepository + Send + Sync>,
 }
@@ -126,6 +132,7 @@ impl ProductStateMappingServiceImpl {
         llm: llm::builder::LLMBuilder,
         service_tier: Option<GeminiServiceTier>,
         repository: Box<dyn ProductStateMappingRepository + Send + Sync>,
+        rate_limiter: Option<Arc<GeminiRateLimiter>>,
     ) -> Result<Self, LLMError> {
         let system_prompt = "\
 You are a classification assistant for an antiques e-commerce platform.\n\
@@ -157,16 +164,16 @@ Rules:\n\
             .to_string();
 
         let llm = llm
-            .resilient(true)
-            .resilient_attempts(3)
             .system(system_prompt)
             .openai_enable_web_search(false)
             .reasoning(true)
             .timeout_seconds(60)
             .build()?;
+        let llm: Box<dyn ChatProvider> = llm;
 
         Ok(Self {
             llm,
+            rate_limiter,
             service_tier,
             repository,
         })
@@ -248,7 +255,10 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
         let message = ChatMessage::user().content(instruction).build();
 
         let started_at = std::time::Instant::now();
-        let response = self.llm.chat(&[message]).await?;
+        let messages = [message];
+        let response =
+            run_with_gemini_rate_limiter(&*self.llm, self.rate_limiter.as_deref(), &messages)
+                .await?;
         log_llm_invocation(
             LlmOperation::CrawlerProductStateMapping,
             LlmProvider::Google,
@@ -459,32 +469,6 @@ mod tests {
             panic!("LLM should not be called in this test")
         }
     }
-    #[async_trait::async_trait]
-    impl llm::completion::CompletionProvider for MockLlmProvider {
-        async fn complete(
-            &self,
-            _req: &llm::completion::CompletionRequest,
-        ) -> Result<llm::completion::CompletionResponse, LLMError> {
-            unimplemented!()
-        }
-    }
-    #[async_trait::async_trait]
-    impl llm::embedding::EmbeddingProvider for MockLlmProvider {
-        async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
-            unimplemented!()
-        }
-    }
-    #[async_trait::async_trait]
-    impl llm::stt::SpeechToTextProvider for MockLlmProvider {
-        async fn transcribe(&self, _audio: Vec<u8>) -> Result<String, LLMError> {
-            unimplemented!()
-        }
-    }
-    #[async_trait::async_trait]
-    impl llm::tts::TextToSpeechProvider for MockLlmProvider {}
-    #[async_trait::async_trait]
-    impl llm::models::ModelsProvider for MockLlmProvider {}
-    impl LLMProvider for MockLlmProvider {}
 
     /// Returns a fixed string as the LLM response.
     struct MockLlmProviderReturning(&'static str);
@@ -499,32 +483,6 @@ mod tests {
             Ok(Box::new(FakeChatResponse(Some(self.0.to_string()))))
         }
     }
-    #[async_trait::async_trait]
-    impl llm::completion::CompletionProvider for MockLlmProviderReturning {
-        async fn complete(
-            &self,
-            _req: &llm::completion::CompletionRequest,
-        ) -> Result<llm::completion::CompletionResponse, LLMError> {
-            unimplemented!()
-        }
-    }
-    #[async_trait::async_trait]
-    impl llm::embedding::EmbeddingProvider for MockLlmProviderReturning {
-        async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
-            unimplemented!()
-        }
-    }
-    #[async_trait::async_trait]
-    impl llm::stt::SpeechToTextProvider for MockLlmProviderReturning {
-        async fn transcribe(&self, _audio: Vec<u8>) -> Result<String, LLMError> {
-            unimplemented!()
-        }
-    }
-    #[async_trait::async_trait]
-    impl llm::tts::TextToSpeechProvider for MockLlmProviderReturning {}
-    #[async_trait::async_trait]
-    impl llm::models::ModelsProvider for MockLlmProviderReturning {}
-    impl LLMProvider for MockLlmProviderReturning {}
 
     // ── Test-data helpers ────────────────────────────────────────────────
 
@@ -723,6 +681,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -745,6 +704,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -761,6 +721,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -777,6 +738,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -805,6 +767,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -838,6 +801,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -871,6 +835,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -890,6 +855,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -912,6 +878,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -981,6 +948,7 @@ mod tests {
         let repo = MockProductStateMappingRepository::new();
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProviderReturning(llm_response)),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -997,6 +965,7 @@ mod tests {
         let repo = MockProductStateMappingRepository::new();
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProviderReturning(llm_response)),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1014,6 +983,7 @@ mod tests {
         let repo = MockProductStateMappingRepository::new();
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProviderReturning(llm_response)),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1030,6 +1000,7 @@ mod tests {
         let repo = MockProductStateMappingRepository::new();
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProviderReturning("STATE:SOLD")),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1044,6 +1015,7 @@ mod tests {
         let repo = MockProductStateMappingRepository::new();
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProviderReturning("AVAILABLE")),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1061,6 +1033,7 @@ mod tests {
         let svc = ProductStateMappingServiceImpl {
             // Pattern "[unclosed" is syntactically invalid for the Rust regex crate.
             llm: Box::new(MockLlmProviderReturning("REGEX:[unclosed:AVAILABLE")),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1079,6 +1052,7 @@ mod tests {
             llm: Box::new(MockLlmProviderReturning(
                 "I think it might be available or sold",
             )),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1106,36 +1080,11 @@ mod tests {
                 Ok(Box::new(FakeChatResponse(None)))
             }
         }
-        #[async_trait::async_trait]
-        impl llm::completion::CompletionProvider for NoTextLlm {
-            async fn complete(
-                &self,
-                _r: &llm::completion::CompletionRequest,
-            ) -> Result<llm::completion::CompletionResponse, LLMError> {
-                unimplemented!()
-            }
-        }
-        #[async_trait::async_trait]
-        impl llm::embedding::EmbeddingProvider for NoTextLlm {
-            async fn embed(&self, _i: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
-                unimplemented!()
-            }
-        }
-        #[async_trait::async_trait]
-        impl llm::stt::SpeechToTextProvider for NoTextLlm {
-            async fn transcribe(&self, _a: Vec<u8>) -> Result<String, LLMError> {
-                unimplemented!()
-            }
-        }
-        #[async_trait::async_trait]
-        impl llm::tts::TextToSpeechProvider for NoTextLlm {}
-        #[async_trait::async_trait]
-        impl llm::models::ModelsProvider for NoTextLlm {}
-        impl LLMProvider for NoTextLlm {}
 
         let repo = MockProductStateMappingRepository::new();
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(NoTextLlm),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1157,36 +1106,11 @@ mod tests {
                 Err(LLMError::ProviderError("simulated".to_string()))
             }
         }
-        #[async_trait::async_trait]
-        impl llm::completion::CompletionProvider for ErrorLlm {
-            async fn complete(
-                &self,
-                _r: &llm::completion::CompletionRequest,
-            ) -> Result<llm::completion::CompletionResponse, LLMError> {
-                unimplemented!()
-            }
-        }
-        #[async_trait::async_trait]
-        impl llm::embedding::EmbeddingProvider for ErrorLlm {
-            async fn embed(&self, _i: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
-                unimplemented!()
-            }
-        }
-        #[async_trait::async_trait]
-        impl llm::stt::SpeechToTextProvider for ErrorLlm {
-            async fn transcribe(&self, _a: Vec<u8>) -> Result<String, LLMError> {
-                unimplemented!()
-            }
-        }
-        #[async_trait::async_trait]
-        impl llm::tts::TextToSpeechProvider for ErrorLlm {}
-        #[async_trait::async_trait]
-        impl llm::models::ModelsProvider for ErrorLlm {}
-        impl LLMProvider for ErrorLlm {}
 
         let repo = MockProductStateMappingRepository::new();
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(ErrorLlm),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1211,6 +1135,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1233,6 +1158,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1264,6 +1190,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider), // must NOT be called
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1292,6 +1219,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1315,6 +1243,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1339,6 +1268,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1366,6 +1296,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1402,6 +1333,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProviderReturning("STATE:LISTED")),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1448,6 +1380,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProviderReturning(llm_resp_str)),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1470,6 +1403,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1488,6 +1422,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1675,6 +1610,7 @@ mod tests {
         let repo = MockProductStateMappingRepository::new(); // no expectations set
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProvider), // panics if called
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
@@ -1712,6 +1648,7 @@ mod tests {
 
         let svc = ProductStateMappingServiceImpl {
             llm: Box::new(MockLlmProviderReturning("STATE:UNKNOWN")),
+            rate_limiter: None,
             service_tier: None,
             repository: Box::new(repo),
         };
