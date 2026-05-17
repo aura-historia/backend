@@ -15,6 +15,7 @@ use product::core::product_event::domain::{
 use product::dynamodb::product_event_record::ProductEventRecord;
 use product::dynamodb::product_record::{ProductRecord, mk_pk};
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
+use product::dynamodb::test_utils::ProductRecordSeedExt;
 use product::service::get_service::GetProductServiceImpl;
 use product_pipeline_translate::handler;
 use product_pipeline_translate::service::MockTranslationService;
@@ -102,7 +103,7 @@ async fn seed_product_record(
     let batch = Batch::try_from_iter(std::iter::once(record))
         .expect("shouldn't fail creating single-item batch");
     repository
-        .put_product_records(batch)
+        .transact_write_product_records_as_events(batch)
         .await
         .expect("shouldn't fail seeding product record");
 }

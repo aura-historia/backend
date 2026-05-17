@@ -10,6 +10,7 @@ use product::data::get_summary_data::GetProductSummaryData;
 use product::data::user_state_data::ProductUserStateData;
 use product::dynamodb::product_record::ProductRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
+use product::dynamodb::test_utils::ProductRecordSeedExt;
 use product::opensearch::product_document::ProductDocument;
 use product::opensearch::repository::{
     ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl,
@@ -830,7 +831,7 @@ async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
     let mut product_record: ProductRecord = Faker.fake();
     product_record.embedding = None;
     let ddb_insert_res = product_dynamodb_repository
-        .put_product_records([product_record.clone()].into())
+        .transact_write_product_records_as_events([product_record.clone()])
         .await
         .unwrap();
     assert!(
@@ -912,7 +913,7 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
     let mut product_record: ProductRecord = Faker.fake();
     product_record.embedding = Some(EXAMPLE_EMBEDDING.into());
     let ddb_insert_res = product_dynamodb_repository
-        .put_product_records([product_record.clone()].into())
+        .transact_write_product_records_as_events([product_record.clone()])
         .await
         .unwrap();
     assert!(
@@ -1034,7 +1035,7 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
     product_record.embedding = Some(EXAMPLE_EMBEDDING.into());
     let product_records = fake::vec![ProductRecord; 5];
     let ddb_insert_res = product_dynamodb_repository
-        .put_product_records(
+        .transact_write_product_records_as_events(
             [vec![product_record.clone()], product_records.clone()]
                 .concat()
                 .try_into()
@@ -1187,7 +1188,7 @@ async fn should_respond_200_and_respect_language_query_param(
     product_record.embedding = Some(EXAMPLE_EMBEDDING.into());
     let product_records = fake::vec![ProductRecord; 12];
     let ddb_insert_res = product_dynamodb_repository
-        .put_product_records(
+        .transact_write_product_records_as_events(
             [vec![product_record.clone()], product_records.clone()]
                 .concat()
                 .try_into()

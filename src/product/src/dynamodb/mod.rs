@@ -6,4 +6,6 @@ pub mod product_record;
 pub mod product_state_record;
 pub mod prohibited_content_record;
 pub mod repository;
+#[cfg(all(feature = "dynamodb", feature = "test-data"))]
+pub mod test_utils;
 pub mod utm;

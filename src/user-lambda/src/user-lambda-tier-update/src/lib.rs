@@ -6,7 +6,7 @@ use lambda_runtime::LambdaEvent;
 use product_watchlist::{
     core::quota::WatchlistQuota,
     dynamodb::{
-        record::WatchlistProductRecord, record_update::WatchlistProductRecordUpdate,
+        record::WatchlistProductRecord, record_update::WatchlistProductUpdateRecord,
         repository::WatchlistProductDynamoDbRepository,
     },
 };
@@ -138,7 +138,7 @@ async fn update_watchlist_state(
             &record.user_id,
             &record.shop_id,
             &record.shops_product_id,
-            WatchlistProductRecordUpdate {
+            WatchlistProductUpdateRecord {
                 notifications: None,
                 state: Some(target_state),
                 updated: OffsetDateTime::now_utc(),

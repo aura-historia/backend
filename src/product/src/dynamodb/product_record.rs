@@ -762,7 +762,7 @@ mod faker {
         use fake::{Fake, Faker};
 
         #[test]
-        fn should_fake_get_product_record() {
+        fn should_fake_product_record() {
             let _ = Faker.fake::<ProductRecord>();
         }
     }

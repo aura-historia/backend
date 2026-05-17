@@ -14,6 +14,7 @@ use product::core::product_event::{
         ProductStateChangeDomainEventPayload,
     },
 };
+use product::dynamodb::test_utils::ProductRecordSeedExt;
 use product::dynamodb::{
     product_record::ProductRecord,
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
@@ -31,7 +32,7 @@ async fn should_respond_200() {
 
     let record = Faker.fake::<ProductRecord>();
     let insert_res = product_repository
-        .put_product_records([record.clone()].into())
+        .transact_write_product_records_as_events([record.clone()])
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());

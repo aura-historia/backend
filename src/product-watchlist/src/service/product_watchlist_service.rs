@@ -2,7 +2,7 @@ use crate::{
     core::{quota::WatchlistQuota, watchlist_product::WatchlistProduct},
     dynamodb::{
         record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
-        record_update::WatchlistProductRecordUpdate,
+        record_update::WatchlistProductUpdateRecord,
         repository::WatchlistProductDynamoDbRepository,
     },
     service::{
@@ -363,7 +363,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
                     user_id,
                     shop_id,
                     shops_product_id,
-                    WatchlistProductRecordUpdate::from_cmd(update),
+                    WatchlistProductUpdateRecord::from_cmd(update),
                 )
                 .await?
                 .ok_or_else(|| {
@@ -561,7 +561,7 @@ mod tests {
 
             let mut product_repository = MockProductDynamoDbRepository::default();
             product_repository
-                .expect_get_product_record()
+                .expect_get_product_id()
                 .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
 
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
@@ -625,7 +625,7 @@ mod tests {
 
             let mut product_repository = MockProductDynamoDbRepository::default();
             product_repository
-                .expect_get_product_record()
+                .expect_get_product_id()
                 .return_once(|_, _| Box::pin(async { Ok(None) }));
 
             let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
@@ -664,7 +664,7 @@ mod tests {
 
             let mut product_repository = MockProductDynamoDbRepository::default();
             product_repository
-                .expect_get_product_record()
+                .expect_get_product_id()
                 .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
 
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
@@ -725,7 +725,7 @@ mod tests {
             HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
         ))]
         #[trace]
-        async fn should_propagate_sdk_error_get_product_record(
+        async fn should_propagate_sdk_error_get_product_id(
             #[case] expected: SdkError<
                 aws_sdk_dynamodb::operation::get_item::GetItemError,
                 aws_sdk_dynamodb::config::http::HttpResponse,
@@ -738,7 +738,7 @@ mod tests {
 
             let mut product_repository = MockProductDynamoDbRepository::default();
             product_repository
-                .expect_get_product_record()
+                .expect_get_product_id()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
 
             let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
@@ -787,7 +787,7 @@ mod tests {
 
             let mut product_repository = MockProductDynamoDbRepository::default();
             product_repository
-                .expect_get_product_record()
+                .expect_get_product_id()
                 .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
 
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();

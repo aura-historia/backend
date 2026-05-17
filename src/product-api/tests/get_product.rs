@@ -11,6 +11,7 @@ use common::{
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use notification::service::notification_service::MockNotificationService;
+use product::dynamodb::test_utils::ProductRecordSeedExt;
 use product::dynamodb::{
     product_record::ProductRecord,
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
@@ -67,7 +68,7 @@ async fn should_respond_200_without_history_when_anon() {
 
     let record = Faker.fake::<ProductRecord>();
     let insert_res = product_repository
-        .put_product_records([record.clone()].into())
+        .transact_write_product_records_as_events([record.clone()])
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -181,7 +182,7 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
 
     let record = Faker.fake::<ProductRecord>();
     let insert_res = product_repository
-        .put_product_records([record.clone()].into())
+        .transact_write_product_records_as_events([record.clone()])
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -305,7 +306,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
 
     let record = Faker.fake::<ProductRecord>();
     let insert_res = product_repository
-        .put_product_records([record.clone()].into())
+        .transact_write_product_records_as_events([record.clone()])
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -463,7 +464,7 @@ async fn should_respond_200_and_respect_language_query_param(
         language: LanguageRecord::De,
     });
     let insert_res = product_repository
-        .put_product_records([record.clone()].into())
+        .transact_write_product_records_as_events([record.clone()])
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -540,7 +541,7 @@ async fn should_respond_200_for_path_params_slugs() {
 
     let record = Faker.fake::<ProductRecord>();
     let insert_res = product_repository
-        .put_product_records([record.clone()].into())
+        .transact_write_product_records_as_events([record.clone()])
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());

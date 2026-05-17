@@ -14,6 +14,7 @@ use product::dynamodb::product_record::{
 };
 use product::dynamodb::product_state_record::ProductStateRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
+use product::dynamodb::test_utils::ProductRecordSeedExt;
 use product::service::get_service::GetProductServiceImpl;
 use search_filter::dynamodb::repository::{
     UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
@@ -289,7 +290,7 @@ async fn should_create_match_and_notification_when_filter_matches_product() {
     let shops_product_id = ShopsProductId::new();
     let product_record = mk_product_record(shop_id, &shops_product_id);
     product_repo
-        .put_product_records([product_record.clone()].into())
+        .transact_write_product_records_as_events([product_record.clone()])
         .await
         .unwrap();
 
@@ -357,7 +358,7 @@ async fn should_not_create_match_or_notification_when_no_filter_matches() {
     let shops_product_id = ShopsProductId::new();
     let product_record = mk_product_record(shop_id, &shops_product_id);
     product_repo
-        .put_product_records([product_record.clone()].into())
+        .transact_write_product_records_as_events([product_record.clone()])
         .await
         .unwrap();
 
@@ -408,7 +409,7 @@ async fn should_skip_already_matched_filter_for_same_product() {
     let shops_product_id = ShopsProductId::new();
     let product_record = mk_product_record(shop_id, &shops_product_id);
     product_repo
-        .put_product_records([product_record.clone()].into())
+        .transact_write_product_records_as_events([product_record.clone()])
         .await
         .unwrap();
 
@@ -482,7 +483,7 @@ async fn should_create_match_but_not_notification_when_quota_exceeded() {
     let shops_product_id = ShopsProductId::new();
     let product_record = mk_product_record(shop_id, &shops_product_id);
     product_repo
-        .put_product_records([product_record.clone()].into())
+        .transact_write_product_records_as_events([product_record.clone()])
         .await
         .unwrap();
 
@@ -558,7 +559,7 @@ async fn should_create_matches_for_both_and_notification_only_for_quota_eligible
     let shops_product_id = ShopsProductId::new();
     let product_record = mk_product_record(shop_id, &shops_product_id);
     product_repo
-        .put_product_records([product_record.clone()].into())
+        .transact_write_product_records_as_events([product_record.clone()])
         .await
         .unwrap();
 
@@ -699,7 +700,7 @@ async fn should_process_enrichment_event_without_failure_when_in_stream() {
     let shops_product_id = ShopsProductId::new();
     let product_record = mk_product_record(shop_id, &shops_product_id);
     product_repo
-        .put_product_records([product_record.clone()].into())
+        .transact_write_product_records_as_events([product_record.clone()])
         .await
         .unwrap();
 

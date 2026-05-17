@@ -4,6 +4,7 @@ use lambda_runtime::LambdaEvent;
 use notification::dynamodb::repository::NotificationDynamoDbRepositoryImpl;
 use notification::service::noop_adapters::{NoopS3Adapter, NoopSesAdapter};
 use notification::service::notification_service::NotificationServiceImpl;
+use product::dynamodb::test_utils::ProductRecordSeedExt;
 use product::dynamodb::{
     product_record::ProductRecord,
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
@@ -68,14 +69,14 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
 
     let product_records = fake::vec![ProductRecord; (user::core::tier::UserTier::Free.watchlist_quota() - 1) as usize];
     let put_res = product_repository
-        .put_product_records(product_records.clone().try_into().unwrap())
+        .transact_write_product_records_as_events(product_records.clone())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
 
     let new_product_record = Faker.fake::<ProductRecord>();
     let put_overflowing_res = product_repository
-        .put_product_records(vec![new_product_record.clone()].try_into().unwrap())
+        .transact_write_product_records_as_events(vec![new_product_record.clone()])
         .await
         .unwrap();
     assert!(
@@ -177,14 +178,14 @@ async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
     let product_records =
         fake::vec![ProductRecord; user::core::tier::UserTier::Free.watchlist_quota() as usize];
     let put_res = product_repository
-        .put_product_records(product_records.clone().try_into().unwrap())
+        .transact_write_product_records_as_events(product_records.clone())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
 
     let overflowing_product_record = Faker.fake::<ProductRecord>();
     let put_overflowing_res = product_repository
-        .put_product_records(vec![overflowing_product_record.clone()].try_into().unwrap())
+        .transact_write_product_records_as_events(vec![overflowing_product_record.clone()])
         .await
         .unwrap();
     assert!(

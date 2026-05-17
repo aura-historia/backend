@@ -58,7 +58,6 @@ const LAMBDA_BINARIES: &[&str] = &[
     "webhook-api",
     "search-filter-api",
     "notification-send",
-    "product-lambda-materialize-dynamodb",
     "product-lambda-materialize-opensearch",
     "product-pipeline-embed-text",
     "product-pipeline-translate",

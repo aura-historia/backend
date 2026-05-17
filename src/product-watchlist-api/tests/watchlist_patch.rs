@@ -10,6 +10,7 @@ use product::data::user_state_data::ProductUserStateData;
 use product::dynamodb::product_record::ProductRecord;
 use product::dynamodb::repository::ProductDynamoDbRepository;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
+use product::dynamodb::test_utils::ProductRecordSeedExt;
 use product::service::get_service::GetProductServiceImpl;
 use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::dynamodb::record::WatchlistProductRecord;
@@ -81,7 +82,7 @@ async fn should_respond_with_patched_notifications(
 
     let product_record = Faker.fake::<ProductRecord>();
     let put_product_res = product_repository
-        .put_product_records([product_record.clone()].into())
+        .transact_write_product_records_as_events([product_record.clone()])
         .await
         .unwrap();
     assert!(

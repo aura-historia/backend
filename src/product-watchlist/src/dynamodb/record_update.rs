@@ -5,7 +5,7 @@ use serde_fields::SerdeField;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
-pub struct WatchlistProductRecordUpdate {
+pub struct WatchlistProductUpdateRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notifications: Option<bool>,
 
@@ -16,11 +16,11 @@ pub struct WatchlistProductRecordUpdate {
     pub updated: OffsetDateTime,
 }
 
-impl DynamoDbUpdate for WatchlistProductRecordUpdate {}
+impl DynamoDbUpdate for WatchlistProductUpdateRecord {}
 
-impl WatchlistProductRecordUpdate {
-    pub fn from_cmd(cmd: UpdateWatchlistProductCommand) -> WatchlistProductRecordUpdate {
-        WatchlistProductRecordUpdate {
+impl WatchlistProductUpdateRecord {
+    pub fn from_cmd(cmd: UpdateWatchlistProductCommand) -> WatchlistProductUpdateRecord {
+        WatchlistProductUpdateRecord {
             notifications: cmd.notifications,
             state: cmd.state.map(ResourceStateRecord::from),
             updated: OffsetDateTime::now_utc(),

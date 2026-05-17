@@ -2,7 +2,7 @@ use common::{pagination::cursor::Cursor, product_id::ProductId, user_id::UserId}
 use fake::{Fake, Faker};
 use product_watchlist::dynamodb::{
     record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_pk},
-    record_update::WatchlistProductRecordUpdate,
+    record_update::WatchlistProductUpdateRecord,
     repository::{WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl},
 };
 use std::time::Duration;
@@ -259,7 +259,7 @@ fn should_set_notifications_true_for_update() {
             &initial.user_id,
             &initial.shop_id,
             &initial.shops_product_id,
-            WatchlistProductRecordUpdate {
+            WatchlistProductUpdateRecord {
                 notifications: Some(true),
                 state: None,
                 updated,
@@ -300,7 +300,7 @@ fn should_set_notifications_false_for_update() {
             &initial.user_id,
             &initial.shop_id,
             &initial.shops_product_id,
-            WatchlistProductRecordUpdate {
+            WatchlistProductUpdateRecord {
                 notifications: Some(false),
                 state: None,
                 updated,

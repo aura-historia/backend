@@ -5,6 +5,7 @@ use common::personalized::api::PersonalizedData;
 use common::resource_state::record::ResourceStateRecord;
 use common::utm::append_utm_params;
 use common::{
+    aggregate::Aggregate,
     batch::Batch,
     currency::{data::CurrencyData, domain::Currency},
     event::Event,
@@ -44,8 +45,10 @@ use partner_shop_application::data::{
 use product::data::get_data::GetProductData;
 use product::data::user_state_data::ProductUserStateData;
 use product::dynamodb::product_record;
+use product::dynamodb::test_utils::ProductRecordSeedExt;
 use product::{
     core::{
+        product::Product,
         product_event::{
             ProductEvent, ProductEventPayload,
             domain::{
@@ -1056,614 +1059,6 @@ async fn wait_until_document_deleted(user_search_filter_id: impl Into<String>) {
 }
 
 // ---------------------------------------------------------------------------
-// Product ingest: DynamoDB materialization
-// Verifies EventBridge routing and Lambda IAM access for each event type.
-// ---------------------------------------------------------------------------
-
-#[localstack_test(services = [Cloudformation()])]
-async fn should_materialize_product_in_dynamodb_when_put_new_item() {
-    let stack = get_cfn_output();
-    let shop = prepare_test_shop().await;
-    let mut create_cmd: CreateProductCommand = Faker.fake();
-    create_cmd.shop_id = shop.shop_id;
-
-    create_products(vec![create_cmd.clone()]).await;
-
-    let repository = ProductDynamoDbRepositoryImpl::new(
-        get_dynamodb_client().await,
-        &stack.dynamodb_table_1_name,
-    );
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        let materialized = repository
-            .get_product_record(&shop.shop_id, &create_cmd.shops_product_id)
-            .await
-            .unwrap();
-
-        if let Some(materialized) = materialized {
-            assert_eq!(shop.shop_id, materialized.shop_id);
-            assert_eq!(create_cmd.shops_product_id, materialized.shops_product_id);
-            assert_eq!(create_cmd.url, materialized.url);
-            break;
-        }
-
-        if Instant::now() >= deadline {
-            panic!(
-                "Timeout: ProductRecord for shop '{}' / product '{}' not found in DynamoDB after 60s",
-                shop.shop_id, create_cmd.shops_product_id
-            );
-        }
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
-}
-
-#[localstack_test(services = [Cloudformation()])]
-async fn should_materialize_product_in_dynamodb_for_domain_event() {
-    let stack = get_cfn_output();
-    let shop = prepare_test_shop().await;
-    let repository = ProductDynamoDbRepositoryImpl::new(
-        get_dynamodb_client().await,
-        &stack.dynamodb_table_1_name,
-    );
-
-    let mut materialized_old: ProductRecord = Faker.fake();
-    materialized_old.pk = mk_pk(&shop.shop_id, &materialized_old.shops_product_id);
-    materialized_old.shop_id = shop.shop_id;
-    materialized_old
-        .url
-        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
-        .unwrap();
-    let insert_res = repository
-        .put_product_records([materialized_old.clone()].into())
-        .await
-        .unwrap();
-    assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
-    tokio::time::sleep(Duration::from_secs(3)).await;
-
-    let new_state: ProductState = match materialized_old.state {
-        ProductStateRecord::Available => ProductState::Sold,
-        _ => ProductState::Available,
-    };
-    let product_key = ProductKey {
-        shop_id: shop.shop_id,
-        shops_product_id: materialized_old.shops_product_id.clone(),
-    };
-    let update_cmd = UpdateProductCommand {
-        state: Some(new_state),
-        ..empty_update_product_command()
-    };
-
-    update_products(HashMap::from([(product_key.clone(), update_cmd)])).await;
-
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        let materialized = repository
-            .get_product_record(&shop.shop_id, &materialized_old.shops_product_id)
-            .await
-            .unwrap();
-
-        if let Some(materialized) = materialized
-            && new_state == ProductState::from(materialized.state)
-        {
-            assert_eq!(shop.shop_id, materialized.shop_id);
-            assert_eq!(new_state, ProductState::from(materialized.state));
-            break;
-        }
-
-        if Instant::now() >= deadline {
-            panic!(
-                "Timeout: ProductRecord for shop '{}' / product '{}' not updated with expected state after 60s",
-                shop.shop_id, materialized_old.shops_product_id
-            );
-        }
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
-}
-
-#[localstack_test(services = [Cloudformation()])]
-async fn should_materialize_product_in_dynamodb_for_estimate_price_changed_event() {
-    let stack = get_cfn_output();
-    let shop = prepare_test_shop().await;
-    let repository = ProductDynamoDbRepositoryImpl::new(
-        get_dynamodb_client().await,
-        &stack.dynamodb_table_1_name,
-    );
-
-    let mut materialized_old: ProductRecord = Faker.fake();
-    materialized_old.pk = mk_pk(&shop.shop_id, &materialized_old.shops_product_id);
-    materialized_old.shop_id = shop.shop_id;
-    materialized_old.price_estimate_min_native = None;
-    materialized_old.price_estimate_max_native = None;
-    materialized_old
-        .url
-        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
-        .unwrap();
-    let insert_res = repository
-        .put_product_records([materialized_old.clone()].into())
-        .await
-        .unwrap();
-    assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
-    tokio::time::sleep(Duration::from_secs(3)).await;
-
-    let new_min_price = Price::new(1000u64.into(), Currency::Eur);
-    let new_max_price = Price::new(5000u64.into(), Currency::Eur);
-    let product_key = ProductKey {
-        shop_id: shop.shop_id,
-        shops_product_id: materialized_old.shops_product_id.clone(),
-    };
-    let update_cmd = UpdateProductCommand {
-        native_price: materialized_old.price_native.map(|p| p.into()),
-        state: Some(materialized_old.state.into()),
-        native_price_estimate_min: Some(new_min_price),
-        native_price_estimate_max: Some(new_max_price),
-        ..empty_update_product_command()
-    };
-
-    update_products(HashMap::from([(product_key.clone(), update_cmd)])).await;
-
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        let materialized = repository
-            .get_product_record(&shop.shop_id, &materialized_old.shops_product_id)
-            .await
-            .unwrap();
-
-        if let Some(materialized) = materialized
-            && materialized.price_estimate_min_native.is_some()
-        {
-            assert_eq!(
-                new_min_price,
-                materialized.price_estimate_min_native.unwrap().into()
-            );
-            assert_eq!(
-                new_max_price,
-                materialized.price_estimate_max_native.unwrap().into()
-            );
-            break;
-        }
-
-        if Instant::now() >= deadline {
-            panic!(
-                "Timeout: ProductRecord for shop '{}' / product '{}' not updated with estimate prices after 60s",
-                shop.shop_id, materialized_old.shops_product_id
-            );
-        }
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
-}
-
-#[localstack_test(services = [Cloudformation()])]
-async fn should_materialize_product_in_dynamodb_for_url_changed_event() {
-    let stack = get_cfn_output();
-    let shop = prepare_test_shop().await;
-    let repository = ProductDynamoDbRepositoryImpl::new(
-        get_dynamodb_client().await,
-        &stack.dynamodb_table_1_name,
-    );
-
-    let mut materialized_old: ProductRecord = Faker.fake();
-    materialized_old.pk = mk_pk(&shop.shop_id, &materialized_old.shops_product_id);
-    materialized_old.shop_id = shop.shop_id;
-    let domain = shop.domains.into_iter().next().unwrap();
-    materialized_old
-        .url
-        .set_host(Some(domain.as_str()))
-        .unwrap();
-    let insert_res = repository
-        .put_product_records([materialized_old.clone()].into())
-        .await
-        .unwrap();
-    assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
-    tokio::time::sleep(Duration::from_secs(3)).await;
-
-    let new_url = url::Url::parse(&format!("https://{}/new-product-url", domain)).unwrap();
-    let product_key = ProductKey {
-        shop_id: shop.shop_id,
-        shops_product_id: materialized_old.shops_product_id.clone(),
-    };
-    let update_cmd = UpdateProductCommand {
-        native_price: materialized_old.price_native.map(|p| p.into()),
-        state: Some(materialized_old.state.into()),
-        url: Some(new_url.clone()),
-        ..empty_update_product_command()
-    };
-
-    update_products(HashMap::from([(product_key.clone(), update_cmd)])).await;
-
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        let materialized = repository
-            .get_product_record(&shop.shop_id, &materialized_old.shops_product_id)
-            .await
-            .unwrap();
-
-        if let Some(materialized) = materialized
-            && materialized.url == new_url
-        {
-            assert_eq!(new_url, materialized.url);
-            break;
-        }
-
-        if Instant::now() >= deadline {
-            panic!(
-                "Timeout: ProductRecord for shop '{}' / product '{}' not updated with new url after 60s",
-                shop.shop_id, materialized_old.shops_product_id
-            );
-        }
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
-}
-
-#[localstack_test(services = [Cloudformation()])]
-async fn should_materialize_product_in_dynamodb_for_images_changed_event() {
-    let stack = get_cfn_output();
-    let shop = prepare_test_shop().await;
-    let repository = ProductDynamoDbRepositoryImpl::new(
-        get_dynamodb_client().await,
-        &stack.dynamodb_table_1_name,
-    );
-
-    let mut materialized_old: ProductRecord = Faker.fake();
-    materialized_old.pk = mk_pk(&shop.shop_id, &materialized_old.shops_product_id);
-    materialized_old.shop_id = shop.shop_id;
-    materialized_old.images = vec![];
-    materialized_old
-        .url
-        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
-        .unwrap();
-    let insert_res = repository
-        .put_product_records([materialized_old.clone()].into())
-        .await
-        .unwrap();
-    assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
-    tokio::time::sleep(Duration::from_secs(3)).await;
-
-    let new_images: Vec<ProductImage> = fake::vec![ProductImage; 2];
-    let product_key = ProductKey {
-        shop_id: shop.shop_id,
-        shops_product_id: materialized_old.shops_product_id.clone(),
-    };
-    let update_cmd = UpdateProductCommand {
-        native_price: materialized_old.price_native.map(|p| p.into()),
-        state: Some(materialized_old.state.into()),
-        images: Some(new_images.clone()),
-        ..empty_update_product_command()
-    };
-
-    update_products(HashMap::from([(product_key.clone(), update_cmd)])).await;
-
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        let materialized = repository
-            .get_product_record(&shop.shop_id, &materialized_old.shops_product_id)
-            .await
-            .unwrap();
-
-        if let Some(materialized) = materialized
-            && materialized.images.len() == 2
-        {
-            let materialized_images: Vec<ProductImage> =
-                materialized.images.into_iter().map(|i| i.into()).collect();
-            // `prohibited_content` is now managed by the domain's heuristic and
-            // will differ from the caller-provided value; compare only URLs.
-            let materialized_urls: Vec<&url::Url> =
-                materialized_images.iter().map(|i| &i.url).collect();
-            let expected_urls: Vec<&url::Url> = new_images.iter().map(|i| &i.url).collect();
-            assert_eq!(expected_urls, materialized_urls);
-            break;
-        }
-
-        if Instant::now() >= deadline {
-            panic!(
-                "Timeout: ProductRecord for shop '{}' / product '{}' not updated with new images after 60s",
-                shop.shop_id, materialized_old.shops_product_id
-            );
-        }
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
-}
-
-#[localstack_test(services = [Cloudformation()])]
-async fn should_materialize_product_in_dynamodb_for_auction_time_changed_event() {
-    let stack = get_cfn_output();
-    let shop = prepare_test_shop().await;
-    let repository = ProductDynamoDbRepositoryImpl::new(
-        get_dynamodb_client().await,
-        &stack.dynamodb_table_1_name,
-    );
-
-    let mut materialized_old: ProductRecord = Faker.fake();
-    materialized_old.pk = mk_pk(&shop.shop_id, &materialized_old.shops_product_id);
-    materialized_old.shop_id = shop.shop_id;
-    materialized_old.auction_start = None;
-    materialized_old.auction_end = None;
-    materialized_old
-        .url
-        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
-        .unwrap();
-    let insert_res = repository
-        .put_product_records([materialized_old.clone()].into())
-        .await
-        .unwrap();
-    assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
-    tokio::time::sleep(Duration::from_secs(3)).await;
-
-    let new_start = OffsetDateTime::now_utc();
-    let new_end = new_start + time::Duration::days(7);
-    let product_key = ProductKey {
-        shop_id: shop.shop_id,
-        shops_product_id: materialized_old.shops_product_id.clone(),
-    };
-    let update_cmd = UpdateProductCommand {
-        native_price: materialized_old.price_native.map(|p| p.into()),
-        state: Some(materialized_old.state.into()),
-        auction_start: Some(new_start),
-        auction_end: Some(new_end),
-        ..empty_update_product_command()
-    };
-
-    update_products(HashMap::from([(product_key.clone(), update_cmd)])).await;
-
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        let materialized = repository
-            .get_product_record(&shop.shop_id, &materialized_old.shops_product_id)
-            .await
-            .unwrap();
-
-        if let Some(materialized) = materialized
-            && materialized.auction_start.is_some()
-        {
-            assert!(materialized.auction_start.is_some());
-            assert!(materialized.auction_end.is_some());
-            break;
-        }
-
-        if Instant::now() >= deadline {
-            panic!(
-                "Timeout: ProductRecord for shop '{}' / product '{}' not updated with auction times after 60s",
-                shop.shop_id, materialized_old.shops_product_id
-            );
-        }
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
-}
-
-#[localstack_test(services = [Cloudformation()])]
-async fn should_materialize_product_in_dynamodb_for_enrichment_event() {
-    let stack = get_cfn_output();
-    let shop = prepare_test_shop().await;
-    let repository = ProductDynamoDbRepositoryImpl::new(
-        get_dynamodb_client().await,
-        &stack.dynamodb_table_1_name,
-    );
-
-    let mut materialized_old: ProductRecord = Faker.fake();
-    materialized_old.embedding = None;
-    materialized_old.pk = mk_pk(&shop.shop_id, &materialized_old.shops_product_id);
-    materialized_old.shop_id = shop.shop_id;
-    materialized_old
-        .url
-        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
-        .unwrap();
-    let insert_res = repository
-        .put_product_records([materialized_old.clone()].into())
-        .await
-        .unwrap();
-    assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
-    tokio::time::sleep(Duration::from_secs(3)).await;
-
-    let embedding = vec![0.4269f32; 768];
-    let product_event_records = Batch::try_from_iter([ProductEventRecord::from(ProductEvent {
-        aggregate_id: materialized_old.product_id,
-        event_id: materialized_old.event_id,
-        timestamp: OffsetDateTime::now_utc(),
-        payload: ProductEventPayload::ProductEnrichmentEvent(
-            ProductEnrichmentEventPayload::Embedded(EmbeddedProductEnrichmentEventPayload {
-                shop_id: materialized_old.shop_id,
-                seller_id: materialized_old.seller_id,
-                shops_product_id: materialized_old.shops_product_id.clone(),
-                embedding: embedding.clone(),
-                native_title: None,
-            }),
-        ),
-    })])
-    .unwrap();
-    repository
-        .put_product_event_records(product_event_records)
-        .await
-        .unwrap();
-
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        let materialized = repository
-            .get_product_record(&shop.shop_id, &materialized_old.shops_product_id)
-            .await
-            .unwrap();
-
-        if let Some(materialized) = materialized
-            && let Some(actual_embedding) = materialized.embedding
-        {
-            assert_eq!(embedding, actual_embedding);
-            break;
-        }
-
-        if Instant::now() >= deadline {
-            panic!(
-                "Timeout: ProductRecord for shop '{}' / product '{}' not updated with embedding after 60s",
-                materialized_old.shop_id, materialized_old.shops_product_id
-            );
-        }
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
-}
-
-// Verifies the full translate-lambda wiring:
-// DOMAIN_CREATED event → DDB stream → EventBridge → translate Lambda
-// → ENRICHMENT_TRANSLATED_TITLE events → DDB stream → EventBridge
-// → materialize-dynamodb-update Lambda → ProductRecord.title_en populated.
-#[localstack_test(services = [Cloudformation()])]
-async fn should_materialize_translated_titles_in_dynamodb_when_domain_created_event() {
-    use common::language::record::{LanguageRecord, TextRecord};
-
-    let stack = get_cfn_output();
-    let shop = prepare_test_shop().await;
-    let repository = ProductDynamoDbRepositoryImpl::new(
-        get_dynamodb_client().await,
-        &stack.dynamodb_table_1_name,
-    );
-
-    // Seed a product record with a German native title; English translation not yet present.
-    let mut materialized_old: ProductRecord = Faker.fake();
-    materialized_old.pk = mk_pk(&shop.shop_id, &materialized_old.shops_product_id);
-    materialized_old.shop_id = shop.shop_id;
-    materialized_old
-        .url
-        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
-        .unwrap();
-    materialized_old.title_native = TextRecord {
-        text: "Alter Tisch".to_string(),
-        language: LanguageRecord::De,
-    };
-    materialized_old.title_en = None;
-    let insert_res = repository
-        .put_product_records([materialized_old.clone()].into())
-        .await
-        .unwrap();
-    assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
-    tokio::time::sleep(Duration::from_secs(3)).await;
-
-    // Write a DOMAIN_CREATED event — this triggers the translate lambda via DDB stream.
-    let mut created_payload: ProductCreatedDomainEventPayload = Faker.fake();
-    created_payload.shop_id = materialized_old.shop_id;
-    created_payload.seller_id = materialized_old.seller_id;
-    created_payload.shops_product_id = materialized_old.shops_product_id.clone();
-    let product_event_records = Batch::try_from_iter([ProductEventRecord::from(ProductEvent {
-        aggregate_id: materialized_old.product_id,
-        event_id: EventId::new(),
-        timestamp: OffsetDateTime::now_utc(),
-        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::Created(
-            created_payload,
-        )),
-    })])
-    .unwrap();
-    repository
-        .put_product_event_records(product_event_records)
-        .await
-        .unwrap();
-
-    // Wait for translate Lambda → ENRICHMENT_TRANSLATED_TITLE → materialize-dynamodb-update Lambda.
-    // MockTranslationService (active when LOCALSTACK_HOSTNAME is set) always returns "Antique chair"
-    // for English.
-    let deadline = Instant::now() + Duration::from_secs(120);
-    loop {
-        let materialized = repository
-            .get_product_record(&shop.shop_id, &materialized_old.shops_product_id)
-            .await
-            .unwrap();
-
-        if let Some(materialized) = materialized
-            && materialized.title_en.is_some()
-        {
-            assert_eq!(Some("Antique chair".to_string()), materialized.title_en);
-            break;
-        }
-
-        if Instant::now() >= deadline {
-            panic!(
-                "Timeout: ProductRecord for shop '{}' / product '{}' not updated with translated title after 120s",
-                materialized_old.shop_id, materialized_old.shops_product_id
-            );
-        }
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
-}
-
-#[localstack_test(services = [Cloudformation()])]
-async fn should_materialize_product_in_dynamodb_for_policy_event() {
-    let stack = get_cfn_output();
-    let shop = prepare_test_shop().await;
-    let repository = ProductDynamoDbRepositoryImpl::new(
-        get_dynamodb_client().await,
-        &stack.dynamodb_table_1_name,
-    );
-
-    let mut materialized_old: ProductRecord = Faker.fake();
-    materialized_old.pk = mk_pk(&shop.shop_id, &materialized_old.shops_product_id);
-    materialized_old.shop_id = shop.shop_id;
-    materialized_old
-        .url
-        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
-        .unwrap();
-    materialized_old.images = fake::vec![ProductImageRecord; 3]
-        .into_iter()
-        .map(|mut img| {
-            img.prohibited_content = ProhibitedContentRecord::Unknown;
-            img
-        })
-        .collect();
-    let insert_res = repository
-        .put_product_records([materialized_old.clone()].into())
-        .await
-        .unwrap();
-    assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
-    tokio::time::sleep(Duration::from_secs(3)).await;
-
-    let product_event_records = Batch::try_from_iter([ProductEventRecord::from(ProductEvent {
-        aggregate_id: materialized_old.product_id,
-        event_id: materialized_old.event_id,
-        timestamp: OffsetDateTime::now_utc(),
-        payload: ProductEventPayload::ProductPolicyEvent(
-            ProductPolicyEventPayload::ProhibitedContentDecision(
-                ProhibitedContentProductPolicyEventPayload {
-                    shop_id: materialized_old.shop_id,
-                    seller_id: materialized_old.seller_id,
-                    shops_product_id: materialized_old.shops_product_id.clone(),
-                    decision: ProhibitedContent::NaziGermany,
-                    reason: ProhibitedContentReason::ProductText,
-                },
-            ),
-        ),
-    })])
-    .unwrap();
-    repository
-        .put_product_event_records(product_event_records)
-        .await
-        .unwrap();
-
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        let materialized = repository
-            .get_product_record(&shop.shop_id, &materialized_old.shops_product_id)
-            .await
-            .unwrap();
-
-        if let Some(materialized) = materialized
-            && materialized
-                .images
-                .iter()
-                .any(|img| img.prohibited_content == ProhibitedContentRecord::NaziGermany)
-        {
-            assert!(
-                materialized
-                    .images
-                    .iter()
-                    .all(|img| img.prohibited_content == ProhibitedContentRecord::NaziGermany)
-            );
-            break;
-        }
-
-        if Instant::now() >= deadline {
-            panic!(
-                "Timeout: ProductRecord for shop '{}' / product '{}' not updated with policy decision after 60s",
-                materialized_old.shop_id, materialized_old.shops_product_id
-            );
-        }
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
-}
-
-// ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // User account
 // Verifies the Cognito post-confirmation Lambda trigger writes to DynamoDB,
@@ -1862,13 +1257,11 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
         get_dynamodb_client().await,
         &stack.dynamodb_table_1_name,
     );
-    assert!(
-        product_repository
-            .get_product_record(&shop.shop_id, &create_cmd.shops_product_id)
-            .await
-            .unwrap()
-            .is_some()
-    );
+    let product_events = product_repository
+        .query_product_event_records(&shop.shop_id, &create_cmd.shops_product_id)
+        .await
+        .unwrap();
+    assert!(!product_events.is_empty());
 
     // Create and configure user
     let user = create_test_user("watchlist-test@example.com").await;
@@ -2069,7 +1462,7 @@ async fn should_respond_200_when_anon_and_product_does_exist_for_ids() {
     );
     let record = Faker.fake::<ProductRecord>();
     let insert_res = repository
-        .put_product_records([record.clone()].into())
+        .transact_write_product_records_as_events([record.clone()])
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -2111,7 +1504,7 @@ async fn should_respond_200_when_anon_and_product_does_exist_for_slug_ids() {
     );
     let record = Faker.fake::<ProductRecord>();
     let insert_res = repository
-        .put_product_records([record.clone()].into())
+        .transact_write_product_records_as_events([record.clone()])
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -2148,7 +1541,7 @@ async fn should_respond_200_for_product_history() {
     );
     let record = Faker.fake::<ProductRecord>();
     let insert_res = product_repository
-        .put_product_records([record.clone()].into())
+        .transact_write_product_records_as_events([record.clone()])
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -2232,7 +1625,7 @@ async fn should_respond_200_personalized_when_authenticated_and_product_exists_f
     );
     let record = Faker.fake::<ProductRecord>();
     let insert_res = repository
-        .put_product_records([record.clone()].into())
+        .transact_write_product_records_as_events([record.clone()])
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -2281,7 +1674,7 @@ async fn should_respond_200_personalized_when_authenticated_and_product_exists_f
     );
     let record = Faker.fake::<ProductRecord>();
     let insert_res = repository
-        .put_product_records([record.clone()].into())
+        .transact_write_product_records_as_events([record.clone()])
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -2340,7 +1733,7 @@ async fn should_respond_202_when_similar_products_embedding_not_computed() {
     let mut product_record: ProductRecord = Faker.fake();
     product_record.embedding = None;
     let ddb_insert_res = product_dynamodb_repository
-        .put_product_records([product_record.clone()].into())
+        .transact_write_product_records_as_events([product_record.clone()])
         .await
         .unwrap();
     assert!(
@@ -2396,7 +1789,7 @@ async fn should_respond_200_when_similar_products_computed_for_anon() {
     let mut product_record: ProductRecord = Faker.fake();
     product_record.embedding = Some(EXAMPLE_EMBEDDING.into());
     let ddb_insert_res = product_dynamodb_repository
-        .put_product_records([product_record.clone()].into())
+        .transact_write_product_records_as_events([product_record.clone()])
         .await
         .unwrap();
     assert!(
@@ -2495,7 +1888,7 @@ async fn should_respond_200_and_personalize_similar_products_for_authenticated()
     product_record.embedding = Some(EXAMPLE_EMBEDDING.into());
     let product_records = fake::vec![ProductRecord; 5];
     let ddb_insert_res = product_dynamodb_repository
-        .put_product_records(
+        .transact_write_product_records_as_events(
             [vec![product_record.clone()], product_records.clone()]
                 .concat()
                 .try_into()
@@ -2610,7 +2003,7 @@ async fn should_post_get_patch_delete_watchlist_product() {
     );
     let materialized = Faker.fake::<ProductRecord>();
     let put_res = repository
-        .put_product_records([materialized.clone()].into())
+        .transact_write_product_records_as_events([materialized.clone()])
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
@@ -4126,44 +3519,43 @@ async fn should_embed_product_when_domain_created_event_triggers_pipeline() {
 
     create_products(vec![create_cmd.clone()]).await;
 
-    // 2. Wait for product to be materialized first
+    // 2. Wait for the product event stream first
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
-        let materialized = repository
-            .get_product_record(&shop.shop_id, &create_cmd.shops_product_id)
+        let event_records = repository
+            .query_product_event_records(&shop.shop_id, &create_cmd.shops_product_id)
             .await
             .unwrap();
 
-        if materialized.is_some() {
+        if !event_records.is_empty() {
             break;
         }
 
         if Instant::now() >= deadline {
             panic!(
-                "Timeout: ProductRecord for shop '{}' / product '{}' not materialized after 60s",
+                "Timeout: product event stream for shop '{}' / product '{}' not created after 60s",
                 shop.shop_id, create_cmd.shops_product_id
             );
         }
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
 
-    // 3. Wait for the embed-text Lambda to produce an enrichment event
-    //    which the materialize-dynamodb Lambda then materializes into the product record.
+    // 3. Wait for the embed-text Lambda to produce an enrichment event.
     //    The MockMultimodalEmbeddingService returns vec![0.42f32; 768].
     let expected_embedding = vec![0.42f32; 768];
     let deadline = Instant::now() + Duration::from_secs(120);
     loop {
-        let materialized = repository
-            .get_product_record(&shop.shop_id, &create_cmd.shops_product_id)
+        let event_records = repository
+            .query_product_event_records(&shop.shop_id, &create_cmd.shops_product_id)
             .await
             .unwrap();
 
-        if let Some(record) = materialized
-            && record.embedding.is_some()
-        {
+        if let Some(embedding) = event_records.into_iter().find_map(|record| match record {
+            ProductEventRecord::Enrichment(record) => record.embedding,
+            _ => None,
+        }) {
             assert_eq!(
-                expected_embedding,
-                record.embedding.unwrap(),
+                expected_embedding, embedding,
                 "Embedding should match MockMultimodalEmbeddingService output"
             );
             break;
@@ -4203,7 +3595,7 @@ async fn should_respond_200_for_partner_patch_products() {
     product_record.sk = product_record::mk_sk().to_owned();
     product_record.state = product::dynamodb::product_state_record::ProductStateRecord::Available;
     product_repository
-        .put_product_records([product_record].into())
+        .transact_write_product_records_as_events([product_record])
         .await
         .unwrap();
 
@@ -4278,7 +3670,7 @@ async fn should_respond_200_for_partner_put_products_when_updating_existing() {
     product_record.sk = product_record::mk_sk().to_owned();
     product_record.state = product::dynamodb::product_state_record::ProductStateRecord::Available;
     product_repository
-        .put_product_records([product_record].into())
+        .transact_write_product_records_as_events([product_record])
         .await
         .unwrap();
 
@@ -5665,11 +5057,8 @@ async fn put_shopify_event(topic: &str, product_id: u64) {
     );
 }
 
-/// Polls DynamoDB until the product record for the given shop_id / product_id appears (or times out).
-async fn wait_for_shopify_product(
-    shop_id: common::shop_id::ShopId,
-    product_id: u64,
-) -> product::dynamodb::product_record::ProductRecord {
+/// Polls DynamoDB until the product event stream for the given shop_id / product_id appears (or times out).
+async fn wait_for_shopify_product(shop_id: common::shop_id::ShopId, product_id: u64) -> Product {
     let stack = get_cfn_output();
     let dynamodb_client = get_dynamodb_client().await;
     let product_repo =
@@ -5678,17 +5067,22 @@ async fn wait_for_shopify_product(
     let shops_product_id = common::shops_product_id::ShopsProductId::from(product_id.to_string());
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
-        if let Some(record) = product_repo
-            .get_product_record(&shop_id, &shops_product_id)
+        let event_records = product_repo
+            .query_product_event_records(&shop_id, &shops_product_id)
             .await
-            .unwrap()
-        {
-            return record;
+            .unwrap();
+        if !event_records.is_empty() {
+            let events = event_records
+                .into_iter()
+                .filter_map(|record| ProductEvent::try_from(record).ok());
+            if let Ok(product) = Product::replay(events) {
+                return product;
+            }
         }
 
         if Instant::now() >= deadline {
             panic!(
-                "Timeout: product '{product_id}' not found in DynamoDB for shop '{shop_id}' after 60s"
+                "Timeout: product '{product_id}' event stream not found in DynamoDB for shop '{shop_id}' after 60s"
             );
         }
         tokio::time::sleep(Duration::from_secs(3)).await;
@@ -5750,14 +5144,14 @@ async fn should_set_product_removed_in_dynamodb_when_shopify_delete_event() {
     let shops_product_id = common::shops_product_id::ShopsProductId::from(PRODUCT_ID.to_string());
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
-        if product_repo
-            .get_product_record(&shop_id, &shops_product_id)
+        let event_records = product_repo
+            .query_product_event_records(&shop_id, &shops_product_id)
             .await
-            .unwrap()
-            .is_some_and(|r| {
-                r.state == product::dynamodb::product_state_record::ProductStateRecord::Removed
-            })
-        {
+            .unwrap();
+        let events = event_records
+            .into_iter()
+            .filter_map(|record| ProductEvent::try_from(record).ok());
+        if Product::replay(events).is_ok_and(|product| product.state == ProductState::Removed) {
             break;
         }
 

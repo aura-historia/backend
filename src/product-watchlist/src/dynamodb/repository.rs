@@ -1,6 +1,6 @@
 use crate::{
     dynamodb::record::{WatchlistProductRecord, mk_gsi1_pk, mk_lsi1_sk, mk_pk, mk_sk},
-    dynamodb::record_update::WatchlistProductRecordUpdate,
+    dynamodb::record_update::WatchlistProductUpdateRecord,
 };
 use aws_sdk_dynamodb::{
     Client,
@@ -68,7 +68,7 @@ pub trait WatchlistProductDynamoDbRepository {
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-        update: WatchlistProductRecordUpdate,
+        update: WatchlistProductUpdateRecord,
     ) -> Result<Option<WatchlistProductRecord>, SdkError<UpdateItemError>>;
 
     async fn query_user_ids_watching_product(
@@ -308,7 +308,7 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-        update: WatchlistProductRecordUpdate,
+        update: WatchlistProductUpdateRecord,
     ) -> Result<Option<WatchlistProductRecord>, SdkError<UpdateItemError>> {
         let update_expr = update.into_update_expr()?;
 

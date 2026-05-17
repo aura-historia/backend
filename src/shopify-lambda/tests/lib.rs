@@ -14,6 +14,7 @@ use product::dynamodb::product_event_type_record::domain::ProductDomainEventType
 use product::dynamodb::product_record::ProductRecord;
 use product::dynamodb::product_state_record::ProductStateRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
+use product::dynamodb::test_utils::ProductRecordSeedExt;
 use product::service::command_service::CommandProductServiceImpl;
 use serde_json::{Value, json};
 use shop::dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl};
@@ -202,7 +203,7 @@ async fn seed_product_record(
     record.sk = product::dynamodb::product_record::mk_sk().to_owned();
     record.state = state;
     product_repo
-        .put_product_records(Batch::from([record.clone()]))
+        .transact_write_product_records_as_events(Batch::from([record.clone()]))
         .await
         .unwrap();
     record
@@ -235,9 +236,7 @@ async fn query_events(
 // ─── Tests ───────────────────────────────────────────────────────────────────
 //
 // The `upsert()` service method writes `ProductEventRecord` entries to DynamoDB.
-// A `ProductRecord` (materialized product state) is only created later by the
-// product-lambda-materialize-dynamodb Lambda via DynamoDB Streams. Integration
-// tests therefore assert on domain event records, not on the materialized record.
+// Integration tests assert on domain event records, not on derived product state.
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_write_domain_created_event_when_shopify_create_event_with_real_payload() {

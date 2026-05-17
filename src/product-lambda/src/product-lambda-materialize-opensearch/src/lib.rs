@@ -330,11 +330,22 @@ mod tests {
         msg
     }
 
+    fn mk_product_event_records() -> Vec<ProductEventRecord> {
+        let record = ProductDomainEventRecord::try_from(Event {
+            aggregate_id: Faker.fake(),
+            event_id: Faker.fake(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::Created(Faker.fake()),
+        })
+        .unwrap();
+        vec![ProductEventRecord::Domain(record)]
+    }
+
     fn mk_default_dynamodb_repository() -> MockProductDynamoDbRepository {
         let mut repository = MockProductDynamoDbRepository::default();
         repository
-            .expect_get_product_record()
-            .returning(move |_, _| Box::pin(async move { Ok(Some(Faker.fake())) }));
+            .expect_query_product_event_records()
+            .returning(move |_, _| Box::pin(async move { Ok(mk_product_event_records()) }));
         repository
     }
 
@@ -537,8 +548,8 @@ mod tests {
     ) {
         let mut dynamodb_repository = mk_default_dynamodb_repository();
         dynamodb_repository
-            .expect_get_product_record()
-            .returning(move |_, _| Box::pin(async move { Ok(Some(Faker.fake())) }));
+            .expect_query_product_event_records()
+            .returning(move |_, _| Box::pin(async move { Ok(mk_product_event_records()) }));
         let mut opensearch_repository = MockProductOpenSearchRepository::default();
         opensearch_repository
             .expect_create_product_documents()
@@ -628,8 +639,8 @@ mod tests {
         };
         let mut dynamodb_repository = mk_default_dynamodb_repository();
         dynamodb_repository
-            .expect_get_product_record()
-            .returning(move |_, _| Box::pin(async move { Ok(Some(Faker.fake())) }));
+            .expect_query_product_event_records()
+            .returning(move |_, _| Box::pin(async move { Ok(mk_product_event_records()) }));
         let mut opensearch_repository = MockProductOpenSearchRepository::default();
         opensearch_repository
             .expect_create_product_documents()
@@ -784,8 +795,8 @@ mod tests {
 
         let mut dynamodb_repository = mk_default_dynamodb_repository();
         dynamodb_repository
-            .expect_get_product_record()
-            .returning(move |_, _| Box::pin(async move { Ok(Some(Faker.fake())) }));
+            .expect_query_product_event_records()
+            .returning(move |_, _| Box::pin(async move { Ok(mk_product_event_records()) }));
         let mut opensearch_repository = MockProductOpenSearchRepository::default();
         opensearch_repository
             .expect_create_product_documents()

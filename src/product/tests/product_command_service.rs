@@ -15,6 +15,7 @@ use product::dynamodb::{
     product_event_record::domain::ProductDomainEventRecord,
     product_record::ProductRecord,
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
+    test_utils::transact_write_product_record_as_events,
 };
 use product::service::{
     command_service::{CommandProductService, CommandProductServiceImpl},
@@ -165,19 +166,12 @@ async fn should_not_create_duplicate_products_when_already_exist() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = command_product_service(&repository).await;
 
-    // Simulate already-materialized products by writing ProductRecord items directly.
-    // The create service checks for ProductRecord existence (not event records) to
-    // determine whether a product already exists.
     let existing_cmds = fake::vec![CreateProductCommand; 5];
     for cmd in &existing_cmds {
         let product_record = make_product_record(cmd);
-        let unprocessed = repository
-            .put_product_records([product_record].into())
+        transact_write_product_record_as_events(&repository, product_record)
             .await
-            .unwrap()
-            .unprocessed_items
-            .unwrap_or_default();
-        assert!(unprocessed.is_empty());
+            .unwrap();
     }
 
     // New products that do not yet have a ProductRecord in the table.
@@ -191,14 +185,12 @@ async fn should_not_create_duplicate_products_when_already_exist() {
 
     let items = scan_all_items().await;
 
-    // Only 3 event records should have been written (for the 3 new products).
     let event_count = items
         .iter()
         .filter(|r| r.contains_key(ProductDomainEventRecordSerdeField::EventType.as_str()))
         .count();
-    assert_eq!(3, event_count);
+    assert_eq!(8, event_count);
 
-    // All 3 event records must be creation events.
     let all_created = items
         .iter()
         .filter_map(|r| r.get(ProductDomainEventRecordSerdeField::EventType.as_str()))
@@ -214,13 +206,9 @@ async fn should_write_no_product_update_events_when_all_exist_and_no_changes() {
     let cmds = fake::vec![CreateProductCommand; 400];
     for cmd in &cmds {
         let product_record = make_product_record(cmd);
-        let unprocessed = repository
-            .put_product_records([product_record].into())
+        transact_write_product_record_as_events(&repository, product_record)
             .await
-            .unwrap()
-            .unprocessed_items
-            .unwrap_or_default();
-        assert!(unprocessed.is_empty());
+            .unwrap();
     }
 
     // Update with the exact same price and state — no changes should be detected.
@@ -251,13 +239,13 @@ async fn should_write_no_product_update_events_when_all_exist_and_no_changes() {
 
     let items = scan_all_items().await;
 
-    // No event records should have been written — only the original 400 product records.
+    // No additional event records should have been written.
     let event_count = items
         .iter()
         .filter(|r| r.contains_key(ProductDomainEventRecordSerdeField::EventType.as_str()))
         .count();
-    assert_eq!(0, event_count);
-    assert_eq!(400, items.len());
+    assert_eq!(400, event_count);
+    assert_eq!(800, items.len());
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -268,13 +256,9 @@ async fn should_write_product_updates_when_all_exist_and_actual_changes() {
     let cmds = fake::vec![CreateProductCommand; 400];
     for cmd in &cmds {
         let product_record = make_product_record(cmd);
-        let unprocessed = repository
-            .put_product_records([product_record].into())
+        transact_write_product_record_as_events(&repository, product_record)
             .await
-            .unwrap()
-            .unprocessed_items
-            .unwrap_or_default();
-        assert!(unprocessed.is_empty());
+            .unwrap();
     }
 
     // Update state to Available — products not already in Available will generate events.
@@ -310,6 +294,7 @@ async fn should_write_product_updates_when_all_exist_and_actual_changes() {
     let all_event_records_are_state_changed = items
         .iter()
         .filter_map(|record| record.get(ProductDomainEventRecordSerdeField::EventType.as_str()))
+        .filter(|val| val.as_s().unwrap() != "DOMAIN_CREATED")
         .all(|val| val.as_s().unwrap() == "DOMAIN_STATE_CHANGED");
     assert!(all_event_records_are_state_changed);
 }
@@ -389,13 +374,9 @@ async fn should_update_existing_products_via_upsert_when_all_exist() {
     let create_cmds = fake::vec![CreateProductCommand; 5];
     for cmd in &create_cmds {
         let product_record = make_product_record(cmd);
-        let unprocessed = repository
-            .put_product_records([product_record].into())
+        transact_write_product_record_as_events(&repository, product_record)
             .await
-            .unwrap()
-            .unprocessed_items
-            .unwrap_or_default();
-        assert!(unprocessed.is_empty());
+            .unwrap();
     }
 
     // Upsert with state change to trigger events
@@ -436,6 +417,7 @@ async fn should_update_existing_products_via_upsert_when_all_exist() {
                 product::dynamodb::product_event_record::domain::ProductDomainEventRecordSerdeField::EventType.as_str(),
             )
         })
+        .filter(|val| val.as_s().unwrap() != "DOMAIN_CREATED")
         .all(|val| val.as_s().unwrap() == "DOMAIN_STATE_CHANGED");
     assert!(all_event_records_are_state_changed);
 }
@@ -449,13 +431,9 @@ async fn should_create_and_update_mixed_products_via_upsert() {
     let existing_cmds = fake::vec![CreateProductCommand; 3];
     for cmd in &existing_cmds {
         let product_record = make_product_record(cmd);
-        let unprocessed = repository
-            .put_product_records([product_record].into())
+        transact_write_product_record_as_events(&repository, product_record)
             .await
-            .unwrap()
-            .unprocessed_items
-            .unwrap_or_default();
-        assert!(unprocessed.is_empty());
+            .unwrap();
     }
 
     // Build upsert commands: 3 existing (update) + 2 new (create)

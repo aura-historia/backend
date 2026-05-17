@@ -9,6 +9,7 @@ use notification::service::noop_adapters::{NoopS3Adapter, NoopSesAdapter};
 use notification::service::notification_service::NotificationServiceImpl;
 use product::data::get_data::GetProductData;
 use product::data::user_state_data::ProductUserStateData;
+use product::dynamodb::test_utils::ProductRecordSeedExt;
 use product::dynamodb::{
     product_record::ProductRecord,
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
@@ -147,7 +148,7 @@ async fn should_200_when_sort_created_asc() {
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
-        .put_product_records(product_records.clone().try_into().unwrap())
+        .transact_write_product_records_as_events(product_records.clone())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
@@ -224,7 +225,7 @@ async fn should_200_when_sort_created_asc_search_after() {
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
-        .put_product_records(product_records.clone().try_into().unwrap())
+        .transact_write_product_records_as_events(product_records.clone())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
@@ -305,7 +306,7 @@ async fn should_200_when_sort_created_desc() {
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
-        .put_product_records(product_records.clone().try_into().unwrap())
+        .transact_write_product_records_as_events(product_records.clone())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
@@ -383,7 +384,7 @@ async fn should_200_when_sort_created_desc_search_after() {
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
-        .put_product_records(product_records.clone().try_into().unwrap())
+        .transact_write_product_records_as_events(product_records.clone())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
@@ -513,7 +514,7 @@ async fn should_only_return_matches_for_specific_filter() {
 
     let product_records = fake::vec![ProductRecord; 10];
     let put_res = product_repository
-        .put_product_records(product_records.clone().try_into().unwrap())
+        .transact_write_product_records_as_events(product_records.clone())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
@@ -621,7 +622,7 @@ async fn should_hide_products_when_search_filter_match_quota_exceeded() {
     // Seed 10 match records that fill the quota — these should remain visible
     let within_quota_records = fake::vec![ProductRecord; 10];
     let put_res = product_repository
-        .put_product_records(within_quota_records.clone().try_into().unwrap())
+        .transact_write_product_records_as_events(within_quota_records.clone())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
@@ -637,7 +638,7 @@ async fn should_hide_products_when_search_filter_match_quota_exceeded() {
     // Seed 3 more match records that exceed the quota — these should be hidden
     let beyond_quota_records = fake::vec![ProductRecord; 3];
     let put_res = product_repository
-        .put_product_records(beyond_quota_records.clone().try_into().unwrap())
+        .transact_write_product_records_as_events(beyond_quota_records.clone())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());

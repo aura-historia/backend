@@ -5,6 +5,7 @@ use fxrate::service::MockFxRateService;
 use lambda_runtime::LambdaEvent;
 use product::dynamodb::product_record::{self, ProductRecord};
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
+use product::dynamodb::test_utils::ProductRecordSeedExt;
 use product::service::command_service::CommandProductServiceImpl;
 use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
 use shop::dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl};
@@ -55,7 +56,7 @@ async fn should_return_200_with_empty_errors_when_products_updated_successfully(
     product_record.sk = product_record::mk_sk().to_owned();
     product_record.state = product::dynamodb::product_state_record::ProductStateRecord::Available;
     product_repository
-        .put_product_records([product_record].into())
+        .transact_write_product_records_as_events([product_record])
         .await
         .unwrap();
 

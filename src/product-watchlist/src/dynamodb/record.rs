@@ -124,13 +124,13 @@ mod faker {
 #[cfg(test)]
 mod tests {
     use crate::dynamodb::{
-        record::WatchlistProductRecord, record_update::WatchlistProductRecordUpdate,
+        record::WatchlistProductRecord, record_update::WatchlistProductUpdateRecord,
     };
 
     #[test]
     fn should_be_subset_of_watchlist_record() {
         assert!(
-            WatchlistProductRecordUpdate::SERDE_FIELDS
+            WatchlistProductUpdateRecord::SERDE_FIELDS
                 .iter()
                 .all(|field| WatchlistProductRecord::SERDE_FIELDS.contains(field))
         )
