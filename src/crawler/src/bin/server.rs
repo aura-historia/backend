@@ -18,6 +18,8 @@
 //! | `GEMINI_API_KEY`                | API key for the Gemini LLM backend                             |
 //! | `GEMINI_MODEL`                  | Gemini model name (default: `gemini-3.1-flash-lite-preview`)   |
 //! | `GEMINI_FLEX`                   | Enable Gemini Flex inference when set to `true`                |
+//! | `GEMINI_MAX_CONCURRENT_REQUESTS`| Max in-flight crawler Gemini calls (default: `1`)              |
+//! | `GEMINI_MIN_REQUEST_INTERVAL_MS`| Minimum delay between crawler Gemini request starts (default: `2000`) |
 //! | `DYNAMODB_TABLE_NAME`           | DynamoDB table for product events                              |
 //! | `OPENSEARCH_ENDPOINT_URL`       | OpenSearch base URL                                            |
 //! | `OPENSEARCH_USERNAME`           | OpenSearch username                                            |
@@ -41,9 +43,10 @@ use aws_sdk_cloudwatchlogs::operation::create_log_group::CreateLogGroupError;
 use aws_sdk_cloudwatchlogs::operation::create_log_stream::CreateLogStreamError;
 use common::logging::GeminiServiceTier;
 use common::pagination::cursor::Cursor;
-use common::price::domain::FixedFxRate;
 use common::shop_id::ShopId;
-use crawler::google_llm::{gemini_flex_enabled, google_llm_builder};
+use crawler::google_llm::{
+    GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
+};
 use crawler::local_db::{SERVER_DB_NAME, bootstrap_local_database, server_db_url};
 use crawler::logging::{
     CloudWatchBootstrapClient, CloudWatchBootstrapError, CloudWatchLoggingConfig,
@@ -74,6 +77,8 @@ use crawler::spider::classification::url_pattern_repository::ShopUrlPatternRepos
 use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
+use fxrate::dynamodb::repository::FxRateDynamoDbRepositoryImpl;
+use fxrate::service::FxRateServiceImpl;
 use opensearch::auth::Credentials;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
@@ -393,6 +398,16 @@ async fn main() {
         } else {
             GeminiServiceTier::Standard
         });
+        let gemini_rate_limit_config = GeminiRateLimitConfig::from_env();
+        let gemini_rate_limiter = Arc::new(GeminiRateLimiter::new(gemini_rate_limit_config));
+
+        info!(
+            gemini_model = %model,
+            gemini_service_tier,
+            gemini_max_concurrent_requests = gemini_rate_limit_config.max_concurrent_requests,
+            gemini_min_request_interval_ms = gemini_rate_limit_config.min_request_interval.as_millis(),
+            "Gemini crawler rate limiter configured"
+        );
 
         let state_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
@@ -403,6 +418,7 @@ async fn main() {
             state_llm_builder,
             llm_service_tier,
             state_mapping_repo,
+            Some(Arc::clone(&gemini_rate_limiter)),
         )
         .expect("failed to build ProductStateMappingServiceImpl");
 
@@ -414,7 +430,12 @@ async fn main() {
             pool.clone(),
         ))));
         let schema_svc =
-            ProductSchemaServiceImpl::new(schema_llm_builder, llm_service_tier, schema_repo)
+            ProductSchemaServiceImpl::new(
+                schema_llm_builder,
+                llm_service_tier,
+                schema_repo,
+                Some(Arc::clone(&gemini_rate_limiter)),
+            )
                 .expect("failed to build ProductSchemaServiceImpl");
 
         let scraper_candidates = Box::new(
@@ -448,7 +469,12 @@ async fn main() {
 
         let class_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
         let class_svc = Box::new(
-            UrlClassificationServiceImpl::new(class_llm_builder, llm_service_tier).unwrap(),
+            UrlClassificationServiceImpl::new(
+                class_llm_builder,
+                llm_service_tier,
+                Some(Arc::clone(&gemini_rate_limiter)),
+            )
+            .unwrap(),
         );
 
         let pattern_svc = Box::new(UrlPatternServiceImpl::new_with_review(
@@ -493,14 +519,22 @@ async fn main() {
         )));
         let get_shop_service = Box::leak(Box::new(GetShopServiceImpl::new(shop_dynamodb_repo)));
         let seller_service = Box::leak(Box::new(MockSellerService::default()));
-        let fx_rate = Box::leak(Box::new(FixedFxRate()));
 
-        let command_product_service = Box::new(CommandProductServiceImpl::new(
-            product_dynamodb_repo,
-            fx_rate,
-            get_shop_service,
-            seller_service,
-        ));
+        let fxrate_repository = Box::leak(Box::new(FxRateDynamoDbRepositoryImpl::new(
+            Box::leak(Box::new(dynamodb.clone())),
+            table_name.clone(),
+        )));
+        let fxrate_service = FxRateServiceImpl::new_read_only(fxrate_repository);
+        let command_product_service = Box::new(
+            CommandProductServiceImpl::new(
+                product_dynamodb_repo,
+                &fxrate_service,
+                get_shop_service,
+                seller_service,
+            )
+            .await
+            .expect("shouldn't fail creating CommandProductServiceImpl (check FxRates record in DynamoDB)"),
+        );
         let product_push = Box::new(ProductPushServiceImpl::new(command_product_service));
 
         let db_max_connections = config.effective_db_max_connections();
@@ -569,8 +603,10 @@ mod tests {
             domains: [Domain::try_from(domain).unwrap()].into(),
             shopify_domain: None,
             shopify_currency: None,
+            shopify_language: None,
             woocommerce_webhook_secret: None,
             woocommerce_currency: None,
+            woocommerce_language: None,
             url: None,
             image: None,
             structured_address: None,

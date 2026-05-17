@@ -16,6 +16,7 @@ dependencies = [
  "common",
  "fake",
  "futures-util",
+ "fxrate",
  "http 1.4.0",
  "notification",
  "notification-api",
@@ -1702,6 +1703,7 @@ dependencies = [
  "dotenvy",
  "fake",
  "futures",
+ "fxrate",
  "kuchiki",
  "libc",
  "lingua",
@@ -5347,6 +5349,7 @@ dependencies = [
  "common",
  "fake",
  "field",
+ "fxrate",
  "geo",
  "html-escape",
  "isocountry",
@@ -5417,6 +5420,7 @@ dependencies = [
  "aws_lambda_events",
  "common",
  "fake",
+ "fxrate",
  "geo",
  "http 1.4.0",
  "lambda_runtime",
@@ -6922,9 +6926,9 @@ dependencies = [
 
 [[package]]
 name = "serde_qs"
-version = "1.1.1"
+version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2316d01592c3382277c5062105510e35e0a6bfb2851e30028485f7af8cf1240"
+checksum = "67d525c8ff68aa99e5818302259bdd02d86d0303710616f39c0f44846ff6d332"
 dependencies = [
  "itoa 1.0.17",
  "percent-encoding",
@@ -7222,9 +7226,9 @@ dependencies = [
  "aws_lambda_events",
  "common",
  "fake",
+ "fxrate",
  "html2text",
  "lambda_runtime",
- "lingua",
  "llm",
  "opensearch",
  "product",
@@ -9133,11 +9137,11 @@ dependencies = [
  "base64 0.22.1",
  "common",
  "fake",
+ "fxrate",
  "geo",
  "html2text",
  "http 1.4.0",
  "lambda_runtime",
- "lingua",
  "llm",
  "opensearch",
  "openssl",

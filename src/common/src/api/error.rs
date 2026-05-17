@@ -190,24 +190,25 @@ pub enum ApiErrorSourceType {
 }
 
 pub fn log_api_error(err: &ApiError) {
-    if err.is4xx() {
-        match err.cause {
-            None => warn!(status = err.status),
-            Some(ref cause) => warn!(status = err.status, error = ?cause),
-        }
-    } else if err.is5xx() {
-        if matches!(err.status, 502..=504) {
-            match err.cause {
-                None => warn!(status = err.status),
-                Some(ref cause) => warn!(status = err.status, error = ?cause),
+    let is_warn = err.is4xx() || matches!(err.status, 502..=504);
+
+    macro_rules! log {
+        ($($tt:tt)*) => {
+            if is_warn {
+                warn!($($tt)*);
+            } else {
+                error!($($tt)*);
             }
-        } else {
-            match err.cause {
-                None => error!(status = err.status),
-                Some(ref cause) => error!(status = err.status, error = ?cause),
-            }
-        }
+        };
     }
+
+    log!(
+        status = err.status,
+        code = %err.error,
+        error = err.cause.as_ref().map(|c| format!("{c:?}")),
+        source = err.source.as_ref().map(|s| format!("{s:?}")),
+        detail = err.detail.as_ref(),
+    );
 }
 
 #[cfg(feature = "dynamodb")]

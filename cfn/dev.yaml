@@ -482,6 +482,14 @@ Resources:
           - Authorization
           - Content-Type
           - Accept
+          - X-WC-Webhook-Source
+          - X-WC-Webhook-Topic
+          - X-WC-Webhook-Signature
+          - X-WC-Webhook-Resource
+          - X-WC-Webhook-Event
+          - X-WC-Webhook-ID
+          - X-WC-Webhook-Delivery-ID
+          - X-Api-Key
   ApiStage:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
@@ -711,6 +719,7 @@ Resources:
           OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
           DYNAMODB_TABLE_NAME: !Ref TableOne
           GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/dev/gemini-api-key}}"
+          GOOGLE_GEOCODING_API_KEY: !Sub "{{resolve:ssm:/secrets/dev/google-geocoding-api-key}}"
   ProductApiPartnerLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -772,6 +781,7 @@ Resources:
           OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
           DYNAMODB_TABLE_NAME: !Ref TableOne
           GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/dev/gemini-api-key}}"
+          GOOGLE_GEOCODING_API_KEY: !Sub "{{resolve:ssm:/secrets/dev/google-geocoding-api-key}}"
   WebhookApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1680,8 +1690,6 @@ Resources:
     Properties:
       ApiId: !Ref Api
       RouteKey: "PATCH /api/v1/shops/{shopId}"
-      AuthorizationType: JWT
-      AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${ShopApiLambdaIntegration}"
   ShopApiPostShopRoute:
     Type: AWS::ApiGatewayV2::Route

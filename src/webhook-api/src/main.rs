@@ -1,9 +1,10 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
-use common::price::domain::FixedFxRate;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::slug_id::SlugId;
+use fxrate::dynamodb::repository::FxRateDynamoDbRepositoryImpl;
+use fxrate::service::FxRateServiceImpl;
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use llm::builder::{LLMBackend, LLMBuilder};
@@ -80,13 +81,15 @@ async fn main() -> Result<(), Error> {
     };
 
     let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
-    let fx_rate = FixedFxRate();
+    let fxrate_repository = FxRateDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
+    let fxrate_service = FxRateServiceImpl::new_read_only(&fxrate_repository);
     let command_product_service = CommandProductServiceImpl::new(
         &product_dynamodb_repository,
-        &fx_rate,
+        &fxrate_service,
         &get_shop_service,
         seller_service.as_ref(),
-    );
+    )
+    .await?;
 
     debug!("Lambda initialized.");
 
