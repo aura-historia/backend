@@ -1,4 +1,4 @@
-use crate::review::repository::{PAGE_ROLE_TRIGGERING_REPAIR_PAGE, SchemaReviewPageInput};
+use crate::review::repository::{SchemaReviewPageInput, PAGE_ROLE_TRIGGERING_REPAIR_PAGE};
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
 };
@@ -54,6 +54,9 @@ impl ScraperServiceImpl {
 
             match try_apply_schemas(std::iter::once(&generated_schema), html) {
                 Ok((selected_schema, raw)) => {
+                    let mut persisted_schemas = existing_schemas.to_vec();
+                    persisted_schemas.push(generated_schema.clone());
+
                     if self.review_required
                         && let Some(review_repository) = &self.review_repository
                     {
@@ -61,7 +64,7 @@ impl ScraperServiceImpl {
                             .create_schema_review(
                                 shop_id,
                                 "append_schema_generation",
-                                std::slice::from_ref(&generated_schema),
+                                &persisted_schemas,
                                 vec![SchemaReviewPageInput {
                                     url: url.to_string(),
                                     role: PAGE_ROLE_TRIGGERING_REPAIR_PAGE.to_string(),
@@ -83,8 +86,6 @@ impl ScraperServiceImpl {
                             review_id,
                         });
                     }
-                    let mut persisted_schemas = existing_schemas.to_vec();
-                    persisted_schemas.push(generated_schema);
                     let saved = self
                         .schema_service
                         .save_product_schemas(shop_id, persisted_schemas)

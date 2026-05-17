@@ -1,4 +1,4 @@
-use crate::review::repository::{PAGE_ROLE_TRIGGERING_REPAIR_PAGE, SchemaReviewPageInput};
+use crate::review::repository::{SchemaReviewPageInput, PAGE_ROLE_TRIGGERING_REPAIR_PAGE};
 use crate::scraper::css_selector::product_schema::{ApplySchemaError, ProductCssSelectorSchema};
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::normalization::error::NormalizationError;
@@ -156,6 +156,9 @@ impl ScraperServiceImpl {
                 Ok((product, norm_llm_calls)) => {
                     self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, norm_llm_calls)
                         .await?;
+                    let mut persisted_schemas = ctx.existing_schemas.to_vec();
+                    persisted_schemas.push(generated_schema.clone());
+
                     if self.review_required
                         && let Some(review_repository) = &self.review_repository
                     {
@@ -163,7 +166,7 @@ impl ScraperServiceImpl {
                             .create_schema_review(
                                 ctx.shop_id,
                                 "normalization_schema_repair",
-                                std::slice::from_ref(&generated_schema),
+                                &persisted_schemas,
                                 vec![SchemaReviewPageInput {
                                     url: ctx.url.to_string(),
                                     role: PAGE_ROLE_TRIGGERING_REPAIR_PAGE.to_string(),
@@ -186,8 +189,6 @@ impl ScraperServiceImpl {
                             review_id,
                         });
                     }
-                    let mut persisted_schemas = ctx.existing_schemas.to_vec();
-                    persisted_schemas.push(generated_schema);
                     self.schema_service
                         .save_product_schemas(ctx.shop_id, persisted_schemas)
                         .await?;

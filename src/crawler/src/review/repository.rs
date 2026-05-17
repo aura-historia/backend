@@ -31,6 +31,7 @@ pub const PAGE_ROLE_TRIGGERING_REPAIR_PAGE: &str = "TRIGGERING_REPAIR_PAGE";
 pub struct CrawlerReview {
     pub review_id: uuid::Uuid,
     pub shop_id: ShopId,
+    pub shop_name: Option<String>,
     pub domain_id: Option<uuid::Uuid>,
     pub artifact_type: String,
     pub status: String,
@@ -191,12 +192,13 @@ impl CrawlerReviewRepository {
 
     pub async fn list_reviews(&self, limit: i64) -> Result<Vec<CrawlerReview>, sqlx::Error> {
         let rows = sqlx::query(
-            "SELECT review_id, shop_id, domain_id, artifact_type, status, reason,
-                    candidate_payload, validation_summary, reviewer_notes, created, updated, reviewed
-             FROM crawler_reviews
+            "SELECT r.review_id, r.shop_id, s.shop_name, r.domain_id, r.artifact_type, r.status, r.reason,
+                    r.candidate_payload, r.validation_summary, r.reviewer_notes, r.created, r.updated, r.reviewed
+             FROM crawler_reviews r
+             LEFT JOIN shops s ON s.shop_id = r.shop_id
              ORDER BY
-               CASE WHEN status = 'PENDING_REVIEW' THEN 0 ELSE 1 END,
-               created DESC
+               CASE WHEN r.status = 'PENDING_REVIEW' THEN 0 ELSE 1 END,
+               r.created DESC
              LIMIT $1",
         )
         .bind(limit)
@@ -258,17 +260,20 @@ impl CrawlerReviewRepository {
         review_id: uuid::Uuid,
     ) -> Result<ReviewDetail, ReviewRepositoryError> {
         let row = sqlx::query(
-            "SELECT review_id, shop_id, domain_id, artifact_type, status, reason,
-                    candidate_payload, validation_summary, reviewer_notes, created, updated, reviewed
-             FROM crawler_reviews
-             WHERE review_id = $1",
+            "SELECT r.review_id, r.shop_id, s.shop_name, r.domain_id, r.artifact_type, r.status, r.reason,
+                    r.candidate_payload, r.validation_summary, r.reviewer_notes, r.created, r.updated, r.reviewed
+             FROM crawler_reviews r
+             LEFT JOIN shops s ON s.shop_id = r.shop_id
+             WHERE r.review_id = $1",
         )
         .bind(review_id)
         .fetch_optional(&self.pool)
         .await?
         .ok_or(ReviewRepositoryError::NotFound(review_id))?;
 
-        let review = row_to_review(row)?;
+        let mut review = row_to_review(row)?;
+        self.backfill_legacy_schema_review_payload(&mut review)
+            .await?;
         let pages = self.get_review_pages(review_id).await?;
         let urls = self.get_review_urls(review_id).await?;
         Ok(ReviewDetail {
@@ -329,6 +334,22 @@ impl CrawlerReviewRepository {
         .bind(review_page_id)
         .fetch_optional(&self.pool)
         .await
+    }
+
+    pub async fn get_review_page(
+        &self,
+        review_page_id: uuid::Uuid,
+    ) -> Result<Option<CrawlerReviewPage>, sqlx::Error> {
+        sqlx::query(
+            "SELECT review_page_id, review_id, url, role, raw_html, cleaned_html, html_hash, fetched
+             FROM crawler_review_pages
+             WHERE review_page_id = $1",
+        )
+            .bind(review_page_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .map(row_to_page)
+            .transpose()
     }
 
     pub async fn create_url_pattern_review(
@@ -495,13 +516,15 @@ impl CrawlerReviewRepository {
                 }
             }
             ARTIFACT_PRODUCT_SCHEMA => {
-                let schemas = parse_schemas_payload(&detail.review.candidate_payload)?;
+                let reviewed_schemas = parse_schemas_payload(&detail.review.candidate_payload)?;
                 let repo = ShopsProductSchemaRepositoryImpl::new(&self.pool);
-                if repo
-                    .find_product_schema(&detail.review.shop_id)
-                    .await?
-                    .is_some()
-                {
+                let existing = repo.find_product_schema(&detail.review.shop_id).await?;
+                let schemas = approval_product_schemas(
+                    &detail.review.reason,
+                    existing.as_ref(),
+                    reviewed_schemas,
+                )?;
+                if existing.is_some() {
                     repo.update_product_schema(&detail.review.shop_id, &schemas)
                         .await?;
                 } else {
@@ -630,6 +653,34 @@ impl CrawlerReviewRepository {
         self.trigger_scrape_now(shop_id).await
     }
 
+    async fn backfill_legacy_schema_review_payload(
+        &self,
+        review: &mut CrawlerReview,
+    ) -> Result<(), ReviewRepositoryError> {
+        if review.artifact_type != ARTIFACT_PRODUCT_SCHEMA
+            || review.status != STATUS_PENDING_REVIEW
+            || !matches!(
+                review.reason.as_str(),
+                "append_schema_generation" | "normalization_schema_repair"
+            )
+        {
+            return Ok(());
+        }
+
+        let reviewed_schemas = parse_schemas_payload(&review.candidate_payload)?;
+        if reviewed_schemas.len() != 1 {
+            return Ok(());
+        }
+
+        let repo = ShopsProductSchemaRepositoryImpl::new(&self.pool);
+        let Some(existing) = repo.find_product_schema(&review.shop_id).await? else {
+            return Ok(());
+        };
+        let merged = merge_product_schema_lists(&existing.product_schemas, reviewed_schemas)?;
+        review.candidate_payload = json!({ "schemas": merged });
+        Ok(())
+    }
+
     async fn insert_review(
         &self,
         shop_id: &ShopId,
@@ -735,10 +786,53 @@ impl CrawlerReviewRepository {
     }
 }
 
+fn approval_product_schemas(
+    reason: &str,
+    existing: Option<&crate::scraper::css_selector::product_schema::ShopsProductSchema>,
+    reviewed_schemas: Vec<ProductCssSelectorSchema>,
+) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
+    let should_backfill_existing = matches!(
+        reason,
+        "append_schema_generation" | "normalization_schema_repair"
+    ) && reviewed_schemas.len() == 1;
+
+    if !should_backfill_existing {
+        return Ok(reviewed_schemas);
+    }
+
+    let Some(existing) = existing else {
+        return Ok(reviewed_schemas);
+    };
+
+    merge_product_schema_lists(&existing.product_schemas, reviewed_schemas)
+}
+
+fn merge_product_schema_lists(
+    existing_schemas: &[ProductCssSelectorSchema],
+    reviewed_schemas: Vec<ProductCssSelectorSchema>,
+) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
+    let mut merged = existing_schemas.to_vec();
+    let mut seen = existing_schemas
+        .iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for schema in reviewed_schemas {
+        let key = serde_json::to_value(&schema)?;
+        if !seen.contains(&key) {
+            seen.push(key);
+            merged.push(schema);
+        }
+    }
+
+    Ok(merged)
+}
+
 fn row_to_review(row: sqlx::postgres::PgRow) -> Result<CrawlerReview, sqlx::Error> {
     Ok(CrawlerReview {
         review_id: row.try_get("review_id")?,
         shop_id: ShopId::from(row.try_get::<uuid::Uuid, _>("shop_id")?),
+        shop_name: row.try_get("shop_name")?,
         domain_id: row.try_get("domain_id")?,
         artifact_type: row.try_get("artifact_type")?,
         status: row.try_get("status")?,
@@ -905,4 +999,72 @@ fn classify_with_pattern(raw_url: &str, pattern: Option<&Regex>) -> String {
         return "other".to_string();
     };
     CrawledUrl::new(url).classify(pattern).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scraper::css_selector::rule::{
+        CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule,
+    };
+
+    fn text_rule(selector: &str) -> ExtractionRule {
+        ExtractionRule {
+            selector: CssSelector::from(selector),
+            additional_selectors: vec![],
+            extract: ExtractionKind::Text,
+            cardinality: ExtractionCardinality::First,
+        }
+    }
+
+    fn image_rule(selector: &str) -> ExtractionRule {
+        ExtractionRule {
+            selector: CssSelector::from(selector),
+            additional_selectors: vec![],
+            extract: ExtractionKind::Attribute { name: "src".into() },
+            cardinality: ExtractionCardinality::All,
+        }
+    }
+
+    fn schema(title_selector: &str) -> ProductCssSelectorSchema {
+        ProductCssSelectorSchema {
+            shops_product_id: text_rule("#product-id"),
+            title: text_rule(title_selector),
+            description: None,
+            price: None,
+            price_estimate_min: None,
+            price_estimate_max: None,
+            state: text_rule("#state"),
+            images: image_rule("img"),
+            auction_start: None,
+            auction_end: None,
+            default_currency: None,
+        }
+    }
+
+    #[test]
+    fn merge_product_schema_lists_appends_new_schema_after_existing_schemas() {
+        let existing_a = schema("h1.template-a");
+        let existing_b = schema("h1.template-b");
+        let appended = schema("h1.template-c");
+
+        let merged = merge_product_schema_lists(
+            &[existing_a.clone(), existing_b.clone()],
+            vec![appended.clone()],
+        )
+        .expect("schema merge should serialize");
+
+        assert_eq!(merged, vec![existing_a, existing_b, appended]);
+    }
+
+    #[test]
+    fn merge_product_schema_lists_deduplicates_existing_schema() {
+        let existing = schema("h1.template-a");
+
+        let merged =
+            merge_product_schema_lists(std::slice::from_ref(&existing), vec![existing.clone()])
+                .expect("schema merge should serialize");
+
+        assert_eq!(merged, vec![existing]);
+    }
 }
