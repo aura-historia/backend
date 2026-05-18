@@ -120,10 +120,7 @@ Since this is a serverless backend, manual testing involves:
 Located in various directories:
 
 **Product Lambda Functions** (`src/product-lambda/src/`):
-- `product-lambda-materialize-dynamodb-new`: Materialize new products to DynamoDB
-- `product-lambda-materialize-dynamodb-update`: Materialize product updates to DynamoDB
-- `product-lambda-materialize-opensearch-new`: Materialize new products to OpenSearch
-- `product-lambda-materialize-opensearch-update`: Materialize product updates to OpenSearch
+- `product-lambda-materialize-opensearch`: Materialize products to OpenSearch
 - `product-lambda-update-notify-user`: Notify users about product updates
 
 **Product Pipeline Modules** (`src/product-pipeline/src/`):
@@ -177,7 +174,7 @@ Located in various directories:
 
 ### Building Specific Components
 - Build all Lambda functions: `cargo build --workspace`
-- Build specific Lambda: `cd src/product-lambda/src/product-lambda-materialize-dynamodb-new && cargo build --all-features`
+- Build specific Lambda: `cd src/product-lambda/src/product-lambda-materialize-opensearch-new && cargo build --all-features`
 - Build API handlers: `cd src/product-api && cargo build --all-features`
 - Build specific module: `cd src/product && cargo build --all-features`
 - Build product pipeline binaries: `cd src/product-pipeline/src/product-pipeline-embed-text && cargo build --all-features`
@@ -289,7 +286,6 @@ src/
   1. **API Lambdas** (`product-api`, `shop-api`, `user-api`, `search-filter-api`, `stripe-api`, `newsletter-api`, `partner-*`) are short-lived request/response handlers that mainly orchestrate DynamoDB, OpenSearch, Cognito, Stripe, Zoho, or geocoding calls.
   2. **Sequential queue workers** (`notification-send`, `product-lambda-update-notify-user`, `search-filter-lambda-percolate-product`, `shop-lambda-opensearch-index`, `user-lambda-index-opensearch`, `user-lambda-tier-update`, `search-filter-lambda-opensearch-sync`) process SQS records one-by-one and often perform external I/O per record, so batch sizes and SQS visibility timeouts must stay conservative.
   3. **Product pipeline workers** (`product-pipeline-translate`, `product-pipeline-embed-text`) call Gemini and/or OpenSearch, then persist enrichment events back to DynamoDB; prod tuning should cap concurrency deliberately and keep queue visibility timeouts at least `6 x` the Lambda timeout.
-- `product-lambda-materialize-dynamodb` chunks writes into DynamoDB batch-write groups, so it tolerates larger SQS batches than `product-lambda-materialize-opensearch`, whose policy-event path still performs per-record DynamoDB lookups before bulk-indexing to OpenSearch.
 - `fxrate-lambda` is a scheduled single-request sync against fxratesapi plus DynamoDB persistence, so it should fail fast instead of holding a very long timeout window.
 
 ## Troubleshooting
