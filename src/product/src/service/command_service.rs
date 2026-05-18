@@ -1971,12 +1971,12 @@ mod tests {
     mod concurrent_create {
         use super::*;
         use aws_sdk_dynamodb::operation::transact_write_items::TransactWriteItemsError;
-        use aws_sdk_dynamodb::types::error::TransactionCanceledException;
         use aws_sdk_dynamodb::types::CancellationReason;
+        use aws_sdk_dynamodb::types::error::TransactionCanceledException;
         use common::batch::dynamodb::BatchGetItemResult;
 
-        fn conditional_check_failed_err(
-        ) -> SdkError<TransactWriteItemsError, aws_sdk_dynamodb::config::http::HttpResponse> {
+        fn conditional_check_failed_err()
+        -> SdkError<TransactWriteItemsError, aws_sdk_dynamodb::config::http::HttpResponse> {
             let reason = CancellationReason::builder()
                 .code("ConditionalCheckFailed")
                 .build();
