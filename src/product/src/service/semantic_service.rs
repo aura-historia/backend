@@ -152,10 +152,15 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::product_event::ProductEventPayload;
     use crate::dynamodb::product_event_record::ProductEventRecord;
     use crate::dynamodb::repository::MockProductDynamoDbRepository;
+    use crate::opensearch::product_document::ProductDocument;
     use crate::opensearch::repository::MockProductOpenSearchRepository;
     use common::has_key::HasKey;
+    use common::opensearch::search_response::{
+        HitsMetadata, SearchHit, SearchResponse, ShardStats, TotalHits,
+    };
     use fake::{Fake, Faker};
 
     fn created_event_record() -> (ShopId, ShopsProductId, ProductEventRecord) {
@@ -226,5 +231,124 @@ mod tests {
             .unwrap();
 
         assert!(actual.is_none());
+    }
+
+    fn search_response(documents: Vec<ProductDocument>) -> SearchResponse<ProductDocument> {
+        SearchResponse {
+            took: 1,
+            timed_out: false,
+            shards: ShardStats {
+                total: 1,
+                successful: 1,
+                skipped: 0,
+                failed: 0,
+            },
+            hits: HitsMetadata {
+                total: TotalHits {
+                    value: documents.len() as u64,
+                    relation: "eq".to_owned(),
+                },
+                max_score: None,
+                hits: documents
+                    .into_iter()
+                    .map(|source| SearchHit {
+                        index: "products".to_owned(),
+                        id: source.product_id.to_string(),
+                        score: None,
+                        sort: None,
+                        matched_queries: vec![],
+                        source,
+                    })
+                    .collect(),
+            },
+        }
+    }
+
+    fn embedded_event_records() -> (
+        ShopId,
+        ShopsProductId,
+        common::product_id::ProductId,
+        Vec<ProductEventRecord>,
+    ) {
+        let (shop_id, shops_product_id, created_record) = created_event_record();
+        let mut product = Product::replay(
+            vec![created_record.clone()]
+                .into_iter()
+                .filter_map(|record| ProductEvent::try_from(record).ok()),
+        )
+        .unwrap();
+        let product_id = product.product_id;
+        let embedded = product.embed(vec![0.1, 0.2, 0.3]).unwrap();
+        (
+            shop_id,
+            shops_product_id,
+            product_id,
+            vec![
+                created_record,
+                ProductEventRecord::from(
+                    embedded.map_payload(ProductEventPayload::ProductEnrichmentEvent),
+                ),
+            ],
+        )
+    }
+
+    #[tokio::test]
+    async fn should_return_similar_products_when_embedding_exists() {
+        let (shop_id, shops_product_id, _, records) = embedded_event_records();
+        let document_product: Product = Faker.fake();
+        let mut dynamodb_repository = MockProductDynamoDbRepository::default();
+        dynamodb_repository
+            .expect_query_product_event_records()
+            .return_once(move |_, _| Box::pin(async move { Ok(records) }));
+        let mut opensearch_repository = MockProductOpenSearchRepository::default();
+        opensearch_repository
+            .expect_k_nn_text()
+            .return_once(move |embedding, k| {
+                assert_eq!(&[0.1, 0.2, 0.3], embedding);
+                assert_eq!(20, k);
+                Box::pin(async move { Ok(search_response(vec![document_product.into()])) })
+            });
+        let service = SemanticSearchServiceImpl::new(&dynamodb_repository, &opensearch_repository);
+
+        let actual = service
+            .similar_products(&shop_id, &shops_product_id, &[Language::En], &Currency::Eur)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(1, actual.len());
+    }
+
+    #[tokio::test]
+    async fn should_filter_out_requested_product_from_similar_products() {
+        let (shop_id, shops_product_id, product_id, records) = embedded_event_records();
+        let mut self_product: Product = Faker.fake();
+        self_product.product_id = product_id;
+        let other_product: Product = Faker.fake();
+        let mut dynamodb_repository = MockProductDynamoDbRepository::default();
+        dynamodb_repository
+            .expect_query_product_event_records()
+            .return_once(move |_, _| Box::pin(async move { Ok(records) }));
+        let mut opensearch_repository = MockProductOpenSearchRepository::default();
+        opensearch_repository
+            .expect_k_nn_text()
+            .return_once(move |_, _| {
+                Box::pin(async move {
+                    Ok(search_response(vec![
+                        self_product.into(),
+                        other_product.into(),
+                    ]))
+                })
+            });
+        let service = SemanticSearchServiceImpl::new(&dynamodb_repository, &opensearch_repository);
+
+        let actual = service
+            .similar_products(&shop_id, &shops_product_id, &[Language::En], &Currency::Eur)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(1, actual.len());
+        assert_ne!(product_id, actual[0].product_id);
     }
 }

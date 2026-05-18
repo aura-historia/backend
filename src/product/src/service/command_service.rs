@@ -429,9 +429,14 @@ fn create_product_event(
 mod tests {
     use super::*;
     use crate::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
+    use crate::dynamodb::repository::MockProductDynamoDbRepository;
     use common::price::domain::{FixedFxRate, Price};
     use common::product_state::domain::ProductState;
     use fake::{Fake, Faker};
+    use fxrate::service::MockFxRateService;
+    use shop::core::shop::Shop;
+    use shop::service::get_service::MockGetShopService;
+    use shop::service::seller_service::MockSellerService;
 
     fn update_cmd_for(product: &Product) -> UpdateProductCommand {
         UpdateProductCommand {
@@ -487,5 +492,209 @@ mod tests {
         assert!(actual.iter().any(|event| {
             event.event_type() == ProductDomainEventTypeRecord::DomainStateChanged.as_str()
         }));
+    }
+
+    fn fx_rate_service() -> MockFxRateService {
+        let mut fx_rate_service = MockFxRateService::new();
+        fx_rate_service
+            .expect_get_current()
+            .return_once(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
+        fx_rate_service
+    }
+
+    fn shop_service() -> MockGetShopService {
+        let mut shop_service = MockGetShopService::default();
+        shop_service.expect_find_shop().returning(|shop_id| {
+            let mut shop: Shop = Faker.fake();
+            shop.shop_id = *shop_id;
+            shop.shop_type = ShopType::AuctionHouse;
+            Box::pin(async move { Ok(shop) })
+        });
+        shop_service
+    }
+
+    async fn command_service<'a>(
+        repository: &'a (dyn ProductDynamoDbRepository + Sync),
+        fx_rate_service: &'a MockFxRateService,
+        shop_service: &'a MockGetShopService,
+        seller_service: &'a MockSellerService,
+    ) -> CommandProductServiceImpl<'a> {
+        CommandProductServiceImpl::new(repository, fx_rate_service, shop_service, seller_service)
+            .await
+            .unwrap()
+    }
+
+    fn event_record_from_command(cmd: &CreateProductCommand) -> ProductEventRecord {
+        let event = create_product_event(
+            cmd.clone(),
+            ResolvedShopInformation {
+                seller_id: cmd.shop_id,
+                seller_name: Faker.fake(),
+                shop_name: Faker.fake(),
+                shop_type: ShopType::AuctionHouse,
+            },
+        );
+        ProductEventRecord::Domain(ProductDomainEventRecord::from(event))
+    }
+
+    #[tokio::test]
+    async fn should_create_product_when_product_does_not_exist() {
+        let command: CreateProductCommand = Faker.fake();
+        let mut repository = MockProductDynamoDbRepository::default();
+        repository
+            .expect_query_product_event_records()
+            .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+        repository
+            .expect_transact_write_product_event_records()
+            .return_once(|events, _, expected_version| {
+                assert_eq!(1, events.len());
+                assert_eq!(0, expected_version);
+                Box::pin(async { Ok(()) })
+            });
+        let fx_rate_service = fx_rate_service();
+        let shop_service = shop_service();
+        let seller_service = MockSellerService::default();
+        let service = command_service(
+            &repository,
+            &fx_rate_service,
+            &shop_service,
+            &seller_service,
+        )
+        .await;
+
+        let actual = service.create(command).await;
+
+        assert!(actual.is_none());
+    }
+
+    #[tokio::test]
+    async fn should_return_create_command_when_product_create_write_fails() {
+        let command: CreateProductCommand = Faker.fake();
+        let mut repository = MockProductDynamoDbRepository::default();
+        repository
+            .expect_query_product_event_records()
+            .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+        repository
+            .expect_transact_write_product_event_records()
+            .return_once(|_, _, _| {
+                Box::pin(async {
+                    Err(aws_sdk_dynamodb::error::SdkError::construction_failure(
+                        "boom",
+                    ))
+                })
+            });
+        let fx_rate_service = fx_rate_service();
+        let shop_service = shop_service();
+        let seller_service = MockSellerService::default();
+        let service = command_service(
+            &repository,
+            &fx_rate_service,
+            &shop_service,
+            &seller_service,
+        )
+        .await;
+
+        let actual = service.create(command.clone()).await;
+
+        assert_eq!(Some(command), actual);
+    }
+
+    #[tokio::test]
+    async fn should_update_product_when_existing_product_changes() {
+        let create_command: CreateProductCommand = Faker.fake();
+        let update_command = UpdateProductCommand {
+            native_price: create_command.native_price,
+            state: Some(if matches!(create_command.state, ProductState::Available) {
+                ProductState::Removed
+            } else {
+                ProductState::Available
+            }),
+            native_price_estimate_min: None,
+            native_price_estimate_max: None,
+            url: None,
+            images: None,
+            auction_start: None,
+            auction_end: None,
+        };
+        let key = create_command.key();
+        let existing_record = event_record_from_command(&create_command);
+        let mut repository = MockProductDynamoDbRepository::default();
+        repository
+            .expect_query_product_event_records()
+            .return_once(move |_, _| Box::pin(async move { Ok(vec![existing_record]) }));
+        repository
+            .expect_transact_write_product_event_records()
+            .return_once(|events, _, expected_version| {
+                assert_eq!(1, events.len());
+                assert_eq!(1, expected_version);
+                Box::pin(async { Ok(()) })
+            });
+        let fx_rate_service = fx_rate_service();
+        let shop_service = shop_service();
+        let seller_service = MockSellerService::default();
+        let service = command_service(
+            &repository,
+            &fx_rate_service,
+            &shop_service,
+            &seller_service,
+        )
+        .await;
+
+        let actual = service.update(key, update_command).await;
+
+        assert!(actual.is_none());
+    }
+
+    #[tokio::test]
+    async fn should_upsert_existing_product_as_update() {
+        let create_command: CreateProductCommand = Faker.fake();
+        let key = create_command.key();
+        let existing_record = event_record_from_command(&create_command);
+        let upsert_command = UpsertProductCommand {
+            shop_id: key.shop_id,
+            shops_product_id: key.shops_product_id.clone(),
+            seller_name_raw: create_command.seller_name_raw.clone(),
+            structured_address: create_command.structured_address.clone(),
+            geo_address: create_command.geo_address,
+            native_title: Some(create_command.native_title.clone()),
+            native_description: create_command.native_description.clone(),
+            native_price: create_command.native_price,
+            native_price_estimate_min: create_command.native_price_estimate_min,
+            native_price_estimate_max: create_command.native_price_estimate_max,
+            state: Some(if matches!(create_command.state, ProductState::Available) {
+                ProductState::Removed
+            } else {
+                ProductState::Available
+            }),
+            url: Some(create_command.url.clone()),
+            images: create_command.images.clone(),
+            auction_start: create_command.auction_start,
+            auction_end: create_command.auction_end,
+        };
+        let mut repository = MockProductDynamoDbRepository::default();
+        repository
+            .expect_query_product_event_records()
+            .return_once(move |_, _| Box::pin(async move { Ok(vec![existing_record]) }));
+        repository
+            .expect_transact_write_product_event_records()
+            .return_once(|events, _, expected_version| {
+                assert!(!events.is_empty());
+                assert_eq!(1, expected_version);
+                Box::pin(async { Ok(()) })
+            });
+        let fx_rate_service = fx_rate_service();
+        let shop_service = shop_service();
+        let seller_service = MockSellerService::default();
+        let service = command_service(
+            &repository,
+            &fx_rate_service,
+            &shop_service,
+            &seller_service,
+        )
+        .await;
+
+        let actual = service.upsert(upsert_command).await;
+
+        assert!(actual.is_none());
     }
 }

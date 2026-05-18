@@ -402,4 +402,132 @@ mod tests {
 
         assert_eq!(1, actual.len());
     }
+
+    #[tokio::test]
+    async fn should_find_product_by_slug_when_product_key_exists() {
+        let (shop_id, shops_product_id, record) = created_event_record();
+        let mut repository = MockProductDynamoDbRepository::default();
+        let expected_key = ProductKey::new(shop_id, shops_product_id.clone());
+        repository
+            .expect_query_product_key()
+            .return_once(move |_, _| {
+                Box::pin(async move { Ok(Some(ProductKey::new(shop_id, shops_product_id))) })
+            });
+        repository
+            .expect_query_product_event_records()
+            .return_once(move |_, _| Box::pin(async move { Ok(vec![record]) }));
+        let service = GetProductServiceImpl::new(&repository);
+
+        let actual = service
+            .find_product_by_slug(&Faker.fake(), &Faker.fake())
+            .await
+            .unwrap();
+
+        assert_eq!(expected_key, actual.key());
+    }
+
+    #[tokio::test]
+    async fn should_return_product_slug_not_found_when_product_key_does_not_exist() {
+        let shop_slug_id = Faker.fake();
+        let product_slug_id = Faker.fake();
+        let mut repository = MockProductDynamoDbRepository::default();
+        repository
+            .expect_query_product_key()
+            .return_once(|_, _| Box::pin(async { Ok(None) }));
+        let service = GetProductServiceImpl::new(&repository);
+
+        let actual = service
+            .find_product_by_slug(&shop_slug_id, &product_slug_id)
+            .await;
+
+        assert!(matches!(
+            actual,
+            Err(GetProductError::ProductSlugNotFound(_, _))
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_view_product_when_event_stream_exists() {
+        let (shop_id, shops_product_id, record) = created_event_record();
+        let mut repository = MockProductDynamoDbRepository::default();
+        repository
+            .expect_query_product_event_records()
+            .return_once(move |_, _| Box::pin(async move { Ok(vec![record]) }));
+        let service = GetProductServiceImpl::new(&repository);
+
+        let actual = service
+            .view_product(&shop_id, &shops_product_id, &[Language::En], &Currency::Eur)
+            .await
+            .unwrap();
+
+        assert_eq!(shop_id, actual.shop_id);
+        assert_eq!(shops_product_id, actual.shops_product_id);
+    }
+
+    #[tokio::test]
+    async fn should_view_product_by_slug_when_product_key_exists() {
+        let (shop_id, shops_product_id, record) = created_event_record();
+        let expected_key = ProductKey::new(shop_id, shops_product_id.clone());
+        let mut repository = MockProductDynamoDbRepository::default();
+        repository
+            .expect_query_product_key()
+            .return_once(move |_, _| {
+                Box::pin(async move { Ok(Some(ProductKey::new(shop_id, shops_product_id))) })
+            });
+        repository
+            .expect_query_product_event_records()
+            .return_once(move |_, _| Box::pin(async move { Ok(vec![record]) }));
+        let service = GetProductServiceImpl::new(&repository);
+
+        let actual = service
+            .view_product_by_slug(
+                &Faker.fake(),
+                &Faker.fake(),
+                &[Language::En],
+                &Currency::Eur,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(expected_key.shop_id, actual.shop_id);
+        assert_eq!(expected_key.shops_product_id, actual.shops_product_id);
+    }
+
+    #[tokio::test]
+    async fn should_view_product_history_when_domain_events_exist() {
+        let (shop_id, shops_product_id, record) = created_event_record();
+        let ProductEventRecord::Domain(domain_record) = record else {
+            panic!("expected domain event record")
+        };
+        let mut repository = MockProductDynamoDbRepository::default();
+        repository
+            .expect_query_product_domain_event_records()
+            .return_once(move |_, _| Box::pin(async move { Ok(vec![domain_record]) }));
+        let service = GetProductServiceImpl::new(&repository);
+
+        let actual = service
+            .view_product_history(&shop_id, &shops_product_id, &[Language::En], &Currency::Eur)
+            .await
+            .unwrap();
+
+        assert_eq!(1, actual.len());
+    }
+
+    #[tokio::test]
+    async fn should_return_product_not_found_when_product_history_is_empty() {
+        let mut repository = MockProductDynamoDbRepository::default();
+        repository
+            .expect_query_product_domain_event_records()
+            .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+        let service = GetProductServiceImpl::new(&repository);
+
+        let actual = service
+            .view_product_history(&ShopId::new(), &ShopsProductId::new(), &[], &Currency::Eur)
+            .await;
+
+        assert!(matches!(
+            actual,
+            Err(GetProductError::ProductNotFound(_, _))
+        ));
+    }
 }

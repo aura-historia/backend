@@ -52,9 +52,15 @@ pub async fn handle_woocommerce(
     })
     .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)))?;
 
-    let errors = usize::from(command_product_service.upsert(command).await.is_some());
+    if command_product_service.upsert(command).await.is_some() {
+        return Err(ApiError::internal_server_error(
+            INTERNAL_SERVER_ERROR,
+            "Failed to upsert WooCommerce product.".into(),
+        ));
+    }
+
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .body_serde(json!({ "errors": errors }))?
+        .body_serde(json!({ "errors": 0 }))?
         .build())
 }
 
@@ -299,6 +305,35 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(200, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_return_error_when_product_upsert_fails() {
+        let api_key = PartnerShopApiKey::new();
+        let shop = partner_shop(&api_key);
+        let body = product_body("42.69");
+        let lambda_event = event(
+            &shop,
+            &api_key,
+            WOOCOMMERCE_TOPIC_PRODUCT_CREATED,
+            &body,
+            signature(&body),
+        );
+
+        let expected_shop = shop.clone();
+        let mut get_shop_service = MockGetShopService::default();
+        get_shop_service
+            .expect_verify_partner_shop()
+            .return_once(move |_, _| Box::pin(async move { Ok(expected_shop) }));
+
+        let mut product_service = MockCommandProductService::default();
+        product_service
+            .expect_upsert()
+            .return_once(|cmd| Box::pin(async move { Some(cmd) }));
+
+        let actual = handle_woocommerce(lambda_event, &get_shop_service, &product_service).await;
+
+        assert!(actual.is_err());
     }
 
     #[tokio::test]
