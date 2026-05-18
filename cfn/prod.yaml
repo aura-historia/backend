@@ -508,7 +508,6 @@ Resources:
     Type: AWS::SQS::QueuePolicy
     Properties:
       Queues:
-        - !Ref ProductMaterializeDynamoDbQ
         - !Ref ProductMaterializeOpenSearchQ
         - !Ref ShopOpenSearchIndexQ
         - !Ref UserOpenSearchIndexQ
@@ -527,7 +526,6 @@ Resources:
               Service: events.amazonaws.com
             Action: sqs:SendMessage
             Resource:
-              - !GetAtt ProductMaterializeDynamoDbQ.Arn
               - !GetAtt ProductMaterializeOpenSearchQ.Arn
               - !GetAtt ShopOpenSearchIndexQ.Arn
               - !GetAtt UserOpenSearchIndexQ.Arn
@@ -3238,29 +3236,6 @@ Resources:
       FunctionResponseTypes:
         - ReportBatchItemFailures
 
-  DynamoDbProductMaterializeDynamoDbEventRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: "ddb-product-mat-ddb-prod"
-      EventBusName: !Ref DynamoDbEventBus
-      EventPattern:
-        source:
-          - !Ref TableOne
-        detail-type:
-          - "DynamoDBStreamRecord"
-        detail:
-          eventName:
-            - "INSERT"
-          dynamodb:
-            NewImage:
-              event_type:
-                S:
-                  - prefix: "DOMAIN_"
-                  - prefix: "ENRICHMENT_"
-                  - prefix: "POLICY_"
-      Targets:
-        - Id: ProductMaterializeDynamoDbQ
-          Arn: !GetAtt ProductMaterializeDynamoDbQ.Arn
   DynamoDbProductMaterializeOpenSearchEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -3985,11 +3960,6 @@ Outputs:
     Value: !Ref NotificationSendQ
   NotificationSendDeadLetterQueueUrl:
     Value: !Ref NotificationSendDlq
-
-  ProductMaterializeDynamodbQueueUrl:
-    Value: !Ref ProductMaterializeDynamoDbQ
-  ProductMaterializeDynamodbDeadLetterQueueUrl:
-    Value: !Ref ProductMaterializeDynamoDbDlq
 
   ProductMaterializeOpensearchQueueUrl:
     Value: !Ref ProductMaterializeOpenSearchQ
