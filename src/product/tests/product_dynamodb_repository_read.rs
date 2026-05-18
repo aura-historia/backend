@@ -1,7 +1,6 @@
 use common::event_id::EventId;
 use fake::{Fake, Faker};
 use product::dynamodb::product_event_record::ProductEventRecord;
-use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use product::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
 use product::dynamodb::product_record::ProductRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};

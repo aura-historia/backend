@@ -4,7 +4,7 @@ use fxrate::dynamodb::record::FxRatesRecord;
 use fxrate::service::MockFxRateService;
 use lambda_runtime::LambdaEvent;
 use product::dynamodb::product_record::{self, ProductRecord};
-use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
+use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::dynamodb::test_utils::ProductRecordSeedExt;
 use product::service::command_service::CommandProductServiceImpl;
 use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};

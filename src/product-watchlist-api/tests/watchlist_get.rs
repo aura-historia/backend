@@ -10,10 +10,7 @@ use notification::service::notification_service::NotificationServiceImpl;
 use product::data::get_data::GetProductData;
 use product::data::user_state_data::ProductUserStateData;
 use product::dynamodb::test_utils::ProductRecordSeedExt;
-use product::dynamodb::{
-    product_record::ProductRecord,
-    repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
-};
+use product::dynamodb::{product_record::ProductRecord, repository::ProductDynamoDbRepositoryImpl};
 use product::service::get_service::GetProductServiceImpl;
 use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::{

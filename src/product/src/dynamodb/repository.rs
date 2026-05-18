@@ -322,3 +322,51 @@ pub fn extract_product_id(
         Err(format!("AttributeValue-Map does not contain key product_id: '{map:?}'.").into())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aws_sdk_dynamodb::types::AttributeValue;
+    use fake::{Fake, Faker};
+
+    #[test]
+    fn should_extract_product_key_when_pk_is_valid() {
+        let expected: ProductKey = Faker.fake();
+        let actual = extract_product_key(HashMap::from([(
+            "pk".to_owned(),
+            AttributeValue::S(product_record::mk_pk(
+                &expected.shop_id,
+                &expected.shops_product_id,
+            )),
+        )]))
+        .unwrap();
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn should_return_error_when_extracting_product_key_without_pk() {
+        let actual = extract_product_key(HashMap::new());
+
+        assert!(actual.is_err());
+    }
+
+    #[test]
+    fn should_extract_product_id_when_product_id_exists() {
+        let expected = ProductId::new();
+        let actual = extract_product_id(HashMap::from([(
+            "product_id".to_owned(),
+            AttributeValue::S(expected.to_string()),
+        )]))
+        .unwrap();
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn should_return_error_when_extracting_product_id_without_product_id() {
+        let actual = extract_product_id(HashMap::new());
+
+        assert!(actual.is_err());
+    }
+}

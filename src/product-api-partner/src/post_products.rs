@@ -31,12 +31,15 @@ pub async fn handle(
 
     let products: Vec<PostProductData> = extract_body(&event.payload)?;
 
-    let commands = products
+    let mut failures = Vec::new();
+    for command in products
         .into_iter()
         .map(|data| to_create_command(data, &partner_shop))
-        .collect();
-
-    let failures = command_product_service.create(commands).await;
+    {
+        if let Some(failure) = command_product_service.create(command).await {
+            failures.push(failure);
+        }
+    }
 
     let errors: HashMap<String, String> = failures
         .into_iter()
@@ -187,7 +190,7 @@ mod tests {
         let mut command_service = MockCommandProductService::default();
         command_service
             .expect_create()
-            .return_once(|_| Box::pin(async { vec![] }));
+            .return_once(|_| Box::pin(async { None }));
 
         let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_ok());
@@ -250,7 +253,7 @@ mod tests {
         let mut command_service = MockCommandProductService::default();
         command_service
             .expect_create()
-            .return_once(move |_| Box::pin(async move { vec![expected_cmd] }));
+            .return_once(move |_| Box::pin(async move { Some(expected_cmd) }));
 
         let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_ok());
@@ -336,13 +339,13 @@ mod tests {
             .return_once(move |_, _| Box::pin(async move { Ok(expected_partner) }));
 
         let mut command_service = MockCommandProductService::default();
-        command_service.expect_create().return_once(move |cmds| {
+        command_service.expect_create().return_once(move |cmd| {
             Box::pin(async move {
                 assert_eq!(
-                    cmds[0].seller_name_raw.as_deref(),
+                    cmd.seller_name_raw.as_deref(),
                     Some("marketplace seller raw")
                 );
-                vec![]
+                None
             })
         });
 

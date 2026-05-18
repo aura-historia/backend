@@ -143,8 +143,9 @@ async fn should_write_all_products_to_dynamodb_as_created_when_none_exist() {
     let service = command_product_service(&repository).await;
 
     let commands = fake::vec![CreateProductCommand; 543];
-    let failures = service.create(commands.clone()).await;
-    assert!(failures.is_empty());
+    for command in commands.clone() {
+        assert!(service.create(command).await.is_none());
+    }
 
     let items = scan_all_items().await;
 
@@ -180,8 +181,9 @@ async fn should_not_create_duplicate_products_when_already_exist() {
     let mut all_cmds = existing_cmds.clone();
     all_cmds.extend(new_cmds.clone());
 
-    let failures = service.create(all_cmds).await;
-    assert!(failures.is_empty());
+    for command in all_cmds {
+        assert!(service.create(command).await.is_none());
+    }
 
     let items = scan_all_items().await;
 
@@ -234,8 +236,9 @@ async fn should_write_no_product_update_events_when_all_exist_and_no_changes() {
         })
         .collect();
 
-    let failures = service.update(update_cmds).await;
-    assert!(failures.is_empty());
+    for (key, command) in update_cmds {
+        assert!(service.update(key, command).await.is_none());
+    }
 
     let items = scan_all_items().await;
 
@@ -285,8 +288,9 @@ async fn should_write_product_updates_when_all_exist_and_actual_changes() {
         })
         .collect();
 
-    let failures = service.update(update_cmds).await;
-    assert!(failures.is_empty());
+    for (key, command) in update_cmds {
+        assert!(service.update(key, command).await.is_none());
+    }
 
     let items = scan_all_items().await;
 
@@ -323,7 +327,12 @@ async fn should_return_failures_when_updating_non_existent_products() {
         })
         .collect();
     let expected_keys: Vec<ProductKey> = cmds.keys().cloned().collect();
-    let failures = service.update(cmds).await;
+    let mut failures = HashMap::new();
+    for (key, command) in cmds {
+        if let Some((key, command)) = service.update(key, command).await {
+            failures.insert(key, command);
+        }
+    }
 
     let mut actual_keys: Vec<ProductKey> = failures.keys().cloned().collect();
     let mut expected_sorted = expected_keys;
@@ -340,8 +349,9 @@ async fn should_create_new_products_via_upsert_when_none_exist() {
 
     let cmds: Vec<product::service::product_command::UpsertProductCommand> =
         fake::vec![product::service::product_command::UpsertProductCommand; 5];
-    let failures = service.upsert(cmds).await;
-    assert!(failures.is_empty());
+    for command in cmds {
+        assert!(service.upsert(command).await.is_none());
+    }
 
     let items = scan_all_items().await;
 
@@ -403,8 +413,9 @@ async fn should_update_existing_products_via_upsert_when_all_exist() {
         )
         .collect();
 
-    let failures = service.upsert(upsert_cmds).await;
-    assert!(failures.is_empty());
+    for command in upsert_cmds {
+        assert!(service.upsert(command).await.is_none());
+    }
 
     let items = scan_all_items().await;
 
@@ -466,8 +477,9 @@ async fn should_create_and_update_mixed_products_via_upsert() {
     let mut all_upsert_cmds = existing_upsert_cmds;
     all_upsert_cmds.extend(new_upsert_cmds);
 
-    let failures = service.upsert(all_upsert_cmds).await;
-    assert!(failures.is_empty());
+    for command in all_upsert_cmds {
+        assert!(service.upsert(command).await.is_none());
+    }
 
     let items = scan_all_items().await;
 

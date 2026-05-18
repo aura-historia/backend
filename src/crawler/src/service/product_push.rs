@@ -69,7 +69,12 @@ impl ProductPushService for ProductPushServiceImpl {
     )]
     async fn push(&self, commands: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand> {
         let count = commands.len();
-        let failed = self.command_service.upsert(commands.clone()).await;
+        let mut failed = Vec::new();
+        for command in commands.iter().cloned() {
+            if let Some(failure) = self.command_service.upsert(command).await {
+                failed.push(failure);
+            }
+        }
         if !failed.is_empty() {
             warn!(
                 failures = failed.len(),
@@ -480,10 +485,9 @@ mod tests {
         let cmd = normalize_to_upsert(product, &candidate).unwrap();
         let cmd_clone = cmd.clone();
 
-        mock.expect_upsert().times(1).returning(move |cmds| {
-            let failures = cmds.clone();
-            Box::pin(async move { failures })
-        });
+        mock.expect_upsert()
+            .times(1)
+            .returning(|cmd| Box::pin(async move { Some(cmd) }));
 
         let service = ProductPushServiceImpl::new(Box::new(mock));
         service.push(vec![cmd_clone]).await;
@@ -496,7 +500,7 @@ mod tests {
 
         mock.expect_upsert()
             .times(1)
-            .returning(|_| Box::pin(async { vec![] }));
+            .returning(|_| Box::pin(async { None }));
 
         let candidate = make_candidate(ShopType::CommercialDealer);
         let product = make_product(&candidate);

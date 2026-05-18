@@ -148,3 +148,83 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dynamodb::product_event_record::ProductEventRecord;
+    use crate::dynamodb::repository::MockProductDynamoDbRepository;
+    use crate::opensearch::repository::MockProductOpenSearchRepository;
+    use common::has_key::HasKey;
+    use fake::{Fake, Faker};
+
+    fn created_event_record() -> (ShopId, ShopsProductId, ProductEventRecord) {
+        let event = Product::create(
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+            Faker.fake(),
+        );
+        let key = event.payload.key();
+        (
+            key.shop_id,
+            key.shops_product_id,
+            ProductEventRecord::Domain(event.into()),
+        )
+    }
+
+    #[tokio::test]
+    async fn should_return_product_not_found_when_event_stream_is_empty() {
+        let mut dynamodb_repository = MockProductDynamoDbRepository::default();
+        dynamodb_repository
+            .expect_query_product_event_records()
+            .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+        let opensearch_repository = MockProductOpenSearchRepository::default();
+        let service = SemanticSearchServiceImpl::new(&dynamodb_repository, &opensearch_repository);
+
+        let actual = service
+            .similar_products(&ShopId::new(), &ShopsProductId::new(), &[], &Currency::Eur)
+            .await;
+
+        assert!(matches!(
+            actual,
+            Err(SemanticSearchProductsError::ProductNotFound(_, _))
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_return_none_when_product_has_no_embedding() {
+        let (shop_id, shops_product_id, record) = created_event_record();
+        let mut dynamodb_repository = MockProductDynamoDbRepository::default();
+        dynamodb_repository
+            .expect_query_product_event_records()
+            .return_once(move |_, _| Box::pin(async move { Ok(vec![record]) }));
+        let mut opensearch_repository = MockProductOpenSearchRepository::default();
+        opensearch_repository.expect_k_nn_text().never();
+        let service = SemanticSearchServiceImpl::new(&dynamodb_repository, &opensearch_repository);
+
+        let actual = service
+            .similar_products(&shop_id, &shops_product_id, &[], &Currency::Eur)
+            .await
+            .unwrap();
+
+        assert!(actual.is_none());
+    }
+}

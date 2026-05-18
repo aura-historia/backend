@@ -23,18 +23,20 @@ use fxrate::service::{FxRateService, FxRateServiceError};
 use shop::core::shop_type::ShopType;
 use shop::service::get_service::GetShopService;
 use shop::service::seller_service::SellerService;
-use std::collections::{HashMap, HashSet};
 use tracing::{error, warn};
 
 #[async_trait]
 #[mockall::automock]
 pub trait CommandProductService {
-    async fn create(&self, cmds: Vec<CreateProductCommand>) -> Vec<CreateProductCommand>;
+    async fn create(&self, cmd: CreateProductCommand) -> Option<CreateProductCommand>;
+
     async fn update(
         &self,
-        cmds: HashMap<ProductKey, UpdateProductCommand>,
-    ) -> HashMap<ProductKey, UpdateProductCommand>;
-    async fn upsert(&self, cmds: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand>;
+        key: ProductKey,
+        cmd: UpdateProductCommand,
+    ) -> Option<(ProductKey, UpdateProductCommand)>;
+
+    async fn upsert(&self, cmd: UpsertProductCommand) -> Option<UpsertProductCommand>;
 }
 
 pub struct CommandProductServiceImpl<'a> {
@@ -161,14 +163,12 @@ impl<'a> CommandProductServiceImpl<'a> {
         })
     }
 
-    async fn persist_events<C>(
+    async fn persist_events(
         &self,
         events: Vec<ProductEventRecord>,
         meta_record: ProductMetaRecord,
         expected_event_version: u64,
-        key_cmds: &mut HashMap<ProductKey, C>,
-    ) -> Option<(ProductKey, C)> {
-        let product_key = meta_record.key();
+    ) -> bool {
         let event_logs = events
             .iter()
             .map(|record| {
@@ -187,11 +187,11 @@ impl<'a> CommandProductServiceImpl<'a> {
                 for event_log in event_logs {
                     event_log.log();
                 }
-                None
+                true
             }
             Err(err) => {
                 warn!(error = ?err, "Failed writing product event transaction. Returning command for retry.");
-                key_cmds.remove(&product_key).map(|cmd| (product_key, cmd))
+                false
             }
         }
     }
@@ -228,267 +228,169 @@ impl<'a> CommandProductServiceImpl<'a> {
         };
         Ok(Some((product, current_event_count)))
     }
+
+    async fn build_created_product(
+        &self,
+        mut cmd: CreateProductCommand,
+    ) -> Option<(Product, ProductDomainEvent)> {
+        let resolved = self.enrich_shop_information(&mut cmd).await?;
+        self.enrich_price(&mut cmd);
+        let event = create_product_event(cmd, resolved);
+        let product = match Product::replay(vec![
+            event
+                .clone()
+                .map_payload(ProductEventPayload::ProductDomainEvent),
+        ]) {
+            Ok(product) => product,
+            Err(err) => {
+                warn!(error = %err, "Failed replaying created product.");
+                return None;
+            }
+        };
+        Some((product, event))
+    }
+
+    async fn create_new_product(&self, cmd: CreateProductCommand) -> bool {
+        let Some((product, event)) = self.build_created_product(cmd).await else {
+            return false;
+        };
+        let meta = ProductMetaRecord::from_product(&product, 1);
+        self.persist_events(
+            vec![ProductEventRecord::Domain(ProductDomainEventRecord::from(
+                event,
+            ))],
+            meta,
+            0,
+        )
+        .await
+    }
+
+    async fn update_existing_product(
+        &self,
+        mut product: Product,
+        version: u64,
+        cmd: UpdateProductCommand,
+    ) -> bool {
+        let events = determine_update_events(&mut product, cmd, &self.fx_rate);
+        if events.is_empty() {
+            return true;
+        }
+        let meta = ProductMetaRecord::from_product(&product, version + events.len() as u64);
+        self.persist_events(events, meta, version).await
+    }
 }
 
 #[async_trait]
 impl CommandProductService for CommandProductServiceImpl<'_> {
-    async fn create(&self, cmds: Vec<CreateProductCommand>) -> Vec<CreateProductCommand> {
-        let mut failures = Vec::new();
-        let mut seen = HashSet::new();
-
-        for mut cmd in cmds {
-            let key = cmd.key();
-            if !seen.insert(key.clone()) {
-                warn!(shopId = %key.shop_id, shopsProductId = %key.shops_product_id, "Duplicate create command in batch.");
-                failures.push(cmd);
-                continue;
+    async fn create(&self, cmd: CreateProductCommand) -> Option<CreateProductCommand> {
+        let key = cmd.key();
+        match self.load_product(&key).await {
+            Ok(Some(_)) => {
+                warn!(shopId = %key.shop_id, shopsProductId = %key.shops_product_id, "Product already exists. Cannot create.");
+                None
             }
-            match self.load_product(&key).await {
-                Ok(Some(_)) => {
-                    warn!(shopId = %key.shop_id, shopsProductId = %key.shops_product_id, "Product already exists. Cannot create.");
-                }
-                Ok(None) => {
-                    let Some(resolved) = self.enrich_shop_information(&mut cmd).await else {
-                        failures.push(cmd);
-                        continue;
-                    };
-                    self.enrich_price(&mut cmd);
-                    let event = create_product_event(cmd.clone(), resolved);
-                    let product = match Product::replay(vec![
-                        event
-                            .clone()
-                            .map_payload(ProductEventPayload::ProductDomainEvent),
-                    ]) {
-                        Ok(product) => product,
-                        Err(err) => {
-                            warn!(error = %err, "Failed replaying created product.");
-                            failures.push(cmd);
-                            continue;
-                        }
-                    };
-                    let events = vec![ProductEventRecord::Domain(ProductDomainEventRecord::from(
-                        event,
-                    ))];
-                    let meta = ProductMetaRecord::from_product(&product, 1);
-                    let mut key_cmds = HashMap::from([(key.clone(), cmd)]);
-                    if let Some((_, cmd)) =
-                        self.persist_events(events, meta, 0, &mut key_cmds).await
-                    {
-                        failures.push(cmd);
-                    }
-                }
-                Err(err) => {
-                    warn!(error = ?err, "Failed loading product before create. Returning command for retry.");
-                    failures.push(cmd);
-                }
+            Ok(None) => (!self.create_new_product(cmd.clone()).await).then_some(cmd),
+            Err(err) => {
+                warn!(error = ?err, "Failed loading product before create. Returning command for retry.");
+                Some(cmd)
             }
         }
-
-        failures
     }
 
     async fn update(
         &self,
-        cmds: HashMap<ProductKey, UpdateProductCommand>,
-    ) -> HashMap<ProductKey, UpdateProductCommand> {
-        let mut failures = HashMap::new();
-
-        for (key, cmd) in cmds {
-            match self.load_product(&key).await {
-                Ok(Some((product, version))) => {
-                    let mut working = HashMap::from([(key.clone(), cmd.clone())]);
-                    let events =
-                        determine_update_events(&mut working, vec![product.clone()], &self.fx_rate);
-                    if events.is_empty() {
-                        continue;
-                    }
-                    let mut updated = product;
-                    let mut failed_apply = false;
-                    for event in events
-                        .iter()
-                        .cloned()
-                        .filter_map(|record| ProductEvent::try_from(record).ok())
-                    {
-                        if let Err(err) = updated.apply_event(event) {
-                            warn!(error = %err, "Failed applying product update event.");
-                            failures.insert(key.clone(), cmd.clone());
-                            failed_apply = true;
-                            break;
-                        }
-                    }
-                    if failed_apply {
-                        continue;
-                    }
-                    let meta =
-                        ProductMetaRecord::from_product(&updated, version + events.len() as u64);
-                    let mut key_cmds = HashMap::from([(key.clone(), cmd.clone())]);
-                    if let Some((key, cmd)) = self
-                        .persist_events(events, meta, version, &mut key_cmds)
-                        .await
-                    {
-                        failures.insert(key, cmd);
-                    }
-                }
-                Ok(None) => {
-                    warn!(shopId = %key.shop_id, shopsProductId = %key.shops_product_id, "Product not found. Cannot update.");
-                    failures.insert(key, cmd);
-                }
-                Err(err) => {
-                    warn!(error = ?err, "Failed loading product before update. Returning command for retry.");
-                    failures.insert(key, cmd);
-                }
+        key: ProductKey,
+        cmd: UpdateProductCommand,
+    ) -> Option<(ProductKey, UpdateProductCommand)> {
+        match self.load_product(&key).await {
+            Ok(Some((product, version))) => (!self
+                .update_existing_product(product, version, cmd.clone())
+                .await)
+                .then_some((key, cmd)),
+            Ok(None) => {
+                warn!(shopId = %key.shop_id, shopsProductId = %key.shops_product_id, "Product not found. Cannot update.");
+                Some((key, cmd))
+            }
+            Err(err) => {
+                warn!(error = ?err, "Failed loading product before update. Returning command for retry.");
+                Some((key, cmd))
             }
         }
-
-        failures
     }
 
-    async fn upsert(&self, cmds: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand> {
-        let mut failures = Vec::new();
-
-        let mut seen = HashSet::new();
-        for cmd in cmds {
-            let key = cmd.key();
-            if !seen.insert(key.clone()) {
-                warn!(shopId = %key.shop_id, shopsProductId = %key.shops_product_id, "Duplicate upsert command in batch.");
-                failures.push(cmd);
-                continue;
+    async fn upsert(&self, cmd: UpsertProductCommand) -> Option<UpsertProductCommand> {
+        let key = cmd.key();
+        match self.load_product(&key).await {
+            Ok(Some((product, version))) => {
+                let update_cmd = UpdateProductCommand::from(&cmd);
+                (!self
+                    .update_existing_product(product, version, update_cmd)
+                    .await)
+                    .then_some(cmd)
             }
-            match self.load_product(&key).await {
-                Ok(Some((product, version))) => {
-                    let update_cmd = UpdateProductCommand::from(&cmd);
-                    let mut working = HashMap::from([(key.clone(), update_cmd)]);
-                    let events =
-                        determine_update_events(&mut working, vec![product.clone()], &self.fx_rate);
-                    if events.is_empty() {
-                        continue;
-                    }
-                    let mut updated = product;
-                    let mut failed_apply = false;
-                    for event in events
-                        .iter()
-                        .cloned()
-                        .filter_map(|record| ProductEvent::try_from(record).ok())
-                    {
-                        if let Err(err) = updated.apply_event(event) {
-                            warn!(error = %err, "Failed applying product upsert event.");
-                            failures.push(cmd.clone());
-                            failed_apply = true;
-                            break;
-                        }
-                    }
-                    if failed_apply {
-                        continue;
-                    }
-                    let meta =
-                        ProductMetaRecord::from_product(&updated, version + events.len() as u64);
-                    let mut key_cmds = HashMap::from([(key.clone(), cmd.clone())]);
-                    if let Some((_, cmd)) = self
-                        .persist_events(events, meta, version, &mut key_cmds)
-                        .await
-                    {
-                        failures.push(cmd);
-                    }
-                }
-                Ok(None) => {
-                    let mut create_cmd = CreateProductCommand::from(cmd.clone());
-                    let Some(resolved) = self.enrich_shop_information(&mut create_cmd).await else {
-                        failures.push(cmd);
-                        continue;
-                    };
-                    self.enrich_price(&mut create_cmd);
-                    let event = create_product_event(create_cmd, resolved);
-                    let product = match Product::replay(vec![
-                        event
-                            .clone()
-                            .map_payload(ProductEventPayload::ProductDomainEvent),
-                    ]) {
-                        Ok(product) => product,
-                        Err(err) => {
-                            warn!(error = %err, "Failed replaying upsert-created product.");
-                            failures.push(cmd);
-                            continue;
-                        }
-                    };
-                    let events = vec![ProductEventRecord::Domain(ProductDomainEventRecord::from(
-                        event,
-                    ))];
-                    let meta = ProductMetaRecord::from_product(&product, 1);
-                    let mut key_cmds = HashMap::from([(key.clone(), cmd)]);
-                    if let Some((_, cmd)) =
-                        self.persist_events(events, meta, 0, &mut key_cmds).await
-                    {
-                        failures.push(cmd);
-                    }
-                }
-                Err(err) => {
-                    warn!(error = ?err, "Failed loading product before upsert. Returning command for retry.");
-                    failures.push(cmd);
-                }
+            Ok(None) => {
+                let create_cmd = CreateProductCommand::from(cmd.clone());
+                (!self.create_new_product(create_cmd).await).then_some(cmd)
+            }
+            Err(err) => {
+                warn!(error = ?err, "Failed loading product before upsert. Returning command for retry.");
+                Some(cmd)
             }
         }
-
-        failures
     }
 }
 
 fn determine_update_events(
-    working: &mut HashMap<ProductKey, UpdateProductCommand>,
-    records: Vec<impl HasKey<Key = ProductKey> + Into<Product>>,
+    product: &mut Product,
+    cmd: UpdateProductCommand,
     fx_rate: &impl FxRate,
 ) -> Vec<ProductEventRecord> {
-    let mut events = Vec::new();
+    // From<ProductRecord> for Product enriches product.url with UTM params.
+    // Strip them here so URL-equality comparisons are done against the
+    // canonical (raw) URL, and URL-changed events store the raw URL rather
+    // than the already-enriched one.
+    product.url = strip_utm_params(product.url.clone());
 
-    for record in records {
-        let key = record.key();
-        if let Some(cmd) = working.remove(&key) {
-            let mut product: Product = record.into();
-            // From<ProductRecord> for Product enriches product.url with UTM params.
-            // Strip them here so URL-equality comparisons are done against the
-            // canonical (raw) URL, and URL-changed events store the raw URL rather
-            // than the already-enriched one.
-            product.url = strip_utm_params(product.url.clone());
-            if let Some(price_event) = product.new_price(cmd.native_price, fx_rate) {
-                events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
-                    price_event,
-                )));
-            }
-            if let Some(new_state) = cmd.state
-                && let Some(state_event) = product.change_state(new_state)
-            {
-                events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
-                    state_event,
-                )));
-            }
-            if let Some(event) = product.change_estimate_price(
-                cmd.native_price_estimate_min,
-                cmd.native_price_estimate_max,
-                fx_rate,
-            ) {
-                events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
-                    event,
-                )));
-            }
-            if let Some(url) = cmd.url
-                && let Some(event) = product.change_url(url)
-            {
-                events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
-                    event,
-                )));
-            }
-            if let Some(images) = cmd.images {
-                for event in product.change_images(images) {
-                    events.push(ProductEventRecord::from(event));
-                }
-            }
-            if (cmd.auction_start.is_some() || cmd.auction_end.is_some())
-                && let Some(event) = product.change_auction_time(cmd.auction_start, cmd.auction_end)
-            {
-                events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
-                    event,
-                )));
-            }
+    let mut events = Vec::new();
+    if let Some(price_event) = product.new_price(cmd.native_price, fx_rate) {
+        events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
+            price_event,
+        )));
+    }
+    if let Some(new_state) = cmd.state
+        && let Some(state_event) = product.change_state(new_state)
+    {
+        events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
+            state_event,
+        )));
+    }
+    if let Some(event) = product.change_estimate_price(
+        cmd.native_price_estimate_min,
+        cmd.native_price_estimate_max,
+        fx_rate,
+    ) {
+        events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
+            event,
+        )));
+    }
+    if let Some(url) = cmd.url
+        && let Some(event) = product.change_url(url)
+    {
+        events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
+            event,
+        )));
+    }
+    if let Some(images) = cmd.images {
+        for event in product.change_images(images) {
+            events.push(ProductEventRecord::from(event));
         }
+    }
+    if (cmd.auction_start.is_some() || cmd.auction_end.is_some())
+        && let Some(event) = product.change_auction_time(cmd.auction_start, cmd.auction_end)
+    {
+        events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
+            event,
+        )));
     }
 
     events
@@ -521,4 +423,69 @@ fn create_product_event(
         cmd.auction_start,
         cmd.auction_end,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
+    use common::price::domain::{FixedFxRate, Price};
+    use common::product_state::domain::ProductState;
+    use fake::{Fake, Faker};
+
+    fn update_cmd_for(product: &Product) -> UpdateProductCommand {
+        UpdateProductCommand {
+            native_price: product.native_price,
+            state: Some(product.state),
+            native_price_estimate_min: None,
+            native_price_estimate_max: None,
+            url: None,
+            images: None,
+            auction_start: None,
+            auction_end: None,
+        }
+    }
+
+    #[test]
+    fn should_determine_no_update_events_when_values_do_not_change() {
+        let mut product: Product = Faker.fake();
+        let cmd = update_cmd_for(&product);
+
+        let actual = determine_update_events(&mut product, cmd, &FixedFxRate());
+
+        assert!(actual.is_empty());
+    }
+
+    #[test]
+    fn should_determine_price_changed_event_when_price_changes() {
+        let mut product: Product = Faker.fake();
+        let mut cmd = update_cmd_for(&product);
+        cmd.native_price = Some(Price::new(
+            12345_u64.into(),
+            common::currency::domain::Currency::Eur,
+        ));
+
+        let actual = determine_update_events(&mut product, cmd, &FixedFxRate());
+
+        assert!(actual.iter().any(|event| {
+            event.event_type() == ProductDomainEventTypeRecord::DomainPriceChanged.as_str()
+        }));
+    }
+
+    #[test]
+    fn should_determine_state_changed_event_when_state_changes() {
+        let mut product: Product = Faker.fake();
+        let mut cmd = update_cmd_for(&product);
+        cmd.state = Some(if matches!(product.state, ProductState::Available) {
+            ProductState::Removed
+        } else {
+            ProductState::Available
+        });
+
+        let actual = determine_update_events(&mut product, cmd, &FixedFxRate());
+
+        assert!(actual.iter().any(|event| {
+            event.event_type() == ProductDomainEventTypeRecord::DomainStateChanged.as_str()
+        }));
+    }
 }

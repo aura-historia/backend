@@ -28,12 +28,11 @@ use time::OffsetDateTime;
 use tracing::{error, info, warn};
 
 #[tracing::instrument(
-    skip(translation_service, _get_product_service, product_repository, event),
+    skip(translation_service, product_repository, event),
     fields(requestId = %event.context.request_id)
 )]
 pub async fn handler(
     translation_service: &(impl TranslationService + Sync),
-    _get_product_service: &impl Sync,
     product_repository: &(impl ProductDynamoDbRepository + Sync),
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {

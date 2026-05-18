@@ -331,13 +331,12 @@ mod tests {
     }
 
     fn mk_product_event_records() -> Vec<ProductEventRecord> {
-        let record = ProductDomainEventRecord::try_from(Event {
+        let record = ProductDomainEventRecord::from(Event {
             aggregate_id: Faker.fake(),
             event_id: Faker.fake(),
             timestamp: OffsetDateTime::now_utc(),
             payload: ProductDomainEventPayload::Created(Faker.fake()),
-        })
-        .unwrap();
+        });
         vec![ProductEventRecord::Domain(record)]
     }
 

@@ -808,94 +808,6 @@ impl Aggregate for Product {
     }
 }
 
-#[cfg(test)]
-mod replay_tests {
-    use super::*;
-    use common::aggregate::Aggregate;
-    use fake::{Fake, Faker};
-
-    #[test]
-    fn should_replay_product_when_created_event_exists() {
-        let event = Product::create(
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-        )
-        .map_payload(ProductEventPayload::ProductDomainEvent);
-
-        let actual = Product::replay(vec![event]);
-
-        assert!(actual.is_ok());
-    }
-
-    #[test]
-    fn should_return_error_when_replay_has_no_created_event() {
-        let event = Faker
-            .fake::<ProductEnrichmentEvent>()
-            .map_payload(ProductEventPayload::ProductEnrichmentEvent);
-
-        let actual = Product::replay(vec![event]);
-
-        assert!(matches!(
-            actual,
-            Err(ProductReplayError::MissingCreatedEvent)
-        ));
-    }
-
-    #[test]
-    fn should_return_error_when_replay_contains_duplicate_created_event() {
-        let event = Product::create(
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-            Faker.fake(),
-        )
-        .map_payload(ProductEventPayload::ProductDomainEvent);
-
-        let actual = Product::replay(vec![event.clone(), event]);
-
-        assert!(matches!(
-            actual,
-            Err(ProductReplayError::DuplicateCreatedEvent)
-        ));
-    }
-}
-
 impl HasKey for Product {
     type Key = ProductKey;
 
@@ -1091,6 +1003,92 @@ mod tests {
             None,
             None,
         )
+    }
+
+    mod replay {
+        use super::*;
+        use common::aggregate::Aggregate;
+
+        #[test]
+        fn should_replay_product_when_created_event_exists() {
+            let event = Product::create(
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+            )
+            .map_payload(ProductEventPayload::ProductDomainEvent);
+
+            let actual = Product::replay(vec![event]);
+
+            assert!(actual.is_ok());
+        }
+
+        #[test]
+        fn should_return_error_when_replay_has_no_created_event() {
+            let event = Faker
+                .fake::<ProductEnrichmentEvent>()
+                .map_payload(ProductEventPayload::ProductEnrichmentEvent);
+
+            let actual = Product::replay(vec![event]);
+
+            assert!(matches!(
+                actual,
+                Err(ProductReplayError::MissingCreatedEvent)
+            ));
+        }
+
+        #[test]
+        fn should_return_error_when_replay_contains_duplicate_created_event() {
+            let event = Product::create(
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+                Faker.fake(),
+            )
+            .map_payload(ProductEventPayload::ProductDomainEvent);
+
+            let actual = Product::replay(vec![event.clone(), event]);
+
+            assert!(matches!(
+                actual,
+                Err(ProductReplayError::DuplicateCreatedEvent)
+            ));
+        }
     }
 
     // -------------------------------------------------------------------------

@@ -29,12 +29,15 @@ pub async fn handle(
 
     let products: Vec<PatchProductData> = extract_body(&event.payload)?;
 
-    let commands: HashMap<ProductKey, UpdateProductCommand> = products
+    let mut failures = HashMap::new();
+    for (key, command) in products
         .into_iter()
         .map(|data| to_update_entry(data, &partner_shop))
-        .collect();
-
-    let failures = command_product_service.update(commands).await;
+    {
+        if let Some((key, failure)) = command_product_service.update(key, command).await {
+            failures.insert(key, failure);
+        }
+    }
 
     let errors: HashMap<String, String> = failures
         .into_keys()
@@ -162,7 +165,7 @@ mod tests {
         let mut command_service = MockCommandProductService::default();
         command_service
             .expect_update()
-            .return_once(|_| Box::pin(async { HashMap::new() }));
+            .return_once(|_, _| Box::pin(async { None }));
 
         let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_ok());
@@ -221,7 +224,7 @@ mod tests {
         let mut command_service = MockCommandProductService::default();
         command_service
             .expect_update()
-            .return_once(move |_| Box::pin(async move { HashMap::from([(key, cmd)]) }));
+            .return_once(move |_, _| Box::pin(async move { Some((key, cmd)) }));
 
         let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_ok());

@@ -13,7 +13,7 @@ use product::dynamodb::product_record::{
     ProductRecord, mk_pk as product_mk_pk, mk_sk as product_mk_sk,
 };
 use product::dynamodb::product_state_record::ProductStateRecord;
-use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
+use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::dynamodb::test_utils::ProductRecordSeedExt;
 use product::service::get_service::GetProductServiceImpl;
 use search_filter::dynamodb::repository::{

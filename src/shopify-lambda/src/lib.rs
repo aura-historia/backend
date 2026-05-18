@@ -9,15 +9,12 @@ pub use types::{
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use common::domain::Domain;
-use common::has_key::HasKey;
-use common::product_id::ProductKey;
 use lambda_runtime::LambdaEvent;
 use product::service::command_service::CommandProductService;
 use product::service::product_command::UpsertProductCommand;
 use serde_json::Value;
 use shop::core::partner_status::ShopPartnerStatus;
 use shop::service::get_service::{GetShopError, GetShopService};
-use std::collections::HashSet;
 use tracing::{error, info, warn};
 
 pub const SHOPIFY_TOPIC_PRODUCTS_CREATE: &str = "products/create";
@@ -130,10 +127,9 @@ async fn resolve_command(
 /// SQS batch handler. Each SQS message body is an EventBridge event JSON
 /// envelope published by the Shopify event rule.
 ///
-/// All valid commands from the batch are collected and passed to
-/// `product_service.upsert()` in a single call. Returned failures are mapped
-/// back to their originating message IDs and reported as partial batch failures
-/// so only the failed messages are retried.
+/// Valid commands from the batch are upserted one-by-one. Command failures are
+/// mapped back to their originating message IDs and reported as partial batch
+/// failures so only the failed messages are retried.
 #[tracing::instrument(skip(event, shop_service, product_service), fields(requestId = %event.context.request_id))]
 pub async fn handler(
     event: LambdaEvent<SqsEvent>,
@@ -187,19 +183,9 @@ pub async fn handler(
         }
     }
 
-    if !pending.is_empty() {
-        let commands: Vec<UpsertProductCommand> =
-            pending.iter().map(|(_, cmd)| cmd.clone()).collect();
-        let failed_commands = product_service.upsert(commands).await;
-        // Collect the ProductKeys of every command that the upsert reported as
-        // failed.  All pending messages that contributed a command with one of
-        // those keys are reported as SQS failures so they are retried.
-        let failed_keys: HashSet<ProductKey> =
-            failed_commands.into_iter().map(|c| c.key()).collect();
-        for (msg_id, cmd) in &pending {
-            if failed_keys.contains(&cmd.key()) {
-                failed_message_ids.push(msg_id.clone());
-            }
+    for (msg_id, cmd) in pending {
+        if product_service.upsert(cmd).await.is_some() {
+            failed_message_ids.push(msg_id);
         }
     }
 
@@ -306,12 +292,9 @@ mod tests {
             .expect_find_shop_by_shopify_domain()
             .return_once(move |_| Box::pin(async move { Ok(shop) }));
         let mut product_service = MockCommandProductService::default();
-        product_service.expect_upsert().return_once(|cmds| {
-            Box::pin(async move {
-                assert_eq!(cmds.len(), 1);
-                vec![]
-            })
-        });
+        product_service
+            .expect_upsert()
+            .return_once(|_| Box::pin(async { None }));
 
         let result = handler(
             make_sqs_event(SHOPIFY_TOPIC_PRODUCTS_UPDATE),
@@ -356,7 +339,7 @@ mod tests {
         let mut product_service = MockCommandProductService::default();
         product_service
             .expect_upsert()
-            .return_once(|cmds| Box::pin(async move { cmds }));
+            .return_once(|cmd| Box::pin(async move { Some(cmd) }));
 
         let result = handler(
             make_sqs_event_with_id(SHOPIFY_TOPIC_PRODUCTS_UPDATE, "failing-msg"),
@@ -384,13 +367,14 @@ mod tests {
             });
 
         let mut product_service = MockCommandProductService::default();
-        // Single batched upsert call; only the second command (product 222) fails.
-        product_service.expect_upsert().once().returning(|cmds| {
-            Box::pin(async move {
-                // Return only the second command as a failure.
-                cmds.into_iter().skip(1).take(1).collect()
-            })
-        });
+        let upsert_call = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        product_service
+            .expect_upsert()
+            .times(2)
+            .returning(move |cmd| {
+                let call = upsert_call.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Box::pin(async move { if call == 1 { Some(cmd) } else { None } })
+            });
 
         // Two messages with DIFFERENT product IDs so they produce distinct ProductKeys.
         let body1 = serde_json::to_string(&make_eb_event_with_product_id(

@@ -6,7 +6,6 @@ use common::resource_state::record::ResourceStateRecord;
 use common::utm::append_utm_params;
 use common::{
     aggregate::Aggregate,
-    batch::Batch,
     currency::{data::CurrencyData, domain::Currency},
     event::Event,
     event_id::EventId,
@@ -52,21 +51,14 @@ use product::{
         product_event::{
             ProductEvent, ProductEventPayload,
             domain::{
-                ProductCreatedDomainEventPayload, ProductDomainEventPayload,
-                ProductPriceChangeDomainEventPayload, ProductStateChangeDomainEventPayload,
+                ProductDomainEventPayload, ProductPriceChangeDomainEventPayload,
+                ProductStateChangeDomainEventPayload,
             },
-            enrichment::{EmbeddedProductEnrichmentEventPayload, ProductEnrichmentEventPayload},
-            policy::{ProductPolicyEventPayload, ProhibitedContentProductPolicyEventPayload},
         },
-        product_image::ProductImage,
-        prohibited_content::{ProhibitedContent, ProhibitedContentReason},
     },
     dynamodb::{
         product_event_record::ProductEventRecord,
-        product_image_record::ProductImageRecord,
-        product_record::{ProductRecord, mk_pk},
-        product_state_record::ProductStateRecord,
-        prohibited_content_record::ProhibitedContentRecord,
+        product_record::ProductRecord,
         repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
     },
     service::{
@@ -938,8 +930,10 @@ async fn create_products(commands: Vec<CreateProductCommand>) {
     .await
     .expect("shouldn't fail creating CommandProductServiceImpl");
 
-    let result = command_service.create(commands).await;
-    assert!(result.is_empty(), "Some products failed to create");
+    for command in commands {
+        let result = command_service.create(command).await;
+        assert!(result.is_none(), "Some products failed to create");
+    }
 }
 
 async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
@@ -964,8 +958,10 @@ async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
     .await
     .expect("shouldn't fail creating CommandProductServiceImpl");
 
-    let result = command_service.update(commands).await;
-    assert!(result.is_empty(), "Some products failed to update");
+    for (key, command) in commands {
+        let result = command_service.update(key, command).await;
+        assert!(result.is_none(), "Some products failed to update");
+    }
 }
 
 fn empty_update_product_command() -> UpdateProductCommand {
@@ -1889,10 +1885,7 @@ async fn should_respond_200_and_personalize_similar_products_for_authenticated()
     let product_records = fake::vec![ProductRecord; 5];
     let ddb_insert_res = product_dynamodb_repository
         .transact_write_product_records_as_events(
-            [vec![product_record.clone()], product_records.clone()]
-                .concat()
-                .try_into()
-                .unwrap(),
+            [vec![product_record.clone()], product_records.clone()].concat(),
         )
         .await
         .unwrap();

@@ -8,7 +8,6 @@ use notification::service::notification_service::NotificationServiceImpl;
 use product::data::get_data::GetProductData;
 use product::data::user_state_data::ProductUserStateData;
 use product::dynamodb::product_record::ProductRecord;
-use product::dynamodb::repository::ProductDynamoDbRepository;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::dynamodb::test_utils::ProductRecordSeedExt;
 use product::service::get_service::GetProductServiceImpl;

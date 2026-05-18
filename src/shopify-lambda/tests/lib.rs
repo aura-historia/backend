@@ -1,6 +1,5 @@
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
-use common::batch::Batch;
 use common::domain::Domain;
 use common::price::domain::FixedFxRate;
 use common::shop_name::ShopName;
@@ -203,7 +202,7 @@ async fn seed_product_record(
     record.sk = product::dynamodb::product_record::mk_sk().to_owned();
     record.state = state;
     product_repo
-        .transact_write_product_records_as_events(Batch::from([record.clone()]))
+        .transact_write_product_records_as_events([record.clone()])
         .await
         .unwrap();
     record

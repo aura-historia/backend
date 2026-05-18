@@ -9,7 +9,7 @@ use notification::service::notification_service::MockNotificationService;
 use product::data::get_summary_data::GetProductSummaryData;
 use product::data::user_state_data::ProductUserStateData;
 use product::dynamodb::product_record::ProductRecord;
-use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
+use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::dynamodb::test_utils::ProductRecordSeedExt;
 use product::opensearch::product_document::ProductDocument;
 use product::opensearch::repository::{
@@ -1036,10 +1036,7 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
     let product_records = fake::vec![ProductRecord; 5];
     let ddb_insert_res = product_dynamodb_repository
         .transact_write_product_records_as_events(
-            [vec![product_record.clone()], product_records.clone()]
-                .concat()
-                .try_into()
-                .unwrap(),
+            [vec![product_record.clone()], product_records.clone()].concat(),
         )
         .await
         .unwrap();
@@ -1189,10 +1186,7 @@ async fn should_respond_200_and_respect_language_query_param(
     let product_records = fake::vec![ProductRecord; 12];
     let ddb_insert_res = product_dynamodb_repository
         .transact_write_product_records_as_events(
-            [vec![product_record.clone()], product_records.clone()]
-                .concat()
-                .try_into()
-                .unwrap(),
+            [vec![product_record.clone()], product_records.clone()].concat(),
         )
         .await
         .unwrap();

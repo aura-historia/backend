@@ -5,10 +5,7 @@ use notification::dynamodb::repository::NotificationDynamoDbRepositoryImpl;
 use notification::service::noop_adapters::{NoopS3Adapter, NoopSesAdapter};
 use notification::service::notification_service::NotificationServiceImpl;
 use product::dynamodb::test_utils::ProductRecordSeedExt;
-use product::dynamodb::{
-    product_record::ProductRecord,
-    repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
-};
+use product::dynamodb::{product_record::ProductRecord, repository::ProductDynamoDbRepositoryImpl};
 use product::service::get_service::GetProductServiceImpl;
 use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::core::quota::WatchlistQuota;

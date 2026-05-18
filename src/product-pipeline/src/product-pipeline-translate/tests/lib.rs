@@ -1,7 +1,6 @@
 use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
-use common::batch::Batch;
 use common::event::Event;
 use common::event_id::EventId;
 use common::language::domain::Language;
@@ -14,9 +13,8 @@ use product::core::product_event::domain::{
 };
 use product::dynamodb::product_event_record::ProductEventRecord;
 use product::dynamodb::product_record::{ProductRecord, mk_pk};
-use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
+use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::dynamodb::test_utils::ProductRecordSeedExt;
-use product::service::get_service::GetProductServiceImpl;
 use product_pipeline_translate::handler;
 use product_pipeline_translate::service::MockTranslationService;
 use std::collections::HashMap;
@@ -100,10 +98,8 @@ async fn seed_product_record(
     record.product_id = product_id;
     record.title_native = TextRecord::new(native_title, native_language);
 
-    let batch = Batch::try_from_iter(std::iter::once(record))
-        .expect("shouldn't fail creating single-item batch");
     repository
-        .transact_write_product_records_as_events(batch)
+        .transact_write_product_records_as_events([record])
         .await
         .expect("shouldn't fail seeding product record");
 }
@@ -130,7 +126,6 @@ async fn should_persist_translated_title_events_when_domain_created_event_trigge
     )
     .await;
 
-    let get_product_service = GetProductServiceImpl::new(&repository);
     let domain_record =
         mk_domain_created_event_record(shop_id, seller_id, shops_product_id, product_id);
 
@@ -154,9 +149,7 @@ async fn should_persist_translated_title_events_when_domain_created_event_trigge
         });
 
     let event = mk_lambda_event(vec![mk_sqs_message(&domain_record)]);
-    let result = handler(&mock_service, &get_product_service, &repository, event)
-        .await
-        .unwrap();
+    let result = handler(&mock_service, &repository, event).await.unwrap();
 
     assert!(
         result.batch_item_failures.is_empty(),
@@ -170,8 +163,6 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
     let client = get_dynamodb_client().await;
     let table_name = std::env::var("DYNAMODB_TABLE_NAME").unwrap();
     let repository = ProductDynamoDbRepositoryImpl::new(client, &table_name);
-
-    let get_product_service = GetProductServiceImpl::new(&repository);
 
     let titles = [
         "Victorian silver candlestick",
@@ -225,9 +216,7 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
         });
 
     let event = mk_lambda_event(domain_messages);
-    let result = handler(&mock_service, &get_product_service, &repository, event)
-        .await
-        .unwrap();
+    let result = handler(&mock_service, &repository, event).await.unwrap();
 
     assert!(
         result.batch_item_failures.is_empty(),

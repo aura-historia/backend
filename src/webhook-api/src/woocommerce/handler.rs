@@ -52,9 +52,9 @@ pub async fn handle_woocommerce(
     })
     .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)))?;
 
-    let errors = command_product_service.upsert(vec![command]).await;
+    let errors = usize::from(command_product_service.upsert(command).await.is_some());
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .body_serde(json!({ "errors": errors.len() }))?
+        .body_serde(json!({ "errors": errors }))?
         .build())
 }
 
@@ -248,20 +248,16 @@ mod tests {
             .return_once(move |_, _| Box::pin(async move { Ok(expected_shop) }));
 
         let mut product_service = MockCommandProductService::default();
-        product_service.expect_upsert().return_once(move |cmds| {
+        product_service.expect_upsert().return_once(move |cmd| {
             Box::pin(async move {
-                assert_eq!(cmds.len(), 1);
-                assert_eq!(cmds[0].shop_id, shop.shop_id);
-                assert_eq!(cmds[0].shops_product_id.to_string(), "17");
-                assert_eq!(cmds[0].state, Some(ProductState::Available));
+                assert_eq!(cmd.shop_id, shop.shop_id);
+                assert_eq!(cmd.shops_product_id.to_string(), "17");
+                assert_eq!(cmd.state, Some(ProductState::Available));
                 assert_eq!(
-                    cmds[0]
-                        .native_price
-                        .as_ref()
-                        .map(|price| price.monetary_amount),
+                    cmd.native_price.as_ref().map(|price| price.monetary_amount),
                     Some(MonetaryAmount::from(4269_u64))
                 );
-                vec![]
+                None
             })
         });
 
@@ -291,11 +287,11 @@ mod tests {
             .return_once(move |_, _| Box::pin(async move { Ok(expected_shop) }));
 
         let mut product_service = MockCommandProductService::default();
-        product_service.expect_upsert().return_once(move |cmds| {
+        product_service.expect_upsert().return_once(move |cmd| {
             Box::pin(async move {
-                assert_eq!(cmds[0].state, Some(ProductState::Removed));
-                assert!(cmds[0].native_title.is_none());
-                vec![]
+                assert_eq!(cmd.state, Some(ProductState::Removed));
+                assert!(cmd.native_title.is_none());
+                None
             })
         });
 
