@@ -49,8 +49,8 @@ use product::{
         product_event::{
             ProductEvent, ProductEventPayload,
             domain::{
-                ProductDomainEventPayload,
-                ProductPriceChangeDomainEventPayload, ProductStateChangeDomainEventPayload,
+                ProductDomainEventPayload, ProductPriceChangeDomainEventPayload,
+                ProductStateChangeDomainEventPayload,
             },
             enrichment::{EmbeddedProductEnrichmentEventPayload, ProductEnrichmentEventPayload},
             policy::{ProductPolicyEventPayload, ProhibitedContentProductPolicyEventPayload},
