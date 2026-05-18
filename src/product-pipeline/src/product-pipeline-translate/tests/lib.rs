@@ -1,21 +1,19 @@
 use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
-use common::batch::Batch;
 use common::event::Event;
 use common::event_id::EventId;
 use common::language::domain::Language;
-use common::language::record::{LanguageRecord, TextRecord};
+use common::localized::Localized;
 use common::product_id::ProductId;
 use fake::{Fake, Faker};
 use lambda_runtime::{Context, LambdaEvent};
 use product::core::product_event::domain::{
     ProductCreatedDomainEventPayload, ProductDomainEventPayload,
 };
+use product::core::title::Title;
 use product::dynamodb::product_event_record::ProductEventRecord;
-use product::dynamodb::product_record::{ProductRecord, mk_pk};
-use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
-use product::service::get_service::GetProductServiceImpl;
+use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product_pipeline_translate::handler;
 use product_pipeline_translate::service::MockTranslationService;
 use std::collections::HashMap;
@@ -60,17 +58,20 @@ fn mk_lambda_event(messages: Vec<SqsMessage>) -> LambdaEvent<SqsEvent> {
     }
 }
 
-/// Creates a DOMAIN_CREATED event record — the trigger for translate.
+/// Creates a DOMAIN_CREATED event record with the given native title and language.
 fn mk_domain_created_event_record(
     shop_id: common::shop_id::ShopId,
     seller_id: common::shop_id::ShopId,
     shops_product_id: common::shops_product_id::ShopsProductId,
     product_id: ProductId,
+    native_title: &str,
+    native_language: Language,
 ) -> ProductEventRecord {
     let mut payload: ProductCreatedDomainEventPayload = Faker.fake();
     payload.shop_id = shop_id;
     payload.seller_id = seller_id;
     payload.shops_product_id = shops_product_id;
+    payload.native_title = Localized::new(native_language, Title::from(native_title));
     let event = Event {
         aggregate_id: product_id,
         event_id: EventId::new(),
@@ -80,31 +81,6 @@ fn mk_domain_created_event_record(
     let domain_event: product::dynamodb::product_event_record::domain::ProductDomainEventRecord =
         event.into();
     ProductEventRecord::Domain(domain_event)
-}
-
-async fn seed_product_record(
-    repository: &ProductDynamoDbRepositoryImpl<'_>,
-    shop_id: common::shop_id::ShopId,
-    seller_id: common::shop_id::ShopId,
-    shops_product_id: common::shops_product_id::ShopsProductId,
-    product_id: ProductId,
-    native_title: &str,
-    native_language: LanguageRecord,
-) {
-    let mut record: ProductRecord = Faker.fake();
-    record.pk = mk_pk(&shop_id, &shops_product_id);
-    record.shop_id = shop_id;
-    record.seller_id = seller_id;
-    record.shops_product_id = shops_product_id;
-    record.product_id = product_id;
-    record.title_native = TextRecord::new(native_title, native_language);
-
-    let batch = Batch::try_from_iter(std::iter::once(record))
-        .expect("shouldn't fail creating single-item batch");
-    repository
-        .put_product_records(batch)
-        .await
-        .expect("shouldn't fail seeding product record");
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -118,20 +94,14 @@ async fn should_persist_translated_title_events_when_domain_created_event_trigge
     let shops_product_id: common::shops_product_id::ShopsProductId = Faker.fake();
     let product_id = ProductId::new();
 
-    seed_product_record(
-        &repository,
+    let domain_record = mk_domain_created_event_record(
         shop_id,
         seller_id,
-        shops_product_id.clone(),
+        shops_product_id,
         product_id,
         "Antiker Eichenstuhl",
-        LanguageRecord::De,
-    )
-    .await;
-
-    let get_product_service = GetProductServiceImpl::new(&repository);
-    let domain_record =
-        mk_domain_created_event_record(shop_id, seller_id, shops_product_id, product_id);
+        Language::De,
+    );
 
     let mut mock_service = MockTranslationService::new();
     mock_service
@@ -153,9 +123,7 @@ async fn should_persist_translated_title_events_when_domain_created_event_trigge
         });
 
     let event = mk_lambda_event(vec![mk_sqs_message(&domain_record)]);
-    let result = handler(&mock_service, &get_product_service, &repository, event)
-        .await
-        .unwrap();
+    let result = handler(&mock_service, &repository, event).await.unwrap();
 
     assert!(
         result.batch_item_failures.is_empty(),
@@ -170,8 +138,6 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
     let table_name = std::env::var("DYNAMODB_TABLE_NAME").unwrap();
     let repository = ProductDynamoDbRepositoryImpl::new(client, &table_name);
 
-    let get_product_service = GetProductServiceImpl::new(&repository);
-
     let titles = [
         "Victorian silver candlestick",
         "Antique mahogany writing desk",
@@ -185,22 +151,13 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
         let shops_product_id: common::shops_product_id::ShopsProductId = Faker.fake();
         let product_id = ProductId::new();
 
-        seed_product_record(
-            &repository,
-            shop_id,
-            seller_id,
-            shops_product_id.clone(),
-            product_id,
-            title,
-            LanguageRecord::En,
-        )
-        .await;
-
         domain_messages.push(mk_sqs_message(&mk_domain_created_event_record(
             shop_id,
             seller_id,
             shops_product_id,
             product_id,
+            title,
+            Language::En,
         )));
     }
 
@@ -224,9 +181,7 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
         });
 
     let event = mk_lambda_event(domain_messages);
-    let result = handler(&mock_service, &get_product_service, &repository, event)
-        .await
-        .unwrap();
+    let result = handler(&mock_service, &repository, event).await.unwrap();
 
     assert!(
         result.batch_item_failures.is_empty(),

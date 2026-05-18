@@ -5444,35 +5444,8 @@ dependencies = [
 name = "product-lambda"
 version = "0.1.0"
 dependencies = [
- "product-lambda-materialize-dynamodb",
  "product-lambda-materialize-opensearch",
  "product-lambda-update-notify-user",
-]
-
-[[package]]
-name = "product-lambda-materialize-dynamodb"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "lambda_runtime",
- "once_cell",
- "product",
- "rstest",
- "serde",
- "serde_dynamo",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
 ]
 
 [[package]]

@@ -20,7 +20,6 @@ use product::{
         title::Title,
     },
     dynamodb::{product_event_record::ProductEventRecord, repository::ProductDynamoDbRepository},
-    service::get_service::GetProductService,
 };
 use service::TranslationService;
 use std::collections::{HashMap, HashSet};
@@ -28,12 +27,11 @@ use time::OffsetDateTime;
 use tracing::{error, info, warn};
 
 #[tracing::instrument(
-    skip(translation_service, get_product_service, product_repository, event),
+    skip(translation_service, product_repository, event),
     fields(requestId = %event.context.request_id)
 )]
 pub async fn handler(
     translation_service: &(impl TranslationService + Sync),
-    get_product_service: &(impl GetProductService + Sync),
     product_repository: &(impl ProductDynamoDbRepository + Sync),
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
@@ -84,30 +82,6 @@ pub async fn handler(
         return Ok(sqs_batch_response);
     }
 
-    let keys: Vec<ProductKey> = key_to_record.keys().cloned().collect();
-    let products = match get_product_service.find_products(keys).await {
-        Ok(ps) => ps,
-        Err(err) => {
-            warn!(error = ?err, "Failed loading products for translation. Marking messages as failed for retry.");
-            failed_message_ids.extend(key_to_record.into_values().map(|(msg_id, _)| msg_id));
-            let failures = failed_message_ids.len();
-            info!(
-                eventType = %LogEventType::BatchProcessing,
-                pipelineStage = %LogPipelineStage::ProductTranslation,
-                processed = count,
-                successful = 0,
-                failures = failures,
-                "Processed product translation batch."
-            );
-            let mut sqs_batch_response = SqsBatchResponse::default();
-            sqs_batch_response.batch_item_failures = failed_message_ids
-                .into_iter()
-                .map(mk_batch_item_failure)
-                .collect();
-            return Ok(sqs_batch_response);
-        }
-    };
-
     struct ProductInput {
         message_id: String,
         product_id: ProductId,
@@ -119,26 +93,31 @@ pub async fn handler(
 
     let mut valid_inputs: Vec<ProductInput> = Vec::new();
 
-    for product in products {
-        let key = ProductKey::new(product.shop_id, product.shops_product_id.clone());
-        let (message_id, _) = match key_to_record.remove(&key) {
-            Some(v) => v,
+    for (key, (message_id, event_record)) in key_to_record {
+        let domain_record = match event_record {
+            ProductEventRecord::Domain(r) => r,
+            _ => continue,
+        };
+
+        let title_native = match domain_record.title_native {
+            Some(t) => t,
             None => {
                 warn!(
-                    shopId = %product.shop_id,
-                    shopsProductId = %product.shops_product_id,
-                    "Loaded product has no corresponding SQS message — skipping."
+                    messageId = message_id,
+                    shopId = %key.shop_id,
+                    shopsProductId = %key.shops_product_id,
+                    "Domain event has no native title — skipping translation."
                 );
                 continue;
             }
         };
 
-        let title_trimmed = product.native_title.payload.as_ref().trim();
+        let title_trimmed = title_native.text.trim().to_string();
         if title_trimmed.is_empty() {
             warn!(
                 messageId = message_id,
-                shopId = %product.shop_id,
-                shopsProductId = %product.shops_product_id,
+                shopId = %key.shop_id,
+                shopsProductId = %key.shops_product_id,
                 "Product has empty native title — skipping translation."
             );
             continue;
@@ -146,23 +125,12 @@ pub async fn handler(
 
         valid_inputs.push(ProductInput {
             message_id,
-            product_id: product.product_id,
-            seller_id: product.seller_id,
-            source_language: product.native_title.localization,
-            title: title_trimmed.to_string(),
+            product_id: domain_record.product_id,
+            seller_id: domain_record.seller_id,
+            source_language: Language::from(title_native.language),
+            title: title_trimmed,
             key,
         });
-    }
-
-    for (message_id, record) in key_to_record.values() {
-        let key = record.key();
-        error!(
-            messageId = message_id,
-            shopId = %key.shop_id,
-            shopsProductId = %key.shops_product_id,
-            "Materialized product not found in DynamoDB — marking message as failed for retry."
-        );
-        failed_message_ids.push(message_id.clone());
     }
 
     if valid_inputs.is_empty() {

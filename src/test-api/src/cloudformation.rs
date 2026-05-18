@@ -58,7 +58,6 @@ const LAMBDA_BINARIES: &[&str] = &[
     "webhook-api",
     "search-filter-api",
     "notification-send",
-    "product-lambda-materialize-dynamodb",
     "product-lambda-materialize-opensearch",
     "product-pipeline-embed-text",
     "product-pipeline-translate",
@@ -178,9 +177,6 @@ impl IntegrationTestService for Cloudformation {
         drain_queues(vec![
             cfn.notification_send_queue_url.clone(),
             cfn.notification_send_dead_letter_queue_url.clone(),
-            cfn.product_materialize_dynamodb_queue_url.clone(),
-            cfn.product_materialize_dynamodb_dead_letter_queue_url
-                .clone(),
             cfn.product_materialize_opensearch_queue_url.clone(),
             cfn.product_materialize_opensearch_dead_letter_queue_url
                 .clone(),

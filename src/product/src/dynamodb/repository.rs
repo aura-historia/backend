@@ -10,11 +10,15 @@ use aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError;
 use aws_sdk_dynamodb::operation::batch_write_item::{BatchWriteItemError, BatchWriteItemOutput};
 use aws_sdk_dynamodb::operation::get_item::GetItemError;
 use aws_sdk_dynamodb::operation::query::QueryError;
+use aws_sdk_dynamodb::operation::transact_write_items::{
+    TransactWriteItemsError, TransactWriteItemsOutput,
+};
 use aws_sdk_dynamodb::operation::update_item::{UpdateItemError, UpdateItemOutput};
-use aws_sdk_dynamodb::types::{AttributeValue, KeysAndAttributes};
+use aws_sdk_dynamodb::types::{AttributeValue, KeysAndAttributes, Put, TransactWriteItem, Update};
 use common::batch::Batch;
 use common::batch::dynamodb::BatchGetItemResult;
 use common::dynamodb_update::DynamoDbUpdate;
+use common::event_id::EventId;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
@@ -90,6 +94,20 @@ pub trait ProductDynamoDbRepository {
         shop_slug_id: &SlugId<0>,
         product_slug_id: &SlugId<6>,
     ) -> Result<Option<ProductKey>, SdkError<QueryError, HttpResponse>>;
+
+    async fn transact_write_product_create(
+        &self,
+        event_record: ProductEventRecord,
+        product_record: ProductRecord,
+    ) -> Result<TransactWriteItemsOutput, SdkError<TransactWriteItemsError, HttpResponse>>;
+
+    async fn transact_write_product_update(
+        &self,
+        event_records: Vec<ProductEventRecord>,
+        update: ProductRecordUpdate,
+        product_key: ProductKey,
+        expected_event_id: EventId,
+    ) -> Result<TransactWriteItemsOutput, SdkError<TransactWriteItemsError, HttpResponse>>;
 }
 
 #[derive(Debug, Clone)]
@@ -571,6 +589,104 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
         ProductKey::try_from(pk_str.trim_start_matches("product#"))
             .map(Some)
             .map_err(SdkError::construction_failure)
+    }
+
+    async fn transact_write_product_create(
+        &self,
+        event_record: ProductEventRecord,
+        product_record: ProductRecord,
+    ) -> Result<TransactWriteItemsOutput, SdkError<TransactWriteItemsError, HttpResponse>> {
+        let event_item: HashMap<String, AttributeValue> =
+            serde_dynamo::to_item(event_record).map_err(SdkError::construction_failure)?;
+        let product_item: HashMap<String, AttributeValue> =
+            serde_dynamo::to_item(product_record).map_err(SdkError::construction_failure)?;
+
+        let event_put = TransactWriteItem::builder()
+            .put(
+                Put::builder()
+                    .table_name(&self.table)
+                    .set_item(Some(event_item))
+                    .build()
+                    .map_err(SdkError::construction_failure)?,
+            )
+            .build();
+
+        let product_put = TransactWriteItem::builder()
+            .put(
+                Put::builder()
+                    .table_name(&self.table)
+                    .set_item(Some(product_item))
+                    .condition_expression("attribute_not_exists(pk)")
+                    .build()
+                    .map_err(SdkError::construction_failure)?,
+            )
+            .build();
+
+        self.client
+            .transact_write_items()
+            .set_transact_items(Some(vec![event_put, product_put]))
+            .send()
+            .await
+    }
+
+    async fn transact_write_product_update(
+        &self,
+        event_records: Vec<ProductEventRecord>,
+        update: ProductRecordUpdate,
+        product_key: ProductKey,
+        expected_event_id: EventId,
+    ) -> Result<TransactWriteItemsOutput, SdkError<TransactWriteItemsError, HttpResponse>> {
+        let pk = product_record::mk_pk(&product_key.shop_id, &product_key.shops_product_id);
+        let sk = product_record::mk_sk().to_owned();
+        let update_expr = update.into_update_expr().map_err(|e| {
+            SdkError::<TransactWriteItemsError, _>::construction_failure(format!("{e:?}"))
+        })?;
+
+        let mut expr_attr_values = update_expr.expr_attr_values;
+        expr_attr_values.insert(
+            ":expected_event_id".to_string(),
+            AttributeValue::S(expected_event_id.to_string()),
+        );
+
+        let mut items: Vec<TransactWriteItem> = Vec::with_capacity(event_records.len() + 1);
+        for event_record in event_records {
+            let event_item: HashMap<String, AttributeValue> =
+                serde_dynamo::to_item(event_record).map_err(SdkError::construction_failure)?;
+            items.push(
+                TransactWriteItem::builder()
+                    .put(
+                        Put::builder()
+                            .table_name(&self.table)
+                            .set_item(Some(event_item))
+                            .build()
+                            .map_err(SdkError::construction_failure)?,
+                    )
+                    .build(),
+            );
+        }
+
+        items.push(
+            TransactWriteItem::builder()
+                .update(
+                    Update::builder()
+                        .table_name(&self.table)
+                        .key("pk", AttributeValue::S(pk))
+                        .key("sk", AttributeValue::S(sk))
+                        .update_expression(update_expr.update_expr)
+                        .set_expression_attribute_names(Some(update_expr.expr_attr_names))
+                        .set_expression_attribute_values(Some(expr_attr_values))
+                        .condition_expression("event_id = :expected_event_id")
+                        .build()
+                        .map_err(SdkError::construction_failure)?,
+                )
+                .build(),
+        );
+
+        self.client
+            .transact_write_items()
+            .set_transact_items(Some(items))
+            .send()
+            .await
     }
 }
 

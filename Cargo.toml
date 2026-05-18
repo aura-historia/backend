@@ -141,7 +141,6 @@ product-lambda = { path = "src/product-lambda" }
 product-pipeline-embed-text = { path = "src/product-pipeline/src/product-pipeline-embed-text" }
 product-pipeline-translate = { path = "src/product-pipeline/src/product-pipeline-translate" }
 product-pipeline = { path = "src/product-pipeline" }
-product-lambda-materialize-dynamodb = { path = "src/product-lambda/src/product-lambda-materialize-dynamodb" }
 product-lambda-materialize-opensearch = { path = "src/product-lambda/src/product-lambda-materialize-opensearch" }
 product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lambda-update-notify-user" }
 isocountry = "0.3.2"

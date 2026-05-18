@@ -4,6 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-product-lambda-materialize-dynamodb = { workspace = true }
 product-lambda-materialize-opensearch = { workspace = true }
 product-lambda-update-notify-user = { workspace = true }
