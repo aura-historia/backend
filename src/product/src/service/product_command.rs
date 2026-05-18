@@ -15,13 +15,8 @@ use std::collections::HashMap;
 use time::OffsetDateTime;
 use url::Url;
 
-/// Bundles a source (native) value with its translations into one or more target languages.
-///
-/// Used in [`UpdateProductCommand`] to carry a full set of translations for a single field
-/// (e.g. the product title) so `CommandProductService::update` can generate the individual
-/// enrichment events and materialize them transactionally.
 #[derive(Debug, Clone, PartialEq)]
-pub struct TranslationEnvelope<T> {
+pub struct Translation<T> {
     pub source: Localized<Language, T>,
     pub targets: HashMap<Language, T>,
 }
@@ -70,12 +65,8 @@ pub struct UpdateProductCommand {
     pub images: Option<Vec<ProductImage>>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
-    /// Pre-computed vector embedding for the product.  Set only by the embedding pipeline.
-    /// Not exposed via the user-facing REST API.
     pub embedding: Option<Vec<f32>>,
-    /// Translated titles for the product.  Set only by the translation pipeline.
-    /// Not exposed via the user-facing REST API.
-    pub translated_titles: Option<TranslationEnvelope<Title>>,
+    pub translated_titles: Option<Translation<Title>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

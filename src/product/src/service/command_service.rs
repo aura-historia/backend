@@ -8,7 +8,7 @@ use crate::dynamodb::product_update_record::ProductRecordUpdate;
 use crate::dynamodb::repository::ProductDynamoDbRepository;
 use crate::dynamodb::utm::strip_utm_params;
 use crate::service::product_command::{
-    CreateProductCommand, TranslationEnvelope, UpdateProductCommand, UpsertProductCommand,
+    CreateProductCommand, Translation, UpdateProductCommand, UpsertProductCommand,
 };
 use async_trait::async_trait;
 use aws_sdk_dynamodb::config::http::HttpResponse;
@@ -18,7 +18,7 @@ use common::batch::Batch;
 use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::logging::{LogEventType, LogWriteSource};
-use common::price::domain::{FixedFxRate, FxRate};
+use common::price::domain::FxRate;
 use common::product_id::ProductKey;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
@@ -44,8 +44,8 @@ pub trait CommandProductService {
 pub struct CommandProductServiceImpl<'a> {
     dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
     fx_rate: FxRatesRecord,
-    get_shop_service: Option<&'a (dyn GetShopService + Sync)>,
-    seller_service: Option<&'a (dyn SellerService + Sync)>,
+    get_shop_service: &'a (dyn GetShopService + Sync),
+    seller_service: &'a (dyn SellerService + Sync),
 }
 
 struct ResolvedShopInformation {
@@ -66,24 +66,9 @@ impl<'a> CommandProductServiceImpl<'a> {
         Ok(Self {
             dynamodb_repository,
             fx_rate,
-            get_shop_service: Some(get_shop_service),
-            seller_service: Some(seller_service),
+            get_shop_service,
+            seller_service,
         })
-    }
-
-    /// Lightweight constructor for enrichment-pipeline lambdas (embed-text, translate) that only
-    /// call [`CommandProductService::update`].  Those lambdas never create or upsert products, so
-    /// `get_shop_service` and `seller_service` are not needed.  FX rates are defaulted to 1:1
-    /// because the enrichment commands carry no price changes.
-    pub fn new_for_enrichment_pipeline(
-        dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
-    ) -> Self {
-        Self {
-            dynamodb_repository,
-            fx_rate: FxRatesRecord::from(FixedFxRate()),
-            get_shop_service: None,
-            seller_service: None,
-        }
     }
 
     fn enrich_price(&self, cmd: &mut CreateProductCommand) {
@@ -126,8 +111,7 @@ impl<'a> CommandProductServiceImpl<'a> {
         &self,
         cmd: &mut CreateProductCommand,
     ) -> Option<ResolvedShopInformation> {
-        let get_shop_service = self.get_shop_service?;
-        let shop = match get_shop_service.find_shop(&cmd.shop_id).await {
+        let shop = match self.get_shop_service.find_shop(&cmd.shop_id).await {
             Ok(shop) => shop,
             Err(err) => {
                 warn!(
@@ -149,8 +133,11 @@ impl<'a> CommandProductServiceImpl<'a> {
             ShopType::AuctionPlatform | ShopType::Marketplace => {
                 if let Some(raw_name) = cmd.seller_name_raw.as_deref() {
                     let shop_name = ShopName::from(raw_name);
-                    let seller_service = self.seller_service?;
-                    match seller_service.get_seller_shop_details(&shop_name).await {
+                    match self
+                        .seller_service
+                        .get_seller_shop_details(&shop_name)
+                        .await
+                    {
                         Ok((id, _, name)) => (id, name),
                         Err(err) => {
                             warn!(
@@ -831,7 +818,7 @@ fn determine_update_events(
                     ProductEnrichmentEventRecord::from(event),
                 ));
             }
-            if let Some(TranslationEnvelope { source, targets }) = cmd.translated_titles {
+            if let Some(Translation { source, targets }) = cmd.translated_titles {
                 let source_language = source.localization;
                 for (target_language, title) in targets {
                     if let Some(event) =

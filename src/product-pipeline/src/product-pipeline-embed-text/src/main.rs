@@ -1,10 +1,15 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::sqs::SqsEvent;
 use aws_sdk_dynamodb::Client;
+use fxrate::dynamodb::repository::FxRateDynamoDbRepositoryImpl;
+use fxrate::service::FxRateServiceImpl;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::command_service::CommandProductServiceImpl;
 use product_pipeline_embed_text::{handler, service::MultimodalEmbeddingServiceImpl};
+use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
+use shop::service::get_service::GetShopServiceImpl;
+use shop::service::seller_service::MockSellerService;
 use tracing::debug;
 
 #[tokio::main]
@@ -20,8 +25,19 @@ async fn main() -> Result<(), Error> {
 
     let client = Client::new(&aws_config);
     let product_repository = ProductDynamoDbRepositoryImpl::new(&client, &table_name);
-    let command_service =
-        CommandProductServiceImpl::new_for_enrichment_pipeline(&product_repository);
+    let shop_repository = ShopDynamoDbRepositoryImpl::new(&client, &table_name);
+    let get_shop_service = GetShopServiceImpl::new(&shop_repository);
+    let fxrate_repository = FxRateDynamoDbRepositoryImpl::new(&client, &table_name);
+    let fxrate_service = FxRateServiceImpl::new_read_only(&fxrate_repository);
+    let seller_service = MockSellerService::default();
+    let command_service = CommandProductServiceImpl::new(
+        &product_repository,
+        &fxrate_service,
+        &get_shop_service,
+        &seller_service,
+    )
+    .await
+    .expect("shouldn't fail initializing CommandProductService");
 
     debug!("Lambda initialized.");
 

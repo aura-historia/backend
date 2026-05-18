@@ -4,7 +4,10 @@ use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
 use common::event::Event;
 use common::event_id::EventId;
 use common::language::domain::Language;
+use common::price::domain::FixedFxRate;
 use fake::{Fake, Faker};
+use fxrate::dynamodb::record::FxRatesRecord;
+use fxrate::service::MockFxRateService;
 use lambda_runtime::{Context, LambdaEvent};
 use product::core::product_event::domain::{
     ProductCreatedDomainEventPayload, ProductDomainEventPayload,
@@ -16,10 +19,29 @@ use product::dynamodb::product_record::ProductRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::service::command_service::CommandProductServiceImpl;
 use product_pipeline_embed_text::{handler, service::MockMultimodalEmbeddingService};
+use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
+use shop::service::get_service::GetShopServiceImpl;
+use shop::service::seller_service::MockSellerService;
 use std::time::SystemTime;
 use test_api::*;
 use time::OffsetDateTime;
 use uuid::Uuid;
+
+async fn mk_command_service<'a>(
+    repository: &'a ProductDynamoDbRepositoryImpl<'a>,
+    get_shop_service: &'a GetShopServiceImpl<'a>,
+    fx_rate_service: &'a MockFxRateService,
+    seller_service: &'a MockSellerService,
+) -> CommandProductServiceImpl<'a> {
+    CommandProductServiceImpl::new(
+        repository,
+        fx_rate_service,
+        get_shop_service,
+        seller_service,
+    )
+    .await
+    .expect("shouldn't fail creating CommandProductServiceImpl")
+}
 
 fn mk_event_bridge_payload(event_record: &impl serde::Serialize) -> String {
     let mut stream_record = StreamRecord::default();
@@ -80,6 +102,13 @@ async fn should_embed_product_when_domain_created_event_triggers_pipeline() {
     let client = get_dynamodb_client().await;
     let table_name = std::env::var("DYNAMODB_TABLE_NAME").unwrap();
     let repository = ProductDynamoDbRepositoryImpl::new(client, &table_name);
+    let shop_repository = ShopDynamoDbRepositoryImpl::new(client, &table_name);
+    let get_shop_service = GetShopServiceImpl::new(&shop_repository);
+    let mut fx_rate_service = MockFxRateService::new();
+    fx_rate_service
+        .expect_get_current()
+        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
+    let seller_service = MockSellerService::default();
 
     // Pre-populate a ProductRecord so CommandProductService::update can find it.
     let mut product_record: ProductRecord = Faker.fake();
@@ -100,7 +129,13 @@ async fn should_embed_product_when_domain_created_event_triggers_pipeline() {
         .once()
         .returning(|_, _, _| Box::pin(async { Ok(vec![0.1f32, 0.2f32, 0.3f32]) }));
 
-    let command_service = CommandProductServiceImpl::new_for_enrichment_pipeline(&repository);
+    let command_service = mk_command_service(
+        &repository,
+        &get_shop_service,
+        &fx_rate_service,
+        &seller_service,
+    )
+    .await;
     let event = mk_lambda_event(vec![mk_sqs_message(&ProductEventRecord::Domain(
         domain_record,
     ))]);
@@ -137,6 +172,13 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
     let client = get_dynamodb_client().await;
     let table_name = std::env::var("DYNAMODB_TABLE_NAME").unwrap();
     let repository = ProductDynamoDbRepositoryImpl::new(client, &table_name);
+    let shop_repository = ShopDynamoDbRepositoryImpl::new(client, &table_name);
+    let get_shop_service = GetShopServiceImpl::new(&shop_repository);
+    let mut fx_rate_service = MockFxRateService::new();
+    fx_rate_service
+        .expect_get_current()
+        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
+    let seller_service = MockSellerService::default();
 
     let mut messages = Vec::new();
 
@@ -159,7 +201,13 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
         .times(3)
         .returning(|_, _, _| Box::pin(async { Ok(vec![0.42f32; 768]) }));
 
-    let command_service = CommandProductServiceImpl::new_for_enrichment_pipeline(&repository);
+    let command_service = mk_command_service(
+        &repository,
+        &get_shop_service,
+        &fx_rate_service,
+        &seller_service,
+    )
+    .await;
     let event = mk_lambda_event(messages);
     let result = handler(&mock_embedding_service, &command_service, event)
         .await
@@ -177,6 +225,13 @@ async fn should_return_failure_when_product_not_found_in_dynamodb() {
     let client = get_dynamodb_client().await;
     let table_name = std::env::var("DYNAMODB_TABLE_NAME").unwrap();
     let repository = ProductDynamoDbRepositoryImpl::new(client, &table_name);
+    let shop_repository = ShopDynamoDbRepositoryImpl::new(client, &table_name);
+    let get_shop_service = GetShopServiceImpl::new(&shop_repository);
+    let mut fx_rate_service = MockFxRateService::new();
+    fx_rate_service
+        .expect_get_current()
+        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
+    let seller_service = MockSellerService::default();
 
     // Create a domain event for a product that does NOT exist in DynamoDB.
     let domain_record: ProductDomainEventRecord = Faker.fake();
@@ -187,7 +242,13 @@ async fn should_return_failure_when_product_not_found_in_dynamodb() {
         .once()
         .returning(|_, _, _| Box::pin(async { Ok(vec![0.1f32]) }));
 
-    let command_service = CommandProductServiceImpl::new_for_enrichment_pipeline(&repository);
+    let command_service = mk_command_service(
+        &repository,
+        &get_shop_service,
+        &fx_rate_service,
+        &seller_service,
+    )
+    .await;
     let event = mk_lambda_event(vec![mk_sqs_message(&ProductEventRecord::Domain(
         domain_record,
     ))]);
@@ -207,12 +268,25 @@ async fn should_return_no_failures_when_record_has_no_title() {
     let client = get_dynamodb_client().await;
     let table_name = std::env::var("DYNAMODB_TABLE_NAME").unwrap();
     let repository = ProductDynamoDbRepositoryImpl::new(client, &table_name);
+    let shop_repository = ShopDynamoDbRepositoryImpl::new(client, &table_name);
+    let get_shop_service = GetShopServiceImpl::new(&shop_repository);
+    let mut fx_rate_service = MockFxRateService::new();
+    fx_rate_service
+        .expect_get_current()
+        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
+    let seller_service = MockSellerService::default();
 
     let mut domain_record: ProductDomainEventRecord = Faker.fake();
     domain_record.title_native = None;
 
     let mock_embedding_service = MockMultimodalEmbeddingService::new();
-    let command_service = CommandProductServiceImpl::new_for_enrichment_pipeline(&repository);
+    let command_service = mk_command_service(
+        &repository,
+        &get_shop_service,
+        &fx_rate_service,
+        &seller_service,
+    )
+    .await;
     let event = mk_lambda_event(vec![mk_sqs_message(&ProductEventRecord::Domain(
         domain_record,
     ))]);

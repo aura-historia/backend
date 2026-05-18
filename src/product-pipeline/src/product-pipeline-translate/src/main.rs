@@ -1,9 +1,14 @@
 use aws_config::BehaviorVersion;
 use common::language::domain::Language;
+use fxrate::dynamodb::repository::FxRateDynamoDbRepositoryImpl;
+use fxrate::service::FxRateServiceImpl;
 use lambda_runtime::service_fn;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::command_service::CommandProductServiceImpl;
 use product_pipeline_translate::handler;
+use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
+use shop::service::get_service::GetShopServiceImpl;
+use shop::service::seller_service::MockSellerService;
 use std::collections::HashMap;
 
 #[tokio::main]
@@ -17,8 +22,19 @@ async fn main() {
     let dynamodb_table_name = std::env::var("DYNAMODB_TABLE_NAME")
         .expect("shouldn't fail reading env-var 'DYNAMODB_TABLE_NAME'");
     let product_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb, &dynamodb_table_name);
-    let command_service =
-        CommandProductServiceImpl::new_for_enrichment_pipeline(&product_repository);
+    let shop_repository = ShopDynamoDbRepositoryImpl::new(&dynamodb, &dynamodb_table_name);
+    let get_shop_service = GetShopServiceImpl::new(&shop_repository);
+    let fxrate_repository = FxRateDynamoDbRepositoryImpl::new(&dynamodb, &dynamodb_table_name);
+    let fxrate_service = FxRateServiceImpl::new_read_only(&fxrate_repository);
+    let seller_service = MockSellerService::default();
+    let command_service = CommandProductServiceImpl::new(
+        &product_repository,
+        &fxrate_service,
+        &get_shop_service,
+        &seller_service,
+    )
+    .await
+    .expect("shouldn't fail initializing CommandProductService");
 
     if std::env::var("LOCALSTACK_HOSTNAME").is_ok() {
         use product_pipeline_translate::service::MockTranslationService;

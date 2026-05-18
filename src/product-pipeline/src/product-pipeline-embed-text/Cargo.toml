@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 product = { workspace = true, features = ["dynamodb", "service"] }
 common = { workspace = true, features = ["dynamodb", "event_bridge"] }
+fxrate = { workspace = true }
+shop = { workspace = true, features = ["dynamodb", "service", "seller"] }
 async-trait = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }

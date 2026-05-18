@@ -16,7 +16,7 @@ use product::{
     dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord,
     service::{
         command_service::CommandProductService,
-        product_command::{TranslationEnvelope, UpdateProductCommand},
+        product_command::{Translation, UpdateProductCommand},
     },
 };
 use service::TranslationService;
@@ -196,7 +196,7 @@ pub async fn handler(
             .map(|(lang, text)| (lang, Title::from(text)))
             .collect();
 
-        let envelope = TranslationEnvelope {
+        let envelope = Translation {
             source: Localized::new(input.source_language, Title::from(input.title.as_str())),
             targets,
         };
@@ -258,6 +258,7 @@ fn mk_batch_item_failure(item_identifier: String) -> BatchItemFailure {
 #[cfg(test)]
 mod tests {
     use super::handler;
+    use crate::service::MockTranslationService;
     use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
     use aws_lambda_events::eventbridge::EventBridgeEvent;
     use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
@@ -270,7 +271,6 @@ mod tests {
     use product::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord;
     use product::service::command_service::MockCommandProductService;
     use product::service::product_command::UpdateProductCommand;
-    use crate::service::MockTranslationService;
     use std::collections::HashMap;
     use std::time::SystemTime;
     use uuid::Uuid;

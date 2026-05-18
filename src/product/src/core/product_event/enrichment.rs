@@ -1,7 +1,7 @@
 use crate::core::title::Title;
 use common::{
-    has_key::HasKey, language::domain::Language, product_id::ProductKey, shop_id::ShopId,
-    shops_product_id::ShopsProductId,
+    has_key::HasKey, language::domain::Language, localized::Localized, product_id::ProductKey,
+    shop_id::ShopId, shops_product_id::ShopsProductId,
 };
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -30,9 +30,7 @@ pub struct EmbeddedProductEnrichmentEventPayload {
     pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub embedding: Vec<f32>,
-    pub native_title: Option<Title>,
-    /// The language of [`Self::native_title`].  Present when `native_title` is `Some`.
-    pub native_title_language: Option<Language>,
+    pub native_title: Option<Localized<Language, Title>>,
 }
 
 impl HasKey for ProductEnrichmentEventPayload {
