@@ -199,11 +199,15 @@ impl<'a> CommandProductServiceImpl<'a> {
                 event_log.log();
             }
             Err(ref err) if is_transaction_conditional_check_failed(err) => {
+                // Product was concurrently created by another execution.
+                // Retry so that on the next attempt the product already exists and
+                // the command is resolved as an update instead of a create.
                 warn!(
                     shopId = %cmd.key().shop_id,
                     shopsProductId = %cmd.key().shops_product_id,
-                    "Product was already created concurrently — skipping."
+                    "Product was already created concurrently — returning command for retry as update."
                 );
+                failures.push(cmd);
             }
             Err(err) => {
                 warn!(error = ?err, "Failed product create transaction — returning command for retry.");
@@ -1961,6 +1965,72 @@ mod tests {
             let failures = service.update(HashMap::from([(key, cmd)])).await;
 
             assert!(failures.is_empty());
+        }
+    }
+
+    mod concurrent_create {
+        use super::*;
+        use aws_sdk_dynamodb::operation::transact_write_items::TransactWriteItemsError;
+        use aws_sdk_dynamodb::types::error::TransactionCanceledException;
+        use aws_sdk_dynamodb::types::CancellationReason;
+        use common::batch::dynamodb::BatchGetItemResult;
+
+        fn conditional_check_failed_err(
+        ) -> SdkError<TransactWriteItemsError, aws_sdk_dynamodb::config::http::HttpResponse> {
+            let reason = CancellationReason::builder()
+                .code("ConditionalCheckFailed")
+                .build();
+            let inner = TransactionCanceledException::builder()
+                .cancellation_reasons(reason)
+                .build();
+            SdkError::service_error(
+                TransactWriteItemsError::TransactionCanceledException(inner),
+                aws_sdk_dynamodb::config::http::HttpResponse::new(
+                    200u16.try_into().unwrap(),
+                    "{}".into(),
+                ),
+            )
+        }
+
+        /// Verifies the core invariant from the issue:
+        ///
+        /// When two simultaneous upsert commands arrive for the same not-yet-existing product:
+        /// 1. Both lambdas read an empty table (batch-get finds nothing → resolve to create).
+        /// 2. The first lambda wins the transact_write_product_create and succeeds.
+        /// 3. The second lambda's transact_write_product_create fails with ConditionalCheckFailed.
+        ///
+        /// The second command MUST be returned as a failure so that SQS retries it.
+        /// On retry the product already exists, so the command is resolved as an update.
+        /// Without this retry the state-change update would be silently dropped.
+        #[tokio::test]
+        async fn should_return_create_command_as_failure_when_conditional_check_fails() {
+            let mut repository = MockProductDynamoDbRepository::default();
+
+            // batch-get returns empty — both lambdas see an empty table simultaneously.
+            repository.expect_get_product_records().return_once(|_| {
+                Box::pin(async {
+                    Ok(BatchGetItemResult {
+                        items: vec![],
+                        unprocessed: None,
+                    })
+                })
+            });
+
+            // Concurrent create succeeded first → this lambda gets ConditionalCheckFailed.
+            repository
+                .expect_transact_write_product_create()
+                .return_once(|_, _| Box::pin(async { Err(conditional_check_failed_err()) }));
+
+            let service = make_command_product_service(&repository).await;
+            let cmd: CreateProductCommand = Faker.fake();
+            let failures = service.create(vec![cmd.clone()]).await;
+
+            assert_eq!(
+                1,
+                failures.len(),
+                "command must be returned as failure so SQS retries it as an update"
+            );
+            assert_eq!(cmd.key(), failures[0].key());
         }
     }
 }

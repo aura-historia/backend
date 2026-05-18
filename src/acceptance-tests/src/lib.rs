@@ -28,8 +28,6 @@ pub async fn reset() {
     clear_qs(vec![
         cfn_output.notification_send_queue_url,
         cfn_output.notification_send_dead_letter_queue_url,
-        cfn_output.product_materialize_dynamodb_queue_url,
-        cfn_output.product_materialize_dynamodb_dead_letter_queue_url,
         cfn_output.product_materialize_opensearch_queue_url,
         cfn_output.product_materialize_opensearch_dead_letter_queue_url,
         cfn_output.shop_opensearch_index_queue_url,

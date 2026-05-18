@@ -1500,8 +1500,7 @@ async fn should_materialize_product_in_dynamodb_for_enrichment_event() {
 
 // Verifies the full translate-lambda wiring:
 // DOMAIN_CREATED event → DDB stream → EventBridge → translate Lambda
-// → ENRICHMENT_TRANSLATED_TITLE events → DDB stream → EventBridge
-// → materialize-dynamodb-update Lambda → ProductRecord.title_en populated.
+// → ENRICHMENT_TRANSLATED_TITLE events written back to DynamoDB.
 #[localstack_test(services = [Cloudformation()])]
 async fn should_materialize_translated_titles_in_dynamodb_when_domain_created_event() {
     use common::language::record::{LanguageRecord, TextRecord};
@@ -1552,7 +1551,9 @@ async fn should_materialize_translated_titles_in_dynamodb_when_domain_created_ev
         .await
         .unwrap();
 
-    // Wait for translate Lambda → ENRICHMENT_TRANSLATED_TITLE → materialize-dynamodb-update Lambda.
+    // Wait for translate Lambda → ENRICHMENT_TRANSLATED_TITLE event written.
+    // The product record title_en is only updated when the translate lambda writes a
+    // ProductEnrichmentEvent, which is then processed by the materialize-opensearch Lambda.
     // MockTranslationService (active when LOCALSTACK_HOSTNAME is set) always returns "Antique chair"
     // for English.
     let deadline = Instant::now() + Duration::from_secs(120);
@@ -4148,7 +4149,7 @@ async fn should_embed_product_when_domain_created_event_triggers_pipeline() {
     }
 
     // 3. Wait for the embed-text Lambda to produce an enrichment event
-    //    which the materialize-dynamodb Lambda then materializes into the product record.
+    //    which the embed-text Lambda then writes as an enrichment event to DynamoDB.
     //    The MockMultimodalEmbeddingService returns vec![0.42f32; 768].
     let expected_embedding = vec![0.42f32; 768];
     let deadline = Instant::now() + Duration::from_secs(120);

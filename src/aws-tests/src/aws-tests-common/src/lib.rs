@@ -14,8 +14,6 @@ pub struct CloudFormationOutput {
     pub dynamodb_table_1_name: String,
     pub notification_send_queue_url: String,
     pub notification_send_dead_letter_queue_url: String,
-    pub product_materialize_dynamodb_queue_url: String,
-    pub product_materialize_dynamodb_dead_letter_queue_url: String,
     pub product_materialize_opensearch_queue_url: String,
     pub product_materialize_opensearch_dead_letter_queue_url: String,
     pub shop_opensearch_index_queue_url: String,

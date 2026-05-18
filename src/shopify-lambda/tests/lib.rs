@@ -234,10 +234,10 @@ async fn query_events(
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 //
-// The `upsert()` service method writes `ProductEventRecord` entries to DynamoDB.
-// A `ProductRecord` (materialized product state) is only created later by the
-// product-lambda-materialize-dynamodb Lambda via DynamoDB Streams. Integration
-// tests therefore assert on domain event records, not on the materialized record.
+// The `upsert()` service method transact-writes both a `ProductEventRecord` and
+// a `ProductRecord` (materialized product state) atomically to DynamoDB.
+// Integration tests assert on both the domain event records and the materialized
+// product record that is written inline by the command service.
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_write_domain_created_event_when_shopify_create_event_with_real_payload() {

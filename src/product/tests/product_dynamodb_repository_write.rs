@@ -3,7 +3,7 @@ use common::currency::record::CurrencyRecord;
 use common::event_id::EventId;
 use common::language::record::{LanguageRecord, TextRecord};
 use common::price::record::PriceRecord;
-use common::product_id::ProductId;
+use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use fake::{Fake, Faker};
@@ -779,4 +779,206 @@ async fn should_update_product_record() {
         .unwrap();
 
     assert_eq!(expected, actual);
+}
+
+// ---------------------------------------------------------------------------
+// transact_write_product_create
+// ---------------------------------------------------------------------------
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_write_event_and_product_record_atomically_when_product_does_not_exist() {
+    let repo = get_repository().await;
+
+    let product_record: ProductRecord = Faker.fake();
+    // Build a matching domain event record whose pk/sk/product_id align with the product record.
+    let event_id = product_record.event_id;
+    let domain_event: ProductDomainEventRecord = Faker.fake();
+    let domain_event = ProductDomainEventRecord {
+        pk: product_event_record::domain::mk_pk(
+            &product_record.shop_id,
+            &product_record.shops_product_id,
+        ),
+        sk: product_event_record::domain::mk_sk(&event_id),
+        event_id,
+        shop_id: product_record.shop_id,
+        shops_product_id: product_record.shops_product_id.clone(),
+        ..domain_event
+    };
+    let event_record = ProductEventRecord::Domain(domain_event);
+
+    repo.transact_write_product_create(event_record.clone(), product_record.clone())
+        .await
+        .unwrap();
+
+    // Product record should be present.
+    let stored_product = repo
+        .get_product_record(&product_record.shop_id, &product_record.shops_product_id)
+        .await
+        .unwrap()
+        .expect("product record must exist after transact_write_product_create");
+    assert_eq!(product_record.event_id, stored_product.event_id);
+
+    // Event record should be present.
+    let all_items = get_dynamodb_client()
+        .await
+        .scan()
+        .table_name("table_1")
+        .send()
+        .await
+        .unwrap()
+        .items
+        .unwrap_or_default();
+    let event_count = all_items
+        .iter()
+        .filter(|item| item.contains_key("event_type"))
+        .count();
+    assert_eq!(1, event_count, "exactly one event record must be written");
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_fail_transact_write_create_when_product_already_exists() {
+    let repo = get_repository().await;
+
+    let product_record: ProductRecord = Faker.fake();
+    // Pre-write the product record so the condition attribute_not_exists(pk) fails.
+    repo.put_product_records(Batch::from([product_record.clone()]))
+        .await
+        .unwrap();
+
+    let domain_event: ProductDomainEventRecord = Faker.fake();
+    let domain_event = ProductDomainEventRecord {
+        pk: product_event_record::domain::mk_pk(
+            &product_record.shop_id,
+            &product_record.shops_product_id,
+        ),
+        sk: product_event_record::domain::mk_sk(&domain_event.event_id),
+        shop_id: product_record.shop_id,
+        shops_product_id: product_record.shops_product_id.clone(),
+        ..domain_event
+    };
+    let event_record = ProductEventRecord::Domain(domain_event);
+
+    let result = repo
+        .transact_write_product_create(event_record, product_record.clone())
+        .await;
+
+    assert!(
+        result.is_err(),
+        "transact_write_product_create must fail when product already exists"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// transact_write_product_update
+// ---------------------------------------------------------------------------
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_write_event_and_update_product_record_atomically_when_event_id_matches() {
+    let repo = get_repository().await;
+
+    let initial: ProductRecord = Faker.fake();
+    let expected_event_id = initial.event_id;
+    repo.put_product_records(Batch::from([initial.clone()]))
+        .await
+        .unwrap();
+
+    let new_event_id = EventId::new();
+    let domain_event: ProductDomainEventRecord = Faker.fake();
+    let domain_event = ProductDomainEventRecord {
+        pk: product_event_record::domain::mk_pk(&initial.shop_id, &initial.shops_product_id),
+        sk: product_event_record::domain::mk_sk(&new_event_id),
+        event_id: new_event_id,
+        shop_id: initial.shop_id,
+        shops_product_id: initial.shops_product_id.clone(),
+        new_state: Some(ProductStateRecord::Sold),
+        ..domain_event
+    };
+    let event_record = ProductEventRecord::Domain(domain_event);
+
+    let now = time::OffsetDateTime::now_utc();
+    let update = ProductRecordUpdate {
+        event_id: Some(new_event_id),
+        state: Some(ProductStateRecord::Sold),
+        updated: now,
+        ..ProductRecordUpdate::default()
+    };
+
+    let product_key = ProductKey {
+        shop_id: initial.shop_id,
+        shops_product_id: initial.shops_product_id.clone(),
+    };
+    repo.transact_write_product_update(
+        vec![event_record],
+        update,
+        product_key.clone(),
+        expected_event_id,
+    )
+    .await
+    .unwrap();
+
+    let stored = repo
+        .get_product_record(&initial.shop_id, &initial.shops_product_id)
+        .await
+        .unwrap()
+        .expect("product record must exist after transact_write_product_update");
+    assert_eq!(new_event_id, stored.event_id);
+    assert_eq!(ProductStateRecord::Sold, stored.state);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_fail_transact_write_update_when_event_id_does_not_match() {
+    let repo = get_repository().await;
+
+    let initial: ProductRecord = Faker.fake();
+    repo.put_product_records(Batch::from([initial.clone()]))
+        .await
+        .unwrap();
+
+    // Use a wrong expected_event_id so the condition `event_id = :expected_event_id` fails.
+    let wrong_event_id = EventId::new();
+    let new_event_id = EventId::new();
+    let domain_event: ProductDomainEventRecord = Faker.fake();
+    let domain_event = ProductDomainEventRecord {
+        pk: product_event_record::domain::mk_pk(&initial.shop_id, &initial.shops_product_id),
+        sk: product_event_record::domain::mk_sk(&new_event_id),
+        event_id: new_event_id,
+        shop_id: initial.shop_id,
+        shops_product_id: initial.shops_product_id.clone(),
+        new_state: Some(ProductStateRecord::Sold),
+        ..domain_event
+    };
+
+    let update = ProductRecordUpdate {
+        event_id: Some(new_event_id),
+        state: Some(ProductStateRecord::Sold),
+        updated: time::OffsetDateTime::now_utc(),
+        ..ProductRecordUpdate::default()
+    };
+
+    let product_key = ProductKey {
+        shop_id: initial.shop_id,
+        shops_product_id: initial.shops_product_id.clone(),
+    };
+    let result = repo
+        .transact_write_product_update(
+            vec![ProductEventRecord::Domain(domain_event)],
+            update,
+            product_key,
+            wrong_event_id, // wrong — triggers ConditionalCheckFailed
+        )
+        .await;
+
+    assert!(
+        result.is_err(),
+        "transact_write_product_update must fail when expected_event_id does not match stored event_id"
+    );
+
+    // Product record must remain unchanged.
+    let stored = repo
+        .get_product_record(&initial.shop_id, &initial.shops_product_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(initial.event_id, stored.event_id);
+    assert_eq!(initial.state, stored.state);
 }

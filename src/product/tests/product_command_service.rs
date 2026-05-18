@@ -505,3 +505,65 @@ async fn should_create_and_update_mixed_products_via_upsert() {
         .count();
     assert_eq!(2, created_count);
 }
+
+// ---------------------------------------------------------------------------
+// Upsert retry / concurrent-create behavior (integration test)
+//
+// Verifies that sequential upserts for the same product converge correctly:
+//   1. First upsert: product does not exist → create path → product record written.
+//   2. Second upsert with a state change → update path → product state updated.
+//
+// This mirrors the retry scenario: when a ConditionalCheckFailed occurs on the
+// first create, SQS retries the command. On retry the product exists and the
+// second invocation lands on the update path, applying the state change.
+// ---------------------------------------------------------------------------
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_converge_state_when_upsert_is_retried_after_concurrent_create() {
+    let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let service = command_product_service(&repository).await;
+
+    let cmd: product::service::product_command::UpsertProductCommand = Faker.fake();
+
+    // First upsert: product does not exist → resolve to create.
+    let failures_first = service.upsert(vec![cmd.clone()]).await;
+    assert!(
+        failures_first.is_empty(),
+        "first upsert (create path) should succeed: {:?}",
+        failures_first
+    );
+
+    // Product record must be present.
+    let stored = repository
+        .get_product_record(&cmd.shop_id, &cmd.shops_product_id)
+        .await
+        .unwrap();
+    assert!(
+        stored.is_some(),
+        "product record must exist after first upsert"
+    );
+
+    // Second upsert with an explicit state change → resolve to update.
+    let upsert_with_state = product::service::product_command::UpsertProductCommand {
+        state: Some(common::product_state::domain::ProductState::Sold),
+        ..cmd.clone()
+    };
+    let failures_second = service.upsert(vec![upsert_with_state]).await;
+    assert!(
+        failures_second.is_empty(),
+        "second upsert (update path) should succeed: {:?}",
+        failures_second
+    );
+
+    // Product record should reflect the state change.
+    let updated = repository
+        .get_product_record(&cmd.shop_id, &cmd.shops_product_id)
+        .await
+        .unwrap()
+        .expect("product record must still exist after second upsert");
+    assert_eq!(
+        product::dynamodb::product_state_record::ProductStateRecord::Sold,
+        updated.state,
+        "product state must be Sold after second upsert"
+    );
+}
