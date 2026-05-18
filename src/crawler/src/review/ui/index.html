@@ -8,21 +8,27 @@
 </head>
 <body>
 <header>
-    <h1>Crawler Review Console</h1>
-    <div class="muted" id="reloadState">Queue auto refresh active</div>
+    <div>
+        <h1>Crawler Review Console</h1>
+        <div class="header-subtitle">Human review for product schema candidates</div>
+    </div>
+    <div class="system-status" id="reloadState">Queue auto refresh active</div>
 </header>
 <main id="appShell">
     <section class="sidebar" id="reviewSidebar">
         <h2>
             <span>Pending Reviews</span>
             <button aria-label="Collapse pending reviews" class="icon-button" id="sidebarToggle"
-                    onclick="toggleSidebar()" title="Collapse pending reviews">‹
+                    onclick="toggleSidebar()" title="Collapse pending reviews">&lt;
             </button>
         </h2>
+        <div class="sidebar-search">
+            <input id="reviewSearch" oninput="setReviewSearch(this.value)" placeholder="Search shops or reviews"
+                   type="search">
+        </div>
         <div class="list" id="reviewList"></div>
     </section>
-    <section>
-        <h2>Review Detail</h2>
+    <section class="detail-shell">
         <div class="detail muted" id="detail">Select a review.</div>
     </section>
 </main>

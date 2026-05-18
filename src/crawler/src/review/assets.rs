@@ -11,7 +11,7 @@ const INSPECTOR_CSS: &str = r#"
 "#;
 
 pub fn instrument_review_page(page: &CrawlerReviewPage) -> String {
-    let raw_html = disable_existing_scripts(&page.raw_html);
+    let raw_html = expose_noscript_fallbacks(&disable_existing_scripts(&page.raw_html));
     let base = format!(
         r#"<base href="{}"><style>{}</style>"#,
         escape_html_attr(&page.url),
@@ -34,6 +34,13 @@ pub fn instrument_review_page(page: &CrawlerReviewPage) -> String {
     } else {
         format!("{with_head}{script}")
     }
+}
+
+fn expose_noscript_fallbacks(html: &str) -> String {
+    html.replace("<noscript", r#"<div data-crawler-review-noscript="true""#)
+        .replace("<NOSCRIPT", r#"<DIV data-crawler-review-noscript="true""#)
+        .replace("</noscript>", "</div>")
+        .replace("</NOSCRIPT>", "</DIV>")
 }
 
 fn disable_existing_scripts(html: &str) -> String {
