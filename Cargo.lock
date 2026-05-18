@@ -5555,6 +5555,8 @@ dependencies = [
  "serde",
  "serde_dynamo",
  "serde_json",
+ "serial_test",
+ "test-api",
  "thiserror 2.0.18",
  "time",
  "tokio",

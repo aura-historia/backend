@@ -602,6 +602,7 @@ mod tests {
             target: Some(target.to_string()),
             embedding: None,
             native_title: None,
+            native_title_language: None,
             timestamp: OffsetDateTime::now_utc(),
         }
     }

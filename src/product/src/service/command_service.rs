@@ -2,12 +2,13 @@ use crate::core::product::Product;
 use crate::core::product_event::ProductEventLog;
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+use crate::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord;
 use crate::dynamodb::product_record::ProductRecord;
 use crate::dynamodb::product_update_record::ProductRecordUpdate;
 use crate::dynamodb::repository::ProductDynamoDbRepository;
 use crate::dynamodb::utm::strip_utm_params;
 use crate::service::product_command::{
-    CreateProductCommand, UpdateProductCommand, UpsertProductCommand,
+    CreateProductCommand, TranslationEnvelope, UpdateProductCommand, UpsertProductCommand,
 };
 use async_trait::async_trait;
 use aws_sdk_dynamodb::config::http::HttpResponse;
@@ -17,7 +18,7 @@ use common::batch::Batch;
 use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::logging::{LogEventType, LogWriteSource};
-use common::price::domain::FxRate;
+use common::price::domain::{FixedFxRate, FxRate};
 use common::product_id::ProductKey;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
@@ -43,8 +44,8 @@ pub trait CommandProductService {
 pub struct CommandProductServiceImpl<'a> {
     dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
     fx_rate: FxRatesRecord,
-    get_shop_service: &'a (dyn GetShopService + Sync),
-    seller_service: &'a (dyn SellerService + Sync),
+    get_shop_service: Option<&'a (dyn GetShopService + Sync)>,
+    seller_service: Option<&'a (dyn SellerService + Sync)>,
 }
 
 struct ResolvedShopInformation {
@@ -65,9 +66,24 @@ impl<'a> CommandProductServiceImpl<'a> {
         Ok(Self {
             dynamodb_repository,
             fx_rate,
-            get_shop_service,
-            seller_service,
+            get_shop_service: Some(get_shop_service),
+            seller_service: Some(seller_service),
         })
+    }
+
+    /// Lightweight constructor for enrichment-pipeline lambdas (embed-text, translate) that only
+    /// call [`CommandProductService::update`].  Those lambdas never create or upsert products, so
+    /// `get_shop_service` and `seller_service` are not needed.  FX rates are defaulted to 1:1
+    /// because the enrichment commands carry no price changes.
+    pub fn new_for_enrichment_pipeline(
+        dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
+    ) -> Self {
+        Self {
+            dynamodb_repository,
+            fx_rate: FxRatesRecord::from(FixedFxRate()),
+            get_shop_service: None,
+            seller_service: None,
+        }
     }
 
     fn enrich_price(&self, cmd: &mut CreateProductCommand) {
@@ -110,7 +126,8 @@ impl<'a> CommandProductServiceImpl<'a> {
         &self,
         cmd: &mut CreateProductCommand,
     ) -> Option<ResolvedShopInformation> {
-        let shop = match self.get_shop_service.find_shop(&cmd.shop_id).await {
+        let get_shop_service = self.get_shop_service?;
+        let shop = match get_shop_service.find_shop(&cmd.shop_id).await {
             Ok(shop) => shop,
             Err(err) => {
                 warn!(
@@ -132,11 +149,8 @@ impl<'a> CommandProductServiceImpl<'a> {
             ShopType::AuctionPlatform | ShopType::Marketplace => {
                 if let Some(raw_name) = cmd.seller_name_raw.as_deref() {
                     let shop_name = ShopName::from(raw_name);
-                    match self
-                        .seller_service
-                        .get_seller_shop_details(&shop_name)
-                        .await
-                    {
+                    let seller_service = self.seller_service?;
+                    match seller_service.get_seller_shop_details(&shop_name).await {
                         Ok((id, _, name)) => (id, name),
                         Err(err) => {
                             warn!(
@@ -587,154 +601,168 @@ fn build_combined_update(event_records: &[ProductEventRecord]) -> ProductRecordU
         ..ProductRecordUpdate::default()
     };
     for record in event_records {
-        if let ProductEventRecord::Domain(domain) = record {
-            let upd = ProductRecordUpdate::from(domain.clone());
-            combined.updated = upd.updated;
-            combined.event_id = upd.event_id.or(combined.event_id);
-            combined.price_native = upd.price_native.or(combined.price_native);
-            combined.price_eur = upd.price_eur.or(combined.price_eur);
-            combined.price_usd = upd.price_usd.or(combined.price_usd);
-            combined.price_gbp = upd.price_gbp.or(combined.price_gbp);
-            combined.price_aud = upd.price_aud.or(combined.price_aud);
-            combined.price_cad = upd.price_cad.or(combined.price_cad);
-            combined.price_nzd = upd.price_nzd.or(combined.price_nzd);
-            combined.price_cny = upd.price_cny.or(combined.price_cny);
-            combined.price_brl = upd.price_brl.or(combined.price_brl);
-            combined.price_pln = upd.price_pln.or(combined.price_pln);
-            combined.price_try = upd.price_try.or(combined.price_try);
-            combined.price_jpy = upd.price_jpy.or(combined.price_jpy);
-            combined.price_czk = upd.price_czk.or(combined.price_czk);
-            combined.price_rub = upd.price_rub.or(combined.price_rub);
-            combined.price_aed = upd.price_aed.or(combined.price_aed);
-            combined.price_sar = upd.price_sar.or(combined.price_sar);
-            combined.price_hkd = upd.price_hkd.or(combined.price_hkd);
-            combined.price_sgd = upd.price_sgd.or(combined.price_sgd);
-            combined.price_chf = upd.price_chf.or(combined.price_chf);
-            combined.state = upd.state.or(combined.state);
-            combined.title_de = upd.title_de.or(combined.title_de);
-            combined.title_en = upd.title_en.or(combined.title_en);
-            combined.title_fr = upd.title_fr.or(combined.title_fr);
-            combined.title_es = upd.title_es.or(combined.title_es);
-            combined.title_it = upd.title_it.or(combined.title_it);
-            combined.images = upd.images.or(combined.images);
-            combined.price_estimate_min_native = upd
-                .price_estimate_min_native
-                .or(combined.price_estimate_min_native);
-            combined.price_estimate_min_eur = upd
-                .price_estimate_min_eur
-                .or(combined.price_estimate_min_eur);
-            combined.price_estimate_min_usd = upd
-                .price_estimate_min_usd
-                .or(combined.price_estimate_min_usd);
-            combined.price_estimate_min_gbp = upd
-                .price_estimate_min_gbp
-                .or(combined.price_estimate_min_gbp);
-            combined.price_estimate_min_aud = upd
-                .price_estimate_min_aud
-                .or(combined.price_estimate_min_aud);
-            combined.price_estimate_min_cad = upd
-                .price_estimate_min_cad
-                .or(combined.price_estimate_min_cad);
-            combined.price_estimate_min_nzd = upd
-                .price_estimate_min_nzd
-                .or(combined.price_estimate_min_nzd);
-            combined.price_estimate_min_cny = upd
-                .price_estimate_min_cny
-                .or(combined.price_estimate_min_cny);
-            combined.price_estimate_min_brl = upd
-                .price_estimate_min_brl
-                .or(combined.price_estimate_min_brl);
-            combined.price_estimate_min_pln = upd
-                .price_estimate_min_pln
-                .or(combined.price_estimate_min_pln);
-            combined.price_estimate_min_try = upd
-                .price_estimate_min_try
-                .or(combined.price_estimate_min_try);
-            combined.price_estimate_min_jpy = upd
-                .price_estimate_min_jpy
-                .or(combined.price_estimate_min_jpy);
-            combined.price_estimate_min_czk = upd
-                .price_estimate_min_czk
-                .or(combined.price_estimate_min_czk);
-            combined.price_estimate_min_rub = upd
-                .price_estimate_min_rub
-                .or(combined.price_estimate_min_rub);
-            combined.price_estimate_min_aed = upd
-                .price_estimate_min_aed
-                .or(combined.price_estimate_min_aed);
-            combined.price_estimate_min_sar = upd
-                .price_estimate_min_sar
-                .or(combined.price_estimate_min_sar);
-            combined.price_estimate_min_hkd = upd
-                .price_estimate_min_hkd
-                .or(combined.price_estimate_min_hkd);
-            combined.price_estimate_min_sgd = upd
-                .price_estimate_min_sgd
-                .or(combined.price_estimate_min_sgd);
-            combined.price_estimate_min_chf = upd
-                .price_estimate_min_chf
-                .or(combined.price_estimate_min_chf);
-            combined.price_estimate_max_native = upd
-                .price_estimate_max_native
-                .or(combined.price_estimate_max_native);
-            combined.price_estimate_max_eur = upd
-                .price_estimate_max_eur
-                .or(combined.price_estimate_max_eur);
-            combined.price_estimate_max_usd = upd
-                .price_estimate_max_usd
-                .or(combined.price_estimate_max_usd);
-            combined.price_estimate_max_gbp = upd
-                .price_estimate_max_gbp
-                .or(combined.price_estimate_max_gbp);
-            combined.price_estimate_max_aud = upd
-                .price_estimate_max_aud
-                .or(combined.price_estimate_max_aud);
-            combined.price_estimate_max_cad = upd
-                .price_estimate_max_cad
-                .or(combined.price_estimate_max_cad);
-            combined.price_estimate_max_nzd = upd
-                .price_estimate_max_nzd
-                .or(combined.price_estimate_max_nzd);
-            combined.price_estimate_max_cny = upd
-                .price_estimate_max_cny
-                .or(combined.price_estimate_max_cny);
-            combined.price_estimate_max_brl = upd
-                .price_estimate_max_brl
-                .or(combined.price_estimate_max_brl);
-            combined.price_estimate_max_pln = upd
-                .price_estimate_max_pln
-                .or(combined.price_estimate_max_pln);
-            combined.price_estimate_max_try = upd
-                .price_estimate_max_try
-                .or(combined.price_estimate_max_try);
-            combined.price_estimate_max_jpy = upd
-                .price_estimate_max_jpy
-                .or(combined.price_estimate_max_jpy);
-            combined.price_estimate_max_czk = upd
-                .price_estimate_max_czk
-                .or(combined.price_estimate_max_czk);
-            combined.price_estimate_max_rub = upd
-                .price_estimate_max_rub
-                .or(combined.price_estimate_max_rub);
-            combined.price_estimate_max_aed = upd
-                .price_estimate_max_aed
-                .or(combined.price_estimate_max_aed);
-            combined.price_estimate_max_sar = upd
-                .price_estimate_max_sar
-                .or(combined.price_estimate_max_sar);
-            combined.price_estimate_max_hkd = upd
-                .price_estimate_max_hkd
-                .or(combined.price_estimate_max_hkd);
-            combined.price_estimate_max_sgd = upd
-                .price_estimate_max_sgd
-                .or(combined.price_estimate_max_sgd);
-            combined.price_estimate_max_chf = upd
-                .price_estimate_max_chf
-                .or(combined.price_estimate_max_chf);
-            combined.url = upd.url.or(combined.url);
-            combined.auction_start = upd.auction_start.or(combined.auction_start);
-            combined.auction_end = upd.auction_end.or(combined.auction_end);
-            combined.embedding = upd.embedding.or(combined.embedding);
+        match record {
+            ProductEventRecord::Domain(domain) => {
+                let upd = ProductRecordUpdate::from(domain.clone());
+                combined.updated = upd.updated;
+                combined.event_id = upd.event_id.or(combined.event_id);
+                combined.price_native = upd.price_native.or(combined.price_native);
+                combined.price_eur = upd.price_eur.or(combined.price_eur);
+                combined.price_usd = upd.price_usd.or(combined.price_usd);
+                combined.price_gbp = upd.price_gbp.or(combined.price_gbp);
+                combined.price_aud = upd.price_aud.or(combined.price_aud);
+                combined.price_cad = upd.price_cad.or(combined.price_cad);
+                combined.price_nzd = upd.price_nzd.or(combined.price_nzd);
+                combined.price_cny = upd.price_cny.or(combined.price_cny);
+                combined.price_brl = upd.price_brl.or(combined.price_brl);
+                combined.price_pln = upd.price_pln.or(combined.price_pln);
+                combined.price_try = upd.price_try.or(combined.price_try);
+                combined.price_jpy = upd.price_jpy.or(combined.price_jpy);
+                combined.price_czk = upd.price_czk.or(combined.price_czk);
+                combined.price_rub = upd.price_rub.or(combined.price_rub);
+                combined.price_aed = upd.price_aed.or(combined.price_aed);
+                combined.price_sar = upd.price_sar.or(combined.price_sar);
+                combined.price_hkd = upd.price_hkd.or(combined.price_hkd);
+                combined.price_sgd = upd.price_sgd.or(combined.price_sgd);
+                combined.price_chf = upd.price_chf.or(combined.price_chf);
+                combined.state = upd.state.or(combined.state);
+                combined.title_de = upd.title_de.or(combined.title_de);
+                combined.title_en = upd.title_en.or(combined.title_en);
+                combined.title_fr = upd.title_fr.or(combined.title_fr);
+                combined.title_es = upd.title_es.or(combined.title_es);
+                combined.title_it = upd.title_it.or(combined.title_it);
+                combined.images = upd.images.or(combined.images);
+                combined.price_estimate_min_native = upd
+                    .price_estimate_min_native
+                    .or(combined.price_estimate_min_native);
+                combined.price_estimate_min_eur = upd
+                    .price_estimate_min_eur
+                    .or(combined.price_estimate_min_eur);
+                combined.price_estimate_min_usd = upd
+                    .price_estimate_min_usd
+                    .or(combined.price_estimate_min_usd);
+                combined.price_estimate_min_gbp = upd
+                    .price_estimate_min_gbp
+                    .or(combined.price_estimate_min_gbp);
+                combined.price_estimate_min_aud = upd
+                    .price_estimate_min_aud
+                    .or(combined.price_estimate_min_aud);
+                combined.price_estimate_min_cad = upd
+                    .price_estimate_min_cad
+                    .or(combined.price_estimate_min_cad);
+                combined.price_estimate_min_nzd = upd
+                    .price_estimate_min_nzd
+                    .or(combined.price_estimate_min_nzd);
+                combined.price_estimate_min_cny = upd
+                    .price_estimate_min_cny
+                    .or(combined.price_estimate_min_cny);
+                combined.price_estimate_min_brl = upd
+                    .price_estimate_min_brl
+                    .or(combined.price_estimate_min_brl);
+                combined.price_estimate_min_pln = upd
+                    .price_estimate_min_pln
+                    .or(combined.price_estimate_min_pln);
+                combined.price_estimate_min_try = upd
+                    .price_estimate_min_try
+                    .or(combined.price_estimate_min_try);
+                combined.price_estimate_min_jpy = upd
+                    .price_estimate_min_jpy
+                    .or(combined.price_estimate_min_jpy);
+                combined.price_estimate_min_czk = upd
+                    .price_estimate_min_czk
+                    .or(combined.price_estimate_min_czk);
+                combined.price_estimate_min_rub = upd
+                    .price_estimate_min_rub
+                    .or(combined.price_estimate_min_rub);
+                combined.price_estimate_min_aed = upd
+                    .price_estimate_min_aed
+                    .or(combined.price_estimate_min_aed);
+                combined.price_estimate_min_sar = upd
+                    .price_estimate_min_sar
+                    .or(combined.price_estimate_min_sar);
+                combined.price_estimate_min_hkd = upd
+                    .price_estimate_min_hkd
+                    .or(combined.price_estimate_min_hkd);
+                combined.price_estimate_min_sgd = upd
+                    .price_estimate_min_sgd
+                    .or(combined.price_estimate_min_sgd);
+                combined.price_estimate_min_chf = upd
+                    .price_estimate_min_chf
+                    .or(combined.price_estimate_min_chf);
+                combined.price_estimate_max_native = upd
+                    .price_estimate_max_native
+                    .or(combined.price_estimate_max_native);
+                combined.price_estimate_max_eur = upd
+                    .price_estimate_max_eur
+                    .or(combined.price_estimate_max_eur);
+                combined.price_estimate_max_usd = upd
+                    .price_estimate_max_usd
+                    .or(combined.price_estimate_max_usd);
+                combined.price_estimate_max_gbp = upd
+                    .price_estimate_max_gbp
+                    .or(combined.price_estimate_max_gbp);
+                combined.price_estimate_max_aud = upd
+                    .price_estimate_max_aud
+                    .or(combined.price_estimate_max_aud);
+                combined.price_estimate_max_cad = upd
+                    .price_estimate_max_cad
+                    .or(combined.price_estimate_max_cad);
+                combined.price_estimate_max_nzd = upd
+                    .price_estimate_max_nzd
+                    .or(combined.price_estimate_max_nzd);
+                combined.price_estimate_max_cny = upd
+                    .price_estimate_max_cny
+                    .or(combined.price_estimate_max_cny);
+                combined.price_estimate_max_brl = upd
+                    .price_estimate_max_brl
+                    .or(combined.price_estimate_max_brl);
+                combined.price_estimate_max_pln = upd
+                    .price_estimate_max_pln
+                    .or(combined.price_estimate_max_pln);
+                combined.price_estimate_max_try = upd
+                    .price_estimate_max_try
+                    .or(combined.price_estimate_max_try);
+                combined.price_estimate_max_jpy = upd
+                    .price_estimate_max_jpy
+                    .or(combined.price_estimate_max_jpy);
+                combined.price_estimate_max_czk = upd
+                    .price_estimate_max_czk
+                    .or(combined.price_estimate_max_czk);
+                combined.price_estimate_max_rub = upd
+                    .price_estimate_max_rub
+                    .or(combined.price_estimate_max_rub);
+                combined.price_estimate_max_aed = upd
+                    .price_estimate_max_aed
+                    .or(combined.price_estimate_max_aed);
+                combined.price_estimate_max_sar = upd
+                    .price_estimate_max_sar
+                    .or(combined.price_estimate_max_sar);
+                combined.price_estimate_max_hkd = upd
+                    .price_estimate_max_hkd
+                    .or(combined.price_estimate_max_hkd);
+                combined.price_estimate_max_sgd = upd
+                    .price_estimate_max_sgd
+                    .or(combined.price_estimate_max_sgd);
+                combined.price_estimate_max_chf = upd
+                    .price_estimate_max_chf
+                    .or(combined.price_estimate_max_chf);
+                combined.url = upd.url.or(combined.url);
+                combined.auction_start = upd.auction_start.or(combined.auction_start);
+                combined.auction_end = upd.auction_end.or(combined.auction_end);
+                combined.embedding = upd.embedding.or(combined.embedding);
+            }
+            ProductEventRecord::Enrichment(enrichment) => {
+                let upd = ProductRecordUpdate::from(enrichment.clone());
+                combined.updated = upd.updated;
+                combined.event_id = upd.event_id.or(combined.event_id);
+                combined.title_de = upd.title_de.or(combined.title_de);
+                combined.title_en = upd.title_en.or(combined.title_en);
+                combined.title_fr = upd.title_fr.or(combined.title_fr);
+                combined.title_es = upd.title_es.or(combined.title_es);
+                combined.title_it = upd.title_it.or(combined.title_it);
+                combined.embedding = upd.embedding.or(combined.embedding);
+            }
+            ProductEventRecord::Policy(_) => {}
         }
     }
     combined
@@ -795,6 +823,25 @@ fn determine_update_events(
                 events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
                     event,
                 )));
+            }
+            if let Some(embedding) = cmd.embedding
+                && let Some(event) = product.embed(embedding)
+            {
+                events.push(ProductEventRecord::Enrichment(
+                    ProductEnrichmentEventRecord::from(event),
+                ));
+            }
+            if let Some(TranslationEnvelope { source, targets }) = cmd.translated_titles {
+                let source_language = source.localization;
+                for (target_language, title) in targets {
+                    if let Some(event) =
+                        product.translate_title(source_language, target_language, title)
+                    {
+                        events.push(ProductEventRecord::Enrichment(
+                            ProductEnrichmentEventRecord::from(event),
+                        ));
+                    }
+                }
             }
         }
     }
@@ -878,6 +925,8 @@ mod tests {
                 images: None,
                 auction_start: None,
                 auction_end: None,
+                embedding: None,
+                translated_titles: None,
             };
 
             let record2 = Faker.fake::<ProductRecord>();
@@ -891,6 +940,8 @@ mod tests {
                 images: None,
                 auction_start: None,
                 auction_end: None,
+                embedding: None,
+                translated_titles: None,
             };
 
             let mut working = HashMap::from([(product1.key(), cmd1), (product2.key(), cmd2)]);
@@ -914,6 +965,8 @@ mod tests {
                 images: None,
                 auction_start: None,
                 auction_end: None,
+                embedding: None,
+                translated_titles: None,
             };
 
             let record2 = Faker.fake::<ProductRecord>();
@@ -931,6 +984,8 @@ mod tests {
                 images: None,
                 auction_start: None,
                 auction_end: None,
+                embedding: None,
+                translated_titles: None,
             };
 
             let mut working = HashMap::from([(product1.key(), cmd1), (product2.key(), cmd2)]);
@@ -954,6 +1009,8 @@ mod tests {
                 images: None,
                 auction_start: None,
                 auction_end: None,
+                embedding: None,
+                translated_titles: None,
             };
 
             let record2 = Faker.fake::<ProductRecord>();
@@ -967,6 +1024,8 @@ mod tests {
                 images: None,
                 auction_start: None,
                 auction_end: None,
+                embedding: None,
+                translated_titles: None,
             };
 
             let mut working = HashMap::from([(product1.key(), cmd1), (product2.key(), cmd2)]);
@@ -989,6 +1048,8 @@ mod tests {
                 images: None,
                 auction_start: None,
                 auction_end: None,
+                embedding: None,
+                translated_titles: None,
             };
 
             let mut working = HashMap::from([(product.key(), cmd.clone())]);
@@ -1023,6 +1084,8 @@ mod tests {
                 images: None,
                 auction_start: None,
                 auction_end: None,
+                embedding: None,
+                translated_titles: None,
             };
             let mut working = HashMap::from([(key.clone(), cmd)]);
             let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
@@ -1044,6 +1107,8 @@ mod tests {
                 images: None,
                 auction_start: None,
                 auction_end: None,
+                embedding: None,
+                translated_titles: None,
             };
             let mut working = HashMap::from([(key.clone(), cmd)]);
             let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
@@ -1072,6 +1137,8 @@ mod tests {
                 images: Some(new_images),
                 auction_start: None,
                 auction_end: None,
+                embedding: None,
+                translated_titles: None,
             };
             let mut working = HashMap::from([(key.clone(), cmd)]);
             let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
@@ -1094,6 +1161,8 @@ mod tests {
                 images: None,
                 auction_start: Some(time::OffsetDateTime::now_utc() + time::Duration::days(30)),
                 auction_end: None,
+                embedding: None,
+                translated_titles: None,
             };
             let mut working = HashMap::from([(key.clone(), cmd)]);
             let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
@@ -1114,6 +1183,8 @@ mod tests {
                 images: None,
                 auction_start: None,
                 auction_end: None,
+                embedding: None,
+                translated_titles: None,
             };
             let mut working = HashMap::from([(key.clone(), cmd)]);
             let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
@@ -1134,6 +1205,8 @@ mod tests {
                 images: None,
                 auction_start: Some(time::OffsetDateTime::now_utc() + time::Duration::days(30)),
                 auction_end: None,
+                embedding: None,
+                translated_titles: None,
             };
             let mut working = HashMap::from([(key.clone(), cmd)]);
             let events = determine_update_events(&mut working, vec![product], &FixedFxRate());
@@ -1847,6 +1920,8 @@ mod tests {
                 images: None,
                 auction_start: None,
                 auction_end: None,
+                embedding: None,
+                translated_titles: None,
             };
 
             let mut repository = MockProductDynamoDbRepository::default();
@@ -1946,6 +2021,8 @@ mod tests {
                 images: None,
                 auction_start: None,
                 auction_end: None,
+                embedding: None,
+                translated_titles: None,
             };
 
             let mut repository = MockProductDynamoDbRepository::default();

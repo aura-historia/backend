@@ -2,6 +2,7 @@ use aws_config::BehaviorVersion;
 use common::language::domain::Language;
 use lambda_runtime::service_fn;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
+use product::service::command_service::CommandProductServiceImpl;
 use product_pipeline_translate::handler;
 use std::collections::HashMap;
 
@@ -16,6 +17,8 @@ async fn main() {
     let dynamodb_table_name = std::env::var("DYNAMODB_TABLE_NAME")
         .expect("shouldn't fail reading env-var 'DYNAMODB_TABLE_NAME'");
     let product_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb, &dynamodb_table_name);
+    let command_service =
+        CommandProductServiceImpl::new_for_enrichment_pipeline(&product_repository);
 
     if std::env::var("LOCALSTACK_HOSTNAME").is_ok() {
         use product_pipeline_translate::service::MockTranslationService;
@@ -39,7 +42,7 @@ async fn main() {
                 })
             });
         lambda_runtime::run(service_fn(|event| {
-            handler(&translation_service, &product_repository, event)
+            handler(&translation_service, &command_service, event)
         }))
         .await
         .expect("shouldn't fail running Lambda");
@@ -49,7 +52,7 @@ async fn main() {
         let translation_service =
             product_pipeline_translate::service::TranslationServiceImpl::new(&gemini_api_key);
         lambda_runtime::run(service_fn(|event| {
-            handler(&translation_service, &product_repository, event)
+            handler(&translation_service, &command_service, event)
         }))
         .await
         .expect("shouldn't fail running Lambda");

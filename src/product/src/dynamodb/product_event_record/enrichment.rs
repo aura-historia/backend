@@ -37,6 +37,11 @@ pub struct ProductEnrichmentEventRecord {
     pub embedding: Option<Vec<f32>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub native_title: Option<String>,
+    /// Language of [`Self::native_title`].  Present on `ENRICHMENT_EMBEDDED` records
+    /// when `native_title` is also present, so downstream pipeline stages (e.g. the
+    /// translation lambda) can determine the source language without an additional lookup.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub native_title_language: Option<LanguageRecord>,
     #[serde(with = "time::serde::rfc3339")]
     pub timestamp: OffsetDateTime,
 }
@@ -79,6 +84,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     target: Some(payload.target.into()),
                     embedding: None,
                     native_title: None,
+                    native_title_language: None,
                     timestamp: event.timestamp,
                 }
             }
@@ -97,6 +103,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                 target: None,
                 embedding: Some(payload.embedding),
                 native_title: payload.native_title.map(Into::into),
+                native_title_language: payload.native_title_language.map(Into::into),
                 timestamp: event.timestamp,
             },
         }
@@ -151,6 +158,7 @@ impl TryFrom<ProductEnrichmentEventRecord> for ProductEnrichmentEvent {
                             field::field!(embedding@ProductEnrichmentEventRecord),
                         ))?,
                         native_title: record.native_title.map(Into::into),
+                        native_title_language: record.native_title_language.map(Into::into),
                     },
                 ),
             }),

@@ -522,6 +522,7 @@ impl Product {
                         shops_product_id: self.shops_product_id.clone(),
                         embedding,
                         native_title: Some(self.native_title.payload.clone()),
+                        native_title_language: Some(self.native_title.localization),
                     },
                 ),
             })

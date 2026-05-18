@@ -31,6 +31,8 @@ pub struct EmbeddedProductEnrichmentEventPayload {
     pub shops_product_id: ShopsProductId,
     pub embedding: Vec<f32>,
     pub native_title: Option<Title>,
+    /// The language of [`Self::native_title`].  Present when `native_title` is `Some`.
+    pub native_title_language: Option<Language>,
 }
 
 impl HasKey for ProductEnrichmentEventPayload {

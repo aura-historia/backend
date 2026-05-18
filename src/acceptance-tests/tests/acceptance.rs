@@ -975,6 +975,8 @@ fn empty_update_product_command() -> UpdateProductCommand {
         images: None,
         auction_start: None,
         auction_end: None,
+        embedding: None,
+        translated_titles: None,
     }
 }
 
@@ -1465,6 +1467,7 @@ async fn should_materialize_product_in_dynamodb_for_enrichment_event() {
                 shops_product_id: materialized_old.shops_product_id.clone(),
                 embedding: embedding.clone(),
                 native_title: None,
+                native_title_language: None,
             }),
         ),
     })])

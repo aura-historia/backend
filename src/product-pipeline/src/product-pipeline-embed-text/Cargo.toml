@@ -34,3 +34,10 @@ fake = { workspace = true }
 rstest = { workspace = true }
 uuid = { workspace = true }
 time = { workspace = true }
+test-api = { workspace = true, features = ["dynamodb"] }
+serial_test = { workspace = true }
+serde_dynamo = { workspace = true }
+
+[[test]]
+name = "integration"
+path = "tests/lib.rs"
