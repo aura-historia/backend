@@ -5160,17 +5160,6 @@ async fn should_deactivate_over_quota_search_filters_when_tier_is_downgraded() {
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
 
-    user_service
-        .update_user(
-            &user_id,
-            UpdateUserCommand {
-                tier: Some(UserTier::Ultimate),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
-
     let sf_repository = UserSearchFilterDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
         &stack.dynamodb_table_1_name,
@@ -5374,17 +5363,6 @@ async fn should_deactivate_over_quota_watchlist_entries_when_tier_is_downgraded(
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
-
-    user_service
-        .update_user(
-            &user_id,
-            UpdateUserCommand {
-                tier: Some(UserTier::Ultimate),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
 
     let watchlist_repo = WatchlistProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
