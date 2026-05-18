@@ -20,6 +20,7 @@
 //! | `GEMINI_FLEX`    | Enable Gemini Flex inference         | unset / `false`                                  |
 //! | `LOCAL_DB_URL`   | Hardcoded local DB URL                | `postgres://postgres:postgres@localhost:5432/crawler_demo` |
 //! | `CRAWLER_REVIEW_REQUIRED` | Block generated patterns/schemas until approved | unset / `false`                       |
+//! | `CRAWLER_REVIEW_URL_PATTERN_REQUIRED` | Block generated URL patterns until approved | unset / `false`            |
 //! | `CRAWLER_REVIEW_BIND_ADDR` | Review UI bind address        | `127.0.0.1:7878`                                |
 //! | `CRAWLER_REVIEW_AUTH_TOKEN` | Optional bearer token for the review UI/API | unset                               |
 //! | `LOG_LEVEL`      | Log level                            | `info`                                           |
@@ -84,6 +85,12 @@ impl ShopRegistrationSource for DemoShopSource {
 
 fn crawler_review_required() -> bool {
     std::env::var("CRAWLER_REVIEW_REQUIRED")
+        .map(|value| matches!(value.as_str(), "true" | "TRUE" | "1" | "yes" | "YES"))
+        .unwrap_or(false)
+}
+
+fn crawler_review_url_pattern_required() -> bool {
+    std::env::var("CRAWLER_REVIEW_URL_PATTERN_REQUIRED")
         .map(|value| matches!(value.as_str(), "true" | "TRUE" | "1" | "yes" | "YES"))
         .unwrap_or(false)
 }
@@ -181,6 +188,7 @@ async fn main() {
         info!("Database migrations applied successfully");
 
         let review_required = crawler_review_required();
+        let url_pattern_review_required = crawler_review_url_pattern_required();
         let review_config =
             ReviewServerConfig::from_env().expect("CRAWLER_REVIEW_BIND_ADDR must be host:port");
         let review_repo = CrawlerReviewRepository::new(pool.clone());
@@ -189,6 +197,7 @@ async fn main() {
             gemini_model = %model,
             gemini_service_tier,
             review_required,
+            url_pattern_review_required,
             review_bind_addr = %review_config.bind_addr,
             "Wiring crawler dependencies..."
         );
@@ -264,7 +273,7 @@ async fn main() {
             Arc::new(*url_pattern_repo),
             class_svc,
             review_repo.clone(),
-            review_required,
+            url_pattern_review_required,
         ));
 
         let spider_svc = Box::new(SpiderServiceImpl::new(
@@ -301,6 +310,7 @@ async fn main() {
             gemini_model = %model,
             gemini_service_tier,
             review_required,
+            url_pattern_review_required,
             review_bind_addr = %review_config.bind_addr,
             "Crawler demo is fully initialized. Starting background tasks. Press Ctrl+C to stop."
         );

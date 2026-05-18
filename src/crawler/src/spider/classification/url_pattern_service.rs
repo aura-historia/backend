@@ -4,7 +4,8 @@ use regex::Regex;
 use thiserror::Error;
 use tracing::info;
 
-use crate::review::repository::{ARTIFACT_URL_PATTERN, CrawlerReviewRepository};
+use crate::review::model::ARTIFACT_URL_PATTERN;
+use crate::review::repository::CrawlerReviewRepository;
 use crate::spider::classification::url_classification_service::{
     UrlClassificationError, UrlClassificationService,
 };
@@ -182,27 +183,27 @@ impl UrlPatternService for UrlPatternServiceImpl {
             .find_product_url_pattern(urls)
             .await?;
 
-        if self.review_required {
-            if let Some(review_repository) = &self.review_repository {
-                let current_pattern = self.load_pattern_for_shop(shop_id).await?;
-                let review_id = review_repository
-                    .create_url_pattern_review(
-                        shop_id,
-                        None,
-                        "url_pattern_generation",
-                        pattern.as_ref(),
-                        urls,
-                        current_pattern.as_ref(),
-                    )
-                    .await
-                    .map_err(|err| {
-                        UrlPatternServiceError::Repository(sqlx::Error::Protocol(err.to_string()))
-                    })?;
-                return Err(UrlPatternServiceError::PendingReview {
-                    shop_id: *shop_id,
-                    review_id,
-                });
-            }
+        if self.review_required
+            && let Some(review_repository) = &self.review_repository
+        {
+            let current_pattern = self.load_pattern_for_shop(shop_id).await?;
+            let review_id = review_repository
+                .create_url_pattern_review(
+                    shop_id,
+                    None,
+                    "url_pattern_generation",
+                    pattern.as_ref(),
+                    urls,
+                    current_pattern.as_ref(),
+                )
+                .await
+                .map_err(|err| {
+                    UrlPatternServiceError::Repository(sqlx::Error::Protocol(err.to_string()))
+                })?;
+            return Err(UrlPatternServiceError::PendingReview {
+                shop_id: *shop_id,
+                review_id,
+            });
         }
 
         if let Some(ref p) = pattern {

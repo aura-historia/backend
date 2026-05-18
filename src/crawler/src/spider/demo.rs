@@ -34,9 +34,10 @@ use std::sync::Arc;
 use common::logging::GeminiServiceTier;
 use common::shop_id::ShopId;
 use crawler::google_llm::{
-    gemini_flex_enabled, google_llm_builder, GeminiRateLimitConfig, GeminiRateLimiter,
+    GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
 };
-use crawler::local_db::{bootstrap_local_database, demo_spider_db_url, DEMO_SPIDER_DB_NAME};
+use crawler::local_db::{DEMO_SPIDER_DB_NAME, bootstrap_local_database, demo_spider_db_url};
+use crawler::spider::SpiderRunResult;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
 use crawler::spider::classification::url_pattern_repository::ShopUrlPatternRepositoryImpl;
@@ -45,11 +46,10 @@ use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderDiscoveryError;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::{SpiderService, SpiderServiceConfig, SpiderServiceImpl};
-use crawler::spider::SpiderRunResult;
-use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use thiserror::Error;
-use tracing::{error, info, Instrument};
+use tracing::{Instrument, error, info};
 
 #[derive(Debug, Error)]
 enum DemoError {

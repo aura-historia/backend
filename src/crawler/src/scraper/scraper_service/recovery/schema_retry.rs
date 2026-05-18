@@ -1,4 +1,4 @@
-use crate::review::repository::{SchemaReviewPageInput, PAGE_ROLE_TRIGGERING_REPAIR_PAGE};
+use crate::review::model::{PAGE_ROLE_TRIGGERING_REPAIR_PAGE, SchemaReviewPageInput};
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
 };

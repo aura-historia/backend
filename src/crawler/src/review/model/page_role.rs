@@ -1,0 +1,3 @@
+pub const PAGE_ROLE_PRIMARY: &str = "PRIMARY";
+pub const PAGE_ROLE_SEED: &str = "SEED";
+pub const PAGE_ROLE_TRIGGERING_REPAIR_PAGE: &str = "TRIGGERING_REPAIR_PAGE";

@@ -294,6 +294,12 @@ fn crawler_review_required() -> bool {
         .unwrap_or(false)
 }
 
+fn crawler_review_url_pattern_required() -> bool {
+    std::env::var("CRAWLER_REVIEW_URL_PATTERN_REQUIRED")
+        .map(|value| matches!(value.as_str(), "true" | "TRUE" | "1" | "yes" | "YES"))
+        .unwrap_or(false)
+}
+
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
@@ -380,6 +386,7 @@ async fn main() {
         info!("Database migrations applied successfully");
 
         let review_required = crawler_review_required();
+        let url_pattern_review_required = crawler_review_url_pattern_required();
         let review_config =
             ReviewServerConfig::from_env().expect("CRAWLER_REVIEW_BIND_ADDR must be host:port");
         let review_repo = CrawlerReviewRepository::new(pool.clone());
@@ -481,7 +488,7 @@ async fn main() {
             Arc::new(*url_pattern_repo),
             class_svc,
             review_repo.clone(),
-            review_required,
+            url_pattern_review_required,
         ));
 
         let spider_config = SpiderServiceConfig {
@@ -559,6 +566,7 @@ async fn main() {
             gemini_model = %model,
             gemini_service_tier,
             review_required,
+            url_pattern_review_required,
             review_bind_addr = %review_config.bind_addr,
             "Crawler Server is fully initialized. Starting background tasks..."
         );

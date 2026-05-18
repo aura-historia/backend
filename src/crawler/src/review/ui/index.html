@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Crawler Review Console</title>
+    <link href="/assets/styles.css" rel="stylesheet">
+</head>
+<body>
+<header>
+    <h1>Crawler Review Console</h1>
+    <div class="muted" id="reloadState">Queue auto refresh active</div>
+</header>
+<main id="appShell">
+    <section class="sidebar" id="reviewSidebar">
+        <h2>
+            <span>Pending Reviews</span>
+            <button aria-label="Collapse pending reviews" class="icon-button" id="sidebarToggle"
+                    onclick="toggleSidebar()" title="Collapse pending reviews">‹
+            </button>
+        </h2>
+        <div class="list" id="reviewList"></div>
+    </section>
+    <section>
+        <h2>Review Detail</h2>
+        <div class="detail muted" id="detail">Select a review.</div>
+    </section>
+</main>
+<script src="/assets/app.js"></script>
+</body>
+</html>
