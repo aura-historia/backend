@@ -41,7 +41,7 @@ bloomfilter = "3.0.1"
 futures = { workspace = true }
 sha2 = { workspace = true }
 url-normalize = { workspace = true }
-dashmap = "6.1.0"
+dashmap = "6.2.1"
 
 # Optional
 fake = { workspace = true, optional = true }
