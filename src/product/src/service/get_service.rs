@@ -522,7 +522,12 @@ mod tests {
         let service = GetProductServiceImpl::new(&repository);
 
         let actual = service
-            .view_product_history(&ShopId::new(), &ShopsProductId::new(), &[], &Currency::Eur)
+            .view_product_history(
+                &ShopId::new(),
+                &ShopsProductId::new(),
+                &[Language::En],
+                &Currency::Eur,
+            )
             .await;
 
         assert!(matches!(

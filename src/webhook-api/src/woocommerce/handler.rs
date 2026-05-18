@@ -59,9 +59,7 @@ pub async fn handle_woocommerce(
         ));
     }
 
-    Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .body_serde(json!({ "errors": 0 }))?
-        .build())
+    Ok(ApiGatewayV2HttpResponseBuilder::json(200).build())
 }
 
 fn body_bytes(request: &ApiGatewayV2httpRequest) -> Result<Vec<u8>, ApiError> {
