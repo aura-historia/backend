@@ -49,7 +49,7 @@ use product::{
         product_event::{
             ProductEvent, ProductEventPayload,
             domain::{
-                ProductCreatedDomainEventPayload, ProductDomainEventPayload,
+                ProductDomainEventPayload,
                 ProductPriceChangeDomainEventPayload, ProductStateChangeDomainEventPayload,
             },
             enrichment::{EmbeddedProductEnrichmentEventPayload, ProductEnrichmentEventPayload},
@@ -1512,11 +1512,14 @@ async fn should_materialize_product_in_dynamodb_for_enrichment_event() {
 }
 
 // Verifies the full translate-lambda wiring:
-// DOMAIN_CREATED event → DDB stream → EventBridge → translate Lambda
+// ENRICHMENT_EMBEDDED event → DDB stream → EventBridge → translate Lambda
 // → ENRICHMENT_TRANSLATED_TITLE events written back to DynamoDB.
 #[localstack_test(services = [Cloudformation()])]
 async fn should_materialize_translated_titles_in_dynamodb_when_domain_created_event() {
+    use common::language::domain::Language;
     use common::language::record::{LanguageRecord, TextRecord};
+    use common::localized::Localized;
+    use product::core::title::Title;
 
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
@@ -1545,18 +1548,21 @@ async fn should_materialize_translated_titles_in_dynamodb_when_domain_created_ev
     assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
     tokio::time::sleep(Duration::from_secs(3)).await;
 
-    // Write a DOMAIN_CREATED event — this triggers the translate lambda via DDB stream.
-    let mut created_payload: ProductCreatedDomainEventPayload = Faker.fake();
-    created_payload.shop_id = materialized_old.shop_id;
-    created_payload.seller_id = materialized_old.seller_id;
-    created_payload.shops_product_id = materialized_old.shops_product_id.clone();
+    // Write an ENRICHMENT_EMBEDDED event with a native German title — this triggers the
+    // translate lambda via DDB stream → EventBridge → SQS.
     let product_event_records = Batch::try_from_iter([ProductEventRecord::from(ProductEvent {
         aggregate_id: materialized_old.product_id,
         event_id: EventId::new(),
         timestamp: OffsetDateTime::now_utc(),
-        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::Created(
-            created_payload,
-        )),
+        payload: ProductEventPayload::ProductEnrichmentEvent(
+            ProductEnrichmentEventPayload::Embedded(EmbeddedProductEnrichmentEventPayload {
+                shop_id: materialized_old.shop_id,
+                seller_id: materialized_old.seller_id,
+                shops_product_id: materialized_old.shops_product_id.clone(),
+                embedding: vec![0.42f32; 768],
+                native_title: Some(Localized::new(Language::De, Title::from("Alter Tisch"))),
+            }),
+        ),
     })])
     .unwrap();
     repository
@@ -1564,7 +1570,7 @@ async fn should_materialize_translated_titles_in_dynamodb_when_domain_created_ev
         .await
         .unwrap();
 
-    // Wait for translate Lambda to process the DOMAIN_CREATED event and write
+    // Wait for translate Lambda to process the ENRICHMENT_EMBEDDED event and write
     // ENRICHMENT_TRANSLATED_TITLE event records back to DynamoDB.
     // MockTranslationService (active when LOCALSTACK_HOSTNAME is set) always returns "Antique chair"
     // for English.

@@ -1,8 +1,9 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::sqs::SqsEvent;
 use aws_sdk_dynamodb::Client;
-use fxrate::dynamodb::repository::FxRateDynamoDbRepositoryImpl;
-use fxrate::service::FxRateServiceImpl;
+use common::price::domain::FixedFxRate;
+use fxrate::dynamodb::record::FxRatesRecord;
+use fxrate::service::MockFxRateService;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::command_service::CommandProductServiceImpl;
@@ -27,12 +28,15 @@ async fn main() -> Result<(), Error> {
     let product_repository = ProductDynamoDbRepositoryImpl::new(&client, &table_name);
     let shop_repository = ShopDynamoDbRepositoryImpl::new(&client, &table_name);
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let fxrate_repository = FxRateDynamoDbRepositoryImpl::new(&client, &table_name);
-    let fxrate_service = FxRateServiceImpl::new_read_only(&fxrate_repository);
+    // The embed-text pipeline never performs price conversions, so a fixed FX rate suffices.
+    let mut fx_rate_service = MockFxRateService::new();
+    fx_rate_service
+        .expect_get_current()
+        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
     let seller_service = MockSellerService::default();
     let command_service = CommandProductServiceImpl::new(
         &product_repository,
-        &fxrate_service,
+        &fx_rate_service,
         &get_shop_service,
         &seller_service,
     )

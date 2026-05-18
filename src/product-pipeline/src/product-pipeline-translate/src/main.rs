@@ -1,7 +1,8 @@
 use aws_config::BehaviorVersion;
 use common::language::domain::Language;
-use fxrate::dynamodb::repository::FxRateDynamoDbRepositoryImpl;
-use fxrate::service::FxRateServiceImpl;
+use common::price::domain::FixedFxRate;
+use fxrate::dynamodb::record::FxRatesRecord;
+use fxrate::service::MockFxRateService;
 use lambda_runtime::service_fn;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::command_service::CommandProductServiceImpl;
@@ -24,12 +25,15 @@ async fn main() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb, &dynamodb_table_name);
     let shop_repository = ShopDynamoDbRepositoryImpl::new(&dynamodb, &dynamodb_table_name);
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let fxrate_repository = FxRateDynamoDbRepositoryImpl::new(&dynamodb, &dynamodb_table_name);
-    let fxrate_service = FxRateServiceImpl::new_read_only(&fxrate_repository);
+    // The translate pipeline never performs price conversions, so a fixed FX rate suffices.
+    let mut fx_rate_service = MockFxRateService::new();
+    fx_rate_service
+        .expect_get_current()
+        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
     let seller_service = MockSellerService::default();
     let command_service = CommandProductServiceImpl::new(
         &product_repository,
-        &fxrate_service,
+        &fx_rate_service,
         &get_shop_service,
         &seller_service,
     )
