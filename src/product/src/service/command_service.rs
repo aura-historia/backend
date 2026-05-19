@@ -30,7 +30,6 @@ use shop::service::get_service::GetShopService;
 use shop::service::seller_service::SellerService;
 use std::collections::HashMap;
 use tracing::warn;
-use url::Url;
 
 #[async_trait]
 #[mockall::automock]
@@ -172,7 +171,6 @@ impl<'a> CommandProductServiceImpl<'a> {
     async fn persist_create(
         &self,
         event_record: ProductEventRecord,
-        view_url: Url,
         cmd: CreateProductCommand,
         failures: &mut Vec<CreateProductCommand>,
     ) {
@@ -184,7 +182,7 @@ impl<'a> CommandProductServiceImpl<'a> {
                 return;
             }
         };
-        let mut product_record = match ProductRecord::try_from(domain_record) {
+        let product_record = match ProductRecord::try_from(domain_record) {
             Ok(r) => r,
             Err(err) => {
                 warn!(error = ?err, "Failed building ProductRecord for create transaction — skipping.");
@@ -192,7 +190,6 @@ impl<'a> CommandProductServiceImpl<'a> {
                 return;
             }
         };
-        product_record.view_url = Some(view_url);
         let event_log = ProductEventLog::from(&event_record)
             .with_event_type(LogEventType::EntityWrite)
             .with_write_source(LogWriteSource::ProductCommandService)
@@ -344,7 +341,7 @@ impl CommandProductService for CommandProductServiceImpl<'_> {
                             let event_record = ProductEventRecord::Domain(
                                 ProductDomainEventRecord::from(domain_event),
                             );
-                            self.persist_create(event_record, view_url, cmd_clone, &mut failures)
+                            self.persist_create(event_record, cmd_clone, &mut failures)
                                 .await;
                         } else {
                             key_cmds.remove(&cmd.key());
@@ -560,7 +557,6 @@ impl CommandProductService for CommandProductServiceImpl<'_> {
                             let mut create_failures: Vec<CreateProductCommand> = Vec::new();
                             self.persist_create(
                                 event_record,
-                                view_url,
                                 create_cmd_clone,
                                 &mut create_failures,
                             )

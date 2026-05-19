@@ -51,6 +51,8 @@ pub enum NotificationPayloadData {
         title: LocalizedTextData,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         image: Option<ProductImageData>,
+        url: url::Url,
+        view_url: url::Url,
         watchlist_payload: WatchlistPayloadData,
     },
     SearchFilter {
@@ -63,6 +65,8 @@ pub enum NotificationPayloadData {
         title: LocalizedTextData,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         image: Option<ProductImageData>,
+        url: url::Url,
+        view_url: url::Url,
         search_filter_payload: SearchFilterPayloadData,
     },
     PartnerApplication {
@@ -148,8 +152,9 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
                 shop_name,
                 title,
                 image,
+                url,
+                view_url,
                 watchlist_payload,
-                ..
             } => NotificationPayloadData::Watchlist {
                 product_id,
                 shop_id,
@@ -159,6 +164,8 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
                 shop_name,
                 title: title.into(),
                 image: image.map(|i| ProductImageData::from_with_consent(i, true)),
+                url,
+                view_url,
                 watchlist_payload: watchlist_payload.into(),
             },
             LocalizedNotificationPayload::SearchFilter {
@@ -170,8 +177,9 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
                 shop_name,
                 title,
                 image,
+                url,
+                view_url,
                 search_filter_payload,
-                ..
             } => NotificationPayloadData::SearchFilter {
                 product_id,
                 shop_id,
@@ -181,6 +189,8 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
                 shop_name,
                 title: title.into(),
                 image: image.map(|i| ProductImageData::from_with_consent(i, true)),
+                url,
+                view_url,
                 search_filter_payload: SearchFilterPayloadData {
                     user_search_filter_id: search_filter_payload.user_search_filter_id,
                     user_search_filter_name: search_filter_payload.user_search_filter_name,
@@ -248,6 +258,8 @@ mod tests {
                 "url": "https://test.example/product.jpg",
                 "prohibitedContent": "NONE"
             },
+            "url": "https://test.example/product",
+            "viewUrl": "https://test.example/product?utm_source=aura_historia&utm_medium=referral",
             "watchlistPayload": {
                 "type": "PRICE_CHANGE",
                 "oldPrice": {

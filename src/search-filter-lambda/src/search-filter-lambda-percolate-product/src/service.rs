@@ -402,7 +402,8 @@ fn mk_notification_command(
             shop_name: product.shop_name.clone(),
             title: product.titles(),
             image: product.images.first().cloned(),
-            view_url: Some(product.view_url.clone()),
+            url: product.url.clone(),
+            view_url: product.view_url.clone(),
             search_filter_payload: NotificationSearchFilterPayload {
                 user_search_filter_id: filter.user_search_filter_id,
                 user_search_filter_name: filter.name.clone(),

@@ -390,8 +390,7 @@ mod utm_tests {
         let mut record = Faker.fake::<ShopRecord>();
         record.url = Some(Url::parse("https://example-shop.com").unwrap());
         // Ensure no affiliate config so the UTM fallback is used
-        record.affiliate_configuration_type = None;
-        record.affiliate_configuration_partnerize_camref = None;
+        record.affiliate_configuration = None;
 
         let shop: Shop = record.into();
 

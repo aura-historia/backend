@@ -604,7 +604,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
             url: event_record.url.ok_or_else(|| {
                 MissingPersistenceField::new(field!(url@ProductDomainEventRecord))
             })?,
-            view_url: None,
+            view_url: event_record.view_url,
             images: event_record.images.unwrap_or_default(),
             embedding: None,
             auction_start: event_record.auction_start,

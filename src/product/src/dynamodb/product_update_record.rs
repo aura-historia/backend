@@ -3,7 +3,6 @@ use crate::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRec
 use crate::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord;
 use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
-use crate::dynamodb::utm::append_utm_params;
 use common::dynamodb_update::DynamoDbUpdate;
 use common::event_id::EventId;
 use common::language::record::LanguageRecord;
@@ -327,7 +326,7 @@ impl From<ProductDomainEventRecord> for ProductRecordUpdate {
             price_estimate_max_sgd: event.new_price_estimate_max_sgd,
             price_estimate_max_chf: event.new_price_estimate_max_chf,
             url: event.url.clone(),
-            view_url: event.view_url.or_else(|| event.url.map(append_utm_params)),
+            view_url: event.view_url,
             auction_start: event.auction_start,
             auction_end: event.auction_end,
             embedding: None,
