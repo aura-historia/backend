@@ -283,6 +283,7 @@ pub struct ProductCreatedDomainEventPayload {
     pub other_price_estimate_max: HashMap<Currency, MonetaryAmount>,
     pub state: ProductState,
     pub url: Url,
+    pub view_url: Url,
     pub images: Vec<ProductImage>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
@@ -403,6 +404,7 @@ pub struct ProductUrlChangeDomainEventPayload {
     pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub url: Url,
+    pub view_url: Url,
 }
 
 impl ProductCommonEventPayload for ProductUrlChangeDomainEventPayload {
@@ -494,6 +496,8 @@ mod faker_payloads {
                 other_price_estimate_max: config.fake_with_rng(rng),
                 state: config.fake_with_rng(rng),
                 url: Url::parse("https://www.example.com/product").unwrap(),
+                view_url: Url::parse("https://www.example.com/product?utm_source=aura-historia")
+                    .unwrap(),
                 images: config.fake_with_rng(rng),
                 auction_start: if config.fake_with_rng(rng) {
                     Some(OffsetDateTime::now_utc())

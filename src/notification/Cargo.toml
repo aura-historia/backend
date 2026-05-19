@@ -10,6 +10,7 @@ serde = { workspace = true }
 serde-email = { workspace = true }
 serde_fields = { workspace = true }
 time = { workspace = true }
+url = { workspace = true, features = ["serde"] }
 async-trait = { workspace = true }
 mockall = { workspace = true }
 thiserror = { workspace = true }

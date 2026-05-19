@@ -174,6 +174,11 @@ pub struct NotificationRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub user_search_filter_name: Option<String>,
 
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub url: Option<url::Url>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub view_url: Option<url::Url>,
+
     // partner-application
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub partner_application_id: Option<PartnerShopApplicationId>,
@@ -262,6 +267,8 @@ impl From<Notification> for NotificationRecord {
                 shop_name,
                 title,
                 image,
+                url,
+                view_url,
                 watchlist_payload,
             } => {
                 let notification_reason = derive_notification_reason(&watchlist_payload);
@@ -443,6 +450,8 @@ impl From<Notification> for NotificationRecord {
                     title_it: title.get(&Language::It).map(|t| String::from(t.clone())),
                     user_search_filter_id: None,
                     user_search_filter_name: None,
+                    url: Some(url),
+                    view_url: Some(view_url),
                     partner_application_id: None,
                     new_price_native,
                     new_price_eur,
@@ -498,6 +507,8 @@ impl From<Notification> for NotificationRecord {
                 shop_name,
                 title,
                 image,
+                url,
+                view_url,
                 search_filter_payload,
             } => {
                 let notification_reason = NotificationReasonRecord::SearchFilterMatch;
@@ -531,6 +542,8 @@ impl From<Notification> for NotificationRecord {
                     user_search_filter_name: Some(String::from(
                         search_filter_payload.user_search_filter_name,
                     )),
+                    url: Some(url),
+                    view_url: Some(view_url),
                     partner_application_id: None,
                     new_price_native: None,
                     new_price_eur: None,
@@ -623,6 +636,8 @@ impl From<Notification> for NotificationRecord {
                     title_it: None,
                     user_search_filter_id: None,
                     user_search_filter_name: None,
+                    url: None,
+                    view_url: None,
                     partner_application_id: Some(partner_application_id),
                     new_price_native: None,
                     new_price_eur: None,
@@ -753,6 +768,12 @@ impl TryFrom<NotificationRecord> for Notification {
             })?;
 
             let image = record.image.map(ProductImage::from);
+            let url = record
+                .url
+                .ok_or_else(|| MissingPersistenceField::new(field!(url@NotificationRecord)))?;
+            let view_url = record
+                .view_url
+                .ok_or_else(|| MissingPersistenceField::new(field!(view_url@NotificationRecord)))?;
 
             if record.notification_reason.is_search_filter() {
                 let user_search_filter_id = record.user_search_filter_id.ok_or_else(|| {
@@ -776,6 +797,8 @@ impl TryFrom<NotificationRecord> for Notification {
                     shop_name,
                     title,
                     image,
+                    url,
+                    view_url,
                     search_filter_payload: NotificationSearchFilterPayload {
                         user_search_filter_id,
                         user_search_filter_name,
@@ -858,6 +881,8 @@ impl TryFrom<NotificationRecord> for Notification {
                     shop_name,
                     title,
                     image,
+                    url,
+                    view_url,
                     watchlist_payload,
                 }
             }
@@ -957,6 +982,8 @@ mod faker {
                 old_state: Some(config.fake_with_rng(rng)),
                 user_search_filter_id: None,
                 user_search_filter_name: None,
+                url: Some(config.fake_with_rng(rng)),
+                view_url: Some(config.fake_with_rng(rng)),
                 partner_application_id: None,
                 created,
                 updated: created,

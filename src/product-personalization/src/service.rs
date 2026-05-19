@@ -1016,6 +1016,9 @@ mod tests {
                 shop_name: Faker.fake(),
                 title: std::collections::HashMap::new(),
                 image: None,
+                url: url::Url::parse("https://example.com/item/1").unwrap(),
+                view_url: url::Url::parse("https://example.com/item/1?utm_source=aura_historia")
+                    .unwrap(),
                 watchlist_payload: NotificationWatchlistPayload::StateChange {
                     old_state: common::product_state::domain::ProductState::Listed,
                     new_state: common::product_state::domain::ProductState::Available,

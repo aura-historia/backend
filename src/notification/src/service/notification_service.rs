@@ -442,6 +442,8 @@ fn build_email_template_data(
             product_slug_id,
             shop_name,
             title,
+            url,
+            view_url,
             watchlist_payload,
             ..
         } => {
@@ -459,6 +461,9 @@ fn build_email_template_data(
                 "title": resolved_title,
                 "language": format!("{language:?}"),
             });
+
+            data["url"] = serde_json::json!(url.as_str());
+            data["view_url"] = serde_json::json!(view_url.as_str());
 
             if let Some(first_name) = user_first_name {
                 data["user_first_name"] = serde_json::json!(first_name.to_string());
@@ -502,6 +507,7 @@ fn build_email_template_data(
             product_slug_id,
             shop_name,
             title,
+            view_url,
             search_filter_payload,
             ..
         } => {
@@ -521,6 +527,8 @@ fn build_email_template_data(
                 "search_filter_id": search_filter_payload.user_search_filter_id.to_string(),
                 "search_filter_name": search_filter_payload.user_search_filter_name.to_string(),
             });
+
+            data["view_url"] = serde_json::json!(view_url.as_str());
 
             if let Some(first_name) = user_first_name {
                 data["user_first_name"] = serde_json::json!(first_name.to_string());
@@ -1135,6 +1143,11 @@ mod tests {
                     shop_name: "Test Shop".into(),
                     title: HashMap::from([(Language::En, "Test Title".into())]),
                     image: None,
+                    url: url::Url::parse("https://example.com/item/1").unwrap(),
+                    view_url: url::Url::parse(
+                        "https://prf.hn/click/camref:abc/destination:https%3A%2F%2Fexample.com%2Fitem%2F1",
+                    )
+                    .unwrap(),
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -1352,6 +1365,11 @@ mod tests {
                     shop_name: "Test Shop".into(),
                     title: HashMap::from([(Language::En, "Test Title".into())]),
                     image: None,
+                    url: url::Url::parse("https://example.com/item/1").unwrap(),
+                    view_url: url::Url::parse(
+                        "https://example.com/item/1?utm_source=aura_historia&utm_medium=referral",
+                    )
+                    .unwrap(),
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -2268,6 +2286,11 @@ mod tests {
                 shop_name: "Shop".into(),
                 title: HashMap::from([(Language::En, "Title".into())]),
                 image: None,
+                url: url::Url::parse("https://example.com/item/1").unwrap(),
+                view_url: url::Url::parse(
+                    "https://example.com/item/1?utm_source=aura_historia&utm_medium=referral",
+                )
+                .unwrap(),
                 watchlist_payload: NotificationWatchlistPayload::PriceChange {
                     old_price: HashMap::new(),
                     new_price: HashMap::new(),
@@ -2293,6 +2316,11 @@ mod tests {
                 shop_name: "Shop".into(),
                 title: HashMap::from([(Language::En, "Title".into())]),
                 image: None,
+                url: url::Url::parse("https://example.com/item/1").unwrap(),
+                view_url: url::Url::parse(
+                    "https://example.com/item/1?utm_source=aura_historia&utm_medium=referral",
+                )
+                .unwrap(),
                 watchlist_payload: NotificationWatchlistPayload::StateChange {
                     old_state: ProductState::Listed,
                     new_state: ProductState::Sold,
@@ -2326,6 +2354,11 @@ mod tests {
                 shop_name: "Shop".into(),
                 title: HashMap::from([(Language::En, "Title".into())]),
                 image: None,
+                url: url::Url::parse("https://example.com/item/1").unwrap(),
+                view_url: url::Url::parse(
+                    "https://example.com/item/1?utm_source=aura_historia&utm_medium=referral",
+                )
+                .unwrap(),
                 watchlist_payload: NotificationWatchlistPayload::StateChange {
                     old_state: ProductState::Listed,
                     new_state: ProductState::Sold,
@@ -2354,6 +2387,11 @@ mod tests {
                 shop_name: "Shop".into(),
                 title,
                 image: None,
+                url: url::Url::parse("https://example.com/item/1").unwrap(),
+                view_url: url::Url::parse(
+                    "https://example.com/item/1?utm_source=aura_historia&utm_medium=referral",
+                )
+                .unwrap(),
                 watchlist_payload: NotificationWatchlistPayload::StateChange {
                     old_state,
                     new_state,
@@ -2373,6 +2411,11 @@ mod tests {
                 shop_name: "Shop".into(),
                 title,
                 image: None,
+                url: url::Url::parse("https://example.com/item/1").unwrap(),
+                view_url: url::Url::parse(
+                    "https://example.com/item/1?utm_source=aura_historia&utm_medium=referral",
+                )
+                .unwrap(),
                 watchlist_payload: NotificationWatchlistPayload::PriceChange {
                     old_price: HashMap::new(),
                     new_price: HashMap::new(),
@@ -2476,6 +2519,11 @@ mod tests {
                     shop_name: "Test Shop".into(),
                     title: HashMap::from([(Language::En, "Antique Vase".into())]),
                     image: None,
+                    url: url::Url::parse("https://example.com/item/1").unwrap(),
+                    view_url: url::Url::parse(
+                        "https://example.com/item/1?utm_source=aura_historia&utm_medium=referral",
+                    )
+                    .unwrap(),
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -2513,6 +2561,11 @@ mod tests {
                     shop_name: "Test Shop".into(),
                     title: HashMap::from([(Language::En, "Antique Vase".into())]),
                     image: None,
+                    url: url::Url::parse("https://example.com/item/1").unwrap(),
+                    view_url: url::Url::parse(
+                        "https://example.com/item/1?utm_source=aura_historia&utm_medium=referral",
+                    )
+                    .unwrap(),
                     watchlist_payload: NotificationWatchlistPayload::PriceChange {
                         old_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(10000u64))]),
                         new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(8000u64))]),
@@ -2549,6 +2602,11 @@ mod tests {
                     shop_name: "Shop".into(),
                     title: HashMap::from([(Language::En, "Title".into())]),
                     image: None,
+                    url: url::Url::parse("https://example.com/item/1").unwrap(),
+                    view_url: url::Url::parse(
+                        "https://example.com/item/1?utm_source=aura_historia&utm_medium=referral",
+                    )
+                    .unwrap(),
                     watchlist_payload: NotificationWatchlistPayload::PriceChange {
                         old_price: HashMap::new(),
                         new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(5000u64))]),
@@ -2583,6 +2641,11 @@ mod tests {
                     shop_name: "Shop".into(),
                     title: HashMap::from([(Language::De, "Antike Vase".into())]),
                     image: None,
+                    url: url::Url::parse("https://example.com/item/1").unwrap(),
+                    view_url: url::Url::parse(
+                        "https://example.com/item/1?utm_source=aura_historia&utm_medium=referral",
+                    )
+                    .unwrap(),
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -2618,6 +2681,11 @@ mod tests {
                     shop_name: "Shop".into(),
                     title: HashMap::from([(Language::En, "Title".into())]),
                     image: None,
+                    url: url::Url::parse("https://example.com/item/1").unwrap(),
+                    view_url: url::Url::parse(
+                        "https://example.com/item/1?utm_source=aura_historia&utm_medium=referral",
+                    )
+                    .unwrap(),
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -2656,6 +2724,11 @@ mod tests {
                     shop_name: "Shop".into(),
                     title: HashMap::from([(Language::En, "Title".into())]),
                     image: None,
+                    url: url::Url::parse("https://example.com/item/1").unwrap(),
+                    view_url: url::Url::parse(
+                        "https://example.com/item/1?utm_source=aura_historia&utm_medium=referral",
+                    )
+                    .unwrap(),
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -3121,6 +3194,11 @@ mod tests {
                         (Language::It, "Scrivania vittoriana".into()),
                     ]),
                     image: None,
+                    url: url::Url::parse("https://example.com/item/1").unwrap(),
+                    view_url: url::Url::parse(
+                        "https://prf.hn/click/camref:abc/destination:https%3A%2F%2Fexample.com%2Fitem%2F1",
+                    )
+                    .unwrap(),
                     watchlist_payload: NotificationWatchlistPayload::PriceChange {
                         old_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(10000u64))]),
                         new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(8500u64))]),
@@ -3154,6 +3232,11 @@ mod tests {
                         (Language::It, "Scrivania vittoriana".into()),
                     ]),
                     image: None,
+                    url: url::Url::parse("https://example.com/item/1").unwrap(),
+                    view_url: url::Url::parse(
+                        "https://prf.hn/click/camref:abc/destination:https%3A%2F%2Fexample.com%2Fitem%2F1",
+                    )
+                    .unwrap(),
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -3187,6 +3270,11 @@ mod tests {
                         (Language::It, "Scrivania vittoriana".into()),
                     ]),
                     image: None,
+                    url: url::Url::parse("https://example.com/item/1").unwrap(),
+                    view_url: url::Url::parse(
+                        "https://example.com/item/1?utm_source=aura_historia&utm_medium=referral",
+                    )
+                    .unwrap(),
                     search_filter_payload: NotificationSearchFilterPayload {
                         user_search_filter_id: UserSearchFilterId::new(),
                         user_search_filter_name: "Victorian Furniture".into(),
@@ -3208,6 +3296,29 @@ mod tests {
                 "it" => Language::It,
                 _ => panic!("Unknown language code: {code}"),
             }
+        }
+
+        fn assert_two_button_template_links(
+            rendered: &str,
+            data: &serde_json::Value,
+            template_path: &str,
+        ) {
+            let shop_slug_id = data["shop_slug_id"].as_str().unwrap();
+            let product_slug_id = data["product_slug_id"].as_str().unwrap();
+            let aura_historia_product_url = format!(
+                "https://aura-historia.com/shops/{shop_slug_id}/products/{product_slug_id}"
+            );
+            let merchant_view_url = data["view_url"].as_str().unwrap();
+            let merchant_view_url_escaped = handlebars::html_escape(merchant_view_url);
+
+            assert!(
+                rendered.contains(&format!("href=\"{aura_historia_product_url}\"")),
+                "Template '{template_path}' should contain Aura Historia product CTA: {aura_historia_product_url}"
+            );
+            assert!(
+                rendered.contains(&format!("href=\"{merchant_view_url_escaped}\"")),
+                "Template '{template_path}' should contain merchant CTA: {merchant_view_url}"
+            );
         }
 
         #[rstest]
@@ -3345,6 +3456,11 @@ mod tests {
                     shop_name: "Shop".into(),
                     title: HashMap::from([(language_for_code(lang), "Title".into())]),
                     image: None,
+                    url: url::Url::parse("https://example.com/item/1").unwrap(),
+                    view_url: url::Url::parse(
+                        "https://example.com/item/1?utm_source=aura_historia&utm_medium=referral",
+                    )
+                    .unwrap(),
                     watchlist_payload: NotificationWatchlistPayload::PriceChange {
                         old_price: HashMap::new(),
                         new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(5000u64))]),
@@ -3367,7 +3483,7 @@ mod tests {
         }
 
         #[test]
-        fn should_include_product_url_with_shop_and_product_slugs_in_rendered_price_template() {
+        fn should_route_watchlist_price_ctas_to_aura_historia_and_merchant() {
             let template_path = "mjml/watchlist/product-update/price/en.mjml";
             let template = load_template(template_path);
             let notification = make_watchlist_price_notification();
@@ -3377,18 +3493,11 @@ mod tests {
             let handlebars = Handlebars::new();
             let rendered = handlebars.render_template(&template, &data).unwrap();
 
-            let shop_slug = data["shop_slug_id"].as_str().unwrap();
-            let product_slug = data["product_slug_id"].as_str().unwrap();
-            let expected_url =
-                format!("https://aura-historia.com/shops/{shop_slug}/products/{product_slug}");
-            assert!(
-                rendered.contains(&expected_url),
-                "Rendered template should contain product URL: {expected_url}"
-            );
+            assert_two_button_template_links(&rendered, &data, template_path);
         }
 
         #[test]
-        fn should_include_product_url_with_shop_and_product_slugs_in_rendered_state_template() {
+        fn should_route_watchlist_state_ctas_to_aura_historia_and_merchant() {
             let template_path = "mjml/watchlist/product-update/state/en.mjml";
             let template = load_template(template_path);
             let notification = make_watchlist_state_notification();
@@ -3398,14 +3507,21 @@ mod tests {
             let handlebars = Handlebars::new();
             let rendered = handlebars.render_template(&template, &data).unwrap();
 
-            let shop_slug = data["shop_slug_id"].as_str().unwrap();
-            let product_slug = data["product_slug_id"].as_str().unwrap();
-            let expected_url =
-                format!("https://aura-historia.com/shops/{shop_slug}/products/{product_slug}");
-            assert!(
-                rendered.contains(&expected_url),
-                "Rendered template should contain product URL: {expected_url}"
-            );
+            assert_two_button_template_links(&rendered, &data, template_path);
+        }
+
+        #[test]
+        fn should_route_search_filter_ctas_to_aura_historia_and_merchant() {
+            let template_path = "mjml/search-filter/match/en.mjml";
+            let template = load_template(template_path);
+            let notification = make_search_filter_notification();
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars.render_template(&template, &data).unwrap();
+
+            assert_two_button_template_links(&rendered, &data, template_path);
         }
 
         #[test]

@@ -66,6 +66,7 @@ pub struct Product {
     pub other_price_estimate_max: HashMap<Currency, MonetaryAmount>,
     pub state: ProductState,
     pub url: Url,
+    pub view_url: Url,
     pub images: Vec<ProductImage>,
     pub embedding: Option<Vec<f32>>,
     pub auction_start: Option<OffsetDateTime>,
@@ -95,6 +96,7 @@ impl Product {
         other_price_estimate_max: HashMap<Currency, MonetaryAmount>,
         state: ProductState,
         url: Url,
+        view_url: Url,
         images: Vec<ProductImage>,
         auction_start: Option<OffsetDateTime>,
         auction_end: Option<OffsetDateTime>,
@@ -132,6 +134,7 @@ impl Product {
             other_price_estimate_max,
             state,
             url,
+            view_url,
             images,
             auction_start,
             auction_end,
@@ -338,11 +341,12 @@ impl Product {
         }
     }
 
-    pub fn change_url(&mut self, url: Url) -> Option<ProductDomainEvent> {
+    pub fn change_url(&mut self, url: Url, view_url: Url) -> Option<ProductDomainEvent> {
         if self.url == url {
             return None;
         }
         self.url = url.clone();
+        self.view_url = view_url.clone();
         Some(Event {
             aggregate_id: self.product_id,
             event_id: EventId::new(),
@@ -352,6 +356,7 @@ impl Product {
                 seller_id: self.seller_id,
                 shops_product_id: self.shops_product_id.clone(),
                 url,
+                view_url,
             }),
         })
     }
@@ -688,6 +693,7 @@ impl Product {
             price_estimate_max,
             state: self.state,
             url: self.url,
+            view_url: self.view_url,
             images: self.images,
             auction_start: self.auction_start,
             auction_end: self.auction_end,
@@ -748,6 +754,7 @@ pub struct LocalizedProductView {
     pub price_estimate_max: Option<Price>,
     pub state: ProductState,
     pub url: Url,
+    pub view_url: Url,
     pub images: Vec<ProductImage>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
@@ -812,6 +819,10 @@ mod faker {
                 other_price_estimate_max,
                 state: config.fake_with_rng(rng),
                 url: Url::parse("https://www.example.com/product").unwrap(),
+                view_url: Url::parse(
+                    "https://www.example.com/product?utm_source=aura_historia&utm_medium=referral",
+                )
+                .unwrap(),
                 images: config.fake_with_rng(rng),
                 embedding: config.fake_with_rng(rng),
                 auction_start: if config.fake_with_rng(rng) {
@@ -906,6 +917,7 @@ mod tests {
             HashMap::new(),
             ProductState::Available,
             make_url("/item"),
+            common::utm::append_utm_params(make_url("/item")),
             images,
             None,
             None,

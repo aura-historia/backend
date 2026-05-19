@@ -232,6 +232,7 @@ impl TryFrom<PartnerShopApplicationRecord> for PartnerShopApplication {
                     ),
                     phone: record.shop_phone,
                     email: record.shop_email,
+                    affiliate_configuration: None,
                 })
             }
         };
@@ -334,6 +335,7 @@ mod faker {
                 structured_address: None,
                 phone: None,
                 email: None,
+                affiliate_configuration: None,
             };
 
             let application = PartnerShopApplication {

@@ -1,5 +1,6 @@
 use crate::{
     core::{
+        affiliate_configuration::AffiliateConfiguration,
         partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey},
         partner_status::ShopPartnerStatus,
         shop::Shop,
@@ -144,6 +145,13 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             None => None,
         };
 
+        let view_url = command.url.as_ref().map(|u| {
+            command
+                .affiliate_configuration
+                .as_ref()
+                .map(|a| a.build_url(u))
+                .unwrap_or_else(|| crate::dynamodb::utm::append_utm_params(u.clone()))
+        });
         let shop = Shop {
             shop_id: ShopId::new(),
             shop_slug_id: SlugId::from(command.name.as_ref()),
@@ -157,12 +165,14 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             woocommerce_currency: command.woocommerce_currency,
             woocommerce_language: command.woocommerce_language,
             url: command.url,
+            view_url,
             image: command.image,
             structured_address: command.structured_address,
             geo_address,
             phone: command.phone,
             email: command.email,
             partner_status: ShopPartnerStatus::default(),
+            affiliate_configuration: command.affiliate_configuration,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };
@@ -215,6 +225,14 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             woocommerce_currency: command.woocommerce_currency.map(Into::into),
             woocommerce_language: command.woocommerce_language.map(Into::into),
             url: command.url.clone(),
+            view_url: command.url.as_ref().map(|u| {
+                shop_record
+                    .affiliate_configuration
+                    .as_ref()
+                    .cloned()
+                    .map(|a| AffiliateConfiguration::from(a).build_url(u))
+                    .unwrap_or_else(|| crate::dynamodb::utm::append_utm_params(u.clone()))
+            }),
             image: command.image.clone(),
             structured_address_addressline: command
                 .structured_address
@@ -297,6 +315,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             woocommerce_currency: None,
             woocommerce_language: None,
             url: None,
+            view_url: None,
             image: None,
             structured_address_addressline: None,
             structured_address_addressline_extra: None,
@@ -377,6 +396,7 @@ mod tests {
                 structured_address: None,
                 phone: None,
                 email: None,
+                affiliate_configuration: None,
             };
             let actual = service.create(cmd).await.unwrap_err();
             match actual {
@@ -460,6 +480,7 @@ mod tests {
                 structured_address: Some(structured_address),
                 phone: None,
                 email: None,
+                affiliate_configuration: None,
             };
 
             let actual = service.create(cmd).await.unwrap();

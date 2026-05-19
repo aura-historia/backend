@@ -36,6 +36,8 @@ pub struct GetShopData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub view_url: Option<Url>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub structured_address: Option<StructuredAddressData>,
@@ -67,6 +69,7 @@ impl From<Shop> for GetShopData {
             woocommerce_currency: shop.woocommerce_currency.map(Into::into),
             woocommerce_language: shop.woocommerce_language.map(Into::into),
             url: shop.url,
+            view_url: shop.view_url,
             image: shop.image,
             structured_address: shop.structured_address.map(Into::into),
             geo_address: shop.geo_address.map(Into::into),
@@ -104,6 +107,12 @@ mod tests {
             woocommerce_currency: None,
             woocommerce_language: None,
             url: Some(Url::parse("https://woaah.co.ltd.com").unwrap()),
+            view_url: Some(
+                Url::parse(
+                    "https://woaah.co.ltd.com/?utm_source=aura_historia&utm_medium=referral",
+                )
+                .unwrap(),
+            ),
             image: Some(Url::parse("https://woaah.co.ltd.com/logo.svg").unwrap()),
             structured_address: None,
             geo_address: None,
@@ -122,6 +131,7 @@ mod tests {
             "domains": ["woaah.co.ltd.com"],
             "shopifyDomain": "woaah.myshopify.com",
             "url": "https://woaah.co.ltd.com/",
+            "viewUrl": "https://woaah.co.ltd.com/?utm_source=aura_historia&utm_medium=referral",
             "image": "https://woaah.co.ltd.com/logo.svg",
             "partnerStatus": "PARTNERED",
             "created": "1976-12-01T00:00:00Z",

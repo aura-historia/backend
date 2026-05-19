@@ -32,6 +32,12 @@
             "domains": {
                 "type": "keyword"
             },
+            "url": {
+                "type": "keyword"
+            },
+            "viewUrl": {
+                "type": "keyword"
+            },
             "image": {
                 "type": "keyword"
             },

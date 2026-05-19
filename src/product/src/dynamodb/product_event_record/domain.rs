@@ -37,8 +37,6 @@ use strum::EnumCount;
 use time::OffsetDateTime;
 use url::Url;
 
-use crate::dynamodb::utm::append_utm_params;
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct ProductDomainEventRecord {
     pub pk: String,
@@ -259,6 +257,9 @@ pub struct ProductDomainEventRecord {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub view_url: Option<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub images: Option<Vec<ProductImageRecord>>,
@@ -707,6 +708,7 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                     new_state: Some(payload.state.into()),
                     old_state: None,
                     url: Some(payload.url),
+                    view_url: Some(payload.view_url),
                     images: Some(
                         payload
                             .images
@@ -955,6 +957,7 @@ impl From<ProductDomainEvent> for ProductDomainEventRecord {
                     domain.timestamp,
                 );
                 rec.url = Some(payload.url);
+                rec.view_url = Some(payload.view_url);
                 rec
             }
             ProductDomainEventPayload::ImagesChanged(payload) => {
@@ -1122,6 +1125,7 @@ fn mk_state_event_record(
         new_state: Some(new_product_state_record),
         old_state: Some(old_product_state_record),
         url: None,
+        view_url: None,
         images: None,
         auction_start: None,
         auction_end: None,
@@ -1396,6 +1400,7 @@ fn mk_price_change_event_record(
         new_state: None,
         old_state: None,
         url: None,
+        view_url: None,
         images: None,
         auction_start: None,
         auction_end: None,
@@ -1525,6 +1530,7 @@ fn mk_empty_event_record(
         new_state: None,
         old_state: None,
         url: None,
+        view_url: None,
         images: None,
         auction_start: None,
         auction_end: None,
@@ -1834,9 +1840,12 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                                 field!(new_state@ProductDomainEventRecord),
                             ),
                         )?,
-                        url: append_utm_params(record.url.ok_or(MissingPersistenceField::new(
-                            field!(url@ProductDomainEventRecord),
-                        ))?),
+                        url: record.url.ok_or_else(|| {
+                            MissingPersistenceField::new(field!(url@ProductDomainEventRecord))
+                        })?,
+                        view_url: record.view_url.ok_or_else(|| {
+                            MissingPersistenceField::new(field!(view_url@ProductDomainEventRecord))
+                        })?,
                         images: record
                             .images
                             .unwrap_or_default()
@@ -1893,13 +1902,18 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                     )
                 }
                 ProductDomainEventTypeRecord::DomainUrlChanged => {
+                    let raw_url = record.url.ok_or_else(|| {
+                        MissingPersistenceField::new(field!(url@ProductDomainEventRecord))
+                    })?;
+                    let view_url = record.view_url.ok_or_else(|| {
+                        MissingPersistenceField::new(field!(view_url@ProductDomainEventRecord))
+                    })?;
                     ProductDomainEventPayload::UrlChanged(ProductUrlChangeDomainEventPayload {
                         shop_id,
                         seller_id,
                         shops_product_id,
-                        url: append_utm_params(record.url.ok_or(MissingPersistenceField::new(
-                            field!(url@ProductDomainEventRecord),
-                        ))?),
+                        url: raw_url,
+                        view_url,
                     })
                 }
                 ProductDomainEventTypeRecord::DomainImagesChanged => {
@@ -1970,64 +1984,44 @@ mod tests {
     use url::Url;
 
     #[test]
-    fn should_append_utm_params_to_url_when_mapping_created_event_record_to_domain_event() {
+    fn should_use_stored_view_url_when_mapping_created_event_record_to_domain_event() {
         let mut payload: ProductCreatedDomainEventPayload = Faker.fake();
         payload.url = Url::parse("https://example-shop.com/product/1").unwrap();
+        payload.view_url = Url::parse("https://prf.hn/click/camref:abc/destination:https%3A%2F%2Fexample-shop.com%2Fproduct%2F1").unwrap();
         let event = ProductDomainEvent {
             aggregate_id: Faker.fake(),
             event_id: Faker.fake(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductDomainEventPayload::Created(payload),
+            payload: ProductDomainEventPayload::Created(payload.clone()),
         };
         let record: ProductDomainEventRecord = event.into();
         let result = ProductDomainEvent::try_from(record).unwrap();
 
-        if let ProductDomainEventPayload::Created(payload) = result.payload {
-            let query: Vec<(_, _)> = payload.url.query_pairs().collect();
-            assert!(
-                query
-                    .iter()
-                    .any(|(k, v)| k == "utm_source" && v == "aura_historia"),
-                "utm_source=aura_historia not found in URL query params"
-            );
-            assert!(
-                query
-                    .iter()
-                    .any(|(k, v)| k == "utm_medium" && v == "referral"),
-                "utm_medium=referral not found in URL query params"
-            );
+        if let ProductDomainEventPayload::Created(result_payload) = result.payload {
+            assert_eq!(result_payload.url, payload.url);
+            assert_eq!(result_payload.view_url, payload.view_url);
         } else {
             panic!("Expected ProductDomainEventPayload::Created");
         }
     }
 
     #[test]
-    fn should_append_utm_params_to_url_when_mapping_url_changed_event_record_to_domain_event() {
+    fn should_use_stored_view_url_when_mapping_url_changed_event_record_to_domain_event() {
         let mut payload: ProductUrlChangeDomainEventPayload = Faker.fake();
         payload.url = Url::parse("https://example-shop.com/product/2").unwrap();
+        payload.view_url = Url::parse("https://prf.hn/click/camref:abc/destination:https%3A%2F%2Fexample-shop.com%2Fproduct%2F2").unwrap();
         let event = ProductDomainEvent {
             aggregate_id: Faker.fake(),
             event_id: Faker.fake(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductDomainEventPayload::UrlChanged(payload),
+            payload: ProductDomainEventPayload::UrlChanged(payload.clone()),
         };
         let record: ProductDomainEventRecord = event.into();
         let result = ProductDomainEvent::try_from(record).unwrap();
 
-        if let ProductDomainEventPayload::UrlChanged(payload) = result.payload {
-            let query: Vec<(_, _)> = payload.url.query_pairs().collect();
-            assert!(
-                query
-                    .iter()
-                    .any(|(k, v)| k == "utm_source" && v == "aura_historia"),
-                "utm_source=aura_historia not found in URL query params"
-            );
-            assert!(
-                query
-                    .iter()
-                    .any(|(k, v)| k == "utm_medium" && v == "referral"),
-                "utm_medium=referral not found in URL query params"
-            );
+        if let ProductDomainEventPayload::UrlChanged(result_payload) = result.payload {
+            assert_eq!(result_payload.url, payload.url);
+            assert_eq!(result_payload.view_url, payload.view_url);
         } else {
             panic!("Expected ProductDomainEventPayload::UrlChanged");
         }

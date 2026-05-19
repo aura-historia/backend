@@ -14,7 +14,6 @@ use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
-use common::utm::append_utm_params;
 use common::{event_id::EventId, has_key::HasKey};
 use field::field;
 use geo::core::continent::Continent;
@@ -188,6 +187,7 @@ pub struct ProductDocument {
 
     pub state: ProductStateDocument,
     pub url: Url,
+    pub view_url: Url,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub images: Vec<ProductImageDocument>,
 
@@ -352,6 +352,9 @@ impl TryFrom<ProductDomainEventRecord> for ProductDocument {
             url: event_product_document.url.ok_or_else(|| {
                 MissingPersistenceField::new(field!(url@ProductDomainEventRecord))
             })?,
+            view_url: event_product_document.view_url.ok_or_else(|| {
+                MissingPersistenceField::new(field!(view_url@ProductDomainEventRecord))
+            })?,
             images: event_product_document
                 .images
                 .unwrap_or_default()
@@ -458,7 +461,8 @@ impl From<ProductRecord> for ProductDocument {
             price_estimate_max_sgd: product_document.price_estimate_max_sgd,
             price_estimate_max_chf: product_document.price_estimate_max_chf,
             state: product_document.state.into(),
-            url: product_document.url,
+            url: product_document.url.clone(),
+            view_url: product_document.view_url,
             images: product_document
                 .images
                 .into_iter()
@@ -803,6 +807,7 @@ impl From<Product> for ProductDocument {
                 .map(u64::from),
             state: product.state.into(),
             url: product.url,
+            view_url: product.view_url,
             images: product
                 .images
                 .into_iter()
@@ -1038,7 +1043,8 @@ impl From<ProductDocument> for Product {
             native_price_estimate_max: None,
             other_price_estimate_max,
             state: product_document.state.into(),
-            url: append_utm_params(product_document.url),
+            url: product_document.url,
+            view_url: product_document.view_url,
             images: product_document
                 .images
                 .into_iter()
@@ -1152,6 +1158,11 @@ mod faker {
                 state,
                 url: Url::parse(&format!(
                     "https://foo.bar/item/{}",
+                    config.fake_with_rng::<u16, _>(rng)
+                ))
+                .unwrap(),
+                view_url: Url::parse(&format!(
+                    "https://foo.bar/item/{}?utm_source=aura_historia",
                     config.fake_with_rng::<u16, _>(rng)
                 ))
                 .unwrap(),

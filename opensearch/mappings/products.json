@@ -389,6 +389,9 @@
             "url": {
                 "type": "keyword"
             },
+            "viewUrl": {
+                "type": "keyword"
+            },
             "images": {
                 "type": "object",
                 "properties": {

@@ -124,6 +124,8 @@ async fn should_create_product_document() {
         price_estimate_max_chf: None,
         state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
+        view_url: Url::parse("https://foo.com/bar?utm_source=aura_historia&utm_medium=referral")
+            .unwrap(),
         images: Faker.fake(),
         embedding: None,
         created: OffsetDateTime::now_utc(),
@@ -232,6 +234,8 @@ async fn should_create_product_documents() {
         price_estimate_max_chf: None,
         state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
+        view_url: Url::parse("https://foo.com/bar?utm_source=aura_historia&utm_medium=referral")
+            .unwrap(),
         images: Faker.fake(),
         embedding: None,
         created: OffsetDateTime::now_utc(),
@@ -325,6 +329,8 @@ async fn should_create_product_documents() {
         price_estimate_max_chf: None,
         state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
+        view_url: Url::parse("https://foo.com/bar?utm_source=aura_historia&utm_medium=referral")
+            .unwrap(),
         images: Faker.fake(),
         embedding: None,
         created: OffsetDateTime::now_utc(),
@@ -435,6 +441,8 @@ async fn should_update_product_document() {
         price_estimate_max_chf: None,
         state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
+        view_url: Url::parse("https://foo.com/bar?utm_source=aura_historia&utm_medium=referral")
+            .unwrap(),
         images: Faker.fake(),
         embedding: None,
         created: OffsetDateTime::now_utc(),
@@ -627,6 +635,8 @@ async fn should_search_product_documents() {
         price_estimate_max_chf: None,
         state: ProductStateDocument::Available,
         url: Url::parse("https://foo.com/bar").unwrap(),
+        view_url: Url::parse("https://foo.com/bar?utm_source=aura_historia&utm_medium=referral")
+            .unwrap(),
         images: Faker.fake(),
         embedding: None,
         created: OffsetDateTime::now_utc(),
@@ -1368,6 +1378,8 @@ async fn should_get_product_document() {
         price_estimate_max_chf: None,
         state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
+        view_url: Url::parse("https://foo.com/bar?utm_source=aura_historia&utm_medium=referral")
+            .unwrap(),
         images: Faker.fake(),
         embedding: None,
         created: OffsetDateTime::now_utc(),

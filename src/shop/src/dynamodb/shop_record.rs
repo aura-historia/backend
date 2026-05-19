@@ -1,13 +1,14 @@
 use crate::core::partner_shop_api_key::HashedPartnerShopApiKey;
 use crate::core::{
     address::{GeoAddress, StructuredAddress},
+    affiliate_configuration::AffiliateConfiguration,
     continent::Continent,
     partner_shop::PartnerShop,
     shop::Shop,
     woocommerce_webhook_secret::WoocommerceWebhookSecret,
 };
+use crate::dynamodb::affiliate_configuration_record::AffiliateConfigurationRecord;
 use crate::dynamodb::shop_type_record::ShopTypeRecord;
-use crate::dynamodb::utm::append_utm_params;
 use common::currency::record::CurrencyRecord;
 use common::error::missing_field::MissingPersistenceField;
 use common::language::record::LanguageRecord;
@@ -61,6 +62,8 @@ pub struct ShopRecord {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub view_url: Option<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
@@ -94,6 +97,9 @@ pub struct ShopRecord {
     pub partner_api_key_long_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub partner_user_id: Option<UserId>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub affiliate_configuration: Option<AffiliateConfigurationRecord>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -140,6 +146,9 @@ impl From<Shop> for ShopRecord {
             .as_ref()
             .map(|domain| (Some(mk_gsi3_pk(domain)), Some(mk_gsi3_sk().to_owned())))
             .unwrap_or((None, None));
+        let affiliate_configuration = shop
+            .affiliate_configuration
+            .map(AffiliateConfigurationRecord::from);
         ShopRecord {
             pk: mk_pk(&shop.shop_id),
             sk: mk_sk().to_owned(),
@@ -159,6 +168,7 @@ impl From<Shop> for ShopRecord {
             woocommerce_currency: shop.woocommerce_currency.map(Into::into),
             woocommerce_language: shop.woocommerce_language.map(Into::into),
             url: shop.url,
+            view_url: shop.view_url,
             image: shop.image,
             structured_address_addressline: shop
                 .structured_address
@@ -190,6 +200,7 @@ impl From<Shop> for ShopRecord {
             partner_user_id: None,
             gsi1_pk: None,
             gsi1_sk: None,
+            affiliate_configuration,
             created: shop.created,
             updated: shop.updated,
         }
@@ -210,7 +221,8 @@ impl From<ShopRecord> for Shop {
             woocommerce_webhook_secret: record.woocommerce_webhook_secret,
             woocommerce_currency: record.woocommerce_currency.map(Into::into),
             woocommerce_language: record.woocommerce_language.map(Into::into),
-            url: record.url.map(append_utm_params),
+            url: record.url,
+            view_url: record.view_url,
             image: record.image,
             structured_address: structured_address_from_flat(
                 record.structured_address_addressline,
@@ -228,6 +240,9 @@ impl From<ShopRecord> for Shop {
             } else {
                 crate::core::partner_status::ShopPartnerStatus::Scraped
             },
+            affiliate_configuration: record
+                .affiliate_configuration
+                .map(AffiliateConfiguration::from),
             created: record.created,
             updated: record.updated,
         }
@@ -259,7 +274,8 @@ impl TryFrom<ShopRecord> for PartnerShop {
             woocommerce_webhook_secret: value.woocommerce_webhook_secret,
             woocommerce_currency: value.woocommerce_currency.map(Into::into),
             woocommerce_language: value.woocommerce_language.map(Into::into),
-            url: value.url.map(append_utm_params),
+            url: value.url,
+            view_url: value.view_url,
             image: value.image,
             structured_address: structured_address_from_flat(
                 value.structured_address_addressline,
@@ -274,6 +290,9 @@ impl TryFrom<ShopRecord> for PartnerShop {
             email: value.email,
             partner_user_id,
             hashed_api_key,
+            affiliate_configuration: value
+                .affiliate_configuration
+                .map(AffiliateConfiguration::from),
             created: value.created,
             updated: value.updated,
         })
@@ -341,25 +360,15 @@ mod utm_tests {
     use fake::{Fake, Faker};
 
     #[test]
-    fn should_append_utm_params_when_mapping_shop_record_to_shop() {
+    fn should_keep_raw_url_when_mapping_shop_record_to_shop() {
         let mut record = Faker.fake::<ShopRecord>();
         record.url = Some(Url::parse("https://example-shop.com").unwrap());
 
         let shop: Shop = record.into();
 
-        let url = shop.url.unwrap();
-        let query: Vec<(_, _)> = url.query_pairs().collect();
-        assert!(
-            query
-                .iter()
-                .any(|(k, v)| k == "utm_source" && v == "aura_historia"),
-            "utm_source=aura_historia not found in URL query params"
-        );
-        assert!(
-            query
-                .iter()
-                .any(|(k, v)| k == "utm_medium" && v == "referral"),
-            "utm_medium=referral not found in URL query params"
+        assert_eq!(
+            shop.url.as_ref().map(|u| u.as_str()),
+            Some("https://example-shop.com/")
         );
     }
 
@@ -367,10 +376,12 @@ mod utm_tests {
     fn should_return_none_url_when_shop_record_has_no_url() {
         let mut record = Faker.fake::<ShopRecord>();
         record.url = None;
+        record.view_url = None;
 
         let shop: Shop = record.into();
 
         assert!(shop.url.is_none());
+        assert!(shop.view_url.is_none());
     }
 }
 

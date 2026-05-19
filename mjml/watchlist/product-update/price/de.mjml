@@ -77,12 +77,12 @@
         <mj-section background-color="#ffffff" padding="8px 32px 32px" border-radius="12px">
             <mj-column>
                 <mj-button href="https://aura-historia.com/shops/{{shop_slug_id}}/products/{{product_slug_id}}" align="center">
-                    Antiquität ansehen
+                    Auf Aura Historia ansehen
                 </mj-button>
             </mj-column>
             <mj-column>
-                <mj-button href="https://aura-historia.com/shops/{{shop_slug_id}}" background-color="#ffffff" color="#42120f" border="1px solid #d8c1bf" align="center">
-                    Shop besuchen
+                <mj-button href="{{view_url}}" background-color="#ffffff" color="#42120f" border="1px solid #d8c1bf" align="center">
+                    Beim Anbieter ansehen
                 </mj-button>
             </mj-column>
         </mj-section>

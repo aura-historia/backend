@@ -1,3 +1,4 @@
+pub mod affiliate_configuration_record;
 pub mod raw_shop_name_record;
 pub mod repository;
 pub mod shop_record;

@@ -231,6 +231,7 @@ async fn create_or_resolve_shop(
                 structured_address: structured_address_from_record(record),
                 phone: record.shop_phone.clone(),
                 email: record.shop_email.clone(),
+                affiliate_configuration: None,
             };
 
             let shop = shop_service
@@ -297,6 +298,7 @@ async fn link_shop_to_partner(
         woocommerce_currency: None,
         woocommerce_language: None,
         url: None,
+        view_url: None,
         image: None,
         structured_address_addressline: None,
         structured_address_addressline_extra: None,

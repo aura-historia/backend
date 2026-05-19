@@ -5,6 +5,7 @@ use common::{
     product_id::ProductKey,
     product_state::domain::ProductState,
     shop_name::ShopName,
+    utm::append_utm_params,
 };
 use fake::{Fake, Faker};
 use fxrate::dynamodb::record::FxRatesRecord;
@@ -128,6 +129,7 @@ fn make_product_record(cmd: &CreateProductCommand) -> ProductRecord {
         exchange_all(cmd.native_price_estimate_max),
         cmd.state,
         cmd.url.clone(),
+        append_utm_params(cmd.url.clone()),
         cmd.images.clone(),
         cmd.auction_start,
         cmd.auction_end,

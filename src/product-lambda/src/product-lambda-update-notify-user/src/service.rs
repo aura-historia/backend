@@ -125,6 +125,8 @@ fn mk_created_watchlist_notification_payload(
         shop_name: product.shop_name.clone(),
         title: product.titles(),
         image: product.images.first().cloned(),
+        url: product.url.clone(),
+        view_url: product.view_url.clone(),
         watchlist_payload: NotificationWatchlistPayload::StateChange {
             old_state: ProductState::Unknown,
             new_state: payload.state,
@@ -146,6 +148,8 @@ fn mk_state_change_watchlist_notification_payload(
         shop_name: product.shop_name.clone(),
         title: product.titles(),
         image: product.images.first().cloned(),
+        url: product.url.clone(),
+        view_url: product.view_url.clone(),
         watchlist_payload: NotificationWatchlistPayload::StateChange {
             old_state: payload.old_state,
             new_state: *new_state,
@@ -167,6 +171,8 @@ fn mk_price_change_watchlist_notification_payload(
         shop_name: product.shop_name.clone(),
         title: product.titles(),
         image: product.images.first().cloned(),
+        url: product.url.clone(),
+        view_url: product.view_url.clone(),
         watchlist_payload: NotificationWatchlistPayload::PriceChange {
             old_price,
             new_price,

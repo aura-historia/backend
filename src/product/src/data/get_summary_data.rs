@@ -33,6 +33,7 @@ pub struct GetProductSummaryData {
     pub price: Option<PriceData>,
     pub state: ProductStateData,
     pub url: Url,
+    pub view_url: Url,
     #[serde(default)]
     pub images: Vec<ProductImageData>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -71,6 +72,7 @@ impl GetProductSummaryData {
             price: product_view.price.map(PriceData::from),
             state: product_view.state.into(),
             url: product_view.url,
+            view_url: product_view.view_url,
             images: product_view
                 .images
                 .into_iter()
@@ -158,6 +160,10 @@ mod tests {
             price: Some(PriceData::new(CurrencyData::Eur, 50000)),
             state: ProductStateData::Reserved,
             url: Url::parse("https://my-shop.de/item").unwrap(),
+            view_url: Url::parse(
+                "https://my-shop.de/item?utm_source=aura_historia&utm_medium=referral",
+            )
+            .unwrap(),
             images: vec![
                 ProductImageData {
                     url: Some(Url::parse("https://my-shop.de/item/images/1").unwrap()),
@@ -196,6 +202,7 @@ mod tests {
             },
             "state": "RESERVED",
             "url": "https://my-shop.de/item",
+            "viewUrl": "https://my-shop.de/item?utm_source=aura_historia&utm_medium=referral",
             "images": [
                 {
                     "url": "https://my-shop.de/item/images/1",

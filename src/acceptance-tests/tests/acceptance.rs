@@ -3,7 +3,6 @@ use base64::Engine;
 use common::execution_state::data::ExecutionStateData;
 use common::personalized::api::PersonalizedData;
 use common::resource_state::record::ResourceStateRecord;
-use common::utm::append_utm_params;
 use common::{
     batch::Batch,
     currency::{data::CurrencyData, domain::Currency},
@@ -2123,10 +2122,7 @@ async fn should_respond_200_when_anon_and_product_does_exist_for_ids() {
     );
     assert_eq!(record.product_id.to_string(), body["item"]["productId"]);
     assert_eq!(record.event_id.to_string(), body["item"]["eventId"]);
-    assert_eq!(
-        append_utm_params(record.url.clone()).to_string(),
-        body["item"]["url"]
-    );
+    assert_eq!(record.url.clone().to_string(), body["item"]["url"]);
     assert_eq!(
         record.price_gbp.unwrap(),
         body["item"]["price"]["offer"]["amount"]
@@ -5569,6 +5565,7 @@ async fn seed_shopify_acceptance_shop() -> ShopRecord {
         woocommerce_currency: None,
         woocommerce_language: None,
         url: None,
+        view_url: None,
         image: None,
         structured_address_addressline: None,
         structured_address_addressline_extra: None,
@@ -5589,6 +5586,7 @@ async fn seed_shopify_acceptance_shop() -> ShopRecord {
         gsi2_sk: Some(shop::dynamodb::shop_record::mk_gsi2_sk().to_owned()),
         gsi3_pk: Some(shop::dynamodb::shop_record::mk_gsi3_pk(&shopify_domain)),
         gsi3_sk: Some(shop::dynamodb::shop_record::mk_gsi3_sk().to_owned()),
+        affiliate_configuration: None,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };

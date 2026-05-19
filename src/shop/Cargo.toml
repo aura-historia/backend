@@ -10,6 +10,7 @@ common = { workspace = true }
 isocountry = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
 url = { workspace = true, features = ["serde"] }
+percent-encoding = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde-email = { workspace = true }
