@@ -298,6 +298,7 @@ async fn link_shop_to_partner(
         woocommerce_currency: None,
         woocommerce_language: None,
         url: None,
+        view_url: None,
         image: None,
         structured_address_addressline: None,
         structured_address_addressline_extra: None,
