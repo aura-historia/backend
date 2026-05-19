@@ -215,7 +215,7 @@ async fn should_translate_title_when_enrichment_embedded_event_triggers_pipeline
     );
 
     // Verify the enrichment event records were written via the transaction (one per target language).
-    let mut enrichment_events = repository
+    let enrichment_events = repository
         .query_product_enrichment_event_records(&shop_id, &shops_product_id)
         .await
         .expect("shouldn't fail querying enrichment event records");
@@ -232,7 +232,6 @@ async fn should_translate_title_when_enrichment_embedded_event_triggers_pipeline
         "Expected all enrichment event records to be ENRICHMENT_TRANSLATED_TITLE"
     );
 
-    enrichment_events.sort_by_key(|e| e.target_language.map(|l| l.as_str()));
     let translations_by_language: HashMap<LanguageRecord, String> = enrichment_events
         .iter()
         .filter_map(|e| e.target_language.zip(e.target.clone()))
