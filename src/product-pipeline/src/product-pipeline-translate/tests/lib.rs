@@ -213,6 +213,51 @@ async fn should_translate_title_when_enrichment_embedded_event_triggers_pipeline
         updated_record.title_it,
         "Expected Italian translation"
     );
+
+    // Verify the enrichment event records were written via the transaction (one per target language).
+    let mut enrichment_events = repository
+        .query_product_enrichment_event_records(&shop_id, &shops_product_id)
+        .await
+        .expect("shouldn't fail querying enrichment event records");
+
+    assert_eq!(
+        4,
+        enrichment_events.len(),
+        "Expected 4 ENRICHMENT_TRANSLATED_TITLE event records (one per target language)"
+    );
+    assert!(
+        enrichment_events
+            .iter()
+            .all(|e| e.event_type == ProductEnrichmentEventTypeRecord::EnrichmentTranslatedTitle),
+        "Expected all enrichment event records to be ENRICHMENT_TRANSLATED_TITLE"
+    );
+
+    enrichment_events.sort_by_key(|e| e.target_language.map(|l| l.as_str()));
+    let translations_by_language: HashMap<LanguageRecord, String> = enrichment_events
+        .iter()
+        .filter_map(|e| e.target_language.zip(e.target.clone()))
+        .collect();
+
+    assert_eq!(
+        Some("Antique oak chair".to_string()),
+        translations_by_language.get(&LanguageRecord::En).cloned(),
+        "Expected English translation in written event record"
+    );
+    assert_eq!(
+        Some("Chaise en chêne ancienne".to_string()),
+        translations_by_language.get(&LanguageRecord::Fr).cloned(),
+        "Expected French translation in written event record"
+    );
+    assert_eq!(
+        Some("Silla de roble antigua".to_string()),
+        translations_by_language.get(&LanguageRecord::Es).cloned(),
+        "Expected Spanish translation in written event record"
+    );
+    assert_eq!(
+        Some("Sedia in rovere antico".to_string()),
+        translations_by_language.get(&LanguageRecord::It).cloned(),
+        "Expected Italian translation in written event record"
+    );
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -234,13 +279,17 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
     ];
 
     let mut messages = Vec::new();
+    let mut product_keys = Vec::new();
 
     for title in &titles {
         let mut product_record: ProductRecord = Faker.fake();
         product_record.title_en = None;
+        product_record.title_de = None;
+        product_record.title_fr = None;
         let shop_id = product_record.shop_id;
         let shops_product_id = product_record.shops_product_id.clone();
         let product_id = product_record.product_id;
+        product_keys.push((shop_id, shops_product_id.clone()));
 
         repository
             .put_product_records([product_record].into())
@@ -293,6 +342,42 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
         "Expected no batch item failures but got: {:?}",
         result.batch_item_failures
     );
+
+    // Verify enrichment event records were written for each product via the transaction.
+    for (shop_id, shops_product_id) in &product_keys {
+        let enrichment_events = repository
+            .query_product_enrichment_event_records(shop_id, shops_product_id)
+            .await
+            .expect("shouldn't fail querying enrichment event records");
+
+        assert_eq!(
+            2,
+            enrichment_events.len(),
+            "Expected 2 ENRICHMENT_TRANSLATED_TITLE event records per product (De and Fr)"
+        );
+        assert!(
+            enrichment_events.iter().all(|e| {
+                e.event_type == ProductEnrichmentEventTypeRecord::EnrichmentTranslatedTitle
+            }),
+            "Expected all enrichment records to be ENRICHMENT_TRANSLATED_TITLE"
+        );
+
+        let translations_by_language: HashMap<LanguageRecord, String> = enrichment_events
+            .iter()
+            .filter_map(|e| e.target_language.zip(e.target.clone()))
+            .collect();
+
+        assert_eq!(
+            Some("Viktorianischer Silberleuchter".to_string()),
+            translations_by_language.get(&LanguageRecord::De).cloned(),
+            "Expected German translation in written event record"
+        );
+        assert_eq!(
+            Some("Chandelier en argent victorien".to_string()),
+            translations_by_language.get(&LanguageRecord::Fr).cloned(),
+            "Expected French translation in written event record"
+        );
+    }
 }
 
 #[localstack_test(services = [DynamoDB()])]

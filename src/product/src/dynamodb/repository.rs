@@ -1,5 +1,6 @@
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+use crate::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord;
 use crate::dynamodb::product_record::{self, ProductRecord};
 use crate::dynamodb::product_update_record::ProductRecordUpdate;
 use async_trait::async_trait;
@@ -69,6 +70,12 @@ pub trait ProductDynamoDbRepository {
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
     ) -> Result<Vec<ProductDomainEventRecord>, SdkError<QueryError, HttpResponse>>;
+
+    async fn query_product_enrichment_event_records(
+        &self,
+        shop_id: &ShopId,
+        shops_product_id: &ShopsProductId,
+    ) -> Result<Vec<ProductEnrichmentEventRecord>, SdkError<QueryError, HttpResponse>>;
 
     async fn get_product_records(
         &self,
@@ -332,6 +339,53 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
                         error!(
                             error = %err,
                             type = %std::any::type_name::<ProductDomainEventRecord>(),
+                            "Failed deserializing."
+                        );
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        Ok(event_records)
+    }
+
+    async fn query_product_enrichment_event_records(
+        &self,
+        shop_id: &ShopId,
+        shops_product_id: &ShopsProductId,
+    ) -> Result<Vec<ProductEnrichmentEventRecord>, SdkError<QueryError, HttpResponse>> {
+        let event_records = self
+            .client
+            .query()
+            .table_name(&self.table)
+            .key_condition_expression("#pk = :pk_val AND begins_with(#sk, :sk_prefix)")
+            .expression_attribute_names("#pk", "pk")
+            .expression_attribute_names("#sk", "sk")
+            .expression_attribute_values(
+                ":pk_val",
+                AttributeValue::S(product_record::mk_pk(shop_id, shops_product_id)),
+            )
+            .expression_attribute_values(
+                ":sk_prefix",
+                AttributeValue::S("product#event#enrichment#".to_string()),
+            )
+            .scan_index_forward(true)
+            .into_paginator()
+            .send()
+            .try_collect()
+            .await?
+            .into_iter()
+            .flat_map(|query_output| query_output.items.unwrap_or_default())
+            .filter_map(|event_record_attr_map| {
+                match serde_dynamo::from_item::<_, ProductEnrichmentEventRecord>(
+                    event_record_attr_map,
+                ) {
+                    Ok(event_record) => Some(event_record),
+                    Err(err) => {
+                        error!(
+                            error = %err,
+                            type = %std::any::type_name::<ProductEnrichmentEventRecord>(),
                             "Failed deserializing."
                         );
                         None
