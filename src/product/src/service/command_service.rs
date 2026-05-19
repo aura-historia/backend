@@ -336,6 +336,7 @@ impl CommandProductService for CommandProductServiceImpl<'_> {
                                 cmd.other_price_estimate_max,
                                 cmd.state,
                                 cmd.url,
+                                view_url.clone(),
                                 cmd.images,
                                 cmd.auction_start,
                                 cmd.auction_end,
@@ -548,6 +549,7 @@ impl CommandProductService for CommandProductServiceImpl<'_> {
                                 create_cmd.other_price_estimate_max,
                                 create_cmd.state,
                                 create_cmd.url,
+                                view_url.clone(),
                                 create_cmd.images,
                                 create_cmd.auction_start,
                                 create_cmd.auction_end,
@@ -806,7 +808,7 @@ fn determine_update_events(
                 )));
             }
             if let Some(url) = cmd.url
-                && let Some(event) = product.change_url(url)
+                && let Some(event) = product.change_url(url.clone(), append_utm_params(url))
             {
                 events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
                     event,

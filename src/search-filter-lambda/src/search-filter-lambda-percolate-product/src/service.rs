@@ -2,7 +2,6 @@ use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::language::domain::Language;
-use common::utm::append_utm_params;
 use notification::core::notification::{NotificationPayload, NotificationSearchFilterPayload};
 use notification::service::command::CreateNotificationCommand;
 use product::core::description::Description;
@@ -163,8 +162,8 @@ impl<'a> ProductMatcherServiceImpl<'a> {
                 native_price_estimate_max: created_payload.native_price_estimate_max,
                 other_price_estimate_max: created_payload.other_price_estimate_max,
                 state: created_payload.state,
-                url: created_payload.url.clone(),
-                view_url: append_utm_params(created_payload.url),
+                url: created_payload.url,
+                view_url: created_payload.view_url,
                 images: created_payload.images,
                 embedding: None,
                 auction_start: created_payload.auction_start,
@@ -403,6 +402,7 @@ fn mk_notification_command(
             shop_name: product.shop_name.clone(),
             title: product.titles(),
             image: product.images.first().cloned(),
+            view_url: Some(product.view_url.clone()),
             search_filter_payload: NotificationSearchFilterPayload {
                 user_search_filter_id: filter.user_search_filter_id,
                 user_search_filter_name: filter.name.clone(),
@@ -485,6 +485,7 @@ mod tests {
                     other_price_estimate_max: Default::default(),
                     state: product.state,
                     url: product.url.clone(),
+                    view_url: product.view_url.clone(),
                     images: product.images.clone(),
                     auction_start: product.auction_start,
                     auction_end: product.auction_end,

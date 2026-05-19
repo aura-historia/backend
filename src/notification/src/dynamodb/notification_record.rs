@@ -174,6 +174,10 @@ pub struct NotificationRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub user_search_filter_name: Option<String>,
 
+    // view url (affiliate or UTM)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub view_url: Option<url::Url>,
+
     // partner-application
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub partner_application_id: Option<PartnerShopApplicationId>,
@@ -262,6 +266,7 @@ impl From<Notification> for NotificationRecord {
                 shop_name,
                 title,
                 image,
+                view_url,
                 watchlist_payload,
             } => {
                 let notification_reason = derive_notification_reason(&watchlist_payload);
@@ -443,6 +448,7 @@ impl From<Notification> for NotificationRecord {
                     title_it: title.get(&Language::It).map(|t| String::from(t.clone())),
                     user_search_filter_id: None,
                     user_search_filter_name: None,
+                    view_url,
                     partner_application_id: None,
                     new_price_native,
                     new_price_eur,
@@ -498,6 +504,7 @@ impl From<Notification> for NotificationRecord {
                 shop_name,
                 title,
                 image,
+                view_url,
                 search_filter_payload,
             } => {
                 let notification_reason = NotificationReasonRecord::SearchFilterMatch;
@@ -531,6 +538,7 @@ impl From<Notification> for NotificationRecord {
                     user_search_filter_name: Some(String::from(
                         search_filter_payload.user_search_filter_name,
                     )),
+                    view_url,
                     partner_application_id: None,
                     new_price_native: None,
                     new_price_eur: None,
@@ -623,6 +631,7 @@ impl From<Notification> for NotificationRecord {
                     title_it: None,
                     user_search_filter_id: None,
                     user_search_filter_name: None,
+                    view_url: None,
                     partner_application_id: Some(partner_application_id),
                     new_price_native: None,
                     new_price_eur: None,
@@ -776,6 +785,7 @@ impl TryFrom<NotificationRecord> for Notification {
                     shop_name,
                     title,
                     image,
+                    view_url: record.view_url.clone(),
                     search_filter_payload: NotificationSearchFilterPayload {
                         user_search_filter_id,
                         user_search_filter_name,
@@ -858,6 +868,7 @@ impl TryFrom<NotificationRecord> for Notification {
                     shop_name,
                     title,
                     image,
+                    view_url: record.view_url,
                     watchlist_payload,
                 }
             }
@@ -957,6 +968,7 @@ mod faker {
                 old_state: Some(config.fake_with_rng(rng)),
                 user_search_filter_id: None,
                 user_search_filter_name: None,
+                view_url: None,
                 partner_application_id: None,
                 created,
                 updated: created,

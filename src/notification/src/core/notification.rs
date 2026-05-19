@@ -21,6 +21,7 @@ use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 use tracing::error;
+use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Notification {
@@ -68,6 +69,7 @@ pub enum NotificationPayload {
         shop_name: ShopName,
         title: HashMap<Language, Title>,
         image: Option<ProductImage>,
+        view_url: Option<Url>,
         watchlist_payload: NotificationWatchlistPayload,
     },
     SearchFilter {
@@ -79,6 +81,7 @@ pub enum NotificationPayload {
         shop_name: ShopName,
         title: HashMap<Language, Title>,
         image: Option<ProductImage>,
+        view_url: Option<Url>,
         search_filter_payload: NotificationSearchFilterPayload,
     },
     PartnerApplication {
@@ -103,6 +106,7 @@ impl NotificationPayload {
                 shop_name,
                 title,
                 image,
+                view_url,
                 watchlist_payload,
             } => LocalizedNotificationPayload::Watchlist {
                 product_id,
@@ -116,6 +120,7 @@ impl NotificationPayload {
                     Localized::new(Language::En, "Unknown title".into())
                 }),
                 image,
+                view_url,
                 watchlist_payload: watchlist_payload.localized(currency),
             },
             NotificationPayload::SearchFilter {
@@ -127,6 +132,7 @@ impl NotificationPayload {
                 shop_name,
                 title,
                 image,
+                view_url,
                 search_filter_payload,
             } => LocalizedNotificationPayload::SearchFilter {
                 product_id,
@@ -140,6 +146,7 @@ impl NotificationPayload {
                     Localized::new(Language::En, "Unknown title".into())
                 }),
                 image,
+                view_url,
                 search_filter_payload,
             },
             NotificationPayload::PartnerApplication {
@@ -230,6 +237,7 @@ pub enum LocalizedNotificationPayload {
         shop_name: ShopName,
         title: Localized<Language, Title>,
         image: Option<ProductImage>,
+        view_url: Option<Url>,
         watchlist_payload: LocalizedNotificationWatchlistPayload,
     },
     SearchFilter {
@@ -241,6 +249,7 @@ pub enum LocalizedNotificationPayload {
         shop_name: ShopName,
         title: Localized<Language, Title>,
         image: Option<ProductImage>,
+        view_url: Option<Url>,
         search_filter_payload: NotificationSearchFilterPayload,
     },
     PartnerApplication {

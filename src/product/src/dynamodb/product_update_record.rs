@@ -327,7 +327,7 @@ impl From<ProductDomainEventRecord> for ProductRecordUpdate {
             price_estimate_max_sgd: event.new_price_estimate_max_sgd,
             price_estimate_max_chf: event.new_price_estimate_max_chf,
             url: event.url.clone(),
-            view_url: event.url.map(append_utm_params),
+            view_url: event.view_url.or_else(|| event.url.map(append_utm_params)),
             auction_start: event.auction_start,
             auction_end: event.auction_end,
             embedding: None,

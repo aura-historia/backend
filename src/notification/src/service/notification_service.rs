@@ -442,6 +442,7 @@ fn build_email_template_data(
             product_slug_id,
             shop_name,
             title,
+            view_url,
             watchlist_payload,
             ..
         } => {
@@ -459,6 +460,10 @@ fn build_email_template_data(
                 "title": resolved_title,
                 "language": format!("{language:?}"),
             });
+
+            if let Some(url) = view_url {
+                data["view_url"] = serde_json::json!(url.as_str());
+            }
 
             if let Some(first_name) = user_first_name {
                 data["user_first_name"] = serde_json::json!(first_name.to_string());
@@ -502,6 +507,7 @@ fn build_email_template_data(
             product_slug_id,
             shop_name,
             title,
+            view_url,
             search_filter_payload,
             ..
         } => {
@@ -521,6 +527,10 @@ fn build_email_template_data(
                 "search_filter_id": search_filter_payload.user_search_filter_id.to_string(),
                 "search_filter_name": search_filter_payload.user_search_filter_name.to_string(),
             });
+
+            if let Some(url) = view_url {
+                data["view_url"] = serde_json::json!(url.as_str());
+            }
 
             if let Some(first_name) = user_first_name {
                 data["user_first_name"] = serde_json::json!(first_name.to_string());
@@ -1135,6 +1145,7 @@ mod tests {
                     shop_name: "Test Shop".into(),
                     title: HashMap::from([(Language::En, "Test Title".into())]),
                     image: None,
+                    view_url: None,
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -1352,6 +1363,7 @@ mod tests {
                     shop_name: "Test Shop".into(),
                     title: HashMap::from([(Language::En, "Test Title".into())]),
                     image: None,
+                    view_url: None,
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -2268,6 +2280,7 @@ mod tests {
                 shop_name: "Shop".into(),
                 title: HashMap::from([(Language::En, "Title".into())]),
                 image: None,
+                view_url: None,
                 watchlist_payload: NotificationWatchlistPayload::PriceChange {
                     old_price: HashMap::new(),
                     new_price: HashMap::new(),
@@ -2293,6 +2306,7 @@ mod tests {
                 shop_name: "Shop".into(),
                 title: HashMap::from([(Language::En, "Title".into())]),
                 image: None,
+                view_url: None,
                 watchlist_payload: NotificationWatchlistPayload::StateChange {
                     old_state: ProductState::Listed,
                     new_state: ProductState::Sold,
@@ -2326,6 +2340,7 @@ mod tests {
                 shop_name: "Shop".into(),
                 title: HashMap::from([(Language::En, "Title".into())]),
                 image: None,
+                view_url: None,
                 watchlist_payload: NotificationWatchlistPayload::StateChange {
                     old_state: ProductState::Listed,
                     new_state: ProductState::Sold,
@@ -2354,6 +2369,7 @@ mod tests {
                 shop_name: "Shop".into(),
                 title,
                 image: None,
+                view_url: None,
                 watchlist_payload: NotificationWatchlistPayload::StateChange {
                     old_state,
                     new_state,
@@ -2373,6 +2389,7 @@ mod tests {
                 shop_name: "Shop".into(),
                 title,
                 image: None,
+                view_url: None,
                 watchlist_payload: NotificationWatchlistPayload::PriceChange {
                     old_price: HashMap::new(),
                     new_price: HashMap::new(),
@@ -2476,6 +2493,7 @@ mod tests {
                     shop_name: "Test Shop".into(),
                     title: HashMap::from([(Language::En, "Antique Vase".into())]),
                     image: None,
+                    view_url: None,
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -2513,6 +2531,7 @@ mod tests {
                     shop_name: "Test Shop".into(),
                     title: HashMap::from([(Language::En, "Antique Vase".into())]),
                     image: None,
+                    view_url: None,
                     watchlist_payload: NotificationWatchlistPayload::PriceChange {
                         old_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(10000u64))]),
                         new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(8000u64))]),
@@ -2549,6 +2568,7 @@ mod tests {
                     shop_name: "Shop".into(),
                     title: HashMap::from([(Language::En, "Title".into())]),
                     image: None,
+                    view_url: None,
                     watchlist_payload: NotificationWatchlistPayload::PriceChange {
                         old_price: HashMap::new(),
                         new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(5000u64))]),
@@ -2583,6 +2603,7 @@ mod tests {
                     shop_name: "Shop".into(),
                     title: HashMap::from([(Language::De, "Antike Vase".into())]),
                     image: None,
+                    view_url: None,
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -2618,6 +2639,7 @@ mod tests {
                     shop_name: "Shop".into(),
                     title: HashMap::from([(Language::En, "Title".into())]),
                     image: None,
+                    view_url: None,
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -2656,6 +2678,7 @@ mod tests {
                     shop_name: "Shop".into(),
                     title: HashMap::from([(Language::En, "Title".into())]),
                     image: None,
+                    view_url: None,
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -3121,6 +3144,7 @@ mod tests {
                         (Language::It, "Scrivania vittoriana".into()),
                     ]),
                     image: None,
+                    view_url: None,
                     watchlist_payload: NotificationWatchlistPayload::PriceChange {
                         old_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(10000u64))]),
                         new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(8500u64))]),
@@ -3154,6 +3178,7 @@ mod tests {
                         (Language::It, "Scrivania vittoriana".into()),
                     ]),
                     image: None,
+                    view_url: None,
                     watchlist_payload: NotificationWatchlistPayload::StateChange {
                         old_state: ProductState::Listed,
                         new_state: ProductState::Sold,
@@ -3187,6 +3212,7 @@ mod tests {
                         (Language::It, "Scrivania vittoriana".into()),
                     ]),
                     image: None,
+                    view_url: None,
                     search_filter_payload: NotificationSearchFilterPayload {
                         user_search_filter_id: UserSearchFilterId::new(),
                         user_search_filter_name: "Victorian Furniture".into(),
@@ -3345,6 +3371,7 @@ mod tests {
                     shop_name: "Shop".into(),
                     title: HashMap::from([(language_for_code(lang), "Title".into())]),
                     image: None,
+                    view_url: None,
                     watchlist_payload: NotificationWatchlistPayload::PriceChange {
                         old_price: HashMap::new(),
                         new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(5000u64))]),

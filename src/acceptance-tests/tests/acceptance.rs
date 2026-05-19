@@ -5589,7 +5589,8 @@ async fn seed_shopify_acceptance_shop() -> ShopRecord {
         gsi2_sk: Some(shop::dynamodb::shop_record::mk_gsi2_sk().to_owned()),
         gsi3_pk: Some(shop::dynamodb::shop_record::mk_gsi3_pk(&shopify_domain)),
         gsi3_sk: Some(shop::dynamodb::shop_record::mk_gsi3_sk().to_owned()),
-        affiliate_configuration: None,
+        affiliate_configuration_type: None,
+        affiliate_configuration_partnerize_camref: None,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };

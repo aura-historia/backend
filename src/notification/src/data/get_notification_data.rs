@@ -149,6 +149,7 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
                 title,
                 image,
                 watchlist_payload,
+                ..
             } => NotificationPayloadData::Watchlist {
                 product_id,
                 shop_id,
@@ -170,6 +171,7 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
                 title,
                 image,
                 search_filter_payload,
+                ..
             } => NotificationPayloadData::SearchFilter {
                 product_id,
                 shop_id,

@@ -217,6 +217,9 @@ mod query_product_record_and_event_records {
                 other_price_estimate_max: Default::default(),
                 state: expected_materialized.state.into(),
                 url: expected_materialized.url.clone(),
+                view_url: expected_materialized.view_url.clone().unwrap_or_else(|| {
+                    common::utm::append_utm_params(expected_materialized.url.clone())
+                }),
                 images: expected_materialized
                     .images
                     .clone()
@@ -300,6 +303,9 @@ mod query_product_record_and_event_records {
                 other_price_estimate_max: Default::default(),
                 state: expected_materialized.state.into(),
                 url: expected_materialized.url.clone(),
+                view_url: expected_materialized.view_url.clone().unwrap_or_else(|| {
+                    common::utm::append_utm_params(expected_materialized.url.clone())
+                }),
                 images: expected_materialized
                     .images
                     .clone()
@@ -1637,6 +1643,9 @@ mod query_product_event_records {
                 other_price_estimate_max: Default::default(),
                 state: expected_materialized.state.into(),
                 url: expected_materialized.url.clone(),
+                view_url: expected_materialized.view_url.clone().unwrap_or_else(|| {
+                    common::utm::append_utm_params(expected_materialized.url.clone())
+                }),
                 images: expected_materialized
                     .images
                     .clone()
