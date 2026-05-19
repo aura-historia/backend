@@ -1,6 +1,7 @@
 use crate::core::partner_shop_api_key::HashedPartnerShopApiKey;
 use crate::core::{
     address::{GeoAddress, StructuredAddress},
+    affiliate_configuration::AffiliateConfiguration,
     continent::Continent,
     partner_shop::PartnerShop,
     shop::Shop,
@@ -97,9 +98,7 @@ pub struct ShopRecord {
     pub partner_user_id: Option<UserId>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub affiliate_configuration_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub affiliate_configuration_partnerize_camref: Option<String>,
+    pub affiliate_configuration: Option<AffiliateConfigurationRecord>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -146,13 +145,9 @@ impl From<Shop> for ShopRecord {
             .as_ref()
             .map(|domain| (Some(mk_gsi3_pk(domain)), Some(mk_gsi3_sk().to_owned())))
             .unwrap_or((None, None));
-        let aff = shop
+        let affiliate_configuration = shop
             .affiliate_configuration
             .map(AffiliateConfigurationRecord::from);
-        let affiliate_configuration_type =
-            aff.as_ref().map(|a| a.affiliate_configuration_type.clone());
-        let affiliate_configuration_partnerize_camref =
-            aff.and_then(|a| a.affiliate_configuration_partnerize_camref);
         ShopRecord {
             pk: mk_pk(&shop.shop_id),
             sk: mk_sk().to_owned(),
@@ -203,8 +198,7 @@ impl From<Shop> for ShopRecord {
             partner_user_id: None,
             gsi1_pk: None,
             gsi1_sk: None,
-            affiliate_configuration_type,
-            affiliate_configuration_partnerize_camref,
+            affiliate_configuration,
             created: shop.created,
             updated: shop.updated,
         }
@@ -213,10 +207,9 @@ impl From<Shop> for ShopRecord {
 
 impl From<ShopRecord> for Shop {
     fn from(record: ShopRecord) -> Self {
-        let affiliate_configuration = affiliate_config_from_flat(
-            record.affiliate_configuration_type.as_deref(),
-            record.affiliate_configuration_partnerize_camref.clone(),
-        );
+        let affiliate_configuration = record
+            .affiliate_configuration
+            .map(AffiliateConfiguration::from);
         let view_url = record.url.as_ref().map(|u| {
             affiliate_configuration
                 .as_ref()
@@ -274,10 +267,9 @@ impl TryFrom<ShopRecord> for PartnerShop {
             _ => None,
         };
 
-        let affiliate_configuration = affiliate_config_from_flat(
-            value.affiliate_configuration_type.as_deref(),
-            value.affiliate_configuration_partnerize_camref.clone(),
-        );
+        let affiliate_configuration = value
+            .affiliate_configuration
+            .map(AffiliateConfiguration::from);
         let view_url = value.url.as_ref().map(|u| {
             affiliate_configuration
                 .as_ref()
@@ -318,18 +310,6 @@ impl TryFrom<ShopRecord> for PartnerShop {
             updated: value.updated,
         })
     }
-}
-
-fn affiliate_config_from_flat(
-    config_type: Option<&str>,
-    partnerize_camref: Option<String>,
-) -> Option<crate::core::affiliate_configuration::AffiliateConfiguration> {
-    let config_type = config_type?;
-    let record = AffiliateConfigurationRecord {
-        affiliate_configuration_type: config_type.to_string(),
-        affiliate_configuration_partnerize_camref: partnerize_camref,
-    };
-    crate::core::affiliate_configuration::AffiliateConfiguration::try_from(record).ok()
 }
 
 fn structured_address_from_flat(
