@@ -3,7 +3,6 @@ use base64::Engine;
 use common::execution_state::data::ExecutionStateData;
 use common::personalized::api::PersonalizedData;
 use common::resource_state::record::ResourceStateRecord;
-use common::utm::append_utm_params;
 use common::{
     batch::Batch,
     currency::{data::CurrencyData, domain::Currency},
@@ -2123,10 +2122,7 @@ async fn should_respond_200_when_anon_and_product_does_exist_for_ids() {
     );
     assert_eq!(record.product_id.to_string(), body["item"]["productId"]);
     assert_eq!(record.event_id.to_string(), body["item"]["eventId"]);
-    assert_eq!(
-        append_utm_params(record.url.clone()).to_string(),
-        body["item"]["url"]
-    );
+    assert_eq!(record.url.clone().to_string(), body["item"]["url"]);
     assert_eq!(
         record.price_gbp.unwrap(),
         body["item"]["price"]["offer"]["amount"]
