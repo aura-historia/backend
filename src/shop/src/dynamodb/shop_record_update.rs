@@ -17,21 +17,19 @@ pub struct ShopRecordUpdate {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub gsi1_pk: Option<String>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub gsi1_sk: Option<String>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub gsi3_pk: Option<String>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub gsi3_sk: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shop_type: Option<ShopTypeRecord>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub domains: Option<HashSet<Domain>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub image: Option<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shopify_domain: Option<Domain>,
@@ -49,9 +47,8 @@ pub struct ShopRecordUpdate {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub image: Option<Url>,
+    pub view_url: Option<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub structured_address_addressline: Option<String>,
@@ -78,7 +75,6 @@ pub struct ShopRecordUpdate {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub partner_api_key_short: Option<String>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub partner_api_key_long_hash: Option<String>,
 

@@ -244,6 +244,7 @@ async fn should_update_shop_document_for_update() {
         url: None,
         image: Some(Url::parse("https://hansi-hanseatic.es/foo.png").unwrap()),
         updated: OffsetDateTime::now_utc(),
+        ..Default::default()
     };
 
     let updated_res = repository

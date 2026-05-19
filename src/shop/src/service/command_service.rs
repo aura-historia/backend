@@ -1,5 +1,6 @@
 use crate::{
     core::{
+        affiliate_configuration::AffiliateConfiguration,
         partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey},
         partner_status::ShopPartnerStatus,
         shop::Shop,
@@ -224,6 +225,14 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             woocommerce_currency: command.woocommerce_currency.map(Into::into),
             woocommerce_language: command.woocommerce_language.map(Into::into),
             url: command.url.clone(),
+            view_url: command.url.as_ref().map(|u| {
+                shop_record
+                    .affiliate_configuration
+                    .as_ref()
+                    .cloned()
+                    .map(|a| AffiliateConfiguration::from(a).build_url(u))
+                    .unwrap_or_else(|| crate::dynamodb::utm::append_utm_params(u.clone()))
+            }),
             image: command.image.clone(),
             structured_address_addressline: command
                 .structured_address
@@ -306,6 +315,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             woocommerce_currency: None,
             woocommerce_language: None,
             url: None,
+            view_url: None,
             image: None,
             structured_address_addressline: None,
             structured_address_addressline_extra: None,
