@@ -25,6 +25,13 @@ impl ScraperServiceImpl {
             debug!("Schema found in DB");
             Ok(existing)
         } else {
+            if let Some(review_id) = self.pending_product_schema_review_id(shop_id).await? {
+                return Err(ScraperError::PendingSchemaReview {
+                    url: url.clone(),
+                    review_id,
+                });
+            }
+
             let seed_pages = self.collect_schema_seed_pages(shop_id, url, html).await;
             self.consume_llm_budget_or_err(shop_id, url).await?;
             let schemas = self

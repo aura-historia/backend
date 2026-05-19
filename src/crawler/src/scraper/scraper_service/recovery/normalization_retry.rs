@@ -120,6 +120,13 @@ impl ScraperServiceImpl {
             Some(ctx.selected_schema.clone());
 
         for attempt in 1..=attempts {
+            if let Some(review_id) = self.pending_product_schema_review_id(ctx.shop_id).await? {
+                return Err(ScraperError::PendingSchemaReview {
+                    url: ctx.url.clone(),
+                    review_id,
+                });
+            }
+
             // Unwrap is safe: last_apply_error is Some on every loop entry —
             // it is set from the norm error on first entry and from the apply
             // error or norm error on subsequent iterations.

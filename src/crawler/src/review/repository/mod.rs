@@ -540,9 +540,12 @@ impl CrawlerReviewRepository {
     pub async fn trigger_scrape_now(&self, shop_id: ShopId) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(
             "UPDATE shop_urls
-             SET next_retry_at = NULL,
+             SET last_scraped = NULL,
+                 last_scraped_hash = NULL,
+                 next_retry_at = NULL,
                  last_error_kind = NULL,
                  last_error_message = NULL,
+                 last_status_code = NULL,
                  updated = NOW()
              WHERE shop_id = $1
                AND url_class = 'product'",

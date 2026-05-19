@@ -33,6 +33,7 @@ struct ScrapeDomainContext {
         CandidateMeta,
     )>,
     budget_exhausted_shops: Arc<Mutex<HashSet<ShopId>>>,
+    schema_pending_shops: Arc<Mutex<HashSet<ShopId>>>,
 }
 
 #[derive(Clone)]
@@ -480,6 +481,18 @@ async fn scrape_candidate(
         }
     }
 
+    {
+        let pending = ctx.schema_pending_shops.lock().await;
+        if pending.contains(&candidate.shop_id) {
+            debug!("Skipping URL because shop has pending schema review in this batch");
+            return ScrapeCandidateOutcome {
+                command: None,
+                errored: false,
+                skipped: true,
+            };
+        }
+    }
+
     let Some(_lock) = UrlLock::try_acquire(&ctx.lock_manager, &candidate.url) else {
         warn!("Skipping URL — lock held by another worker");
         return ScrapeCandidateOutcome {
@@ -519,6 +532,7 @@ async fn scrape_candidate(
         Err(e) => {
             let error_message = e.to_string();
             let is_llm_budget_exceeded = matches!(&e, ScraperError::LlmBudgetExceeded { .. });
+            let is_pending_schema_review = matches!(&e, ScraperError::PendingSchemaReview { .. });
 
             if let ScraperError::HttpError { kind, .. } = &e {
                 let cooldown = retry_cooldown_for(*kind);
@@ -610,6 +624,15 @@ async fn scrape_candidate(
                         );
                     }
                 }
+            } else if is_pending_schema_review {
+                let mut pending = ctx.schema_pending_shops.lock().await;
+                if pending.insert(candidate.shop_id) {
+                    info!(
+                        shop_id = %candidate.shop_id,
+                        "Product schema review pending for shop; skipping remaining URLs in batch"
+                    );
+                }
+                warn!(error = %e, "Scraper run failed");
             } else {
                 warn!(error = %e, "Scraper run failed");
             }
@@ -743,6 +766,7 @@ impl CrawlerCronJob {
 
         // Track shops with exhausted LLM budgets to avoid repeated logging
         let budget_exhausted_shops = Arc::new(Mutex::new(HashSet::new()));
+        let schema_pending_shops = Arc::new(Mutex::new(HashSet::new()));
 
         let mut succeeded = 0usize;
         let mut failed = 0usize;
@@ -777,6 +801,7 @@ impl CrawlerCronJob {
             let permit_pool = Arc::clone(&semaphore);
             let domain_tx = command_tx.clone();
             let budget_exhausted_shops = Arc::clone(&budget_exhausted_shops);
+            let schema_pending_shops = Arc::clone(&schema_pending_shops);
             let span = tracing::info_span!(
                 "scrape_domain",
                 domain = %domain
@@ -800,6 +825,7 @@ impl CrawlerCronJob {
                         domain_delay,
                         command_tx: domain_tx,
                         budget_exhausted_shops,
+                        schema_pending_shops,
                     };
 
                     scrape_domain_candidates(domain, candidates, ctx).await
@@ -1187,6 +1213,80 @@ mod tests {
                         shop_id,
                         url,
                         max_calls: 5,
+                    })
+                })
+            });
+
+        let mut push_service = MockProductPushService::new();
+        push_service.expect_push().times(0);
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_shop_registration(),
+            Box::new(push_service),
+        );
+
+        job.run_scraper_once().await;
+    }
+
+    #[tokio::test]
+    async fn should_skip_remaining_shop_candidates_when_schema_review_is_pending() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+        let spider_service = MockSpiderService::new();
+
+        let shop_id = ShopId::new();
+        let first_url = url::Url::parse("https://example.com/product/1").unwrap();
+        let second_url = url::Url::parse("https://example.com/product/2").unwrap();
+
+        let first_url_for_candidates = first_url.clone();
+        let second_url_for_candidates = second_url.clone();
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(move |_| {
+                let mut first = scraper_candidate(
+                    "Test Shop",
+                    ShopType::CommercialDealer,
+                    first_url_for_candidates.clone(),
+                );
+                first.shop_id = shop_id;
+                let mut second = scraper_candidate(
+                    "Test Shop",
+                    ShopType::CommercialDealer,
+                    second_url_for_candidates.clone(),
+                );
+                second.shop_id = shop_id;
+                Box::pin(async move { Ok(vec![first, second]) })
+            });
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .once()
+            .withf(move |received_shop_id, received_url, kind, _, _, _| {
+                *received_shop_id == shop_id
+                    && received_url == &first_url
+                    && kind == "PendingSchemaReview"
+            })
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .once()
+            .returning(|_, url, _| {
+                let url = url.clone();
+                Box::pin(async move {
+                    Err(ScraperError::PendingSchemaReview {
+                        url,
+                        review_id: uuid::Uuid::new_v4(),
                     })
                 })
             });

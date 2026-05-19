@@ -50,6 +50,13 @@ impl ScraperService for ScraperServiceImpl {
             .host_str()
             .ok_or_else(|| ScraperError::NoHost { url: url.clone() })?;
 
+        if let Some(review_id) = self.pending_product_schema_review_id(shop_id).await? {
+            return Err(ScraperError::PendingSchemaReview {
+                url: url.clone(),
+                review_id,
+            });
+        }
+
         // 1. Fetch HTML --------------------------------------------------
         debug!(domain, "Fetching product page HTML");
         let html = match self.html_fetcher.fetch(url).await {

@@ -2,9 +2,11 @@ use crate::network::policy::{
     NetworkAction, NetworkErrorKind, RetryPolicy, action_for, backoff_delay,
     classify_reqwest_error, retry_cooldown_for,
 };
+use crate::review::model::ARTIFACT_PRODUCT_SCHEMA;
 use crate::review::repository::CrawlerReviewRepository;
 use crate::scraper::candidate_service::ScraperCandidateService;
 use crate::scraper::css_selector::product_schema_service::ProductSchemaService;
+use crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError;
 use crate::scraper::normalization::product_normalization_service::ProductNormalizationService;
 use std::sync::Arc;
 use tokio::time::sleep;
@@ -233,5 +235,23 @@ impl ScraperServiceImpl {
         self.review_repository = Some(review_repository);
         self.review_required = review_required;
         self
+    }
+
+    pub(crate) async fn pending_product_schema_review_id(
+        &self,
+        shop_id: &common::shop_id::ShopId,
+    ) -> Result<Option<uuid::Uuid>, ProductSchemaServiceError> {
+        if !self.review_required {
+            return Ok(None);
+        }
+
+        let Some(review_repository) = &self.review_repository else {
+            return Ok(None);
+        };
+
+        review_repository
+            .latest_pending_review_id(shop_id, ARTIFACT_PRODUCT_SCHEMA)
+            .await
+            .map_err(ProductSchemaServiceError::DatabaseError)
     }
 }

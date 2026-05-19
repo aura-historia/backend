@@ -535,7 +535,9 @@ iframe {
 .picked,
 .hint-card,
 .diff-empty,
-.schema-order-card {
+.schema-order-card,
+.additional-selector-card,
+.rule-options-card {
     padding: 10px;
     background: var(--panel-soft);
     border: 1px solid var(--line-soft);
@@ -543,16 +545,29 @@ iframe {
     font-size: 12px;
 }
 
-.schema-order-card {
+.schema-order-card,
+.additional-selector-card,
+.rule-options-card {
     display: grid;
     gap: 9px;
 }
 
 .schema-order-list,
-.schema-order-actions {
+.schema-order-actions,
+.additional-selector-list {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+}
+
+.additional-selector-list {
+    display: grid;
+}
+
+.additional-selector-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    gap: 8px;
 }
 
 .schema-chip {

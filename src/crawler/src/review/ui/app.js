@@ -278,6 +278,7 @@ function renderWorkbenchPanel(detail, matrix, schemas) {
 }
 
 function renderSelectorPanel(schemas) {
+    const rule = currentRule();
     return `<div class="tab-panel">
       ${renderSchemaOrderControls(schemas)}
       <div class="field-grid">
@@ -300,6 +301,8 @@ function renderSelectorPanel(schemas) {
           <button class="danger" ${optionalFields.has(selectedField) ? '' : 'disabled'} onclick="deleteCurrentRule()">Delete rule</button>
         </div>
       </div>
+      ${renderRuleOptions(rule)}
+      ${renderAdditionalSelectors(rule)}
       <div class="actions">
         <button onclick="applyPickedSelector()">Use clicked element</button>
         <button onclick="postHighlight(currentSelector())">Highlight field</button>
@@ -310,6 +313,35 @@ function renderSelectorPanel(schemas) {
       <div class="picked" id="pickedElement">No element picked yet.</div>
       <h3>Schema Highlight Legend</h3>
       ${renderSchemaLegend(currentSchema())}
+    </div>`;
+}
+
+function renderRuleOptions(rule) {
+    const effectiveRule = rule || defaultRuleFor(selectedField);
+    const cardinality = effectiveRule.cardinality || 'first';
+    const type = effectiveRule.type || 'text';
+    return `<div class="rule-options-card">
+      <div class="panel-title">
+        <strong>Extraction Rule</strong>
+        <span class="muted">Applies to the primary and additional selectors for this field</span>
+      </div>
+      <div class="field-grid">
+        <label>Cardinality
+          <select onchange="setCurrentRuleCardinality(this.value)">
+            <option value="first" ${cardinality === 'first' ? 'selected' : ''}>First match</option>
+            <option value="all" ${cardinality === 'all' ? 'selected' : ''}>All matches</option>
+          </select>
+        </label>
+        <label>Extract
+          <select onchange="setCurrentRuleType(this.value)">
+            <option value="text" ${type === 'text' ? 'selected' : ''}>Text</option>
+            <option value="attribute" ${type === 'attribute' ? 'selected' : ''}>Attribute</option>
+          </select>
+        </label>
+      </div>
+      <label>Attribute name
+        <input value="${escapeHtmlAttr(effectiveRule.name || '')}" ${type === 'attribute' ? '' : 'disabled'} oninput="setCurrentRuleAttributeName(this.value)">
+      </label>
     </div>`;
 }
 
@@ -326,6 +358,31 @@ function renderSchemaOrderControls(schemas) {
       <div class="schema-order-actions">
         <button ${selectedSchemaIndex === 0 ? 'disabled' : ''} onclick="moveCurrentSchema(-1)">Move up</button>
         <button ${selectedSchemaIndex >= schemas.length - 1 ? 'disabled' : ''} onclick="moveCurrentSchema(1)">Move down</button>
+        <button onclick="addNewSchema()">Add schema</button>
+        <button class="danger" ${schemas.length <= 1 ? 'disabled' : ''} onclick="deleteCurrentSchema()">Delete schema</button>
+      </div>
+    </div>`;
+}
+
+function renderAdditionalSelectors(rule) {
+    const additional = (rule && Array.isArray(rule.additional_selectors)) ? rule.additional_selectors : [];
+    return `<div class="additional-selector-card">
+      <div class="panel-title">
+        <strong>Additional Selectors</strong>
+        <span class="muted">Fallback or extra selectors for the selected field</span>
+      </div>
+      <div class="additional-selector-list">
+        ${additional.length ? additional.map((selector, index) => `
+          <div class="additional-selector-row">
+            <input value="${escapeHtmlAttr(selector)}" oninput="setAdditionalSelector(${index}, this.value); postHighlight(this.value, '${escapeHtmlAttr(displayName(selectedField))}')">
+            <button onclick="usePickedForAdditionalSelector(${index})">Use clicked</button>
+            <button onclick="postHighlight(additionalSelectorAt(${index}), '${escapeHtmlAttr(displayName(selectedField))}')">Highlight</button>
+            <button class="danger" onclick="removeAdditionalSelector(${index})">Delete</button>
+          </div>`).join('') : '<div class="muted">No additional selectors configured.</div>'}
+      </div>
+      <div class="actions">
+        <button onclick="addAdditionalSelector()">Add additional selector</button>
+        <button onclick="addPickedAdditionalSelector()">Add clicked selector</button>
       </div>
     </div>`;
 }
@@ -567,14 +624,10 @@ function currentSelector() {
 }
 
 function setCurrentSelector(selector) {
-    const payload = schemasPayload();
-    payload.schemas = payload.schemas || [];
-    payload.schemas[selectedSchemaIndex] = payload.schemas[selectedSchemaIndex] || {};
-    payload.schemas[selectedSchemaIndex][selectedField] = payload.schemas[selectedSchemaIndex][selectedField] || defaultRuleFor(selectedField);
-    payload.schemas[selectedSchemaIndex][selectedField].selector = selector;
+    const rule = ensureCurrentRule();
+    rule.selector = selector;
     const textarea = document.getElementById('candidatePayload');
-    if (textarea) textarea.value = JSON.stringify(payload, null, 2);
-    selectedDetail.review.candidate_payload = payload;
+    if (textarea) textarea.value = JSON.stringify(selectedDetail.review.candidate_payload, null, 2);
     markDirty();
 }
 
@@ -589,11 +642,102 @@ function defaultRuleFor(field) {
     return {selector: '', additional_selectors: [], type: 'text', cardinality: 'first'};
 }
 
+function defaultSchema() {
+    return {
+        shops_product_id: defaultRuleFor('shops_product_id'),
+        title: defaultRuleFor('title'),
+        description: null,
+        price: null,
+        price_estimate_min: null,
+        price_estimate_max: null,
+        state: defaultRuleFor('state'),
+        images: defaultRuleFor('images'),
+        auction_start: null,
+        auction_end: null,
+        default_currency: null
+    };
+}
+
+function ensureCurrentRule() {
+    const payload = schemasPayload();
+    payload.schemas = payload.schemas || [];
+    payload.schemas[selectedSchemaIndex] = payload.schemas[selectedSchemaIndex] || defaultSchema();
+    payload.schemas[selectedSchemaIndex][selectedField] = payload.schemas[selectedSchemaIndex][selectedField] || defaultRuleFor(selectedField);
+    payload.schemas[selectedSchemaIndex][selectedField].additional_selectors = payload.schemas[selectedSchemaIndex][selectedField].additional_selectors || [];
+    selectedDetail.review.candidate_payload = payload;
+    return payload.schemas[selectedSchemaIndex][selectedField];
+}
+
 function applyPickedSelector() {
     if (!pickedSelector) return;
     setCurrentSelector(pickedSelector);
     const input = document.getElementById('selectedSelector');
     if (input) input.value = pickedSelector;
+    postHighlight(pickedSelector);
+}
+
+function setCurrentRuleCardinality(cardinality) {
+    const rule = ensureCurrentRule();
+    rule.cardinality = cardinality;
+    markDirty();
+}
+
+function setCurrentRuleType(type) {
+    const rule = ensureCurrentRule();
+    rule.type = type;
+    if (type === 'attribute') {
+        rule.name = rule.name || (selectedField === 'images' ? 'src' : 'href');
+    } else {
+        delete rule.name;
+    }
+    markDirty();
+    rerenderWorkbench();
+}
+
+function setCurrentRuleAttributeName(name) {
+    const rule = ensureCurrentRule();
+    rule.name = name;
+    markDirty();
+}
+
+function additionalSelectorAt(index) {
+    const rule = currentRule();
+    return ((rule && rule.additional_selectors) || [])[index] || '';
+}
+
+function addAdditionalSelector() {
+    const rule = ensureCurrentRule();
+    rule.additional_selectors.push('');
+    markDirty();
+    rerenderWorkbench();
+}
+
+function addPickedAdditionalSelector() {
+    if (!pickedSelector) return;
+    const rule = ensureCurrentRule();
+    rule.additional_selectors.push(pickedSelector);
+    markDirty();
+    rerenderWorkbench();
+    postHighlight(pickedSelector);
+}
+
+function setAdditionalSelector(index, selector) {
+    const rule = ensureCurrentRule();
+    rule.additional_selectors[index] = selector;
+    markDirty();
+}
+
+function removeAdditionalSelector(index) {
+    const rule = ensureCurrentRule();
+    rule.additional_selectors.splice(index, 1);
+    markDirty();
+    rerenderWorkbench();
+}
+
+function usePickedForAdditionalSelector(index) {
+    if (!pickedSelector) return;
+    setAdditionalSelector(index, pickedSelector);
+    rerenderWorkbench();
     postHighlight(pickedSelector);
 }
 
@@ -619,13 +763,13 @@ async function deleteCurrentRule() {
     await loadReviews();
 }
 
-function postHighlight(selector, label = displayName(selectedField)) {
+function postHighlight(selector, label = displayName(selectedField), color = schemaHighlightColors[selectedField] || '#2563eb') {
     const frame = document.getElementById('snapshotFrame');
     if (frame && frame.contentWindow) frame.contentWindow.postMessage({
         type: 'crawler-review-highlight-selector',
         selector,
         label,
-        color: schemaHighlightColors[label] || '#2563eb'
+        color
     }, '*');
 }
 
@@ -711,6 +855,33 @@ async function moveCurrentSchema(delta) {
     await saveCandidatePayload(payload);
 }
 
+async function addNewSchema() {
+    const payload = schemasPayload();
+    payload.schemas = payload.schemas || [];
+    const base = currentSchemas()[selectedSchemaIndex] || defaultSchema();
+    payload.schemas.push(JSON.parse(JSON.stringify(base)));
+    selectedSchemaIndex = payload.schemas.length - 1;
+    compareSchemaIndex = Math.max(0, selectedSchemaIndex - 1);
+    selectedDetail.review.candidate_payload = payload;
+    await saveCandidatePayload(payload);
+}
+
+async function deleteCurrentSchema() {
+    const payload = schemasPayload();
+    const schemas = payload.schemas || [];
+    if (schemas.length <= 1) return;
+    if (!confirm(`Delete schema ${selectedSchemaIndex + 1}?`)) return;
+    schemas.splice(selectedSchemaIndex, 1);
+    payload.schemas = schemas;
+    selectedSchemaIndex = Math.min(selectedSchemaIndex, schemas.length - 1);
+    compareSchemaIndex = Math.min(compareSchemaIndex, Math.max(0, schemas.length - 1));
+    if (compareSchemaIndex === selectedSchemaIndex && schemas.length > 1) {
+        compareSchemaIndex = selectedSchemaIndex === 0 ? 1 : 0;
+    }
+    selectedDetail.review.candidate_payload = payload;
+    await saveCandidatePayload(payload);
+}
+
 async function discardEdits() {
     dirty = false;
     await loadSelectedReview(false);
@@ -720,7 +891,8 @@ async function triggerAction(action) {
     const detail = await api(`/api/reviews/${selectedId}`);
     const shopId = detail.review.shop_id;
     const result = await api(`/api/shops/${shopId}/${action}`, {method: 'POST', body: '{}'});
-    alert(`${action}: ${result.affected} rows affected`);
+    await loadReviews();
+    alert(`${displayName(action)}: ${result.affected} rows affected`);
 }
 
 function markDirty() {

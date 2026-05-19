@@ -45,6 +45,13 @@ impl ScraperServiceImpl {
         let mut last_generated_schema: Option<ProductCssSelectorSchema> = None;
 
         for attempt in 1..=attempts {
+            if let Some(review_id) = self.pending_product_schema_review_id(shop_id).await? {
+                return Err(ScraperError::PendingSchemaReview {
+                    url: url.clone(),
+                    review_id,
+                });
+            }
+
             self.consume_llm_budget_or_err(shop_id, url).await?;
 
             let generated_schema = self
