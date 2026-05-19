@@ -231,6 +231,7 @@ async fn create_or_resolve_shop(
                 structured_address: structured_address_from_record(record),
                 phone: record.shop_phone.clone(),
                 email: record.shop_email.clone(),
+                affiliate_configuration: None,
             };
 
             let shop = shop_service

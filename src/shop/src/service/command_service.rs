@@ -144,6 +144,13 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             None => None,
         };
 
+        let view_url = command.url.as_ref().map(|u| {
+            command
+                .affiliate_configuration
+                .as_ref()
+                .map(|a| a.build_url(u))
+                .unwrap_or_else(|| crate::dynamodb::utm::append_utm_params(u.clone()))
+        });
         let shop = Shop {
             shop_id: ShopId::new(),
             shop_slug_id: SlugId::from(command.name.as_ref()),
@@ -157,12 +164,14 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             woocommerce_currency: command.woocommerce_currency,
             woocommerce_language: command.woocommerce_language,
             url: command.url,
+            view_url,
             image: command.image,
             structured_address: command.structured_address,
             geo_address,
             phone: command.phone,
             email: command.email,
             partner_status: ShopPartnerStatus::default(),
+            affiliate_configuration: command.affiliate_configuration,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };
@@ -377,6 +386,7 @@ mod tests {
                 structured_address: None,
                 phone: None,
                 email: None,
+                affiliate_configuration: None,
             };
             let actual = service.create(cmd).await.unwrap_err();
             match actual {
@@ -460,6 +470,7 @@ mod tests {
                 structured_address: Some(structured_address),
                 phone: None,
                 email: None,
+                affiliate_configuration: None,
             };
 
             let actual = service.create(cmd).await.unwrap();

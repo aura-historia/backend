@@ -234,6 +234,7 @@ impl<'a> SellerService for SellerServiceImpl<'a> {
                             structured_address: None,
                             phone: None,
                             email: None,
+                            affiliate_configuration: None,
                         })
                         .await?
                 }
@@ -255,6 +256,7 @@ impl<'a> SellerService for SellerServiceImpl<'a> {
                     structured_address: None,
                     phone: None,
                     email: None,
+                    affiliate_configuration: None,
                 })
                 .await?
         };

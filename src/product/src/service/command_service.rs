@@ -6,7 +6,7 @@ use crate::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRec
 use crate::dynamodb::product_record::ProductRecord;
 use crate::dynamodb::product_update_record::ProductRecordUpdate;
 use crate::dynamodb::repository::ProductDynamoDbRepository;
-use crate::dynamodb::utm::strip_utm_params;
+use crate::dynamodb::utm::append_utm_params;
 use crate::service::product_command::{
     CreateProductCommand, Translation, UpdateProductCommand, UpsertProductCommand,
 };
@@ -24,11 +24,13 @@ use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use fxrate::dynamodb::record::FxRatesRecord;
 use fxrate::service::{FxRateService, FxRateServiceError};
+use shop::core::affiliate_configuration::AffiliateConfiguration;
 use shop::core::shop_type::ShopType;
 use shop::service::get_service::GetShopService;
 use shop::service::seller_service::SellerService;
 use std::collections::HashMap;
 use tracing::warn;
+use url::Url;
 
 #[async_trait]
 #[mockall::automock]
@@ -53,6 +55,7 @@ struct ResolvedShopInformation {
     seller_name: ShopName,
     shop_name: ShopName,
     shop_type: ShopType,
+    affiliate_configuration: Option<AffiliateConfiguration>,
 }
 
 impl<'a> CommandProductServiceImpl<'a> {
@@ -162,12 +165,14 @@ impl<'a> CommandProductServiceImpl<'a> {
             seller_name,
             shop_name: shop.name,
             shop_type: shop.shop_type,
+            affiliate_configuration: shop.affiliate_configuration,
         })
     }
 
     async fn persist_create(
         &self,
         event_record: ProductEventRecord,
+        view_url: Url,
         cmd: CreateProductCommand,
         failures: &mut Vec<CreateProductCommand>,
     ) {
@@ -179,7 +184,7 @@ impl<'a> CommandProductServiceImpl<'a> {
                 return;
             }
         };
-        let product_record = match ProductRecord::try_from(domain_record) {
+        let mut product_record = match ProductRecord::try_from(domain_record) {
             Ok(r) => r,
             Err(err) => {
                 warn!(error = ?err, "Failed building ProductRecord for create transaction — skipping.");
@@ -187,6 +192,7 @@ impl<'a> CommandProductServiceImpl<'a> {
                 return;
             }
         };
+        product_record.view_url = Some(view_url);
         let event_log = ProductEventLog::from(&event_record)
             .with_event_type(LogEventType::EntityWrite)
             .with_write_source(LogWriteSource::ProductCommandService)
@@ -306,6 +312,11 @@ impl CommandProductService for CommandProductServiceImpl<'_> {
                             self.enrich_price(&mut cmd);
                             let seller_id = resolved.seller_id;
                             let cmd_clone = cmd.clone();
+                            let view_url = resolved
+                                .affiliate_configuration
+                                .as_ref()
+                                .map(|a| a.build_url(&cmd.url))
+                                .unwrap_or_else(|| append_utm_params(cmd.url.clone()));
                             let domain_event = Product::create(
                                 cmd.shop_id,
                                 seller_id,
@@ -332,7 +343,7 @@ impl CommandProductService for CommandProductServiceImpl<'_> {
                             let event_record = ProductEventRecord::Domain(
                                 ProductDomainEventRecord::from(domain_event),
                             );
-                            self.persist_create(event_record, cmd_clone, &mut failures)
+                            self.persist_create(event_record, view_url, cmd_clone, &mut failures)
                                 .await;
                         } else {
                             key_cmds.remove(&cmd.key());
@@ -513,6 +524,11 @@ impl CommandProductService for CommandProductServiceImpl<'_> {
                             self.enrich_price(&mut create_cmd);
                             let seller_id = resolved.seller_id;
                             let create_cmd_clone = create_cmd.clone();
+                            let view_url = resolved
+                                .affiliate_configuration
+                                .as_ref()
+                                .map(|a| a.build_url(&create_cmd.url))
+                                .unwrap_or_else(|| append_utm_params(create_cmd.url.clone()));
                             let domain_event = Product::create(
                                 create_cmd.shop_id,
                                 seller_id,
@@ -542,6 +558,7 @@ impl CommandProductService for CommandProductServiceImpl<'_> {
                             let mut create_failures: Vec<CreateProductCommand> = Vec::new();
                             self.persist_create(
                                 event_record,
+                                view_url,
                                 create_cmd_clone,
                                 &mut create_failures,
                             )
@@ -734,6 +751,7 @@ fn build_combined_update(event_records: &[ProductEventRecord]) -> ProductRecordU
                     .price_estimate_max_chf
                     .or(combined.price_estimate_max_chf);
                 combined.url = upd.url.or(combined.url);
+                combined.view_url = upd.view_url.or(combined.view_url);
                 combined.auction_start = upd.auction_start.or(combined.auction_start);
                 combined.auction_end = upd.auction_end.or(combined.auction_end);
                 combined.embedding = upd.embedding.or(combined.embedding);
@@ -766,11 +784,6 @@ fn determine_update_events(
         let key = record.key();
         if let Some(cmd) = working.remove(&key) {
             let mut product: Product = record.into();
-            // From<ProductRecord> for Product enriches product.url with UTM params.
-            // Strip them here so URL-equality comparisons are done against the
-            // canonical (raw) URL, and URL-changed events store the raw URL rather
-            // than the already-enriched one.
-            product.url = strip_utm_params(product.url.clone());
             if let Some(price_event) = product.new_price(cmd.native_price, fx_rate) {
                 events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
                     price_event,

@@ -60,6 +60,7 @@ pub async fn handle(
             structured_address: shop_structured_address.map(Into::into),
             phone: shop_phone,
             email: shop_email,
+            affiliate_configuration: None,
         }),
     };
 

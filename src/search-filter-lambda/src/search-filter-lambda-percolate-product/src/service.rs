@@ -2,6 +2,7 @@ use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::language::domain::Language;
+use common::utm::append_utm_params;
 use notification::core::notification::{NotificationPayload, NotificationSearchFilterPayload};
 use notification::service::command::CreateNotificationCommand;
 use product::core::description::Description;
@@ -162,7 +163,8 @@ impl<'a> ProductMatcherServiceImpl<'a> {
                 native_price_estimate_max: created_payload.native_price_estimate_max,
                 other_price_estimate_max: created_payload.other_price_estimate_max,
                 state: created_payload.state,
-                url: created_payload.url,
+                url: created_payload.url.clone(),
+                view_url: append_utm_params(created_payload.url),
                 images: created_payload.images,
                 embedding: None,
                 auction_start: created_payload.auction_start,

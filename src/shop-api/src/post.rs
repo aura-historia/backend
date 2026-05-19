@@ -52,6 +52,7 @@ pub async fn handle(
         structured_address: post_data.structured_address.map(Into::into),
         phone: post_data.phone,
         email: post_data.email,
+        affiliate_configuration: None,
     };
 
     let created_shop = command_shop_service.create(create_command).await?;

@@ -1,6 +1,6 @@
 use crate::core::{
-    address::StructuredAddress, shop_type::ShopType,
-    woocommerce_webhook_secret::WoocommerceWebhookSecret,
+    address::StructuredAddress, affiliate_configuration::AffiliateConfiguration,
+    shop_type::ShopType, woocommerce_webhook_secret::WoocommerceWebhookSecret,
 };
 use common::currency::domain::Currency;
 use common::language::domain::Language;
@@ -25,6 +25,7 @@ pub struct CreateShopCommand {
     pub structured_address: Option<StructuredAddress>,
     pub phone: Option<String>,
     pub email: Option<Email>,
+    pub affiliate_configuration: Option<AffiliateConfiguration>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -89,6 +90,7 @@ mod faker {
                 structured_address: None,
                 phone: None,
                 email: None,
+                affiliate_configuration: None,
             }
         }
     }

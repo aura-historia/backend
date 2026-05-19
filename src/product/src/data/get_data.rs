@@ -39,6 +39,7 @@ pub struct GetProductData {
     pub price: Option<PricingData>,
     pub state: ProductStateData,
     pub url: Url,
+    pub view_url: Url,
     #[serde(default)]
     pub images: Vec<ProductImageData>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -102,6 +103,7 @@ impl GetProductData {
             price,
             state: product_view.state.into(),
             url: product_view.url,
+            view_url: product_view.view_url,
             images: product_view
                 .images
                 .into_iter()

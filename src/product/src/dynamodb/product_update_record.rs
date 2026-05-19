@@ -3,6 +3,7 @@ use crate::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRec
 use crate::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord;
 use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
+use crate::dynamodb::utm::append_utm_params;
 use common::dynamodb_update::DynamoDbUpdate;
 use common::event_id::EventId;
 use common::language::record::LanguageRecord;
@@ -154,6 +155,9 @@ pub struct ProductRecordUpdate {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
 
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub view_url: Option<Url>,
+
     #[serde(
         with = "time::serde::rfc3339::option",
         skip_serializing_if = "Option::is_none",
@@ -245,6 +249,7 @@ impl Default for ProductRecordUpdate {
             price_estimate_max_sgd: None,
             price_estimate_max_chf: None,
             url: None,
+            view_url: None,
             auction_start: None,
             auction_end: None,
             embedding: None,
@@ -321,7 +326,8 @@ impl From<ProductDomainEventRecord> for ProductRecordUpdate {
             price_estimate_max_hkd: event.new_price_estimate_max_hkd,
             price_estimate_max_sgd: event.new_price_estimate_max_sgd,
             price_estimate_max_chf: event.new_price_estimate_max_chf,
-            url: event.url,
+            url: event.url.clone(),
+            view_url: event.url.map(append_utm_params),
             auction_start: event.auction_start,
             auction_end: event.auction_end,
             embedding: None,
@@ -399,6 +405,7 @@ impl From<ProductEnrichmentEventRecord> for ProductRecordUpdate {
             price_estimate_max_sgd: None,
             price_estimate_max_chf: None,
             url: None,
+            view_url: None,
             auction_start: None,
             auction_end: None,
             embedding: event.embedding,
@@ -522,6 +529,7 @@ mod faker {
                     ))
                     .unwrap(),
                 ),
+                view_url: None,
                 auction_start: if config.fake_with_rng(rng) {
                     Some(OffsetDateTime::now_utc())
                 } else {

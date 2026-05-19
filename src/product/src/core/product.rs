@@ -66,6 +66,7 @@ pub struct Product {
     pub other_price_estimate_max: HashMap<Currency, MonetaryAmount>,
     pub state: ProductState,
     pub url: Url,
+    pub view_url: Url,
     pub images: Vec<ProductImage>,
     pub embedding: Option<Vec<f32>>,
     pub auction_start: Option<OffsetDateTime>,
@@ -688,6 +689,7 @@ impl Product {
             price_estimate_max,
             state: self.state,
             url: self.url,
+            view_url: self.view_url,
             images: self.images,
             auction_start: self.auction_start,
             auction_end: self.auction_end,
@@ -748,6 +750,7 @@ pub struct LocalizedProductView {
     pub price_estimate_max: Option<Price>,
     pub state: ProductState,
     pub url: Url,
+    pub view_url: Url,
     pub images: Vec<ProductImage>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
@@ -812,6 +815,10 @@ mod faker {
                 other_price_estimate_max,
                 state: config.fake_with_rng(rng),
                 url: Url::parse("https://www.example.com/product").unwrap(),
+                view_url: Url::parse(
+                    "https://www.example.com/product?utm_source=aura_historia&utm_medium=referral",
+                )
+                .unwrap(),
                 images: config.fake_with_rng(rng),
                 embedding: config.fake_with_rng(rng),
                 auction_start: if config.fake_with_rng(rng) {

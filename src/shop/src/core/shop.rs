@@ -1,5 +1,6 @@
 use crate::core::{
     address::{GeoAddress, StructuredAddress},
+    affiliate_configuration::AffiliateConfiguration,
     partner_shop::PartnerShop,
     partner_status::ShopPartnerStatus,
     shop_type::ShopType,
@@ -27,12 +28,14 @@ pub struct Shop {
     pub woocommerce_currency: Option<Currency>,
     pub woocommerce_language: Option<Language>,
     pub url: Option<Url>,
+    pub view_url: Option<Url>,
     pub image: Option<Url>,
     pub structured_address: Option<StructuredAddress>,
     pub geo_address: Option<GeoAddress>,
     pub phone: Option<String>,
     pub email: Option<Email>,
     pub partner_status: ShopPartnerStatus,
+    pub affiliate_configuration: Option<AffiliateConfiguration>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -51,13 +54,15 @@ impl From<PartnerShop> for Shop {
             woocommerce_webhook_secret: partner_shop.woocommerce_webhook_secret,
             woocommerce_currency: partner_shop.woocommerce_currency,
             woocommerce_language: partner_shop.woocommerce_language,
-            url: partner_shop.url,
+            url: partner_shop.url.clone(),
+            view_url: partner_shop.view_url.clone(),
             image: partner_shop.image,
             structured_address: partner_shop.structured_address,
             geo_address: partner_shop.geo_address,
             phone: partner_shop.phone,
             email: partner_shop.email,
             partner_status: ShopPartnerStatus::Partnered,
+            affiliate_configuration: partner_shop.affiliate_configuration,
             created: partner_shop.created,
             updated: partner_shop.updated,
         }
@@ -72,6 +77,14 @@ mod faker {
     impl Dummy<Faker> for Shop {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let name: ShopName = config.fake_with_rng(rng);
+            let url: Option<Url> = config.fake_with_rng(rng);
+            let affiliate_configuration: Option<AffiliateConfiguration> = config.fake_with_rng(rng);
+            let view_url = url.as_ref().map(|u| {
+                affiliate_configuration
+                    .as_ref()
+                    .map(|a| a.build_url(u))
+                    .unwrap_or_else(|| common::utm::append_utm_params(u.clone()))
+            });
             Shop {
                 shop_id: config.fake_with_rng(rng),
                 shop_slug_id: SlugId::from(name.as_ref()),
@@ -84,13 +97,15 @@ mod faker {
                 woocommerce_currency: config.fake_with_rng(rng),
                 woocommerce_language: config.fake_with_rng(rng),
                 woocommerce_webhook_secret: config.fake_with_rng(rng),
-                url: config.fake_with_rng(rng),
+                url,
+                view_url,
                 image: config.fake_with_rng(rng),
                 structured_address: None,
                 geo_address: None,
                 phone: None,
                 email: None,
                 partner_status: config.fake_with_rng(rng),
+                affiliate_configuration,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

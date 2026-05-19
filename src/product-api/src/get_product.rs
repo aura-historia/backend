@@ -196,6 +196,10 @@ mod tests {
                     price_estimate_max: None,
                     state: ProductState::Listed,
                     url: Url::parse("https://foo.com/boop").unwrap(),
+                    view_url: Url::parse(
+                        "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
+                    )
+                    .unwrap(),
                     images: vec![],
                     auction_start: None,
                     auction_end: None,
@@ -258,6 +262,10 @@ mod tests {
                     price_estimate_max: None,
                     state: ProductState::Listed,
                     url: Url::parse("https://foo.com/boop").unwrap(),
+                    view_url: Url::parse(
+                        "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
+                    )
+                    .unwrap(),
                     images: vec![],
                     auction_start: None,
                     auction_end: None,
@@ -326,6 +334,10 @@ mod tests {
                     price_estimate_max: None,
                     state: ProductState::Listed,
                     url: Url::parse("https://foo.com/boop").unwrap(),
+                    view_url: Url::parse(
+                        "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
+                    )
+                    .unwrap(),
                     images: vec![],
                     auction_start: None,
                     auction_end: None,
@@ -507,6 +519,10 @@ mod tests {
                     price_estimate_max: None,
                     state: ProductState::Listed,
                     url: Url::parse("https://foo.com/boop").unwrap(),
+                    view_url: Url::parse(
+                        "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
+                    )
+                    .unwrap(),
                     images: vec![],
                     auction_start: None,
                     auction_end: None,
@@ -581,6 +597,10 @@ mod tests {
                     price_estimate_max: None,
                     state: ProductState::Sold,
                     url: Url::parse("https://foo.com/boop").unwrap(),
+                    view_url: Url::parse(
+                        "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
+                    )
+                    .unwrap(),
                     images: vec![],
                     auction_start: None,
                     auction_end: None,
@@ -654,6 +674,10 @@ mod tests {
                     price_estimate_max: None,
                     state: ProductState::Removed,
                     url: Url::parse("https://foo.com/boop").unwrap(),
+                    view_url: Url::parse(
+                        "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
+                    )
+                    .unwrap(),
                     images: vec![],
                     auction_start: None,
                     auction_end: None,
@@ -728,6 +752,10 @@ mod tests {
                     price_estimate_max: None,
                     state: ProductState::Listed,
                     url: Url::parse("https://foo.com/boop").unwrap(),
+                    view_url: Url::parse(
+                        "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
+                    )
+                    .unwrap(),
                     images: vec![],
                     auction_start: None,
                     auction_end: None,

@@ -120,6 +120,7 @@ impl From<Shop> for ShopDocument {
 
 impl From<ShopDocument> for Shop {
     fn from(document: ShopDocument) -> Self {
+        let view_url = document.url.as_ref().map(|u| append_utm_params(u.clone()));
         Shop {
             shop_id: document.shop_id,
             shop_slug_id: document.shop_slug_id,
@@ -132,7 +133,8 @@ impl From<ShopDocument> for Shop {
             woocommerce_webhook_secret: None,
             woocommerce_currency: None,
             woocommerce_language: None,
-            url: document.url.map(append_utm_params),
+            url: document.url,
+            view_url,
             image: document.image,
             structured_address: structured_address_from_flat(
                 document.structured_address_addressline,
@@ -149,6 +151,7 @@ impl From<ShopDocument> for Shop {
             phone: document.phone,
             email: document.email,
             partner_status: document.partner_status.into(),
+            affiliate_configuration: None,
             created: document.created,
             updated: document.updated,
         }
