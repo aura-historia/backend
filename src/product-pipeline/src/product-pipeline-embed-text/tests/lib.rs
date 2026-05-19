@@ -1,30 +1,27 @@
 use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
+use common::event::Event;
 use common::event_id::EventId;
-use common::language::{domain::Language, record::LanguageRecord};
+use common::language::domain::Language;
 use common::price::domain::FixedFxRate;
-use common::product_id::ProductId;
-use common::shop_id::ShopId;
-use common::shops_product_id::ShopsProductId;
 use fake::{Fake, Faker};
 use fxrate::dynamodb::record::FxRatesRecord;
 use fxrate::service::MockFxRateService;
 use lambda_runtime::{Context, LambdaEvent};
-use product::dynamodb::product_event_record::ProductEventRecord;
-use product::dynamodb::product_event_record::enrichment::{
-    ProductEnrichmentEventRecord, mk_pk as mk_enrichment_pk, mk_sk as mk_enrichment_sk,
+use product::core::product_event::domain::{
+    ProductCreatedDomainEventPayload, ProductDomainEventPayload,
 };
-use product::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord;
+use product::core::title::Title;
+use product::dynamodb::product_event_record::ProductEventRecord;
+use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use product::dynamodb::product_record::ProductRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::service::command_service::CommandProductServiceImpl;
-use product_pipeline_translate::handler;
-use product_pipeline_translate::service::MockTranslationService;
+use product_pipeline_embed_text::{handler, service::MockMultimodalEmbeddingService};
 use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
 use shop::service::get_service::GetShopServiceImpl;
 use shop::service::seller_service::MockSellerService;
-use std::collections::HashMap;
 use std::time::SystemTime;
 use test_api::*;
 use time::OffsetDateTime;
@@ -82,37 +79,26 @@ fn mk_lambda_event(messages: Vec<SqsMessage>) -> LambdaEvent<SqsEvent> {
     }
 }
 
-/// Creates a `ProductEnrichmentEventRecord` for an ENRICHMENT_EMBEDDED event.
-fn mk_embedded_record(
-    shop_id: ShopId,
-    shops_product_id: ShopsProductId,
-    product_id: ProductId,
-    native_title: &str,
-    source_language: Language,
-) -> ProductEnrichmentEventRecord {
-    let event_id = EventId::new();
-    ProductEnrichmentEventRecord {
-        pk: mk_enrichment_pk(&shop_id, &shops_product_id),
-        sk: mk_enrichment_sk(&event_id),
-        product_id,
-        event_id,
-        event_type: ProductEnrichmentEventTypeRecord::EnrichmentEmbedded,
-        event_type_schema_version: 0,
-        shop_id,
-        seller_id: shop_id,
-        shops_product_id,
-        source_language: None,
-        target_language: None,
-        target: None,
-        embedding: Some(vec![0.1, 0.2, 0.3]),
-        native_title: Some(native_title.to_string()),
-        native_title_language: Some(LanguageRecord::from(source_language)),
+/// Creates a DOMAIN_CREATED event record from a ProductRecord, so both share the same key.
+fn mk_domain_event_record_for_product(product_record: &ProductRecord) -> ProductDomainEventRecord {
+    let mut payload: ProductCreatedDomainEventPayload = Faker.fake();
+    payload.shop_id = product_record.shop_id;
+    payload.seller_id = product_record.shop_id;
+    payload.shops_product_id = product_record.shops_product_id.clone();
+    payload.native_title =
+        common::localized::Localized::new(Language::De, Title::from("Antiker Stuhl"));
+
+    let event = Event {
+        aggregate_id: product_record.product_id,
+        event_id: EventId::new(),
         timestamp: OffsetDateTime::now_utc(),
-    }
+        payload: ProductDomainEventPayload::Created(payload),
+    };
+    event.into()
 }
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_translate_title_when_enrichment_embedded_event_triggers_pipeline() {
+async fn should_embed_product_when_domain_created_event_triggers_pipeline() {
     let client = get_dynamodb_client().await;
     let table_name = std::env::var("DYNAMODB_TABLE_NAME").unwrap();
     let repository = ProductDynamoDbRepositoryImpl::new(client, &table_name);
@@ -126,46 +112,22 @@ async fn should_translate_title_when_enrichment_embedded_event_triggers_pipeline
 
     // Pre-populate a ProductRecord so CommandProductService::update can find it.
     let mut product_record: ProductRecord = Faker.fake();
-    product_record.title_de = None;
-    product_record.title_en = None;
-    product_record.title_fr = None;
-    product_record.title_es = None;
-    product_record.title_it = None;
+    product_record.embedding = None;
     let shop_id = product_record.shop_id;
     let shops_product_id = product_record.shops_product_id.clone();
-    let product_id = product_record.product_id;
 
     repository
-        .put_product_records([product_record].into())
+        .put_product_records([product_record.clone()].into())
         .await
         .expect("shouldn't fail inserting product record");
 
-    let embedded_record = mk_embedded_record(
-        shop_id,
-        shops_product_id.clone(),
-        product_id,
-        "Antiker Eichenstuhl",
-        Language::De,
-    );
+    let domain_record = mk_domain_event_record_for_product(&product_record);
 
-    let mut mock_service = MockTranslationService::new();
-    mock_service
-        .expect_translate()
+    let mut mock_embedding_service = MockMultimodalEmbeddingService::new();
+    mock_embedding_service
+        .expect_embed()
         .once()
-        .returning(|titles, _| {
-            let count = titles.len();
-            Box::pin(async move {
-                vec![
-                    Some(HashMap::from([
-                        (Language::En, "Antique oak chair".to_string()),
-                        (Language::Fr, "Chaise en chêne ancienne".to_string()),
-                        (Language::Es, "Silla de roble antigua".to_string()),
-                        (Language::It, "Sedia in rovere antico".to_string()),
-                    ]));
-                    count
-                ]
-            })
-        });
+        .returning(|_, _, _| Box::pin(async { Ok(vec![0.1f32, 0.2f32, 0.3f32]) }));
 
     let command_service = mk_command_service(
         &repository,
@@ -174,10 +136,10 @@ async fn should_translate_title_when_enrichment_embedded_event_triggers_pipeline
         &seller_service,
     )
     .await;
-    let event = mk_lambda_event(vec![mk_sqs_message(&ProductEventRecord::Enrichment(
-        embedded_record,
+    let event = mk_lambda_event(vec![mk_sqs_message(&ProductEventRecord::Domain(
+        domain_record,
     ))]);
-    let result = handler(&mock_service, &command_service, event)
+    let result = handler(&mock_embedding_service, &command_service, event)
         .await
         .unwrap();
 
@@ -187,32 +149,21 @@ async fn should_translate_title_when_enrichment_embedded_event_triggers_pipeline
         result.batch_item_failures
     );
 
-    // Verify translated titles are persisted in the product record.
+    // Verify the embedding is persisted in the materialized product record.
     let updated_record = repository
         .get_product_record(&shop_id, &shops_product_id)
         .await
         .expect("shouldn't fail fetching updated product record")
         .expect("product record should exist");
 
-    assert_eq!(
-        Some("Antique oak chair".to_string()),
-        updated_record.title_en,
-        "Expected English translation"
+    assert!(
+        updated_record.embedding.is_some(),
+        "Expected product record to have an embedding after processing"
     );
     assert_eq!(
-        Some("Chaise en chêne ancienne".to_string()),
-        updated_record.title_fr,
-        "Expected French translation"
-    );
-    assert_eq!(
-        Some("Silla de roble antigua".to_string()),
-        updated_record.title_es,
-        "Expected Spanish translation"
-    );
-    assert_eq!(
-        Some("Sedia in rovere antico".to_string()),
-        updated_record.title_it,
-        "Expected Italian translation"
+        Some(vec![0.1f32, 0.2f32, 0.3f32]),
+        updated_record.embedding,
+        "Expected embedding to match the mocked value"
     );
 }
 
@@ -229,54 +180,26 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
         .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
     let seller_service = MockSellerService::default();
 
-    let titles = [
-        "Victorian silver candlestick",
-        "Antique mahogany writing desk",
-        "Georgian silver tea service",
-    ];
-
     let mut messages = Vec::new();
 
-    for title in &titles {
+    for _ in 0..3 {
         let mut product_record: ProductRecord = Faker.fake();
-        product_record.title_en = None;
-        let shop_id = product_record.shop_id;
-        let shops_product_id = product_record.shops_product_id.clone();
-        let product_id = product_record.product_id;
+        product_record.embedding = None;
 
         repository
-            .put_product_records([product_record].into())
+            .put_product_records([product_record.clone()].into())
             .await
             .expect("shouldn't fail inserting product record");
 
-        let embedded_record = mk_embedded_record(
-            shop_id,
-            shops_product_id.clone(),
-            product_id,
-            title,
-            Language::En,
-        );
-        messages.push(mk_sqs_message(&ProductEventRecord::Enrichment(
-            embedded_record,
-        )));
+        let domain_record = mk_domain_event_record_for_product(&product_record);
+        messages.push(mk_sqs_message(&ProductEventRecord::Domain(domain_record)));
     }
 
-    let mut mock_service = MockTranslationService::new();
-    mock_service
-        .expect_translate()
-        .once()
-        .returning(|titles, _| {
-            let count = titles.len();
-            Box::pin(async move {
-                vec![
-                    Some(HashMap::from([
-                        (Language::De, "Viktorianischer Silberleuchter".to_string()),
-                        (Language::Fr, "Chandelier en argent victorien".to_string()),
-                    ]));
-                    count
-                ]
-            })
-        });
+    let mut mock_embedding_service = MockMultimodalEmbeddingService::new();
+    mock_embedding_service
+        .expect_embed()
+        .times(3)
+        .returning(|_, _, _| Box::pin(async { Ok(vec![0.42f32; 768]) }));
 
     let command_service = mk_command_service(
         &repository,
@@ -286,7 +209,7 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
     )
     .await;
     let event = mk_lambda_event(messages);
-    let result = handler(&mock_service, &command_service, event)
+    let result = handler(&mock_embedding_service, &command_service, event)
         .await
         .unwrap();
 
@@ -310,26 +233,14 @@ async fn should_return_failure_when_product_not_found_in_dynamodb() {
         .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
     let seller_service = MockSellerService::default();
 
-    // Create an embedded record for a product that does NOT exist in DynamoDB.
-    let shop_id: ShopId = Faker.fake();
-    let shops_product_id: ShopsProductId = Faker.fake();
-    let embedded_record = mk_embedded_record(
-        shop_id,
-        shops_product_id,
-        ProductId::new(),
-        "Antiker Stuhl",
-        Language::De,
-    );
+    // Create a domain event for a product that does NOT exist in DynamoDB.
+    let domain_record: ProductDomainEventRecord = Faker.fake();
 
-    let mut mock_service = MockTranslationService::new();
-    mock_service.expect_translate().once().returning(|_, _| {
-        Box::pin(async {
-            vec![Some(HashMap::from([(
-                Language::En,
-                "Antique chair".to_string(),
-            )]))]
-        })
-    });
+    let mut mock_embedding_service = MockMultimodalEmbeddingService::new();
+    mock_embedding_service
+        .expect_embed()
+        .once()
+        .returning(|_, _, _| Box::pin(async { Ok(vec![0.1f32]) }));
 
     let command_service = mk_command_service(
         &repository,
@@ -338,11 +249,10 @@ async fn should_return_failure_when_product_not_found_in_dynamodb() {
         &seller_service,
     )
     .await;
-    let event = mk_lambda_event(vec![mk_sqs_message(&ProductEventRecord::Enrichment(
-        embedded_record,
+    let event = mk_lambda_event(vec![mk_sqs_message(&ProductEventRecord::Domain(
+        domain_record,
     ))]);
-    // Product not found in DynamoDB → command_service.update returns the command as failed.
-    let result = handler(&mock_service, &command_service, event)
+    let result = handler(&mock_embedding_service, &command_service, event)
         .await
         .unwrap();
 
@@ -351,4 +261,39 @@ async fn should_return_failure_when_product_not_found_in_dynamodb() {
         result.batch_item_failures.len(),
         "Expected product-not-found to produce a batch item failure"
     );
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_return_no_failures_when_record_has_no_title() {
+    let client = get_dynamodb_client().await;
+    let table_name = std::env::var("DYNAMODB_TABLE_NAME").unwrap();
+    let repository = ProductDynamoDbRepositoryImpl::new(client, &table_name);
+    let shop_repository = ShopDynamoDbRepositoryImpl::new(client, &table_name);
+    let get_shop_service = GetShopServiceImpl::new(&shop_repository);
+    let mut fx_rate_service = MockFxRateService::new();
+    fx_rate_service
+        .expect_get_current()
+        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
+    let seller_service = MockSellerService::default();
+
+    let mut domain_record: ProductDomainEventRecord = Faker.fake();
+    domain_record.title_native = None;
+
+    let mock_embedding_service = MockMultimodalEmbeddingService::new();
+    let command_service = mk_command_service(
+        &repository,
+        &get_shop_service,
+        &fx_rate_service,
+        &seller_service,
+    )
+    .await;
+    let event = mk_lambda_event(vec![mk_sqs_message(&ProductEventRecord::Domain(
+        domain_record,
+    ))]);
+    let result = handler(&mock_embedding_service, &command_service, event)
+        .await
+        .unwrap();
+
+    // Record with no title is skipped — no failure.
+    assert!(result.batch_item_failures.is_empty());
 }

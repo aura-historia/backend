@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 product = { workspace = true, features = ["dynamodb", "service"] }
 common = { workspace = true, features = ["dynamodb", "event_bridge"] }
+fxrate = { workspace = true }
+shop = { workspace = true, features = ["dynamodb", "service", "seller"] }
 async-trait = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
@@ -34,3 +36,10 @@ fake = { workspace = true }
 rstest = { workspace = true }
 uuid = { workspace = true }
 time = { workspace = true }
+test-api = { workspace = true, features = ["dynamodb"] }
+serial_test = { workspace = true }
+serde_dynamo = { workspace = true }
+
+[[test]]
+name = "integration"
+path = "tests/lib.rs"

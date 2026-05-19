@@ -241,6 +241,7 @@ async fn should_write_no_product_update_events_when_all_exist_and_no_changes() {
                     images: None,
                     auction_start: None,
                     auction_end: None,
+                    ..Default::default()
                 },
             )
         })
@@ -296,6 +297,7 @@ async fn should_write_product_updates_when_all_exist_and_actual_changes() {
                     images: None,
                     auction_start: None,
                     auction_end: None,
+                    ..Default::default()
                 },
             )
         })
@@ -333,6 +335,7 @@ async fn should_return_failures_when_updating_non_existent_products() {
                     images: None,
                     auction_start: None,
                     auction_end: None,
+                    ..Default::default()
                 },
             )
         })

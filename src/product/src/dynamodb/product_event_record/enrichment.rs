@@ -9,6 +9,7 @@ use common::event::Event;
 use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::language::record::LanguageRecord;
+use common::localized::Localized;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
@@ -37,6 +38,8 @@ pub struct ProductEnrichmentEventRecord {
     pub embedding: Option<Vec<f32>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub native_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub native_title_language: Option<LanguageRecord>,
     #[serde(with = "time::serde::rfc3339")]
     pub timestamp: OffsetDateTime,
 }
@@ -79,6 +82,7 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     target: Some(payload.target.into()),
                     embedding: None,
                     native_title: None,
+                    native_title_language: None,
                     timestamp: event.timestamp,
                 }
             }
@@ -96,7 +100,14 @@ impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                 target_language: None,
                 target: None,
                 embedding: Some(payload.embedding),
-                native_title: payload.native_title.map(Into::into),
+                native_title: payload
+                    .native_title
+                    .as_ref()
+                    .map(|l| l.payload.clone().into()),
+                native_title_language: payload
+                    .native_title
+                    .as_ref()
+                    .map(|l| LanguageRecord::from(l.localization)),
                 timestamp: event.timestamp,
             },
         }
@@ -150,7 +161,12 @@ impl TryFrom<ProductEnrichmentEventRecord> for ProductEnrichmentEvent {
                         embedding: record.embedding.ok_or(MissingPersistenceField::new(
                             field::field!(embedding@ProductEnrichmentEventRecord),
                         ))?,
-                        native_title: record.native_title.map(Into::into),
+                        native_title: match (record.native_title, record.native_title_language) {
+                            (Some(title), Some(lang)) => {
+                                Some(Localized::new(lang.into(), title.into()))
+                            }
+                            _ => None,
+                        },
                     },
                 ),
             }),

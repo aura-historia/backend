@@ -707,6 +707,7 @@ Resources:
                   - dynamodb:Query
                   - dynamodb:PutItem
                   - dynamodb:BatchWriteItem
+                  - dynamodb:TransactWriteItems
                 Resource:
                   - !GetAtt TableOne.Arn
                   - !Sub "${TableOne.Arn}/index/*"
@@ -785,9 +786,11 @@ Resources:
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
                   - dynamodb:Query
                   - dynamodb:PutItem
                   - dynamodb:BatchWriteItem
+                  - dynamodb:TransactWriteItems
                 Resource:
                   - !GetAtt TableOne.Arn
                   - !Sub "${TableOne.Arn}/index/*"
@@ -1063,7 +1066,7 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - "DOMAIN_CREATED"
+                  - "ENRICHMENT_EMBEDDED"
       Targets:
         - Id: ProductPipelineTranslateQ
           Arn: !GetAtt ProductPipelineTranslateQ.Arn

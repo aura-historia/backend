@@ -2,37 +2,34 @@ pub mod service;
 
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use common::{
-    batch::{Batch, dynamodb::handle_dynamodb_batch_write_put_product_output},
     dynamodb_stream::extract_from_dynamodb_stream,
-    event_id::EventId,
     has_key::HasKey,
     language::domain::Language,
-    logging::{LogEventType, LogPipelineStage, LogWriteSource},
-    product_id::{ProductId, ProductKey},
+    localized::Localized,
+    logging::{LogEventType, LogPipelineStage},
+    product_id::ProductKey,
 };
 use lambda_runtime::LambdaEvent;
 use product::{
-    core::{
-        product_event::{
-            ProductEvent, ProductEventLog, ProductEventPayload,
-            enrichment::{ProductEnrichmentEventPayload, TranslationProductEnrichmentEventPayload},
-        },
-        title::Title,
+    core::title::Title,
+    dynamodb::product_event_record::ProductEventRecord,
+    dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord,
+    service::{
+        command_service::CommandProductService,
+        product_command::{Translation, UpdateProductCommand},
     },
-    dynamodb::{product_event_record::ProductEventRecord, repository::ProductDynamoDbRepository},
 };
 use service::TranslationService;
-use std::collections::{HashMap, HashSet};
-use time::OffsetDateTime;
+use std::collections::HashMap;
 use tracing::{error, info, warn};
 
 #[tracing::instrument(
-    skip(translation_service, product_repository, event),
+    skip(translation_service, command_service, event),
     fields(requestId = %event.context.request_id)
 )]
 pub async fn handler(
     translation_service: &(impl TranslationService + Sync),
-    product_repository: &(impl ProductDynamoDbRepository + Sync),
+    command_service: &(impl CommandProductService + Sync),
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let count = event.payload.records.len();
@@ -40,17 +37,19 @@ pub async fn handler(
     let (event_records, mut failed_message_ids) =
         extract_from_dynamodb_stream::<ProductEventRecord>(event.payload.records);
 
-    let mut key_to_record: HashMap<ProductKey, (String, ProductEventRecord)> = HashMap::new();
+    // Collect only ENRICHMENT_EMBEDDED records that carry a native title and language.
+    struct ProductInput {
+        message_id: String,
+        key: ProductKey,
+        source_language: Language,
+        title: String,
+    }
+
+    let mut valid_inputs: Vec<ProductInput> = Vec::new();
 
     for (message_id, event_record) in event_records {
-        match event_record {
-            ProductEventRecord::Domain(ref domain_record) => {
-                let key = ProductKey::new(
-                    domain_record.shop_id,
-                    domain_record.shops_product_id.clone(),
-                );
-                key_to_record.insert(key, (message_id, event_record));
-            }
+        let enrichment_record = match event_record {
+            ProductEventRecord::Enrichment(r) => r,
             other => {
                 let key = other.key();
                 error!(
@@ -58,78 +57,67 @@ pub async fn handler(
                     shopId = %key.shop_id,
                     shopsProductId = %key.shops_product_id,
                     eventId = %other.event_id(),
-                    "Unexpected non-Domain event record type in translate handler."
+                    "Unexpected non-Enrichment event record type in translate handler."
                 );
+                continue;
             }
-        }
-    }
-
-    if key_to_record.is_empty() {
-        let failures = failed_message_ids.len();
-        info!(
-            eventType = %LogEventType::BatchProcessing,
-            pipelineStage = %LogPipelineStage::ProductTranslation,
-            processed = count,
-            successful = 0,
-            failures = failures,
-            "Processed product translation batch."
-        );
-        let mut sqs_batch_response = SqsBatchResponse::default();
-        sqs_batch_response.batch_item_failures = failed_message_ids
-            .into_iter()
-            .map(mk_batch_item_failure)
-            .collect();
-        return Ok(sqs_batch_response);
-    }
-
-    struct ProductInput {
-        message_id: String,
-        product_id: ProductId,
-        key: ProductKey,
-        seller_id: common::shop_id::ShopId,
-        source_language: Language,
-        title: String,
-    }
-
-    let mut valid_inputs: Vec<ProductInput> = Vec::new();
-
-    for (key, (message_id, event_record)) in key_to_record {
-        let domain_record = match event_record {
-            ProductEventRecord::Domain(r) => r,
-            _ => continue,
         };
 
-        let title_native = match domain_record.title_native {
+        if enrichment_record.event_type != ProductEnrichmentEventTypeRecord::EnrichmentEmbedded {
+            let key = enrichment_record.key();
+            warn!(
+                messageId = message_id,
+                shopId = %key.shop_id,
+                shopsProductId = %key.shops_product_id,
+                "Enrichment event is not ENRICHMENT_EMBEDDED — skipping."
+            );
+            continue;
+        }
+
+        let key = enrichment_record.key();
+
+        let title_text = match enrichment_record.native_title {
             Some(t) => t,
             None => {
                 warn!(
                     messageId = message_id,
                     shopId = %key.shop_id,
                     shopsProductId = %key.shops_product_id,
-                    "Domain event has no native title — skipping translation."
+                    "ENRICHMENT_EMBEDDED record has no native title — skipping translation."
                 );
                 continue;
             }
         };
 
-        let title_trimmed = title_native.text.trim().to_string();
+        let source_language: Language = match enrichment_record.native_title_language {
+            Some(lang) => lang.into(),
+            None => {
+                warn!(
+                    messageId = message_id,
+                    shopId = %key.shop_id,
+                    shopsProductId = %key.shops_product_id,
+                    "ENRICHMENT_EMBEDDED record has no native title language — skipping translation."
+                );
+                continue;
+            }
+        };
+
+        let title_trimmed = title_text.trim().to_string();
         if title_trimmed.is_empty() {
             warn!(
                 messageId = message_id,
                 shopId = %key.shop_id,
                 shopsProductId = %key.shops_product_id,
-                "Product has empty native title — skipping translation."
+                "ENRICHMENT_EMBEDDED record has empty native title — skipping translation."
             );
             continue;
         }
 
         valid_inputs.push(ProductInput {
             message_id,
-            product_id: domain_record.product_id,
-            seller_id: domain_record.seller_id,
-            source_language: Language::from(title_native.language),
-            title: title_trimmed,
             key,
+            source_language,
+            title: title_trimmed,
         });
     }
 
@@ -151,6 +139,7 @@ pub async fn handler(
         return Ok(sqs_batch_response);
     }
 
+    // Group inputs by source language so we make one translation call per language group.
     let mut by_language: HashMap<Language, Vec<usize>> = HashMap::new();
     for (idx, input) in valid_inputs.iter().enumerate() {
         by_language
@@ -183,7 +172,8 @@ pub async fn handler(
         }
     }
 
-    let mut enrichment_events: Vec<(String, ProductEventRecord)> = Vec::new();
+    // Build update commands from translation results.
+    let mut update_cmds: HashMap<ProductKey, UpdateProductCommand> = HashMap::new();
 
     for (idx, maybe_translations) in translation_results {
         let input = &valid_inputs[idx];
@@ -201,37 +191,45 @@ pub async fn handler(
             }
         };
 
-        let now = OffsetDateTime::now_utc();
+        let targets: HashMap<Language, Title> = translations
+            .into_iter()
+            .map(|(lang, text)| (lang, Title::from(text)))
+            .collect();
 
-        for (target_language, translated_title) in translations {
-            let title_event = ProductEvent {
-                aggregate_id: input.product_id,
-                event_id: EventId::new(),
-                timestamp: now,
-                payload: ProductEventPayload::ProductEnrichmentEvent(
-                    ProductEnrichmentEventPayload::TranslatedTitle(
-                        TranslationProductEnrichmentEventPayload {
-                            shop_id: input.key.shop_id,
-                            seller_id: input.seller_id,
-                            shops_product_id: input.key.shops_product_id.clone(),
-                            source_language: input.source_language,
-                            target_language,
-                            target: Title::from(translated_title),
-                        },
-                    ),
-                ),
-            };
-            let title_record: ProductEventRecord = title_event.into();
-            enrichment_events.push((input.message_id.clone(), title_record));
-        }
+        let envelope = Translation {
+            source: Localized::new(input.source_language, Title::from(input.title.as_str())),
+            targets,
+        };
+
+        update_cmds.insert(
+            input.key.clone(),
+            UpdateProductCommand {
+                translated_titles: Some(envelope),
+                ..UpdateProductCommand::default()
+            },
+        );
     }
 
-    persist_events(
-        product_repository,
-        enrichment_events,
-        &mut failed_message_ids,
-    )
-    .await;
+    if !update_cmds.is_empty() {
+        // Map ProductKey back to message_id for failure reporting.
+        let key_to_message: HashMap<ProductKey, String> = valid_inputs
+            .iter()
+            .map(|i| (i.key.clone(), i.message_id.clone()))
+            .collect();
+
+        let failed_keys = command_service.update(update_cmds).await;
+        for (key, _cmd) in failed_keys {
+            if let Some(message_id) = key_to_message.get(&key) {
+                failed_message_ids.push(message_id.clone());
+            } else {
+                error!(
+                    shopId = %key.shop_id,
+                    shopsProductId = %key.shops_product_id,
+                    "No message_id found for failed translate update command."
+                );
+            }
+        }
+    }
 
     let failures = failed_message_ids.len();
     info!(
@@ -257,57 +255,353 @@ fn mk_batch_item_failure(item_identifier: String) -> BatchItemFailure {
     failure
 }
 
-async fn persist_events(
-    repository: &(impl ProductDynamoDbRepository + Sync),
-    events: Vec<(String, ProductEventRecord)>,
-    failed_message_ids: &mut Vec<String>,
-) {
-    for batch in Batch::chunked_from(events.into_iter()) {
-        let batch: Batch<_, 25> = batch;
-        let event_logs = batch
-            .iter()
-            .map(|(_, record)| {
-                ProductEventLog::from(record)
-                    .with_event_type(LogEventType::EntityWrite)
-                    .with_write_source(LogWriteSource::ProductTranslation)
-                    .with_msg("Persisted product translation event.")
-            })
-            .collect::<Vec<_>>();
-        let batch_message_ids = batch
-            .iter()
-            .map(|(message_id, record)| (record.key(), message_id.clone()))
-            .collect::<HashMap<ProductKey, String>>();
-        let batch = Batch::try_from_iter(batch.into_iter().map(|(_, record)| record))
-            .expect("shouldn't fail re-building batch of same size from former batch");
-        match repository.put_product_event_records(batch).await {
-            Ok(output) => {
-                let mut failures = Vec::new();
-                handle_dynamodb_batch_write_put_product_output::<ProductEventRecord>(
-                    output,
-                    &mut failures,
-                );
-                let failures = failures.into_iter().collect::<HashSet<_>>();
-                for event_log in event_logs {
-                    if !failures.contains(&event_log.key()) {
-                        event_log.log();
-                    }
-                }
-                for key in failures {
-                    match batch_message_ids.get(&key) {
-                        Some(message_id) => failed_message_ids.push(message_id.clone()),
-                        None => {
-                            error!(
-                                productKey = %key,
-                                "There exists no message_id for failed ProductEventRecord."
-                            );
-                        }
-                    }
-                }
-            }
-            Err(err) => {
-                warn!(error = ?err, "Failed persisting translation events. Marking messages as failed for retry.");
-                failed_message_ids.extend(batch_message_ids.into_values());
-            }
+#[cfg(test)]
+mod tests {
+    use super::handler;
+    use crate::service::MockTranslationService;
+    use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
+    use aws_lambda_events::eventbridge::EventBridgeEvent;
+    use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
+    use common::language::{domain::Language, record::LanguageRecord};
+    use fake::{Fake, Faker};
+    use lambda_runtime::{Context, LambdaEvent};
+    use product::dynamodb::product_event_record::ProductEventRecord;
+    use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+    use product::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord;
+    use product::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord;
+    use product::service::command_service::MockCommandProductService;
+    use product::service::product_command::UpdateProductCommand;
+    use std::collections::HashMap;
+    use std::time::SystemTime;
+    use uuid::Uuid;
+
+    fn mk_event_bridge_payload(event_record: &impl serde::Serialize) -> String {
+        let mut stream_record = StreamRecord::default();
+        stream_record.approximate_creation_date_time = SystemTime::now().into();
+        stream_record.new_image = serde_dynamo::to_item(event_record).unwrap();
+        stream_record.size_bytes = 42;
+
+        let mut event = EventRecord::default();
+        event.aws_region = "eu-central-1".to_string();
+        event.change = stream_record;
+        event.event_id = Uuid::new_v4().to_string();
+        event.event_name = "INSERT".to_string();
+
+        let mut eb_event = EventBridgeEvent::<EventRecord>::default();
+        eb_event.detail_type = "DynamoDBStreamRecord".to_string();
+        eb_event.source = "test-table".to_string();
+        eb_event.detail = event;
+
+        serde_json::to_string(&eb_event).unwrap()
+    }
+
+    fn mk_sqs_message(record: &impl serde::Serialize) -> SqsMessage {
+        let mut msg = SqsMessage::default();
+        msg.message_id = Some(Faker.fake());
+        msg.body = Some(mk_event_bridge_payload(record));
+        msg
+    }
+
+    fn mk_sqs_message_with_id(record: &impl serde::Serialize, message_id: String) -> SqsMessage {
+        let mut msg = SqsMessage::default();
+        msg.message_id = Some(message_id);
+        msg.body = Some(mk_event_bridge_payload(record));
+        msg
+    }
+
+    fn mk_lambda_event(messages: Vec<SqsMessage>) -> LambdaEvent<SqsEvent> {
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = messages;
+        LambdaEvent {
+            payload: sqs_event,
+            context: Context::default(),
         }
+    }
+
+    fn mk_enrichment_embedded_record(
+        native_title: Option<&str>,
+        native_title_language: Option<Language>,
+    ) -> ProductEnrichmentEventRecord {
+        let mut record: ProductEnrichmentEventRecord = Faker.fake();
+        record.event_type = ProductEnrichmentEventTypeRecord::EnrichmentEmbedded;
+        record.native_title = native_title.map(|t| t.to_string());
+        record.native_title_language = native_title_language.map(LanguageRecord::from);
+        record
+    }
+
+    #[tokio::test]
+    async fn should_return_no_failures_when_batch_is_empty() {
+        let mock_translation_service = MockTranslationService::default();
+        let mock_command_service = MockCommandProductService::default();
+        let event = mk_lambda_event(vec![]);
+
+        let result = handler(&mock_translation_service, &mock_command_service, event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_return_no_failures_when_single_product_translated_successfully() {
+        let record = mk_enrichment_embedded_record(Some("Antiker Stuhl"), Some(Language::De));
+
+        let mut mock_translation_service = MockTranslationService::default();
+        mock_translation_service
+            .expect_translate()
+            .times(1)
+            .returning(|_, _| {
+                Box::pin(async {
+                    vec![Some(HashMap::from([
+                        (Language::En, "Antique chair".to_string()),
+                        (Language::Fr, "Chaise ancienne".to_string()),
+                    ]))]
+                })
+            });
+
+        let mut mock_command_service = MockCommandProductService::default();
+        mock_command_service
+            .expect_update()
+            .times(1)
+            .returning(|_| Box::pin(async { HashMap::new() }));
+
+        let event = mk_lambda_event(vec![mk_sqs_message(&record)]);
+        let result = handler(&mock_translation_service, &mock_command_service, event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_skip_record_when_native_title_is_missing() {
+        let record = mk_enrichment_embedded_record(None, Some(Language::De));
+        let message_id = "no-title-msg".to_string();
+
+        let mock_translation_service = MockTranslationService::default();
+        let mock_command_service = MockCommandProductService::default();
+
+        let event = mk_lambda_event(vec![mk_sqs_message_with_id(&record, message_id)]);
+        let result = handler(&mock_translation_service, &mock_command_service, event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_skip_record_when_native_title_language_is_missing() {
+        let record = mk_enrichment_embedded_record(Some("Antiker Stuhl"), None);
+        let message_id = "no-lang-msg".to_string();
+
+        let mock_translation_service = MockTranslationService::default();
+        let mock_command_service = MockCommandProductService::default();
+
+        let event = mk_lambda_event(vec![mk_sqs_message_with_id(&record, message_id)]);
+        let result = handler(&mock_translation_service, &mock_command_service, event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_skip_record_when_native_title_is_empty() {
+        let record = mk_enrichment_embedded_record(Some("  "), Some(Language::De));
+        let message_id = "empty-title-msg".to_string();
+
+        let mock_translation_service = MockTranslationService::default();
+        let mock_command_service = MockCommandProductService::default();
+
+        let event = mk_lambda_event(vec![mk_sqs_message_with_id(&record, message_id)]);
+        let result = handler(&mock_translation_service, &mock_command_service, event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_return_failure_when_translation_service_returns_none() {
+        let record = mk_enrichment_embedded_record(Some("Antiker Stuhl"), Some(Language::De));
+        let message_id = "trans-fail-msg".to_string();
+
+        let mut mock_translation_service = MockTranslationService::default();
+        mock_translation_service
+            .expect_translate()
+            .times(1)
+            .returning(|_, _| Box::pin(async { vec![None] }));
+
+        let mock_command_service = MockCommandProductService::default();
+
+        let event = mk_lambda_event(vec![mk_sqs_message_with_id(&record, message_id.clone())]);
+        let result = handler(&mock_translation_service, &mock_command_service, event)
+            .await
+            .unwrap();
+
+        assert_eq!(1, result.batch_item_failures.len());
+        assert_eq!(message_id, result.batch_item_failures[0].item_identifier);
+    }
+
+    #[tokio::test]
+    async fn should_return_failure_when_command_service_update_fails() {
+        let record = mk_enrichment_embedded_record(Some("Antiker Stuhl"), Some(Language::De));
+        let message_id = "cmd-fail-msg".to_string();
+
+        let mut mock_translation_service = MockTranslationService::default();
+        mock_translation_service
+            .expect_translate()
+            .times(1)
+            .returning(|_, _| {
+                Box::pin(async {
+                    vec![Some(HashMap::from([(
+                        Language::En,
+                        "Antique chair".to_string(),
+                    )]))]
+                })
+            });
+
+        let mut mock_command_service = MockCommandProductService::default();
+        mock_command_service
+            .expect_update()
+            .times(1)
+            .returning(|cmds| Box::pin(async move { cmds }));
+
+        let event = mk_lambda_event(vec![mk_sqs_message_with_id(&record, message_id.clone())]);
+        let result = handler(&mock_translation_service, &mock_command_service, event)
+            .await
+            .unwrap();
+
+        assert_eq!(1, result.batch_item_failures.len());
+        assert_eq!(message_id, result.batch_item_failures[0].item_identifier);
+    }
+
+    #[tokio::test]
+    async fn should_skip_non_embedded_enrichment_records() {
+        let mut record: ProductEnrichmentEventRecord = Faker.fake();
+        record.event_type = ProductEnrichmentEventTypeRecord::EnrichmentTranslatedTitle;
+        let message_id = "wrong-type-msg".to_string();
+
+        let mock_translation_service = MockTranslationService::default();
+        let mock_command_service = MockCommandProductService::default();
+
+        let event = mk_lambda_event(vec![mk_sqs_message_with_id(
+            &ProductEventRecord::Enrichment(record),
+            message_id,
+        )]);
+        let result = handler(&mock_translation_service, &mock_command_service, event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_fail_non_enrichment_event_records() {
+        let domain_record: ProductDomainEventRecord = Faker.fake();
+        let message_id = "domain-msg".to_string();
+
+        let mock_translation_service = MockTranslationService::default();
+        let mock_command_service = MockCommandProductService::default();
+
+        let event = mk_lambda_event(vec![mk_sqs_message_with_id(
+            &ProductEventRecord::Domain(domain_record),
+            message_id,
+        )]);
+        let result = handler(&mock_translation_service, &mock_command_service, event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_set_translated_titles_field_in_update_command() {
+        let record = mk_enrichment_embedded_record(Some("Antiker Stuhl"), Some(Language::De));
+
+        let mut mock_translation_service = MockTranslationService::default();
+        mock_translation_service
+            .expect_translate()
+            .times(1)
+            .returning(|_, _| {
+                Box::pin(async {
+                    vec![Some(HashMap::from([(
+                        Language::En,
+                        "Antique chair".to_string(),
+                    )]))]
+                })
+            });
+
+        let mut mock_command_service = MockCommandProductService::default();
+        mock_command_service
+            .expect_update()
+            .times(1)
+            .withf(|cmds| cmds.values().all(|cmd| cmd.translated_titles.is_some()))
+            .returning(|_| Box::pin(async { HashMap::new() }));
+
+        let event = mk_lambda_event(vec![mk_sqs_message(&record)]);
+        let result = handler(&mock_translation_service, &mock_command_service, event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_return_no_failures_when_multiple_products_translated_successfully() {
+        let record1 = mk_enrichment_embedded_record(Some("Antiker Stuhl"), Some(Language::De));
+        let record2 = mk_enrichment_embedded_record(Some("Antique table"), Some(Language::En));
+
+        let mut mock_translation_service = MockTranslationService::default();
+        mock_translation_service
+            .expect_translate()
+            .times(2)
+            .returning(|_, _| {
+                Box::pin(async {
+                    vec![Some(HashMap::from([(
+                        Language::Fr,
+                        "Une chaise ancienne".to_string(),
+                    )]))]
+                })
+            });
+
+        let mut mock_command_service = MockCommandProductService::default();
+        mock_command_service
+            .expect_update()
+            .times(1)
+            .returning(|_| Box::pin(async { HashMap::new() }));
+
+        let event = mk_lambda_event(vec![mk_sqs_message(&record1), mk_sqs_message(&record2)]);
+        let result = handler(&mock_translation_service, &mock_command_service, event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_fail_messages_with_invalid_json_body() {
+        let mock_translation_service = MockTranslationService::default();
+        let mock_command_service = MockCommandProductService::default();
+
+        let mut invalid_msg = SqsMessage::default();
+        invalid_msg.message_id = Some("invalid-json-msg".to_string());
+        invalid_msg.body = Some("invalid json {".to_string());
+
+        let event = mk_lambda_event(vec![invalid_msg]);
+        let result = handler(&mock_translation_service, &mock_command_service, event)
+            .await
+            .unwrap();
+
+        assert_eq!(1, result.batch_item_failures.len());
+        assert_eq!(
+            "invalid-json-msg",
+            result.batch_item_failures[0].item_identifier
+        );
+    }
+
+    #[allow(dead_code)]
+    fn _assert_update_product_command_default() {
+        let _: UpdateProductCommand = UpdateProductCommand::default();
     }
 }

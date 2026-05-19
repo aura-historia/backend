@@ -48,13 +48,13 @@ flowchart TD
     BUS -->|"DOMAIN_PRICE_* / DOMAIN_STATE_* (INSERT)"| NotifyUser["ProductUpdateNotifyUserQ\n→ Lambda\n(notify watchlist users)"]
     BUS -->|"DOMAIN_* / ENRICHMENT_* (INSERT)"| Percolate["SearchFilterPercolateProductQ\n→ Lambda\n(match saved search filters)"]
 
-    %% Enrichment pipeline
-    BUS -->|"DOMAIN_CREATED (INSERT)"| Translate["ProductPipelineTranslateQ\n→ Lambda\n(translate title & description)"]
+    %% Enrichment pipeline (chained: embed-text fires first, translate fires second)
     BUS -->|"DOMAIN_CREATED (INSERT)"| EmbedText["ProductPipelineEmbedTextQ\n→ Lambda\n(vector embedding via Gemini)"]
+    BUS -->|"ENRICHMENT_EMBEDDED (INSERT)"| Translate["ProductPipelineTranslateQ\n→ Lambda\n(translate title & description)"]
 
     %% Enrichment pipeline writes back to DynamoDB
-    Translate -->|"write ENRICHMENT_TRANSLATED_TITLE\n/ ENRICHMENT_TRANSLATED_DESCRIPTION"| DB
-    EmbedText -->|"write ENRICHMENT_EMBEDDED"| DB
+    EmbedText -->|"write ENRICHMENT_EMBEDDED\n(transact-write with materialized record)"| DB
+    Translate -->|"write ENRICHMENT_TRANSLATED_TITLE\n(transact-write with materialized record)"| DB
 
     %% Shop & search filter sync
     BUS -->|"shop#details (INSERT/MODIFY)"| ShopOS["ShopOpenSearchIndexQ\n→ Lambda\n(index shop in OpenSearch)"]
@@ -86,9 +86,8 @@ stateDiagram-v2
     [*] --> DOMAIN_IMAGES_CHANGED
     [*] --> DOMAIN_AUCTION_TIME_CHANGED
 
-    DOMAIN_CREATED --> ENRICHMENT_TRANSLATED_TITLE
-    DOMAIN_CREATED --> ENRICHMENT_TRANSLATED_DESCRIPTION
     DOMAIN_CREATED --> ENRICHMENT_EMBEDDED
+    ENRICHMENT_EMBEDDED --> ENRICHMENT_TRANSLATED_TITLE
 ```
 
 ---

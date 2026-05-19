@@ -521,7 +521,7 @@ impl Product {
                         seller_id: self.seller_id,
                         shops_product_id: self.shops_product_id.clone(),
                         embedding,
-                        native_title: Some(self.native_title.payload.clone()),
+                        native_title: Some(self.native_title.clone()),
                     },
                 ),
             })

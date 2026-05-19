@@ -16,6 +16,12 @@ use time::OffsetDateTime;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Translation<T> {
+    pub source: Localized<Language, T>,
+    pub targets: HashMap<Language, T>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct CreateProductCommand {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
@@ -49,7 +55,7 @@ impl HasKey for CreateProductCommand {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdateProductCommand {
     pub native_price: Option<Price>,
     pub state: Option<ProductState>,
@@ -59,6 +65,8 @@ pub struct UpdateProductCommand {
     pub images: Option<Vec<ProductImage>>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
+    pub embedding: Option<Vec<f32>>,
+    pub translated_titles: Option<Translation<Title>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -132,6 +140,8 @@ impl From<&UpsertProductCommand> for UpdateProductCommand {
             images: Some(cmd.images.clone()),
             auction_start: cmd.auction_start,
             auction_end: cmd.auction_end,
+            embedding: None,
+            translated_titles: None,
         }
     }
 }
@@ -216,6 +226,8 @@ mod faker {
                 } else {
                     None
                 },
+                embedding: None,
+                translated_titles: None,
             }
         }
     }

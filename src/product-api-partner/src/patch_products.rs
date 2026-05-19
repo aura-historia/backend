@@ -93,6 +93,8 @@ fn to_update_entry(
         images,
         auction_start: data.auction_start,
         auction_end: data.auction_end,
+        embedding: None,
+        translated_titles: None,
     };
     (key, cmd)
 }
