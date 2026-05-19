@@ -3,7 +3,6 @@ use crate::core::product_image::ProductImage;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
-use crate::dynamodb::utm::append_utm_params;
 use common::currency::domain::Currency;
 use common::error::mapping_error::PersistenceMappingError;
 use common::error::missing_field::MissingPersistenceField;
@@ -199,8 +198,7 @@ pub struct ProductRecord {
 
     pub state: ProductStateRecord,
     pub url: Url,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub view_url: Option<Url>,
+    pub view_url: Url,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub images: Vec<ProductImageRecord>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -476,9 +474,7 @@ impl From<ProductRecord> for Product {
             other_price_estimate_max,
             state: record.state.into(),
             url: record.url.clone(),
-            view_url: record
-                .view_url
-                .unwrap_or_else(|| append_utm_params(record.url)),
+            view_url: record.view_url,
             images: record.images.into_iter().map(ProductImage::from).collect(),
             embedding: record.embedding,
             auction_start: record.auction_start,
@@ -604,7 +600,9 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
             url: event_record.url.ok_or_else(|| {
                 MissingPersistenceField::new(field!(url@ProductDomainEventRecord))
             })?,
-            view_url: event_record.view_url,
+            view_url: event_record.view_url.ok_or_else(|| {
+                MissingPersistenceField::new(field!(view_url@ProductDomainEventRecord))
+            })?,
             images: event_record.images.unwrap_or_default(),
             embedding: None,
             auction_start: event_record.auction_start,
@@ -740,7 +738,11 @@ mod faker {
                     config.fake_with_rng::<u16, _>(rng)
                 ))
                 .unwrap(),
-                view_url: None,
+                view_url: Url::parse(&format!(
+                    "https://foo.bar/item/{}?utm_source=aura_historia&utm_medium=referral",
+                    config.fake_with_rng::<u16, _>(rng)
+                ))
+                .unwrap(),
                 images: config.fake_with_rng(rng),
                 embedding: if config.fake_with_rng(rng) {
                     Some(fake::vec![f32; 768])
@@ -785,34 +787,10 @@ mod tests {
     fn should_keep_raw_url_when_mapping_product_record_to_product() {
         let mut record = Faker.fake::<ProductRecord>();
         record.url = Url::parse("https://example-shop.com/item/42").unwrap();
-        record.view_url = None;
 
         let product: Product = record.into();
 
         assert_eq!(product.url.as_str(), "https://example-shop.com/item/42");
-    }
-
-    #[test]
-    fn should_append_utm_params_to_view_url_when_no_view_url_stored() {
-        let mut record = Faker.fake::<ProductRecord>();
-        record.url = Url::parse("https://example-shop.com/item/42").unwrap();
-        record.view_url = None;
-
-        let product: Product = record.into();
-
-        let query: Vec<(_, _)> = product.view_url.query_pairs().collect();
-        assert!(
-            query
-                .iter()
-                .any(|(k, v)| k == "utm_source" && v == "aura_historia"),
-            "utm_source=aura_historia not found in view_url query params"
-        );
-        assert!(
-            query
-                .iter()
-                .any(|(k, v)| k == "utm_medium" && v == "referral"),
-            "utm_medium=referral not found in view_url query params"
-        );
     }
 
     #[test]
@@ -822,7 +800,7 @@ mod tests {
                 .unwrap();
         let mut record = Faker.fake::<ProductRecord>();
         record.url = Url::parse("https://example.com/item/42").unwrap();
-        record.view_url = Some(affiliate_url.clone());
+        record.view_url = affiliate_url.clone();
 
         let product: Product = record.into();
 

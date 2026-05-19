@@ -442,6 +442,7 @@ fn build_email_template_data(
             product_slug_id,
             shop_name,
             title,
+            url,
             view_url,
             watchlist_payload,
             ..
@@ -461,6 +462,7 @@ fn build_email_template_data(
                 "language": format!("{language:?}"),
             });
 
+            data["url"] = serde_json::json!(url.as_str());
             data["view_url"] = serde_json::json!(view_url.as_str());
 
             if let Some(first_name) = user_first_name {

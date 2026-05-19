@@ -217,9 +217,7 @@ mod query_product_record_and_event_records {
                 other_price_estimate_max: Default::default(),
                 state: expected_materialized.state.into(),
                 url: expected_materialized.url.clone(),
-                view_url: expected_materialized.view_url.clone().unwrap_or_else(|| {
-                    common::utm::append_utm_params(expected_materialized.url.clone())
-                }),
+                view_url: expected_materialized.view_url.clone(),
                 images: expected_materialized
                     .images
                     .clone()
@@ -303,9 +301,7 @@ mod query_product_record_and_event_records {
                 other_price_estimate_max: Default::default(),
                 state: expected_materialized.state.into(),
                 url: expected_materialized.url.clone(),
-                view_url: expected_materialized.view_url.clone().unwrap_or_else(|| {
-                    common::utm::append_utm_params(expected_materialized.url.clone())
-                }),
+                view_url: expected_materialized.view_url.clone(),
                 images: expected_materialized
                     .images
                     .clone()
@@ -480,7 +476,7 @@ mod batch_get_product_records {
                 price_estimate_max_chf: None,
                 state: ProductStateRecord::Available,
                 url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
-                view_url: None,
+                view_url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
                 images: Faker.fake(),
                 embedding: None,
                 auction_start: None,
@@ -625,7 +621,7 @@ mod batch_get_product_records {
                 price_estimate_max_chf: None,
                 state: ProductStateRecord::Available,
                 url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
-                view_url: None,
+                view_url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
                 images: Faker.fake(),
                 embedding: None,
                 auction_start: None,
@@ -771,7 +767,7 @@ mod batch_get_product_records {
                 price_estimate_max_chf: None,
                 state: ProductStateRecord::Available,
                 url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
-                view_url: None,
+                view_url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
                 images: Faker.fake(),
                 embedding: None,
                 auction_start: None,
@@ -938,7 +934,7 @@ mod batch_exist_product_records {
                 price_estimate_max_chf: None,
                 state: ProductStateRecord::Available,
                 url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
-                view_url: None,
+                view_url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
                 images: Faker.fake(),
                 embedding: None,
                 auction_start: None,
@@ -1081,7 +1077,7 @@ mod batch_exist_product_records {
                 price_estimate_max_chf: None,
                 state: ProductStateRecord::Available,
                 url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
-                view_url: None,
+                view_url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
                 images: Faker.fake(),
                 embedding: None,
                 auction_start: None,
@@ -1224,7 +1220,7 @@ mod batch_exist_product_records {
                 price_estimate_max_chf: None,
                 state: ProductStateRecord::Available,
                 url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
-                view_url: None,
+                view_url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
                 images: Faker.fake(),
                 embedding: None,
                 auction_start: None,
@@ -1386,7 +1382,7 @@ mod get_product_id {
             price_estimate_max_chf: None,
             state: ProductStateRecord::Available,
             url: Url::parse("https://foo.bar/123456").unwrap(),
-            view_url: None,
+            view_url: Url::parse("https://foo.bar/123456").unwrap(),
             images: Faker.fake(),
             embedding: None,
             auction_start: None,
@@ -1512,7 +1508,7 @@ mod get_product_id {
             price_estimate_max_chf: None,
             state: ProductStateRecord::Available,
             url: Url::parse("https://foo.bar/123456").unwrap(),
-            view_url: None,
+            view_url: Url::parse("https://foo.bar/123456").unwrap(),
             images: Faker.fake(),
             embedding: None,
             auction_start: None,
@@ -1643,9 +1639,7 @@ mod query_product_event_records {
                 other_price_estimate_max: Default::default(),
                 state: expected_materialized.state.into(),
                 url: expected_materialized.url.clone(),
-                view_url: expected_materialized.view_url.clone().unwrap_or_else(|| {
-                    common::utm::append_utm_params(expected_materialized.url.clone())
-                }),
+                view_url: expected_materialized.view_url,
                 images: expected_materialized
                     .images
                     .clone()

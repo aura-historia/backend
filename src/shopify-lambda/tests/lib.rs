@@ -159,6 +159,7 @@ async fn seed_shopify_partner_shop(repository: &ShopDynamoDbRepositoryImpl<'_>) 
         woocommerce_currency: None,
         woocommerce_language: None,
         url: None,
+        view_url: None,
         image: None,
         structured_address_addressline: None,
         structured_address_addressline_extra: None,

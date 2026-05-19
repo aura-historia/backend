@@ -14,7 +14,6 @@ use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
-use common::utm::append_utm_params;
 use common::{event_id::EventId, has_key::HasKey};
 use field::field;
 use geo::core::continent::Continent;
@@ -463,9 +462,7 @@ impl From<ProductRecord> for ProductDocument {
             price_estimate_max_chf: product_document.price_estimate_max_chf,
             state: product_document.state.into(),
             url: product_document.url.clone(),
-            view_url: product_document
-                .view_url
-                .unwrap_or_else(|| append_utm_params(product_document.url)),
+            view_url: product_document.view_url,
             images: product_document
                 .images
                 .into_iter()

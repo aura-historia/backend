@@ -174,7 +174,6 @@ pub struct NotificationRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub user_search_filter_name: Option<String>,
 
-    // view url (affiliate or UTM)
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<url::Url>,
     #[serde(skip_serializing_if = "Option::is_none", default)]

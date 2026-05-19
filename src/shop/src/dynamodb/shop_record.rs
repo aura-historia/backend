@@ -9,7 +9,6 @@ use crate::core::{
 };
 use crate::dynamodb::affiliate_configuration_record::AffiliateConfigurationRecord;
 use crate::dynamodb::shop_type_record::ShopTypeRecord;
-use crate::dynamodb::utm::append_utm_params;
 use common::currency::record::CurrencyRecord;
 use common::error::missing_field::MissingPersistenceField;
 use common::language::record::LanguageRecord;
@@ -63,6 +62,8 @@ pub struct ShopRecord {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub view_url: Option<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
@@ -167,6 +168,7 @@ impl From<Shop> for ShopRecord {
             woocommerce_currency: shop.woocommerce_currency.map(Into::into),
             woocommerce_language: shop.woocommerce_language.map(Into::into),
             url: shop.url,
+            view_url: shop.view_url,
             image: shop.image,
             structured_address_addressline: shop
                 .structured_address
@@ -207,15 +209,6 @@ impl From<Shop> for ShopRecord {
 
 impl From<ShopRecord> for Shop {
     fn from(record: ShopRecord) -> Self {
-        let affiliate_configuration = record
-            .affiliate_configuration
-            .map(AffiliateConfiguration::from);
-        let view_url = record.url.as_ref().map(|u| {
-            affiliate_configuration
-                .as_ref()
-                .map(|a| a.build_url(u))
-                .unwrap_or_else(|| append_utm_params(u.clone()))
-        });
         Shop {
             shop_id: record.shop_id,
             shop_slug_id: record.shop_slug_id,
@@ -229,7 +222,7 @@ impl From<ShopRecord> for Shop {
             woocommerce_currency: record.woocommerce_currency.map(Into::into),
             woocommerce_language: record.woocommerce_language.map(Into::into),
             url: record.url,
-            view_url,
+            view_url: record.view_url,
             image: record.image,
             structured_address: structured_address_from_flat(
                 record.structured_address_addressline,
@@ -247,7 +240,9 @@ impl From<ShopRecord> for Shop {
             } else {
                 crate::core::partner_status::ShopPartnerStatus::Scraped
             },
-            affiliate_configuration,
+            affiliate_configuration: record
+                .affiliate_configuration
+                .map(AffiliateConfiguration::from),
             created: record.created,
             updated: record.updated,
         }
@@ -267,16 +262,6 @@ impl TryFrom<ShopRecord> for PartnerShop {
             _ => None,
         };
 
-        let affiliate_configuration = value
-            .affiliate_configuration
-            .map(AffiliateConfiguration::from);
-        let view_url = value.url.as_ref().map(|u| {
-            affiliate_configuration
-                .as_ref()
-                .map(|a| a.build_url(u))
-                .unwrap_or_else(|| append_utm_params(u.clone()))
-        });
-
         Ok(PartnerShop {
             shop_id: value.shop_id,
             shop_slug_id: value.shop_slug_id,
@@ -290,7 +275,7 @@ impl TryFrom<ShopRecord> for PartnerShop {
             woocommerce_currency: value.woocommerce_currency.map(Into::into),
             woocommerce_language: value.woocommerce_language.map(Into::into),
             url: value.url,
-            view_url,
+            view_url: value.view_url,
             image: value.image,
             structured_address: structured_address_from_flat(
                 value.structured_address_addressline,
@@ -305,7 +290,9 @@ impl TryFrom<ShopRecord> for PartnerShop {
             email: value.email,
             partner_user_id,
             hashed_api_key,
-            affiliate_configuration,
+            affiliate_configuration: value
+                .affiliate_configuration
+                .map(AffiliateConfiguration::from),
             created: value.created,
             updated: value.updated,
         })
@@ -386,34 +373,10 @@ mod utm_tests {
     }
 
     #[test]
-    fn should_append_utm_params_in_view_url_when_mapping_shop_record_to_shop() {
-        let mut record = Faker.fake::<ShopRecord>();
-        record.url = Some(Url::parse("https://example-shop.com").unwrap());
-        // Ensure no affiliate config so the UTM fallback is used
-        record.affiliate_configuration = None;
-
-        let shop: Shop = record.into();
-
-        let view_url = shop.view_url.unwrap();
-        let query: Vec<(_, _)> = view_url.query_pairs().collect();
-        assert!(
-            query
-                .iter()
-                .any(|(k, v)| k == "utm_source" && v == "aura_historia"),
-            "utm_source=aura_historia not found in view_url query params"
-        );
-        assert!(
-            query
-                .iter()
-                .any(|(k, v)| k == "utm_medium" && v == "referral"),
-            "utm_medium=referral not found in view_url query params"
-        );
-    }
-
-    #[test]
     fn should_return_none_url_when_shop_record_has_no_url() {
         let mut record = Faker.fake::<ShopRecord>();
         record.url = None;
+        record.view_url = None;
 
         let shop: Shop = record.into();
 

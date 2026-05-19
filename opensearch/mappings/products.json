@@ -389,7 +389,7 @@
             "url": {
                 "type": "keyword"
             },
-            "view_url": {
+            "viewUrl": {
                 "type": "keyword"
             },
             "images": {
