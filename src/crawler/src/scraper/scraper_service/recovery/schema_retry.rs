@@ -5,6 +5,7 @@ use crate::scraper::css_selector::product_schema::{
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::engine::try_apply_schemas;
+use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use common::shop_id::ShopId;
 use serde_json::json;
@@ -64,41 +65,36 @@ impl ScraperServiceImpl {
                     let mut persisted_schemas = existing_schemas.to_vec();
                     persisted_schemas.push(generated_schema.clone());
 
-                    if self.review_required
-                        && let Some(review_repository) = &self.review_repository
+                    let pages = vec![SchemaReviewPageInput {
+                        url: url.to_string(),
+                        role: PAGE_ROLE_TRIGGERING_REPAIR_PAGE.to_string(),
+                        raw_html: html.to_string(),
+                    }];
+                    match self
+                        .handle_generated_schema_review(
+                            shop_id,
+                            url,
+                            "append_schema_generation",
+                            persisted_schemas,
+                            pages,
+                            json!({
+                                "attempt": attempt,
+                                "schema_applied": true,
+                            }),
+                        )
+                        .await?
                     {
-                        let review_id = review_repository
-                            .create_schema_review(
-                                shop_id,
-                                "append_schema_generation",
-                                &persisted_schemas,
-                                vec![SchemaReviewPageInput {
-                                    url: url.to_string(),
-                                    role: PAGE_ROLE_TRIGGERING_REPAIR_PAGE.to_string(),
-                                    raw_html: html.to_string(),
-                                }],
-                                json!({
-                                    "attempt": attempt,
-                                    "schema_applied": true,
-                                }),
-                            )
-                            .await
-                            .map_err(|err| {
-                                crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError::DatabaseError(
-                                    sqlx::Error::Protocol(err.to_string()),
-                                )
-                            })?;
-                        return Err(ScraperError::PendingSchemaReview {
-                            url: url.clone(),
-                            review_id,
-                        });
+                        GeneratedSchemaReviewOutcome::Persisted(saved) => {
+                            info!(attempt, "Generated schema appended and applied");
+                            return Ok((selected_schema, raw, saved.product_schemas));
+                        }
+                        GeneratedSchemaReviewOutcome::PendingReview(review_id) => {
+                            return Err(ScraperError::PendingSchemaReview {
+                                url: url.clone(),
+                                review_id,
+                            });
+                        }
                     }
-                    let saved = self
-                        .schema_service
-                        .save_product_schemas(shop_id, persisted_schemas)
-                        .await?;
-                    info!(attempt, "Generated schema appended and applied");
-                    return Ok((selected_schema, raw, saved.product_schemas));
                 }
                 Err(err) => {
                     last_generated_schema = Some(generated_schema);

@@ -13,6 +13,7 @@ let selectedReviewStatus = null;
 let selectedReviewNeedsRefresh = false;
 let selectedReviewRefreshReason = '';
 let sidebarCollapsed = localStorage.getItem('crawlerReviewSidebarCollapsed') === 'true';
+let theme = document.documentElement.dataset.theme || localStorage.getItem('crawlerReviewTheme') || 'light';
 let reviewSearchTerm = '';
 let collapsedShopGroups = new Set(JSON.parse(localStorage.getItem('crawlerReviewCollapsedShopGroups') || '[]'));
 
@@ -36,6 +37,24 @@ const schemaHighlightColors = {
     auction_start: '#9333ea',
     auction_end: '#dc2626'
 };
+
+applyTheme(theme);
+
+function applyTheme(nextTheme) {
+    theme = nextTheme === 'dark' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('crawlerReviewTheme', theme);
+    const toggle = document.getElementById('themeToggle');
+    if (toggle) {
+        toggle.textContent = theme === 'dark' ? 'Light mode' : 'Dark mode';
+        toggle.setAttribute('aria-pressed', String(theme === 'dark'));
+        toggle.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+    }
+}
+
+function toggleTheme() {
+    applyTheme(theme === 'dark' ? 'light' : 'dark');
+}
 
 async function api(path, options = {}) {
     const res = await fetch(path, {headers: {'content-type': 'application/json'}, ...options});
@@ -123,12 +142,14 @@ function toggleShopGroup(shopId) {
 }
 
 function renderReviewQueueItem(r) {
+    const evaluation = autoSchemaEvaluation(r);
     return `<div class="item ${r.review_id === selectedId ? 'active' : ''}" onclick="selectReview('${r.review_id}')">
       <div class="queue-row">
         <span class="queue-artifact">${escapeHtml(displayName(r.artifact_type))}</span>
         ${statusBadge(r.status)}
       </div>
       <div class="queue-meta">${escapeHtml(displayName(r.reason))}</div>
+      ${evaluation ? `<div class="queue-meta">${statusBadge(evaluation.approved_by_llm ? 'LLM approved' : 'LLM not approved')} ${statusBadge(evaluation.confidence || 'unknown confidence')}</div>` : ''}
       <div class="queue-meta">${timeBadge(r.created, 'Created')}</div>
     </div>`;
 }
@@ -182,8 +203,9 @@ function renderDetail(detail, matrix) {
             ${timeBadge(review.updated, 'Updated')}
           </div>
         </div>
-        ${renderApprovalPanel()}
+        ${renderApprovalPanel(review)}
       </div>
+      ${renderAutoSchemaEvaluation(review)}
       <div class="review-card command-card">
         <div class="panel-head">
           <div class="panel-title">
@@ -206,11 +228,41 @@ function renderDetail(detail, matrix) {
     updateReloadState();
 }
 
-function renderApprovalPanel() {
+function renderApprovalPanel(review) {
+    if (!review || review.status !== 'PENDING_REVIEW') {
+        if (review && review.status === 'APPROVED' && review.artifact_type === 'PRODUCT_SCHEMA') {
+            return `<div class="approval-actions">${statusBadge('Live schema editable')}</div>`;
+        }
+        return '';
+    }
     return `<div class="approval-actions">
       <button class="primary" onclick="approveReview()">Approve</button>
       <button class="danger" onclick="rejectReview()">Reject</button>
       <button onclick="needsRepair()">Needs repair</button>
+    </div>`;
+}
+
+function autoSchemaEvaluation(review) {
+    return (((review || {}).validation_summary || {}).auto_schema_evaluation) || null;
+}
+
+function renderAutoSchemaEvaluation(review) {
+    const evaluation = autoSchemaEvaluation(review);
+    if (!evaluation) return '';
+    const risks = Array.isArray(evaluation.risks) ? evaluation.risks.filter(Boolean) : [];
+    return `<div class="review-card llm-evaluation-card">
+      <div class="panel-head">
+        <div class="panel-title">
+          <strong>LLM Schema Evaluation</strong>
+          <span class="muted">${escapeHtml(evaluation.summary || 'No summary provided.')}</span>
+        </div>
+        <div class="llm-evaluation-badges">
+          ${statusBadge(evaluation.approved_by_llm ? 'Approved by LLM' : 'Not approved by LLM')}
+          ${statusBadge(evaluation.decision || 'unknown decision')}
+          ${statusBadge(evaluation.confidence || 'unknown confidence')}
+        </div>
+      </div>
+      ${risks.length ? `<div class="llm-risks">${risks.map(risk => `<span>${escapeHtml(risk)}</span>`).join('')}</div>` : ''}
     </div>`;
 }
 

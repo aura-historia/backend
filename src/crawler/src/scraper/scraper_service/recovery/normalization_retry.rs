@@ -5,6 +5,7 @@ use crate::scraper::normalization::error::NormalizationError;
 use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::engine::try_apply_schemas;
+use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::scraper::scraper_service::util::html::normalization_error_to_schema_hint;
 use common::shop_id::ShopId;
@@ -166,46 +167,42 @@ impl ScraperServiceImpl {
                     let mut persisted_schemas = ctx.existing_schemas.to_vec();
                     persisted_schemas.push(generated_schema.clone());
 
-                    if self.review_required
-                        && let Some(review_repository) = &self.review_repository
+                    let pages = vec![SchemaReviewPageInput {
+                        url: ctx.url.to_string(),
+                        role: PAGE_ROLE_TRIGGERING_REPAIR_PAGE.to_string(),
+                        raw_html: ctx.html.to_string(),
+                    }];
+                    match self
+                        .handle_generated_schema_review(
+                            ctx.shop_id,
+                            ctx.url,
+                            "normalization_schema_repair",
+                            persisted_schemas,
+                            pages,
+                            json!({
+                                "attempt": attempt,
+                                "schema_applied": true,
+                                "normalization_fixed": true,
+                            }),
+                        )
+                        .await?
                     {
-                        let review_id = review_repository
-                            .create_schema_review(
-                                ctx.shop_id,
-                                "normalization_schema_repair",
-                                &persisted_schemas,
-                                vec![SchemaReviewPageInput {
-                                    url: ctx.url.to_string(),
-                                    role: PAGE_ROLE_TRIGGERING_REPAIR_PAGE.to_string(),
-                                    raw_html: ctx.html.to_string(),
-                                }],
-                                json!({
-                                    "attempt": attempt,
-                                    "schema_applied": true,
-                                    "normalization_fixed": true,
-                                }),
-                            )
-                            .await
-                            .map_err(|err| {
-                                crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError::DatabaseError(
-                                    sqlx::Error::Protocol(err.to_string()),
-                                )
-                            })?;
-                        return Err(ScraperError::PendingSchemaReview {
-                            url: ctx.url.clone(),
-                            review_id,
-                        });
+                        GeneratedSchemaReviewOutcome::Persisted(_) => {
+                            info!(
+                                domain = ctx.domain,
+                                url = %ctx.url,
+                                attempt,
+                                "Schema fixed normalization failure"
+                            );
+                            return Ok(product);
+                        }
+                        GeneratedSchemaReviewOutcome::PendingReview(review_id) => {
+                            return Err(ScraperError::PendingSchemaReview {
+                                url: ctx.url.clone(),
+                                review_id,
+                            });
+                        }
                     }
-                    self.schema_service
-                        .save_product_schemas(ctx.shop_id, persisted_schemas)
-                        .await?;
-                    info!(
-                        domain = ctx.domain,
-                        url = %ctx.url,
-                        attempt,
-                        "Schema fixed normalization failure"
-                    );
-                    return Ok(product);
                 }
                 Err(norm_err) => {
                     let Some(hint) = normalization_error_to_schema_hint(&norm_err) else {

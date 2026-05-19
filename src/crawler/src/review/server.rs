@@ -257,6 +257,12 @@ impl ReviewServer {
                 .await
             {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
+                Err(err @ ReviewRepositoryError::InvalidSchemaField(_))
+                | Err(err @ ReviewRepositoryError::RequiredSchemaField(_))
+                | Err(err @ ReviewRepositoryError::UnsupportedArtifact(_, _))
+                | Err(err @ ReviewRepositoryError::NotPending(_)) => {
+                    HttpResponse::json(400, &json!({ "error": err.to_string() }))
+                }
                 Err(err) => internal_error(err),
             };
         }

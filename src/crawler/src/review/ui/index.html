@@ -4,6 +4,13 @@
     <meta charset="utf-8">
     <meta content="width=device-width, initial-scale=1" name="viewport">
     <title>Crawler Review Console</title>
+    <script>
+        (() => {
+            const stored = localStorage.getItem('crawlerReviewTheme');
+            const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.dataset.theme = stored || (prefersDark ? 'dark' : 'light');
+        })();
+    </script>
     <link href="/assets/styles.css" rel="stylesheet">
 </head>
 <body>
@@ -12,7 +19,10 @@
         <h1>Crawler Review Console</h1>
         <div class="header-subtitle">Human review for product schema candidates</div>
     </div>
-    <div class="system-status" id="reloadState">Queue auto refresh active</div>
+    <div class="header-actions">
+        <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" type="button">Dark mode</button>
+        <div class="system-status" id="reloadState">Queue auto refresh active</div>
+    </div>
 </header>
 <main id="appShell">
     <section class="sidebar" id="reviewSidebar">

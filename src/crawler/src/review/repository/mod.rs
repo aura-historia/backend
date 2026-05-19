@@ -1,4 +1,5 @@
 use crate::review::model::*;
+use crate::review::schema_evaluation::evaluate_schema_matrix_for_review_pages;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::product_schema_repository::{
     ShopsProductSchemaRepository, ShopsProductSchemaRepositoryImpl,
@@ -12,12 +13,11 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 use time::OffsetDateTime;
+use tracing::info;
 use url::Url;
 
-mod schema_evaluation;
 mod schema_payload;
 
-use schema_evaluation::evaluate_schema_page;
 use schema_payload::{approval_product_schemas, parse_schemas_payload, update_schema_rule};
 
 #[derive(Debug, thiserror::Error)]
@@ -328,40 +328,92 @@ impl CrawlerReviewRepository {
                 .ok_or_else(|| ReviewRepositoryError::Database(sqlx::Error::RowNotFound));
         }
 
+        self.insert_schema_review(
+            shop_id,
+            reason,
+            schemas,
+            pages,
+            validation_summary,
+            STATUS_PENDING_REVIEW,
+            None,
+        )
+        .await
+    }
+
+    pub async fn create_schema_review_with_status(
+        &self,
+        shop_id: &ShopId,
+        reason: &str,
+        schemas: &[ProductCssSelectorSchema],
+        pages: Vec<SchemaReviewPageInput>,
+        validation_summary: serde_json::Value,
+        status: &str,
+        notes: Option<&str>,
+    ) -> Result<uuid::Uuid, ReviewRepositoryError> {
+        self.insert_schema_review(
+            shop_id,
+            reason,
+            schemas,
+            pages,
+            validation_summary,
+            status,
+            notes,
+        )
+        .await
+    }
+
+    async fn insert_schema_review(
+        &self,
+        shop_id: &ShopId,
+        reason: &str,
+        schemas: &[ProductCssSelectorSchema],
+        pages: Vec<SchemaReviewPageInput>,
+        validation_summary: serde_json::Value,
+        status: &str,
+        notes: Option<&str>,
+    ) -> Result<uuid::Uuid, ReviewRepositoryError> {
         let candidate_payload = json!({ "schemas": schemas });
         let review_id = self
-            .insert_review(
+            .insert_review_with_status(
                 shop_id,
                 None,
                 ARTIFACT_PRODUCT_SCHEMA,
+                status,
                 reason,
                 candidate_payload,
                 validation_summary,
+                notes,
             )
             .await?;
 
-        for page in pages {
-            let cleaned_html = clean_html_for_schema_generation(&page.raw_html);
-            let html_hash = sha256_hex(page.raw_html.as_bytes());
-            sqlx::query(
-                "INSERT INTO crawler_review_pages (
-                    review_id, url, role, raw_html, cleaned_html, html_hash
-                 ) VALUES ($1, $2, $3, $4, $5, $6)",
-            )
-            .bind(review_id)
-            .bind(page.url)
-            .bind(page.role)
-            .bind(page.raw_html)
-            .bind(cleaned_html)
-            .bind(html_hash)
-            .execute(&self.pool)
-            .await?;
-        }
+        self.insert_review_pages(review_id, pages).await?;
 
         Ok(review_id)
     }
 
     pub async fn update_candidate_payload(
+        &self,
+        review_id: uuid::Uuid,
+        candidate_payload: serde_json::Value,
+    ) -> Result<(), ReviewRepositoryError> {
+        let detail = self.get_review(review_id).await?;
+        if detail.review.status == STATUS_PENDING_REVIEW {
+            return self
+                .update_pending_candidate_payload(review_id, candidate_payload)
+                .await;
+        }
+        if detail.review.status == STATUS_APPROVED
+            && detail.review.artifact_type == ARTIFACT_PRODUCT_SCHEMA
+        {
+            return self
+                .update_approved_product_schema_payload(&detail.review, candidate_payload)
+                .await;
+        }
+
+        Err(ReviewRepositoryError::NotPending(review_id))
+    }
+
+    async fn update_pending_candidate_payload(
         &self,
         review_id: uuid::Uuid,
         candidate_payload: serde_json::Value,
@@ -382,6 +434,49 @@ impl CrawlerReviewRepository {
         Ok(())
     }
 
+    async fn update_approved_product_schema_payload(
+        &self,
+        review: &CrawlerReview,
+        candidate_payload: serde_json::Value,
+    ) -> Result<(), ReviewRepositoryError> {
+        let schemas = parse_schemas_payload(&candidate_payload)?;
+        let repo = ShopsProductSchemaRepositoryImpl::new(&self.pool);
+        if repo.find_product_schema(&review.shop_id).await?.is_some() {
+            repo.update_product_schema(&review.shop_id, &schemas)
+                .await?;
+        } else {
+            let now = OffsetDateTime::now_utc();
+            let schema = crate::scraper::css_selector::product_schema::ShopsProductSchema {
+                shop_id: review.shop_id,
+                product_schemas: schemas.clone(),
+                created: now,
+                updated: now,
+            };
+            repo.insert_product_schema(&review.shop_id, &schema).await?;
+        }
+
+        let validation_summary =
+            append_manual_schema_edit(review.validation_summary.clone(), schemas.len());
+        sqlx::query(
+            "UPDATE crawler_reviews
+             SET candidate_payload = $2, validation_summary = $3, updated = NOW()
+             WHERE review_id = $1 AND status = 'APPROVED' AND artifact_type = 'PRODUCT_SCHEMA'",
+        )
+        .bind(review.review_id)
+        .bind(candidate_payload)
+        .bind(validation_summary)
+        .execute(&self.pool)
+        .await?;
+
+        info!(
+            review_id = %review.review_id,
+            shop_id = %review.shop_id,
+            schema_count = schemas.len(),
+            "Approved product schema edited from review console"
+        );
+        Ok(())
+    }
+
     pub async fn update_schema_field(
         &self,
         review_id: uuid::Uuid,
@@ -390,14 +485,17 @@ impl CrawlerReviewRepository {
         rule: Option<ExtractionRule>,
     ) -> Result<(), ReviewRepositoryError> {
         let detail = self.get_review(review_id).await?;
-        if detail.review.status != STATUS_PENDING_REVIEW {
-            return Err(ReviewRepositoryError::NotPending(review_id));
-        }
         if detail.review.artifact_type != ARTIFACT_PRODUCT_SCHEMA {
             return Err(ReviewRepositoryError::UnsupportedArtifact(
                 review_id,
                 detail.review.artifact_type,
             ));
+        }
+        if !matches!(
+            detail.review.status.as_str(),
+            STATUS_PENDING_REVIEW | STATUS_APPROVED
+        ) {
+            return Err(ReviewRepositoryError::NotPending(review_id));
         }
 
         let mut schemas = parse_schemas_payload(&detail.review.candidate_payload)?;
@@ -506,22 +604,11 @@ impl CrawlerReviewRepository {
         let detail = self.get_review(review_id).await?;
         let schemas = parse_schemas_payload(&detail.review.candidate_payload)?;
 
-        let mut candidates = Vec::with_capacity(schemas.len());
-        for (schema_index, schema) in schemas.iter().enumerate() {
-            let mut pages = Vec::with_capacity(detail.pages.len());
-            for page in &detail.pages {
-                pages.push(evaluate_schema_page(schema, page));
-            }
-            candidates.push(SchemaCandidateEvaluation {
-                schema_index,
-                pages,
-            });
-        }
-
-        Ok(SchemaMatrix {
+        Ok(evaluate_schema_matrix_for_review_pages(
             review_id,
-            candidates,
-        })
+            &schemas,
+            &detail.pages,
+        ))
     }
 
     pub async fn trigger_crawl_now(&self, shop_id: ShopId) -> Result<u64, sqlx::Error> {
@@ -619,20 +706,74 @@ impl CrawlerReviewRepository {
         candidate_payload: serde_json::Value,
         validation_summary: serde_json::Value,
     ) -> Result<uuid::Uuid, sqlx::Error> {
+        self.insert_review_with_status(
+            shop_id,
+            domain_id,
+            artifact_type,
+            STATUS_PENDING_REVIEW,
+            reason,
+            candidate_payload,
+            validation_summary,
+            None,
+        )
+        .await
+    }
+
+    async fn insert_review_with_status(
+        &self,
+        shop_id: &ShopId,
+        domain_id: Option<&uuid::Uuid>,
+        artifact_type: &str,
+        status: &str,
+        reason: &str,
+        candidate_payload: serde_json::Value,
+        validation_summary: serde_json::Value,
+        notes: Option<&str>,
+    ) -> Result<uuid::Uuid, sqlx::Error> {
         sqlx::query_scalar::<_, uuid::Uuid>(
             "INSERT INTO crawler_reviews (
-                shop_id, domain_id, artifact_type, status, reason, candidate_payload, validation_summary
-             ) VALUES ($1, $2, $3, 'PENDING_REVIEW', $4, $5, $6)
+                shop_id, domain_id, artifact_type, status, reason, candidate_payload,
+                validation_summary, reviewer_notes, reviewed
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+                CASE WHEN $4 = 'PENDING_REVIEW' THEN NULL ELSE NOW() END
+             )
              RETURNING review_id",
         )
-            .bind(uuid::Uuid::from(*shop_id))
-            .bind(domain_id.copied())
-            .bind(artifact_type)
-            .bind(reason)
-            .bind(candidate_payload)
-            .bind(validation_summary)
-            .fetch_one(&self.pool)
-            .await
+        .bind(uuid::Uuid::from(*shop_id))
+        .bind(domain_id.copied())
+        .bind(artifact_type)
+        .bind(status)
+        .bind(reason)
+        .bind(candidate_payload)
+        .bind(validation_summary)
+        .bind(notes)
+        .fetch_one(&self.pool)
+        .await
+    }
+
+    async fn insert_review_pages(
+        &self,
+        review_id: uuid::Uuid,
+        pages: Vec<SchemaReviewPageInput>,
+    ) -> Result<(), sqlx::Error> {
+        for page in pages {
+            let cleaned_html = clean_html_for_schema_generation(&page.raw_html);
+            let html_hash = sha256_hex(page.raw_html.as_bytes());
+            sqlx::query(
+                "INSERT INTO crawler_review_pages (
+                    review_id, url, role, raw_html, cleaned_html, html_hash
+                 ) VALUES ($1, $2, $3, $4, $5, $6)",
+            )
+            .bind(review_id)
+            .bind(page.url)
+            .bind(page.role)
+            .bind(page.raw_html)
+            .bind(cleaned_html)
+            .bind(html_hash)
+            .execute(&self.pool)
+            .await?;
+        }
+        Ok(())
     }
 
     async fn set_review_status(
@@ -768,9 +909,63 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
+fn append_manual_schema_edit(
+    mut validation_summary: serde_json::Value,
+    schema_count: usize,
+) -> serde_json::Value {
+    let edit = json!({
+        "at": OffsetDateTime::now_utc().to_string(),
+        "source": "review_console",
+        "operation": "approved_schema_live_update",
+        "schema_count": schema_count,
+    });
+
+    if !validation_summary.is_object() {
+        validation_summary = json!({ "summary": validation_summary });
+    }
+
+    if let Some(object) = validation_summary.as_object_mut() {
+        let edits = object
+            .entry("manual_schema_edits")
+            .or_insert_with(|| json!([]));
+        if let Some(edits) = edits.as_array_mut() {
+            edits.push(edit);
+        } else {
+            *edits = json!([edit]);
+        }
+    }
+    validation_summary
+}
+
 fn classify_with_pattern(raw_url: &str, pattern: Option<&Regex>) -> String {
     let Ok(url) = Url::parse(raw_url) else {
         return "other".to_string();
     };
     CrawledUrl::new(url).classify(pattern).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::append_manual_schema_edit;
+    use serde_json::json;
+
+    #[test]
+    fn appends_manual_schema_edit_audit_entry() {
+        let summary = json!({ "auto_schema_evaluation": { "confidence": "HIGH" } });
+
+        let updated = append_manual_schema_edit(summary, 2);
+
+        let edits = updated
+            .get("manual_schema_edits")
+            .and_then(serde_json::Value::as_array)
+            .expect("manual edits should be an array");
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0]["source"], "review_console");
+        assert_eq!(edits[0]["operation"], "approved_schema_live_update");
+        assert_eq!(edits[0]["schema_count"], 2);
+        assert_eq!(
+            updated["auto_schema_evaluation"]["confidence"],
+            json!("HIGH")
+        );
+    }
 }

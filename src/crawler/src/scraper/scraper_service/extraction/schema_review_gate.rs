@@ -1,0 +1,251 @@
+use crate::review::model::SchemaMatrix;
+use crate::review::model::{STATUS_APPROVED, SchemaReviewPageInput};
+use crate::review::schema_evaluation::{
+    evaluate_schema_matrix_for_inputs, schema_matrix_has_required_coverage,
+};
+use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
+use crate::scraper::css_selector::product_schema_service::{
+    ProductSchemaServiceError, SchemaLlmEvaluation, SchemaLlmEvaluationPage,
+    SchemaLlmEvaluationRequest, clean_html_for_schema_generation,
+};
+use crate::scraper::scraper_service::domain::errors::ScraperError;
+use crate::scraper::scraper_service::service::ScraperServiceImpl;
+use common::shop_id::ShopId;
+use serde_json::{Value, json};
+use tracing::{info, warn};
+use url::Url;
+
+pub(crate) enum GeneratedSchemaReviewOutcome {
+    Persisted(ShopsProductSchema),
+    PendingReview(uuid::Uuid),
+}
+
+impl ScraperServiceImpl {
+    pub(crate) async fn handle_generated_schema_review(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        reason: &str,
+        schemas: Vec<ProductCssSelectorSchema>,
+        pages: Vec<SchemaReviewPageInput>,
+        validation_summary: Value,
+    ) -> Result<GeneratedSchemaReviewOutcome, ScraperError> {
+        let Some(review_repository) = &self.review_repository else {
+            let saved = self
+                .schema_service
+                .save_product_schemas(shop_id, schemas)
+                .await?;
+            return Ok(GeneratedSchemaReviewOutcome::Persisted(saved));
+        };
+        if !self.review_required {
+            let saved = self
+                .schema_service
+                .save_product_schemas(shop_id, schemas)
+                .await?;
+            return Ok(GeneratedSchemaReviewOutcome::Persisted(saved));
+        }
+
+        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let deterministic_approval_ok = schema_matrix_has_required_coverage(&matrix);
+        let mut validation_summary =
+            with_schema_matrix_summary(validation_summary, &matrix, deterministic_approval_ok);
+        let mut approved_by_llm = false;
+        if self.schema_llm_review_mode.should_evaluate() {
+            let request = SchemaLlmEvaluationRequest {
+                reason: reason.to_string(),
+                schemas: schemas.clone(),
+                pages: pages
+                    .iter()
+                    .map(|page| SchemaLlmEvaluationPage {
+                        url: page.url.clone(),
+                        role: page.role.clone(),
+                        cleaned_html: clean_html_for_schema_generation(&page.raw_html),
+                    })
+                    .collect(),
+                matrix,
+                deterministic_approval_ok,
+            };
+
+            let evaluation = match self.consume_llm_budget_or_err(shop_id, url).await {
+                Ok(()) => match self.schema_service.evaluate_product_schemas(&request).await {
+                    Ok(evaluation) => evaluation,
+                    Err(err) => {
+                        warn!(
+                            error = %err,
+                            "Schema evaluator failed; falling back to human review"
+                        );
+                        SchemaLlmEvaluation::unavailable(format!("Schema evaluator failed: {err}"))
+                    }
+                },
+                Err(err @ ScraperError::LlmBudgetExceeded { .. }) => {
+                    warn!(
+                        error = %err,
+                        "Schema evaluator skipped because LLM budget is exhausted"
+                    );
+                    SchemaLlmEvaluation::unavailable(format!(
+                        "Schema evaluator skipped because LLM budget is exhausted: {err}"
+                    ))
+                }
+                Err(err) => return Err(err),
+            };
+
+            approved_by_llm = self.schema_llm_review_mode.allows_auto_approval()
+                && deterministic_approval_ok
+                && evaluation.is_high_confidence_approval();
+            let evaluation = evaluation.with_approved_by_llm(approved_by_llm);
+            validation_summary = with_auto_schema_evaluation(validation_summary, &evaluation);
+
+            info!(
+                mode = self.schema_llm_review_mode.as_str(),
+                decision = ?evaluation.decision,
+                confidence = ?evaluation.confidence,
+                approved_by_llm,
+                deterministic_approval_ok,
+                "Schema LLM evaluation completed"
+            );
+        }
+
+        if approved_by_llm {
+            let saved = self
+                .schema_service
+                .save_product_schemas(shop_id, schemas.clone())
+                .await?;
+            review_repository
+                .create_schema_review_with_status(
+                    shop_id,
+                    reason,
+                    &schemas,
+                    pages,
+                    validation_summary,
+                    STATUS_APPROVED,
+                    Some("Auto-approved by LLM schema evaluator"),
+                )
+                .await
+                .map_err(review_error_to_schema_service_error)?;
+            return Ok(GeneratedSchemaReviewOutcome::Persisted(saved));
+        }
+
+        let review_id = review_repository
+            .create_schema_review(shop_id, reason, &schemas, pages, validation_summary)
+            .await
+            .map_err(review_error_to_schema_service_error)?;
+        Ok(GeneratedSchemaReviewOutcome::PendingReview(review_id))
+    }
+}
+
+fn with_schema_matrix_summary(
+    mut validation_summary: Value,
+    matrix: &SchemaMatrix,
+    deterministic_approval_ok: bool,
+) -> Value {
+    let mut failed_fields = Vec::new();
+    for candidate in &matrix.candidates {
+        for page in &candidate.pages {
+            for field in &page.fields {
+                let selector_missing = field.selector_match_count == Some(0);
+                if selector_missing || field.error.is_some() {
+                    failed_fields.push(json!({
+                        "schema_index": candidate.schema_index,
+                        "page_id": page.page_id,
+                        "url": page.url,
+                        "role": page.role,
+                        "field": field.field,
+                        "selector": field.selector,
+                        "selector_match_count": field.selector_match_count,
+                        "present_but_missing_rule": selector_missing,
+                        "error": field.error,
+                    }));
+                }
+            }
+        }
+    }
+
+    let matrix_summary = json!({
+        "deterministic_approval_ok": deterministic_approval_ok,
+        "schema_candidate_count": matrix.candidates.len(),
+        "present_but_missing_rule_failures": failed_fields,
+    });
+
+    if let Some(object) = validation_summary.as_object_mut() {
+        object.insert("schema_matrix_summary".to_string(), matrix_summary);
+        validation_summary
+    } else {
+        json!({
+            "summary": validation_summary,
+            "schema_matrix_summary": matrix_summary,
+        })
+    }
+}
+
+fn with_auto_schema_evaluation(
+    mut validation_summary: Value,
+    evaluation: &SchemaLlmEvaluation,
+) -> Value {
+    let evaluation = serde_json::to_value(evaluation)
+        .unwrap_or_else(|err| json!({ "serialization_error": err.to_string() }));
+    if let Some(object) = validation_summary.as_object_mut() {
+        object.insert("auto_schema_evaluation".to_string(), evaluation);
+        validation_summary
+    } else {
+        json!({
+            "summary": validation_summary,
+            "auto_schema_evaluation": evaluation,
+        })
+    }
+}
+
+fn review_error_to_schema_service_error(
+    err: crate::review::repository::ReviewRepositoryError,
+) -> ProductSchemaServiceError {
+    ProductSchemaServiceError::DatabaseError(sqlx::Error::Protocol(err.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::review::model::{
+        SchemaCandidateEvaluation, SchemaPageEvaluation, SelectorFieldEvaluation,
+    };
+    use serde_json::json;
+
+    #[test]
+    fn should_record_present_but_missing_rule_failures_in_validation_summary() {
+        let page_id = uuid::Uuid::new_v4();
+        let matrix = SchemaMatrix {
+            review_id: uuid::Uuid::nil(),
+            candidates: vec![SchemaCandidateEvaluation {
+                schema_index: 0,
+                pages: vec![SchemaPageEvaluation {
+                    page_id,
+                    url: "https://example.com/product".to_string(),
+                    role: "PRIMARY".to_string(),
+                    apply_ok: false,
+                    extracted: None,
+                    error: Some("failed to extract `price`".to_string()),
+                    fields: vec![SelectorFieldEvaluation {
+                        field: "price".to_string(),
+                        selector: "#price".to_string(),
+                        selector_match_count: Some(0),
+                        additional_selector_match_counts: Vec::new(),
+                        error: None,
+                    }],
+                }],
+            }],
+        };
+
+        let summary = with_schema_matrix_summary(json!({ "schema_count": 1 }), &matrix, false);
+
+        assert_eq!(
+            summary["schema_matrix_summary"]["deterministic_approval_ok"],
+            false
+        );
+        assert_eq!(
+            summary["schema_matrix_summary"]["present_but_missing_rule_failures"][0]["field"],
+            "price"
+        );
+        assert_eq!(
+            summary["schema_matrix_summary"]["present_but_missing_rule_failures"][0]["present_but_missing_rule"],
+            true
+        );
+    }
+}
