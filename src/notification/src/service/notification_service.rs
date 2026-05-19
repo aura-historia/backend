@@ -3298,6 +3298,29 @@ mod tests {
             }
         }
 
+        fn assert_two_button_template_links(
+            rendered: &str,
+            data: &serde_json::Value,
+            template_path: &str,
+        ) {
+            let shop_slug_id = data["shop_slug_id"].as_str().unwrap();
+            let product_slug_id = data["product_slug_id"].as_str().unwrap();
+            let aura_historia_product_url = format!(
+                "https://aura-historia.com/shops/{shop_slug_id}/products/{product_slug_id}"
+            );
+            let merchant_view_url = data["view_url"].as_str().unwrap();
+            let merchant_view_url_escaped = handlebars::html_escape(merchant_view_url);
+
+            assert!(
+                rendered.contains(&format!("href=\"{aura_historia_product_url}\"")),
+                "Template '{template_path}' should contain Aura Historia product CTA: {aura_historia_product_url}"
+            );
+            assert!(
+                rendered.contains(&format!("href=\"{merchant_view_url_escaped}\"")),
+                "Template '{template_path}' should contain merchant CTA: {merchant_view_url}"
+            );
+        }
+
         #[rstest]
         #[case("en")]
         #[case("de")]
@@ -3460,7 +3483,7 @@ mod tests {
         }
 
         #[test]
-        fn should_include_product_url_with_shop_and_product_slugs_in_rendered_price_template() {
+        fn should_route_watchlist_price_ctas_to_aura_historia_and_merchant() {
             let template_path = "mjml/watchlist/product-update/price/en.mjml";
             let template = load_template(template_path);
             let notification = make_watchlist_price_notification();
@@ -3470,15 +3493,11 @@ mod tests {
             let handlebars = Handlebars::new();
             let rendered = handlebars.render_template(&template, &data).unwrap();
 
-            let view_url = data["view_url"].as_str().unwrap();
-            assert!(
-                rendered.contains(view_url),
-                "Rendered template should contain view_url: {view_url}"
-            );
+            assert_two_button_template_links(&rendered, &data, template_path);
         }
 
         #[test]
-        fn should_include_product_url_with_shop_and_product_slugs_in_rendered_state_template() {
+        fn should_route_watchlist_state_ctas_to_aura_historia_and_merchant() {
             let template_path = "mjml/watchlist/product-update/state/en.mjml";
             let template = load_template(template_path);
             let notification = make_watchlist_state_notification();
@@ -3488,11 +3507,21 @@ mod tests {
             let handlebars = Handlebars::new();
             let rendered = handlebars.render_template(&template, &data).unwrap();
 
-            let view_url = data["view_url"].as_str().unwrap();
-            assert!(
-                rendered.contains(view_url),
-                "Rendered template should contain view_url: {view_url}"
-            );
+            assert_two_button_template_links(&rendered, &data, template_path);
+        }
+
+        #[test]
+        fn should_route_search_filter_ctas_to_aura_historia_and_merchant() {
+            let template_path = "mjml/search-filter/match/en.mjml";
+            let template = load_template(template_path);
+            let notification = make_search_filter_notification();
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars.render_template(&template, &data).unwrap();
+
+            assert_two_button_template_links(&rendered, &data, template_path);
         }
 
         #[test]
