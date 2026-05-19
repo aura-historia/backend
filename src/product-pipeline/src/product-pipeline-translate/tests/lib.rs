@@ -114,9 +114,8 @@ fn mk_embedded_record(
 #[localstack_test(services = [DynamoDB()])]
 async fn should_translate_title_when_enrichment_embedded_event_triggers_pipeline() {
     let client = get_dynamodb_client().await;
-    let table_name = std::env::var("DYNAMODB_TABLE_NAME").unwrap();
-    let repository = ProductDynamoDbRepositoryImpl::new(client, &table_name);
-    let shop_repository = ShopDynamoDbRepositoryImpl::new(client, &table_name);
+    let repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
+    let shop_repository = ShopDynamoDbRepositoryImpl::new(client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
     let mut fx_rate_service = MockFxRateService::new();
     fx_rate_service
@@ -219,9 +218,8 @@ async fn should_translate_title_when_enrichment_embedded_event_triggers_pipeline
 #[localstack_test(services = [DynamoDB()])]
 async fn should_process_multiple_products_in_single_handler_invocation() {
     let client = get_dynamodb_client().await;
-    let table_name = std::env::var("DYNAMODB_TABLE_NAME").unwrap();
-    let repository = ProductDynamoDbRepositoryImpl::new(client, &table_name);
-    let shop_repository = ShopDynamoDbRepositoryImpl::new(client, &table_name);
+    let repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
+    let shop_repository = ShopDynamoDbRepositoryImpl::new(client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
     let mut fx_rate_service = MockFxRateService::new();
     fx_rate_service
@@ -300,9 +298,8 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_return_failure_when_product_not_found_in_dynamodb() {
     let client = get_dynamodb_client().await;
-    let table_name = std::env::var("DYNAMODB_TABLE_NAME").unwrap();
-    let repository = ProductDynamoDbRepositoryImpl::new(client, &table_name);
-    let shop_repository = ShopDynamoDbRepositoryImpl::new(client, &table_name);
+    let repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
+    let shop_repository = ShopDynamoDbRepositoryImpl::new(client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
     let mut fx_rate_service = MockFxRateService::new();
     fx_rate_service
