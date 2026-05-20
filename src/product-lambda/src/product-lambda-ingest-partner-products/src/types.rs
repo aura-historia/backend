@@ -1,5 +1,6 @@
 use common::has_key::HasKey;
 use common::language::data::LocalizedTextData;
+use common::logging::LogProductCommandIntent;
 use common::price::data::PriceData;
 use common::price::domain::Price;
 use common::product_id::ProductKey;
@@ -30,19 +31,22 @@ pub enum AsyncProductCommandData {
 }
 
 impl AsyncProductCommandData {
-    pub fn key(&self) -> ProductKey {
+    pub fn intent(&self) -> LogProductCommandIntent {
+        match self {
+            AsyncProductCommandData::Create(_) => LogProductCommandIntent::Create,
+            AsyncProductCommandData::Update(_) => LogProductCommandIntent::Update,
+            AsyncProductCommandData::Upsert(_) => LogProductCommandIntent::Upsert,
+        }
+    }
+}
+
+impl HasKey for AsyncProductCommandData {
+    type Key = ProductKey;
+    fn key(&self) -> Self::Key {
         match self {
             AsyncProductCommandData::Create(cmd) => cmd.key(),
             AsyncProductCommandData::Update(cmd) => cmd.key(),
             AsyncProductCommandData::Upsert(cmd) => cmd.key(),
-        }
-    }
-
-    pub fn shops_product_id(&self) -> &ShopsProductId {
-        match self {
-            AsyncProductCommandData::Create(cmd) => &cmd.shops_product_id,
-            AsyncProductCommandData::Update(cmd) => &cmd.shops_product_id,
-            AsyncProductCommandData::Upsert(cmd) => &cmd.shops_product_id,
         }
     }
 }

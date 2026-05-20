@@ -32,3 +32,5 @@ common = { workspace = true, features = ["test-data"] }
 fake = { workspace = true }
 product = { workspace = true, features = ["test-data", "full"] }
 shop = { workspace = true, features = ["test-data", "seller"] }
+test-api = { workspace = true, features = ["dynamodb"] }
+serial_test = { workspace = true }

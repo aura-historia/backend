@@ -26,7 +26,10 @@ pub async fn handler(
     product_service: &(impl CommandProductService + Sync),
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let count = event.payload.records.len();
-    info!(count = count, "Handler invoked.");
+    info!(
+        sqsMessageCount = count,
+        "Partner product async ingestion Lambda invoked."
+    );
 
     let mut failed_message_ids = Vec::new();
     let mut creates: Vec<(String, CreateProductCommand)> = Vec::new();
@@ -52,7 +55,12 @@ pub async fn handler(
                 upserts.push((message_id, command.into()))
             }
             Err(err) => {
-                error!(messageId = %message_id, error = %err, "Failed deserializing async product command.");
+                error!(
+                    messageId = %message_id,
+                    error = %err,
+                    payload = %body,
+                    "Failed deserializing partner product async ingestion SQS message payload."
+                );
                 failed_message_ids.push(message_id);
             }
         }
@@ -104,9 +112,9 @@ pub async fn handler(
 
     let failures = failed_message_ids.len();
     info!(
-        successful = count - failures,
-        failures = failures,
-        "Handler finished."
+        successfulSqsMessages = count - failures,
+        failedSqsMessages = failures,
+        "Partner product async ingestion Lambda finished processing SQS batch."
     );
 
     let mut response = SqsBatchResponse::default();

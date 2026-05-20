@@ -33,7 +33,7 @@ common = { workspace = true, features = ["test-data"] }
 product = { workspace = true, features = ["test-data"] }
 
 shop = { workspace = true, features = ["test-data", "seller"] }
-test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
+test-api = { workspace = true, features = ["api-gateway", "dynamodb", "sqs"] }
 rstest = { workspace = true }
 fake = { workspace = true }
 serial_test = { workspace = true }

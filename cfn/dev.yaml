@@ -3339,6 +3339,11 @@ Outputs:
   ProductMaterializeOpensearchDeadLetterQueueUrl:
     Value: !Ref ProductMaterializeOpenSearchDlq
 
+  ProductPartnerIngestQueueUrl:
+    Value: !Ref ProductPartnerIngestQ
+  ProductPartnerIngestDeadLetterQueueUrl:
+    Value: !Ref ProductPartnerIngestDlq
+
   ProductUpdateNotifyUserQueueUrl:
     Value: !Ref ProductUpdateNotifyUserQ
   ProductUpdateNotifyUserDeadLetterQueueUrl:

@@ -1,17 +1,17 @@
-use common::price::domain::FixedFxRate;
 use fake::{Fake, Faker};
-use fxrate::dynamodb::record::FxRatesRecord;
-use fxrate::service::MockFxRateService;
 use lambda_runtime::LambdaEvent;
 use product::dynamodb::product_record::{self, ProductRecord};
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
-use product::service::command_service::CommandProductServiceImpl;
+use product_lambda_ingest_partner_products::AsyncProductCommandServiceImpl;
 use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
 use shop::dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl};
 use shop::dynamodb::shop_record::ShopRecord;
 use shop::service::get_service::GetShopServiceImpl;
-use shop::service::seller_service::MockSellerService;
 use test_api::*;
+
+const SQS: Sqs = Sqs {
+    name: "product_api_partner_put_products",
+};
 
 fn make_partner_shop_record(api_key: &PartnerShopApiKey) -> ShopRecord {
     let hashed: HashedPartnerShopApiKey = api_key.clone().into();
@@ -22,25 +22,14 @@ fn make_partner_shop_record(api_key: &PartnerShopApiKey) -> ShopRecord {
     record
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[localstack_test(services = [DynamoDB(), SQS])]
 async fn should_return_200_with_empty_errors_when_upserting_new_product() {
     let ddb_client = get_dynamodb_client().await;
     let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let _product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let seller_service = MockSellerService::default();
-    let mut fx_rate_service = MockFxRateService::new();
-    fx_rate_service
-        .expect_get_current()
-        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-    let command_product_service = CommandProductServiceImpl::new(
-        &product_repository,
-        &fx_rate_service,
-        &get_shop_service,
-        &seller_service,
-    )
-    .await
-    .expect("shouldn't fail creating CommandProductServiceImpl");
+    let command_product_service =
+        AsyncProductCommandServiceImpl::new(get_sqs_client().await, SQS.queue_url());
 
     let api_key = PartnerShopApiKey::new();
     let shop_record = make_partner_shop_record(&api_key);
@@ -70,9 +59,9 @@ async fn should_return_200_with_empty_errors_when_upserting_new_product() {
         product_api_partner::handle(lambda_event, &get_shop_service, &command_product_service)
             .await
             .unwrap();
-    assert_eq!(200, response.status_code);
+    assert_eq!(202, response.status_code);
 
-    let body: serde_json::Value = serde_json::from_str(
+    let body: Vec<String> = serde_json::from_str(
         response
             .body
             .as_ref()
@@ -83,28 +72,17 @@ async fn should_return_200_with_empty_errors_when_upserting_new_product() {
             .unwrap(),
     )
     .unwrap();
-    assert!(body["errors"].as_object().unwrap().is_empty());
+    assert!(body.is_empty());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[localstack_test(services = [DynamoDB(), SQS])]
 async fn should_return_200_with_empty_errors_when_upserting_existing_product() {
     let ddb_client = get_dynamodb_client().await;
     let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let seller_service = MockSellerService::default();
-    let mut fx_rate_service = MockFxRateService::new();
-    fx_rate_service
-        .expect_get_current()
-        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-    let command_product_service = CommandProductServiceImpl::new(
-        &product_repository,
-        &fx_rate_service,
-        &get_shop_service,
-        &seller_service,
-    )
-    .await
-    .expect("shouldn't fail creating CommandProductServiceImpl");
+    let command_product_service =
+        AsyncProductCommandServiceImpl::new(get_sqs_client().await, SQS.queue_url());
 
     let api_key = PartnerShopApiKey::new();
     let shop_record = make_partner_shop_record(&api_key);
@@ -142,9 +120,9 @@ async fn should_return_200_with_empty_errors_when_upserting_existing_product() {
         product_api_partner::handle(lambda_event, &get_shop_service, &command_product_service)
             .await
             .unwrap();
-    assert_eq!(200, response.status_code);
+    assert_eq!(202, response.status_code);
 
-    let body: serde_json::Value = serde_json::from_str(
+    let body: Vec<String> = serde_json::from_str(
         response
             .body
             .as_ref()
@@ -155,28 +133,17 @@ async fn should_return_200_with_empty_errors_when_upserting_existing_product() {
             .unwrap(),
     )
     .unwrap();
-    assert!(body["errors"].as_object().unwrap().is_empty());
+    assert!(body.is_empty());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[localstack_test(services = [DynamoDB(), SQS])]
 async fn should_return_401_when_api_key_does_not_match_for_put() {
     let ddb_client = get_dynamodb_client().await;
     let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let _product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let seller_service = MockSellerService::default();
-    let mut fx_rate_service = MockFxRateService::new();
-    fx_rate_service
-        .expect_get_current()
-        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-    let command_product_service = CommandProductServiceImpl::new(
-        &product_repository,
-        &fx_rate_service,
-        &get_shop_service,
-        &seller_service,
-    )
-    .await
-    .expect("shouldn't fail creating CommandProductServiceImpl");
+    let command_product_service =
+        AsyncProductCommandServiceImpl::new(get_sqs_client().await, SQS.queue_url());
 
     let correct_key = PartnerShopApiKey::new();
     let wrong_key = PartnerShopApiKey::new();
@@ -206,25 +173,14 @@ async fn should_return_401_when_api_key_does_not_match_for_put() {
     assert_eq!(401, response.unwrap_err().status);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[localstack_test(services = [DynamoDB(), SQS])]
 async fn should_return_404_when_shop_does_not_exist_for_put() {
     let ddb_client = get_dynamodb_client().await;
     let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let _product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let seller_service = MockSellerService::default();
-    let mut fx_rate_service = MockFxRateService::new();
-    fx_rate_service
-        .expect_get_current()
-        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-    let command_product_service = CommandProductServiceImpl::new(
-        &product_repository,
-        &fx_rate_service,
-        &get_shop_service,
-        &seller_service,
-    )
-    .await
-    .expect("shouldn't fail creating CommandProductServiceImpl");
+    let command_product_service =
+        AsyncProductCommandServiceImpl::new(get_sqs_client().await, SQS.queue_url());
 
     let api_key = PartnerShopApiKey::new();
     let non_existent_shop_id = common::shop_id::ShopId::new();
@@ -251,25 +207,14 @@ async fn should_return_404_when_shop_does_not_exist_for_put() {
     assert_eq!(404, response.unwrap_err().status);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[localstack_test(services = [DynamoDB(), SQS])]
 async fn should_return_403_when_shop_is_not_a_partner_for_put() {
     let ddb_client = get_dynamodb_client().await;
     let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let _product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let seller_service = MockSellerService::default();
-    let mut fx_rate_service = MockFxRateService::new();
-    fx_rate_service
-        .expect_get_current()
-        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-    let command_product_service = CommandProductServiceImpl::new(
-        &product_repository,
-        &fx_rate_service,
-        &get_shop_service,
-        &seller_service,
-    )
-    .await
-    .expect("shouldn't fail creating CommandProductServiceImpl");
+    let command_product_service =
+        AsyncProductCommandServiceImpl::new(get_sqs_client().await, SQS.queue_url());
 
     let api_key = PartnerShopApiKey::new();
     let mut shop_record: ShopRecord = Faker.fake();

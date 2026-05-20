@@ -3,11 +3,6 @@ use async_trait::async_trait;
 use aws_sdk_sqs::Client;
 use aws_sdk_sqs::types::SendMessageBatchRequestEntry;
 use common::has_key::HasKey;
-use product::service::command_service::CommandProductService;
-use product::service::product_command::{
-    CreateProductCommand, UpdateProductCommand, UpsertProductCommand,
-};
-use std::collections::{HashMap, HashSet};
 use tracing::info;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -43,10 +38,6 @@ impl AsyncProductCommandService for AsyncProductCommandServiceImpl<'_> {
         &self,
         commands: Vec<AsyncProductCommandData>,
     ) -> Vec<AsyncProductCommandFailure> {
-        info!(
-            count = commands.len(),
-            "Forwarding product commands to SQS for background processing."
-        );
         let mut failures = Vec::new();
 
         for chunk in commands.chunks(10) {
@@ -81,6 +72,19 @@ impl AsyncProductCommandService for AsyncProductCommandServiceImpl<'_> {
                 .await
             {
                 Ok(output) => {
+                    for successful in output.successful {
+                        if let Ok(index) = successful.id.parse::<usize>()
+                            && let Some(command) = chunk.get(index)
+                        {
+                            let key = command.key();
+                            info!(
+                                productCommandIntent = %command.intent(),
+                                shopId = %key.shop_id,
+                                shopsProductId = %key.shops_product_id,
+                                "Forwarded partner product command to async ingestion queue."
+                            );
+                        }
+                    }
                     for failed in output.failed {
                         if let Ok(index) = failed.id.parse::<usize>()
                             && let Some(command) = chunk.get(index)
@@ -101,82 +105,6 @@ impl AsyncProductCommandService for AsyncProductCommandServiceImpl<'_> {
                         error: error.clone(),
                     }));
                 }
-            }
-        }
-
-        failures
-    }
-}
-
-#[async_trait]
-impl<T> AsyncProductCommandService for T
-where
-    T: CommandProductService + Sync,
-{
-    async fn send(
-        &self,
-        commands: Vec<AsyncProductCommandData>,
-    ) -> Vec<AsyncProductCommandFailure> {
-        let mut failures = Vec::new();
-
-        let creates: Vec<CreateProductCommand> = commands
-            .iter()
-            .filter_map(|command| match command {
-                AsyncProductCommandData::Create(data) => Some(data.clone().into()),
-                _ => None,
-            })
-            .collect();
-        let failed_create_keys: HashSet<_> = if creates.is_empty() {
-            HashSet::new()
-        } else {
-            self.create(creates)
-                .await
-                .into_iter()
-                .map(|command| command.key())
-                .collect()
-        };
-
-        let updates: HashMap<_, UpdateProductCommand> = commands
-            .iter()
-            .filter_map(|command| match command {
-                AsyncProductCommandData::Update(data) => Some(data.clone().into()),
-                _ => None,
-            })
-            .collect();
-        let failed_update_keys: HashSet<_> = if updates.is_empty() {
-            HashSet::new()
-        } else {
-            self.update(updates).await.into_keys().collect()
-        };
-
-        let upserts: Vec<UpsertProductCommand> = commands
-            .iter()
-            .filter_map(|command| match command {
-                AsyncProductCommandData::Upsert(data) => Some(data.clone().into()),
-                _ => None,
-            })
-            .collect();
-        let failed_upsert_keys: HashSet<_> = if upserts.is_empty() {
-            HashSet::new()
-        } else {
-            self.upsert(upserts)
-                .await
-                .into_iter()
-                .map(|command| command.key())
-                .collect()
-        };
-
-        for command in commands {
-            let failed = match &command {
-                AsyncProductCommandData::Create(_) => failed_create_keys.contains(&command.key()),
-                AsyncProductCommandData::Update(_) => failed_update_keys.contains(&command.key()),
-                AsyncProductCommandData::Upsert(_) => failed_upsert_keys.contains(&command.key()),
-            };
-            if failed {
-                failures.push(AsyncProductCommandFailure {
-                    command,
-                    error: "PRODUCT_COMMAND_FAILED".to_string(),
-                });
             }
         }
 
@@ -231,6 +159,9 @@ mod tests {
             error: "failed".to_string(),
         };
 
-        assert_eq!("product-1", failure.command.shops_product_id().to_string());
+        assert_eq!(
+            "product-1",
+            failure.command.key().shops_product_id.to_string()
+        );
     }
 }

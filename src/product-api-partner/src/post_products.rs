@@ -2,16 +2,15 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::{BAD_BODY_VALUE, INVALID_JSON, SERVICE_UNAVAILABLE};
+use common::has_key::HasKey;
 use common::shop_id::api::extract_shop_id_path;
 use lambda_runtime::LambdaEvent;
 use product::data::post_product_data::PostProductData;
 use product_lambda_ingest_partner_products::{
     AsyncProductCommandData, AsyncProductCommandService, CreateAsyncProductCommandData,
 };
-use serde::Serialize;
 use shop::core::partner_shop_api_key::api::extract_api_key;
 use shop::service::get_service::GetShopService;
-use std::collections::HashMap;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
@@ -50,20 +49,13 @@ pub async fn handle(
         ));
     }
 
-    let errors: HashMap<String, String> = failures
+    let failed_shops_product_ids: Vec<String> = failures
         .into_iter()
-        .map(|failure| {
-            (
-                failure.command.shops_product_id().to_string(),
-                "CREATE_FAILED".to_string(),
-            )
-        })
+        .map(|failure| failure.command.key().shops_product_id.to_string())
         .collect();
 
-    let response = PostProductsResponse { errors };
-
     Ok(ApiGatewayV2HttpResponseBuilder::json(202)
-        .body_serde(response)?
+        .body_serde(failed_shops_product_ids)?
         .build())
 }
 
@@ -84,22 +76,6 @@ fn extract_body(request: &ApiGatewayV2httpRequest) -> Result<Vec<PostProductData
 }
 
 #[cfg(test)]
-fn to_create_command(
-    data: PostProductData,
-    partner_shop: &shop::core::partner_shop::PartnerShop,
-) -> product::service::product_command::CreateProductCommand {
-    CreateAsyncProductCommandData::from((partner_shop.shop_id, data)).into()
-}
-
-/// Response for the batch product creation endpoint.
-/// Contains a map of `shopsProductId → error key` for products that failed to create.
-/// An empty `errors` map indicates all products were created successfully.
-#[derive(Debug, Serialize)]
-pub struct PostProductsResponse {
-    pub errors: HashMap<String, String>,
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use common::language::data::{LanguageData, LocalizedTextData};
@@ -108,7 +84,10 @@ mod tests {
     use http::HeaderMap;
     use lambda_runtime::LambdaEvent;
     use product::data::product_state_data::ProductStateData;
-    use product::service::command_service::MockCommandProductService;
+    use product::service::product_command::CreateProductCommand;
+    use product_lambda_ingest_partner_products::service::{
+        AsyncProductCommandFailure, MockAsyncProductCommandService,
+    };
     use shop::core::partner_shop::PartnerShop;
     use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
     use shop::core::shop_type::ShopType;
@@ -142,7 +121,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_200_with_empty_errors_when_all_products_created_successfully() {
+    async fn should_return_202_with_empty_failures_when_all_products_forwarded_successfully() {
         let (api_key, partner_shop) = make_partner_shop_with_type(ShopType::AuctionHouse);
         let shop_id = partner_shop.shop_id;
 
@@ -164,9 +143,9 @@ mod tests {
             .expect_verify_partner_shop()
             .return_once(move |_, _| Box::pin(async move { Ok(expected_partner) }));
 
-        let mut command_service = MockCommandProductService::default();
+        let mut command_service = MockAsyncProductCommandService::default();
         command_service
-            .expect_create()
+            .expect_send()
             .return_once(|_| Box::pin(async { vec![] }));
 
         let result = handle(event, &shop_service, &command_service).await;
@@ -174,29 +153,39 @@ mod tests {
         let response = result.unwrap();
         assert_eq!(response.status_code, 202);
 
-        let body: serde_json::Value = match response.body {
+        let body: Vec<String> = match response.body {
             Some(aws_lambda_events::encodings::Body::Text(body_str)) => {
                 serde_json::from_str(&body_str).unwrap()
             }
             _ => panic!("Expected response body to be Text"),
         };
-        assert!(body["errors"].as_object().unwrap().is_empty());
+        assert!(body.is_empty());
     }
 
     #[tokio::test]
-    async fn should_return_200_with_error_entries_when_some_products_fail() {
+    async fn should_return_202_with_failed_product_ids_when_some_products_fail_to_forward() {
         let (api_key, partner_shop) = make_partner_shop_with_type(ShopType::AuctionHouse);
         let shop_id = partner_shop.shop_id;
         let shops_product_id = ShopsProductId::from("failing-product".to_string());
 
-        let body = serde_json::to_string(&vec![serde_json::json!({
-            "shopsProductId": "failing-product",
-            "title": { "text": "Test Product", "language": "en" },
-            "description": { "text": "A test product", "language": "en" },
-            "state": "AVAILABLE",
-            "url": "https://example.com/product/1",
-            "images": []
-        })])
+        let body = serde_json::to_string(&vec![
+            serde_json::json!({
+                "shopsProductId": "successful-product",
+                "title": { "text": "Successful Product", "language": "en" },
+                "description": { "text": "A successful product", "language": "en" },
+                "state": "AVAILABLE",
+                "url": "https://example.com/product/0",
+                "images": []
+            }),
+            serde_json::json!({
+                "shopsProductId": "failing-product",
+                "title": { "text": "Test Product", "language": "en" },
+                "description": { "text": "A test product", "language": "en" },
+                "state": "AVAILABLE",
+                "url": "https://example.com/product/1",
+                "images": []
+            }),
+        ])
         .unwrap();
 
         let event = make_event_with_body_and_key(&shop_id, &api_key, Some(body));
@@ -207,35 +196,48 @@ mod tests {
             .expect_verify_partner_shop()
             .return_once(move |_, _| Box::pin(async move { Ok(expected_partner) }));
 
-        let expected_cmd = to_create_command(
-            PostProductData {
-                shops_product_id: shops_product_id.clone(),
-                title: LocalizedTextData::new("Test Product", LanguageData::En),
-                description: LocalizedTextData::new("A test product", LanguageData::En),
-                price: None,
-                price_estimate_min: None,
-                price_estimate_max: None,
-                state: ProductStateData::Available,
-                url: url::Url::parse("https://example.com/product/1").unwrap(),
-                images: vec![],
-                auction_start: None,
-                auction_end: None,
-                seller_name: None,
-                structured_address: None,
-                geo_address: None,
-            },
-            &partner_shop,
-        );
+        let failed_command =
+            AsyncProductCommandData::Create(CreateAsyncProductCommandData::from((
+                partner_shop.shop_id,
+                PostProductData {
+                    shops_product_id: shops_product_id.clone(),
+                    title: LocalizedTextData::new("Test Product", LanguageData::En),
+                    description: LocalizedTextData::new("A test product", LanguageData::En),
+                    price: None,
+                    price_estimate_min: None,
+                    price_estimate_max: None,
+                    state: ProductStateData::Available,
+                    url: url::Url::parse("https://example.com/product/1").unwrap(),
+                    images: vec![],
+                    auction_start: None,
+                    auction_end: None,
+                    seller_name: None,
+                    structured_address: None,
+                    geo_address: None,
+                },
+            )));
 
-        let mut command_service = MockCommandProductService::default();
-        command_service
-            .expect_create()
-            .return_once(move |_| Box::pin(async move { vec![expected_cmd] }));
+        let mut command_service = MockAsyncProductCommandService::default();
+        command_service.expect_send().return_once(move |_| {
+            Box::pin(async move {
+                vec![AsyncProductCommandFailure {
+                    command: failed_command,
+                    error: "failed".to_string(),
+                }]
+            })
+        });
 
-        let err = handle(event, &shop_service, &command_service)
+        let response = handle(event, &shop_service, &command_service)
             .await
-            .unwrap_err();
-        assert_eq!(err.status, 503);
+            .unwrap();
+        assert_eq!(response.status_code, 202);
+        let body: Vec<String> = match response.body {
+            Some(aws_lambda_events::encodings::Body::Text(body_str)) => {
+                serde_json::from_str(&body_str).unwrap()
+            }
+            _ => panic!("Expected response body to be Text"),
+        };
+        assert_eq!(body, vec!["failing-product"]);
     }
 
     #[tokio::test]
@@ -252,7 +254,7 @@ mod tests {
                 let partner: PartnerShop = Faker.fake();
                 Box::pin(async move { Ok(partner) })
             });
-        let command_service = MockCommandProductService::default();
+        let command_service = MockAsyncProductCommandService::default();
         let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status, 400);
@@ -272,7 +274,7 @@ mod tests {
                 let partner: PartnerShop = Faker.fake();
                 Box::pin(async move { Ok(partner) })
             });
-        let command_service = MockCommandProductService::default();
+        let command_service = MockAsyncProductCommandService::default();
         let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status, 400);
@@ -302,13 +304,13 @@ mod tests {
             .expect_verify_partner_shop()
             .return_once(move |_, _| Box::pin(async move { Ok(expected_partner) }));
 
-        let mut command_service = MockCommandProductService::default();
-        command_service.expect_create().return_once(move |cmds| {
+        let mut command_service = MockAsyncProductCommandService::default();
+        command_service.expect_send().return_once(move |cmds| {
             Box::pin(async move {
-                assert_eq!(
-                    cmds[0].seller_name_raw.as_deref(),
-                    Some("marketplace seller raw")
-                );
+                let AsyncProductCommandData::Create(cmd) = &cmds[0] else {
+                    panic!("Expected create command")
+                };
+                assert_eq!(cmd.seller_name.as_deref(), Some("marketplace seller raw"));
                 vec![]
             })
         });
@@ -338,7 +340,8 @@ mod tests {
             geo_address: None,
         };
 
-        let cmd = to_create_command(data, &partner_shop);
+        let cmd: CreateProductCommand =
+            CreateAsyncProductCommandData::from((partner_shop.shop_id, data)).into();
 
         assert_eq!(cmd.shop_id, partner_shop.shop_id);
         assert_eq!(

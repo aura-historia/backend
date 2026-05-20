@@ -67,7 +67,7 @@ mod tests {
     use super::*;
     use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
     use lambda_runtime::LambdaEvent;
-    use product::service::command_service::MockCommandProductService;
+    use product_lambda_ingest_partner_products::service::MockAsyncProductCommandService;
     use shop::service::get_service::MockGetShopService;
 
     fn make_event(route_key: Option<&str>) -> LambdaEvent<ApiGatewayV2httpRequest> {
@@ -80,7 +80,7 @@ mod tests {
     async fn should_return_500_when_unknown_route_key() {
         let event = make_event(Some("GET /unknown"));
         let shop_service = MockGetShopService::default();
-        let command_service = MockCommandProductService::default();
+        let command_service = MockAsyncProductCommandService::default();
 
         let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_err());
@@ -92,7 +92,7 @@ mod tests {
     async fn should_return_500_when_missing_route_key() {
         let event = make_event(None);
         let shop_service = MockGetShopService::default();
-        let command_service = MockCommandProductService::default();
+        let command_service = MockAsyncProductCommandService::default();
 
         let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_err());

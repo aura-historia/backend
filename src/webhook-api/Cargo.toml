@@ -35,4 +35,4 @@ product = { workspace = true, features = ["test-data"] }
 rstest = { workspace = true }
 serial_test = { workspace = true }
 shop = { workspace = true, features = ["test-data", "seller"] }
-test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
+test-api = { workspace = true, features = ["api-gateway", "dynamodb", "sqs"] }
