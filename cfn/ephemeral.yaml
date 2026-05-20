@@ -431,7 +431,6 @@ Resources:
         maxReceiveCount: 5
       VisibilityTimeout: 180
 
-
   ProductMaterializeOpenSearchDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -445,7 +444,6 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductMaterializeOpenSearchDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 360
-
 
   ProductPartnerIngestDlq:
     Type: AWS::SQS::Queue
@@ -2945,7 +2943,6 @@ Resources:
       BatchSize: 1
       MaximumBatchingWindowInSeconds: 0
 
-
   # --- Product Partner Ingest Lambda ---
   ProductPartnerIngestRole:
     Type: AWS::IAM::Role
@@ -3316,6 +3313,9 @@ Resources:
                   - dynamodb:BatchWriteItem
                   - dynamodb:GetItem
                   - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:TransactWriteItems
                 Resource:
                   - !GetAtt TableOne.Arn
                   - !Sub "${TableOne.Arn}/index/*"
