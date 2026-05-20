@@ -376,6 +376,23 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
             translations_by_language.get(&LanguageRecord::Fr).cloned(),
             "Expected French translation in written event record"
         );
+
+        let updated_record = repository
+            .get_product_record(shop_id, shops_product_id)
+            .await
+            .expect("shouldn't fail fetching updated product record")
+            .expect("product record should exist");
+
+        assert_eq!(
+            Some("Viktorianischer Silberleuchter".to_string()),
+            updated_record.title_de,
+            "Expected German translation in materialized product record"
+        );
+        assert_eq!(
+            Some("Chandelier en argent victorien".to_string()),
+            updated_record.title_fr,
+            "Expected French translation in materialized product record"
+        );
     }
 }
 

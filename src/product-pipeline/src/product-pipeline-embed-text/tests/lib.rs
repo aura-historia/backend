@@ -267,6 +267,18 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
             enrichment_events[0].embedding,
             "Expected embedding to match in written enrichment event record"
         );
+
+        let updated_record = repository
+            .get_product_record(shop_id, shops_product_id)
+            .await
+            .expect("shouldn't fail fetching updated product record")
+            .expect("product record should exist");
+
+        assert_eq!(
+            Some(vec![0.42f32; 768]),
+            updated_record.embedding,
+            "Expected embedding to be persisted in the materialized product record"
+        );
     }
 }
 
