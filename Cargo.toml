@@ -143,6 +143,7 @@ product-pipeline-translate = { path = "src/product-pipeline/src/product-pipeline
 product-pipeline = { path = "src/product-pipeline" }
 product-lambda-materialize-opensearch = { path = "src/product-lambda/src/product-lambda-materialize-opensearch" }
 product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lambda-update-notify-user" }
+product-lambda-ingest-partner-products = { path = "src/product-lambda/src/product-lambda-ingest-partner-products" }
 isocountry = "0.3.2"
 itertools = "0.14.0"
 lambda_runtime = "1.2.0"

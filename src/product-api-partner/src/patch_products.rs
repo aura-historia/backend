@@ -1,24 +1,21 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::{BAD_BODY_VALUE, INVALID_JSON};
-use common::price::domain::Price;
-use common::product_id::ProductKey;
+use common::api::error_code::{BAD_BODY_VALUE, INVALID_JSON, SERVICE_UNAVAILABLE};
+use common::has_key::HasKey;
 use common::shop_id::api::extract_shop_id_path;
 use lambda_runtime::LambdaEvent;
 use product::data::patch_product_data::PatchProductData;
-use product::service::command_service::CommandProductService;
-use product::service::product_command::UpdateProductCommand;
-use serde::Serialize;
-use shop::core::partner_shop::PartnerShop;
+use product_lambda_ingest_partner_products::{
+    AsyncProductCommandData, AsyncProductCommandService, UpdateAsyncProductCommandData,
+};
 use shop::core::partner_shop_api_key::api::extract_api_key;
 use shop::service::get_service::GetShopService;
-use std::collections::HashMap;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_shop_service: &(impl GetShopService + Sync),
-    command_product_service: &(impl CommandProductService + Sync),
+    async_product_command_service: &(impl AsyncProductCommandService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
     let api_key = extract_api_key(&event.payload)?;
@@ -29,27 +26,36 @@ pub async fn handle(
 
     let products: Vec<PatchProductData> = extract_body(&event.payload)?;
 
-    let commands: HashMap<ProductKey, UpdateProductCommand> = products
+    let commands: Vec<AsyncProductCommandData> = products
         .into_iter()
-        .map(|data| to_update_entry(data, &partner_shop))
-        .collect();
-
-    let failures = command_product_service.update(commands).await;
-
-    let errors: HashMap<String, String> = failures
-        .into_keys()
-        .map(|key| {
-            (
-                key.shops_product_id.to_string(),
-                "UPDATE_FAILED".to_string(),
-            )
+        .map(|data| {
+            AsyncProductCommandData::Update(UpdateAsyncProductCommandData::from((
+                partner_shop.shop_id,
+                data,
+            )))
         })
         .collect();
 
-    let response = PatchProductsResponse { errors };
+    let command_count = commands.len();
+    let failures = async_product_command_service.send(commands).await;
+    if failures.len() == command_count && command_count > 0 {
+        let msg = failures
+            .first()
+            .map(|failure| failure.error.clone())
+            .unwrap_or_else(|| "Failed forwarding product commands to SQS.".to_string());
+        return Err(ApiError::service_unavailable(
+            SERVICE_UNAVAILABLE,
+            msg.into(),
+        ));
+    }
 
-    Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .body_serde(response)?
+    let failed_shops_product_ids: Vec<String> = failures
+        .into_iter()
+        .map(|failure| failure.command.key().shops_product_id.to_string())
+        .collect();
+
+    Ok(ApiGatewayV2HttpResponseBuilder::json(202)
+        .body_serde(failed_shops_product_ids)?
         .build())
 }
 
@@ -69,44 +75,6 @@ fn extract_body(request: &ApiGatewayV2httpRequest) -> Result<Vec<PatchProductDat
     })
 }
 
-fn to_update_entry(
-    data: PatchProductData,
-    partner_shop: &PartnerShop,
-) -> (ProductKey, UpdateProductCommand) {
-    let key = ProductKey::new(partner_shop.shop_id, data.shops_product_id);
-
-    let images = data.images.map(|urls| {
-        urls.into_iter()
-            .map(|url| product::core::product_image::ProductImage {
-                url,
-                prohibited_content: product::core::prohibited_content::ProhibitedContent::default(),
-            })
-            .collect()
-    });
-
-    let cmd = UpdateProductCommand {
-        native_price: data.price.map(Price::from),
-        state: data.state.map(|s| s.into()),
-        native_price_estimate_min: data.price_estimate_min.map(Price::from),
-        native_price_estimate_max: data.price_estimate_max.map(Price::from),
-        url: data.url,
-        images,
-        auction_start: data.auction_start,
-        auction_end: data.auction_end,
-        embedding: None,
-        translated_titles: None,
-    };
-    (key, cmd)
-}
-
-/// Response for the batch product update endpoint.
-/// Contains a map of `shopsProductId → error key` for products that failed to update.
-/// An empty `errors` map indicates all products were updated successfully.
-#[derive(Debug, Serialize)]
-pub struct PatchProductsResponse {
-    pub errors: HashMap<String, String>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,7 +83,9 @@ mod tests {
     use http::HeaderMap;
     use lambda_runtime::LambdaEvent;
     use product::data::product_state_data::ProductStateData;
-    use product::service::command_service::MockCommandProductService;
+    use product_lambda_ingest_partner_products::service::{
+        AsyncProductCommandFailure, MockAsyncProductCommandService,
+    };
     use shop::core::partner_shop::PartnerShop;
     use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
     use shop::service::get_service::MockGetShopService;
@@ -139,7 +109,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_200_with_empty_errors_when_all_products_updated_successfully() {
+    async fn should_return_202_with_empty_failures_when_all_products_forwarded_successfully() {
         let api_key = PartnerShopApiKey::new();
         let partner_shop: PartnerShop = Faker.fake();
         let shop_id = partner_shop.shop_id;
@@ -161,27 +131,27 @@ mod tests {
             .expect_verify_partner_shop()
             .return_once(move |_, _| Box::pin(async move { Ok(expected_partner) }));
 
-        let mut command_service = MockCommandProductService::default();
+        let mut command_service = MockAsyncProductCommandService::default();
         command_service
-            .expect_update()
-            .return_once(|_| Box::pin(async { HashMap::new() }));
+            .expect_send()
+            .return_once(|_| Box::pin(async { vec![] }));
 
         let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_ok());
         let response = result.unwrap();
-        assert_eq!(response.status_code, 200);
+        assert_eq!(response.status_code, 202);
 
-        let body: serde_json::Value = match response.body {
+        let body: Vec<String> = match response.body {
             Some(aws_lambda_events::encodings::Body::Text(body_str)) => {
                 serde_json::from_str(&body_str).unwrap()
             }
             _ => panic!("Expected response body to be Text"),
         };
-        assert!(body["errors"].as_object().unwrap().is_empty());
+        assert!(body.is_empty());
     }
 
     #[tokio::test]
-    async fn should_return_200_with_error_entries_when_some_products_fail() {
+    async fn should_return_202_with_failed_product_ids_when_some_products_fail_to_forward() {
         let api_key = PartnerShopApiKey::new();
         let partner_shop: PartnerShop = Faker.fake();
         let shop_id = partner_shop.shop_id;
@@ -191,10 +161,16 @@ mod tests {
 
         let shops_product_id = ShopsProductId::from("failing-product".to_string());
 
-        let body = serde_json::to_string(&vec![serde_json::json!({
-            "shopsProductId": "failing-product",
-            "state": "AVAILABLE"
-        })])
+        let body = serde_json::to_string(&vec![
+            serde_json::json!({
+                "shopsProductId": "successful-product",
+                "state": "AVAILABLE"
+            }),
+            serde_json::json!({
+                "shopsProductId": "failing-product",
+                "state": "AVAILABLE"
+            }),
+        ])
         .unwrap();
 
         let event = make_event_with_body_and_key(&shop_id, &api_key, Some(body));
@@ -205,43 +181,43 @@ mod tests {
             .expect_verify_partner_shop()
             .return_once(move |_, _| Box::pin(async move { Ok(expected_partner) }));
 
-        let (key, cmd) = to_update_entry(
-            PatchProductData {
-                shops_product_id: shops_product_id.clone(),
-                price: None,
-                state: Some(ProductStateData::Available),
-                price_estimate_min: None,
-                price_estimate_max: None,
-                url: None,
-                images: None,
-                auction_start: None,
-                auction_end: None,
-            },
-            &partner_shop_with_key,
-        );
+        let failed_command =
+            AsyncProductCommandData::Update(UpdateAsyncProductCommandData::from((
+                partner_shop_with_key.shop_id,
+                PatchProductData {
+                    shops_product_id: shops_product_id.clone(),
+                    price: None,
+                    state: Some(ProductStateData::Available),
+                    price_estimate_min: None,
+                    price_estimate_max: None,
+                    url: None,
+                    images: None,
+                    auction_start: None,
+                    auction_end: None,
+                },
+            )));
 
-        let mut command_service = MockCommandProductService::default();
-        command_service
-            .expect_update()
-            .return_once(move |_| Box::pin(async move { HashMap::from([(key, cmd)]) }));
+        let mut command_service = MockAsyncProductCommandService::default();
+        command_service.expect_send().return_once(move |_| {
+            Box::pin(async move {
+                vec![AsyncProductCommandFailure {
+                    command: failed_command,
+                    error: "failed".to_string(),
+                }]
+            })
+        });
 
-        let result = handle(event, &shop_service, &command_service).await;
-        assert!(result.is_ok());
-        let response = result.unwrap();
-        assert_eq!(response.status_code, 200);
-
-        let body: serde_json::Value = match response.body {
+        let response = handle(event, &shop_service, &command_service)
+            .await
+            .unwrap();
+        assert_eq!(response.status_code, 202);
+        let body: Vec<String> = match response.body {
             Some(aws_lambda_events::encodings::Body::Text(body_str)) => {
                 serde_json::from_str(&body_str).unwrap()
             }
             _ => panic!("Expected response body to be Text"),
         };
-        assert!(
-            body["errors"]
-                .as_object()
-                .unwrap()
-                .contains_key("failing-product")
-        );
+        assert_eq!(body, vec!["failing-product"]);
     }
 
     #[tokio::test]
@@ -258,7 +234,7 @@ mod tests {
                 let partner: PartnerShop = Faker.fake();
                 Box::pin(async move { Ok(partner) })
             });
-        let command_service = MockCommandProductService::default();
+        let command_service = MockAsyncProductCommandService::default();
 
         let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_err());
@@ -279,7 +255,7 @@ mod tests {
                 let partner: PartnerShop = Faker.fake();
                 Box::pin(async move { Ok(partner) })
             });
-        let command_service = MockCommandProductService::default();
+        let command_service = MockAsyncProductCommandService::default();
 
         let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_err());
@@ -301,7 +277,10 @@ mod tests {
             auction_end: None,
         };
 
-        let (key, cmd) = to_update_entry(data, &partner_shop);
+        let (key, cmd): (
+            common::product_id::ProductKey,
+            product::service::product_command::UpdateProductCommand,
+        ) = UpdateAsyncProductCommandData::from((partner_shop.shop_id, data)).into();
 
         assert_eq!(key.shop_id, partner_shop.shop_id);
         assert_eq!(
@@ -333,7 +312,10 @@ mod tests {
             auction_end: None,
         };
 
-        let (key, cmd) = to_update_entry(data, &partner_shop);
+        let (key, cmd): (
+            common::product_id::ProductKey,
+            product::service::product_command::UpdateProductCommand,
+        ) = UpdateAsyncProductCommandData::from((partner_shop.shop_id, data)).into();
 
         assert_eq!(key.shop_id, partner_shop.shop_id);
         assert!(cmd.native_price.is_some());

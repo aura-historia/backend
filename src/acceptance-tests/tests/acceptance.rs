@@ -4038,6 +4038,56 @@ async fn prepare_partner_shop() -> (ShopRecord, PartnerShopApiKey) {
     (record, api_key)
 }
 
+async fn wait_for_partner_product_record(
+    shop_id: common::shop_id::ShopId,
+    shops_product_id: common::shops_product_id::ShopsProductId,
+) -> ProductRecord {
+    let product_repository = ProductDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        get_cfn_output().dynamodb_table_1_name.as_str(),
+    );
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        if let Some(product_record) = product_repository
+            .get_product_record(&shop_id, &shops_product_id)
+            .await
+            .unwrap()
+        {
+            return product_record;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: Partner product '{}' for shop '{}' was not persisted by async ingestion",
+                shops_product_id, shop_id
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+}
+
+async fn wait_for_partner_product_state(
+    shop_id: common::shop_id::ShopId,
+    shops_product_id: common::shops_product_id::ShopsProductId,
+    expected: product::dynamodb::product_state_record::ProductStateRecord,
+) {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let product = wait_for_partner_product_record(shop_id, shops_product_id.clone()).await;
+        if product.state == expected {
+            return;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: Partner product '{}' for shop '{}' did not reach state '{:?}'",
+                shops_product_id, shop_id, expected
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+}
+
 const WOOCOMMERCE_WEBHOOK_SECRET: &str = "woocommerce-acceptance-secret";
 const WOOCOMMERCE_CREATED_BODY: &str = r#"{"id":17,"name":"Test Produkt Titel","slug":"test-produkt-titel","permalink":"http://aura-historia-test.local/product/test-produkt-titel/","date_created":"2026-05-13T19:22:31","date_modified":"2026-05-13T19:23:23","type":"simple","status":"publish","description":"<p>Hayde yallah test beschreibung</p>\n","short_description":"<p>Hayde yallah kurze test beschreibung</p>\n","price":"42.69","regular_price":"42.69","stock_status":"instock","categories":[{"id":15,"name":"Uncategorized","slug":"uncategorized"}],"images":[]}"#;
 const WOOCOMMERCE_UPDATED_BODY: &str = r#"{"id":17,"name":"Test Produkt Titel","slug":"test-produkt-titel","permalink":"http://aura-historia-test.local/product/test-produkt-titel/","date_created":"2026-05-13T19:22:31","date_modified":"2026-05-13T19:24:54","type":"simple","status":"publish","description":"<p>Hayde yallah test beschreibung</p>\n","short_description":"<p>Hayde yallah kurze test beschreibung</p>\n","price":"123.45","regular_price":"123.45","stock_status":"instock","categories":[{"id":15,"name":"Uncategorized","slug":"uncategorized"}],"images":[]}"#;
@@ -4086,9 +4136,36 @@ async fn post_woocommerce_webhook(topic: &str, body: &str) {
         .send()
         .await
         .unwrap();
-    assert_eq!(200, response.status());
-    let body: serde_json::Value = response.json().await.unwrap();
-    assert_eq!(0, body["errors"]);
+    assert_eq!(202, response.status());
+    assert_eq!(0, response.bytes().await.unwrap().len());
+    let product = wait_for_partner_product_record(shop_record.shop_id, "17".into()).await;
+    assert_eq!(product.shops_product_id.to_string(), "17");
+    match topic {
+        "product.created" => {
+            assert_eq!(product.title_native.text, "Test Produkt Titel");
+            assert_eq!(
+                product.price_native.as_ref().map(|price| price.amount),
+                Some(4269)
+            );
+            assert_eq!(
+                product.state,
+                product::dynamodb::product_state_record::ProductStateRecord::Available
+            );
+        }
+        "product.updated" => {
+            assert_eq!(
+                product.price_native.as_ref().map(|price| price.amount),
+                Some(12345)
+            );
+        }
+        "product.deleted" => {
+            assert_eq!(
+                product.state,
+                product::dynamodb::product_state_record::ProductStateRecord::Removed
+            );
+        }
+        _ => {}
+    }
 }
 
 #[localstack_test(services = [Cloudformation()])]
@@ -4130,10 +4207,17 @@ async fn should_respond_200_for_partner_post_products() {
         .send()
         .await
         .unwrap();
-    assert_eq!(200, response.status());
+    assert_eq!(202, response.status());
 
-    let body: serde_json::Value = response.json().await.unwrap();
-    assert!(body["errors"].as_object().unwrap().is_empty());
+    let body: Vec<String> = response.json().await.unwrap();
+    assert!(body.is_empty());
+    let product =
+        wait_for_partner_product_record(shop_record.shop_id, "acceptance-test-product-1".into())
+            .await;
+    assert_eq!(
+        product.shops_product_id.to_string(),
+        "acceptance-test-product-1"
+    );
 }
 
 // ─── Product Pipeline Embed Text (Lambda) ─────────────────────────────────────
@@ -4250,10 +4334,16 @@ async fn should_respond_200_for_partner_patch_products() {
         .send()
         .await
         .unwrap();
-    assert_eq!(200, response.status());
+    assert_eq!(202, response.status());
 
-    let body: serde_json::Value = response.json().await.unwrap();
-    assert!(body["errors"].as_object().unwrap().is_empty());
+    let body: Vec<String> = response.json().await.unwrap();
+    assert!(body.is_empty());
+    wait_for_partner_product_state(
+        shop_record.shop_id,
+        "acceptance-test-patch-product-1".into(),
+        product::dynamodb::product_state_record::ProductStateRecord::Sold,
+    )
+    .await;
 }
 
 #[localstack_test(services = [Cloudformation()])]
@@ -4280,10 +4370,19 @@ async fn should_respond_200_for_partner_put_products_when_creating_new() {
         .send()
         .await
         .unwrap();
-    assert_eq!(200, response.status());
+    assert_eq!(202, response.status());
 
-    let body: serde_json::Value = response.json().await.unwrap();
-    assert!(body["errors"].as_object().unwrap().is_empty());
+    let body: Vec<String> = response.json().await.unwrap();
+    assert!(body.is_empty());
+    let product = wait_for_partner_product_record(
+        shop_record.shop_id,
+        "acceptance-test-put-product-1".into(),
+    )
+    .await;
+    assert_eq!(
+        product.shops_product_id.to_string(),
+        "acceptance-test-put-product-1"
+    );
 }
 
 #[localstack_test(services = [Cloudformation()])]
@@ -4325,10 +4424,16 @@ async fn should_respond_200_for_partner_put_products_when_updating_existing() {
         .send()
         .await
         .unwrap();
-    assert_eq!(200, response.status());
+    assert_eq!(202, response.status());
 
-    let body: serde_json::Value = response.json().await.unwrap();
-    assert!(body["errors"].as_object().unwrap().is_empty());
+    let body: Vec<String> = response.json().await.unwrap();
+    assert!(body.is_empty());
+    wait_for_partner_product_state(
+        shop_record.shop_id,
+        "acceptance-test-put-existing-product-1".into(),
+        product::dynamodb::product_state_record::ProductStateRecord::Sold,
+    )
+    .await;
 }
 
 // ---------------------------------------------------------------------------

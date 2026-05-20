@@ -5381,6 +5381,7 @@ version = "0.1.0"
 dependencies = [
  "aws-config",
  "aws-sdk-dynamodb",
+ "aws-sdk-sqs",
  "aws_lambda_events",
  "common",
  "fake",
@@ -5391,6 +5392,7 @@ dependencies = [
  "llm",
  "opensearch",
  "product",
+ "product-lambda-ingest-partner-products",
  "rstest",
  "serde",
  "serde_json",
@@ -5408,8 +5410,40 @@ dependencies = [
 name = "product-lambda"
 version = "0.1.0"
 dependencies = [
+ "product-lambda-ingest-partner-products",
  "product-lambda-materialize-opensearch",
  "product-lambda-update-notify-user",
+]
+
+[[package]]
+name = "product-lambda-ingest-partner-products"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws-sdk-sqs",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "fxrate",
+ "geo",
+ "itertools 0.14.0",
+ "lambda_runtime",
+ "llm",
+ "mockall",
+ "opensearch",
+ "product",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "shop",
+ "test-api",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]
@@ -9049,6 +9083,7 @@ version = "0.1.0"
 dependencies = [
  "aws-config",
  "aws-sdk-dynamodb",
+ "aws-sdk-sqs",
  "aws_lambda_events",
  "base64 0.22.1",
  "common",
@@ -9062,6 +9097,7 @@ dependencies = [
  "opensearch",
  "openssl",
  "product",
+ "product-lambda-ingest-partner-products",
  "rstest",
  "serde",
  "serde_json",

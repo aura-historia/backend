@@ -91,6 +91,29 @@ impl std::fmt::Display for LogWriteSource {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogProductCommandIntent {
+    Create,
+    Update,
+    Upsert,
+}
+
+impl LogProductCommandIntent {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Create => "CREATE",
+            Self::Update => "UPDATE",
+            Self::Upsert => "UPSERT",
+        }
+    }
+}
+
+impl std::fmt::Display for LogProductCommandIntent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogClassificationMethod {
     ClearScore,
     Llm,

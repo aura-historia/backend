@@ -30,6 +30,8 @@ pub async fn reset() {
         cfn_output.notification_send_dead_letter_queue_url,
         cfn_output.product_materialize_opensearch_queue_url,
         cfn_output.product_materialize_opensearch_dead_letter_queue_url,
+        cfn_output.product_partner_ingest_queue_url,
+        cfn_output.product_partner_ingest_dead_letter_queue_url,
         cfn_output.shop_opensearch_index_queue_url,
         cfn_output.shop_opensearch_index_dead_letter_queue_url,
         cfn_output.user_opensearch_index_queue_url,

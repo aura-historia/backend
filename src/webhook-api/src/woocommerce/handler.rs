@@ -5,16 +5,19 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use base64::Engine;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::{BAD_BODY_VALUE, BAD_HEADER_VALUE, INTERNAL_SERVER_ERROR};
+use common::api::error_code::{
+    BAD_BODY_VALUE, BAD_HEADER_VALUE, INTERNAL_SERVER_ERROR, SERVICE_UNAVAILABLE,
+};
 use common::shop_id::api::extract_shop_id_path;
 use lambda_runtime::LambdaEvent;
 use openssl::hash::MessageDigest;
 use openssl::memcmp;
 use openssl::pkey::PKey;
 use openssl::sign::Signer;
-use product::service::command_service::CommandProductService;
 use product::service::product_command::UpsertProductCommand;
-use serde_json::json;
+use product_lambda_ingest_partner_products::{
+    AsyncProductCommandData, AsyncProductCommandService, UpsertAsyncProductCommandData,
+};
 use shop::core::partner_shop::PartnerShop;
 use shop::core::partner_shop_api_key::api::extract_api_key;
 use shop::service::get_service::GetShopService;
@@ -28,7 +31,7 @@ const WOOCOMMERCE_SIGNATURE_HEADER: &str = "x-wc-webhook-signature";
 pub async fn handle_woocommerce(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_shop_service: &(impl GetShopService + Sync),
-    command_product_service: &(impl CommandProductService + Sync),
+    async_product_command_service: &(impl AsyncProductCommandService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
     let api_key = extract_api_key(&event.payload)?;
@@ -52,10 +55,19 @@ pub async fn handle_woocommerce(
     })
     .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)))?;
 
-    let errors = command_product_service.upsert(vec![command]).await;
-    Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .body_serde(json!({ "errors": errors.len() }))?
-        .build())
+    let failures = async_product_command_service
+        .send(vec![AsyncProductCommandData::Upsert(
+            UpsertAsyncProductCommandData::from(command),
+        )])
+        .await;
+    if let Some(failure) = failures.first() {
+        return Err(ApiError::service_unavailable(
+            SERVICE_UNAVAILABLE,
+            failure.error.clone().into(),
+        ));
+    }
+
+    Ok(ApiGatewayV2HttpResponseBuilder::new(202).build())
 }
 
 fn body_bytes(request: &ApiGatewayV2httpRequest) -> Result<Vec<u8>, ApiError> {
@@ -167,7 +179,7 @@ mod tests {
     use openssl::hash::MessageDigest;
     use openssl::pkey::PKey;
     use openssl::sign::Signer;
-    use product::service::command_service::MockCommandProductService;
+    use product_lambda_ingest_partner_products::service::MockAsyncProductCommandService;
     use shop::core::partner_shop::PartnerShop;
     use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
     use shop::core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
@@ -247,18 +259,20 @@ mod tests {
             .expect_verify_partner_shop()
             .return_once(move |_, _| Box::pin(async move { Ok(expected_shop) }));
 
-        let mut product_service = MockCommandProductService::default();
-        product_service.expect_upsert().return_once(move |cmds| {
+        let mut product_service = MockAsyncProductCommandService::default();
+        product_service.expect_send().return_once(move |cmds| {
             Box::pin(async move {
                 assert_eq!(cmds.len(), 1);
-                assert_eq!(cmds[0].shop_id, shop.shop_id);
-                assert_eq!(cmds[0].shops_product_id.to_string(), "17");
-                assert_eq!(cmds[0].state, Some(ProductState::Available));
+                let AsyncProductCommandData::Upsert(cmd) = &cmds[0] else {
+                    panic!("Expected upsert command")
+                };
+                assert_eq!(cmd.shop_id, shop.shop_id);
+                assert_eq!(cmd.shops_product_id.to_string(), "17");
+                assert_eq!(cmd.state, Some(ProductState::Available.into()));
                 assert_eq!(
-                    cmds[0]
-                        .native_price
+                    cmd.price
                         .as_ref()
-                        .map(|price| price.monetary_amount),
+                        .map(|price| common::price::domain::Price::from(*price).monetary_amount),
                     Some(MonetaryAmount::from(4269_u64))
                 );
                 vec![]
@@ -268,7 +282,7 @@ mod tests {
         let response = handle_woocommerce(lambda_event, &get_shop_service, &product_service)
             .await
             .unwrap();
-        assert_eq!(200, response.status_code);
+        assert_eq!(202, response.status_code);
     }
 
     #[tokio::test]
@@ -290,11 +304,14 @@ mod tests {
             .expect_verify_partner_shop()
             .return_once(move |_, _| Box::pin(async move { Ok(expected_shop) }));
 
-        let mut product_service = MockCommandProductService::default();
-        product_service.expect_upsert().return_once(move |cmds| {
+        let mut product_service = MockAsyncProductCommandService::default();
+        product_service.expect_send().return_once(move |cmds| {
             Box::pin(async move {
-                assert_eq!(cmds[0].state, Some(ProductState::Removed));
-                assert!(cmds[0].native_title.is_none());
+                let AsyncProductCommandData::Upsert(cmd) = &cmds[0] else {
+                    panic!("Expected upsert command")
+                };
+                assert_eq!(cmd.state, Some(ProductState::Removed.into()));
+                assert!(cmd.title.is_none());
                 vec![]
             })
         });
@@ -302,7 +319,7 @@ mod tests {
         let response = handle_woocommerce(lambda_event, &get_shop_service, &product_service)
             .await
             .unwrap();
-        assert_eq!(200, response.status_code);
+        assert_eq!(202, response.status_code);
     }
 
     #[tokio::test]
@@ -327,7 +344,7 @@ mod tests {
         let err = handle_woocommerce(
             lambda_event,
             &get_shop_service,
-            &MockCommandProductService::default(),
+            &MockAsyncProductCommandService::default(),
         )
         .await
         .unwrap_err();
@@ -350,7 +367,7 @@ mod tests {
         let err = handle_woocommerce(
             lambda_event,
             &get_shop_service,
-            &MockCommandProductService::default(),
+            &MockAsyncProductCommandService::default(),
         )
         .await
         .unwrap_err();

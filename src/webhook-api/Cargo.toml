@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
+aws-sdk-sqs = { workspace = true }
 aws_lambda_events = { workspace = true, features = ["apigw"] }
 base64 = { workspace = true }
 common = { workspace = true, features = ["api", "opensearch"] }
@@ -17,6 +18,7 @@ opensearch = { workspace = true }
 openssl = { workspace = true, features = ["vendored"] } # we unfortunately need this as crates "jsonwebtokens*" cannot do rust-tls
 fxrate = { workspace = true }
 product = { workspace = true, features = ["dynamodb", "service"] }
+product-lambda-ingest-partner-products = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 shop = { workspace = true, features = ["dynamodb", "api", "service", "seller"] }
@@ -33,4 +35,4 @@ product = { workspace = true, features = ["test-data"] }
 rstest = { workspace = true }
 serial_test = { workspace = true }
 shop = { workspace = true, features = ["test-data", "seller"] }
-test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
+test-api = { workspace = true, features = ["api-gateway", "dynamodb", "sqs"] }
