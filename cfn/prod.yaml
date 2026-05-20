@@ -2687,6 +2687,7 @@ Resources:
     Properties:
       QueueName: "product-lambda-ingest-partner-products-dlq-prod"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
   ProductPartnerIngestQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -2695,6 +2696,7 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductPartnerIngestDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 180
+      SqsManagedSseEnabled: true
 
   ShopifyLambdaDlq:
     Type: AWS::SQS::Queue
@@ -3931,9 +3933,11 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          OPENSEARCH_ENDPOINT_URL: "https://opensearch.aura-historia.de"
-          GEMINI_API_KEY: "test-key"
-          GOOGLE_GEOCODING_API_KEY: "test-key"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/prod/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/prod/password}}"
+          GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/gemini-api-key}}"
+          GOOGLE_GEOCODING_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/google-geocoding-api-key}}"
           STAGE: "prod"
   ProductPartnerIngestMapping:
     Type: AWS::Lambda::EventSourceMapping

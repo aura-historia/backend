@@ -82,15 +82,15 @@ impl AsyncProductCommandService for AsyncProductCommandServiceImpl<'_> {
             {
                 Ok(output) => {
                     for failed in output.failed {
-                        if let Ok(index) = failed.id.parse::<usize>() {
-                            if let Some(command) = chunk.get(index) {
-                                failures.push(AsyncProductCommandFailure {
-                                    command: command.clone(),
-                                    error: failed
-                                        .message
-                                        .unwrap_or_else(|| "SQS send failed".to_string()),
-                                });
-                            }
+                        if let Ok(index) = failed.id.parse::<usize>()
+                            && let Some(command) = chunk.get(index)
+                        {
+                            failures.push(AsyncProductCommandFailure {
+                                command: command.clone(),
+                                error: failed
+                                    .message
+                                    .unwrap_or_else(|| "SQS send failed".to_string()),
+                            });
                         }
                     }
                 }
