@@ -4211,12 +4211,6 @@ async fn should_respond_200_for_partner_post_products() {
 
     let body: Vec<String> = response.json().await.unwrap();
     assert!(body.is_empty());
-    wait_for_partner_product_state(
-        shop_record.shop_id,
-        "acceptance-test-patch-product-1".into(),
-        product::dynamodb::product_state_record::ProductStateRecord::Sold,
-    )
-    .await;
     let product =
         wait_for_partner_product_record(shop_record.shop_id, "acceptance-test-product-1".into())
             .await;
@@ -4346,7 +4340,7 @@ async fn should_respond_200_for_partner_patch_products() {
     assert!(body.is_empty());
     wait_for_partner_product_state(
         shop_record.shop_id,
-        "acceptance-test-put-existing-product-1".into(),
+        "acceptance-test-patch-product-1".into(),
         product::dynamodb::product_state_record::ProductStateRecord::Sold,
     )
     .await;
@@ -4434,6 +4428,12 @@ async fn should_respond_200_for_partner_put_products_when_updating_existing() {
 
     let body: Vec<String> = response.json().await.unwrap();
     assert!(body.is_empty());
+    wait_for_partner_product_state(
+        shop_record.shop_id,
+        "acceptance-test-put-existing-product-1".into(),
+        product::dynamodb::product_state_record::ProductStateRecord::Sold,
+    )
+    .await;
 }
 
 // ---------------------------------------------------------------------------
