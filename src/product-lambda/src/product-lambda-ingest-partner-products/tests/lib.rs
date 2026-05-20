@@ -14,6 +14,7 @@ use product_lambda_ingest_partner_products::{
 };
 use shop::dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl};
 use shop::dynamodb::shop_record::ShopRecord;
+use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use shop::service::get_service::GetShopServiceImpl;
 use shop::service::seller_service::MockSellerService;
 use test_api::*;
@@ -47,7 +48,8 @@ async fn should_create_product_when_create_command_is_received_for_partner_inges
     .await
     .unwrap();
 
-    let shop_record: ShopRecord = Faker.fake();
+    let mut shop_record: ShopRecord = Faker.fake();
+    shop_record.shop_type = ShopTypeRecord::AuctionHouse;
     let shop_id = shop_record.shop_id;
     shop_repository
         .put_shop_record(shop_record.clone())

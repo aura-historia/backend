@@ -4140,6 +4140,32 @@ async fn post_woocommerce_webhook(topic: &str, body: &str) {
     assert_eq!(0, response.bytes().await.unwrap().len());
     let product = wait_for_partner_product_record(shop_record.shop_id, "17".into()).await;
     assert_eq!(product.shops_product_id.to_string(), "17");
+    match topic {
+        "product.created" => {
+            assert_eq!(product.title_native.text, "Test Produkt Titel");
+            assert_eq!(
+                product.price_native.as_ref().map(|price| price.amount),
+                Some(4269)
+            );
+            assert_eq!(
+                product.state,
+                product::dynamodb::product_state_record::ProductStateRecord::Available
+            );
+        }
+        "product.updated" => {
+            assert_eq!(
+                product.price_native.as_ref().map(|price| price.amount),
+                Some(12345)
+            );
+        }
+        "product.deleted" => {
+            assert_eq!(
+                product.state,
+                product::dynamodb::product_state_record::ProductStateRecord::Removed
+            );
+        }
+        _ => {}
+    }
 }
 
 #[localstack_test(services = [Cloudformation()])]
