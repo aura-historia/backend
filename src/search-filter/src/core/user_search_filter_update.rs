@@ -106,6 +106,7 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
             name: update.name,
             notifications: update.notifications,
             state: update.state.map(ResourceStateRecord::from),
+            enhanced_search_description: update.enhanced_search_description.map(Into::into),
             product_query: update.product_query,
             shop_name_query: update.shop_name_query,
             exclude_shop_name_query: update.exclude_shop_name_query,

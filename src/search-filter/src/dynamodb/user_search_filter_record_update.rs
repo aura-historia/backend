@@ -21,6 +21,9 @@ pub struct UserSearchFilterRecordUpdate {
     pub notifications: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<ResourceStateRecord>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enhanced_search_description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub product_query: Option<TextQuery<1>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -94,6 +97,7 @@ mod fake {
                 name: config.fake_with_rng(rng),
                 notifications: config.fake_with_rng(rng),
                 state: config.fake_with_rng(rng),
+                enhanced_search_description: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 exclude_shop_name_query: config.fake_with_rng(rng),
