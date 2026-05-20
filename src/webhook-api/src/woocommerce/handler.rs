@@ -56,8 +56,11 @@ pub async fn handle_woocommerce(
     })
     .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)))?;
 
-    let command = AsyncProductCommandData::Upsert(UpsertAsyncProductCommandData::from(command));
-    let failures = async_product_command_service.send(vec![command]).await;
+    let failures = async_product_command_service
+        .send(vec![AsyncProductCommandData::Upsert(
+            UpsertAsyncProductCommandData::from(command),
+        )])
+        .await;
     if let Some(failure) = failures.first() {
         return Err(ApiError::service_unavailable(
             SERVICE_UNAVAILABLE,

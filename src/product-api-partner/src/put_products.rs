@@ -37,8 +37,9 @@ pub async fn handle(
         })
         .collect();
 
-    let failures = async_product_command_service.send(commands.clone()).await;
-    if failures.len() == commands.len() && !commands.is_empty() {
+    let command_count = commands.len();
+    let failures = async_product_command_service.send(commands).await;
+    if failures.len() == command_count && command_count > 0 {
         let msg = failures
             .first()
             .map(|failure| failure.error.clone())
