@@ -4,7 +4,7 @@ use common::api::{
     error_code::INTERNAL_SERVER_ERROR,
 };
 use lambda_runtime::LambdaEvent;
-use product::service::command_service::CommandProductService;
+use product_lambda_ingest_partner_products::AsyncProductCommandService;
 use shop::service::get_service::GetShopService;
 
 pub mod patch_products;
@@ -12,7 +12,7 @@ pub mod post_products;
 pub mod put_products;
 
 #[tracing::instrument(
-    skip(event, get_shop_service, command_product_service),
+    skip(event, get_shop_service, async_product_command_service),
     fields(
         requestId = %event.context.request_id,
         method = event.payload.request_context.http.method.as_str(),
@@ -25,9 +25,9 @@ pub mod put_products;
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_shop_service: &(impl GetShopService + Sync),
-    command_product_service: &(impl CommandProductService + Sync),
+    async_product_command_service: &(impl AsyncProductCommandService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(event, get_shop_service, command_product_service).await {
+    match handle(event, get_shop_service, async_product_command_service).await {
         Ok(response) => Ok(response),
         Err(err) => {
             log_api_error(&err);
@@ -39,17 +39,17 @@ pub async fn handler(
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_shop_service: &(impl GetShopService + Sync),
-    command_product_service: &(impl CommandProductService + Sync),
+    async_product_command_service: &(impl AsyncProductCommandService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
         Some("POST /api/v1/shops/{shopId}/products") => {
-            post_products::handle(event, get_shop_service, command_product_service).await
+            post_products::handle(event, get_shop_service, async_product_command_service).await
         }
         Some("PATCH /api/v1/shops/{shopId}/products") => {
-            patch_products::handle(event, get_shop_service, command_product_service).await
+            patch_products::handle(event, get_shop_service, async_product_command_service).await
         }
         Some("PUT /api/v1/shops/{shopId}/products") => {
-            put_products::handle(event, get_shop_service, command_product_service).await
+            put_products::handle(event, get_shop_service, async_product_command_service).await
         }
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,

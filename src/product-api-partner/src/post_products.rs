@@ -1,18 +1,14 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::{BAD_BODY_VALUE, INVALID_JSON};
-use common::localized::Localized;
-use common::price::domain::Price;
+use common::api::error_code::{BAD_BODY_VALUE, INVALID_JSON, SERVICE_UNAVAILABLE};
 use common::shop_id::api::extract_shop_id_path;
 use lambda_runtime::LambdaEvent;
-use product::core::product_image::ProductImage;
-use product::core::prohibited_content::ProhibitedContent;
 use product::data::post_product_data::PostProductData;
-use product::service::command_service::CommandProductService;
-use product::service::product_command::CreateProductCommand;
+use product_lambda_ingest_partner_products::{
+    AsyncProductCommandData, AsyncProductCommandService, CreateAsyncProductCommandData,
+};
 use serde::Serialize;
-use shop::core::partner_shop::PartnerShop;
 use shop::core::partner_shop_api_key::api::extract_api_key;
 use shop::service::get_service::GetShopService;
 use std::collections::HashMap;
@@ -20,7 +16,7 @@ use std::collections::HashMap;
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_shop_service: &(impl GetShopService + Sync),
-    command_product_service: &(impl CommandProductService + Sync),
+    async_product_command_service: &(impl AsyncProductCommandService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
     let api_key = extract_api_key(&event.payload)?;
@@ -31,18 +27,33 @@ pub async fn handle(
 
     let products: Vec<PostProductData> = extract_body(&event.payload)?;
 
-    let commands = products
+    let commands: Vec<AsyncProductCommandData> = products
         .into_iter()
-        .map(|data| to_create_command(data, &partner_shop))
+        .map(|data| {
+            AsyncProductCommandData::Create(CreateAsyncProductCommandData::from((
+                partner_shop.shop_id,
+                data,
+            )))
+        })
         .collect();
 
-    let failures = command_product_service.create(commands).await;
+    let failures = async_product_command_service.send(commands.clone()).await;
+    if failures.len() == commands.len() && !commands.is_empty() {
+        let msg = failures
+            .first()
+            .map(|failure| failure.error.clone())
+            .unwrap_or_else(|| "Failed forwarding product commands to SQS.".to_string());
+        return Err(ApiError::service_unavailable(
+            SERVICE_UNAVAILABLE,
+            msg.into(),
+        ));
+    }
 
     let errors: HashMap<String, String> = failures
         .into_iter()
-        .map(|cmd| {
+        .map(|failure| {
             (
-                cmd.shops_product_id.to_string(),
+                failure.command.shops_product_id().to_string(),
                 "CREATE_FAILED".to_string(),
             )
         })
@@ -50,7 +61,7 @@ pub async fn handle(
 
     let response = PostProductsResponse { errors };
 
-    Ok(ApiGatewayV2HttpResponseBuilder::json(200)
+    Ok(ApiGatewayV2HttpResponseBuilder::json(202)
         .body_serde(response)?
         .build())
 }
@@ -71,44 +82,12 @@ fn extract_body(request: &ApiGatewayV2httpRequest) -> Result<Vec<PostProductData
     })
 }
 
-fn to_create_command(data: PostProductData, partner_shop: &PartnerShop) -> CreateProductCommand {
-    let native_title: Localized<_, _> = data.title.into();
-    let native_description: Localized<_, _> = data.description.into();
-
-    let native_price: Option<Price> = data.price.map(Price::from);
-    let native_price_estimate_min: Option<Price> = data.price_estimate_min.map(Price::from);
-    let native_price_estimate_max: Option<Price> = data.price_estimate_max.map(Price::from);
-
-    let images: Vec<ProductImage> = data
-        .images
-        .into_iter()
-        .map(|url| ProductImage {
-            url,
-            prohibited_content: ProhibitedContent::default(),
-        })
-        .collect();
-
-    CreateProductCommand {
-        shop_id: partner_shop.shop_id,
-        shops_product_id: data.shops_product_id,
-        seller_name_raw: data.seller_name,
-        structured_address: data.structured_address.map(Into::into),
-        geo_address: data.geo_address.map(Into::into),
-        native_title,
-        other_title: HashMap::new(),
-        native_description: Some(native_description),
-        native_price,
-        other_price: HashMap::new(),
-        native_price_estimate_min,
-        other_price_estimate_min: HashMap::new(),
-        native_price_estimate_max,
-        other_price_estimate_max: HashMap::new(),
-        state: data.state.into(),
-        url: data.url,
-        images,
-        auction_start: data.auction_start,
-        auction_end: data.auction_end,
-    }
+#[cfg(test)]
+fn to_create_command(
+    data: PostProductData,
+    partner_shop: &shop::core::partner_shop::PartnerShop,
+) -> product::service::product_command::CreateProductCommand {
+    CreateAsyncProductCommandData::from((partner_shop.shop_id, data)).into()
 }
 
 /// Response for the batch product creation endpoint.
@@ -192,7 +171,7 @@ mod tests {
         let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_ok());
         let response = result.unwrap();
-        assert_eq!(response.status_code, 200);
+        assert_eq!(response.status_code, 202);
 
         let body: serde_json::Value = match response.body {
             Some(aws_lambda_events::encodings::Body::Text(body_str)) => {
@@ -252,23 +231,10 @@ mod tests {
             .expect_create()
             .return_once(move |_| Box::pin(async move { vec![expected_cmd] }));
 
-        let result = handle(event, &shop_service, &command_service).await;
-        assert!(result.is_ok());
-        let response = result.unwrap();
-        assert_eq!(response.status_code, 200);
-
-        let body: serde_json::Value = match response.body {
-            Some(aws_lambda_events::encodings::Body::Text(body_str)) => {
-                serde_json::from_str(&body_str).unwrap()
-            }
-            _ => panic!("Expected response body to be Text"),
-        };
-        assert!(
-            body["errors"]
-                .as_object()
-                .unwrap()
-                .contains_key("failing-product")
-        );
+        let err = handle(event, &shop_service, &command_service)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 503);
     }
 
     #[tokio::test]
@@ -348,7 +314,7 @@ mod tests {
 
         let result = handle(event, &shop_service, &command_service).await;
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().status_code, 200);
+        assert_eq!(result.unwrap().status_code, 202);
     }
 
     #[test]

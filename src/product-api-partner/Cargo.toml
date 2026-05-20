@@ -8,6 +8,7 @@ geo = { workspace = true }
 common = { workspace = true, features = ["api", "opensearch"] }
 fxrate = { workspace = true }
 product = { workspace = true, features = ["data", "service", "dynamodb"] }
+product-lambda-ingest-partner-products = { workspace = true }
 shop = { workspace = true, features = ["dynamodb", "api", "service", "seller"] }
 llm = { workspace = true, features = ["google"] }
 
@@ -18,6 +19,7 @@ aws_lambda_events = { workspace = true, features = ["apigw"] }
 lambda_runtime = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
+aws-sdk-sqs = { workspace = true }
 opensearch = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

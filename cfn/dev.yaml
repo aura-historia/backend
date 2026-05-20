@@ -677,6 +677,16 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
+        - PolicyName: AsyncProductCommandQueueSend
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:SendMessageBatch
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ProductPartnerIngestQ.Arn
         - PolicyName: DynamoDBAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -716,6 +726,7 @@ Resources:
           OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
           OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
           DYNAMODB_TABLE_NAME: !Ref TableOne
+          ASYNC_PRODUCT_COMMAND_QUEUE_URL: !Ref ProductPartnerIngestQ
           GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/dev/gemini-api-key}}"
           GOOGLE_GEOCODING_API_KEY: !Sub "{{resolve:ssm:/secrets/dev/google-geocoding-api-key}}"
   ProductApiPartnerLambdaPermission:
@@ -740,6 +751,16 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
+        - PolicyName: AsyncProductCommandQueueSend
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:SendMessageBatch
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ProductPartnerIngestQ.Arn
         - PolicyName: DynamoDBAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -778,6 +799,7 @@ Resources:
           OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
           OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
           DYNAMODB_TABLE_NAME: !Ref TableOne
+          ASYNC_PRODUCT_COMMAND_QUEUE_URL: !Ref ProductPartnerIngestQ
           GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/dev/gemini-api-key}}"
           GOOGLE_GEOCODING_API_KEY: !Sub "{{resolve:ssm:/secrets/dev/google-geocoding-api-key}}"
   WebhookApiLambdaPermission:
@@ -2085,6 +2107,21 @@ Resources:
       FunctionResponseTypes:
         - ReportBatchItemFailures
 
+
+  ProductPartnerIngestDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: "product-lambda-ingest-partner-products-dlq-dev"
+      MessageRetentionPeriod: 1209600
+  ProductPartnerIngestQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: "product-lambda-ingest-partner-products-queue-dev"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProductPartnerIngestDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 180
+
   ShopifyLambdaDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -3110,6 +3147,80 @@ Resources:
   # Shopify product webhooks are delivered through EventBridge and forwarded to
   # the Lambda for partner-shop product synchronization.
   # ---------------------------------------------------------------------------
+
+  ProductPartnerIngestRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "product-lambda-ingest-partner-products-role-dev"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ProductPartnerIngestQ.Arn
+  ProductPartnerIngestLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "product-lambda-ingest-partner-products-dev"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ProductPartnerIngestRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-lambda-ingest-partner-products-dev-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 30
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          OPENSEARCH_ENDPOINT_URL: "https://opensearch.aura-historia.de"
+          GEMINI_API_KEY: "test-key"
+          GOOGLE_GEOCODING_API_KEY: "test-key"
+          STAGE: "dev"
+  ProductPartnerIngestMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ProductPartnerIngestLambda
+      EventSourceArn: !GetAtt ProductPartnerIngestQ.Arn
+      Enabled: true
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+
   ShopifyLambdaRole:
     Type: AWS::IAM::Role
     Properties:

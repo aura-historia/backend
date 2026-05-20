@@ -59,6 +59,7 @@ const LAMBDA_BINARIES: &[&str] = &[
     "search-filter-api",
     "notification-send",
     "product-lambda-materialize-opensearch",
+    "product-lambda-ingest-partner-products",
     "product-pipeline-embed-text",
     "product-pipeline-translate",
     "shop-lambda-opensearch-index",

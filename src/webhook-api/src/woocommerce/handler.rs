@@ -5,15 +5,19 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use base64::Engine;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::{BAD_BODY_VALUE, BAD_HEADER_VALUE, INTERNAL_SERVER_ERROR};
+use common::api::error_code::{
+    BAD_BODY_VALUE, BAD_HEADER_VALUE, INTERNAL_SERVER_ERROR, SERVICE_UNAVAILABLE,
+};
 use common::shop_id::api::extract_shop_id_path;
 use lambda_runtime::LambdaEvent;
 use openssl::hash::MessageDigest;
 use openssl::memcmp;
 use openssl::pkey::PKey;
 use openssl::sign::Signer;
-use product::service::command_service::CommandProductService;
 use product::service::product_command::UpsertProductCommand;
+use product_lambda_ingest_partner_products::{
+    AsyncProductCommandData, AsyncProductCommandService, UpsertAsyncProductCommandData,
+};
 use serde_json::json;
 use shop::core::partner_shop::PartnerShop;
 use shop::core::partner_shop_api_key::api::extract_api_key;
@@ -28,7 +32,7 @@ const WOOCOMMERCE_SIGNATURE_HEADER: &str = "x-wc-webhook-signature";
 pub async fn handle_woocommerce(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_shop_service: &(impl GetShopService + Sync),
-    command_product_service: &(impl CommandProductService + Sync),
+    async_product_command_service: &(impl AsyncProductCommandService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
     let api_key = extract_api_key(&event.payload)?;
@@ -52,9 +56,17 @@ pub async fn handle_woocommerce(
     })
     .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)))?;
 
-    let errors = command_product_service.upsert(vec![command]).await;
-    Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .body_serde(json!({ "errors": errors.len() }))?
+    let command = AsyncProductCommandData::Upsert(UpsertAsyncProductCommandData::from(command));
+    let failures = async_product_command_service.send(vec![command]).await;
+    if let Some(failure) = failures.first() {
+        return Err(ApiError::service_unavailable(
+            SERVICE_UNAVAILABLE,
+            failure.error.clone().into(),
+        ));
+    }
+
+    Ok(ApiGatewayV2HttpResponseBuilder::json(202)
+        .body_serde(json!({ "errors": 0 }))?
         .build())
 }
 
@@ -268,7 +280,7 @@ mod tests {
         let response = handle_woocommerce(lambda_event, &get_shop_service, &product_service)
             .await
             .unwrap();
-        assert_eq!(200, response.status_code);
+        assert_eq!(202, response.status_code);
     }
 
     #[tokio::test]
@@ -302,7 +314,7 @@ mod tests {
         let response = handle_woocommerce(lambda_event, &get_shop_service, &product_service)
             .await
             .unwrap();
-        assert_eq!(200, response.status_code);
+        assert_eq!(202, response.status_code);
     }
 
     #[tokio::test]

@@ -19,6 +19,7 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/product",
     "src/product-api",
     "src/product-api-partner",
+    "src/product-lambda/src/product-lambda-ingest-partner-products",
     "src/product-pipeline/src/product-pipeline-embed-text",
     "src/product-pipeline/src/product-pipeline-translate",
     "src/product-watchlist",

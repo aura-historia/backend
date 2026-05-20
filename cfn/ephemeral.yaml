@@ -446,6 +446,21 @@ Resources:
         maxReceiveCount: 5
       VisibilityTimeout: 360
 
+
+  ProductPartnerIngestDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-lambda-ingest-partner-products-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  ProductPartnerIngestQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-lambda-ingest-partner-products-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProductPartnerIngestDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 180
+
   ShopifyLambdaDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -1659,6 +1674,16 @@ Resources:
                   - es:ESHttpHead
                   - es:ESHttpPost
                 Resource: !Sub "${OpenSearchDomain.Arn}/*"
+        - PolicyName: AsyncProductCommandQueueSend
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:SendMessageBatch
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ProductPartnerIngestQ.Arn
         - PolicyName: DynamoDBAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -1697,6 +1722,7 @@ Resources:
           LOCALSTACK_MAPPED_PORT: !Ref LocalStackMappedPort
           STAGE: "ephemeral"
           DYNAMODB_TABLE_NAME: !Ref TableOne
+          ASYNC_PRODUCT_COMMAND_QUEUE_URL: !Ref ProductPartnerIngestQ
   ProductApiPartnerLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1732,6 +1758,16 @@ Resources:
                   - es:ESHttpHead
                   - es:ESHttpPost
                 Resource: !Sub "${OpenSearchDomain.Arn}/*"
+        - PolicyName: AsyncProductCommandQueueSend
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:SendMessageBatch
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ProductPartnerIngestQ.Arn
         - PolicyName: DynamoDBAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -1770,6 +1806,7 @@ Resources:
           LOCALSTACK_MAPPED_PORT: !Ref LocalStackMappedPort
           STAGE: "ephemeral"
           DYNAMODB_TABLE_NAME: !Ref TableOne
+          ASYNC_PRODUCT_COMMAND_QUEUE_URL: !Ref ProductPartnerIngestQ
   WebhookApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -2907,6 +2944,82 @@ Resources:
       Enabled: true
       BatchSize: 1
       MaximumBatchingWindowInSeconds: 0
+
+
+  # --- Product Partner Ingest Lambda ---
+  ProductPartnerIngestRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "product-lambda-ingest-partner-products-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ProductPartnerIngestQ.Arn
+  ProductPartnerIngestLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "product-lambda-ingest-partner-products-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ProductPartnerIngestRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-lambda-ingest-partner-products-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 30
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          GEMINI_API_KEY: "test-key"
+          GOOGLE_GEOCODING_API_KEY: "test-key"
+          LOCALSTACK_MAPPED_PORT: !Ref LocalStackMappedPort
+          STAGE: "ephemeral"
+  ProductPartnerIngestMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ProductPartnerIngestLambda
+      EventSourceArn: !GetAtt ProductPartnerIngestQ.Arn
+      Enabled: true
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
 
   # --- Product Update Notify User ---
   ProductUpdateNotifyUserRole:
