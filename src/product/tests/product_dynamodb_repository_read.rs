@@ -1693,3 +1693,103 @@ mod query_product_event_records {
         );
     }
 }
+
+mod query_product_enrichment_event_records {
+    use crate::get_repository;
+    use common::event_id::EventId;
+    use common::shop_id::ShopId;
+    use common::shops_product_id::ShopsProductId;
+    use fake::{Fake, Faker};
+    use product::dynamodb::product_event_record::enrichment::{
+        ProductEnrichmentEventRecord, mk_pk, mk_sk,
+    };
+    use product::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord;
+    use product::dynamodb::repository::ProductDynamoDbRepository;
+    use test_api::*;
+
+    #[localstack_test(services = [DynamoDB()])]
+    async fn should_return_empty_vec_when_partition_empty() {
+        let repository = get_repository().await;
+
+        let actual = repository
+            .query_product_enrichment_event_records(&ShopId::new(), &ShopsProductId::new())
+            .await
+            .unwrap();
+
+        assert!(actual.is_empty())
+    }
+
+    #[localstack_test(services = [DynamoDB()])]
+    async fn should_return_enrichment_event_records_when_they_exist() {
+        let repository = get_repository().await;
+
+        let first: ProductEnrichmentEventRecord = Faker.fake();
+
+        // Build a second record in the same product partition with a different event id.
+        let second_event_id = EventId::new();
+        let mut second: ProductEnrichmentEventRecord = Faker.fake();
+        second.pk = mk_pk(&first.shop_id, &first.shops_product_id);
+        second.sk = mk_sk(&second_event_id);
+        second.event_id = second_event_id;
+        second.shop_id = first.shop_id;
+        second.seller_id = first.seller_id;
+        second.shops_product_id = first.shops_product_id.clone();
+
+        let insert_res = repository
+            .put_product_event_records([first.clone().into(), second.clone().into()].into())
+            .await
+            .unwrap();
+        assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
+
+        let actual = repository
+            .query_product_enrichment_event_records(&first.shop_id, &first.shops_product_id)
+            .await
+            .unwrap();
+
+        assert_eq!(2, actual.len());
+    }
+
+    #[localstack_test(services = [DynamoDB()])]
+    async fn should_return_enrichment_event_type_when_record_exists() {
+        let repository = get_repository().await;
+
+        let mut record: ProductEnrichmentEventRecord = Faker.fake();
+        record.event_type = ProductEnrichmentEventTypeRecord::EnrichmentEmbedded;
+
+        let insert_res = repository
+            .put_product_event_records([record.clone().into()].into())
+            .await
+            .unwrap();
+        assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
+
+        let actual = repository
+            .query_product_enrichment_event_records(&record.shop_id, &record.shops_product_id)
+            .await
+            .unwrap();
+
+        assert_eq!(1, actual.len());
+        assert_eq!(
+            ProductEnrichmentEventTypeRecord::EnrichmentEmbedded,
+            actual[0].event_type
+        );
+    }
+
+    #[localstack_test(services = [DynamoDB()])]
+    async fn should_not_return_records_for_different_product() {
+        let repository = get_repository().await;
+
+        let record: ProductEnrichmentEventRecord = Faker.fake();
+        let insert_res = repository
+            .put_product_event_records([record.clone().into()].into())
+            .await
+            .unwrap();
+        assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
+
+        let actual = repository
+            .query_product_enrichment_event_records(&ShopId::new(), &ShopsProductId::new())
+            .await
+            .unwrap();
+
+        assert!(actual.is_empty())
+    }
+}

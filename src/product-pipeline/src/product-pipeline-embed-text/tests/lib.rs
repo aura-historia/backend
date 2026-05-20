@@ -4,6 +4,7 @@ use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
 use common::event::Event;
 use common::event_id::EventId;
 use common::language::domain::Language;
+use common::language::record::{LanguageRecord, TextRecord};
 use common::price::domain::FixedFxRate;
 use fake::{Fake, Faker};
 use fxrate::dynamodb::record::FxRatesRecord;
@@ -15,6 +16,7 @@ use product::core::product_event::domain::{
 use product::core::title::Title;
 use product::dynamodb::product_event_record::ProductEventRecord;
 use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+use product::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord;
 use product::dynamodb::product_record::ProductRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::service::command_service::CommandProductServiceImpl;
@@ -164,6 +166,28 @@ async fn should_embed_product_when_domain_created_event_triggers_pipeline() {
         updated_record.embedding,
         "Expected embedding to match the mocked value"
     );
+
+    // Verify the enrichment event record was written via the transaction.
+    let enrichment_events = repository
+        .query_product_enrichment_event_records(&shop_id, &shops_product_id)
+        .await
+        .expect("shouldn't fail querying enrichment event records");
+
+    assert_eq!(
+        1,
+        enrichment_events.len(),
+        "Expected exactly one ENRICHMENT_EMBEDDED event record"
+    );
+    assert_eq!(
+        ProductEnrichmentEventTypeRecord::EnrichmentEmbedded,
+        enrichment_events[0].event_type,
+        "Expected ENRICHMENT_EMBEDDED event type in written event record"
+    );
+    assert_eq!(
+        Some(vec![0.1f32, 0.2f32, 0.3f32]),
+        enrichment_events[0].embedding,
+        "Expected embedding to match in written enrichment event record"
+    );
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -179,10 +203,14 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
     let seller_service = MockSellerService::default();
 
     let mut messages = Vec::new();
+    let mut product_keys = Vec::new();
 
     for _ in 0..3 {
         let mut product_record: ProductRecord = Faker.fake();
         product_record.embedding = None;
+        let shop_id = product_record.shop_id;
+        let shops_product_id = product_record.shops_product_id.clone();
+        product_keys.push((shop_id, shops_product_id.clone()));
 
         repository
             .put_product_records([product_record.clone()].into())
@@ -216,6 +244,42 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
         "Expected no batch item failures but got: {:?}",
         result.batch_item_failures
     );
+
+    // Verify one enrichment event record was written per product via the transaction.
+    for (shop_id, shops_product_id) in &product_keys {
+        let enrichment_events = repository
+            .query_product_enrichment_event_records(shop_id, shops_product_id)
+            .await
+            .expect("shouldn't fail querying enrichment event records");
+
+        assert_eq!(
+            1,
+            enrichment_events.len(),
+            "Expected exactly one ENRICHMENT_EMBEDDED event record per product"
+        );
+        assert_eq!(
+            ProductEnrichmentEventTypeRecord::EnrichmentEmbedded,
+            enrichment_events[0].event_type,
+            "Expected ENRICHMENT_EMBEDDED event type"
+        );
+        assert_eq!(
+            Some(vec![0.42f32; 768]),
+            enrichment_events[0].embedding,
+            "Expected embedding to match in written enrichment event record"
+        );
+
+        let updated_record = repository
+            .get_product_record(shop_id, shops_product_id)
+            .await
+            .expect("shouldn't fail fetching updated product record")
+            .expect("product record should exist");
+
+        assert_eq!(
+            Some(vec![0.42f32; 768]),
+            updated_record.embedding,
+            "Expected embedding to be persisted in the materialized product record"
+        );
+    }
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -231,7 +295,9 @@ async fn should_return_failure_when_product_not_found_in_dynamodb() {
     let seller_service = MockSellerService::default();
 
     // Create a domain event for a product that does NOT exist in DynamoDB.
-    let domain_record: ProductDomainEventRecord = Faker.fake();
+    // Explicitly set title_native so the handler attempts to embed and then update the product.
+    let mut domain_record: ProductDomainEventRecord = Faker.fake();
+    domain_record.title_native = Some(TextRecord::new("Antiker Stuhl", LanguageRecord::De));
 
     let mut mock_embedding_service = MockMultimodalEmbeddingService::new();
     mock_embedding_service
