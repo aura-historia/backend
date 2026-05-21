@@ -3,6 +3,7 @@ use std::collections::HashMap;
 pub(crate) struct ParsedRequest<'a> {
     pub(crate) method: String,
     pub(crate) path: &'a str,
+    pub(crate) query: HashMap<String, String>,
     pub(crate) headers: HashMap<String, String>,
     pub(crate) body: &'a str,
 }
@@ -14,7 +15,10 @@ pub(crate) fn parse_request(request: &str) -> Option<ParsedRequest<'_>> {
     let mut parts = request_line.split_whitespace();
     let method = parts.next()?.to_string();
     let raw_path = parts.next()?;
-    let path = raw_path.split('?').next().unwrap_or(raw_path);
+    let (path, query_raw) = raw_path.split_once('?').unwrap_or((raw_path, ""));
+    let query = url::form_urlencoded::parse(query_raw.as_bytes())
+        .into_owned()
+        .collect();
 
     let mut headers = HashMap::new();
     for line in lines {
@@ -26,6 +30,7 @@ pub(crate) fn parse_request(request: &str) -> Option<ParsedRequest<'_>> {
     Some(ParsedRequest {
         method,
         path,
+        query,
         headers,
         body,
     })
@@ -88,6 +93,7 @@ impl std::fmt::Display for HttpResponse {
             400 => "Bad Request",
             401 => "Unauthorized",
             404 => "Not Found",
+            502 => "Bad Gateway",
             500 => "Internal Server Error",
             _ => "OK",
         };

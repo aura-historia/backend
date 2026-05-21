@@ -10,11 +10,15 @@ const INSPECTOR_CSS: &str = r#"
 .__crawler_review_selected { outline: 3px solid #2563eb !important; outline-offset: 2px !important; background-color: rgba(37, 99, 235, 0.10) !important; }
 "#;
 
-pub fn instrument_review_page(page: &CrawlerReviewPage) -> String {
-    let raw_html = expose_noscript_fallbacks(&disable_existing_scripts(&page.raw_html));
+pub fn instrument_review_page(page: &CrawlerReviewPage, html: &str) -> String {
+    instrument_live_html(&page.url, html)
+}
+
+pub fn instrument_live_html(base_url: &str, html: &str) -> String {
+    let raw_html = expose_noscript_fallbacks(&disable_existing_scripts(html));
     let base = format!(
         r#"<base href="{}"><style>{}</style>"#,
-        escape_html_attr(&page.url),
+        escape_html_attr(base_url),
         INSPECTOR_CSS
     );
     let script = format!("<script>{INSPECTOR_JS}</script>");

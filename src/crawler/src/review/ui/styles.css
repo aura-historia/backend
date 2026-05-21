@@ -559,10 +559,19 @@ label {
     white-space: nowrap;
 }
 
+.live-url-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 7px;
+    padding: 8px 11px;
+    border-bottom: 1px solid var(--line-soft);
+    background: var(--panel);
+}
+
 iframe {
     display: block;
     width: 100%;
-    height: calc(100vh - 190px);
+    height: calc(100vh - 238px);
     min-height: 570px;
     border: 0;
     background: var(--panel);

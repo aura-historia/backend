@@ -1,14 +1,20 @@
-use crate::review::assets::{APP_JS, INDEX_HTML, STYLES_CSS, instrument_review_page};
+use crate::review::assets::{
+    APP_JS, INDEX_HTML, STYLES_CSS, instrument_live_html, instrument_review_page,
+};
 use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
+use crate::review::model::CrawlerReviewPage;
 use crate::review::repository::CrawlerReviewRepository;
 use crate::review::repository::ReviewRepositoryError;
 use crate::scraper::css_selector::rule::ExtractionRule;
+use crate::scraper::scraper_service::service::{FetchError, HtmlFetcher, ReqwestHtmlFetcher};
 use serde::Deserialize;
 use serde_json::json;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tracing::{error, info, warn};
+use url::Url;
 
 #[derive(Clone)]
 pub struct ReviewServerConfig {
@@ -35,11 +41,28 @@ impl ReviewServerConfig {
 pub struct ReviewServer {
     repository: CrawlerReviewRepository,
     config: ReviewServerConfig,
+    html_fetcher: Arc<dyn HtmlFetcher>,
 }
 
 impl ReviewServer {
     pub fn new(repository: CrawlerReviewRepository, config: ReviewServerConfig) -> Self {
-        Self { repository, config }
+        Self {
+            repository,
+            config,
+            html_fetcher: Arc::new(ReqwestHtmlFetcher::new()),
+        }
+    }
+
+    pub fn new_with_fetcher(
+        repository: CrawlerReviewRepository,
+        config: ReviewServerConfig,
+        html_fetcher: Arc<dyn HtmlFetcher>,
+    ) -> Self {
+        Self {
+            repository,
+            config,
+            html_fetcher,
+        }
     }
 
     pub async fn run(self) -> std::io::Result<()> {
@@ -99,6 +122,26 @@ impl ReviewServer {
     }
 
     async fn route_dynamic(&self, request: ParsedRequest<'_>) -> HttpResponse {
+        if request.method == "GET" && request.path == "/api/live-inspect" {
+            let Some(url) = request.query.get("url") else {
+                return HttpResponse::json(400, &json!({ "error": "missing url" }));
+            };
+            return match self.fetch_live_url(url).await {
+                Ok(html) => HttpResponse::html(200, &instrument_live_html(url, &html)),
+                Err(response) => response,
+            };
+        }
+
+        if request.method == "GET" && request.path == "/api/live-html" {
+            let Some(url) = request.query.get("url") else {
+                return HttpResponse::json(400, &json!({ "error": "missing url" }));
+            };
+            return match self.fetch_live_url(url).await {
+                Ok(html) => HttpResponse::html(200, &html),
+                Err(response) => response,
+            };
+        }
+
         if request.method == "GET"
             && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/matrix")
@@ -106,9 +149,16 @@ impl ReviewServer {
             let Some(review_id) = parse_review_id_with_suffix(request.path, "/matrix") else {
                 return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
             };
-            return match self.repository.evaluate_schema_matrix(review_id).await {
-                Ok(matrix) => HttpResponse::json(200, &matrix),
-                Err(err) => internal_error(err),
+            return match self.live_review_pages(review_id).await {
+                Ok(pages) => match self
+                    .repository
+                    .evaluate_schema_matrix_for_live_pages(review_id, pages)
+                    .await
+                {
+                    Ok(matrix) => HttpResponse::json(200, &matrix),
+                    Err(err) => internal_error(err),
+                },
+                Err(response) => response,
             };
         }
 
@@ -119,10 +169,12 @@ impl ReviewServer {
             let Some(page_id) = parse_page_id_with_suffix(request.path, "/inspect") else {
                 return HttpResponse::text(400, "invalid page id");
             };
-            return match self.repository.get_review_page(page_id).await {
-                Ok(Some(page)) => HttpResponse::html(200, &instrument_review_page(&page)),
+            return match self.live_review_page(page_id).await {
+                Ok(Some((page, html))) => {
+                    HttpResponse::html(200, &instrument_review_page(&page, &html))
+                }
                 Ok(None) => HttpResponse::text(404, "not found"),
-                Err(err) => internal_error(err),
+                Err(response) => response,
             };
         }
 
@@ -133,10 +185,10 @@ impl ReviewServer {
             let Some(page_id) = parse_page_id_with_suffix(request.path, "/html") else {
                 return HttpResponse::text(400, "invalid page id");
             };
-            return match self.repository.get_review_page_html(page_id).await {
-                Ok(Some(html)) => HttpResponse::html(200, &html),
+            return match self.live_review_page(page_id).await {
+                Ok(Some((_page, html))) => HttpResponse::html(200, &html),
                 Ok(None) => HttpResponse::text(404, "not found"),
-                Err(err) => internal_error(err),
+                Err(response) => response,
             };
         }
 
@@ -337,6 +389,73 @@ impl ReviewServer {
             .and_then(|value| value.strip_prefix("Bearer "))
             .is_some_and(|actual| actual == expected)
     }
+
+    async fn live_review_pages(
+        &self,
+        review_id: uuid::Uuid,
+    ) -> Result<Vec<(CrawlerReviewPage, String)>, HttpResponse> {
+        let detail = self
+            .repository
+            .get_review(review_id)
+            .await
+            .map_err(internal_error)?;
+        let mut pages = Vec::with_capacity(detail.pages.len());
+        for page in detail.pages {
+            let html = self.fetch_live_html(&page).await?;
+            pages.push((page, html));
+        }
+        Ok(pages)
+    }
+
+    async fn live_review_page(
+        &self,
+        review_page_id: uuid::Uuid,
+    ) -> Result<Option<(CrawlerReviewPage, String)>, HttpResponse> {
+        let Some(page) = self
+            .repository
+            .get_review_page(review_page_id)
+            .await
+            .map_err(internal_error)?
+        else {
+            return Ok(None);
+        };
+        let html = self.fetch_live_html(&page).await?;
+        Ok(Some((page, html)))
+    }
+
+    async fn fetch_live_html(&self, page: &CrawlerReviewPage) -> Result<String, HttpResponse> {
+        let url = Url::parse(&page.url).map_err(|err| {
+            HttpResponse::json(
+                400,
+                &json!({
+                    "error": "invalid live review page url",
+                    "url": page.url,
+                    "details": err.to_string(),
+                }),
+            )
+        })?;
+        self.html_fetcher
+            .fetch(&url)
+            .await
+            .map_err(|err| live_fetch_error(page, &err))
+    }
+
+    async fn fetch_live_url(&self, raw_url: &str) -> Result<String, HttpResponse> {
+        let url = Url::parse(raw_url).map_err(|err| {
+            HttpResponse::json(
+                400,
+                &json!({
+                    "error": "invalid live preview url",
+                    "url": raw_url,
+                    "details": err.to_string(),
+                }),
+            )
+        })?;
+        self.html_fetcher
+            .fetch(&url)
+            .await
+            .map_err(|err| live_url_fetch_error(raw_url, &err))
+    }
 }
 
 #[derive(Deserialize, Default)]
@@ -382,4 +501,37 @@ fn parse_shop_id_with_suffix(path: &str, suffix: &str) -> Option<common::shop_id
 fn internal_error(error: impl std::fmt::Display) -> HttpResponse {
     error!(error = %error, "Review API error");
     HttpResponse::json(500, &json!({ "error": error.to_string() }))
+}
+
+fn live_fetch_error(page: &CrawlerReviewPage, error: &FetchError) -> HttpResponse {
+    warn!(
+        review_page_id = %page.review_page_id,
+        url = %page.url,
+        error = %error,
+        "Failed to fetch live review HTML"
+    );
+    HttpResponse::json(
+        502,
+        &json!({
+            "error": "failed to fetch live review HTML",
+            "url": page.url,
+            "details": error.to_string(),
+        }),
+    )
+}
+
+fn live_url_fetch_error(url: &str, error: &FetchError) -> HttpResponse {
+    warn!(
+        url,
+        error = %error,
+        "Failed to fetch live preview HTML"
+    );
+    HttpResponse::json(
+        502,
+        &json!({
+            "error": "failed to fetch live preview HTML",
+            "url": url,
+            "details": error.to_string(),
+        }),
+    )
 }

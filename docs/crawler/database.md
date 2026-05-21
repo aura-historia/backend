@@ -210,6 +210,25 @@ modify the candidate payload until the review is approved.
 
 ---
 
+### `crawler_review_pages`
+
+Review page metadata for `PRODUCT_SCHEMA` reviews.
+
+| Column                | Type        | Notes                                                               |
+|-----------------------|-------------|---------------------------------------------------------------------|
+| `review_page_id`      | UUID PK     |                                                                     |
+| `review_id`           | UUID FK     | Parent review                                                       |
+| `url`                 | TEXT        | Product page URL used for live inspector and live matrix evaluation |
+| `role`                | TEXT        | `PRIMARY`, `SEED`, or `TRIGGERING_REPAIR_PAGE`                      |
+| `html_hash`           | TEXT        | SHA-256 hash of the original crawl HTML as an audit fingerprint     |
+| `fetched` / `created` | TIMESTAMPTZ |                                                                     |
+
+The table intentionally does not store `raw_html` or `cleaned_html`. The review console fetches current live HTML from
+`url` for inspector, raw HTML view, and schema matrix re-evaluation. This keeps the database small at high crawl volume,
+with the tradeoff that console inspection reflects the current shop page rather than the exact historical crawl HTML.
+
+---
+
 ### `product_state_mapping`
 
 Translation table from raw state strings scraped from pages (e.g. `"Nur noch 2 verfügbar"`) to normalised `UrlState`

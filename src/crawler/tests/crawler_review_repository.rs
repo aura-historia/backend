@@ -8,6 +8,7 @@ use crawler::scraper::css_selector::product_schema_repository::{
     ShopsProductSchemaRepository, ShopsProductSchemaRepositoryImpl,
 };
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
+use regex::Regex;
 use serde_json::json;
 use sqlx::PgPool;
 use test_api::*;
@@ -58,6 +59,43 @@ async fn insert_shop(pool: &PgPool, shop_id: ShopId) {
         .execute(pool)
         .await
         .unwrap();
+}
+
+fn review_pages() -> Vec<SchemaReviewPageInput> {
+    vec![SchemaReviewPageInput {
+        url: "https://example.com/products/1".to_string(),
+        role: PAGE_ROLE_PRIMARY.to_string(),
+        raw_html: "<html><body><span class=\"id\">SKU</span><h1>Title</h1><span class=\"state\">In stock</span><img class=\"product\" src=\"a.jpg\"></body></html>".to_string(),
+    }]
+}
+
+async fn pending_review_count(pool: &PgPool, shop_id: ShopId, artifact_type: &str) -> i64 {
+    sqlx::query_scalar(
+        "SELECT COUNT(*)
+         FROM crawler_reviews
+         WHERE shop_id = $1 AND artifact_type = $2 AND status = 'PENDING_REVIEW'",
+    )
+    .bind(Uuid::from(shop_id))
+    .bind(artifact_type)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn review_page_count(pool: &PgPool, review_id: Uuid) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM crawler_review_pages WHERE review_id = $1")
+        .bind(review_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn review_url_count(pool: &PgPool, review_id: Uuid) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM crawler_review_urls WHERE review_id = $1")
+        .bind(review_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 #[localstack_test(services = [RDS])]
@@ -131,4 +169,106 @@ async fn approved_schema_candidate_edit_updates_live_schema_and_audit_payload() 
     assert_eq!(edits.len(), 1);
     assert_eq!(edits[0]["source"], "review_console");
     assert_eq!(edits[0]["operation"], "approved_schema_live_update");
+}
+
+#[localstack_test(services = [RDS])]
+async fn concurrent_schema_reviews_return_same_pending_review_without_duplicate_pages() {
+    let pool = get_postgres_client().await;
+    let review_repository = CrawlerReviewRepository::new(pool.clone());
+    let shop_id = ShopId::new();
+    insert_shop(&pool, shop_id).await;
+
+    let schema = schema("h1");
+    let first_repo = review_repository.clone();
+    let first_schema = schema.clone();
+    let second_repo = review_repository.clone();
+    let second_schema = schema.clone();
+
+    let (first, second) = tokio::join!(
+        async move {
+            first_repo
+                .create_schema_review(
+                    &shop_id,
+                    "initial_schema_generation",
+                    &[first_schema],
+                    review_pages(),
+                    json!({ "source": "first" }),
+                )
+                .await
+        },
+        async move {
+            second_repo
+                .create_schema_review(
+                    &shop_id,
+                    "initial_schema_generation",
+                    &[second_schema],
+                    review_pages(),
+                    json!({ "source": "second" }),
+                )
+                .await
+        }
+    );
+
+    let first_id = first.unwrap();
+    let second_id = second.unwrap();
+
+    assert_eq!(first_id, second_id);
+    assert_eq!(
+        pending_review_count(&pool, shop_id, "PRODUCT_SCHEMA").await,
+        1
+    );
+    assert_eq!(review_page_count(&pool, first_id).await, 1);
+}
+
+#[localstack_test(services = [RDS])]
+async fn concurrent_url_pattern_reviews_return_same_pending_review_without_duplicate_urls() {
+    let pool = get_postgres_client().await;
+    let review_repository = CrawlerReviewRepository::new(pool.clone());
+    let shop_id = ShopId::new();
+    insert_shop(&pool, shop_id).await;
+
+    let pattern = Regex::new("/product/").unwrap();
+    let urls = vec![
+        "https://example.com/product/1".to_string(),
+        "https://example.com/about".to_string(),
+    ];
+    let first_repo = review_repository.clone();
+    let first_urls = urls.clone();
+    let second_repo = review_repository.clone();
+    let second_urls = urls.clone();
+
+    let (first, second) = tokio::join!(
+        async move {
+            first_repo
+                .create_url_pattern_review(
+                    &shop_id,
+                    None,
+                    "url_pattern_generation",
+                    Some(&pattern),
+                    &first_urls,
+                    None,
+                )
+                .await
+        },
+        async move {
+            let pattern = Regex::new("/product/").unwrap();
+            second_repo
+                .create_url_pattern_review(
+                    &shop_id,
+                    None,
+                    "url_pattern_generation",
+                    Some(&pattern),
+                    &second_urls,
+                    None,
+                )
+                .await
+        }
+    );
+
+    let first_id = first.unwrap();
+    let second_id = second.unwrap();
+
+    assert_eq!(first_id, second_id);
+    assert_eq!(pending_review_count(&pool, shop_id, "URL_PATTERN").await, 1);
+    assert_eq!(review_url_count(&pool, first_id).await, 2);
 }

@@ -16,6 +16,7 @@ let sidebarCollapsed = localStorage.getItem('crawlerReviewSidebarCollapsed') ===
 let theme = document.documentElement.dataset.theme || localStorage.getItem('crawlerReviewTheme') || 'light';
 let reviewSearchTerm = '';
 let collapsedShopGroups = new Set(JSON.parse(localStorage.getItem('crawlerReviewCollapsedShopGroups') || '[]'));
+let previewUrlOverride = '';
 
 const selectorFields = [
     'shops_product_id', 'title', 'description', 'price', 'price_estimate_min',
@@ -179,6 +180,7 @@ async function loadSelectedReview(resetSelection) {
         compareSchemaIndex = 1;
         selectedField = 'title';
         selectedPageId = (detail.pages && detail.pages[0] && detail.pages[0].review_page_id) || null;
+        previewUrlOverride = '';
     }
     normalizeSchemaSelection();
     renderDetail(detail, matrix);
@@ -290,21 +292,27 @@ function renderSchemaWorkbench(detail, matrix) {
     const schemas = currentSchemas();
     const page = pages.find(p => p.review_page_id === selectedPageId) || pages[0];
     if (page && !selectedPageId) selectedPageId = page.review_page_id;
+    const previewUrl = previewUrlOverride || (page ? page.url : '');
     return `
     <div class="schema-workbench">
       <div class="preview-panel">
         <div class="panel-head">
           <div class="panel-title">
             <strong>Product View</strong>
-            <span class="muted">${page ? `${productPageLink(page.url)} (${escapeHtml(page.role)})` : 'No saved page snapshot'}</span>
+            <span class="muted">${previewUrl ? `${productPageLink(previewUrl)} (${previewUrlOverride ? 'custom URL' : `${escapeHtml(page.role)}, live HTML`})` : 'No live page available'}</span>
           </div>
           <div class="toolbar">
-            <select onchange="selectedPageId=this.value; rerenderWorkbench()">
+            <select onchange="selectedPageId=this.value; previewUrlOverride=''; rerenderWorkbench()">
               ${pages.map(p => `<option value="${p.review_page_id}" ${p.review_page_id === selectedPageId ? 'selected' : ''}>${escapeHtml(p.role)}</option>`).join('')}
             </select>
           </div>
         </div>
-        ${page ? `<iframe id="snapshotFrame" src="/api/review-pages/${page.review_page_id}/inspect" sandbox="allow-scripts"></iframe>` : ''}
+        <div class="live-url-bar">
+          <input id="livePreviewUrl" value="${escapeHtmlAttr(previewUrl)}" placeholder="https://example.com/product" onkeydown="if(event.key==='Enter') loadPreviewUrl()">
+          <button onclick="loadPreviewUrl()">Open URL</button>
+          <button ${page ? '' : 'disabled'} onclick="resetPreviewUrl()">Use review URL</button>
+        </div>
+        ${previewUrl ? `<iframe id="snapshotFrame" src="${escapeHtmlAttr(previewFrameSrc(page, previewUrl))}" sandbox="allow-scripts"></iframe>` : ''}
       </div>
       <div class="right-panel">
         <div class="tabs">
@@ -316,6 +324,22 @@ function renderSchemaWorkbench(detail, matrix) {
         ${renderWorkbenchPanel(detail, matrix, schemas)}
       </div>
     </div>`;
+}
+
+function previewFrameSrc(page, previewUrl) {
+    if (!previewUrlOverride && page) return `/api/review-pages/${page.review_page_id}/inspect`;
+    return `/api/live-inspect?url=${encodeURIComponent(previewUrl)}`;
+}
+
+function loadPreviewUrl() {
+    const input = document.getElementById('livePreviewUrl');
+    previewUrlOverride = (input && input.value || '').trim();
+    rerenderWorkbench();
+}
+
+function resetPreviewUrl() {
+    previewUrlOverride = '';
+    rerenderWorkbench();
 }
 
 function workbenchTab(key, label) {
@@ -442,11 +466,11 @@ function renderAdditionalSelectors(rule) {
 function renderDataPanel(matrix) {
     return `<div class="tab-panel">
       <div class="panel-title">
-        <strong>Extracted Data Matrix</strong>
-        <span class="muted">Raw extraction output for the selected schema</span>
+        <strong>Extracted Data</strong>
+        <span class="muted">Current selected page and schema, evaluated against live HTML</span>
       </div>
-      ${renderApplyErrors(matrix)}
-      ${renderExtractedRows(matrix)}
+      ${renderCoverageSummary(matrix)}
+      ${renderCurrentExtractedData(matrix)}
     </div>`;
 }
 
@@ -488,28 +512,48 @@ function renderJsonPanel(detail) {
     </div>`;
 }
 
-function renderApplyErrors(matrix) {
-    const candidate = selectedCandidate(matrix);
-    if (!candidate) return '';
-    const failures = candidate.pages.filter(page => !page.apply_ok);
-    if (!failures.length) return '';
-    return `<div class="error-panel">
-    <strong>Schema ${selectedSchemaIndex + 1} failed on ${failures.length} saved page${failures.length === 1 ? '' : 's'}</strong>
-    ${failures.map(page => `<div>${escapeHtml(displayName(page.role))}: ${escapeHtml(page.error || 'Schema did not apply.')}</div>`).join('')}
-  </div>`;
+function renderCoverageSummary(matrix) {
+    if (!matrix || !matrix.candidates || !matrix.candidates.length) {
+        return '<div class="muted">No schema coverage data available.</div>';
+    }
+    const pageRefs = matrix.candidates[0].pages || [];
+    const covered = pageRefs.filter(page => pageCovered(matrix, page.page_id)).length;
+    const failures = currentCandidateFailures(matrix);
+    return `<div class="hint-card">
+      <strong>Coverage</strong>
+      <div>${covered} / ${pageRefs.length} live page${pageRefs.length === 1 ? '' : 's'} covered by at least one schema.</div>
+      ${failures.length ? `<div class="muted">Selected schema failed on ${failures.length} page${failures.length === 1 ? '' : 's'}: ${failures.map(page => escapeHtml(displayName(page.role))).join(', ')}</div>` : '<div class="muted">Selected schema applied to every live page.</div>'}
+    </div>`;
 }
 
-function renderExtractedRows(matrix) {
+function pageCovered(matrix, pageId) {
+    return matrix.candidates.some(candidate =>
+        (candidate.pages || []).some(page => page.page_id === pageId && page.apply_ok)
+    );
+}
+
+function currentCandidateFailures(matrix) {
+    const candidate = selectedCandidate(matrix);
+    if (!candidate) return [];
+    return (candidate.pages || []).filter(page => !page.apply_ok);
+}
+
+function renderCurrentExtractedData(matrix) {
     const candidate = selectedCandidate(matrix);
     if (!candidate) return '<div class="muted">No extracted data for this schema.</div>';
-    return `<div class="data-grid-wrap"><table class="data-grid raw-data-grid"><thead><tr><th>Page</th><th>Status</th><th>Raw Extracted Data</th></tr></thead><tbody>${
-        candidate.pages.map(page => `
+    const page = selectedMatrixPage(candidate);
+    if (!page) return '<div class="muted">No extracted data for the selected page.</div>';
+    return `<div class="data-grid-wrap"><table class="data-grid raw-data-grid"><thead><tr><th>Page</th><th>Status</th><th>Raw Extracted Data</th></tr></thead><tbody>
       <tr class="${page.apply_ok ? '' : 'failed'}">
         <td>${escapeHtml(displayName(page.role))}</td>
         <td><span class="${page.apply_ok ? 'status-ok badge' : 'status-failed badge'}">${page.apply_ok ? 'OK' : 'Failed'}</span></td>
         <td>${page.apply_ok ? rawDataCell(page.extracted) : expandableValue(page.error || 'Schema did not apply.')}</td>
-      </tr>`).join('')
-    }</tbody></table></div>`;
+      </tr>
+    </tbody></table></div>`;
+}
+
+function selectedMatrixPage(candidate) {
+    return (candidate.pages || []).find(page => page.page_id === selectedPageId) || (candidate.pages || [])[0] || null;
 }
 
 function selectedCandidate(matrix) {

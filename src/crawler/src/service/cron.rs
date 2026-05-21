@@ -6,7 +6,7 @@ use crate::scraper::scraper_service::{
 };
 use crate::service::product_push::{ProductPushService, normalize_to_upsert};
 use crate::service::shop_registration::ShopRegistrationService;
-use crate::spider::advisory_lock::{DomainLock, LocalLockManager, UrlLock};
+use crate::spider::advisory_lock::{DomainLock, LocalLockManager, ShopLock, UrlLock};
 use crate::spider::candidate_service::SpiderCandidateService;
 use crate::spider::service::SpiderService;
 use crate::{network::policy::NetworkErrorKind, network::policy::retry_cooldown_for};
@@ -495,6 +495,15 @@ async fn scrape_candidate(
 
     let Some(_lock) = UrlLock::try_acquire(&ctx.lock_manager, &candidate.url) else {
         warn!("Skipping URL — lock held by another worker");
+        return ScrapeCandidateOutcome {
+            command: None,
+            errored: false,
+            skipped: true,
+        };
+    };
+
+    let Some(_shop_lock) = ShopLock::try_acquire(&ctx.lock_manager, candidate.shop_id) else {
+        debug!("Skipping URL because another worker is scraping this shop");
         return ScrapeCandidateOutcome {
             command: None,
             errored: false,
@@ -1402,6 +1411,60 @@ mod tests {
 
         let job = CrawlerCronJob::new(
             CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_shop_registration(),
+            Box::new(push_service),
+        );
+
+        job.run_scraper_once().await;
+    }
+
+    #[tokio::test]
+    async fn should_skip_same_shop_candidate_already_scraping_on_another_domain() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+        let spider_service = MockSpiderService::new();
+
+        let shop_id = ShopId::new();
+        let first_url = url::Url::parse("https://domain-a.com/product/1").unwrap();
+        let second_url = url::Url::parse("https://domain-b.com/product/2").unwrap();
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(move |_| {
+                let mut first =
+                    scraper_candidate("Same Shop", ShopType::CommercialDealer, first_url.clone());
+                first.shop_id = shop_id;
+                let mut second =
+                    scraper_candidate("Same Shop", ShopType::CommercialDealer, second_url.clone());
+                second.shop_id = shop_id;
+                Box::pin(async move { Ok(vec![first, second]) })
+            });
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service.expect_scrape().once().returning(|_, _, _| {
+            Box::pin(async {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                Ok(None)
+            })
+        });
+
+        let mut push_service = MockProductPushService::new();
+        push_service.expect_push().times(0);
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig {
+                scraper_concurrency: 2,
+                scraper_domain_delay: Duration::ZERO,
+                ..CrawlerCronConfig::default()
+            },
             Arc::new(LocalLockManager::new()),
             Box::new(spider_candidates),
             Box::new(spider_service),

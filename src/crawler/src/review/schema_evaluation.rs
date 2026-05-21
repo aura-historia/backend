@@ -5,16 +5,16 @@ use crate::review::model::{
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, RawExtractedProduct};
 use scraper::{Html, Selector};
 
-pub(crate) fn evaluate_schema_matrix_for_review_pages(
+pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
     review_id: uuid::Uuid,
     schemas: &[ProductCssSelectorSchema],
-    pages: &[CrawlerReviewPage],
+    pages: &[(CrawlerReviewPage, String)],
 ) -> SchemaMatrix {
     let mut candidates = Vec::with_capacity(schemas.len());
     for (schema_index, schema) in schemas.iter().enumerate() {
         let mut page_evaluations = Vec::with_capacity(pages.len());
-        for page in pages {
-            page_evaluations.push(evaluate_schema_review_page(schema, page));
+        for (page, raw_html) in pages {
+            page_evaluations.push(evaluate_schema_review_page(schema, page, raw_html));
         }
         candidates.push(SchemaCandidateEvaluation {
             schema_index,
@@ -72,13 +72,14 @@ pub(crate) fn schema_matrix_has_required_coverage(matrix: &SchemaMatrix) -> bool
 fn evaluate_schema_review_page(
     schema: &ProductCssSelectorSchema,
     page: &CrawlerReviewPage,
+    raw_html: &str,
 ) -> SchemaPageEvaluation {
     evaluate_schema_page(
         schema,
         page.review_page_id,
         page.url.clone(),
         page.role.clone(),
-        &page.raw_html,
+        raw_html,
     )
 }
 

@@ -214,7 +214,7 @@ fn build_schema_generation_llm(
         .unwrap_or_else(|_| "Failed to generate schema".to_string());
     let system_prompt = format!(
         "You are an e-commerce scraper-assistant for antiques creating extraction-schemas for HTML given product-pages.
-            Return only JSON as an array of ProductCssSelectorSchema objects. Never return a bare object.
+            Return only JSON. If there is one product-page template, return one ProductCssSelectorSchema object. If there are multiple product-page templates, return an array of ProductCssSelectorSchema objects.
             When given multiple HTML samples, infer the distinct product-page templates and return one schema for each template.
             Schema:\n\n {schema}",
     );
@@ -266,7 +266,11 @@ fn build_schema_evaluator_llm(
 fn parse_product_schemas_response(
     raw: &str,
 ) -> Result<Vec<ProductCssSelectorSchema>, serde_json::Error> {
-    serde_json::from_str::<Vec<ProductCssSelectorSchema>>(raw)
+    match serde_json::from_str::<Vec<ProductCssSelectorSchema>>(raw) {
+        Ok(schemas) if !schemas.is_empty() => Ok(schemas),
+        Ok(_) => serde_json::from_str::<ProductCssSelectorSchema>(raw).map(|schema| vec![schema]),
+        Err(_) => serde_json::from_str::<ProductCssSelectorSchema>(raw).map(|schema| vec![schema]),
+    }
 }
 
 fn parse_product_schema_response(raw: &str) -> Result<ProductCssSelectorSchema, serde_json::Error> {
@@ -519,7 +523,7 @@ fn build_create_schemas_instruction(html_pages: &[String]) -> String {
 
     if cleaned_pages.is_empty() {
         return String::from(
-            "Generate robust Extraction-Schemas for the given HTML product pages. Return ONLY a JSON array ordered from most complete schema to least complete schema.",
+            "Generate robust Extraction-Schemas for the given HTML product pages. Return ONLY JSON: one ProductCssSelectorSchema object for one template, or an array ordered from most complete schema to least complete schema for multiple templates.",
         );
     }
 
@@ -554,8 +558,7 @@ fn build_create_schemas_instruction(html_pages: &[String]) -> String {
          Return schemas ordered by specificity and completeness: first the schema with the most non-null extraction rules, then fallback templates with fewer applicable rules. When rule counts tie, put the schema with more specific product-focused selectors first.\n\
          Examples: if template A has price and template B has no price element, generate two schemas and put the priced schema first. If an auction template has estimate fields and a buy-now template has fixed price, generate separate schemas ordered by rule count. If a sold-item template lacks buy price but has sold state, split schemas when selectors differ.\n\
          Prefer high-precision selectors that represent semantic fields rather than layout wrappers.\n\
-         Return ONLY JSON as an array of ProductCssSelectorSchema objects.\n\
-         Never return a bare object.\n\
+         Return ONLY JSON. If there is one product template, return one ProductCssSelectorSchema object. If there are multiple product templates, return an array of ProductCssSelectorSchema objects ordered as described above.\n\
          Here are the cleaned HTML samples:{samples}"
     )
 }
@@ -1060,7 +1063,8 @@ mod tests {
         assert!(instruction.contains("--- SAMPLE 2 ---"));
         assert!(instruction.contains("Return one schema per distinct template"));
         assert!(instruction.contains("not one schema per page"));
-        assert!(instruction.contains("Never return a bare object"));
+        assert!(instruction.contains("If there is one product template"));
+        assert!(instruction.contains("If there are multiple product templates"));
     }
 
     #[test]
@@ -1115,9 +1119,15 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_single_schema_response_for_initial_generation() {
+    fn should_parse_single_schema_response_for_initial_generation() {
         let payload = serde_json::to_string(&sample_css_schema()).unwrap();
-        let parsed = parse_product_schemas_response(&payload);
+        let parsed = parse_product_schemas_response(&payload).unwrap();
+        assert_eq!(parsed, vec![sample_css_schema()]);
+    }
+
+    #[test]
+    fn should_reject_empty_initial_schema_array() {
+        let parsed = parse_product_schemas_response("[]");
         assert!(parsed.is_err());
     }
 

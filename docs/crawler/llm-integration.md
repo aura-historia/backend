@@ -157,7 +157,7 @@ judge-only: it does not repair schemas or produce replacement selectors.
 **Evidence contract:** The prompt receives:
 
 - the generated schemas,
-- cleaned sampled product-page HTML,
+- cleaned sampled product-page HTML from the current crawl context,
 - the deterministic schema-application matrix with extracted raw values and selector match counts,
 - `deterministic_approval_ok`, which is true only when every sampled page has an applicable schema with required raw
   values (`shops_product_id`, `title`, `state`, and at least one image).
@@ -183,6 +183,9 @@ coverage and an LLM verdict of `APPROVE` with `HIGH` confidence.
 Malformed JSON, LLM errors, low confidence, rejection, unavailable evaluator configuration, or exhausted budget all fall
 back to a normal pending `PRODUCT_SCHEMA` human review. The evaluator payload is stored under
 `crawler_reviews.validation_summary.auto_schema_evaluation` and shown in the Crawler Review Console.
+
+Review page HTML is not persisted in `crawler_review_pages`. The evaluator receives HTML while the scrape/review is
+being created; later console inspector and matrix views fetch live HTML from the stored page URLs.
 
 **LLM config:** `resilient=3`, `reasoning=true`, `timeout=180s`
 

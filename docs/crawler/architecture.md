@@ -317,9 +317,14 @@ generated schemas + sampled pages
 ```
 
 When `CRAWLER_SCHEMA_LLM_REVIEW_MODE` is `report_only` or `auto_approve_high_confidence`, the generated schemas are
-passed to the evaluator together with cleaned HTML and extraction evidence. The verdict is stored in
+passed to the evaluator together with cleaned HTML from the in-memory crawl context and extraction evidence. The verdict
+is stored in
 `crawler_reviews.validation_summary.auto_schema_evaluation` and displayed in the Crawler Review Console. Rejections, low
 confidence, malformed responses, LLM errors, or evaluator budget exhaustion all create the normal pending review.
+
+Review page HTML is not persisted. `crawler_review_pages` stores URL, role, and the original HTML hash only. The Crawler
+Review Console fetches live HTML from the stored URL for inspector, raw HTML view, and manual matrix re-evaluation, so
+those views reflect the current shop page rather than an immutable historical snapshot.
 
 Auto-approved schema reviews remain editable in the console. Editing a field, schema order, added/deleted schema, or the
 full JSON on an approved `PRODUCT_SCHEMA` review updates the live `shops_product_schema` row immediately, refreshes the

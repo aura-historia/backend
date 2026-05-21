@@ -16,7 +16,9 @@ CREATE TABLE IF NOT EXISTS crawler_reviews (
 CREATE INDEX IF NOT EXISTS idx_crawler_reviews_status
     ON crawler_reviews (status, artifact_type, created);
 
-CREATE INDEX IF NOT EXISTS idx_crawler_reviews_shop_pending
+DROP INDEX IF EXISTS idx_crawler_reviews_shop_pending;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_crawler_reviews_shop_pending_unique
     ON crawler_reviews (shop_id, artifact_type)
     WHERE status = 'PENDING_REVIEW';
 
@@ -25,8 +27,6 @@ CREATE TABLE IF NOT EXISTS crawler_review_pages (
     review_id      UUID        NOT NULL REFERENCES crawler_reviews(review_id) ON DELETE CASCADE,
     url            TEXT        NOT NULL,
     role           TEXT        NOT NULL CHECK (role IN ('PRIMARY', 'SEED', 'TRIGGERING_REPAIR_PAGE')),
-    raw_html       TEXT        NOT NULL,
-    cleaned_html   TEXT        NOT NULL,
     html_hash      TEXT        NOT NULL,
     fetched        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     created        TIMESTAMPTZ NOT NULL DEFAULT NOW()

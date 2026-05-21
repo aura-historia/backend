@@ -12,8 +12,9 @@ impl ScraperServiceImpl {
     /// Obtains product CSS selector schemas for `shop_id`, loading them from
     /// the DB or generating them via the LLM if they do not yet exist.
     ///
-    /// The dispatcher guarantees at most one in-flight scrape per domain at a
-    /// time, so no additional locking is required here.
+    /// The dispatcher gates concurrent scraper work per shop inside one process,
+    /// while database uniqueness prevents duplicate pending reviews across
+    /// processes.
     #[tracing::instrument(skip(self, html), fields(shop_id = %shop_id, url = %url))]
     pub(crate) async fn obtain_schemas(
         &self,
@@ -34,27 +35,40 @@ impl ScraperServiceImpl {
             }
 
             let seed_pages = self.collect_schema_seed_pages(shop_id, url, html).await;
+            if self.review_repository.is_some() {
+                if let Some(existing) = self.schema_service.find_product_schema(shop_id).await? {
+                    debug!("Schema found in DB after seed page collection");
+                    return Ok(existing);
+                }
+                if let Some(review_id) = self.pending_product_schema_review_id(shop_id).await? {
+                    return Err(ScraperError::PendingSchemaReview {
+                        url: url.clone(),
+                        review_id,
+                    });
+                }
+            }
+
+            let seed_html_pages: Vec<String> = seed_pages
+                .iter()
+                .map(|page| page.raw_html.clone())
+                .collect();
             self.consume_llm_budget_or_err(shop_id, url).await?;
             let schemas = self
                 .schema_service
-                .create_product_schemas(&seed_pages)
+                .create_product_schemas(&seed_html_pages)
                 .await?;
             let schema_count = schemas.len();
             let pages = seed_pages
                 .iter()
                 .enumerate()
-                .map(|(idx, raw_html)| SchemaReviewPageInput {
-                    url: if idx == 0 {
-                        url.to_string()
-                    } else {
-                        format!("{url}#schema-seed-{idx}")
-                    },
+                .map(|(idx, page)| SchemaReviewPageInput {
+                    url: page.url.to_string(),
                     role: if idx == 0 {
                         PAGE_ROLE_PRIMARY.to_string()
                     } else {
                         PAGE_ROLE_SEED.to_string()
                     },
-                    raw_html: raw_html.clone(),
+                    raw_html: page.raw_html.clone(),
                 })
                 .collect();
             match self
