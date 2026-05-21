@@ -49,6 +49,27 @@ struct PendingReviewInsert {
     inserted: bool,
 }
 
+pub struct SchemaReviewWithStatusInput<'a> {
+    pub shop_id: &'a ShopId,
+    pub reason: &'a str,
+    pub schemas: &'a [ProductCssSelectorSchema],
+    pub pages: Vec<SchemaReviewPageInput>,
+    pub validation_summary: serde_json::Value,
+    pub status: &'a str,
+    pub notes: Option<&'a str>,
+}
+
+struct ReviewWithStatusInsert<'a> {
+    shop_id: &'a ShopId,
+    domain_id: Option<&'a uuid::Uuid>,
+    artifact_type: &'a str,
+    status: &'a str,
+    reason: &'a str,
+    candidate_payload: serde_json::Value,
+    validation_summary: serde_json::Value,
+    notes: Option<&'a str>,
+}
+
 impl CrawlerReviewRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -304,29 +325,30 @@ impl CrawlerReviewRepository {
         pages: Vec<SchemaReviewPageInput>,
         validation_summary: serde_json::Value,
     ) -> Result<uuid::Uuid, ReviewRepositoryError> {
-        self.insert_schema_review(
+        self.insert_schema_review(SchemaReviewWithStatusInput {
             shop_id,
             reason,
             schemas,
             pages,
             validation_summary,
-            STATUS_PENDING_REVIEW,
-            None,
-        )
+            status: STATUS_PENDING_REVIEW,
+            notes: None,
+        })
         .await
     }
 
     pub async fn create_schema_review_with_status(
         &self,
-        shop_id: &ShopId,
-        reason: &str,
-        schemas: &[ProductCssSelectorSchema],
-        pages: Vec<SchemaReviewPageInput>,
-        validation_summary: serde_json::Value,
-        status: &str,
-        notes: Option<&str>,
+        input: SchemaReviewWithStatusInput<'_>,
     ) -> Result<uuid::Uuid, ReviewRepositoryError> {
-        self.insert_schema_review(
+        self.insert_schema_review(input).await
+    }
+
+    async fn insert_schema_review(
+        &self,
+        input: SchemaReviewWithStatusInput<'_>,
+    ) -> Result<uuid::Uuid, ReviewRepositoryError> {
+        let SchemaReviewWithStatusInput {
             shop_id,
             reason,
             schemas,
@@ -334,20 +356,7 @@ impl CrawlerReviewRepository {
             validation_summary,
             status,
             notes,
-        )
-        .await
-    }
-
-    async fn insert_schema_review(
-        &self,
-        shop_id: &ShopId,
-        reason: &str,
-        schemas: &[ProductCssSelectorSchema],
-        pages: Vec<SchemaReviewPageInput>,
-        validation_summary: serde_json::Value,
-        status: &str,
-        notes: Option<&str>,
-    ) -> Result<uuid::Uuid, ReviewRepositoryError> {
+        } = input;
         let candidate_payload = json!({ "schemas": schemas });
         let insert = if status == STATUS_PENDING_REVIEW {
             self.insert_pending_review_or_get_existing(
@@ -362,16 +371,16 @@ impl CrawlerReviewRepository {
         } else {
             PendingReviewInsert {
                 review_id: self
-                    .insert_review_with_status(
+                    .insert_review_with_status(ReviewWithStatusInsert {
                         shop_id,
-                        None,
-                        ARTIFACT_PRODUCT_SCHEMA,
+                        domain_id: None,
+                        artifact_type: ARTIFACT_PRODUCT_SCHEMA,
                         status,
                         reason,
                         candidate_payload,
                         validation_summary,
                         notes,
-                    )
+                    })
                     .await?,
                 inserted: true,
             }
@@ -737,15 +746,18 @@ impl CrawlerReviewRepository {
 
     async fn insert_review_with_status(
         &self,
-        shop_id: &ShopId,
-        domain_id: Option<&uuid::Uuid>,
-        artifact_type: &str,
-        status: &str,
-        reason: &str,
-        candidate_payload: serde_json::Value,
-        validation_summary: serde_json::Value,
-        notes: Option<&str>,
+        input: ReviewWithStatusInsert<'_>,
     ) -> Result<uuid::Uuid, sqlx::Error> {
+        let ReviewWithStatusInsert {
+            shop_id,
+            domain_id,
+            artifact_type,
+            status,
+            reason,
+            candidate_payload,
+            validation_summary,
+            notes,
+        } = input;
         sqlx::query_scalar::<_, uuid::Uuid>(
             "INSERT INTO crawler_reviews (
                 shop_id, domain_id, artifact_type, status, reason, candidate_payload,

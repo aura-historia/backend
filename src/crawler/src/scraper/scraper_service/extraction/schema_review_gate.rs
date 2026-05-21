@@ -1,5 +1,6 @@
 use crate::review::model::SchemaMatrix;
 use crate::review::model::{STATUS_APPROVED, SchemaReviewPageInput};
+use crate::review::repository::SchemaReviewWithStatusInput;
 use crate::review::schema_evaluation::{
     evaluate_schema_matrix_for_inputs, schema_matrix_has_required_coverage,
 };
@@ -111,15 +112,15 @@ impl ScraperServiceImpl {
                 .save_product_schemas(shop_id, schemas.clone())
                 .await?;
             review_repository
-                .create_schema_review_with_status(
+                .create_schema_review_with_status(SchemaReviewWithStatusInput {
                     shop_id,
                     reason,
-                    &schemas,
+                    schemas: &schemas,
                     pages,
                     validation_summary,
-                    STATUS_APPROVED,
-                    Some("Auto-approved by LLM schema evaluator"),
-                )
+                    status: STATUS_APPROVED,
+                    notes: Some("Auto-approved by LLM schema evaluator"),
+                })
                 .await
                 .map_err(review_error_to_schema_service_error)?;
             return Ok(GeneratedSchemaReviewOutcome::Persisted(saved));

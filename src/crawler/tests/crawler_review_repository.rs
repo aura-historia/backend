@@ -1,6 +1,6 @@
 use common::shop_id::ShopId;
 use crawler::review::model::{PAGE_ROLE_PRIMARY, STATUS_APPROVED, SchemaReviewPageInput};
-use crawler::review::repository::CrawlerReviewRepository;
+use crawler::review::repository::{CrawlerReviewRepository, SchemaReviewWithStatusInput};
 use crawler::scraper::css_selector::product_schema::{
     ProductCssSelectorSchema, ShopsProductSchema,
 };
@@ -122,16 +122,16 @@ async fn approved_schema_candidate_edit_updates_live_schema_and_audit_payload() 
         .unwrap();
 
     let review_id = review_repository
-        .create_schema_review_with_status(
-            &shop_id,
-            "initial_schema_generation",
-            &[initial_schema],
-            vec![SchemaReviewPageInput {
+        .create_schema_review_with_status(SchemaReviewWithStatusInput {
+            shop_id: &shop_id,
+            reason: "initial_schema_generation",
+            schemas: &[initial_schema],
+            pages: vec![SchemaReviewPageInput {
                 url: "https://example.com/products/1".to_string(),
                 role: PAGE_ROLE_PRIMARY.to_string(),
                 raw_html: "<html><body><span class=\"id\">SKU</span><h1 class=\"new\">Title</h1><span class=\"state\">In stock</span><img class=\"product\" src=\"a.jpg\"></body></html>".to_string(),
             }],
-            json!({
+            validation_summary: json!({
                 "auto_schema_evaluation": {
                     "decision": "APPROVE",
                     "confidence": "HIGH",
@@ -139,9 +139,9 @@ async fn approved_schema_candidate_edit_updates_live_schema_and_audit_payload() 
                     "summary": "ok"
                 }
             }),
-            STATUS_APPROVED,
-            Some("Auto-approved by LLM schema evaluator"),
-        )
+            status: STATUS_APPROVED,
+            notes: Some("Auto-approved by LLM schema evaluator"),
+        })
         .await
         .unwrap();
 
