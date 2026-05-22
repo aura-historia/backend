@@ -782,7 +782,9 @@ fn determine_update_events(
         let key = record.key();
         if let Some(cmd) = working.remove(&key) {
             let mut product: Product = record.into();
-            if let Some(price_event) = product.new_price(cmd.native_price, fx_rate) {
+            if cmd.update_native_price
+                && let Some(price_event) = product.new_price(cmd.native_price, fx_rate)
+            {
                 events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
                     price_event,
                 )));
@@ -794,14 +796,14 @@ fn determine_update_events(
                     state_event,
                 )));
             }
-            if let Some(event) = product.change_estimate_price(
-                cmd.native_price_estimate_min,
-                cmd.native_price_estimate_max,
-                fx_rate,
-            ) {
-                events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
-                    event,
-                )));
+            if (cmd.update_native_price_estimate_min || cmd.update_native_price_estimate_max)
+                && let Some(event) = product.change_estimate_price(
+                    cmd.native_price_estimate_min,
+                    cmd.native_price_estimate_max,
+                    fx_rate,
+                )
+            {
+                events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(event)));
             }
             if let Some(url) = cmd.url
                 && let Some(event) = product.change_url(url.clone(), append_utm_params(url))
@@ -916,9 +918,12 @@ mod tests {
             let product1 = Product::from(record1.clone());
             let cmd1 = UpdateProductCommand {
                 native_price: product1.native_price,
+                update_native_price: false,
                 state: Some(product1.state),
                 native_price_estimate_min: None,
+                update_native_price_estimate_min: false,
                 native_price_estimate_max: None,
+                update_native_price_estimate_max: false,
                 url: None,
                 images: None,
                 auction_start: None,
@@ -931,9 +936,12 @@ mod tests {
             let product2 = Product::from(record2.clone());
             let cmd2 = UpdateProductCommand {
                 native_price: product2.native_price,
+                update_native_price: false,
                 state: Some(product2.state),
                 native_price_estimate_min: None,
+                update_native_price_estimate_min: false,
                 native_price_estimate_max: None,
+                update_native_price_estimate_max: false,
                 url: None,
                 images: None,
                 auction_start: None,
@@ -956,9 +964,12 @@ mod tests {
             let product1 = Product::from(record1.clone());
             let cmd1 = UpdateProductCommand {
                 native_price: Some(Faker.fake()),
+                update_native_price: true,
                 state: Some(product1.state),
                 native_price_estimate_min: None,
+                update_native_price_estimate_min: false,
                 native_price_estimate_max: None,
+                update_native_price_estimate_max: false,
                 url: None,
                 images: None,
                 auction_start: None,
@@ -971,13 +982,16 @@ mod tests {
             let product2 = Product::from(record2.clone());
             let cmd2 = UpdateProductCommand {
                 native_price: Some(Faker.fake()),
+                update_native_price: true,
                 state: Some(if matches!(product2.state, ProductState::Available) {
                     ProductState::Removed
                 } else {
                     ProductState::Available
                 }),
                 native_price_estimate_min: None,
+                update_native_price_estimate_min: false,
                 native_price_estimate_max: None,
+                update_native_price_estimate_max: false,
                 url: None,
                 images: None,
                 auction_start: None,
@@ -1000,9 +1014,12 @@ mod tests {
             let product1 = Product::from(record1.clone());
             let cmd1 = UpdateProductCommand {
                 native_price: Some(Faker.fake()),
+                update_native_price: true,
                 state: Some(product1.state),
                 native_price_estimate_min: None,
+                update_native_price_estimate_min: false,
                 native_price_estimate_max: None,
+                update_native_price_estimate_max: false,
                 url: None,
                 images: None,
                 auction_start: None,
@@ -1015,9 +1032,12 @@ mod tests {
             let product2 = Product::from(record2.clone());
             let cmd2 = UpdateProductCommand {
                 native_price: product2.native_price,
+                update_native_price: false,
                 state: Some(product2.state),
                 native_price_estimate_min: None,
+                update_native_price_estimate_min: false,
                 native_price_estimate_max: None,
+                update_native_price_estimate_max: false,
                 url: None,
                 images: None,
                 auction_start: None,
@@ -1039,9 +1059,12 @@ mod tests {
             let product = Faker.fake::<Product>();
             let cmd = UpdateProductCommand {
                 native_price: Some(Faker.fake()),
+                update_native_price: true,
                 state: Some(ProductState::Available),
                 native_price_estimate_min: None,
+                update_native_price_estimate_min: false,
                 native_price_estimate_max: None,
+                update_native_price_estimate_max: false,
                 url: None,
                 images: None,
                 auction_start: None,
@@ -1075,9 +1098,12 @@ mod tests {
             ));
             let cmd = UpdateProductCommand {
                 native_price: product.native_price,
+                update_native_price: false,
                 state: Some(product.state),
                 native_price_estimate_min: new_min,
+                update_native_price_estimate_min: true,
                 native_price_estimate_max: new_max,
+                update_native_price_estimate_max: true,
                 url: None,
                 images: None,
                 auction_start: None,
@@ -1098,9 +1124,12 @@ mod tests {
             product.url = url::Url::parse("https://original.example.com").unwrap();
             let cmd = UpdateProductCommand {
                 native_price: product.native_price,
+                update_native_price: false,
                 state: Some(product.state),
                 native_price_estimate_min: None,
+                update_native_price_estimate_min: false,
                 native_price_estimate_max: None,
+                update_native_price_estimate_max: false,
                 url: Some(url::Url::parse("https://definitely-different.example.com").unwrap()),
                 images: None,
                 auction_start: None,
@@ -1128,9 +1157,12 @@ mod tests {
             }];
             let cmd = UpdateProductCommand {
                 native_price: product.native_price,
+                update_native_price: false,
                 state: Some(product.state),
                 native_price_estimate_min: None,
+                update_native_price_estimate_min: false,
                 native_price_estimate_max: None,
+                update_native_price_estimate_max: false,
                 url: None,
                 images: Some(new_images),
                 auction_start: None,
@@ -1152,9 +1184,12 @@ mod tests {
             product.auction_end = None;
             let cmd = UpdateProductCommand {
                 native_price: product.native_price,
+                update_native_price: false,
                 state: Some(product.state),
                 native_price_estimate_min: None,
+                update_native_price_estimate_min: false,
                 native_price_estimate_max: None,
+                update_native_price_estimate_max: false,
                 url: None,
                 images: None,
                 auction_start: Some(time::OffsetDateTime::now_utc() + time::Duration::days(30)),
@@ -1174,9 +1209,12 @@ mod tests {
             let key = product.key();
             let cmd = UpdateProductCommand {
                 native_price: product.native_price,
+                update_native_price: false,
                 state: Some(product.state),
                 native_price_estimate_min: None,
+                update_native_price_estimate_min: false,
                 native_price_estimate_max: None,
+                update_native_price_estimate_max: false,
                 url: None,
                 images: None,
                 auction_start: None,
@@ -1196,9 +1234,12 @@ mod tests {
             product.url = url::Url::parse("https://original.example.com").unwrap();
             let cmd = UpdateProductCommand {
                 native_price: product.native_price,
+                update_native_price: false,
                 state: Some(product.state),
                 native_price_estimate_min: None,
+                update_native_price_estimate_min: false,
                 native_price_estimate_max: None,
+                update_native_price_estimate_max: false,
                 url: Some(url::Url::parse("https://different.example.com").unwrap()),
                 images: None,
                 auction_start: Some(time::OffsetDateTime::now_utc() + time::Duration::days(30)),
@@ -1907,13 +1948,16 @@ mod tests {
             let key = product.key();
             let cmd = UpdateProductCommand {
                 native_price: Some(Faker.fake()),
+                update_native_price: true,
                 state: Some(if matches!(product.state, ProductState::Available) {
                     ProductState::Removed
                 } else {
                     ProductState::Available
                 }),
                 native_price_estimate_min: None,
+                update_native_price_estimate_min: false,
                 native_price_estimate_max: None,
+                update_native_price_estimate_max: false,
                 url: None,
                 images: None,
                 auction_start: None,
@@ -2012,9 +2056,12 @@ mod tests {
             let key = product.key();
             let cmd = UpdateProductCommand {
                 native_price: product.native_price,
+                update_native_price: false,
                 state: Some(product.state),
                 native_price_estimate_min: None,
+                update_native_price_estimate_min: false,
                 native_price_estimate_max: None,
+                update_native_price_estimate_max: false,
                 url: None,
                 images: None,
                 auction_start: None,

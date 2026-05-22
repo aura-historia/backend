@@ -125,8 +125,11 @@ impl TryFrom<WoocommerceProductEvent> for UpsertProductCommand {
                 event.payload.price.as_deref(),
                 event.shop.woocommerce_currency,
             )?,
+            update_native_price: true,
             native_price_estimate_min: None,
+            update_native_price_estimate_min: true,
             native_price_estimate_max: None,
+            update_native_price_estimate_max: true,
             state: Some(state),
             url,
             images: event

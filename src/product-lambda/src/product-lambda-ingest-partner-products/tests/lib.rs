@@ -8,6 +8,7 @@ use fxrate::dynamodb::record::FxRatesRecord;
 use fxrate::service::MockFxRateService;
 use lambda_runtime::{Context, LambdaEvent};
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
+use product::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
 use product::service::command_service::CommandProductServiceImpl;
 use product_lambda_ingest_partner_products::{
     AsyncProductCommandData, CreateAsyncProductCommandData, UpdateAsyncProductCommandData,
@@ -159,10 +160,10 @@ async fn should_update_product_when_update_command_is_received_for_partner_inges
             UpdateAsyncProductCommandData {
                 shop_id,
                 shops_product_id: shops_product_id.clone(),
-                price: Some(PriceData::new(CurrencyData::Eur, 5200)),
+                price: Some(Some(PriceData::new(CurrencyData::Eur, 5200))),
                 state: Some(product::data::product_state_data::ProductStateData::Sold),
-                price_estimate_min: Some(PriceData::new(CurrencyData::Eur, 5000)),
-                price_estimate_max: Some(PriceData::new(CurrencyData::Eur, 5400)),
+                price_estimate_min: Some(Some(PriceData::new(CurrencyData::Eur, 5000))),
+                price_estimate_max: Some(Some(PriceData::new(CurrencyData::Eur, 5400))),
                 url: Some(updated_url.clone()),
                 images: Some(vec![updated_image_url.clone()]),
                 auction_start: None,
@@ -227,6 +228,106 @@ async fn should_update_product_when_update_command_is_received_for_partner_inges
 }
 
 #[localstack_test(services = [DynamoDB()])]
+async fn should_keep_existing_price_when_update_command_omits_price_for_partner_ingest_lambda() {
+    let ddb_client = get_dynamodb_client().await;
+    let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let get_shop_service = GetShopServiceImpl::new(&shop_repository);
+    let seller_service = MockSellerService::default();
+    let mut fx_rate_service = MockFxRateService::new();
+    fx_rate_service
+        .expect_get_current()
+        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
+    let product_service = CommandProductServiceImpl::new(
+        &product_repository,
+        &fx_rate_service,
+        &get_shop_service,
+        &seller_service,
+    )
+    .await
+    .unwrap();
+
+    let mut shop_record: ShopRecord = Faker.fake();
+    shop_record.shop_type = ShopTypeRecord::AuctionHouse;
+    let shop_id = shop_record.shop_id;
+    shop_repository.put_shop_record(shop_record).await.unwrap();
+
+    let shops_product_id = ShopsProductId::from("partner-ingest-update-no-price".to_string());
+    let create_response = handler(
+        sqs_event(AsyncProductCommandData::Create(
+            CreateAsyncProductCommandData {
+                shop_id,
+                shops_product_id: shops_product_id.clone(),
+                title: common::language::data::LocalizedTextData::new(
+                    "Initial Product",
+                    common::language::data::LanguageData::En,
+                ),
+                description: common::language::data::LocalizedTextData::new(
+                    "Created before async update without price",
+                    common::language::data::LanguageData::En,
+                ),
+                price: Some(PriceData::new(CurrencyData::Eur, 4200)),
+                price_estimate_min: None,
+                price_estimate_max: None,
+                state: product::data::product_state_data::ProductStateData::Available,
+                url: url::Url::parse("https://example.com/product/async-update-no-price").unwrap(),
+                images: vec![],
+                auction_start: None,
+                auction_end: None,
+                seller_name: None,
+                structured_address: None,
+                geo_address: None,
+            },
+        )),
+        &product_service,
+    )
+    .await
+    .unwrap();
+    assert!(create_response.batch_item_failures.is_empty());
+
+    let response = handler(
+        sqs_event(AsyncProductCommandData::Update(
+            UpdateAsyncProductCommandData {
+                shop_id,
+                shops_product_id: shops_product_id.clone(),
+                price: None,
+                state: Some(product::data::product_state_data::ProductStateData::Sold),
+                price_estimate_min: None,
+                price_estimate_max: None,
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+            },
+        )),
+        &product_service,
+    )
+    .await
+    .unwrap();
+
+    assert!(response.batch_item_failures.is_empty());
+    let product = product_repository
+        .get_product_record(&shop_id, &shops_product_id)
+        .await
+        .unwrap()
+        .expect("product should exist after update command without price");
+    assert_eq!(Some(4200), product.price_native.as_ref().map(|price| price.amount));
+
+    let domain_events = product_repository
+        .query_product_domain_event_records(&shop_id, &shops_product_id)
+        .await
+        .unwrap();
+    let price_changed = ProductDomainEventTypeRecord::DomainPriceChanged.as_str();
+    assert_eq!(
+        0,
+        domain_events
+            .iter()
+            .filter(|event| event.event_type.as_str() == price_changed)
+            .count()
+    );
+}
+
+#[localstack_test(services = [DynamoDB()])]
 async fn should_create_product_when_upsert_command_is_received_for_new_product_for_partner_ingest_lambda()
  {
     let ddb_client = get_dynamodb_client().await;
@@ -269,9 +370,9 @@ async fn should_create_product_when_upsert_command_is_received_for_new_product_f
                     "Created from async upsert queue",
                     common::language::data::LanguageData::En,
                 )),
-                price: Some(PriceData::new(CurrencyData::Eur, 6100)),
-                price_estimate_min: Some(PriceData::new(CurrencyData::Eur, 5900)),
-                price_estimate_max: Some(PriceData::new(CurrencyData::Eur, 6300)),
+                price: Some(Some(PriceData::new(CurrencyData::Eur, 6100))),
+                price_estimate_min: Some(Some(PriceData::new(CurrencyData::Eur, 5900))),
+                price_estimate_max: Some(Some(PriceData::new(CurrencyData::Eur, 6300))),
                 state: Some(product::data::product_state_data::ProductStateData::Available),
                 url: Some(upsert_url.clone()),
                 images: Some(vec![upsert_image_url.clone()]),
@@ -412,9 +513,9 @@ async fn should_update_existing_product_when_upsert_command_is_received_for_part
                 shops_product_id: shops_product_id.clone(),
                 title: None,
                 description: None,
-                price: Some(PriceData::new(CurrencyData::Eur, 7800)),
-                price_estimate_min: Some(PriceData::new(CurrencyData::Eur, 7500)),
-                price_estimate_max: Some(PriceData::new(CurrencyData::Eur, 8100)),
+                price: Some(Some(PriceData::new(CurrencyData::Eur, 7800))),
+                price_estimate_min: Some(Some(PriceData::new(CurrencyData::Eur, 7500))),
+                price_estimate_max: Some(Some(PriceData::new(CurrencyData::Eur, 8100))),
                 state: Some(product::data::product_state_data::ProductStateData::Reserved),
                 url: Some(updated_url.clone()),
                 images: Some(vec![updated_image_url.clone()]),
@@ -479,5 +580,110 @@ async fn should_update_existing_product_when_upsert_command_is_received_for_part
             .iter()
             .map(|image| image.url.clone())
             .collect::<Vec<_>>()
+    );
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_keep_existing_price_when_upsert_command_omits_price_for_partner_ingest_lambda() {
+    let ddb_client = get_dynamodb_client().await;
+    let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let get_shop_service = GetShopServiceImpl::new(&shop_repository);
+    let seller_service = MockSellerService::default();
+    let mut fx_rate_service = MockFxRateService::new();
+    fx_rate_service
+        .expect_get_current()
+        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
+    let product_service = CommandProductServiceImpl::new(
+        &product_repository,
+        &fx_rate_service,
+        &get_shop_service,
+        &seller_service,
+    )
+    .await
+    .unwrap();
+
+    let mut shop_record: ShopRecord = Faker.fake();
+    shop_record.shop_type = ShopTypeRecord::AuctionHouse;
+    let shop_id = shop_record.shop_id;
+    shop_repository.put_shop_record(shop_record).await.unwrap();
+
+    let shops_product_id = ShopsProductId::from("partner-ingest-upsert-no-price".to_string());
+    let create_response = handler(
+        sqs_event(AsyncProductCommandData::Create(
+            CreateAsyncProductCommandData {
+                shop_id,
+                shops_product_id: shops_product_id.clone(),
+                title: common::language::data::LocalizedTextData::new(
+                    "Existing Product",
+                    common::language::data::LanguageData::En,
+                ),
+                description: common::language::data::LocalizedTextData::new(
+                    "Created before async upsert without price",
+                    common::language::data::LanguageData::En,
+                ),
+                price: Some(PriceData::new(CurrencyData::Eur, 5100)),
+                price_estimate_min: None,
+                price_estimate_max: None,
+                state: product::data::product_state_data::ProductStateData::Available,
+                url: url::Url::parse("https://example.com/product/async-upsert-no-price").unwrap(),
+                images: vec![],
+                auction_start: None,
+                auction_end: None,
+                seller_name: None,
+                structured_address: None,
+                geo_address: None,
+            },
+        )),
+        &product_service,
+    )
+    .await
+    .unwrap();
+    assert!(create_response.batch_item_failures.is_empty());
+
+    let response = handler(
+        sqs_event(AsyncProductCommandData::Upsert(
+            UpsertAsyncProductCommandData {
+                shop_id,
+                shops_product_id: shops_product_id.clone(),
+                title: None,
+                description: None,
+                price: None,
+                price_estimate_min: None,
+                price_estimate_max: None,
+                state: Some(product::data::product_state_data::ProductStateData::Reserved),
+                url: None,
+                images: None,
+                auction_start: None,
+                auction_end: None,
+                seller_name: None,
+                structured_address: None,
+                geo_address: None,
+            },
+        )),
+        &product_service,
+    )
+    .await
+    .unwrap();
+
+    assert!(response.batch_item_failures.is_empty());
+    let product = product_repository
+        .get_product_record(&shop_id, &shops_product_id)
+        .await
+        .unwrap()
+        .expect("product should exist after upsert command without price");
+    assert_eq!(Some(5100), product.price_native.as_ref().map(|price| price.amount));
+
+    let domain_events = product_repository
+        .query_product_domain_event_records(&shop_id, &shops_product_id)
+        .await
+        .unwrap();
+    let price_changed = ProductDomainEventTypeRecord::DomainPriceChanged.as_str();
+    assert_eq!(
+        0,
+        domain_events
+            .iter()
+            .filter(|event| event.event_type.as_str() == price_changed)
+            .count()
     );
 }

@@ -336,6 +336,7 @@ mod tests {
         );
         assert!(cmd.native_title.is_none());
         assert!(cmd.native_price.is_none());
+        assert!(!cmd.update_native_price);
         assert_eq!(
             cmd.state,
             Some(common::product_state::domain::ProductState::Listed)
@@ -356,10 +357,10 @@ mod tests {
                 "Test Description",
                 common::language::data::LanguageData::De,
             )),
-            price: Some(common::price::data::PriceData::new(
+            price: Some(Some(common::price::data::PriceData::new(
                 common::currency::data::CurrencyData::Eur,
                 1000,
-            )),
+            ))),
             price_estimate_min: None,
             price_estimate_max: None,
             state: Some(product::data::product_state_data::ProductStateData::Available),
@@ -381,6 +382,7 @@ mod tests {
         assert!(cmd.native_title.is_some());
         assert!(cmd.native_description.is_some());
         assert!(cmd.native_price.is_some());
+        assert!(cmd.update_native_price);
         assert_eq!(
             cmd.state,
             Some(common::product_state::domain::ProductState::Available)

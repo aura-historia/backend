@@ -58,9 +58,12 @@ impl HasKey for CreateProductCommand {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdateProductCommand {
     pub native_price: Option<Price>,
+    pub update_native_price: bool,
     pub state: Option<ProductState>,
     pub native_price_estimate_min: Option<Price>,
+    pub update_native_price_estimate_min: bool,
     pub native_price_estimate_max: Option<Price>,
+    pub update_native_price_estimate_max: bool,
     pub url: Option<Url>,
     pub images: Option<Vec<ProductImage>>,
     pub auction_start: Option<OffsetDateTime>,
@@ -79,8 +82,11 @@ pub struct UpsertProductCommand {
     pub native_title: Option<Localized<Language, Title>>,
     pub native_description: Option<Localized<Language, Description>>,
     pub native_price: Option<Price>,
+    pub update_native_price: bool,
     pub native_price_estimate_min: Option<Price>,
+    pub update_native_price_estimate_min: bool,
     pub native_price_estimate_max: Option<Price>,
+    pub update_native_price_estimate_max: bool,
     pub state: Option<ProductState>,
     pub url: Option<Url>,
     pub images: Vec<ProductImage>,
@@ -133,9 +139,12 @@ impl From<&UpsertProductCommand> for UpdateProductCommand {
     fn from(cmd: &UpsertProductCommand) -> Self {
         UpdateProductCommand {
             native_price: cmd.native_price,
+            update_native_price: cmd.update_native_price,
             state: cmd.state,
             native_price_estimate_min: cmd.native_price_estimate_min,
+            update_native_price_estimate_min: cmd.update_native_price_estimate_min,
             native_price_estimate_max: cmd.native_price_estimate_max,
+            update_native_price_estimate_max: cmd.update_native_price_estimate_max,
             url: cmd.url.clone(),
             images: Some(cmd.images.clone()),
             auction_start: cmd.auction_start,
@@ -211,9 +220,12 @@ mod faker {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             UpdateProductCommand {
                 native_price: config.fake_with_rng(rng),
+                update_native_price: true,
                 state: config.fake_with_rng(rng),
                 native_price_estimate_min: config.fake_with_rng(rng),
+                update_native_price_estimate_min: true,
                 native_price_estimate_max: config.fake_with_rng(rng),
+                update_native_price_estimate_max: true,
                 url: Some(Url::parse("https://www.example.com/product/updated").unwrap()),
                 images: Some(Faker.fake()),
                 auction_start: if config.fake_with_rng(rng) {
@@ -243,8 +255,11 @@ mod faker {
                 native_title: config.fake_with_rng(rng),
                 native_description: config.fake_with_rng(rng),
                 native_price: config.fake_with_rng(rng),
+                update_native_price: true,
                 native_price_estimate_min: config.fake_with_rng(rng),
+                update_native_price_estimate_min: true,
                 native_price_estimate_max: config.fake_with_rng(rng),
+                update_native_price_estimate_max: true,
                 state: config.fake_with_rng(rng),
                 url: Some(Url::parse("https://www.example.com/product/upserted").unwrap()),
                 images: config.fake_with_rng(rng),

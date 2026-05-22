@@ -93,13 +93,13 @@ pub struct UpdateAsyncProductCommandData {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price: Option<PriceData>,
+    pub price: Option<Option<PriceData>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub state: Option<ProductStateData>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min: Option<PriceData>,
+    pub price_estimate_min: Option<Option<PriceData>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max: Option<PriceData>,
+    pub price_estimate_max: Option<Option<PriceData>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -128,11 +128,11 @@ pub struct UpsertAsyncProductCommandData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<LocalizedTextData>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price: Option<PriceData>,
+    pub price: Option<Option<PriceData>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min: Option<PriceData>,
+    pub price_estimate_min: Option<Option<PriceData>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max: Option<PriceData>,
+    pub price_estimate_max: Option<Option<PriceData>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub state: Option<ProductStateData>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -273,10 +273,13 @@ impl From<UpdateAsyncProductCommandData> for (ProductKey, UpdateProductCommand) 
     fn from(data: UpdateAsyncProductCommandData) -> Self {
         let key = data.key();
         let cmd = UpdateProductCommand {
-            native_price: data.price.map(Price::from),
+            native_price: data.price.flatten().map(Price::from),
+            update_native_price: data.price.is_some(),
             state: data.state.map(Into::into),
-            native_price_estimate_min: data.price_estimate_min.map(Price::from),
-            native_price_estimate_max: data.price_estimate_max.map(Price::from),
+            native_price_estimate_min: data.price_estimate_min.flatten().map(Price::from),
+            update_native_price_estimate_min: data.price_estimate_min.is_some(),
+            native_price_estimate_max: data.price_estimate_max.flatten().map(Price::from),
+            update_native_price_estimate_max: data.price_estimate_max.is_some(),
             url: data.url,
             images: data.images.map(|images| {
                 images
@@ -305,9 +308,12 @@ impl From<UpsertAsyncProductCommandData> for UpsertProductCommand {
             geo_address: data.geo_address.map(Into::into),
             native_title: data.title.map(Into::into),
             native_description: data.description.map(Into::into),
-            native_price: data.price.map(Price::from),
-            native_price_estimate_min: data.price_estimate_min.map(Price::from),
-            native_price_estimate_max: data.price_estimate_max.map(Price::from),
+            native_price: data.price.flatten().map(Price::from),
+            update_native_price: data.price.is_some(),
+            native_price_estimate_min: data.price_estimate_min.flatten().map(Price::from),
+            update_native_price_estimate_min: data.price_estimate_min.is_some(),
+            native_price_estimate_max: data.price_estimate_max.flatten().map(Price::from),
+            update_native_price_estimate_max: data.price_estimate_max.is_some(),
             state: data.state.map(ProductState::from),
             url: data.url,
             images: data
@@ -331,9 +337,15 @@ impl From<UpsertProductCommand> for UpsertAsyncProductCommandData {
             shops_product_id: cmd.shops_product_id,
             title: cmd.native_title.map(LocalizedTextData::from),
             description: cmd.native_description.map(LocalizedTextData::from),
-            price: cmd.native_price.map(PriceData::from),
-            price_estimate_min: cmd.native_price_estimate_min.map(PriceData::from),
-            price_estimate_max: cmd.native_price_estimate_max.map(PriceData::from),
+            price: cmd
+                .update_native_price
+                .then(|| cmd.native_price.map(PriceData::from)),
+            price_estimate_min: cmd
+                .update_native_price_estimate_min
+                .then(|| cmd.native_price_estimate_min.map(PriceData::from)),
+            price_estimate_max: cmd
+                .update_native_price_estimate_max
+                .then(|| cmd.native_price_estimate_max.map(PriceData::from)),
             state: cmd.state.map(ProductStateData::from),
             url: cmd.url,
             images: Some(cmd.images.into_iter().map(|image| image.url).collect()),

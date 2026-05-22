@@ -146,8 +146,11 @@ impl TryFrom<ShopifyProductEvent> for UpsertProductCommand {
                     .and_then(|v| v.price.as_deref()),
                 event.currency,
             )?,
+            update_native_price: true,
             native_price_estimate_min: None,
+            update_native_price_estimate_min: true,
             native_price_estimate_max: None,
+            update_native_price_estimate_max: true,
             state: Some(state),
             url: Some(url),
             images: event

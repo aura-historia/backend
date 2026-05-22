@@ -10,13 +10,13 @@ use url::Url;
 pub struct PatchProductData {
     pub shops_product_id: ShopsProductId,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price: Option<PriceData>,
+    pub price: Option<Option<PriceData>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub state: Option<ProductStateData>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min: Option<PriceData>,
+    pub price_estimate_min: Option<Option<PriceData>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max: Option<PriceData>,
+    pub price_estimate_max: Option<Option<PriceData>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none", default)]

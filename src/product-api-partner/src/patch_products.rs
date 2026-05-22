@@ -288,6 +288,7 @@ mod tests {
             ShopsProductId::from("test-id".to_string())
         );
         assert!(cmd.native_price.is_none());
+        assert!(!cmd.update_native_price);
         assert_eq!(
             cmd.state,
             Some(common::product_state::domain::ProductState::Listed)
@@ -299,10 +300,10 @@ mod tests {
         let partner_shop: PartnerShop = Faker.fake();
         let data = PatchProductData {
             shops_product_id: ShopsProductId::from("test-id".to_string()),
-            price: Some(common::price::data::PriceData::new(
+            price: Some(Some(common::price::data::PriceData::new(
                 common::currency::data::CurrencyData::Eur,
                 1000,
-            )),
+            ))),
             state: Some(ProductStateData::Available),
             price_estimate_min: None,
             price_estimate_max: None,
@@ -319,6 +320,7 @@ mod tests {
 
         assert_eq!(key.shop_id, partner_shop.shop_id);
         assert!(cmd.native_price.is_some());
+        assert!(cmd.update_native_price);
         assert_eq!(
             cmd.state,
             Some(common::product_state::domain::ProductState::Available)
