@@ -10,7 +10,12 @@ pub(crate) fn apply_schema(
     html: &str,
 ) -> Result<RawExtractedProduct, ApplySchemaError> {
     let parsed_html = Html::parse_document(html);
-    schema.apply(&parsed_html)
+    let mut raw = schema.apply(&parsed_html)?;
+    raw.images = schema
+        .images
+        .apply_image_url_candidate_groups(&parsed_html)
+        .map_err(ApplySchemaError::Images)?;
+    Ok(raw)
 }
 
 /// Tries every schema variant in `schemas` in sequence and returns the first

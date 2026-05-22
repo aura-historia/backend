@@ -127,3 +127,69 @@ async fn should_return_normalized_product_with_all_fields_when_normalization_pro
 
     assert_eq!(result.product, norm);
 }
+
+#[tokio::test]
+async fn should_filter_invalid_thumbnail_images_before_normalization() {
+    let id = shop_id();
+    let url = product_url();
+    let html = r#"<!DOCTYPE html>
+    <html>
+    <body>
+      <main>
+        <span id="product-id">SKU-42</span>
+        <h1>Biedermeier Chair</h1>
+        <span id="state">In Stock</span>
+        <img src="/image-100x100.jpg">
+        <img src="/image-800x600.jpg">
+      </main>
+    </body>
+    </html>"#
+        .to_string();
+
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher.expect_fetch().once().returning(move |_| {
+        let html = html.clone();
+        Box::pin(async move { Ok(html) })
+    });
+
+    let schema = shops_product_schema(id);
+    let mut schema_svc = MockProductSchemaService::new();
+    schema_svc
+        .expect_find_product_schema()
+        .once()
+        .returning(move |_| {
+            let schema = schema.clone();
+            Box::pin(async move { Ok(Some(schema)) })
+        });
+
+    let expected = normalized_product(url.clone());
+    let mut norm_svc = MockProductNormalizationService::new();
+    norm_svc
+        .expect_normalize()
+        .once()
+        .returning(move |raw, _, _| {
+            assert_eq!(
+                raw.images,
+                vec!["https://example.com/image-800x600.jpg".to_string()]
+            );
+            let n = expected.clone();
+            Box::pin(async move { Ok((n, 0u32)) })
+        });
+
+    let mut cand_svc = MockScraperCandidateService::new();
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+
+    let service = ScraperServiceImpl::new_with_schema_seed_pages(
+        Box::new(fetcher),
+        Box::new(schema_svc),
+        Box::new(norm_svc),
+        Arc::new(cand_svc),
+        3,
+        1,
+        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+    );
+
+    let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+
+    assert_eq!(result.product.url, url);
+}

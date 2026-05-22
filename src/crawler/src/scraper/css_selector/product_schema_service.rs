@@ -558,6 +558,7 @@ fn build_create_schemas_instruction(html_pages: &[String]) -> String {
          Return schemas ordered by specificity and completeness: first the schema with the most non-null extraction rules, then fallback templates with fewer applicable rules. When rule counts tie, put the schema with more specific product-focused selectors first.\n\
          Examples: if template A has price and template B has no price element, generate two schemas and put the priced schema first. If an auction template has estimate fields and a buy-now template has fixed price, generate separate schemas ordered by rule count. If a sold-item template lacks buy price but has sold state, split schemas when selectors differ.\n\
          Prefer high-precision selectors that represent semantic fields rather than layout wrappers.\n\
+         For images, prefer selectors that match product gallery image nodes and use type image_url when full-size candidates are present. The scraper validates candidates in this order: data-large_image, data-full, data-original, data-zoom-image, data-src, data-lazy-src, content, current href, parent href, largest picture/srcset candidate, then src. Avoid selectors or attributes that only return thumbnail URLs such as 100x100, 150x150, thumbnail, or thumb variants.\n\
          Return ONLY JSON. If there is one product template, return one ProductCssSelectorSchema object. If there are multiple product templates, return an array of ProductCssSelectorSchema objects ordered as described above.\n\
          Here are the cleaned HTML samples:{samples}"
     )
@@ -588,6 +589,7 @@ fn build_append_schema_instruction(
           Focus on this specific layout and make the selectors resilient.\n\
           Return ONLY JSON as a single ProductCssSelectorSchema object (not an array).\n\
           Optional fields may remain null if not confidently present.\n\
+          For images, prefer selectors that match product gallery image nodes and use type image_url when full-size candidates are present. Avoid thumbnail-only image attributes such as 100x100, 150x150, thumbnail, or thumb variants.\n\
           {failure_context}\n\
           Here is the cleaned HTML:\n\
           {cleaned}"

@@ -55,6 +55,11 @@ pub enum NormalizationError {
         source: url::ParseError,
     },
 
+    #[error(
+        "failed to normalize `images`: no valid image remained after validating {candidates} candidate(s)"
+    )]
+    NoValidImages { candidates: usize },
+
     #[error("failed to normalize `auction_start`: could not parse '{raw}' as a date/time")]
     AuctionStartParseError { raw: String },
 

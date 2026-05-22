@@ -1,5 +1,7 @@
 use crate::scraper::css_selector::currency_dto::CurrencyDto;
-use crate::scraper::css_selector::rule::{ExtractionError, ExtractionRule};
+use crate::scraper::css_selector::rule::{
+    ExtractionError, ExtractionRule, split_image_candidate_group,
+};
 use common::shop_id::ShopId;
 use llm::chat::StructuredOutputFormat;
 use schemars::JsonSchema;
@@ -81,7 +83,7 @@ pub struct ProductCssSelectorSchema {
     pub state: ExtractionRule,
 
     #[schemars(
-        description = "Product media URLs. May be fragmented across multiple gallery nodes. Prefer canonical product image/media URLs from src, srcset, href-like media links, or gallery-specific attributes. Avoid logos, icons, placeholders, sprites, and unrelated thumbnails from navigation or recommendations."
+        description = "Product media URLs. May be fragmented across multiple gallery nodes. Prefer ImageUrl extraction for image/gallery nodes so the scraper can validate ordered full-size candidates. Candidate order is data-large_image, data-full, data-original, data-zoom-image, data-src, data-lazy-src, content, current href, parent href, largest picture/srcset candidate, then src. Avoid logos, icons, placeholders, sprites, unrelated thumbnails from navigation or recommendations, and thumbnail-only attributes such as 100x100 or 150x150 src values."
     )]
     pub images: ExtractionRule,
 
@@ -214,6 +216,16 @@ impl ProductCssSelectorSchema {
             .unwrap_or_default();
 
         let images = self.images.apply(html).map_err(ApplySchemaError::Images)?;
+        let images = images
+            .into_iter()
+            .map(|image| {
+                split_image_candidate_group(&image)
+                    .into_iter()
+                    .next()
+                    .unwrap_or(image.as_str())
+                    .to_owned()
+            })
+            .collect();
 
         let auction_start = match &self.auction_start {
             None => None,

@@ -2,6 +2,7 @@ use common::string_newtype;
 use schemars::JsonSchema;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 string_newtype!(CssSelector, derives(Serialize, Deserialize, JsonSchema));
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -34,6 +35,15 @@ string_newtype!(
 pub enum ExtractionKind {
     Text,
     Attribute { name: HtmlAttributeName },
+    ImageUrl,
+}
+
+pub(crate) const IMAGE_CANDIDATE_SEPARATOR: char = '\u{1f}';
+
+pub(crate) fn split_image_candidate_group(raw: &str) -> Vec<&str> {
+    raw.split(IMAGE_CANDIDATE_SEPARATOR)
+        .filter(|candidate| !candidate.trim().is_empty())
+        .collect()
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -89,7 +99,7 @@ impl ExtractionRule {
                             results.push(value);
                         }
                     }
-                    ExtractionKind::Attribute { .. } => {
+                    ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl => {
                         let mut elements = elements.peekable();
                         if let Some(element) = elements.next() {
                             results.push(extract_from_element(
@@ -119,6 +129,13 @@ impl ExtractionRule {
         }
 
         Ok(results)
+    }
+
+    pub(crate) fn apply_image_url_candidate_groups(
+        &self,
+        html: &Html,
+    ) -> Result<Vec<String>, ExtractionError> {
+        self.apply(html)
     }
 }
 
@@ -162,7 +179,158 @@ fn extract_from_element(
             })?;
             Ok(attr_value.to_owned())
         }
+        ExtractionKind::ImageUrl => extract_image_url_from_element(element, selector_str),
     }
+}
+
+fn extract_image_url_from_element(
+    element: &scraper::ElementRef<'_>,
+    selector_str: &str,
+) -> Result<String, ExtractionError> {
+    let candidates = image_url_candidates_for_element(element);
+    if candidates.is_empty() {
+        return Err(ExtractionError::MissingAttribute {
+            selector: selector_str.to_owned(),
+            attribute: "image URL candidate".to_owned(),
+        });
+    }
+
+    Ok(candidates.join(IMAGE_CANDIDATE_SEPARATOR.encode_utf8(&mut [0; 4])))
+}
+
+fn image_url_candidates_for_element(element: &scraper::ElementRef<'_>) -> Vec<String> {
+    let mut candidates = OrderedImageCandidates::default();
+
+    for attr in [
+        "data-large_image",
+        "data-full",
+        "data-original",
+        "data-zoom-image",
+    ] {
+        push_attr_candidate(&mut candidates, element, attr);
+    }
+    for attr in ["data-src", "data-lazy-src", "content"] {
+        push_attr_candidate(&mut candidates, element, attr);
+    }
+    push_attr_candidate(&mut candidates, element, "href");
+
+    if let Some(href) = nearest_anchor_href(element) {
+        candidates.push(href);
+    }
+
+    for srcset in picture_source_srcsets(element) {
+        if let Some((url, _)) = largest_srcset_candidate(Some(srcset)) {
+            candidates.push(url);
+        }
+    }
+    if let Some((url, _)) = largest_srcset_candidate(element.value().attr("srcset")) {
+        candidates.push(url);
+    }
+
+    push_attr_candidate(&mut candidates, element, "src");
+
+    candidates.into_vec()
+}
+
+#[derive(Default)]
+struct OrderedImageCandidates {
+    seen: HashSet<String>,
+    values: Vec<String>,
+}
+
+impl OrderedImageCandidates {
+    fn push(&mut self, value: String) {
+        let trimmed = value.trim();
+        if trimmed.is_empty() || !is_probably_image_url(trimmed) {
+            return;
+        }
+
+        let normalized = trimmed.to_owned();
+        if self.seen.insert(normalized.clone()) {
+            self.values.push(normalized);
+        }
+    }
+
+    fn into_vec(self) -> Vec<String> {
+        self.values
+    }
+}
+
+fn push_attr_candidate(
+    candidates: &mut OrderedImageCandidates,
+    element: &scraper::ElementRef<'_>,
+    attr: &str,
+) {
+    if let Some(value) = element
+        .value()
+        .attr(attr)
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        candidates.push(value.to_owned());
+    }
+}
+
+fn nearest_anchor_href(element: &scraper::ElementRef<'_>) -> Option<String> {
+    for ancestor in element.ancestors() {
+        let Some(ancestor) = scraper::ElementRef::wrap(ancestor) else {
+            continue;
+        };
+        if ancestor.value().name() == "a" {
+            return ancestor.value().attr("href").map(str::to_owned);
+        }
+    }
+    None
+}
+
+fn picture_source_srcsets<'a>(element: &scraper::ElementRef<'a>) -> Vec<&'a str> {
+    let Some(parent_node) = element.parent() else {
+        return Vec::new();
+    };
+    let Some(parent) = scraper::ElementRef::wrap(parent_node) else {
+        return Vec::new();
+    };
+    if parent.value().name() != "picture" {
+        return Vec::new();
+    }
+
+    parent
+        .children()
+        .filter_map(scraper::ElementRef::wrap)
+        .filter(|child| child.value().name() == "source")
+        .filter_map(|child| child.value().attr("srcset"))
+        .collect()
+}
+
+fn largest_srcset_candidate(srcset: Option<&str>) -> Option<(String, usize)> {
+    srcset?
+        .split(',')
+        .filter_map(|candidate| {
+            let mut parts = candidate.split_whitespace();
+            let url = parts.next()?.trim();
+            let width = parts
+                .find_map(|part| part.strip_suffix('w'))
+                .and_then(|raw| raw.parse::<usize>().ok())
+                .unwrap_or_default();
+            if url.is_empty() {
+                None
+            } else {
+                Some((url.to_owned(), width))
+            }
+        })
+        .max_by_key(|(_, width)| *width)
+}
+
+fn is_probably_image_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with('/')
+        || lower.contains(".jpg")
+        || lower.contains(".jpeg")
+        || lower.contains(".png")
+        || lower.contains(".webp")
+        || lower.contains(".gif")
 }
 
 #[cfg(test)]
@@ -211,6 +379,14 @@ mod tests {
         ExtractionKind::Attribute {
             name: HtmlAttributeName::from(name),
         }
+    }
+
+    fn image_url_kind() -> ExtractionKind {
+        ExtractionKind::ImageUrl
+    }
+
+    fn image_candidates(raw: &str) -> Vec<&str> {
+        split_image_candidate_group(raw)
     }
 
     // ─── Text / First ──────────────────────────────────────────────────
@@ -782,6 +958,91 @@ mod tests {
     }
 
     // ─── rstest parameterized tests ────────────────────────────────────
+
+    #[test]
+    fn should_order_large_image_attribute_before_thumbnail_src_for_image_url_extraction() {
+        let doc = Html::parse_document(
+            r#"
+            <html><body>
+                <div class="gallery">
+                    <img
+                        src="/uploads/photo-100x100.jpg"
+                        data-large_image="/uploads/photo-scaled.jpg"
+                        data-large_image_width="1536"
+                        data-large_image_height="2048">
+                </div>
+            </body></html>
+            "#,
+        );
+
+        let r = rule(".gallery img", image_url_kind(), ExtractionCardinality::All);
+        let result = r.apply(&doc).unwrap();
+        assert_eq!(
+            image_candidates(&result[0]),
+            vec!["/uploads/photo-scaled.jpg", "/uploads/photo-100x100.jpg"]
+        );
+    }
+
+    #[test]
+    fn should_order_largest_srcset_candidate_before_src_for_image_url_extraction() {
+        let doc = Html::parse_document(
+            r#"
+            <html><body>
+                <img class="product" src="/uploads/photo-100x100.jpg"
+                     srcset="/uploads/photo-150x150.jpg 150w, /uploads/photo-768x768.jpg 768w, /uploads/photo.jpg 1200w">
+            </body></html>
+            "#,
+        );
+
+        let r = rule("img.product", image_url_kind(), ExtractionCardinality::All);
+        let result = r.apply(&doc).unwrap();
+        assert_eq!(
+            image_candidates(&result[0]),
+            vec!["/uploads/photo.jpg", "/uploads/photo-100x100.jpg"]
+        );
+    }
+
+    #[test]
+    fn should_order_parent_anchor_before_thumbnail_src_for_image_url_extraction() {
+        let doc = Html::parse_document(
+            r#"
+            <html><body>
+                <a href="/uploads/photo-original.jpg">
+                    <img class="product" src="/uploads/photo-100x100.jpg">
+                </a>
+            </body></html>
+            "#,
+        );
+
+        let r = rule("img.product", image_url_kind(), ExtractionCardinality::All);
+        let result = r.apply(&doc).unwrap();
+        assert_eq!(
+            image_candidates(&result[0]),
+            vec!["/uploads/photo-original.jpg", "/uploads/photo-100x100.jpg"]
+        );
+    }
+
+    #[test]
+    fn should_include_picture_source_srcset_candidates_for_image_url_extraction() {
+        let doc = Html::parse_document(
+            r#"
+            <html><body>
+                <picture>
+                    <source media="(min-width: 800px)"
+                            srcset="/uploads/photo-640x480.webp 640w, /uploads/photo-1200x900.webp 1200w">
+                    <img class="product" src="/uploads/photo-100x100.jpg">
+                </picture>
+            </body></html>
+            "#,
+        );
+
+        let r = rule("img.product", image_url_kind(), ExtractionCardinality::All);
+        let result = r.apply(&doc).unwrap();
+        assert_eq!(
+            image_candidates(&result[0]),
+            vec!["/uploads/photo-1200x900.webp", "/uploads/photo-100x100.jpg"]
+        );
+    }
 
     #[rstest]
     #[case::simple_tag("h1", "<h1>Title</h1>", vec!["Title"])]

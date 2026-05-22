@@ -6,6 +6,7 @@ use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::engine::try_apply_schemas;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
+use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::scraper::scraper_service::util::html::normalization_error_to_schema_hint;
 use common::shop_id::ShopId;
@@ -51,8 +52,16 @@ impl ScraperServiceImpl {
     pub(crate) async fn normalize_with_schema_fix_retry(
         &self,
         ctx: NormalizationRetryContext<'_>,
-        raw: crate::scraper::css_selector::product_schema::RawExtractedProduct,
+        mut raw: crate::scraper::css_selector::product_schema::RawExtractedProduct,
     ) -> Result<NormalizedProduct, ScraperError> {
+        raw.images =
+            match filter_valid_image_urls(raw.images, ctx.url, &*self.image_validator).await {
+                Ok(images) => images,
+                Err(err) if normalization_error_to_schema_hint(&err).is_some() => {
+                    return self.fix_normalization_with_schema_retry(ctx, err).await;
+                }
+                Err(err) => return Err(ScraperError::NormalizationError(err)),
+            };
         match self
             .normalization_service
             .normalize(
@@ -140,15 +149,28 @@ impl ScraperServiceImpl {
                 .append_single_schema(ctx.html, last_generated_schema.as_ref(), Some(&apply_hint))
                 .await?;
 
-            let reapplied = match try_apply_schemas(std::iter::once(&generated_schema), ctx.html) {
-                Ok((_, raw)) => raw,
-                Err(apply_err) => {
-                    last_generated_schema = Some(generated_schema);
-                    last_apply_error = Some(apply_err);
-                    last_norm_error = None;
-                    continue;
-                }
-            };
+            let mut reapplied =
+                match try_apply_schemas(std::iter::once(&generated_schema), ctx.html) {
+                    Ok((_, raw)) => raw,
+                    Err(apply_err) => {
+                        last_generated_schema = Some(generated_schema);
+                        last_apply_error = Some(apply_err);
+                        last_norm_error = None;
+                        continue;
+                    }
+                };
+            reapplied.images =
+                match filter_valid_image_urls(reapplied.images, ctx.url, &*self.image_validator)
+                    .await
+                {
+                    Ok(images) => images,
+                    Err(norm_err) => {
+                        last_generated_schema = Some(generated_schema);
+                        last_apply_error = normalization_error_to_schema_hint(&norm_err);
+                        last_norm_error = Some(norm_err);
+                        continue;
+                    }
+                };
 
             match self
                 .normalization_service

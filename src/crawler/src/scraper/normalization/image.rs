@@ -1,4 +1,5 @@
 use super::error::NormalizationError;
+use crate::scraper::css_selector::rule::split_image_candidate_group;
 use product::core::{product_image::ProductImage, prohibited_content::ProhibitedContent};
 use url::Url;
 
@@ -14,10 +15,15 @@ pub(super) fn normalize_images(
     raw.into_iter()
         .map(|s| {
             let s = s.trim().to_owned();
-            let url = Url::parse(&s)
-                .or_else(|_| base_url.join(&s))
+            let image_url = split_image_candidate_group(&s)
+                .into_iter()
+                .next()
+                .unwrap_or(s.as_str())
+                .to_owned();
+            let url = Url::parse(&image_url)
+                .or_else(|_| base_url.join(&image_url))
                 .map_err(|source| NormalizationError::InvalidImageUrl {
-                    raw: s.clone(),
+                    raw: image_url.clone(),
                     source,
                 })?;
             Ok(ProductImage {
