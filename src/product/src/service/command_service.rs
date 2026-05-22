@@ -796,10 +796,20 @@ fn determine_update_events(
                     state_event,
                 )));
             }
+            let native_price_estimate_min = if cmd.update_native_price_estimate_min {
+                cmd.native_price_estimate_min
+            } else {
+                product.native_price_estimate_min
+            };
+            let native_price_estimate_max = if cmd.update_native_price_estimate_max {
+                cmd.native_price_estimate_max
+            } else {
+                product.native_price_estimate_max
+            };
             if (cmd.update_native_price_estimate_min || cmd.update_native_price_estimate_max)
                 && let Some(event) = product.change_estimate_price(
-                    cmd.native_price_estimate_min,
-                    cmd.native_price_estimate_max,
+                    native_price_estimate_min,
+                    native_price_estimate_max,
                     fx_rate,
                 )
             {

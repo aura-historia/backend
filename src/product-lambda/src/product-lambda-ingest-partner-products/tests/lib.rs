@@ -320,12 +320,12 @@ async fn should_keep_existing_price_when_update_command_omits_price_for_partner_
         .query_product_domain_event_records(&shop_id, &shops_product_id)
         .await
         .unwrap();
-    let price_changed = ProductDomainEventTypeRecord::DomainPriceChanged.as_str();
+    let price_changed_event_type = ProductDomainEventTypeRecord::DomainPriceChanged.as_str();
     assert_eq!(
         0,
         domain_events
             .iter()
-            .filter(|event| event.event_type.as_str() == price_changed)
+            .filter(|event| event.event_type.as_str() == price_changed_event_type)
             .count()
     );
 }
@@ -684,12 +684,12 @@ async fn should_keep_existing_price_when_upsert_command_omits_price_for_partner_
         .query_product_domain_event_records(&shop_id, &shops_product_id)
         .await
         .unwrap();
-    let price_changed = ProductDomainEventTypeRecord::DomainPriceChanged.as_str();
+    let price_changed_event_type = ProductDomainEventTypeRecord::DomainPriceChanged.as_str();
     assert_eq!(
         0,
         domain_events
             .iter()
-            .filter(|event| event.event_type.as_str() == price_changed)
+            .filter(|event| event.event_type.as_str() == price_changed_event_type)
             .count()
     );
 }

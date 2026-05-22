@@ -319,6 +319,63 @@ async fn should_write_product_updates_when_all_exist_and_actual_changes() {
 }
 
 #[localstack_test(services = [DynamoDB()])]
+async fn should_preserve_existing_estimate_max_when_only_estimate_min_is_updated() {
+    let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let service = command_product_service(&repository).await;
+
+    let mut create_cmd: CreateProductCommand = Faker.fake();
+    create_cmd.native_price_estimate_min = None;
+    create_cmd.native_price_estimate_max = Some(Price::new(500u64.into(), Currency::Eur));
+    create_cmd.other_price_estimate_min = HashMap::new();
+    create_cmd.other_price_estimate_max = FixedFxRate()
+        .exchange_all(Currency::Eur, MonetaryAmount::from(500u64))
+        .unwrap();
+
+    let product_record = make_product_record(&create_cmd);
+    let unprocessed = repository
+        .put_product_records([product_record].into())
+        .await
+        .unwrap()
+        .unprocessed_items
+        .unwrap_or_default();
+    assert!(unprocessed.is_empty());
+
+    let key = create_cmd.key();
+    let new_min = Price::new(100u64.into(), Currency::Eur);
+    let update_cmd = UpdateProductCommand {
+        native_price_estimate_min: Some(new_min),
+        update_native_price_estimate_min: true,
+        state: Some(create_cmd.state),
+        ..Default::default()
+    };
+
+    let failures = service
+        .update(HashMap::from([(key.clone(), update_cmd)]))
+        .await;
+    assert!(failures.is_empty());
+
+    let updated = repository
+        .get_product_record(&key.shop_id, &key.shops_product_id)
+        .await
+        .unwrap()
+        .expect("product should exist after estimate update");
+    assert_eq!(
+        Some(100),
+        updated
+            .price_estimate_min_native
+            .as_ref()
+            .map(|price| price.amount)
+    );
+    assert_eq!(
+        Some(500),
+        updated
+            .price_estimate_max_native
+            .as_ref()
+            .map(|price| price.amount)
+    );
+}
+
+#[localstack_test(services = [DynamoDB()])]
 async fn should_return_failures_when_updating_non_existent_products() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = command_product_service(&repository).await;
