@@ -7,8 +7,8 @@ use fake::{Fake, Faker};
 use fxrate::dynamodb::record::FxRatesRecord;
 use fxrate::service::MockFxRateService;
 use lambda_runtime::{Context, LambdaEvent};
-use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
+use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::service::command_service::CommandProductServiceImpl;
 use product_lambda_ingest_partner_products::{
     AsyncProductCommandData, CreateAsyncProductCommandData, UpdateAsyncProductCommandData,
@@ -311,7 +311,10 @@ async fn should_keep_existing_price_when_update_command_omits_price_for_partner_
         .await
         .unwrap()
         .expect("product should exist after update command without price");
-    assert_eq!(Some(4200), product.price_native.as_ref().map(|price| price.amount));
+    assert_eq!(
+        Some(4200),
+        product.price_native.as_ref().map(|price| price.amount)
+    );
 
     let domain_events = product_repository
         .query_product_domain_event_records(&shop_id, &shops_product_id)
@@ -672,7 +675,10 @@ async fn should_keep_existing_price_when_upsert_command_omits_price_for_partner_
         .await
         .unwrap()
         .expect("product should exist after upsert command without price");
-    assert_eq!(Some(5100), product.price_native.as_ref().map(|price| price.amount));
+    assert_eq!(
+        Some(5100),
+        product.price_native.as_ref().map(|price| price.amount)
+    );
 
     let domain_events = product_repository
         .query_product_domain_event_records(&shop_id, &shops_product_id)

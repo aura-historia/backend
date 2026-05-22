@@ -272,6 +272,7 @@ mod tests {
                 assert_eq!(
                     cmd.price
                         .as_ref()
+                        .and_then(|price| price.as_ref())
                         .map(|price| common::price::domain::Price::from(*price).monetary_amount),
                     Some(MonetaryAmount::from(4269_u64))
                 );

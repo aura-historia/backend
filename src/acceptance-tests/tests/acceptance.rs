@@ -967,9 +967,12 @@ async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
 fn empty_update_product_command() -> UpdateProductCommand {
     UpdateProductCommand {
         native_price: None,
+        update_native_price: false,
         state: None,
         native_price_estimate_min: None,
+        update_native_price_estimate_min: false,
         native_price_estimate_max: None,
+        update_native_price_estimate_max: false,
         url: None,
         images: None,
         auction_start: None,
@@ -1196,7 +1199,9 @@ async fn should_materialize_product_in_dynamodb_for_estimate_price_changed_event
         native_price: materialized_old.price_native.map(|p| p.into()),
         state: Some(materialized_old.state.into()),
         native_price_estimate_min: Some(new_min_price),
+        update_native_price_estimate_min: true,
         native_price_estimate_max: Some(new_max_price),
+        update_native_price_estimate_max: true,
         ..empty_update_product_command()
     };
 

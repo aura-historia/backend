@@ -803,7 +803,9 @@ fn determine_update_events(
                     fx_rate,
                 )
             {
-                events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(event)));
+                events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
+                    event,
+                )));
             }
             if let Some(url) = cmd.url
                 && let Some(event) = product.change_url(url.clone(), append_utm_params(url))
