@@ -2,8 +2,11 @@ use crate::network::policy::{
     NetworkAction, NetworkErrorKind, RetryPolicy, action_for, backoff_delay,
     classify_reqwest_error, retry_cooldown_for,
 };
+use crate::review::model::ARTIFACT_PRODUCT_SCHEMA;
+use crate::review::repository::CrawlerReviewRepository;
 use crate::scraper::candidate_service::ScraperCandidateService;
 use crate::scraper::css_selector::product_schema_service::ProductSchemaService;
+use crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError;
 use crate::scraper::normalization::product_normalization_service::ProductNormalizationService;
 use std::sync::Arc;
 use tokio::time::sleep;
@@ -179,6 +182,55 @@ pub struct ScraperServiceImpl {
     pub(crate) schema_seed_pages: usize,
     /// Hard limit for total LLM calls per shop across the whole scrape.
     pub(crate) max_llm_calls_per_shop: i64,
+    pub(crate) review_repository: Option<CrawlerReviewRepository>,
+    pub(crate) review_required: bool,
+    pub(crate) schema_llm_review_mode: SchemaLlmReviewMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SchemaLlmReviewMode {
+    HumanOnly,
+    ReportOnly,
+    AutoApproveHighConfidence,
+}
+
+impl SchemaLlmReviewMode {
+    pub fn from_env(review_required: bool) -> Self {
+        let fallback = if review_required {
+            Self::AutoApproveHighConfidence
+        } else {
+            Self::HumanOnly
+        };
+        std::env::var("CRAWLER_SCHEMA_LLM_REVIEW_MODE")
+            .ok()
+            .and_then(|raw| Self::parse(&raw))
+            .unwrap_or(fallback)
+    }
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "human_only" => Some(Self::HumanOnly),
+            "report_only" => Some(Self::ReportOnly),
+            "auto_approve_high_confidence" => Some(Self::AutoApproveHighConfidence),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn should_evaluate(self) -> bool {
+        !matches!(self, Self::HumanOnly)
+    }
+
+    pub(crate) fn allows_auto_approval(self) -> bool {
+        matches!(self, Self::AutoApproveHighConfidence)
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::HumanOnly => "human_only",
+            Self::ReportOnly => "report_only",
+            Self::AutoApproveHighConfidence => "auto_approve_high_confidence",
+        }
+    }
 }
 
 impl ScraperServiceImpl {
@@ -217,6 +269,74 @@ impl ScraperServiceImpl {
             max_schema_fix_attempts,
             schema_seed_pages: schema_seed_pages.max(1),
             max_llm_calls_per_shop,
+            review_repository: None,
+            review_required: false,
+            schema_llm_review_mode: SchemaLlmReviewMode::HumanOnly,
         }
+    }
+
+    pub fn with_review_gate(
+        mut self,
+        review_repository: CrawlerReviewRepository,
+        review_required: bool,
+    ) -> Self {
+        self.review_repository = Some(review_repository);
+        self.review_required = review_required;
+        self.schema_llm_review_mode = SchemaLlmReviewMode::from_env(review_required);
+        self
+    }
+
+    pub fn with_schema_llm_review_mode(mut self, mode: SchemaLlmReviewMode) -> Self {
+        self.schema_llm_review_mode = mode;
+        self
+    }
+
+    pub(crate) async fn pending_product_schema_review_id(
+        &self,
+        shop_id: &common::shop_id::ShopId,
+    ) -> Result<Option<uuid::Uuid>, ProductSchemaServiceError> {
+        if !self.review_required {
+            return Ok(None);
+        }
+
+        let Some(review_repository) = &self.review_repository else {
+            return Ok(None);
+        };
+
+        review_repository
+            .latest_pending_review_id(shop_id, ARTIFACT_PRODUCT_SCHEMA)
+            .await
+            .map_err(ProductSchemaServiceError::DatabaseError)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SchemaLlmReviewMode;
+
+    #[test]
+    fn parses_schema_llm_review_modes() {
+        assert_eq!(
+            SchemaLlmReviewMode::parse("human_only"),
+            Some(SchemaLlmReviewMode::HumanOnly)
+        );
+        assert_eq!(
+            SchemaLlmReviewMode::parse("report_only"),
+            Some(SchemaLlmReviewMode::ReportOnly)
+        );
+        assert_eq!(
+            SchemaLlmReviewMode::parse("auto_approve_high_confidence"),
+            Some(SchemaLlmReviewMode::AutoApproveHighConfidence)
+        );
+        assert_eq!(SchemaLlmReviewMode::parse("unknown"), None);
+    }
+
+    #[test]
+    fn auto_approval_is_only_allowed_for_high_confidence_mode() {
+        assert!(!SchemaLlmReviewMode::HumanOnly.should_evaluate());
+        assert!(SchemaLlmReviewMode::ReportOnly.should_evaluate());
+        assert!(!SchemaLlmReviewMode::ReportOnly.allows_auto_approval());
+        assert!(SchemaLlmReviewMode::AutoApproveHighConfidence.should_evaluate());
+        assert!(SchemaLlmReviewMode::AutoApproveHighConfidence.allows_auto_approval());
     }
 }

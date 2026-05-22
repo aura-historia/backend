@@ -1,3 +1,4 @@
+use common::shop_id::ShopId;
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
 use std::sync::Arc;
@@ -105,6 +106,17 @@ impl UrlLock {
     }
 }
 
+/// RAII lock for scraper work scoped to a shop.
+pub struct ShopLock(#[allow(dead_code)] AdvisoryLock);
+
+impl ShopLock {
+    pub fn try_acquire(lock_manager: &LocalLockManager, shop_id: ShopId) -> Option<Self> {
+        lock_manager
+            .try_acquire(format!("shop:{shop_id}"))
+            .map(Self)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -187,6 +199,23 @@ mod tests {
         drop(first);
 
         let third = UrlLock::try_acquire(&manager, &url);
+        assert!(third.is_some());
+    }
+
+    #[test]
+    fn should_lock_and_unlock_shop_key_via_drop() {
+        let manager = LocalLockManager::new();
+        let shop_id = ShopId::new();
+
+        let first = ShopLock::try_acquire(&manager, shop_id);
+        assert!(first.is_some());
+
+        let second = ShopLock::try_acquire(&manager, shop_id);
+        assert!(second.is_none());
+
+        drop(first);
+
+        let third = ShopLock::try_acquire(&manager, shop_id);
         assert!(third.is_some());
     }
 }

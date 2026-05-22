@@ -1,7 +1,7 @@
 # LLM Integration
 
-The crawler uses three distinct LLM instances, each with its own system prompt, input/output contract, and retry
-strategy. All are built via `LLMBuilder` with `resilient=3` and `reasoning=true` unless noted.
+The crawler has four LLM use cases, each with its own system prompt, input/output contract, and retry strategy. All are
+built via `LLMBuilder` with `resilient=3` and `reasoning=true` unless noted.
 
 ---
 
@@ -89,8 +89,9 @@ together cover heterogeneous templates in the same shop.
 - Every shop-scoped LLM call increments `shops.llm_calls_count` for per-shop observability:
     - URL pattern classification (spider)
     - schema generation/retry (scraper)
-    - state-mapping LLM fallback (scraper normalization)
-- Hard budget guardrail: **all three LLM call types share a single combined cap** `scraper_max_llm_calls_per_shop` (
+    - schema self-evaluation (scraper review gate)
+        - state-mapping LLM fallback (scraper normalization)
+- Hard budget guardrail: **all crawler LLM call types share a single combined cap** `scraper_max_llm_calls_per_shop` (
   default `20`).
     - Candidate selection enforces a hard stop for that shop once the cap is reached (`shops.llm_calls_count < cap`).
     - If the cap is reached during an in-flight scrape, scraper returns `LlmBudgetExceeded` and cron writes cooldown
@@ -145,7 +146,52 @@ variants are tried in order until one applies.
 
 ---
 
-## 3. Product State Mapping — `ProductStateMappingServiceImpl`
+## 3. Product Schema Evaluation - `ProductSchemaServiceImpl`
+
+**Purpose:** Judge generated `ProductCssSelectorSchema` candidates before unattended persistence. The evaluator is
+judge-only: it does not repair schemas or produce replacement selectors.
+
+**When called:** After schema generation on initial schema creation, append repair, or normalization repair when
+`CRAWLER_SCHEMA_LLM_REVIEW_MODE` is `report_only` or `auto_approve_high_confidence`.
+
+**Evidence contract:** The prompt receives:
+
+- the generated schemas,
+- cleaned sampled product-page HTML from the current crawl context,
+- the deterministic schema-application matrix with extracted raw values and selector match counts,
+- `deterministic_approval_ok`, which is true only when every sampled page has an applicable schema with required raw
+  values (`shops_product_id`, `title`, `state`, and at least one image).
+
+The evaluator must return `NEEDS_HUMAN_REVIEW` unless the evidence is clear. Auto-approval requires both deterministic
+coverage and an LLM verdict of `APPROVE` with `HIGH` confidence.
+
+**Output (JSON):**
+
+```json
+{
+  "decision": "APPROVE",
+  "confidence": "HIGH",
+  "approved_by_llm": true,
+  "summary": "Schemas cover the sampled product pages and extract product-specific required fields.",
+  "risks": [],
+  "page_findings": [
+    {"role": "PRIMARY", "schema_index": 0, "finding": "Required fields extracted from product-specific nodes."}
+  ]
+}
+```
+
+Malformed JSON, LLM errors, low confidence, rejection, unavailable evaluator configuration, or exhausted budget all fall
+back to a normal pending `PRODUCT_SCHEMA` human review. The evaluator payload is stored under
+`crawler_reviews.validation_summary.auto_schema_evaluation` and shown in the Crawler Review Console.
+
+Review page HTML is not persisted in `crawler_review_pages`. The evaluator receives HTML while the scrape/review is
+being created; later console inspector and matrix views fetch live HTML from the stored page URLs.
+
+**LLM config:** `resilient=3`, `reasoning=true`, `timeout=180s`
+
+---
+
+## 4. Product State Mapping — `ProductStateMappingServiceImpl`
 
 **Purpose:** Classify a raw state string extracted from a product page (e.g. `"En stock"`, `"Sold"`, `"Réservé"`) into a
 normalized `UrlState`.
@@ -213,4 +259,5 @@ LLM calls become rare.
 |--------------------|------------------------------------------------------------------------|---------------------------------|---------|-------------------------|------------------------------------|
 | URL Classification | Spider: at threshold / end of stream / zero-product reclassify         | JSON `{pattern}`                | 180s    | `shops.url_pattern`     | Yes                                |
 | Product Schema     | Scraper: first scrape per shop / runtime apply miss (append-and-retry) | JSON CSS selectors              | 180s    | `shops_product_schema`  | Yes                                |
+| Schema Evaluation  | Scraper: after generated schemas, before review/persistence            | JSON verdict/confidence         | 180s    | `crawler_reviews`       | Yes                                |
 | State Mapping      | Scraper: novel raw state string (after length guard passes)            | Plain text `STATE:` or `REGEX:` | 60s     | `product_state_mapping` | Yes (via `normalize` return count) |

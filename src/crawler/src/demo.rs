@@ -16,9 +16,13 @@
 //! | Env var          | Purpose                              | Default                                          |
 //! |------------------|--------------------------------------|--------------------------------------------------|
 //! | `GEMINI_API_KEY` | API key for the Gemini backend       | *(required)*                                     |
-//! | `GEMINI_MODEL`   | Model to use for LLM calls           | `gemini-3.1-flash-lite`                  |
+//! | `GEMINI_MODEL`   | Model to use for LLM calls           | `gemini-3.1-pro-preview`                        |
 //! | `GEMINI_FLEX`    | Enable Gemini Flex inference         | unset / `false`                                  |
 //! | `LOCAL_DB_URL`   | Hardcoded local DB URL                | `postgres://postgres:postgres@localhost:5432/crawler_demo` |
+//! | `CRAWLER_REVIEW_REQUIRED` | Block generated patterns/schemas until approved | unset / `false`                       |
+//! | `CRAWLER_REVIEW_URL_PATTERN_REQUIRED` | Block generated URL patterns until approved | unset / `false`            |
+//! | `CRAWLER_REVIEW_BIND_ADDR` | Review UI bind address        | `127.0.0.1:7878`                                |
+//! | `CRAWLER_REVIEW_AUTH_TOKEN` | Optional bearer token for the review UI/API | unset                               |
 //! | `LOG_LEVEL`      | Log level                            | `info`                                           |
 //!
 //! Scraped products are written to `scraped_products.json` instead of being forwarded to DynamoDB.
@@ -36,6 +40,8 @@ use crawler::google_llm::{
     GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
 };
 use crawler::local_db::{DEMO_DB_NAME, bootstrap_local_database, demo_db_url};
+use crawler::review::repository::CrawlerReviewRepository;
+use crawler::review::server::{ReviewServer, ReviewServerConfig};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
@@ -75,6 +81,18 @@ impl ShopRegistrationSource for DemoShopSource {
     async fn fetch_registered_shops(&self) -> Result<Vec<RegisteredShop>, ShopSyncError> {
         Ok(self.shops.clone())
     }
+}
+
+fn crawler_review_required() -> bool {
+    std::env::var("CRAWLER_REVIEW_REQUIRED")
+        .map(|value| matches!(value.as_str(), "true" | "TRUE" | "1" | "yes" | "YES"))
+        .unwrap_or(false)
+}
+
+fn crawler_review_url_pattern_required() -> bool {
+    std::env::var("CRAWLER_REVIEW_URL_PATTERN_REQUIRED")
+        .map(|value| matches!(value.as_str(), "true" | "TRUE" | "1" | "yes" | "YES"))
+        .unwrap_or(false)
 }
 
 fn demo_shops() -> Vec<RegisteredShop> {
@@ -124,7 +142,7 @@ async fn main() {
         };
 
         let model =
-            std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.1-flash-lite".to_string());
+            std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.1-pro-preview".to_string());
         unsafe {
             std::env::set_var("GEMINI_MODEL", &model);
         }
@@ -169,9 +187,18 @@ async fn main() {
         }
         info!("Database migrations applied successfully");
 
+        let review_required = crawler_review_required();
+        let url_pattern_review_required = crawler_review_url_pattern_required();
+        let review_config =
+            ReviewServerConfig::from_env().expect("CRAWLER_REVIEW_BIND_ADDR must be host:port");
+        let review_repo = CrawlerReviewRepository::new(pool.clone());
+
         info!(
             gemini_model = %model,
             gemini_service_tier,
+            review_required,
+            url_pattern_review_required,
+            review_bind_addr = %review_config.bind_addr,
             "Wiring crawler dependencies..."
         );
         let gemini_rate_limiter =
@@ -192,12 +219,14 @@ async fn main() {
         let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
         let schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+        let schema_evaluator_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
         let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
             pool.clone(),
         ))));
-        let schema_svc = ProductSchemaServiceImpl::new(
+        let schema_svc = ProductSchemaServiceImpl::new_with_evaluator(
             schema_llm_builder,
+            schema_evaluator_llm_builder,
             llm_service_tier,
             schema_repo,
             Some(Arc::clone(&gemini_rate_limiter)),
@@ -212,20 +241,23 @@ async fn main() {
         );
 
         let fetcher = Box::new(ReqwestHtmlFetcher::new());
-        let scraper_svc = Box::new(ScraperServiceImpl::new_with_schema_seed_pages(
-            fetcher,
-            Box::new(schema_svc),
-            Box::new(normalization_svc),
-            Arc::new(
-                ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
-                    pool.clone(),
-                    config.scraper_max_llm_calls_per_shop,
+        let scraper_svc = Box::new(
+            ScraperServiceImpl::new_with_schema_seed_pages(
+                fetcher,
+                Box::new(schema_svc),
+                Box::new(normalization_svc),
+                Arc::new(
+                    ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
+                        pool.clone(),
+                        config.scraper_max_llm_calls_per_shop,
+                    ),
                 ),
-            ),
-            3,
-            config.scraper_schema_seed_pages,
-            config.scraper_max_llm_calls_per_shop,
-        ));
+                3,
+                config.scraper_schema_seed_pages,
+                config.scraper_max_llm_calls_per_shop,
+            )
+            .with_review_gate(review_repo.clone(), review_required),
+        );
 
         let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
         let url_pattern_repo = Box::new(ShopUrlPatternRepositoryImpl::new(pool.clone()));
@@ -239,9 +271,11 @@ async fn main() {
             )
             .unwrap(),
         );
-        let pattern_svc = Box::new(UrlPatternServiceImpl::new(
+        let pattern_svc = Box::new(UrlPatternServiceImpl::new_with_review(
             Arc::new(*url_pattern_repo),
             class_svc,
+            review_repo.clone(),
+            url_pattern_review_required,
         ));
 
         let spider_svc = Box::new(SpiderServiceImpl::new(
@@ -277,9 +311,30 @@ async fn main() {
             shop_count = demo_shops().len(),
             gemini_model = %model,
             gemini_service_tier,
+            review_required,
+            url_pattern_review_required,
+            review_bind_addr = %review_config.bind_addr,
             "Crawler demo is fully initialized. Starting background tasks. Press Ctrl+C to stop."
         );
-        cron_job.run_loop().await;
+        let review_server = ReviewServer::new(review_repo, review_config);
+        let review_handle = tokio::spawn(async move {
+            review_server
+                .run()
+                .await
+                .expect("crawler review server failed")
+        });
+        let cron_handle = tokio::spawn(async move {
+            cron_job.run_loop().await;
+        });
+
+        tokio::select! {
+            result = review_handle => {
+                result.expect("crawler review server task panicked");
+            }
+            result = cron_handle => {
+                result.expect("crawler cron task panicked");
+            }
+        }
     }
     .instrument(tracing::info_span!(
         "crawler_demo",

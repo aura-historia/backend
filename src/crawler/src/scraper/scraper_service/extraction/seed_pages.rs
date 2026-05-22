@@ -4,6 +4,11 @@ use std::collections::HashSet;
 use tracing::warn;
 use url::Url;
 
+pub(crate) struct SchemaSeedPage {
+    pub(crate) url: Url,
+    pub(crate) raw_html: String,
+}
+
 impl ScraperServiceImpl {
     /// Fetches up to `schema_seed_pages` HTML pages to use as context when
     /// generating a schema for the first time.  Always includes `primary_html`
@@ -18,8 +23,11 @@ impl ScraperServiceImpl {
         shop_id: &ShopId,
         url: &Url,
         primary_html: &str,
-    ) -> Vec<String> {
-        let mut pages = vec![primary_html.to_string()];
+    ) -> Vec<SchemaSeedPage> {
+        let mut pages = vec![SchemaSeedPage {
+            url: url.clone(),
+            raw_html: primary_html.to_string(),
+        }];
         if self.schema_seed_pages <= 1 {
             return pages;
         }
@@ -55,7 +63,10 @@ impl ScraperServiceImpl {
                 continue;
             }
             match self.html_fetcher.fetch(&sample_url).await {
-                Ok(sample_html) => pages.push(sample_html),
+                Ok(sample_html) => pages.push(SchemaSeedPage {
+                    url: sample_url.clone(),
+                    raw_html: sample_html,
+                }),
                 Err(err) => {
                     warn!(
                         error = %err,

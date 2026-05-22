@@ -1,0 +1,2 @@
+pub const ARTIFACT_URL_PATTERN: &str = "URL_PATTERN";
+pub const ARTIFACT_PRODUCT_SCHEMA: &str = "PRODUCT_SCHEMA";

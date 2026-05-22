@@ -52,6 +52,8 @@ use crawler::logging::{
     CloudWatchBootstrapClient, CloudWatchBootstrapError, CloudWatchLoggingConfig,
     cloudwatch_logging_config, ensure_cloudwatch_log_destination,
 };
+use crawler::review::repository::CrawlerReviewRepository;
+use crawler::review::server::{ReviewServer, ReviewServerConfig};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
@@ -286,6 +288,18 @@ fn build_opensearch_client() -> opensearch::OpenSearch {
     opensearch::OpenSearch::new(transport)
 }
 
+fn crawler_review_required() -> bool {
+    std::env::var("CRAWLER_REVIEW_REQUIRED")
+        .map(|value| matches!(value.as_str(), "true" | "TRUE" | "1" | "yes" | "YES"))
+        .unwrap_or(false)
+}
+
+fn crawler_review_url_pattern_required() -> bool {
+    std::env::var("CRAWLER_REVIEW_URL_PATTERN_REQUIRED")
+        .map(|value| matches!(value.as_str(), "true" | "TRUE" | "1" | "yes" | "YES"))
+        .unwrap_or(false)
+}
+
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
@@ -371,6 +385,12 @@ async fn main() {
             .expect("Failed to run database migrations");
         info!("Database migrations applied successfully");
 
+        let review_required = crawler_review_required();
+        let url_pattern_review_required = crawler_review_url_pattern_required();
+        let review_config =
+            ReviewServerConfig::from_env().expect("CRAWLER_REVIEW_BIND_ADDR must be host:port");
+        let review_repo = CrawlerReviewRepository::new(pool.clone());
+
         // 4. Wire scraper + spider dependencies
         let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set");
         let model = std::env::var("GEMINI_MODEL")
@@ -412,18 +432,19 @@ async fn main() {
         let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
         let schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+        let schema_evaluator_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
         let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
             pool.clone(),
         ))));
-        let schema_svc =
-            ProductSchemaServiceImpl::new(
-                schema_llm_builder,
-                llm_service_tier,
-                schema_repo,
-                Some(Arc::clone(&gemini_rate_limiter)),
-            )
-                .expect("failed to build ProductSchemaServiceImpl");
+        let schema_svc = ProductSchemaServiceImpl::new_with_evaluator(
+            schema_llm_builder,
+            schema_evaluator_llm_builder,
+            llm_service_tier,
+            schema_repo,
+            Some(Arc::clone(&gemini_rate_limiter)),
+        )
+            .expect("failed to build ProductSchemaServiceImpl");
 
         let scraper_candidates = Box::new(
             ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
@@ -433,20 +454,23 @@ async fn main() {
         );
 
         let fetcher = Box::new(ReqwestHtmlFetcher::new());
-        let scraper_svc = Box::new(ScraperServiceImpl::new_with_schema_seed_pages(
-            fetcher,
-            Box::new(schema_svc),
-            Box::new(normalization_svc),
-            Arc::new(
-                ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
-                    pool.clone(),
-                    config.scraper_max_llm_calls_per_shop,
+        let scraper_svc = Box::new(
+            ScraperServiceImpl::new_with_schema_seed_pages(
+                fetcher,
+                Box::new(schema_svc),
+                Box::new(normalization_svc),
+                Arc::new(
+                    ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
+                        pool.clone(),
+                        config.scraper_max_llm_calls_per_shop,
+                    ),
                 ),
-            ),
-            3,
-            config.scraper_schema_seed_pages,
-            config.scraper_max_llm_calls_per_shop,
-        ));
+                3,
+                config.scraper_schema_seed_pages,
+                config.scraper_max_llm_calls_per_shop,
+            )
+            .with_review_gate(review_repo.clone(), review_required),
+        );
 
         let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
         let url_pattern_repo = Box::new(ShopUrlPatternRepositoryImpl::new(pool.clone()));
@@ -461,9 +485,11 @@ async fn main() {
             .unwrap(),
         );
 
-        let pattern_svc = Box::new(UrlPatternServiceImpl::new(
+        let pattern_svc = Box::new(UrlPatternServiceImpl::new_with_review(
             Arc::new(*url_pattern_repo),
             class_svc,
+            review_repo.clone(),
+            url_pattern_review_required,
         ));
 
         let spider_config = SpiderServiceConfig {
@@ -540,9 +566,30 @@ async fn main() {
             scraper_max_llm_calls_per_shop,
             gemini_model = %model,
             gemini_service_tier,
+            review_required,
+            url_pattern_review_required,
+            review_bind_addr = %review_config.bind_addr,
             "Crawler Server is fully initialized. Starting background tasks..."
         );
-        cron_job.run_loop().await;
+        let review_server = ReviewServer::new(review_repo, review_config);
+        let review_handle = tokio::spawn(async move {
+            review_server
+                .run()
+                .await
+                .expect("crawler review server failed")
+        });
+        let cron_handle = tokio::spawn(async move {
+            cron_job.run_loop().await;
+        });
+
+        tokio::select! {
+            result = review_handle => {
+                result.expect("crawler review server task panicked");
+            }
+            result = cron_handle => {
+                result.expect("crawler cron task panicked");
+            }
+        }
     }
     .instrument(tracing::info_span!("crawler_startup"))
     .await;

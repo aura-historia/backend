@@ -300,38 +300,45 @@ struct ScraperCandidateRow {
     last_scraped_state: Option<String>,
 }
 
+const SCRAPER_CANDIDATE_QUERY: &str = r#"
+    SELECT
+        su.shop_id, s.shop_name, s.shop_type, su.url,
+        su.last_scraped_hash,
+        su.last_scraped_price,
+        su.last_scraped_price_estimate_min,
+        su.last_scraped_price_estimate_max,
+        su.last_scraped_url,
+        su.last_scraped_images_hash,
+        su.last_scraped_auction_start,
+        su.last_scraped_auction_end,
+        su.last_scraped_state
+    FROM shop_urls su
+    JOIN shops s ON s.shop_id = su.shop_id
+    WHERE s.active = TRUE
+      AND s.llm_calls_count < $2
+      AND su.url_class = 'product'
+      AND su.last_scraped_state IN ('AVAILABLE', 'UNKNOWN', 'LISTED', 'RESERVED')
+      AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
+      AND (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
+      AND NOT EXISTS (
+          SELECT 1
+          FROM crawler_reviews cr
+          WHERE cr.shop_id = su.shop_id
+            AND cr.artifact_type = 'PRODUCT_SCHEMA'
+            AND cr.status = 'PENDING_REVIEW'
+      )
+    ORDER BY su.last_scraped NULLS FIRST
+    LIMIT $1
+    "#;
+
 #[async_trait]
 impl ScraperCandidateService for ScraperCandidateServiceImpl {
     async fn get_candidates(&self, limit: i64) -> Result<Vec<ScraperCandidate>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, ScraperCandidateRow>(
-            r#"
-            SELECT
-                su.shop_id, s.shop_name, s.shop_type, su.url,
-                su.last_scraped_hash,
-                su.last_scraped_price,
-                su.last_scraped_price_estimate_min,
-                su.last_scraped_price_estimate_max,
-                su.last_scraped_url,
-                su.last_scraped_images_hash,
-                su.last_scraped_auction_start,
-                su.last_scraped_auction_end,
-                su.last_scraped_state
-            FROM shop_urls su
-            JOIN shops s ON s.shop_id = su.shop_id
-            WHERE s.active = TRUE
-              AND s.llm_calls_count < $2
-              AND su.url_class = 'product'
-              AND su.last_scraped_state IN ('AVAILABLE', 'UNKNOWN', 'LISTED', 'RESERVED')
-              AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
-              AND (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
-            ORDER BY su.last_scraped NULLS FIRST
-            LIMIT $1
-            "#,
-        )
-        .bind(limit)
-        .bind(self.max_llm_calls_per_shop)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = sqlx::query_as::<_, ScraperCandidateRow>(SCRAPER_CANDIDATE_QUERY)
+            .bind(limit)
+            .bind(self.max_llm_calls_per_shop)
+            .fetch_all(&self.pool)
+            .await?;
 
         let mut candidates = Vec::new();
         for row in rows {
@@ -801,5 +808,13 @@ mod tests {
             h1, "5c7abbc9f485b2617e096f6e54c0e090be521f588c6fc7802ddc50d5a3b627f2",
             "unexpected images_hash value"
         );
+    }
+
+    #[test]
+    fn scraper_candidate_query_excludes_shops_with_pending_schema_reviews() {
+        assert!(SCRAPER_CANDIDATE_QUERY.contains("NOT EXISTS"));
+        assert!(SCRAPER_CANDIDATE_QUERY.contains("crawler_reviews cr"));
+        assert!(SCRAPER_CANDIDATE_QUERY.contains("cr.artifact_type = 'PRODUCT_SCHEMA'"));
+        assert!(SCRAPER_CANDIDATE_QUERY.contains("cr.status = 'PENDING_REVIEW'"));
     }
 }

@@ -143,6 +143,7 @@ pub enum LlmOperation {
     CrawlerUrlClassification,
     CrawlerProductSchemaGeneration,
     CrawlerProductSchemaRepair,
+    CrawlerProductSchemaEvaluation,
     CrawlerProductStateMapping,
 }
 
@@ -156,6 +157,7 @@ impl LlmOperation {
             Self::CrawlerUrlClassification => "CRAWLER_URL_CLASSIFICATION",
             Self::CrawlerProductSchemaGeneration => "CRAWLER_PRODUCT_SCHEMA_GENERATION",
             Self::CrawlerProductSchemaRepair => "CRAWLER_PRODUCT_SCHEMA_REPAIR",
+            Self::CrawlerProductSchemaEvaluation => "CRAWLER_PRODUCT_SCHEMA_EVALUATION",
             Self::CrawlerProductStateMapping => "CRAWLER_PRODUCT_STATE_MAPPING",
         }
     }
@@ -394,6 +396,14 @@ mod tests {
         assert_eq!(
             LlmOperation::CrawlerProductSchemaRepair.as_str(),
             "CRAWLER_PRODUCT_SCHEMA_REPAIR"
+        );
+    }
+
+    #[test]
+    fn should_return_crawler_product_schema_evaluation_name_for_llm_operation() {
+        assert_eq!(
+            LlmOperation::CrawlerProductSchemaEvaluation.as_str(),
+            "CRAWLER_PRODUCT_SCHEMA_EVALUATION"
         );
     }
 

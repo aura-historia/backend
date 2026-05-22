@@ -53,4 +53,7 @@ pub enum ScraperError {
         url: Url,
         max_calls: i64,
     },
+
+    #[error("Scraping '{url}' is blocked pending product schema review '{review_id}'")]
+    PendingSchemaReview { url: Url, review_id: uuid::Uuid },
 }
