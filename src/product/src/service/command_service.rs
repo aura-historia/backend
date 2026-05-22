@@ -782,7 +782,9 @@ fn determine_update_events(
         let key = record.key();
         if let Some(cmd) = working.remove(&key) {
             let mut product: Product = record.into();
-            if let Some(price_event) = product.new_price(cmd.native_price, fx_rate) {
+            if let Some(new_native_price) = cmd.native_price
+                && let Some(price_event) = product.change_price(new_native_price, fx_rate)
+            {
                 events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
                     price_event,
                 )));
