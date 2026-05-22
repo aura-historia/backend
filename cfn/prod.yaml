@@ -3481,6 +3481,7 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:BatchGetItem
                   - dynamodb:Query
+                  - dynamodb:UpdateItem
                   - dynamodb:PutItem
                   - dynamodb:BatchWriteItem
                   - dynamodb:TransactWriteItems
@@ -3585,6 +3586,7 @@ Resources:
                   - dynamodb:BatchGetItem
                   - dynamodb:Query
                   - dynamodb:PutItem
+                  - dynamodb:UpdateItem
                   - dynamodb:BatchWriteItem
                   - dynamodb:TransactWriteItems
                 Resource:
