@@ -11,7 +11,7 @@ use product::opensearch::product_document::ProductDocument;
 use product::opensearch::product_image_document::ProductImageDocument;
 use product::opensearch::product_update_document::ProductUpdateDocument;
 use product::opensearch::repository::ProductOpenSearchRepository;
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 use tracing::{error, info, warn};
 
 #[tracing::instrument(
@@ -33,7 +33,7 @@ pub async fn handler(
         extract_from_dynamodb_stream::<ProductEventRecord>(event.payload.records);
 
     let mut creates: HashMap<String, ProductDocument> = HashMap::new();
-    let mut updates: HashMap<String, (ProductId, ProductUpdateDocument)> = HashMap::new();
+    let mut updates: HashMap<ProductId, (Vec<String>, ProductUpdateDocument)> = HashMap::new();
 
     for (message_id, event_record) in event_records {
         match event_record {
@@ -49,7 +49,7 @@ pub async fn handler(
             ProductEventRecord::Enrichment(enrichment_record) => {
                 let product_id = enrichment_record.product_id;
                 let update = build_enrichment_update(enrichment_record);
-                updates.insert(message_id, (product_id, update));
+                merge_update(message_id, product_id, update, &mut updates);
             }
             ProductEventRecord::Policy(policy_record) => {
                 let product_id = policy_record.product_id;
@@ -70,7 +70,7 @@ pub async fn handler(
                             .map(ProductImageDocument::from)
                             .collect();
                         update_document.images = Some(prohibited_images);
-                        updates.insert(message_id, (product_id, update_document));
+                        merge_update(message_id, product_id, update_document, &mut updates);
                     }
                     Ok(None) => {
                         error!(
@@ -118,7 +118,7 @@ fn handle_domain_event(
     message_id: &str,
     domain_record: ProductDomainEventRecord,
     creates: &mut HashMap<String, ProductDocument>,
-    updates: &mut HashMap<String, (ProductId, ProductUpdateDocument)>,
+    updates: &mut HashMap<ProductId, (Vec<String>, ProductUpdateDocument)>,
     failed_message_ids: &mut Vec<String>,
 ) {
     if domain_record.event_type == ProductDomainEventTypeRecord::DomainCreated {
@@ -139,7 +139,7 @@ fn handle_domain_event(
     } else {
         let product_id = domain_record.product_id;
         let update = ProductUpdateDocument::from(domain_record);
-        updates.insert(message_id.to_string(), (product_id, update));
+        merge_update(message_id.to_string(), product_id, update, updates);
     }
 }
 
@@ -157,9 +157,9 @@ async fn persist_creates(
     if creates.is_empty() {
         return;
     }
-    let mut message_ids: HashMap<ProductId, String> = creates
+    let mut message_ids: HashMap<ProductId, Vec<String>> = creates
         .iter()
-        .map(|(msg_id, doc)| (doc._id(), msg_id.clone()))
+        .map(|(msg_id, doc)| (doc._id(), vec![msg_id.clone()]))
         .collect();
     let documents: Vec<ProductDocument> = creates.into_values().collect();
     let result = repository.create_product_documents(documents).await;
@@ -169,25 +169,27 @@ async fn persist_creates(
         }
         Err(err) => {
             warn!(error = ?err, "Failed entire create batch.");
-            failed_message_ids.extend(message_ids.into_values());
+            failed_message_ids.extend(message_ids.into_values().flatten());
         }
     }
 }
 
 async fn persist_updates(
     repository: &impl ProductOpenSearchRepository,
-    updates: HashMap<String, (ProductId, ProductUpdateDocument)>,
+    updates: HashMap<ProductId, (Vec<String>, ProductUpdateDocument)>,
     failed_message_ids: &mut Vec<String>,
 ) {
     if updates.is_empty() {
         return;
     }
-    let mut message_ids: HashMap<ProductId, String> = updates
+    let mut message_ids: HashMap<ProductId, Vec<String>> = updates
         .iter()
-        .map(|(msg_id, (product_id, _))| (*product_id, msg_id.clone()))
+        .map(|(product_id, (message_ids, _))| (*product_id, message_ids.clone()))
         .collect();
-    let update_documents: HashMap<ProductId, ProductUpdateDocument> =
-        updates.into_values().collect();
+    let update_documents: HashMap<ProductId, ProductUpdateDocument> = updates
+        .into_iter()
+        .map(|(product_id, (_, update))| (product_id, update))
+        .collect();
     let result = repository.update_product_documents(update_documents).await;
     match result {
         Ok(response) => {
@@ -195,7 +197,7 @@ async fn persist_updates(
         }
         Err(err) => {
             warn!(error = ?err, "Failed entire update batch.");
-            failed_message_ids.extend(message_ids.into_values());
+            failed_message_ids.extend(message_ids.into_values().flatten());
         }
     }
 }
@@ -203,7 +205,7 @@ async fn persist_updates(
 fn handle_bulk_response(
     response: BulkResponse,
     failed_message_ids: &mut Vec<String>,
-    message_ids: &mut HashMap<ProductId, String>,
+    message_ids: &mut HashMap<ProductId, Vec<String>>,
     operation: &str,
 ) {
     if response.errors {
@@ -226,8 +228,8 @@ fn handle_bulk_response(
             );
             match ProductId::try_from(failure.id.as_str()) {
                 Ok(product_id) => match message_ids.remove(&product_id) {
-                    Some(message_id) => {
-                        failed_message_ids.push(message_id);
+                    Some(message_id_group) => {
+                        failed_message_ids.extend(message_id_group);
                     }
                     None => {
                         error!(
@@ -261,6 +263,7 @@ mod tests {
     use common::opensearch::bulk_response::BulkItemResult;
     use common::opensearch::bulk_response::BulkOpResult;
     use common::opensearch::bulk_response::{BulkError, BulkResponse};
+    use common::product_id::ProductId;
     use fake::Fake;
     use fake::Faker;
     use lambda_runtime::{Context, LambdaEvent};
@@ -271,6 +274,8 @@ mod tests {
     };
     use product::dynamodb::product_event_record::ProductEventRecord;
     use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+    use product::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord;
+    use product::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord;
     use product::dynamodb::repository::MockProductDynamoDbRepository;
     use product::opensearch::repository::MockProductOpenSearchRepository;
     use std::collections::HashMap;
@@ -798,6 +803,132 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_merge_updates_for_same_product_before_persisting() {
+        let product_id = Faker.fake::<ProductId>();
+        let message_id_en = Uuid::new_v4().to_string();
+        let message_id_fr = Uuid::new_v4().to_string();
+
+        let mut en_record = Faker.fake::<ProductEnrichmentEventRecord>();
+        en_record.product_id = product_id;
+        en_record.event_type = ProductEnrichmentEventTypeRecord::EnrichmentTranslatedTitle;
+        en_record.target_language = Some(common::language::record::LanguageRecord::En);
+        en_record.target = Some("English title".to_string());
+
+        let mut fr_record = Faker.fake::<ProductEnrichmentEventRecord>();
+        fr_record.product_id = product_id;
+        fr_record.event_type = ProductEnrichmentEventTypeRecord::EnrichmentTranslatedTitle;
+        fr_record.target_language = Some(common::language::record::LanguageRecord::Fr);
+        fr_record.target = Some("Titre français".to_string());
+
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = vec![
+            mk_sqs_message_with_id(&en_record, message_id_en),
+            mk_sqs_message_with_id(&fr_record, message_id_fr),
+        ];
+        let lambda_event = LambdaEvent {
+            payload: sqs_event,
+            context: Context::default(),
+        };
+
+        let mut opensearch_repository = MockProductOpenSearchRepository::default();
+        opensearch_repository
+            .expect_update_product_documents()
+            .return_once(move |batch| {
+                assert_eq!(1, batch.len());
+                let update = batch.get(&product_id).unwrap();
+                assert_eq!(Some("English title"), update.title_en.as_deref());
+                assert_eq!(Some("Titre français"), update.title_fr.as_deref());
+                Box::pin(async move {
+                    Ok(BulkResponse {
+                        took: 500,
+                        errors: false,
+                        items: vec![],
+                    })
+                })
+            });
+
+        let dynamodb_repository = MockProductDynamoDbRepository::default();
+        let actual = handler(&opensearch_repository, &dynamodb_repository, lambda_event)
+            .await
+            .unwrap();
+
+        assert!(actual.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_fail_all_messages_when_merged_update_for_same_product_fails() {
+        let product_id = Faker.fake::<ProductId>();
+        let message_id_en = Uuid::new_v4().to_string();
+        let message_id_fr = Uuid::new_v4().to_string();
+
+        let mut en_record = Faker.fake::<ProductEnrichmentEventRecord>();
+        en_record.product_id = product_id;
+        en_record.event_type = ProductEnrichmentEventTypeRecord::EnrichmentTranslatedTitle;
+        en_record.target_language = Some(common::language::record::LanguageRecord::En);
+        en_record.target = Some("English title".to_string());
+
+        let mut fr_record = Faker.fake::<ProductEnrichmentEventRecord>();
+        fr_record.product_id = product_id;
+        fr_record.event_type = ProductEnrichmentEventTypeRecord::EnrichmentTranslatedTitle;
+        fr_record.target_language = Some(common::language::record::LanguageRecord::Fr);
+        fr_record.target = Some("Titre français".to_string());
+
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = vec![
+            mk_sqs_message_with_id(&en_record, message_id_en.clone()),
+            mk_sqs_message_with_id(&fr_record, message_id_fr.clone()),
+        ];
+        let lambda_event = LambdaEvent {
+            payload: sqs_event,
+            context: Context::default(),
+        };
+
+        let mut opensearch_repository = MockProductOpenSearchRepository::default();
+        opensearch_repository
+            .expect_update_product_documents()
+            .return_once(move |_| {
+                Box::pin(async move {
+                    Ok(BulkResponse {
+                        took: 500,
+                        errors: true,
+                        items: vec![BulkItemResult::Update {
+                            update: BulkOpResult {
+                                index: "products".to_string(),
+                                id: product_id.to_string(),
+                                version: Some(2),
+                                status: 409,
+                                error: Some(BulkError {
+                                    error_type: "version_conflict_engine_exception".to_string(),
+                                    reason: "version conflict".to_string(),
+                                    index_uuid: Some(Uuid::new_v4().to_string()),
+                                    shard: Some("0".to_string()),
+                                    index: Some("products".to_string()),
+                                    extra: Default::default(),
+                                }),
+                            },
+                        }],
+                    })
+                })
+            });
+
+        let dynamodb_repository = MockProductDynamoDbRepository::default();
+        let mut actual_failed_message_ids =
+            handler(&opensearch_repository, &dynamodb_repository, lambda_event)
+                .await
+                .unwrap()
+                .batch_item_failures
+                .into_iter()
+                .map(|failure| failure.item_identifier)
+                .collect::<Vec<_>>();
+        actual_failed_message_ids.sort();
+
+        let mut expected_failed_message_ids = vec![message_id_en, message_id_fr];
+        expected_failed_message_ids.sort();
+
+        assert_eq!(expected_failed_message_ids, actual_failed_message_ids);
+    }
+
+    #[tokio::test]
     async fn should_return_no_failures_when_empty_batch() {
         let sqs_event = SqsEvent::default();
         let lambda_event = LambdaEvent {
@@ -852,5 +983,227 @@ mod tests {
             .unwrap();
         assert_eq!(1, actual.batch_item_failures.len());
         assert_eq!(message_id, actual.batch_item_failures[0].item_identifier);
+    }
+}
+fn merge_update(
+    message_id: String,
+    product_id: ProductId,
+    update: ProductUpdateDocument,
+    updates: &mut HashMap<ProductId, (Vec<String>, ProductUpdateDocument)>,
+) {
+    match updates.entry(product_id) {
+        Entry::Occupied(mut entry) => {
+            let (message_ids, current) = entry.get_mut();
+            message_ids.push(message_id);
+            merge_product_update_document(current, update);
+        }
+        Entry::Vacant(entry) => {
+            entry.insert((vec![message_id], update));
+        }
+    }
+}
+
+fn merge_product_update_document(
+    current: &mut ProductUpdateDocument,
+    update: ProductUpdateDocument,
+) {
+    current.updated = update.updated;
+    if let Some(event_id) = update.event_id {
+        current.event_id = Some(event_id);
+    }
+    if let Some(price_eur) = update.price_eur {
+        current.price_eur = Some(price_eur);
+    }
+    if let Some(price_usd) = update.price_usd {
+        current.price_usd = Some(price_usd);
+    }
+    if let Some(price_gbp) = update.price_gbp {
+        current.price_gbp = Some(price_gbp);
+    }
+    if let Some(price_aud) = update.price_aud {
+        current.price_aud = Some(price_aud);
+    }
+    if let Some(price_cad) = update.price_cad {
+        current.price_cad = Some(price_cad);
+    }
+    if let Some(price_nzd) = update.price_nzd {
+        current.price_nzd = Some(price_nzd);
+    }
+    if let Some(price_cny) = update.price_cny {
+        current.price_cny = Some(price_cny);
+    }
+    if let Some(price_brl) = update.price_brl {
+        current.price_brl = Some(price_brl);
+    }
+    if let Some(price_pln) = update.price_pln {
+        current.price_pln = Some(price_pln);
+    }
+    if let Some(price_try) = update.price_try {
+        current.price_try = Some(price_try);
+    }
+    if let Some(price_jpy) = update.price_jpy {
+        current.price_jpy = Some(price_jpy);
+    }
+    if let Some(price_czk) = update.price_czk {
+        current.price_czk = Some(price_czk);
+    }
+    if let Some(price_rub) = update.price_rub {
+        current.price_rub = Some(price_rub);
+    }
+    if let Some(price_aed) = update.price_aed {
+        current.price_aed = Some(price_aed);
+    }
+    if let Some(price_sar) = update.price_sar {
+        current.price_sar = Some(price_sar);
+    }
+    if let Some(price_hkd) = update.price_hkd {
+        current.price_hkd = Some(price_hkd);
+    }
+    if let Some(price_sgd) = update.price_sgd {
+        current.price_sgd = Some(price_sgd);
+    }
+    if let Some(price_chf) = update.price_chf {
+        current.price_chf = Some(price_chf);
+    }
+    if let Some(state) = update.state {
+        current.state = Some(state);
+    }
+    if let Some(title_de) = update.title_de {
+        current.title_de = Some(title_de);
+    }
+    if let Some(title_en) = update.title_en {
+        current.title_en = Some(title_en);
+    }
+    if let Some(title_fr) = update.title_fr {
+        current.title_fr = Some(title_fr);
+    }
+    if let Some(title_es) = update.title_es {
+        current.title_es = Some(title_es);
+    }
+    if let Some(title_it) = update.title_it {
+        current.title_it = Some(title_it);
+    }
+    if let Some(images) = update.images {
+        current.images = Some(images);
+    }
+    if let Some(price_estimate_min_eur) = update.price_estimate_min_eur {
+        current.price_estimate_min_eur = Some(price_estimate_min_eur);
+    }
+    if let Some(price_estimate_min_usd) = update.price_estimate_min_usd {
+        current.price_estimate_min_usd = Some(price_estimate_min_usd);
+    }
+    if let Some(price_estimate_min_gbp) = update.price_estimate_min_gbp {
+        current.price_estimate_min_gbp = Some(price_estimate_min_gbp);
+    }
+    if let Some(price_estimate_min_aud) = update.price_estimate_min_aud {
+        current.price_estimate_min_aud = Some(price_estimate_min_aud);
+    }
+    if let Some(price_estimate_min_cad) = update.price_estimate_min_cad {
+        current.price_estimate_min_cad = Some(price_estimate_min_cad);
+    }
+    if let Some(price_estimate_min_nzd) = update.price_estimate_min_nzd {
+        current.price_estimate_min_nzd = Some(price_estimate_min_nzd);
+    }
+    if let Some(price_estimate_min_cny) = update.price_estimate_min_cny {
+        current.price_estimate_min_cny = Some(price_estimate_min_cny);
+    }
+    if let Some(price_estimate_min_brl) = update.price_estimate_min_brl {
+        current.price_estimate_min_brl = Some(price_estimate_min_brl);
+    }
+    if let Some(price_estimate_min_pln) = update.price_estimate_min_pln {
+        current.price_estimate_min_pln = Some(price_estimate_min_pln);
+    }
+    if let Some(price_estimate_min_try) = update.price_estimate_min_try {
+        current.price_estimate_min_try = Some(price_estimate_min_try);
+    }
+    if let Some(price_estimate_min_jpy) = update.price_estimate_min_jpy {
+        current.price_estimate_min_jpy = Some(price_estimate_min_jpy);
+    }
+    if let Some(price_estimate_min_czk) = update.price_estimate_min_czk {
+        current.price_estimate_min_czk = Some(price_estimate_min_czk);
+    }
+    if let Some(price_estimate_min_rub) = update.price_estimate_min_rub {
+        current.price_estimate_min_rub = Some(price_estimate_min_rub);
+    }
+    if let Some(price_estimate_min_aed) = update.price_estimate_min_aed {
+        current.price_estimate_min_aed = Some(price_estimate_min_aed);
+    }
+    if let Some(price_estimate_min_sar) = update.price_estimate_min_sar {
+        current.price_estimate_min_sar = Some(price_estimate_min_sar);
+    }
+    if let Some(price_estimate_min_hkd) = update.price_estimate_min_hkd {
+        current.price_estimate_min_hkd = Some(price_estimate_min_hkd);
+    }
+    if let Some(price_estimate_min_sgd) = update.price_estimate_min_sgd {
+        current.price_estimate_min_sgd = Some(price_estimate_min_sgd);
+    }
+    if let Some(price_estimate_min_chf) = update.price_estimate_min_chf {
+        current.price_estimate_min_chf = Some(price_estimate_min_chf);
+    }
+    if let Some(price_estimate_max_eur) = update.price_estimate_max_eur {
+        current.price_estimate_max_eur = Some(price_estimate_max_eur);
+    }
+    if let Some(price_estimate_max_usd) = update.price_estimate_max_usd {
+        current.price_estimate_max_usd = Some(price_estimate_max_usd);
+    }
+    if let Some(price_estimate_max_gbp) = update.price_estimate_max_gbp {
+        current.price_estimate_max_gbp = Some(price_estimate_max_gbp);
+    }
+    if let Some(price_estimate_max_aud) = update.price_estimate_max_aud {
+        current.price_estimate_max_aud = Some(price_estimate_max_aud);
+    }
+    if let Some(price_estimate_max_cad) = update.price_estimate_max_cad {
+        current.price_estimate_max_cad = Some(price_estimate_max_cad);
+    }
+    if let Some(price_estimate_max_nzd) = update.price_estimate_max_nzd {
+        current.price_estimate_max_nzd = Some(price_estimate_max_nzd);
+    }
+    if let Some(price_estimate_max_cny) = update.price_estimate_max_cny {
+        current.price_estimate_max_cny = Some(price_estimate_max_cny);
+    }
+    if let Some(price_estimate_max_brl) = update.price_estimate_max_brl {
+        current.price_estimate_max_brl = Some(price_estimate_max_brl);
+    }
+    if let Some(price_estimate_max_pln) = update.price_estimate_max_pln {
+        current.price_estimate_max_pln = Some(price_estimate_max_pln);
+    }
+    if let Some(price_estimate_max_try) = update.price_estimate_max_try {
+        current.price_estimate_max_try = Some(price_estimate_max_try);
+    }
+    if let Some(price_estimate_max_jpy) = update.price_estimate_max_jpy {
+        current.price_estimate_max_jpy = Some(price_estimate_max_jpy);
+    }
+    if let Some(price_estimate_max_czk) = update.price_estimate_max_czk {
+        current.price_estimate_max_czk = Some(price_estimate_max_czk);
+    }
+    if let Some(price_estimate_max_rub) = update.price_estimate_max_rub {
+        current.price_estimate_max_rub = Some(price_estimate_max_rub);
+    }
+    if let Some(price_estimate_max_aed) = update.price_estimate_max_aed {
+        current.price_estimate_max_aed = Some(price_estimate_max_aed);
+    }
+    if let Some(price_estimate_max_sar) = update.price_estimate_max_sar {
+        current.price_estimate_max_sar = Some(price_estimate_max_sar);
+    }
+    if let Some(price_estimate_max_hkd) = update.price_estimate_max_hkd {
+        current.price_estimate_max_hkd = Some(price_estimate_max_hkd);
+    }
+    if let Some(price_estimate_max_sgd) = update.price_estimate_max_sgd {
+        current.price_estimate_max_sgd = Some(price_estimate_max_sgd);
+    }
+    if let Some(price_estimate_max_chf) = update.price_estimate_max_chf {
+        current.price_estimate_max_chf = Some(price_estimate_max_chf);
+    }
+    if let Some(url) = update.url {
+        current.url = Some(url);
+    }
+    if let Some(auction_start) = update.auction_start {
+        current.auction_start = Some(auction_start);
+    }
+    if let Some(auction_end) = update.auction_end {
+        current.auction_end = Some(auction_end);
+    }
+    if let Some(embedding) = update.embedding {
+        current.embedding = Some(embedding);
     }
 }
