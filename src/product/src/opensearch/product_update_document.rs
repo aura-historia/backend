@@ -5,6 +5,7 @@ use crate::opensearch::product_image_document::ProductImageDocument;
 use crate::opensearch::product_state_document::ProductStateDocument;
 use common::event_id::EventId;
 use common::language::record::LanguageRecord;
+use common::mergeable::Mergeable;
 use serde::Serialize;
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
@@ -236,6 +237,280 @@ impl Default for ProductUpdateDocument {
             auction_end: None,
             embedding: None,
             updated: OffsetDateTime::now_utc(),
+        }
+    }
+}
+
+impl Mergeable for ProductUpdateDocument {
+    fn merge(&mut self, other: Self) {
+        let Self {
+            event_id,
+            price_eur,
+            price_usd,
+            price_gbp,
+            price_aud,
+            price_cad,
+            price_nzd,
+            price_cny,
+            price_brl,
+            price_pln,
+            price_try,
+            price_jpy,
+            price_czk,
+            price_rub,
+            price_aed,
+            price_sar,
+            price_hkd,
+            price_sgd,
+            price_chf,
+            state,
+            title_de,
+            title_en,
+            title_fr,
+            title_es,
+            title_it,
+            images,
+            price_estimate_min_eur,
+            price_estimate_min_usd,
+            price_estimate_min_gbp,
+            price_estimate_min_aud,
+            price_estimate_min_cad,
+            price_estimate_min_nzd,
+            price_estimate_min_cny,
+            price_estimate_min_brl,
+            price_estimate_min_pln,
+            price_estimate_min_try,
+            price_estimate_min_jpy,
+            price_estimate_min_czk,
+            price_estimate_min_rub,
+            price_estimate_min_aed,
+            price_estimate_min_sar,
+            price_estimate_min_hkd,
+            price_estimate_min_sgd,
+            price_estimate_min_chf,
+            price_estimate_max_eur,
+            price_estimate_max_usd,
+            price_estimate_max_gbp,
+            price_estimate_max_aud,
+            price_estimate_max_cad,
+            price_estimate_max_nzd,
+            price_estimate_max_cny,
+            price_estimate_max_brl,
+            price_estimate_max_pln,
+            price_estimate_max_try,
+            price_estimate_max_jpy,
+            price_estimate_max_czk,
+            price_estimate_max_rub,
+            price_estimate_max_aed,
+            price_estimate_max_sar,
+            price_estimate_max_hkd,
+            price_estimate_max_sgd,
+            price_estimate_max_chf,
+            url,
+            auction_start,
+            auction_end,
+            embedding,
+            updated,
+        } = other;
+
+        self.updated = updated;
+        if let Some(event_id) = event_id {
+            self.event_id = Some(event_id);
+        }
+        if let Some(price_eur) = price_eur {
+            self.price_eur = Some(price_eur);
+        }
+        if let Some(price_usd) = price_usd {
+            self.price_usd = Some(price_usd);
+        }
+        if let Some(price_gbp) = price_gbp {
+            self.price_gbp = Some(price_gbp);
+        }
+        if let Some(price_aud) = price_aud {
+            self.price_aud = Some(price_aud);
+        }
+        if let Some(price_cad) = price_cad {
+            self.price_cad = Some(price_cad);
+        }
+        if let Some(price_nzd) = price_nzd {
+            self.price_nzd = Some(price_nzd);
+        }
+        if let Some(price_cny) = price_cny {
+            self.price_cny = Some(price_cny);
+        }
+        if let Some(price_brl) = price_brl {
+            self.price_brl = Some(price_brl);
+        }
+        if let Some(price_pln) = price_pln {
+            self.price_pln = Some(price_pln);
+        }
+        if let Some(price_try) = price_try {
+            self.price_try = Some(price_try);
+        }
+        if let Some(price_jpy) = price_jpy {
+            self.price_jpy = Some(price_jpy);
+        }
+        if let Some(price_czk) = price_czk {
+            self.price_czk = Some(price_czk);
+        }
+        if let Some(price_rub) = price_rub {
+            self.price_rub = Some(price_rub);
+        }
+        if let Some(price_aed) = price_aed {
+            self.price_aed = Some(price_aed);
+        }
+        if let Some(price_sar) = price_sar {
+            self.price_sar = Some(price_sar);
+        }
+        if let Some(price_hkd) = price_hkd {
+            self.price_hkd = Some(price_hkd);
+        }
+        if let Some(price_sgd) = price_sgd {
+            self.price_sgd = Some(price_sgd);
+        }
+        if let Some(price_chf) = price_chf {
+            self.price_chf = Some(price_chf);
+        }
+        if let Some(state) = state {
+            self.state = Some(state);
+        }
+        if let Some(title_de) = title_de {
+            self.title_de = Some(title_de);
+        }
+        if let Some(title_en) = title_en {
+            self.title_en = Some(title_en);
+        }
+        if let Some(title_fr) = title_fr {
+            self.title_fr = Some(title_fr);
+        }
+        if let Some(title_es) = title_es {
+            self.title_es = Some(title_es);
+        }
+        if let Some(title_it) = title_it {
+            self.title_it = Some(title_it);
+        }
+        if let Some(images) = images {
+            self.images = Some(images);
+        }
+        if let Some(price_estimate_min_eur) = price_estimate_min_eur {
+            self.price_estimate_min_eur = Some(price_estimate_min_eur);
+        }
+        if let Some(price_estimate_min_usd) = price_estimate_min_usd {
+            self.price_estimate_min_usd = Some(price_estimate_min_usd);
+        }
+        if let Some(price_estimate_min_gbp) = price_estimate_min_gbp {
+            self.price_estimate_min_gbp = Some(price_estimate_min_gbp);
+        }
+        if let Some(price_estimate_min_aud) = price_estimate_min_aud {
+            self.price_estimate_min_aud = Some(price_estimate_min_aud);
+        }
+        if let Some(price_estimate_min_cad) = price_estimate_min_cad {
+            self.price_estimate_min_cad = Some(price_estimate_min_cad);
+        }
+        if let Some(price_estimate_min_nzd) = price_estimate_min_nzd {
+            self.price_estimate_min_nzd = Some(price_estimate_min_nzd);
+        }
+        if let Some(price_estimate_min_cny) = price_estimate_min_cny {
+            self.price_estimate_min_cny = Some(price_estimate_min_cny);
+        }
+        if let Some(price_estimate_min_brl) = price_estimate_min_brl {
+            self.price_estimate_min_brl = Some(price_estimate_min_brl);
+        }
+        if let Some(price_estimate_min_pln) = price_estimate_min_pln {
+            self.price_estimate_min_pln = Some(price_estimate_min_pln);
+        }
+        if let Some(price_estimate_min_try) = price_estimate_min_try {
+            self.price_estimate_min_try = Some(price_estimate_min_try);
+        }
+        if let Some(price_estimate_min_jpy) = price_estimate_min_jpy {
+            self.price_estimate_min_jpy = Some(price_estimate_min_jpy);
+        }
+        if let Some(price_estimate_min_czk) = price_estimate_min_czk {
+            self.price_estimate_min_czk = Some(price_estimate_min_czk);
+        }
+        if let Some(price_estimate_min_rub) = price_estimate_min_rub {
+            self.price_estimate_min_rub = Some(price_estimate_min_rub);
+        }
+        if let Some(price_estimate_min_aed) = price_estimate_min_aed {
+            self.price_estimate_min_aed = Some(price_estimate_min_aed);
+        }
+        if let Some(price_estimate_min_sar) = price_estimate_min_sar {
+            self.price_estimate_min_sar = Some(price_estimate_min_sar);
+        }
+        if let Some(price_estimate_min_hkd) = price_estimate_min_hkd {
+            self.price_estimate_min_hkd = Some(price_estimate_min_hkd);
+        }
+        if let Some(price_estimate_min_sgd) = price_estimate_min_sgd {
+            self.price_estimate_min_sgd = Some(price_estimate_min_sgd);
+        }
+        if let Some(price_estimate_min_chf) = price_estimate_min_chf {
+            self.price_estimate_min_chf = Some(price_estimate_min_chf);
+        }
+        if let Some(price_estimate_max_eur) = price_estimate_max_eur {
+            self.price_estimate_max_eur = Some(price_estimate_max_eur);
+        }
+        if let Some(price_estimate_max_usd) = price_estimate_max_usd {
+            self.price_estimate_max_usd = Some(price_estimate_max_usd);
+        }
+        if let Some(price_estimate_max_gbp) = price_estimate_max_gbp {
+            self.price_estimate_max_gbp = Some(price_estimate_max_gbp);
+        }
+        if let Some(price_estimate_max_aud) = price_estimate_max_aud {
+            self.price_estimate_max_aud = Some(price_estimate_max_aud);
+        }
+        if let Some(price_estimate_max_cad) = price_estimate_max_cad {
+            self.price_estimate_max_cad = Some(price_estimate_max_cad);
+        }
+        if let Some(price_estimate_max_nzd) = price_estimate_max_nzd {
+            self.price_estimate_max_nzd = Some(price_estimate_max_nzd);
+        }
+        if let Some(price_estimate_max_cny) = price_estimate_max_cny {
+            self.price_estimate_max_cny = Some(price_estimate_max_cny);
+        }
+        if let Some(price_estimate_max_brl) = price_estimate_max_brl {
+            self.price_estimate_max_brl = Some(price_estimate_max_brl);
+        }
+        if let Some(price_estimate_max_pln) = price_estimate_max_pln {
+            self.price_estimate_max_pln = Some(price_estimate_max_pln);
+        }
+        if let Some(price_estimate_max_try) = price_estimate_max_try {
+            self.price_estimate_max_try = Some(price_estimate_max_try);
+        }
+        if let Some(price_estimate_max_jpy) = price_estimate_max_jpy {
+            self.price_estimate_max_jpy = Some(price_estimate_max_jpy);
+        }
+        if let Some(price_estimate_max_czk) = price_estimate_max_czk {
+            self.price_estimate_max_czk = Some(price_estimate_max_czk);
+        }
+        if let Some(price_estimate_max_rub) = price_estimate_max_rub {
+            self.price_estimate_max_rub = Some(price_estimate_max_rub);
+        }
+        if let Some(price_estimate_max_aed) = price_estimate_max_aed {
+            self.price_estimate_max_aed = Some(price_estimate_max_aed);
+        }
+        if let Some(price_estimate_max_sar) = price_estimate_max_sar {
+            self.price_estimate_max_sar = Some(price_estimate_max_sar);
+        }
+        if let Some(price_estimate_max_hkd) = price_estimate_max_hkd {
+            self.price_estimate_max_hkd = Some(price_estimate_max_hkd);
+        }
+        if let Some(price_estimate_max_sgd) = price_estimate_max_sgd {
+            self.price_estimate_max_sgd = Some(price_estimate_max_sgd);
+        }
+        if let Some(price_estimate_max_chf) = price_estimate_max_chf {
+            self.price_estimate_max_chf = Some(price_estimate_max_chf);
+        }
+        if let Some(url) = url {
+            self.url = Some(url);
+        }
+        if let Some(auction_start) = auction_start {
+            self.auction_start = Some(auction_start);
+        }
+        if let Some(auction_end) = auction_end {
+            self.auction_end = Some(auction_end);
+        }
+        if let Some(embedding) = embedding {
+            self.embedding = Some(embedding);
         }
     }
 }
@@ -543,6 +818,7 @@ mod tests {
     };
     use common::event_id::EventId;
     use common::language::record::LanguageRecord;
+    use common::mergeable::Mergeable;
     use common::product_id::ProductId;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
@@ -555,6 +831,25 @@ mod tests {
                 .iter()
                 .all(|field| ProductDocument::SERDE_FIELDS.contains(field))
         )
+    }
+
+    #[test]
+    fn should_merge_product_update_document() {
+        let mut current = ProductUpdateDocument {
+            title_en: Some("Chair".to_string()),
+            ..ProductUpdateDocument::default()
+        };
+        let other = ProductUpdateDocument {
+            title_fr: Some("Chaise".to_string()),
+            embedding: Some(vec![0.1, 0.2]),
+            ..ProductUpdateDocument::default()
+        };
+
+        current.merge(other);
+
+        assert_eq!(Some("Chair".to_string()), current.title_en);
+        assert_eq!(Some("Chaise".to_string()), current.title_fr);
+        assert_eq!(Some(vec![0.1, 0.2]), current.embedding);
     }
 
     fn make_translation_record(
