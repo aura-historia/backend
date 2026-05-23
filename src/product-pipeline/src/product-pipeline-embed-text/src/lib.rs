@@ -30,9 +30,11 @@ pub async fn handler(
     let (event_records, mut failed_message_ids) =
         extract_from_dynamodb_stream::<ProductEventRecord>(event.payload.records);
 
-    // Map: ProductKey → (message_id, ProductEventRecord::Domain)
-    let mut key_to_message: HashMap<ProductKey, String> = HashMap::new();
-    let mut key_to_record: HashMap<ProductKey, ProductEventRecord> = HashMap::new();
+    let mut key_to_messages: HashMap<ProductKey, Vec<String>> = HashMap::new();
+    let mut records_by_key: HashMap<
+        ProductKey,
+        Vec<product::dynamodb::product_event_record::domain::ProductDomainEventRecord>,
+    > = HashMap::new();
 
     for (message_id, event_record) in event_records {
         match event_record {
@@ -41,8 +43,14 @@ pub async fn handler(
                     domain_record.shop_id,
                     domain_record.shops_product_id.clone(),
                 );
-                key_to_message.insert(key.clone(), message_id);
-                key_to_record.insert(key, event_record);
+                key_to_messages
+                    .entry(key.clone())
+                    .or_default()
+                    .push(message_id);
+                records_by_key
+                    .entry(key)
+                    .or_default()
+                    .push(domain_record.clone());
             }
             other => {
                 let key = other.key();
@@ -57,7 +65,7 @@ pub async fn handler(
         }
     }
 
-    if key_to_record.is_empty() {
+    if records_by_key.is_empty() {
         let failures = failed_message_ids.len();
         info!(
             eventType = %LogEventType::BatchProcessing,
@@ -78,17 +86,26 @@ pub async fn handler(
     // Compute embeddings for each domain event record, collecting per-product commands.
     let mut update_cmds: HashMap<ProductKey, UpdateProductCommand> = HashMap::new();
 
-    for (key, event_record) in &key_to_record {
-        let domain_record = match event_record {
-            ProductEventRecord::Domain(r) => r,
-            _ => continue,
+    for (key, domain_records) in &records_by_key {
+        let Some(domain_record) = domain_records
+            .iter()
+            .rev()
+            .find(|record| record.title_native.is_some())
+            .or_else(|| domain_records.last())
+        else {
+            continue;
         };
+        let primary_message_id = key_to_messages
+            .get(key)
+            .and_then(|message_ids| message_ids.last())
+            .cloned()
+            .unwrap_or_default();
 
         let title = match &domain_record.title_native {
             Some(t) => &t.text,
             None => {
                 warn!(
-                    messageId = %key_to_message[key],
+                    messageId = %primary_message_id,
                     shopId = %key.shop_id,
                     shopsProductId = %key.shops_product_id,
                     "Domain event has no native title — skipping embedding."
@@ -117,12 +134,14 @@ pub async fn handler(
             Err(err) => {
                 warn!(
                     error = %err,
-                    messageId = %key_to_message[key],
+                    messageId = %primary_message_id,
                     shopId = %key.shop_id,
                     shopsProductId = %key.shops_product_id,
                     "Failed generating embedding — marking message as failed."
                 );
-                failed_message_ids.push(key_to_message[key].clone());
+                if let Some(message_ids) = key_to_messages.get(key) {
+                    failed_message_ids.extend(message_ids.iter().cloned());
+                }
                 continue;
             }
         };
@@ -139,8 +158,8 @@ pub async fn handler(
     if !update_cmds.is_empty() {
         let failed_keys = command_service.update(update_cmds).await;
         for (key, _cmd) in failed_keys {
-            if let Some(message_id) = key_to_message.get(&key) {
-                failed_message_ids.push(message_id.clone());
+            if let Some(message_ids) = key_to_messages.get(&key) {
+                failed_message_ids.extend(message_ids.iter().cloned());
             } else {
                 error!(
                     shopId = %key.shop_id,
@@ -182,6 +201,7 @@ mod tests {
     use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
     use common::event::Event;
     use common::event_id::EventId;
+    use common::has_key::HasKey;
     use common::product_id::ProductId;
     use fake::{Fake, Faker};
     use lambda_runtime::{Context, LambdaEvent};
@@ -514,6 +534,81 @@ mod tests {
             .unwrap();
 
         assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_keep_embeddable_domain_record_when_same_key_has_later_record_without_title() {
+        let record_with_title = mk_domain_event_record();
+        let key = record_with_title.key();
+        let mut record_without_title = mk_domain_event_record();
+        record_without_title.shop_id = key.shop_id;
+        record_without_title.shops_product_id = key.shops_product_id.clone();
+        record_without_title.title_native = None;
+
+        let mut mock_embedding_service = MockMultimodalEmbeddingService::default();
+        mock_embedding_service
+            .expect_embed()
+            .times(1)
+            .returning(|_, _, _| Box::pin(async { Ok(vec![0.7, 0.8]) }));
+
+        let mut mock_command_service = MockCommandProductService::default();
+        mock_command_service
+            .expect_update()
+            .times(1)
+            .withf(|cmds| cmds.len() == 1 && cmds.values().all(|cmd| cmd.embedding.is_some()))
+            .returning(|_| Box::pin(async { HashMap::new() }));
+
+        let event = mk_lambda_event(vec![
+            mk_sqs_message(&record_with_title),
+            mk_sqs_message(&record_without_title),
+        ]);
+        let result = handler(&mock_embedding_service, &mock_command_service, event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_fail_all_messages_when_same_key_embedding_update_fails() {
+        let record_with_title = mk_domain_event_record();
+        let key = record_with_title.key();
+        let mut record_without_title = mk_domain_event_record();
+        record_without_title.shop_id = key.shop_id;
+        record_without_title.shops_product_id = key.shops_product_id.clone();
+        record_without_title.title_native = None;
+        let message_id_1 = "embed-dup-1".to_string();
+        let message_id_2 = "embed-dup-2".to_string();
+
+        let mut mock_embedding_service = MockMultimodalEmbeddingService::default();
+        mock_embedding_service
+            .expect_embed()
+            .times(1)
+            .returning(|_, _, _| Box::pin(async { Ok(vec![0.7, 0.8]) }));
+
+        let mut mock_command_service = MockCommandProductService::default();
+        mock_command_service
+            .expect_update()
+            .times(1)
+            .returning(|cmds| Box::pin(async move { cmds }));
+
+        let event = mk_lambda_event(vec![
+            mk_sqs_message_with_id(&record_with_title, message_id_1.clone()),
+            mk_sqs_message_with_id(&record_without_title, message_id_2.clone()),
+        ]);
+        let result = handler(&mock_embedding_service, &mock_command_service, event)
+            .await
+            .unwrap();
+
+        let mut actual = result
+            .batch_item_failures
+            .into_iter()
+            .map(|failure| failure.item_identifier)
+            .collect::<Vec<_>>();
+        actual.sort();
+        let mut expected = vec![message_id_1, message_id_2];
+        expected.sort();
+        assert_eq!(expected, actual);
     }
 
     #[allow(dead_code)]

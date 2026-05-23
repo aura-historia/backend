@@ -18,6 +18,7 @@ use common::batch::Batch;
 use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::logging::{LogEventType, LogWriteSource};
+use common::mergeable::Mergeable;
 use common::price::domain::FxRate;
 use common::product_id::ProductKey;
 use common::shop_id::ShopId;
@@ -28,7 +29,7 @@ use shop::core::affiliate_configuration::AffiliateConfiguration;
 use shop::core::shop_type::ShopType;
 use shop::service::get_service::GetShopService;
 use shop::service::seller_service::SellerService;
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 use tracing::warn;
 
 #[async_trait]
@@ -273,9 +274,22 @@ impl CommandProductService for CommandProductServiceImpl<'_> {
         let mut failures = Vec::new();
 
         for chunk in Batch::<CreateProductCommand, 100>::chunked_from(cmds.into_iter()) {
-            let mut key_cmds: HashMap<ProductKey, CreateProductCommand> =
-                chunk.into_iter().map(|cmd| (cmd.key(), cmd)).collect();
-            let mut working = key_cmds.clone();
+            let mut key_cmds: HashMap<ProductKey, Vec<CreateProductCommand>> = HashMap::new();
+            for cmd in chunk {
+                key_cmds.entry(cmd.key()).or_default().push(cmd);
+            }
+            let mut working: HashMap<ProductKey, CreateProductCommand> = key_cmds
+                .iter()
+                .map(|(key, commands)| {
+                    (
+                        key.clone(),
+                        commands
+                            .last()
+                            .cloned()
+                            .expect("grouped create commands must be non-empty"),
+                    )
+                })
+                .collect();
             let keys: Batch<ProductKey, 100> = working
                 .keys()
                 .cloned()
@@ -287,8 +301,9 @@ impl CommandProductService for CommandProductServiceImpl<'_> {
                 Ok(records) => {
                     if let Some(unprocessed) = records.unprocessed {
                         for key in unprocessed {
-                            if let Some(cmd) = working.remove(&key) {
-                                failures.push(cmd);
+                            working.remove(&key);
+                            if let Some(cmds) = key_cmds.remove(&key) {
+                                failures.extend(cmds);
                             }
                         }
                     }
@@ -341,17 +356,28 @@ impl CommandProductService for CommandProductServiceImpl<'_> {
                             let event_record = ProductEventRecord::Domain(
                                 ProductDomainEventRecord::from(domain_event),
                             );
-                            self.persist_create(event_record, cmd_clone, &mut failures)
+                            let mut create_failures = Vec::new();
+                            self.persist_create(event_record, cmd_clone, &mut create_failures)
                                 .await;
+                            for failed_create in create_failures {
+                                if let Some(cmds) = key_cmds.remove(&failed_create.key()) {
+                                    failures.extend(cmds);
+                                } else {
+                                    failures.push(failed_create);
+                                }
+                            }
                         } else {
-                            key_cmds.remove(&cmd.key());
-                            failures.push(cmd);
+                            if let Some(cmds) = key_cmds.remove(&cmd.key()) {
+                                failures.extend(cmds);
+                            } else {
+                                failures.push(cmd);
+                            }
                         }
                     }
                 }
                 Err(err) => {
                     warn!(error = ?err, "Failed loading product batch before create. Returning commands for retry.");
-                    failures.extend(working.into_values());
+                    failures.extend(key_cmds.into_values().flatten());
                 }
             }
         }
@@ -368,8 +394,15 @@ impl CommandProductService for CommandProductServiceImpl<'_> {
         for chunk in
             Batch::<(ProductKey, UpdateProductCommand), 100>::chunked_from(cmds.into_iter())
         {
-            let mut key_cmds: HashMap<ProductKey, UpdateProductCommand> =
-                chunk.into_iter().collect();
+            let mut key_cmds: HashMap<ProductKey, UpdateProductCommand> = HashMap::new();
+            for (key, cmd) in chunk {
+                match key_cmds.entry(key) {
+                    Entry::Occupied(mut entry) => entry.get_mut().merge(cmd),
+                    Entry::Vacant(entry) => {
+                        entry.insert(cmd);
+                    }
+                }
+            }
             let mut working = key_cmds.clone();
             let keys: Batch<ProductKey, 100> = working
                 .keys()
@@ -445,8 +478,15 @@ impl CommandProductService for CommandProductServiceImpl<'_> {
         let mut failures = Vec::new();
 
         for chunk in Batch::<UpsertProductCommand, 100>::chunked_from(cmds.into_iter()) {
-            let mut key_cmds: HashMap<ProductKey, UpsertProductCommand> =
-                chunk.into_iter().map(|cmd| (cmd.key(), cmd)).collect();
+            let mut key_cmds: HashMap<ProductKey, UpsertProductCommand> = HashMap::new();
+            for cmd in chunk {
+                match key_cmds.entry(cmd.key()) {
+                    Entry::Occupied(mut entry) => entry.get_mut().merge(cmd),
+                    Entry::Vacant(entry) => {
+                        entry.insert(cmd);
+                    }
+                }
+            }
             let mut working = key_cmds.clone();
             let keys: Batch<ProductKey, 100> = working
                 .keys()
@@ -782,7 +822,9 @@ fn determine_update_events(
         let key = record.key();
         if let Some(cmd) = working.remove(&key) {
             let mut product: Product = record.into();
-            if let Some(price_event) = product.new_price(cmd.native_price, fx_rate) {
+            if let Some(new_native_price) = cmd.native_price
+                && let Some(price_event) = product.change_price(new_native_price, fx_rate)
+            {
                 events.push(ProductEventRecord::Domain(ProductDomainEventRecord::from(
                     price_event,
                 )));

@@ -19,7 +19,7 @@ use product::dynamodb::{
 };
 use product::service::{
     command_service::{CommandProductService, CommandProductServiceImpl},
-    product_command::{CreateProductCommand, UpdateProductCommand},
+    product_command::{CreateProductCommand, UpdateProductCommand, UpsertProductCommand},
 };
 use shop::core::shop::Shop;
 use shop::core::shop_type::ShopType;
@@ -443,6 +443,75 @@ async fn should_update_existing_products_via_upsert_when_all_exist() {
         })
         .all(|val| val.as_s().unwrap() == "DOMAIN_STATE_CHANGED");
     assert!(all_event_records_are_state_changed);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_merge_duplicate_upsert_commands_for_same_product() {
+    let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let service = command_product_service(&repository).await;
+
+    let create_cmd: CreateProductCommand = Faker.fake();
+    let existing_record = make_product_record(&create_cmd);
+    let unprocessed = repository
+        .put_product_records([existing_record].into())
+        .await
+        .unwrap()
+        .unprocessed_items
+        .unwrap_or_default();
+    assert!(unprocessed.is_empty());
+
+    let price_only = UpsertProductCommand {
+        shop_id: create_cmd.shop_id,
+        shops_product_id: create_cmd.shops_product_id.clone(),
+        seller_name_raw: None,
+        structured_address: None,
+        geo_address: None,
+        native_title: None,
+        native_description: None,
+        native_price: Some(Price::new(7800u64.into(), Currency::Eur)),
+        native_price_estimate_min: None,
+        native_price_estimate_max: None,
+        state: None,
+        url: None,
+        images: create_cmd.images.clone(),
+        auction_start: None,
+        auction_end: None,
+    };
+    let state_only = UpsertProductCommand {
+        shop_id: create_cmd.shop_id,
+        shops_product_id: create_cmd.shops_product_id.clone(),
+        seller_name_raw: None,
+        structured_address: None,
+        geo_address: None,
+        native_title: None,
+        native_description: None,
+        native_price: None,
+        native_price_estimate_min: None,
+        native_price_estimate_max: None,
+        state: Some(ProductState::Reserved),
+        url: None,
+        images: create_cmd.images.clone(),
+        auction_start: None,
+        auction_end: None,
+    };
+
+    let failures = service.upsert(vec![price_only, state_only]).await;
+    assert!(failures.is_empty());
+
+    let product = repository
+        .get_product_record(&create_cmd.shop_id, &create_cmd.shops_product_id)
+        .await
+        .unwrap()
+        .expect("product should exist after merged upsert");
+
+    assert_eq!(
+        Some(7800),
+        product.price_native.as_ref().map(|price| price.amount)
+    );
+    assert_eq!(
+        product::dynamodb::product_state_record::ProductStateRecord::Reserved,
+        product.state
+    );
 }
 
 #[localstack_test(services = [DynamoDB()])]
