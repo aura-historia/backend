@@ -14,6 +14,7 @@ pub struct NormalizedProduct {
     pub price: Option<Price>,
     pub price_estimate_min: Option<Price>,
     pub price_estimate_max: Option<Price>,
+    pub seller_name: Option<String>,
     pub state: ProductState,
     pub url: Url,
     pub images: Vec<ProductImage>,

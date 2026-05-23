@@ -683,6 +683,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: ProductState::Available,
             url: base_url(),
             images: vec![],

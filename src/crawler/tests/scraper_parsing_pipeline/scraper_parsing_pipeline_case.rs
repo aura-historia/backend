@@ -94,6 +94,7 @@ fn normalized_from_json(data: NormalizedExpectationJson) -> NormalizedExpectatio
             data.price_estimate_max,
             data.price_estimate_max_currency.as_deref(),
         ),
+        seller_name: data.seller_name,
         state: parse_product_state(&data.state),
         url: data.url,
         images: data.images,

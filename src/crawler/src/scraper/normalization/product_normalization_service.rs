@@ -88,6 +88,7 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
             price = ?raw.price,
             price_estimate_min = ?raw.price_estimate_min,
             price_estimate_max = ?raw.price_estimate_max,
+            seller_name = ?raw.seller_name,
             images_count = raw.images.len(),
             has_description = !raw.description.is_empty(),
             has_auction_start = raw.auction_start.is_some(),
@@ -116,6 +117,10 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
             description_language,
         )?;
         let description = normalize_description(raw.description)?;
+        let seller_name = raw.seller_name.and_then(|value| match value.trim() {
+            "" => None,
+            trimmed => Some(trimmed.to_string()),
+        });
 
         debug!(
             default_currency = ?default_currency,
@@ -164,6 +169,7 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
                 price,
                 price_estimate_min,
                 price_estimate_max,
+                seller_name,
                 state,
                 url,
                 images,
@@ -217,6 +223,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: "available".into(),
             images: vec![],
             auction_start: None,
@@ -300,6 +307,7 @@ mod tests {
             price: Some("€ 1.200,00".into()),
             price_estimate_min: Some("£ 800.00".into()),
             price_estimate_max: Some("£1,200.00".into()),
+            seller_name: Some("Kunstauktionshaus Leipzig | Schütte".into()),
             state: "listed".into(),
             images: vec![
                 "https://cdn.example.com/img1.jpg".into(),
@@ -331,6 +339,10 @@ mod tests {
         assert_eq!(
             result.price_estimate_max.unwrap(),
             Price::new(MonetaryAmount::from(120000u64), Currency::Gbp)
+        );
+        assert_eq!(
+            result.seller_name.as_deref(),
+            Some("Kunstauktionshaus Leipzig | Schütte")
         );
         assert_eq!(result.state, ProductState::Listed);
         assert_eq!(result.images.len(), 2);
@@ -616,6 +628,17 @@ mod tests {
         let (result, _) = svc.normalize(raw, base_url(), None).await.unwrap();
         assert!(result.auction_start.is_none());
         assert!(result.auction_end.is_none());
+    }
+
+    #[tokio::test]
+    async fn should_normalize_blank_seller_name_to_none() {
+        let svc = make_available_service();
+        let mut raw = minimal_raw();
+        raw.seller_name = Some("   ".into());
+
+        let (result, _) = svc.normalize(raw, base_url(), None).await.unwrap();
+
+        assert_eq!(result.seller_name, None);
     }
 
     #[tokio::test]

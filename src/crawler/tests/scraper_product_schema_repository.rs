@@ -34,6 +34,7 @@ fn minimal_css_schema() -> ProductCssSelectorSchema {
         price: None,
         price_estimate_min: None,
         price_estimate_max: None,
+        seller_name: None,
         state: ExtractionRule {
             selector: "span.state".into(),
             additional_selectors: vec![],
@@ -90,6 +91,7 @@ fn full_css_schema() -> ProductCssSelectorSchema {
             extract: ExtractionKind::Text,
             cardinality: ExtractionCardinality::First,
         }),
+        seller_name: None,
         state: ExtractionRule {
             selector: "div.availability".into(),
             additional_selectors: vec![],
