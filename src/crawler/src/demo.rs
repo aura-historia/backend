@@ -141,8 +141,8 @@ async fn main() {
             }
         };
 
-        let model =
-            std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.1-pro-preview".to_string());
+        let model = std::env::var("GEMINI_MODEL")
+            .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
         unsafe {
             std::env::set_var("GEMINI_MODEL", &model);
         }
