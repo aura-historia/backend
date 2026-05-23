@@ -17,7 +17,7 @@ use product::service::command_service::CommandProductService;
 use product::service::product_command::{
     CreateProductCommand, UpdateProductCommand, UpsertProductCommand,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 use tracing::{error, info};
 
 #[tracing::instrument(skip(event, product_service), fields(requestId = %event.context.request_id))]
@@ -82,10 +82,15 @@ pub async fn handler(
     }
 
     if !updates.is_empty() {
-        let commands: HashMap<ProductKey, UpdateProductCommand> = updates
-            .iter()
-            .map(|(_, key, command)| (key.clone(), command.clone()))
-            .collect();
+        let mut commands: HashMap<ProductKey, UpdateProductCommand> = HashMap::new();
+        for (_, key, command) in &updates {
+            match commands.entry(key.clone()) {
+                Entry::Occupied(mut entry) => entry.get_mut().merge(command.clone()),
+                Entry::Vacant(entry) => {
+                    entry.insert(command.clone());
+                }
+            }
+        }
         let failed_keys: HashSet<ProductKey> =
             product_service.update(commands).await.into_keys().collect();
         for (message_id, key, _) in &updates {
@@ -133,9 +138,15 @@ pub async fn handler(
 mod tests {
     use super::*;
     use aws_lambda_events::sqs::SqsMessage;
+    use common::currency::data::CurrencyData;
+    use common::currency::domain::Currency;
+    use common::price::data::PriceData;
+    use common::price::domain::Price;
+    use common::product_state::domain::ProductState;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
     use lambda_runtime::Context;
+    use product::data::product_state_data::ProductStateData;
     use product::service::command_service::MockCommandProductService;
 
     fn upsert_command(id: &str) -> AsyncProductCommandData {
@@ -164,6 +175,22 @@ mod tests {
         message.body = Some(serde_json::to_string(&command).unwrap());
         let mut event = SqsEvent::default();
         event.records = vec![message];
+        LambdaEvent::new(event, Context::default())
+    }
+
+    fn event_with_messages(
+        commands: Vec<(&str, AsyncProductCommandData)>,
+    ) -> LambdaEvent<SqsEvent> {
+        let mut event = SqsEvent::default();
+        event.records = commands
+            .into_iter()
+            .map(|(message_id, command)| {
+                let mut message = SqsMessage::default();
+                message.message_id = Some(message_id.to_string());
+                message.body = Some(serde_json::to_string(&command).unwrap());
+                message
+            })
+            .collect();
         LambdaEvent::new(event, Context::default())
     }
 
@@ -212,5 +239,120 @@ mod tests {
         let response = handler(event, &service).await.unwrap();
 
         assert_eq!(1, response.batch_item_failures.len());
+    }
+
+    #[tokio::test]
+    async fn should_merge_same_key_update_commands_before_service_update_for_handler() {
+        let shop_id = ShopId::new();
+        let shops_product_id = ShopsProductId::from("product-1".to_string());
+        let mut service = MockCommandProductService::default();
+        service.expect_update().return_once(|commands| {
+            Box::pin(async move {
+                assert_eq!(1, commands.len());
+                let cmd = commands.values().next().unwrap();
+                assert_eq!(
+                    Some(Price::new(100u64.into(), Currency::Eur)),
+                    cmd.native_price
+                );
+                assert_eq!(Some(ProductState::Available), cmd.state);
+                HashMap::new()
+            })
+        });
+
+        let response = handler(
+            event_with_messages(vec![
+                (
+                    "msg-1",
+                    AsyncProductCommandData::Update(UpdateAsyncProductCommandData {
+                        shop_id,
+                        shops_product_id: shops_product_id.clone(),
+                        price: Some(PriceData::new(CurrencyData::Eur, 100)),
+                        state: None,
+                        price_estimate_min: None,
+                        price_estimate_max: None,
+                        url: None,
+                        images: None,
+                        auction_start: None,
+                        auction_end: None,
+                    }),
+                ),
+                (
+                    "msg-2",
+                    AsyncProductCommandData::Update(UpdateAsyncProductCommandData {
+                        shop_id,
+                        shops_product_id,
+                        price: None,
+                        state: Some(ProductStateData::Available),
+                        price_estimate_min: None,
+                        price_estimate_max: None,
+                        url: None,
+                        images: None,
+                        auction_start: None,
+                        auction_end: None,
+                    }),
+                ),
+            ]),
+            &service,
+        )
+        .await
+        .unwrap();
+
+        assert!(response.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_report_all_same_key_update_failures_for_handler() {
+        let shop_id = ShopId::new();
+        let shops_product_id = ShopsProductId::from("product-1".to_string());
+        let mut service = MockCommandProductService::default();
+        service
+            .expect_update()
+            .return_once(|commands| Box::pin(async move { commands }));
+
+        let response = handler(
+            event_with_messages(vec![
+                (
+                    "msg-1",
+                    AsyncProductCommandData::Update(UpdateAsyncProductCommandData {
+                        shop_id,
+                        shops_product_id: shops_product_id.clone(),
+                        price: Some(PriceData::new(CurrencyData::Eur, 100)),
+                        state: None,
+                        price_estimate_min: None,
+                        price_estimate_max: None,
+                        url: None,
+                        images: None,
+                        auction_start: None,
+                        auction_end: None,
+                    }),
+                ),
+                (
+                    "msg-2",
+                    AsyncProductCommandData::Update(UpdateAsyncProductCommandData {
+                        shop_id,
+                        shops_product_id,
+                        price: None,
+                        state: Some(ProductStateData::Available),
+                        price_estimate_min: None,
+                        price_estimate_max: None,
+                        url: None,
+                        images: None,
+                        auction_start: None,
+                        auction_end: None,
+                    }),
+                ),
+            ]),
+            &service,
+        )
+        .await
+        .unwrap();
+
+        let mut actual = response
+            .batch_item_failures
+            .into_iter()
+            .map(|failure| failure.item_identifier)
+            .collect::<Vec<_>>();
+        actual.sort();
+        assert_eq!(vec!["msg-1".to_string(), "msg-2".to_string()], actual);
     }
 }
