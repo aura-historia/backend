@@ -7,6 +7,7 @@ use common::{
     language::domain::Language,
     localized::Localized,
     logging::{LogEventType, LogPipelineStage},
+    mergeable::Mergeable,
     product_id::ProductKey,
 };
 use lambda_runtime::LambdaEvent;
@@ -20,7 +21,7 @@ use product::{
     },
 };
 use service::TranslationService;
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 use tracing::{error, info, warn};
 
 #[tracing::instrument(
@@ -174,6 +175,7 @@ pub async fn handler(
 
     // Build update commands from translation results.
     let mut update_cmds: HashMap<ProductKey, UpdateProductCommand> = HashMap::new();
+    let mut key_to_messages: HashMap<ProductKey, Vec<String>> = HashMap::new();
 
     for (idx, maybe_translations) in translation_results {
         let input = &valid_inputs[idx];
@@ -201,26 +203,27 @@ pub async fn handler(
             targets,
         };
 
-        update_cmds.insert(
-            input.key.clone(),
-            UpdateProductCommand {
-                translated_titles: Some(envelope),
-                ..UpdateProductCommand::default()
-            },
-        );
+        key_to_messages
+            .entry(input.key.clone())
+            .or_default()
+            .push(input.message_id.clone());
+        let update = UpdateProductCommand {
+            translated_titles: Some(envelope),
+            ..UpdateProductCommand::default()
+        };
+        match update_cmds.entry(input.key.clone()) {
+            Entry::Occupied(mut entry) => entry.get_mut().merge(update),
+            Entry::Vacant(entry) => {
+                entry.insert(update);
+            }
+        }
     }
 
     if !update_cmds.is_empty() {
-        // Map ProductKey back to message_id for failure reporting.
-        let key_to_message: HashMap<ProductKey, String> = valid_inputs
-            .iter()
-            .map(|i| (i.key.clone(), i.message_id.clone()))
-            .collect();
-
         let failed_keys = command_service.update(update_cmds).await;
         for (key, _cmd) in failed_keys {
-            if let Some(message_id) = key_to_message.get(&key) {
-                failed_message_ids.push(message_id.clone());
+            if let Some(message_ids) = key_to_messages.get(&key) {
+                failed_message_ids.extend(message_ids.iter().cloned());
             } else {
                 error!(
                     shopId = %key.shop_id,
@@ -262,6 +265,7 @@ mod tests {
     use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
     use aws_lambda_events::eventbridge::EventBridgeEvent;
     use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
+    use common::has_key::HasKey;
     use common::language::{domain::Language, record::LanguageRecord};
     use fake::{Fake, Faker};
     use lambda_runtime::{Context, LambdaEvent};
@@ -577,6 +581,108 @@ mod tests {
             .unwrap();
 
         assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_merge_same_key_translation_updates_before_command_service_update() {
+        let record1 = mk_enrichment_embedded_record(Some("A"), Some(Language::De));
+        let key = record1.key();
+        let mut record2 = mk_enrichment_embedded_record(Some("BB"), Some(Language::De));
+        record2.shop_id = key.shop_id;
+        record2.shops_product_id = key.shops_product_id.clone();
+
+        let mut mock_translation_service = MockTranslationService::default();
+        mock_translation_service
+            .expect_translate()
+            .times(1)
+            .returning(|_, _| {
+                Box::pin(async {
+                    vec![
+                        Some(HashMap::from([(Language::En, "Antique chair".to_string())])),
+                        Some(HashMap::from([(
+                            Language::Fr,
+                            "Chaise ancienne".to_string(),
+                        )])),
+                    ]
+                })
+            });
+
+        let mut mock_command_service = MockCommandProductService::default();
+        mock_command_service
+            .expect_update()
+            .times(1)
+            .withf(|cmds| {
+                if cmds.len() != 1 {
+                    return false;
+                }
+                let Some(cmd) = cmds.values().next() else {
+                    return false;
+                };
+                let Some(translated_titles) = &cmd.translated_titles else {
+                    return false;
+                };
+                translated_titles.targets.contains_key(&Language::En)
+                    && translated_titles.targets.contains_key(&Language::Fr)
+            })
+            .returning(|_| Box::pin(async { HashMap::new() }));
+
+        let event = mk_lambda_event(vec![mk_sqs_message(&record1), mk_sqs_message(&record2)]);
+        let result = handler(&mock_translation_service, &mock_command_service, event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_fail_all_messages_when_same_key_translation_update_fails() {
+        let record1 = mk_enrichment_embedded_record(Some("A"), Some(Language::De));
+        let key = record1.key();
+        let mut record2 = mk_enrichment_embedded_record(Some("BB"), Some(Language::De));
+        record2.shop_id = key.shop_id;
+        record2.shops_product_id = key.shops_product_id.clone();
+        let message_id_1 = "translate-dup-1".to_string();
+        let message_id_2 = "translate-dup-2".to_string();
+
+        let mut mock_translation_service = MockTranslationService::default();
+        mock_translation_service
+            .expect_translate()
+            .times(1)
+            .returning(|_, _| {
+                Box::pin(async {
+                    vec![
+                        Some(HashMap::from([(Language::En, "Antique chair".to_string())])),
+                        Some(HashMap::from([(
+                            Language::Fr,
+                            "Chaise ancienne".to_string(),
+                        )])),
+                    ]
+                })
+            });
+
+        let mut mock_command_service = MockCommandProductService::default();
+        mock_command_service
+            .expect_update()
+            .times(1)
+            .returning(|cmds| Box::pin(async move { cmds }));
+
+        let event = mk_lambda_event(vec![
+            mk_sqs_message_with_id(&record1, message_id_1.clone()),
+            mk_sqs_message_with_id(&record2, message_id_2.clone()),
+        ]);
+        let result = handler(&mock_translation_service, &mock_command_service, event)
+            .await
+            .unwrap();
+
+        let mut actual = result
+            .batch_item_failures
+            .into_iter()
+            .map(|failure| failure.item_identifier)
+            .collect::<Vec<_>>();
+        actual.sort();
+        let mut expected = vec![message_id_1, message_id_2];
+        expected.sort();
+        assert_eq!(expected, actual);
     }
 
     #[tokio::test]

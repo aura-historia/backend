@@ -24,6 +24,7 @@ pub mod has_key;
 pub mod language;
 pub mod localized;
 pub mod logging;
+pub mod mergeable;
 pub mod product_id;
 pub mod product_state;
 

@@ -5,6 +5,7 @@ use common::currency::domain::Currency;
 use common::has_key::HasKey;
 use common::language::domain::Language;
 use common::localized::Localized;
+use common::mergeable::Mergeable;
 use common::price::domain::{MonetaryAmount, Price};
 use common::product_id::ProductKey;
 use common::product_state::domain::ProductState;
@@ -19,6 +20,14 @@ use url::Url;
 pub struct Translation<T> {
     pub source: Localized<Language, T>,
     pub targets: HashMap<Language, T>,
+}
+
+impl<T> Mergeable for Translation<T> {
+    fn merge(&mut self, other: Self) {
+        let Self { source, targets } = other;
+        self.source = source;
+        self.targets.extend(targets);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,6 +78,56 @@ pub struct UpdateProductCommand {
     pub translated_titles: Option<Translation<Title>>,
 }
 
+impl Mergeable for UpdateProductCommand {
+    fn merge(&mut self, other: Self) {
+        let Self {
+            native_price,
+            state,
+            native_price_estimate_min,
+            native_price_estimate_max,
+            url,
+            images,
+            auction_start,
+            auction_end,
+            embedding,
+            translated_titles,
+        } = other;
+
+        if let Some(native_price) = native_price {
+            self.native_price = Some(native_price);
+        }
+        if let Some(state) = state {
+            self.state = Some(state);
+        }
+        if let Some(native_price_estimate_min) = native_price_estimate_min {
+            self.native_price_estimate_min = Some(native_price_estimate_min);
+        }
+        if let Some(native_price_estimate_max) = native_price_estimate_max {
+            self.native_price_estimate_max = Some(native_price_estimate_max);
+        }
+        if let Some(url) = url {
+            self.url = Some(url);
+        }
+        if let Some(images) = images {
+            self.images = Some(images);
+        }
+        if let Some(auction_start) = auction_start {
+            self.auction_start = Some(auction_start);
+        }
+        if let Some(auction_end) = auction_end {
+            self.auction_end = Some(auction_end);
+        }
+        if let Some(embedding) = embedding {
+            self.embedding = Some(embedding);
+        }
+        match (&mut self.translated_titles, translated_titles) {
+            (Some(current), Some(other)) => current.merge(other),
+            (None, Some(other)) => self.translated_titles = Some(other),
+            _ => {}
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpsertProductCommand {
     pub shop_id: ShopId,
@@ -86,6 +145,69 @@ pub struct UpsertProductCommand {
     pub images: Vec<ProductImage>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
+}
+
+impl Mergeable for UpsertProductCommand {
+    fn merge(&mut self, other: Self) {
+        let Self {
+            shop_id,
+            shops_product_id,
+            seller_name_raw,
+            structured_address,
+            geo_address,
+            native_title,
+            native_description,
+            native_price,
+            native_price_estimate_min,
+            native_price_estimate_max,
+            state,
+            url,
+            images,
+            auction_start,
+            auction_end,
+        } = other;
+
+        debug_assert_eq!(self.shop_id, shop_id);
+        debug_assert_eq!(self.shops_product_id, shops_product_id);
+
+        if let Some(seller_name_raw) = seller_name_raw {
+            self.seller_name_raw = Some(seller_name_raw);
+        }
+        if let Some(structured_address) = structured_address {
+            self.structured_address = Some(structured_address);
+        }
+        if let Some(geo_address) = geo_address {
+            self.geo_address = Some(geo_address);
+        }
+        if let Some(native_title) = native_title {
+            self.native_title = Some(native_title);
+        }
+        if let Some(native_description) = native_description {
+            self.native_description = Some(native_description);
+        }
+        if let Some(native_price) = native_price {
+            self.native_price = Some(native_price);
+        }
+        if let Some(native_price_estimate_min) = native_price_estimate_min {
+            self.native_price_estimate_min = Some(native_price_estimate_min);
+        }
+        if let Some(native_price_estimate_max) = native_price_estimate_max {
+            self.native_price_estimate_max = Some(native_price_estimate_max);
+        }
+        if let Some(state) = state {
+            self.state = Some(state);
+        }
+        if let Some(url) = url {
+            self.url = Some(url);
+        }
+        self.images = images;
+        if let Some(auction_start) = auction_start {
+            self.auction_start = Some(auction_start);
+        }
+        if let Some(auction_end) = auction_end {
+            self.auction_end = Some(auction_end);
+        }
+    }
 }
 
 impl HasKey for UpsertProductCommand {
@@ -260,5 +382,134 @@ mod faker {
                 },
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Translation, UpdateProductCommand, UpsertProductCommand};
+    use crate::core::{product_image::ProductImage, title::Title};
+    use common::{
+        currency::domain::Currency, language::domain::Language, localized::Localized,
+        mergeable::Mergeable, price::domain::Price, product_state::domain::ProductState,
+    };
+    use geo::core::address::{GeoAddress, StructuredAddress};
+    use std::collections::HashMap;
+    use url::Url;
+
+    #[test]
+    fn should_merge_update_product_command() {
+        let mut current = UpdateProductCommand {
+            native_price: Some(Price::new(100u64.into(), Currency::Eur)),
+            state: None,
+            native_price_estimate_min: None,
+            native_price_estimate_max: None,
+            url: None,
+            images: None,
+            auction_start: None,
+            auction_end: None,
+            embedding: None,
+            translated_titles: Some(Translation {
+                source: Localized::new(Language::De, Title::from("Stuhl")),
+                targets: HashMap::from([(Language::En, Title::from("Chair"))]),
+            }),
+        };
+
+        current.merge(UpdateProductCommand {
+            native_price: None,
+            state: Some(ProductState::Reserved),
+            native_price_estimate_min: None,
+            native_price_estimate_max: None,
+            url: Some(Url::parse("https://example.com/product").unwrap()),
+            images: Some(vec![ProductImage {
+                url: Url::parse("https://example.com/product/image.jpg").unwrap(),
+                prohibited_content: Default::default(),
+            }]),
+            auction_start: None,
+            auction_end: None,
+            embedding: Some(vec![0.1, 0.2, 0.3]),
+            translated_titles: Some(Translation {
+                source: Localized::new(Language::De, Title::from("Stuhl")),
+                targets: HashMap::from([(Language::Fr, Title::from("Chaise"))]),
+            }),
+        });
+
+        assert_eq!(
+            Some(Price::new(100u64.into(), Currency::Eur)),
+            current.native_price
+        );
+        assert_eq!(Some(ProductState::Reserved), current.state);
+        assert_eq!(
+            Some(Url::parse("https://example.com/product").unwrap()),
+            current.url
+        );
+        assert_eq!(Some(vec![0.1, 0.2, 0.3]), current.embedding);
+        let translated_titles = current
+            .translated_titles
+            .expect("translations should exist");
+        assert_eq!(
+            Some(&Title::from("Chair")),
+            translated_titles.targets.get(&Language::En)
+        );
+        assert_eq!(
+            Some(&Title::from("Chaise")),
+            translated_titles.targets.get(&Language::Fr)
+        );
+    }
+
+    #[test]
+    fn should_merge_upsert_product_command() {
+        let mut current = UpsertProductCommand {
+            shop_id: Default::default(),
+            shops_product_id: "shops-product-id".into(),
+            seller_name_raw: None,
+            structured_address: None,
+            geo_address: None,
+            native_title: Some(Localized::new(Language::En, Title::from("Chair"))),
+            native_description: None,
+            native_price: Some(Price::new(100u64.into(), Currency::Eur)),
+            native_price_estimate_min: None,
+            native_price_estimate_max: None,
+            state: None,
+            url: None,
+            images: vec![],
+            auction_start: None,
+            auction_end: None,
+        };
+
+        current.merge(UpsertProductCommand {
+            shop_id: current.shop_id,
+            shops_product_id: current.shops_product_id.clone(),
+            seller_name_raw: Some("seller".to_string()),
+            structured_address: Some(StructuredAddress::default()),
+            geo_address: Some(GeoAddress { lat: 1.0, lon: 2.0 }),
+            native_title: None,
+            native_description: None,
+            native_price: None,
+            native_price_estimate_min: None,
+            native_price_estimate_max: None,
+            state: Some(ProductState::Available),
+            url: Some(Url::parse("https://example.com/product").unwrap()),
+            images: vec![ProductImage {
+                url: Url::parse("https://example.com/product/image.jpg").unwrap(),
+                prohibited_content: Default::default(),
+            }],
+            auction_start: None,
+            auction_end: None,
+        });
+
+        assert_eq!(Some("seller".to_string()), current.seller_name_raw);
+        assert_eq!(Some(ProductState::Available), current.state);
+        assert_eq!(
+            Some(Url::parse("https://example.com/product").unwrap()),
+            current.url
+        );
+        assert_eq!(1, current.images.len());
+        assert_eq!(
+            Some(Price::new(100u64.into(), Currency::Eur)),
+            current.native_price
+        );
+        assert!(current.structured_address.is_some());
+        assert!(current.geo_address.is_some());
     }
 }
