@@ -248,5 +248,86 @@
       "auction_start": null,
       "auction_end": null
     }
+  },
+  {
+    "html": "tests/fixtures/html/antik-und-stil_available.html",
+    "raw_state": "In den Warenkorb",
+    "state_record": "AVAILABLE",
+    "schema": {
+      "shops_product_id": {
+        "selector": ".product_meta .sku",
+        "type": "text"
+      },
+      "title": {
+        "selector": "h1.product_title",
+        "type": "text"
+      },
+      "price": {
+        "selector": ".elementor-widget-woocommerce-product-price p.price",
+        "type": "text"
+      },
+      "state": {
+        "selector": ".single_add_to_cart_button",
+        "type": "text"
+      },
+      "images": {
+        "selector": ".woocommerce-product-gallery__image img",
+        "type": "image_url",
+        "cardinality": "all"
+      },
+      "default_currency": "EUR"
+    },
+    "raw": {
+      "shops_product_id": "2025-0219-03",
+      "title": "Tisch rund antik Marmorplatte",
+      "description": [],
+      "price": "749,00 €",
+      "price_estimate_min": null,
+      "price_estimate_max": null,
+      "state": "In den Warenkorb",
+      "images": [
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/Tisch-Marmor1000-x-1000-px-1000-x-1000-px-1.png",
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/Tisch-Marmor1000-x-1000-px-1000-x-1000-px-1.png",
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/20250219_083921-scaled.jpg",
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/20250219_084007-scaled.jpg",
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/20250219_083950-scaled.jpg",
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/20250219_083940-scaled.jpg",
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/20250219_083644-scaled.jpg",
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/20250219_083803-scaled.jpg",
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/20250219_083714-scaled.jpg",
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/20250219_083320-scaled.jpg"
+      ],
+      "auction_start": null,
+      "auction_end": null,
+      "seller_name": null
+    },
+    "normalized": {
+      "shops_product_id": "2025-0219-03",
+      "title": "Tisch rund antik Marmorplatte",
+      "description": null,
+      "price": 74900,
+      "price_currency": "EUR",
+      "price_estimate_min": null,
+      "price_estimate_min_currency": null,
+      "price_estimate_max": null,
+      "price_estimate_max_currency": null,
+      "state": "AVAILABLE",
+      "url": "https://antik-und-stil.com/produkt/runder-esstisch-mit-marmorplatte-biedermeier-ca-1850-antik-stil/",
+      "images": [
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/Tisch-Marmor1000-x-1000-px-1000-x-1000-px-1.png",
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/Tisch-Marmor1000-x-1000-px-1000-x-1000-px-1.png",
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/20250219_083921-scaled.jpg",
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/20250219_084007-scaled.jpg",
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/20250219_083950-scaled.jpg",
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/20250219_083940-scaled.jpg",
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/20250219_083644-scaled.jpg",
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/20250219_083803-scaled.jpg",
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/20250219_083714-scaled.jpg",
+        "https://antik-und-stil.com/wp-content/uploads/2025/03/20250219_083320-scaled.jpg"
+      ],
+      "auction_start": null,
+      "auction_end": null,
+      "seller_name": null
+    }
   }
 ]

@@ -48,7 +48,7 @@ pub(super) fn sample_html() -> String {
         <span id="product-id">SKU-42</span>
         <h1>Biedermeier Chair</h1>
         <span id="state">In Stock</span>
-        <img src="/images/chair.jpg">
+        <img src="/images/chair-640x640.jpg">
       </main>
     </body>
     </html>"#

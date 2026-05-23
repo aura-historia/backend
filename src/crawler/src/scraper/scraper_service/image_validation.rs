@@ -1,0 +1,333 @@
+use crate::network::policy::classify_reqwest_error;
+use crate::scraper::css_selector::rule::split_image_candidate_group;
+use crate::scraper::normalization::error::NormalizationError;
+use regex::Regex;
+use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
+use url::Url;
+
+const MIN_LONGEST_SIDE: usize = 400;
+const MIN_SHORTEST_SIDE: usize = 250;
+const IMAGE_PROBE_BYTES: &str = "bytes=0-32767";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ImageValidation {
+    Valid,
+    Invalid,
+    Unknown,
+}
+
+#[async_trait::async_trait]
+pub(crate) trait ImageValidator: Send + Sync {
+    async fn validate(&self, url: &Url) -> ImageValidation;
+}
+
+pub(crate) struct ReqwestImageValidator {
+    client: reqwest::Client,
+    cache: Mutex<HashMap<String, ImageValidation>>,
+}
+
+impl ReqwestImageValidator {
+    pub(crate) fn new() -> Self {
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::limited(5))
+            .timeout(std::time::Duration::from_secs(8))
+            .build()
+            .expect("reqwest image validator client should build");
+        Self {
+            client,
+            cache: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+impl Default for ReqwestImageValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait::async_trait]
+impl ImageValidator for ReqwestImageValidator {
+    async fn validate(&self, url: &Url) -> ImageValidation {
+        let key = url.as_str().to_owned();
+        if let Some(cached) = self.cache.lock().expect("cache lock").get(&key).copied() {
+            return cached;
+        }
+
+        let validation = match validate_image_url(url) {
+            Some(validation) => validation,
+            None => probe_image_dimensions(&self.client, url).await,
+        };
+
+        self.cache
+            .lock()
+            .expect("cache lock")
+            .insert(key, validation);
+        validation
+    }
+}
+
+pub(crate) async fn filter_valid_image_urls(
+    raw_images: Vec<String>,
+    base_url: &Url,
+    validator: &dyn ImageValidator,
+) -> Result<Vec<String>, NormalizationError> {
+    let mut seen = HashSet::new();
+    let mut valid = Vec::new();
+    let mut invalid_count = 0usize;
+
+    for raw in raw_images {
+        let candidates = split_image_candidate_group(&raw);
+        if candidates.is_empty() {
+            invalid_count += 1;
+            continue;
+        }
+
+        for raw_candidate in candidates {
+            let trimmed = raw_candidate.trim();
+            if trimmed.is_empty() {
+                invalid_count += 1;
+                continue;
+            }
+
+            let resolved = Url::parse(trimmed)
+                .or_else(|_| base_url.join(trimmed))
+                .map_err(|source| NormalizationError::InvalidImageUrl {
+                    raw: trimmed.to_owned(),
+                    source,
+                })?;
+
+            let validation = match validate_image_url(&resolved) {
+                Some(validation) => validation,
+                None => validator.validate(&resolved).await,
+            };
+            match validation {
+                ImageValidation::Invalid => invalid_count += 1,
+                ImageValidation::Valid | ImageValidation::Unknown => {
+                    let normalized = resolved.to_string();
+                    if seen.insert(normalized.clone()) {
+                        valid.push(normalized);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    if valid.is_empty() {
+        return Err(NormalizationError::NoValidImages {
+            candidates: invalid_count,
+        });
+    }
+
+    Ok(valid)
+}
+
+fn validate_image_url(url: &Url) -> Option<ImageValidation> {
+    if let Some((width, height)) = dimensions_from_query(url) {
+        return Some(validation_for_dimensions(width, height));
+    }
+    if let Some((width, height)) = dimensions_from_path(url.path()) {
+        return Some(validation_for_dimensions(width, height));
+    }
+
+    let lower = url.as_str().to_ascii_lowercase();
+    if lower.contains("thumbnail") || lower.contains("thumb") {
+        return Some(ImageValidation::Invalid);
+    }
+
+    None
+}
+
+fn validation_for_dimensions(width: usize, height: usize) -> ImageValidation {
+    let longest = width.max(height);
+    let shortest = width.min(height);
+    if longest >= MIN_LONGEST_SIDE && shortest >= MIN_SHORTEST_SIDE {
+        ImageValidation::Valid
+    } else {
+        ImageValidation::Invalid
+    }
+}
+
+fn dimensions_from_query(url: &Url) -> Option<(usize, usize)> {
+    let mut width = None;
+    let mut height = None;
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "w" | "width" => width = value.parse::<usize>().ok(),
+            "h" | "height" => height = value.parse::<usize>().ok(),
+            _ => {}
+        }
+    }
+    Some((width?, height?))
+}
+
+fn dimensions_from_path(path: &str) -> Option<(usize, usize)> {
+    let re = Regex::new(r"(?i)[-_/](\d{2,5})x(\d{2,5})(?:[._/?-]|$)").ok()?;
+    let captures = re.captures(path)?;
+    let width = captures.get(1)?.as_str().parse::<usize>().ok()?;
+    let height = captures.get(2)?.as_str().parse::<usize>().ok()?;
+    Some((width, height))
+}
+
+async fn probe_image_dimensions(client: &reqwest::Client, url: &Url) -> ImageValidation {
+    let response = match client
+        .get(url.clone())
+        .header(reqwest::header::RANGE, IMAGE_PROBE_BYTES)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(err) => {
+            tracing::debug!(
+                url = %url,
+                kind = ?classify_reqwest_error(&err),
+                error = %err,
+                "Image dimension probe failed"
+            );
+            return ImageValidation::Unknown;
+        }
+    };
+
+    let response = match response.error_for_status() {
+        Ok(response) => response,
+        Err(err) => {
+            tracing::debug!(
+                url = %url,
+                kind = ?classify_reqwest_error(&err),
+                error = %err,
+                "Image dimension probe returned non-success status"
+            );
+            return ImageValidation::Unknown;
+        }
+    };
+
+    let bytes = match read_probe_bytes(response).await {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            tracing::debug!(
+                url = %url,
+                kind = ?classify_reqwest_error(&err),
+                error = %err,
+                "Image dimension probe body read failed"
+            );
+            return ImageValidation::Unknown;
+        }
+    };
+
+    match imagesize::blob_size(&bytes) {
+        Ok(size) => validation_for_dimensions(size.width, size.height),
+        Err(err) => {
+            tracing::debug!(
+                url = %url,
+                error = ?err,
+                "Image dimension parser could not read probed bytes"
+            );
+            ImageValidation::Unknown
+        }
+    }
+}
+
+async fn read_probe_bytes(mut response: reqwest::Response) -> Result<Vec<u8>, reqwest::Error> {
+    let mut bytes = Vec::with_capacity(32 * 1024);
+    while bytes.len() < 32 * 1024 {
+        let Some(chunk) = response.chunk().await? else {
+            break;
+        };
+        let remaining = 32 * 1024 - bytes.len();
+        bytes.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
+    }
+    Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scraper::css_selector::rule::IMAGE_CANDIDATE_SEPARATOR;
+
+    struct StaticValidator {
+        validation: ImageValidation,
+    }
+
+    #[async_trait::async_trait]
+    impl ImageValidator for StaticValidator {
+        async fn validate(&self, _url: &Url) -> ImageValidation {
+            self.validation
+        }
+    }
+
+    #[test]
+    fn rejects_small_dimensions_from_path() {
+        let url = Url::parse("https://example.com/photo-100x100.jpg").unwrap();
+        assert_eq!(validate_image_url(&url), Some(ImageValidation::Invalid));
+    }
+
+    #[test]
+    fn accepts_large_dimensions_from_query() {
+        let url = Url::parse("https://example.com/photo.jpg?width=640&height=640").unwrap();
+        assert_eq!(validate_image_url(&url), Some(ImageValidation::Valid));
+    }
+
+    #[tokio::test]
+    async fn filters_invalid_images_but_keeps_valid_ones() {
+        let base = Url::parse("https://example.com/products/1").unwrap();
+        let result = filter_valid_image_urls(
+            vec![
+                "/image-100x100.jpg".to_string(),
+                "/image-800x600.jpg".to_string(),
+            ],
+            &base,
+            &StaticValidator {
+                validation: ImageValidation::Unknown,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result, vec!["https://example.com/image-800x600.jpg"]);
+    }
+
+    #[tokio::test]
+    async fn accepts_first_valid_candidate_from_each_ordered_image_group() {
+        let base = Url::parse("https://example.com/products/1").unwrap();
+        let result = filter_valid_image_urls(
+            vec![
+                format!("/image-100x100.jpg{IMAGE_CANDIDATE_SEPARATOR}/image-800x600.jpg"),
+                format!("/other-80x80.jpg{IMAGE_CANDIDATE_SEPARATOR}/other-640x480.jpg"),
+            ],
+            &base,
+            &StaticValidator {
+                validation: ImageValidation::Unknown,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            result,
+            vec![
+                "https://example.com/image-800x600.jpg",
+                "https://example.com/other-640x480.jpg"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn fails_when_all_images_are_invalid() {
+        let base = Url::parse("https://example.com/products/1").unwrap();
+        let err = filter_valid_image_urls(
+            vec![format!(
+                "/image-100x100.jpg{IMAGE_CANDIDATE_SEPARATOR}/image-120x120.jpg"
+            )],
+            &base,
+            &StaticValidator {
+                validation: ImageValidation::Unknown,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(err, NormalizationError::NoValidImages { .. }));
+    }
+}

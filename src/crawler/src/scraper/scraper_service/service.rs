@@ -8,6 +8,7 @@ use crate::scraper::candidate_service::ScraperCandidateService;
 use crate::scraper::css_selector::product_schema_service::ProductSchemaService;
 use crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError;
 use crate::scraper::normalization::product_normalization_service::ProductNormalizationService;
+use crate::scraper::scraper_service::image_validation::{ImageValidator, ReqwestImageValidator};
 use std::sync::Arc;
 use tokio::time::sleep;
 use url::Url;
@@ -171,6 +172,7 @@ impl HtmlFetcher for ReqwestHtmlFetcher {
 
 pub struct ScraperServiceImpl {
     pub(crate) html_fetcher: Box<dyn HtmlFetcher>,
+    pub(crate) image_validator: Box<dyn ImageValidator>,
     pub(crate) schema_service: Box<dyn ProductSchemaService + Send + Sync>,
     pub(crate) normalization_service: Box<dyn ProductNormalizationService + Send + Sync>,
     pub(crate) candidate_service: Arc<dyn ScraperCandidateService>,
@@ -263,6 +265,7 @@ impl ScraperServiceImpl {
     ) -> Self {
         Self {
             html_fetcher,
+            image_validator: Box::new(ReqwestImageValidator::new()),
             schema_service,
             normalization_service,
             candidate_service,

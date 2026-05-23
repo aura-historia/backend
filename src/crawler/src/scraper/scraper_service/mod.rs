@@ -1,5 +1,6 @@
 pub mod domain;
 pub(crate) mod extraction;
+pub(crate) mod image_validation;
 pub(crate) mod pipeline;
 pub(crate) mod recovery;
 pub mod service;

@@ -195,7 +195,7 @@ impl From<&UpsertProductCommand> for UpsertCommandSnapshot {
             images: cmd
                 .images
                 .iter()
-                .map(|i| ProductImageData::from(i.clone()))
+                .map(|i| ProductImageData::from_with_consent(i.clone(), true))
                 .collect(),
             auction_start: cmd.auction_start,
             auction_end: cmd.auction_end,
