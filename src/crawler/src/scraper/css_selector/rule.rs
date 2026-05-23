@@ -135,7 +135,9 @@ impl ExtractionRule {
         &self,
         html: &Html,
     ) -> Result<Vec<String>, ExtractionError> {
-        self.apply(html)
+        let mut all_images_rule = self.clone();
+        all_images_rule.cardinality = ExtractionCardinality::All;
+        all_images_rule.apply(html)
     }
 }
 
