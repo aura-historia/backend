@@ -20,11 +20,11 @@ let previewUrlOverride = '';
 
 const selectorFields = [
     'shops_product_id', 'title', 'description', 'price', 'price_estimate_min',
-    'price_estimate_max', 'state', 'images', 'auction_start', 'auction_end'
+    'price_estimate_max', 'seller_name', 'state', 'images', 'auction_start', 'auction_end'
 ];
 const optionalFields = new Set([
     'description', 'price', 'price_estimate_min', 'price_estimate_max',
-    'auction_start', 'auction_end'
+    'seller_name', 'auction_start', 'auction_end'
 ]);
 const schemaHighlightColors = {
     shops_product_id: '#2563eb',
@@ -33,6 +33,7 @@ const schemaHighlightColors = {
     price: '#16a34a',
     price_estimate_min: '#65a30d',
     price_estimate_max: '#0d9488',
+    seller_name: '#475569',
     state: '#f97316',
     images: '#db2777',
     auction_start: '#9333ea',
@@ -746,6 +747,7 @@ function defaultSchema() {
         price: null,
         price_estimate_min: null,
         price_estimate_max: null,
+        seller_name: null,
         state: defaultRuleFor('state'),
         images: defaultRuleFor('images'),
         auction_start: null,

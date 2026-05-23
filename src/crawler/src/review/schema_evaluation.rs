@@ -168,6 +168,9 @@ fn evaluate_schema_fields(
     if let Some(rule) = &schema.price_estimate_max {
         fields.push(evaluate_rule("price_estimate_max", rule, html));
     }
+    if let Some(rule) = &schema.seller_name {
+        fields.push(evaluate_rule("seller_name", rule, html));
+    }
     fields.push(evaluate_rule("state", &schema.state, html));
     fields.push(evaluate_rule("images", &schema.images, html));
     if let Some(rule) = &schema.auction_start {
@@ -251,6 +254,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: image_rule("img"),
             auction_start: None,

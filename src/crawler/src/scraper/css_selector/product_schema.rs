@@ -78,6 +78,12 @@ pub struct ProductCssSelectorSchema {
     pub price_estimate_max: Option<ExtractionRule>,
 
     #[schemars(
+        description = "Displayed secondary seller name for marketplace or auction-platform listings. Extract the actual seller or auction house responsible for this product, not the platform brand. For example, on Lotissimo the platform/shop is Lotissimo but seller_name is the listed auction house such as 'Kunstauktionshaus Leipzig | Schütte'. Leave null for direct commercial dealers or auction houses where the shop itself is the seller."
+    )]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub seller_name: Option<ExtractionRule>,
+
+    #[schemars(
         description = "Availability state of the product. E.g. 'in stock', 'out of stock', 'preorder', 'add to cart', etc. Prioritize state sources in this order: (1) clear explicit state text such as 'available', 'sold', or 'out of stock'; (2) visible text from a product-specific add-to-cart or buy button; (3) visible text from other product-specific buttons that clearly indicate availability such as preorder, reserve, or sold-out actions. Prefer dedicated availability labels or visible button text over generic class names or whole script blobs. IMPORTANT: Never use price elements, image galleries, or generic layout wrappers as the state selector."
     )]
     pub state: ExtractionRule,
@@ -133,6 +139,9 @@ pub enum ApplySchemaError {
 
     #[error("failed to extract `price_estimate_max`: {0}")]
     PriceEstimateMax(#[source] ExtractionError),
+
+    #[error("failed to extract `seller_name`: {0}")]
+    SellerName(#[source] ExtractionError),
 
     #[error("failed to extract `state`: {0}")]
     State(#[source] ExtractionError),
@@ -207,6 +216,14 @@ impl ProductCssSelectorSchema {
             },
         };
 
+        let seller_name = match &self.seller_name {
+            None => None,
+            Some(rule) => match rule.apply(html) {
+                Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
+                Err(e) => return Err(ApplySchemaError::SellerName(e)),
+            },
+        };
+
         let state = self
             .state
             .apply(html)
@@ -253,6 +270,7 @@ impl ProductCssSelectorSchema {
             price,
             price_estimate_min,
             price_estimate_max,
+            seller_name,
             state,
             images,
             auction_start,
@@ -283,6 +301,7 @@ pub struct RawExtractedProduct {
     pub price: Option<String>,
     pub price_estimate_min: Option<String>,
     pub price_estimate_max: Option<String>,
+    pub seller_name: Option<String>,
     pub state: String,
     pub images: Vec<String>,
     pub auction_start: Option<String>,
@@ -355,6 +374,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -374,6 +394,7 @@ mod tests {
   <p class="desc">A beautiful antique chair</p>
   <p class="desc">Circa 1830, walnut wood</p>
   <span class="price">€ 1.200</span>
+  <span class="seller">Kunstauktionshaus Leipzig | Schütte</span>
   <span id="state">In Stock</span>
   <img src="/images/chair-front.jpg" alt="front">
   <img src="/images/chair-side.jpg" alt="side">
@@ -391,6 +412,7 @@ mod tests {
             price: Some(text_rule("span.price")),
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: Some(text_rule("span.seller")),
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: Some(attr_rule("time#auction-start", "datetime")),
@@ -484,6 +506,16 @@ mod tests {
     }
 
     #[test]
+    fn should_extract_seller_name_when_rule_present() {
+        let html = Html::parse_document(product_html());
+        let result = full_schema().apply(&html).unwrap();
+        assert_eq!(
+            result.seller_name,
+            Some("Kunstauktionshaus Leipzig | Schütte".to_string())
+        );
+    }
+
+    #[test]
     fn should_extract_price_estimate_min_when_rule_present() {
         let html = Html::parse_document(
             r#"<html><body>
@@ -499,6 +531,7 @@ mod tests {
             price: None,
             price_estimate_min: Some(text_rule("#est-min")),
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -526,6 +559,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: Some(text_rule("#est-max")),
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -630,6 +664,7 @@ mod tests {
             price: Some(text_rule("span.price")),
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -662,6 +697,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -700,6 +736,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: images_rule,
             auction_start: None,
@@ -745,6 +782,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -772,6 +810,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -799,6 +838,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -831,6 +871,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -859,6 +900,7 @@ mod tests {
             price: Some(text_rule("span.price")),
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -887,6 +929,7 @@ mod tests {
             price: None,
             price_estimate_min: Some(text_rule("#est-min")),
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -915,6 +958,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: Some(text_rule("#est-max")),
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -924,6 +968,35 @@ mod tests {
         let err = schema.apply(&html).unwrap_err();
         assert!(
             matches!(err, ApplySchemaError::PriceEstimateMax(_)),
+            "unexpected variant: {err}"
+        );
+    }
+
+    #[test]
+    fn should_return_err_seller_name_when_rule_present_but_selector_matches_nothing() {
+        let html = Html::parse_document(
+            r#"<html><body>
+                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
+                <img src="x.jpg">
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            shops_product_id: text_rule("#product-id"),
+            title: text_rule("h1"),
+            description: None,
+            price: None,
+            price_estimate_min: None,
+            price_estimate_max: None,
+            seller_name: Some(text_rule(".seller")),
+            state: text_rule("#state"),
+            images: attr_rule_all("img", "src"),
+            auction_start: None,
+            auction_end: None,
+            default_currency: None,
+        };
+        let err = schema.apply(&html).unwrap_err();
+        assert!(
+            matches!(err, ApplySchemaError::SellerName(_)),
             "unexpected variant: {err}"
         );
     }
@@ -943,6 +1016,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: Some(attr_rule("time#auction-start", "datetime")),
@@ -971,6 +1045,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -1011,6 +1086,7 @@ mod tests {
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
+                seller_name: None,
                 state: good_state,
                 images: good_img,
                 auction_start: None,
@@ -1024,6 +1100,7 @@ mod tests {
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
+                seller_name: None,
                 state: good_state,
                 images: good_img,
                 auction_start: None,
@@ -1037,6 +1114,7 @@ mod tests {
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
+                seller_name: None,
                 state: bad,
                 images: good_img,
                 auction_start: None,
@@ -1050,6 +1128,7 @@ mod tests {
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
+                seller_name: None,
                 state: good_state,
                 images: bad,
                 auction_start: None,
@@ -1081,6 +1160,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -1107,6 +1187,7 @@ mod tests {
             price: Some(text_rule(".price")),
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -1138,6 +1219,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("div.gallery img", "src"),
             auction_start: None,
@@ -1163,6 +1245,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -1223,6 +1306,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -1237,6 +1321,7 @@ mod tests {
         assert_eq!(result.price, None);
         assert_eq!(result.price_estimate_min, None);
         assert_eq!(result.price_estimate_max, None);
+        assert_eq!(result.seller_name, None);
         assert_eq!(result.state, "sold");
         assert_eq!(result.images, vec!["vase.jpg"]);
         assert_eq!(result.auction_start, None);

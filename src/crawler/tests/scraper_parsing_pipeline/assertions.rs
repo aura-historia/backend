@@ -86,6 +86,11 @@ pub fn assert_extraction(
         expected.price_estimate_max.as_deref(),
         "price_estimate_max"
     );
+    assert_eq!(
+        result.seller_name.as_deref(),
+        expected.seller_name.as_deref(),
+        "seller_name"
+    );
     assert_eq!(result.state, expected.state, "state");
     assert_eq!(result.images, expected.images, "images");
     assert_eq!(
@@ -149,6 +154,11 @@ pub async fn assert_normalized(
     assert_eq!(
         result.price_estimate_max, expected.price_estimate_max,
         "price_estimate_max"
+    );
+    assert_eq!(
+        result.seller_name.as_deref(),
+        expected.seller_name.as_deref(),
+        "seller_name"
     );
     assert_eq!(result.state, expected.state, "state");
     assert_eq!(result.url.as_str(), expected.url, "url");

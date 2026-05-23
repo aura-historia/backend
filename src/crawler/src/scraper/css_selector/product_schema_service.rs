@@ -721,6 +721,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: ExtractionRule {
                 selector: "span.state".into(),
                 additional_selectors: vec![],

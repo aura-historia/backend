@@ -178,6 +178,7 @@ async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
         price: None,
         price_estimate_min: None,
         price_estimate_max: None,
+        seller_name: None,
         state: text_rule("non-existent-state"),
         images: attr_rule_all("img", "src"),
         auction_start: None,

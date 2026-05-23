@@ -35,6 +35,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
+            seller_name: None,
             state: text_rule("non-existent-state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
