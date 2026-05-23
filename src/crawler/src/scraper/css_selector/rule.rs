@@ -209,29 +209,55 @@ fn image_url_candidates_for_element(element: &scraper::ElementRef<'_>) -> Vec<St
         "data-original",
         "data-zoom-image",
     ] {
-        push_attr_candidate(&mut candidates, element, attr);
+        push_attr_candidate(
+            &mut candidates,
+            element,
+            attr,
+            ImageCandidateSource::ImageSpecific,
+        );
     }
     for attr in ["data-src", "data-lazy-src", "content"] {
-        push_attr_candidate(&mut candidates, element, attr);
+        push_attr_candidate(
+            &mut candidates,
+            element,
+            attr,
+            ImageCandidateSource::ImageSpecific,
+        );
     }
-    push_attr_candidate(&mut candidates, element, "href");
+    push_attr_candidate(
+        &mut candidates,
+        element,
+        "href",
+        ImageCandidateSource::GenericLink,
+    );
 
     if let Some(href) = nearest_anchor_href(element) {
-        candidates.push(href);
+        candidates.push(href, ImageCandidateSource::GenericLink);
     }
 
     for srcset in picture_source_srcsets(element) {
         if let Some((url, _)) = largest_srcset_candidate(Some(srcset)) {
-            candidates.push(url);
+            candidates.push(url, ImageCandidateSource::ImageSpecific);
         }
     }
     if let Some((url, _)) = largest_srcset_candidate(element.value().attr("srcset")) {
-        candidates.push(url);
+        candidates.push(url, ImageCandidateSource::ImageSpecific);
     }
 
-    push_attr_candidate(&mut candidates, element, "src");
+    push_attr_candidate(
+        &mut candidates,
+        element,
+        "src",
+        ImageCandidateSource::ImageSpecific,
+    );
 
     candidates.into_vec()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImageCandidateSource {
+    ImageSpecific,
+    GenericLink,
 }
 
 #[derive(Default)]
@@ -241,9 +267,9 @@ struct OrderedImageCandidates {
 }
 
 impl OrderedImageCandidates {
-    fn push(&mut self, value: String) {
+    fn push(&mut self, value: String, source: ImageCandidateSource) {
         let trimmed = value.trim();
-        if trimmed.is_empty() || !is_probably_image_url(trimmed) {
+        if trimmed.is_empty() || !is_probably_image_url(trimmed, source) {
             return;
         }
 
@@ -262,6 +288,7 @@ fn push_attr_candidate(
     candidates: &mut OrderedImageCandidates,
     element: &scraper::ElementRef<'_>,
     attr: &str,
+    source: ImageCandidateSource,
 ) {
     if let Some(value) = element
         .value()
@@ -269,7 +296,7 @@ fn push_attr_candidate(
         .map(str::trim)
         .filter(|v| !v.is_empty())
     {
-        candidates.push(value.to_owned());
+        candidates.push(value.to_owned(), source);
     }
 }
 
@@ -323,12 +350,21 @@ fn largest_srcset_candidate(srcset: Option<&str>) -> Option<(String, usize)> {
         .max_by_key(|(_, width)| *width)
 }
 
-fn is_probably_image_url(url: &str) -> bool {
+fn is_probably_image_url(url: &str, source: ImageCandidateSource) -> bool {
+    match source {
+        ImageCandidateSource::ImageSpecific => is_url_like(url) || has_known_image_extension(url),
+        ImageCandidateSource::GenericLink => has_known_image_extension(url),
+    }
+}
+
+fn is_url_like(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
-    lower.starts_with("http://")
-        || lower.starts_with("https://")
-        || lower.starts_with('/')
-        || lower.contains(".jpg")
+    lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with('/')
+}
+
+fn has_known_image_extension(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.contains(".jpg")
         || lower.contains(".jpeg")
         || lower.contains(".png")
         || lower.contains(".webp")
@@ -1043,6 +1079,117 @@ mod tests {
         assert_eq!(
             image_candidates(&result[0]),
             vec!["/uploads/photo-1200x900.webp", "/uploads/photo-100x100.jpg"]
+        );
+    }
+
+    #[test]
+    fn should_ignore_non_image_current_href_for_image_url_extraction() {
+        let doc = Html::parse_document(
+            r#"
+            <html><body>
+                <a class="product" href="/product/foo">Product detail</a>
+            </body></html>
+            "#,
+        );
+
+        let r = rule("a.product", image_url_kind(), ExtractionCardinality::All);
+        let err = r.apply(&doc).unwrap_err();
+        assert!(matches!(err, ExtractionError::MissingAttribute { .. }));
+    }
+
+    #[test]
+    fn should_ignore_non_image_parent_href_for_image_url_extraction() {
+        let doc = Html::parse_document(
+            r#"
+            <html><body>
+                <a href="https://shop.com/category/table">
+                    <img class="product" src="https://cdn.example.com/images/product/abc123">
+                </a>
+            </body></html>
+            "#,
+        );
+
+        let r = rule("img.product", image_url_kind(), ExtractionCardinality::All);
+        let result = r.apply(&doc).unwrap();
+        assert_eq!(
+            image_candidates(&result[0]),
+            vec!["https://cdn.example.com/images/product/abc123"]
+        );
+    }
+
+    #[test]
+    fn should_accept_current_href_with_image_extension_for_image_url_extraction() {
+        let doc = Html::parse_document(
+            r#"
+            <html><body>
+                <a class="product" href="/uploads/photo.jpg">Photo</a>
+            </body></html>
+            "#,
+        );
+
+        let r = rule("a.product", image_url_kind(), ExtractionCardinality::All);
+        let result = r.apply(&doc).unwrap();
+        assert_eq!(image_candidates(&result[0]), vec!["/uploads/photo.jpg"]);
+    }
+
+    #[test]
+    fn should_accept_parent_href_with_image_extension_for_image_url_extraction() {
+        let doc = Html::parse_document(
+            r#"
+            <html><body>
+                <a href="https://shop.com/uploads/photo.webp">
+                    <img class="product">
+                </a>
+            </body></html>
+            "#,
+        );
+
+        let r = rule("img.product", image_url_kind(), ExtractionCardinality::All);
+        let result = r.apply(&doc).unwrap();
+        assert_eq!(
+            image_candidates(&result[0]),
+            vec!["https://shop.com/uploads/photo.webp"]
+        );
+    }
+
+    #[test]
+    fn should_accept_extensionless_src_for_image_url_extraction() {
+        let doc = Html::parse_document(
+            r#"
+            <html><body>
+                <img class="product" src="https://cdn.example.com/images/product/abc123">
+            </body></html>
+            "#,
+        );
+
+        let r = rule("img.product", image_url_kind(), ExtractionCardinality::All);
+        let result = r.apply(&doc).unwrap();
+        assert_eq!(
+            image_candidates(&result[0]),
+            vec!["https://cdn.example.com/images/product/abc123"]
+        );
+    }
+
+    #[test]
+    fn should_accept_extensionless_large_image_attribute_for_image_url_extraction() {
+        let doc = Html::parse_document(
+            r#"
+            <html><body>
+                <img class="product"
+                     src="/uploads/photo-100x100.jpg"
+                     data-large_image="https://cdn.example.com/images/product/fullsize">
+            </body></html>
+            "#,
+        );
+
+        let r = rule("img.product", image_url_kind(), ExtractionCardinality::All);
+        let result = r.apply(&doc).unwrap();
+        assert_eq!(
+            image_candidates(&result[0]),
+            vec![
+                "https://cdn.example.com/images/product/fullsize",
+                "/uploads/photo-100x100.jpg"
+            ]
         );
     }
 
