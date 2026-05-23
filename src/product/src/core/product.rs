@@ -228,6 +228,9 @@ impl Product {
         }
     }
 
+    #[deprecated(
+        note = "Removing price yields little value and makes DTO-side handling of nullable but optional fields more complex."
+    )]
     pub fn remove_price(&mut self) -> Option<ProductDomainEvent> {
         match self.native_price {
             Some(old_native_price) => {
@@ -254,6 +257,8 @@ impl Product {
         }
     }
 
+    #[allow(deprecated)]
+    #[deprecated(note = "Deprecated because remove_price is deprecated.")]
     pub fn new_price(
         &mut self,
         new_price_opt: Option<Price>,
