@@ -7,6 +7,7 @@ use common::{
     language::domain::Language,
     localized::Localized,
     logging::{LogEventType, LogPipelineStage},
+    mergeable::Mergeable,
     product_id::ProductKey,
 };
 use lambda_runtime::LambdaEvent;

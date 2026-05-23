@@ -5,6 +5,7 @@ use common::currency::domain::Currency;
 use common::has_key::HasKey;
 use common::language::domain::Language;
 use common::localized::Localized;
+use common::mergeable::Mergeable;
 use common::price::domain::{MonetaryAmount, Price};
 use common::product_id::ProductKey;
 use common::product_state::domain::ProductState;
@@ -21,8 +22,8 @@ pub struct Translation<T> {
     pub targets: HashMap<Language, T>,
 }
 
-impl<T> Translation<T> {
-    pub fn merge(&mut self, other: Self) {
+impl<T> Mergeable for Translation<T> {
+    fn merge(&mut self, other: Self) {
         let Self { source, targets } = other;
         self.source = source;
         self.targets.extend(targets);
@@ -77,8 +78,8 @@ pub struct UpdateProductCommand {
     pub translated_titles: Option<Translation<Title>>,
 }
 
-impl UpdateProductCommand {
-    pub fn merge(&mut self, other: Self) {
+impl Mergeable for UpdateProductCommand {
+    fn merge(&mut self, other: Self) {
         let Self {
             native_price,
             state,
@@ -146,8 +147,8 @@ pub struct UpsertProductCommand {
     pub auction_end: Option<OffsetDateTime>,
 }
 
-impl UpsertProductCommand {
-    pub fn merge(&mut self, other: Self) {
+impl Mergeable for UpsertProductCommand {
+    fn merge(&mut self, other: Self) {
         let Self {
             shop_id,
             shops_product_id,
@@ -390,7 +391,7 @@ mod tests {
     use crate::core::{product_image::ProductImage, title::Title};
     use common::{
         currency::domain::Currency, language::domain::Language, localized::Localized,
-        price::domain::Price, product_state::domain::ProductState,
+        mergeable::Mergeable, price::domain::Price, product_state::domain::ProductState,
     };
     use geo::core::address::{GeoAddress, StructuredAddress};
     use std::collections::HashMap;

@@ -11,6 +11,7 @@ pub use types::{
 
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use common::has_key::HasKey;
+use common::mergeable::Mergeable;
 use common::product_id::ProductKey;
 use lambda_runtime::LambdaEvent;
 use product::service::command_service::CommandProductService;

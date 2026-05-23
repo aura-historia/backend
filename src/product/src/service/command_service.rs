@@ -18,6 +18,7 @@ use common::batch::Batch;
 use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::logging::{LogEventType, LogWriteSource};
+use common::mergeable::Mergeable;
 use common::price::domain::FxRate;
 use common::product_id::ProductKey;
 use common::shop_id::ShopId;
@@ -393,8 +394,15 @@ impl CommandProductService for CommandProductServiceImpl<'_> {
         for chunk in
             Batch::<(ProductKey, UpdateProductCommand), 100>::chunked_from(cmds.into_iter())
         {
-            let mut key_cmds: HashMap<ProductKey, UpdateProductCommand> =
-                chunk.into_iter().collect();
+            let mut key_cmds: HashMap<ProductKey, UpdateProductCommand> = HashMap::new();
+            for (key, cmd) in chunk {
+                match key_cmds.entry(key) {
+                    Entry::Occupied(mut entry) => entry.get_mut().merge(cmd),
+                    Entry::Vacant(entry) => {
+                        entry.insert(cmd);
+                    }
+                }
+            }
             let mut working = key_cmds.clone();
             let keys: Batch<ProductKey, 100> = working
                 .keys()
