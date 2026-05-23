@@ -557,7 +557,6 @@ fn build_create_schemas_instruction(html_pages: &[String]) -> String {
          One schema is valid only when all applicable fields and every non-null selector apply across all samples that schema covers.\n\
          Return schemas ordered by specificity and completeness: first the schema with the most non-null extraction rules, then fallback templates with fewer applicable rules. When rule counts tie, put the schema with more specific product-focused selectors first.\n\
          Examples: if template A has price and template B has no price element, generate two schemas and put the priced schema first. If an auction template has estimate fields and a buy-now template has fixed price, generate separate schemas ordered by rule count. If a sold-item template lacks buy price but has sold state, split schemas when selectors differ.\n\
-         For marketplace and auction-platform pages, extract seller_name only when the page shows a secondary seller distinct from the platform/shop brand. The seller_name must be the real seller or auction house responsible for the product, not the website/platform name. For example, on Lotissimo pages the platform/shop is Lotissimo but seller_name is a value such as 'Kunstauktionshaus Leipzig | Schütte'. Leave seller_name null for direct shops where the shop itself is the seller.\n\
          Prefer high-precision selectors that represent semantic fields rather than layout wrappers.\n\
          Return ONLY JSON. If there is one product template, return one ProductCssSelectorSchema object. If there are multiple product templates, return an array of ProductCssSelectorSchema objects ordered as described above.\n\
          Here are the cleaned HTML samples:{samples}"
@@ -588,7 +587,7 @@ fn build_append_schema_instruction(
           This schema will be appended to a set of existing schemas from the same shop.\n\
           Focus on this specific layout and make the selectors resilient.\n\
           Return ONLY JSON as a single ProductCssSelectorSchema object (not an array).\n\
-          Optional fields may remain null if not confidently present. Extract seller_name only when a secondary seller distinct from the platform/shop brand is visible; do not use the platform brand itself.\n\
+          Optional fields may remain null if not confidently present.\n\
           {failure_context}\n\
           Here is the cleaned HTML:\n\
           {cleaned}"

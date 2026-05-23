@@ -268,26 +268,12 @@ pub fn normalize_to_upsert(
 ) -> Option<UpsertProductCommand> {
     let seller_name_raw = match candidate.shop_type {
         ShopType::CommercialDealer | ShopType::AuctionHouse => None,
-        ShopType::Marketplace | ShopType::AuctionPlatform => {
-            let seller_name = product
-                .seller_name
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty());
-
-            match seller_name {
-                Some(seller_name) => Some(seller_name.to_string()),
-                None => {
-                    warn!(
-                        shop_id = %candidate.shop_id,
-                        shop_type = ?candidate.shop_type,
-                        url = %candidate.url,
-                        "Skipping product push for marketplace/auction-platform shop because seller_name is missing"
-                    );
-                    return None;
-                }
-            }
-        }
+        ShopType::Marketplace | ShopType::AuctionPlatform => product
+            .seller_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string),
     };
 
     Some(UpsertProductCommand {
@@ -416,26 +402,22 @@ mod tests {
     }
 
     #[test]
-    fn should_skip_marketplace_product_when_seller_name_is_missing() {
+    fn should_map_marketplace_product_when_seller_name_is_missing() {
         let candidate = make_candidate(ShopType::Marketplace);
         let product = make_product(&candidate);
-        let result = normalize_to_upsert(product, &candidate);
-        assert!(
-            result.is_none(),
-            "Marketplace products without seller_name should be skipped"
-        );
+        let cmd = normalize_to_upsert(product, &candidate)
+            .expect("should produce a command for Marketplace without seller_name");
+        assert_eq!(cmd.seller_name_raw, None);
     }
 
     #[test]
-    fn should_skip_auction_platform_product_when_seller_name_is_blank() {
+    fn should_map_auction_platform_product_when_seller_name_is_blank() {
         let candidate = make_candidate(ShopType::AuctionPlatform);
         let mut product = make_product(&candidate);
         product.seller_name = Some("   ".to_string());
-        let result = normalize_to_upsert(product, &candidate);
-        assert!(
-            result.is_none(),
-            "AuctionPlatform products with blank seller_name should be skipped"
-        );
+        let cmd = normalize_to_upsert(product, &candidate)
+            .expect("should produce a command for AuctionPlatform with blank seller_name");
+        assert_eq!(cmd.seller_name_raw, None);
     }
 
     fn temp_output_path(suffix: &str) -> std::path::PathBuf {
