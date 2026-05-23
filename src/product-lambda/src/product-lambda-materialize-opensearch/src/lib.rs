@@ -253,6 +253,229 @@ fn handle_bulk_response(
     }
 }
 
+fn merge_update(
+    message_id: String,
+    product_id: ProductId,
+    update: ProductUpdateDocument,
+    updates: &mut HashMap<ProductId, (Vec<String>, ProductUpdateDocument)>,
+) {
+    match updates.entry(product_id) {
+        Entry::Occupied(mut entry) => {
+            let (message_ids, current) = entry.get_mut();
+            message_ids.push(message_id);
+            merge_product_update_document(current, update);
+        }
+        Entry::Vacant(entry) => {
+            entry.insert((vec![message_id], update));
+        }
+    }
+}
+
+fn merge_product_update_document(
+    current: &mut ProductUpdateDocument,
+    update: ProductUpdateDocument,
+) {
+    current.updated = update.updated;
+    if let Some(event_id) = update.event_id {
+        current.event_id = Some(event_id);
+    }
+    if let Some(price_eur) = update.price_eur {
+        current.price_eur = Some(price_eur);
+    }
+    if let Some(price_usd) = update.price_usd {
+        current.price_usd = Some(price_usd);
+    }
+    if let Some(price_gbp) = update.price_gbp {
+        current.price_gbp = Some(price_gbp);
+    }
+    if let Some(price_aud) = update.price_aud {
+        current.price_aud = Some(price_aud);
+    }
+    if let Some(price_cad) = update.price_cad {
+        current.price_cad = Some(price_cad);
+    }
+    if let Some(price_nzd) = update.price_nzd {
+        current.price_nzd = Some(price_nzd);
+    }
+    if let Some(price_cny) = update.price_cny {
+        current.price_cny = Some(price_cny);
+    }
+    if let Some(price_brl) = update.price_brl {
+        current.price_brl = Some(price_brl);
+    }
+    if let Some(price_pln) = update.price_pln {
+        current.price_pln = Some(price_pln);
+    }
+    if let Some(price_try) = update.price_try {
+        current.price_try = Some(price_try);
+    }
+    if let Some(price_jpy) = update.price_jpy {
+        current.price_jpy = Some(price_jpy);
+    }
+    if let Some(price_czk) = update.price_czk {
+        current.price_czk = Some(price_czk);
+    }
+    if let Some(price_rub) = update.price_rub {
+        current.price_rub = Some(price_rub);
+    }
+    if let Some(price_aed) = update.price_aed {
+        current.price_aed = Some(price_aed);
+    }
+    if let Some(price_sar) = update.price_sar {
+        current.price_sar = Some(price_sar);
+    }
+    if let Some(price_hkd) = update.price_hkd {
+        current.price_hkd = Some(price_hkd);
+    }
+    if let Some(price_sgd) = update.price_sgd {
+        current.price_sgd = Some(price_sgd);
+    }
+    if let Some(price_chf) = update.price_chf {
+        current.price_chf = Some(price_chf);
+    }
+    if let Some(state) = update.state {
+        current.state = Some(state);
+    }
+    if let Some(title_de) = update.title_de {
+        current.title_de = Some(title_de);
+    }
+    if let Some(title_en) = update.title_en {
+        current.title_en = Some(title_en);
+    }
+    if let Some(title_fr) = update.title_fr {
+        current.title_fr = Some(title_fr);
+    }
+    if let Some(title_es) = update.title_es {
+        current.title_es = Some(title_es);
+    }
+    if let Some(title_it) = update.title_it {
+        current.title_it = Some(title_it);
+    }
+    if let Some(images) = update.images {
+        current.images = Some(images);
+    }
+    if let Some(price_estimate_min_eur) = update.price_estimate_min_eur {
+        current.price_estimate_min_eur = Some(price_estimate_min_eur);
+    }
+    if let Some(price_estimate_min_usd) = update.price_estimate_min_usd {
+        current.price_estimate_min_usd = Some(price_estimate_min_usd);
+    }
+    if let Some(price_estimate_min_gbp) = update.price_estimate_min_gbp {
+        current.price_estimate_min_gbp = Some(price_estimate_min_gbp);
+    }
+    if let Some(price_estimate_min_aud) = update.price_estimate_min_aud {
+        current.price_estimate_min_aud = Some(price_estimate_min_aud);
+    }
+    if let Some(price_estimate_min_cad) = update.price_estimate_min_cad {
+        current.price_estimate_min_cad = Some(price_estimate_min_cad);
+    }
+    if let Some(price_estimate_min_nzd) = update.price_estimate_min_nzd {
+        current.price_estimate_min_nzd = Some(price_estimate_min_nzd);
+    }
+    if let Some(price_estimate_min_cny) = update.price_estimate_min_cny {
+        current.price_estimate_min_cny = Some(price_estimate_min_cny);
+    }
+    if let Some(price_estimate_min_brl) = update.price_estimate_min_brl {
+        current.price_estimate_min_brl = Some(price_estimate_min_brl);
+    }
+    if let Some(price_estimate_min_pln) = update.price_estimate_min_pln {
+        current.price_estimate_min_pln = Some(price_estimate_min_pln);
+    }
+    if let Some(price_estimate_min_try) = update.price_estimate_min_try {
+        current.price_estimate_min_try = Some(price_estimate_min_try);
+    }
+    if let Some(price_estimate_min_jpy) = update.price_estimate_min_jpy {
+        current.price_estimate_min_jpy = Some(price_estimate_min_jpy);
+    }
+    if let Some(price_estimate_min_czk) = update.price_estimate_min_czk {
+        current.price_estimate_min_czk = Some(price_estimate_min_czk);
+    }
+    if let Some(price_estimate_min_rub) = update.price_estimate_min_rub {
+        current.price_estimate_min_rub = Some(price_estimate_min_rub);
+    }
+    if let Some(price_estimate_min_aed) = update.price_estimate_min_aed {
+        current.price_estimate_min_aed = Some(price_estimate_min_aed);
+    }
+    if let Some(price_estimate_min_sar) = update.price_estimate_min_sar {
+        current.price_estimate_min_sar = Some(price_estimate_min_sar);
+    }
+    if let Some(price_estimate_min_hkd) = update.price_estimate_min_hkd {
+        current.price_estimate_min_hkd = Some(price_estimate_min_hkd);
+    }
+    if let Some(price_estimate_min_sgd) = update.price_estimate_min_sgd {
+        current.price_estimate_min_sgd = Some(price_estimate_min_sgd);
+    }
+    if let Some(price_estimate_min_chf) = update.price_estimate_min_chf {
+        current.price_estimate_min_chf = Some(price_estimate_min_chf);
+    }
+    if let Some(price_estimate_max_eur) = update.price_estimate_max_eur {
+        current.price_estimate_max_eur = Some(price_estimate_max_eur);
+    }
+    if let Some(price_estimate_max_usd) = update.price_estimate_max_usd {
+        current.price_estimate_max_usd = Some(price_estimate_max_usd);
+    }
+    if let Some(price_estimate_max_gbp) = update.price_estimate_max_gbp {
+        current.price_estimate_max_gbp = Some(price_estimate_max_gbp);
+    }
+    if let Some(price_estimate_max_aud) = update.price_estimate_max_aud {
+        current.price_estimate_max_aud = Some(price_estimate_max_aud);
+    }
+    if let Some(price_estimate_max_cad) = update.price_estimate_max_cad {
+        current.price_estimate_max_cad = Some(price_estimate_max_cad);
+    }
+    if let Some(price_estimate_max_nzd) = update.price_estimate_max_nzd {
+        current.price_estimate_max_nzd = Some(price_estimate_max_nzd);
+    }
+    if let Some(price_estimate_max_cny) = update.price_estimate_max_cny {
+        current.price_estimate_max_cny = Some(price_estimate_max_cny);
+    }
+    if let Some(price_estimate_max_brl) = update.price_estimate_max_brl {
+        current.price_estimate_max_brl = Some(price_estimate_max_brl);
+    }
+    if let Some(price_estimate_max_pln) = update.price_estimate_max_pln {
+        current.price_estimate_max_pln = Some(price_estimate_max_pln);
+    }
+    if let Some(price_estimate_max_try) = update.price_estimate_max_try {
+        current.price_estimate_max_try = Some(price_estimate_max_try);
+    }
+    if let Some(price_estimate_max_jpy) = update.price_estimate_max_jpy {
+        current.price_estimate_max_jpy = Some(price_estimate_max_jpy);
+    }
+    if let Some(price_estimate_max_czk) = update.price_estimate_max_czk {
+        current.price_estimate_max_czk = Some(price_estimate_max_czk);
+    }
+    if let Some(price_estimate_max_rub) = update.price_estimate_max_rub {
+        current.price_estimate_max_rub = Some(price_estimate_max_rub);
+    }
+    if let Some(price_estimate_max_aed) = update.price_estimate_max_aed {
+        current.price_estimate_max_aed = Some(price_estimate_max_aed);
+    }
+    if let Some(price_estimate_max_sar) = update.price_estimate_max_sar {
+        current.price_estimate_max_sar = Some(price_estimate_max_sar);
+    }
+    if let Some(price_estimate_max_hkd) = update.price_estimate_max_hkd {
+        current.price_estimate_max_hkd = Some(price_estimate_max_hkd);
+    }
+    if let Some(price_estimate_max_sgd) = update.price_estimate_max_sgd {
+        current.price_estimate_max_sgd = Some(price_estimate_max_sgd);
+    }
+    if let Some(price_estimate_max_chf) = update.price_estimate_max_chf {
+        current.price_estimate_max_chf = Some(price_estimate_max_chf);
+    }
+    if let Some(url) = update.url {
+        current.url = Some(url);
+    }
+    if let Some(auction_start) = update.auction_start {
+        current.auction_start = Some(auction_start);
+    }
+    if let Some(auction_end) = update.auction_end {
+        current.auction_end = Some(auction_end);
+    }
+    if let Some(embedding) = update.embedding {
+        current.embedding = Some(embedding);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::handler;
@@ -983,227 +1206,5 @@ mod tests {
             .unwrap();
         assert_eq!(1, actual.batch_item_failures.len());
         assert_eq!(message_id, actual.batch_item_failures[0].item_identifier);
-    }
-}
-fn merge_update(
-    message_id: String,
-    product_id: ProductId,
-    update: ProductUpdateDocument,
-    updates: &mut HashMap<ProductId, (Vec<String>, ProductUpdateDocument)>,
-) {
-    match updates.entry(product_id) {
-        Entry::Occupied(mut entry) => {
-            let (message_ids, current) = entry.get_mut();
-            message_ids.push(message_id);
-            merge_product_update_document(current, update);
-        }
-        Entry::Vacant(entry) => {
-            entry.insert((vec![message_id], update));
-        }
-    }
-}
-
-fn merge_product_update_document(
-    current: &mut ProductUpdateDocument,
-    update: ProductUpdateDocument,
-) {
-    current.updated = update.updated;
-    if let Some(event_id) = update.event_id {
-        current.event_id = Some(event_id);
-    }
-    if let Some(price_eur) = update.price_eur {
-        current.price_eur = Some(price_eur);
-    }
-    if let Some(price_usd) = update.price_usd {
-        current.price_usd = Some(price_usd);
-    }
-    if let Some(price_gbp) = update.price_gbp {
-        current.price_gbp = Some(price_gbp);
-    }
-    if let Some(price_aud) = update.price_aud {
-        current.price_aud = Some(price_aud);
-    }
-    if let Some(price_cad) = update.price_cad {
-        current.price_cad = Some(price_cad);
-    }
-    if let Some(price_nzd) = update.price_nzd {
-        current.price_nzd = Some(price_nzd);
-    }
-    if let Some(price_cny) = update.price_cny {
-        current.price_cny = Some(price_cny);
-    }
-    if let Some(price_brl) = update.price_brl {
-        current.price_brl = Some(price_brl);
-    }
-    if let Some(price_pln) = update.price_pln {
-        current.price_pln = Some(price_pln);
-    }
-    if let Some(price_try) = update.price_try {
-        current.price_try = Some(price_try);
-    }
-    if let Some(price_jpy) = update.price_jpy {
-        current.price_jpy = Some(price_jpy);
-    }
-    if let Some(price_czk) = update.price_czk {
-        current.price_czk = Some(price_czk);
-    }
-    if let Some(price_rub) = update.price_rub {
-        current.price_rub = Some(price_rub);
-    }
-    if let Some(price_aed) = update.price_aed {
-        current.price_aed = Some(price_aed);
-    }
-    if let Some(price_sar) = update.price_sar {
-        current.price_sar = Some(price_sar);
-    }
-    if let Some(price_hkd) = update.price_hkd {
-        current.price_hkd = Some(price_hkd);
-    }
-    if let Some(price_sgd) = update.price_sgd {
-        current.price_sgd = Some(price_sgd);
-    }
-    if let Some(price_chf) = update.price_chf {
-        current.price_chf = Some(price_chf);
-    }
-    if let Some(state) = update.state {
-        current.state = Some(state);
-    }
-    if let Some(title_de) = update.title_de {
-        current.title_de = Some(title_de);
-    }
-    if let Some(title_en) = update.title_en {
-        current.title_en = Some(title_en);
-    }
-    if let Some(title_fr) = update.title_fr {
-        current.title_fr = Some(title_fr);
-    }
-    if let Some(title_es) = update.title_es {
-        current.title_es = Some(title_es);
-    }
-    if let Some(title_it) = update.title_it {
-        current.title_it = Some(title_it);
-    }
-    if let Some(images) = update.images {
-        current.images = Some(images);
-    }
-    if let Some(price_estimate_min_eur) = update.price_estimate_min_eur {
-        current.price_estimate_min_eur = Some(price_estimate_min_eur);
-    }
-    if let Some(price_estimate_min_usd) = update.price_estimate_min_usd {
-        current.price_estimate_min_usd = Some(price_estimate_min_usd);
-    }
-    if let Some(price_estimate_min_gbp) = update.price_estimate_min_gbp {
-        current.price_estimate_min_gbp = Some(price_estimate_min_gbp);
-    }
-    if let Some(price_estimate_min_aud) = update.price_estimate_min_aud {
-        current.price_estimate_min_aud = Some(price_estimate_min_aud);
-    }
-    if let Some(price_estimate_min_cad) = update.price_estimate_min_cad {
-        current.price_estimate_min_cad = Some(price_estimate_min_cad);
-    }
-    if let Some(price_estimate_min_nzd) = update.price_estimate_min_nzd {
-        current.price_estimate_min_nzd = Some(price_estimate_min_nzd);
-    }
-    if let Some(price_estimate_min_cny) = update.price_estimate_min_cny {
-        current.price_estimate_min_cny = Some(price_estimate_min_cny);
-    }
-    if let Some(price_estimate_min_brl) = update.price_estimate_min_brl {
-        current.price_estimate_min_brl = Some(price_estimate_min_brl);
-    }
-    if let Some(price_estimate_min_pln) = update.price_estimate_min_pln {
-        current.price_estimate_min_pln = Some(price_estimate_min_pln);
-    }
-    if let Some(price_estimate_min_try) = update.price_estimate_min_try {
-        current.price_estimate_min_try = Some(price_estimate_min_try);
-    }
-    if let Some(price_estimate_min_jpy) = update.price_estimate_min_jpy {
-        current.price_estimate_min_jpy = Some(price_estimate_min_jpy);
-    }
-    if let Some(price_estimate_min_czk) = update.price_estimate_min_czk {
-        current.price_estimate_min_czk = Some(price_estimate_min_czk);
-    }
-    if let Some(price_estimate_min_rub) = update.price_estimate_min_rub {
-        current.price_estimate_min_rub = Some(price_estimate_min_rub);
-    }
-    if let Some(price_estimate_min_aed) = update.price_estimate_min_aed {
-        current.price_estimate_min_aed = Some(price_estimate_min_aed);
-    }
-    if let Some(price_estimate_min_sar) = update.price_estimate_min_sar {
-        current.price_estimate_min_sar = Some(price_estimate_min_sar);
-    }
-    if let Some(price_estimate_min_hkd) = update.price_estimate_min_hkd {
-        current.price_estimate_min_hkd = Some(price_estimate_min_hkd);
-    }
-    if let Some(price_estimate_min_sgd) = update.price_estimate_min_sgd {
-        current.price_estimate_min_sgd = Some(price_estimate_min_sgd);
-    }
-    if let Some(price_estimate_min_chf) = update.price_estimate_min_chf {
-        current.price_estimate_min_chf = Some(price_estimate_min_chf);
-    }
-    if let Some(price_estimate_max_eur) = update.price_estimate_max_eur {
-        current.price_estimate_max_eur = Some(price_estimate_max_eur);
-    }
-    if let Some(price_estimate_max_usd) = update.price_estimate_max_usd {
-        current.price_estimate_max_usd = Some(price_estimate_max_usd);
-    }
-    if let Some(price_estimate_max_gbp) = update.price_estimate_max_gbp {
-        current.price_estimate_max_gbp = Some(price_estimate_max_gbp);
-    }
-    if let Some(price_estimate_max_aud) = update.price_estimate_max_aud {
-        current.price_estimate_max_aud = Some(price_estimate_max_aud);
-    }
-    if let Some(price_estimate_max_cad) = update.price_estimate_max_cad {
-        current.price_estimate_max_cad = Some(price_estimate_max_cad);
-    }
-    if let Some(price_estimate_max_nzd) = update.price_estimate_max_nzd {
-        current.price_estimate_max_nzd = Some(price_estimate_max_nzd);
-    }
-    if let Some(price_estimate_max_cny) = update.price_estimate_max_cny {
-        current.price_estimate_max_cny = Some(price_estimate_max_cny);
-    }
-    if let Some(price_estimate_max_brl) = update.price_estimate_max_brl {
-        current.price_estimate_max_brl = Some(price_estimate_max_brl);
-    }
-    if let Some(price_estimate_max_pln) = update.price_estimate_max_pln {
-        current.price_estimate_max_pln = Some(price_estimate_max_pln);
-    }
-    if let Some(price_estimate_max_try) = update.price_estimate_max_try {
-        current.price_estimate_max_try = Some(price_estimate_max_try);
-    }
-    if let Some(price_estimate_max_jpy) = update.price_estimate_max_jpy {
-        current.price_estimate_max_jpy = Some(price_estimate_max_jpy);
-    }
-    if let Some(price_estimate_max_czk) = update.price_estimate_max_czk {
-        current.price_estimate_max_czk = Some(price_estimate_max_czk);
-    }
-    if let Some(price_estimate_max_rub) = update.price_estimate_max_rub {
-        current.price_estimate_max_rub = Some(price_estimate_max_rub);
-    }
-    if let Some(price_estimate_max_aed) = update.price_estimate_max_aed {
-        current.price_estimate_max_aed = Some(price_estimate_max_aed);
-    }
-    if let Some(price_estimate_max_sar) = update.price_estimate_max_sar {
-        current.price_estimate_max_sar = Some(price_estimate_max_sar);
-    }
-    if let Some(price_estimate_max_hkd) = update.price_estimate_max_hkd {
-        current.price_estimate_max_hkd = Some(price_estimate_max_hkd);
-    }
-    if let Some(price_estimate_max_sgd) = update.price_estimate_max_sgd {
-        current.price_estimate_max_sgd = Some(price_estimate_max_sgd);
-    }
-    if let Some(price_estimate_max_chf) = update.price_estimate_max_chf {
-        current.price_estimate_max_chf = Some(price_estimate_max_chf);
-    }
-    if let Some(url) = update.url {
-        current.url = Some(url);
-    }
-    if let Some(auction_start) = update.auction_start {
-        current.auction_start = Some(auction_start);
-    }
-    if let Some(auction_end) = update.auction_end {
-        current.auction_end = Some(auction_end);
-    }
-    if let Some(embedding) = update.embedding {
-        current.embedding = Some(embedding);
     }
 }
