@@ -43,6 +43,7 @@ futures = { workspace = true }
 sha2 = { workspace = true }
 url-normalize = { workspace = true }
 dashmap = "6.2.1"
+yaml_serde = { workspace = true }
 
 # Optional
 fake = { workspace = true, optional = true }

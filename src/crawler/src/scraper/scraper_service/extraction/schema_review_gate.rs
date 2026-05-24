@@ -60,6 +60,7 @@ impl ScraperServiceImpl {
                     .map(|page| SchemaLlmEvaluationPage {
                         url: page.url.clone(),
                         role: page.role.clone(),
+                        raw_html: Some(page.raw_html.clone()),
                         cleaned_html: clean_html_for_schema_generation(&page.raw_html),
                     })
                     .collect(),

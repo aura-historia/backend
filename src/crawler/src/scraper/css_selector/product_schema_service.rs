@@ -15,6 +15,7 @@ use llm::{
 };
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
 use time::OffsetDateTime;
@@ -48,6 +49,8 @@ pub struct SchemaLlmEvaluationRequest {
 pub struct SchemaLlmEvaluationPage {
     pub url: String,
     pub role: String,
+    #[serde(skip_serializing, default)]
+    pub raw_html: Option<String>,
     pub cleaned_html: String,
 }
 
@@ -300,6 +303,10 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         &self,
         html_pages: &[String],
     ) -> Result<Vec<ProductCssSelectorSchema>, ProductSchemaServiceError> {
+        log_schema_prompt_size_from_raw_pages(
+            LlmOperation::CrawlerProductSchemaGeneration,
+            html_pages,
+        );
         let instruction = build_create_schemas_instruction(html_pages);
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
@@ -347,6 +354,10 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         last_error: Option<&ApplySchemaError>,
     ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError> {
         // Generate single schema for this HTML page
+        log_schema_prompt_size_from_raw_pages(
+            LlmOperation::CrawlerProductSchemaRepair,
+            &[html.to_string()],
+        );
         let instruction = build_append_schema_instruction(html, failed_schema, last_error);
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
@@ -393,6 +404,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
             ));
         };
 
+        log_schema_prompt_size_from_evaluation_request(request);
         let instruction = build_schema_evaluation_instruction(request);
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
@@ -512,34 +524,34 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
 }
 
 fn build_create_schemas_instruction(html_pages: &[String]) -> String {
-    let cleaned_pages: Vec<String> = if html_pages.is_empty() {
+    let prompt_pages: Vec<String> = if html_pages.is_empty() {
         Vec::new()
     } else {
         html_pages
             .iter()
-            .map(|html| clean_html_for_schema_generation(html))
+            .map(|html| html_to_schema_prompt_dsl(html))
             .collect()
     };
 
-    if cleaned_pages.is_empty() {
+    if prompt_pages.is_empty() {
         return String::from(
             "Generate robust Extraction-Schemas for the given HTML product pages. Return ONLY JSON: one ProductCssSelectorSchema object for one template, or an array ordered from most complete schema to least complete schema for multiple templates.",
         );
     }
 
     let mut samples = String::new();
-    for (idx, cleaned) in cleaned_pages.iter().enumerate() {
+    for (idx, prompt_page) in prompt_pages.iter().enumerate() {
         let _ = std::fmt::Write::write_fmt(
             &mut samples,
             format_args!(
-                "\n--- SAMPLE {sample_idx} ---\n{html}\n",
+                "\n--- SAMPLE {sample_idx} YAML ---\n{page_dsl}\n",
                 sample_idx = idx + 1,
-                html = cleaned
+                page_dsl = prompt_page
             ),
         );
     }
 
-    let template_instruction = if cleaned_pages.len() > 1 {
+    let template_instruction = if prompt_pages.len() > 1 {
         "Infer the distinct product-page templates represented by these samples. Return one schema per distinct template, not one schema per page. If all samples clearly share the same template, return one schema; otherwise return multiple schemas so every template has precise selectors.\n"
     } else {
         "Return one schema for the single observed product-page template.\n"
@@ -559,7 +571,8 @@ fn build_create_schemas_instruction(html_pages: &[String]) -> String {
          Examples: if template A has price and template B has no price element, generate two schemas and put the priced schema first. If an auction template has estimate fields and a buy-now template has fixed price, generate separate schemas ordered by rule count. If a sold-item template lacks buy price but has sold state, split schemas when selectors differ.\n\
          Prefer high-precision selectors that represent semantic fields rather than layout wrappers.\n\
          Return ONLY JSON. If there is one product template, return one ProductCssSelectorSchema object. If there are multiple product templates, return an array of ProductCssSelectorSchema objects ordered as described above.\n\
-         Here are the cleaned HTML samples:{samples}"
+         The samples below are compact YAML projections of the original HTML. Derive CSS selectors from the tags, attrs, text, and tree context, and target the original raw HTML.\n\
+         Here are the compact page YAML samples:{samples}"
     )
 }
 
@@ -568,7 +581,7 @@ fn build_append_schema_instruction(
     failed_schema: Option<&ProductCssSelectorSchema>,
     last_error: Option<&ApplySchemaError>,
 ) -> String {
-    let cleaned = clean_html_for_schema_generation(html);
+    let page_dsl = html_to_schema_prompt_dsl(html);
     let failure_context = match (failed_schema, last_error) {
         (Some(schema), Some(error)) => {
             let schema_json = serde_json::to_string_pretty(schema)
@@ -589,8 +602,9 @@ fn build_append_schema_instruction(
           Return ONLY JSON as a single ProductCssSelectorSchema object (not an array).\n\
           Optional fields may remain null if not confidently present.\n\
           {failure_context}\n\
-          Here is the cleaned HTML:\n\
-          {cleaned}"
+          The sample below is a compact YAML projection of the original HTML. Derive CSS selectors from the tags, attrs, text, and tree context, and target the original raw HTML.\n\
+          Here is the compact page YAML:\n\
+          {page_dsl}"
     )
 }
 
@@ -613,6 +627,78 @@ fn build_schema_evaluation_instruction(request: &SchemaLlmEvaluationRequest) -> 
          Return ONLY the SchemaLlmEvaluation JSON object.\n\
          Evidence:\n{payload}"
     )
+}
+
+#[derive(Debug, Default)]
+struct SchemaPromptSizeTotals {
+    raw_html_bytes: usize,
+    cleaned_html_bytes: usize,
+    yaml_bytes: usize,
+}
+
+impl SchemaPromptSizeTotals {
+    fn add(&mut self, raw_html: &str, cleaned_html: &str, yaml: &str) {
+        self.raw_html_bytes += raw_html.len();
+        self.cleaned_html_bytes += cleaned_html.len();
+        self.yaml_bytes += yaml.len();
+    }
+}
+
+fn log_schema_prompt_size_from_raw_pages(operation: LlmOperation, html_pages: &[String]) {
+    let mut totals = SchemaPromptSizeTotals::default();
+    for html in html_pages {
+        let cleaned_html = clean_html_for_schema_generation(html);
+        let yaml = html_to_schema_prompt_dsl(html);
+        totals.add(html, &cleaned_html, &yaml);
+    }
+
+    log_schema_prompt_size(operation, html_pages.len(), totals);
+}
+
+fn log_schema_prompt_size_from_evaluation_request(request: &SchemaLlmEvaluationRequest) {
+    let mut totals = SchemaPromptSizeTotals::default();
+    for page in &request.pages {
+        let raw_html = page.raw_html.as_deref().unwrap_or(&page.cleaned_html);
+        let yaml = html_to_schema_prompt_dsl(raw_html);
+        totals.add(raw_html, &page.cleaned_html, &yaml);
+    }
+
+    log_schema_prompt_size(
+        LlmOperation::CrawlerProductSchemaEvaluation,
+        request.pages.len(),
+        totals,
+    );
+}
+
+fn log_schema_prompt_size(
+    operation: LlmOperation,
+    page_count: usize,
+    totals: SchemaPromptSizeTotals,
+) {
+    info!(
+        llmOperation = %operation,
+        page_count,
+        raw_html_bytes = totals.raw_html_bytes,
+        cleaned_html_bytes = totals.cleaned_html_bytes,
+        yaml_bytes = totals.yaml_bytes,
+        raw_html_tokens = approx_prompt_tokens(totals.raw_html_bytes),
+        cleaned_html_tokens = approx_prompt_tokens(totals.cleaned_html_bytes),
+        yaml_tokens = approx_prompt_tokens(totals.yaml_bytes),
+        yaml_vs_cleaned_percent = percent(totals.yaml_bytes, totals.cleaned_html_bytes),
+        "Schema prompt source size summary"
+    );
+}
+
+fn approx_prompt_tokens(chars: usize) -> usize {
+    chars / 4
+}
+
+fn percent(part: usize, total: usize) -> f64 {
+    if total == 0 {
+        0.0
+    } else {
+        (part as f64 / total as f64) * 100.0
+    }
 }
 
 pub fn strip_markdown_json_embedding(s: &str) -> &str {
@@ -644,6 +730,174 @@ pub fn clean_html_for_schema_generation(input: &str) -> String {
     let mut cleaned = Vec::new();
     document.serialize(&mut cleaned).unwrap();
     String::from_utf8(cleaned).unwrap_or_default()
+}
+
+const DSL_TEXT_LIMIT: usize = 180;
+const DSL_ATTR_LIMIT: usize = 250;
+const DSL_NODE_LIMIT: usize = 2_000;
+const REMOVED_DSL_TAGS: &[&str] = &[
+    "script", "style", "noscript", "svg", "canvas", "header", "footer", "nav", "aside",
+];
+
+#[derive(Debug, Default, Serialize)]
+struct PageDslRoot {
+    page_dsl: PageDsl,
+}
+
+#[derive(Debug, Default, Serialize)]
+struct PageDsl {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    nodes: Vec<HtmlYamlNode>,
+}
+
+#[derive(Debug, Serialize)]
+struct HtmlYamlNode {
+    tag: String,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    attrs: BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    children: Vec<HtmlYamlNode>,
+}
+
+pub fn html_to_schema_prompt_dsl(input: &str) -> String {
+    let document = parse_html().one(input);
+
+    for selector in REMOVED_DSL_TAGS {
+        if let Ok(nodes) = document.select(selector) {
+            for node in nodes {
+                node.as_node().detach();
+            }
+        }
+    }
+    remove_comments(&document);
+
+    let mut projected_count = 0;
+    let page = PageDsl {
+        nodes: project_children(&document, &mut projected_count),
+    };
+
+    yaml_serde::to_string(&PageDslRoot { page_dsl: page })
+        .unwrap_or_else(|_| "page_dsl: {}\n".to_string())
+}
+
+fn project_children(node: &NodeRef, projected_count: &mut usize) -> Vec<HtmlYamlNode> {
+    let mut projected = Vec::new();
+    for child in node.children() {
+        if *projected_count >= DSL_NODE_LIMIT {
+            break;
+        }
+        projected.extend(project_node(&child, projected_count));
+    }
+    projected
+}
+
+fn project_node(node: &NodeRef, projected_count: &mut usize) -> Vec<HtmlYamlNode> {
+    let Some(element) = node.as_element() else {
+        return Vec::new();
+    };
+
+    let tag = element.name.local.to_string();
+    if REMOVED_DSL_TAGS.contains(&tag.as_str()) {
+        return Vec::new();
+    }
+
+    let attrs = {
+        let attrs = element.attributes.borrow();
+        projected_attrs(&attrs)
+    };
+    let text = direct_text(node).map(|text| truncate_chars(&text, DSL_TEXT_LIMIT));
+    let children = project_children(node, projected_count);
+
+    if attrs.is_empty() && text.is_none() && children.is_empty() {
+        return Vec::new();
+    }
+
+    if is_collapsible_wrapper(&tag) && text.is_none() && is_layout_only_attrs(&attrs) {
+        return children;
+    }
+
+    *projected_count += 1;
+    vec![HtmlYamlNode {
+        tag,
+        attrs,
+        text,
+        children,
+    }]
+}
+
+fn is_collapsible_wrapper(tag: &str) -> bool {
+    matches!(
+        tag,
+        "html" | "head" | "body" | "main" | "div" | "span" | "section" | "article"
+    )
+}
+
+fn is_layout_only_attrs(attrs: &BTreeMap<String, String>) -> bool {
+    attrs.is_empty() || (attrs.len() == 1 && attrs.contains_key("class"))
+}
+
+fn projected_attrs(attrs: &kuchiki::Attributes) -> BTreeMap<String, String> {
+    let mut result = BTreeMap::new();
+    for name in PROJECTED_ATTRS {
+        if let Some(value) = attrs.get(*name).filter(|value| !value.trim().is_empty()) {
+            result.insert((*name).to_string(), truncate_chars(value, DSL_ATTR_LIMIT));
+        }
+    }
+    result
+}
+
+const PROJECTED_ATTRS: &[&str] = &[
+    "id",
+    "class",
+    "itemprop",
+    "property",
+    "name",
+    "content",
+    "value",
+    "type",
+    "src",
+    "srcset",
+    "alt",
+    "title",
+    "datetime",
+    "data-lazy",
+    "data-lazy-src",
+    "data-src",
+    "data-large_image",
+    "data-full",
+    "data-original",
+    "data-zoom-image",
+    "data-testid",
+    "data-test",
+    "data-cy",
+];
+
+fn normalize_text(raw: &str) -> Option<String> {
+    let text = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.is_empty() { None } else { Some(text) }
+}
+
+fn direct_text(node: &NodeRef) -> Option<String> {
+    let mut text = String::new();
+    for child in node.children() {
+        if let Some(contents) = child.as_text() {
+            text.push_str(&contents.borrow());
+            text.push(' ');
+        }
+    }
+    normalize_text(&text)
+}
+
+fn truncate_chars(value: &str, limit: usize) -> String {
+    if value.chars().count() <= limit {
+        return value.to_string();
+    }
+
+    let mut truncated = value.chars().take(limit).collect::<String>();
+    truncated.push('…');
+    truncated
 }
 
 fn remove_comments(node: &NodeRef) {
@@ -1060,8 +1314,10 @@ mod tests {
             "<html><body><h1>B</h1></body></html>".to_string(),
         ];
         let instruction = build_create_schemas_instruction(&html_pages);
-        assert!(instruction.contains("--- SAMPLE 1 ---"));
-        assert!(instruction.contains("--- SAMPLE 2 ---"));
+        assert!(instruction.contains("--- SAMPLE 1 YAML ---"));
+        assert!(instruction.contains("--- SAMPLE 2 YAML ---"));
+        assert!(instruction.contains("compact page YAML samples"));
+        assert!(instruction.contains("Derive CSS selectors"));
         assert!(instruction.contains("Return one schema per distinct template"));
         assert!(instruction.contains("not one schema per page"));
         assert!(instruction.contains("If there is one product template"));
@@ -1109,6 +1365,58 @@ mod tests {
         assert!(instruction.contains("ordered by specificity and completeness"));
         assert!(instruction.contains("most non-null extraction rules"));
         assert!(instruction.contains("fallback templates with fewer applicable rules"));
+    }
+
+    #[test]
+    fn should_build_schema_prompt_dsl_with_generic_tree_nodes() {
+        let html = r#"
+            <html>
+              <head>
+                <meta property="og:title" content="Example: Vase">
+                <script>window.noisy = true;</script>
+              </head>
+              <body>
+                <nav><a href="/noise">Noise</a></nav>
+                <input id="ProductId" name="ProductId" type="hidden" value="SKU-42">
+                <section class="product">
+                  <h1 class="title">Example "Vase"</h1>
+                  <div class="gallery"><img src="/image.jpg" data-large_image="/large.jpg"></div>
+                </section>
+              </body>
+            </html>
+        "#;
+
+        let dsl = html_to_schema_prompt_dsl(html);
+
+        assert!(dsl.contains("tag: meta"));
+        assert!(dsl.contains("property: og:title"));
+        assert!(dsl.contains("content: 'Example: Vase'"));
+        assert!(dsl.contains("tag: input"));
+        assert!(dsl.contains("id: ProductId"));
+        assert!(dsl.contains("value: SKU-42"));
+        assert!(dsl.contains("tag: h1"));
+        assert!(dsl.contains("class: title"));
+        assert!(dsl.contains("tag: img"));
+        assert!(dsl.contains("src: /image.jpg"));
+        assert!(dsl.contains("data-large_image: /large.jpg"));
+        assert!(dsl.contains("Example \"Vase\""));
+        assert!(!dsl.contains("<script"));
+        assert!(!dsl.contains("<nav"));
+    }
+
+    #[test]
+    fn should_build_schema_prompt_dsl_deterministically() {
+        let html = r#"
+            <html><body>
+              <div class="product"><span class="price">10 EUR</span></div>
+              <input id="State" value="available">
+            </body></html>
+        "#;
+
+        assert_eq!(
+            html_to_schema_prompt_dsl(html),
+            html_to_schema_prompt_dsl(html)
+        );
     }
 
     #[test]

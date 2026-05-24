@@ -26,6 +26,8 @@
 //! | `LOCAL_DB_URL`   | Hardcoded local DB URL               | `.../crawler_demo_scraper` |
 //! | `GEMINI_API_KEY` | API key forwarded to the LLM builder | *(required)*       |
 //! | `GEMINI_MODEL`   | Model name to use                    | `gemini-3.1-flash-lite-preview` |
+//! | `GEMINI_CHEAP_MODEL` | Default cheaper model for low-risk LLM calls | `gemini-2.5-flash-lite` |
+//! | `GEMINI_STATE_MAPPING_MODEL` | Optional override for state mapping calls | `GEMINI_CHEAP_MODEL` |
 //! | `GEMINI_FLEX`    | Enable Gemini Flex inference         | unset / `false` |
 //! | `LOG_LEVEL`      | Log level for `init_logging`         | `info`             |
 //!
@@ -48,6 +50,7 @@ use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use crawler::google_llm::{
     GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
+    state_mapping_gemini_model,
 };
 use crawler::local_db::{DEMO_SCRAPER_DB_NAME, bootstrap_local_database, demo_scraper_db_url};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
@@ -277,6 +280,7 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
         .expect("GEMINI_API_KEY must be set — see the module-level doc comment");
     let model = std::env::var("GEMINI_MODEL")
         .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
+    let state_model = state_mapping_gemini_model();
     unsafe {
         std::env::set_var("GEMINI_MODEL", &model);
     }
@@ -290,6 +294,7 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
 
     info!(
         gemini_model = %model,
+        gemini_state_mapping_model = %state_model,
         gemini_service_tier,
         "Crawler scraper demo Gemini configuration resolved"
     );
@@ -297,7 +302,7 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
 
     let schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
-    let state_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+    let state_llm_builder = google_llm_builder(&api_key, &state_model, gemini_flex);
 
     // State-mapping service (DB-backed + LLM fallback).
     let state_mapping_repo = Box::new(ProductStateMappingRepositoryImpl::new(pool));
