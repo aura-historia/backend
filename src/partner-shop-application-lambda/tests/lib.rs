@@ -249,7 +249,7 @@ async fn should_link_existing_shop_and_approve_for_existing_application() {
 // ---------------------------------------------------------------------------
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_set_state_to_rejected_for_reject() {
+async fn should_set_state_to_rejected_for_new_application_reject() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -261,7 +261,66 @@ async fn should_set_state_to_rejected_for_reject() {
 
     let mut record: PartnerShopApplicationRecord = Faker.fake();
     record.business_state = PartnerShopApplicationStateRecord::InReview;
+    record.payload_type = PartnerShopApplicationPayloadTypeRecord::New;
     record.shop_name = Some(ShopName::from("Rejected Shop"));
+    record.shop_image = None;
+    record.existing_shop_id = None;
+    let app_id = record.id;
+    let user_id = record.applicant_user_id;
+
+    seed_application_record(&partner_app_repo, &record).await;
+
+    let payload = serde_json::json!({
+        "step": "REJECT",
+        "partner_application_id": app_id.to_string(),
+        "applicant_user_id": user_id.to_string(),
+    });
+
+    let event = LambdaEvent::new(payload, Context::default());
+    let result = handler(
+        &partner_app_repo,
+        &shop_service,
+        &shop_repo,
+        &mock_notification,
+        event,
+    )
+    .await;
+
+    assert!(result.is_ok());
+
+    let updated = partner_app_repo
+        .get_partner_shop_application_record(&user_id, &app_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        updated.business_state,
+        PartnerShopApplicationStateRecord::Rejected
+    );
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_set_state_to_rejected_for_existing_application_reject() {
+    let partner_app_repo =
+        PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let shop_service = CommandShopServiceImpl::new(
+        &shop_repo,
+        &shop::service::geocoding_service::NoopGeocodingService,
+    );
+    let mock_notification = mock_notification_service();
+
+    let existing_shop: ShopRecord = Faker.fake();
+    let existing_shop_id = existing_shop.shop_id;
+    seed_shop_record(&shop_repo, &existing_shop).await;
+
+    let mut record: PartnerShopApplicationRecord = Faker.fake();
+    record.business_state = PartnerShopApplicationStateRecord::InReview;
+    record.payload_type = PartnerShopApplicationPayloadTypeRecord::Existing;
+    record.existing_shop_id = Some(existing_shop_id);
+    record.shop_name = None;
+    record.shop_image = None;
     let app_id = record.id;
     let user_id = record.applicant_user_id;
 
