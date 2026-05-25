@@ -15,6 +15,7 @@ pub async fn handler(
         filtersProcessed = result.filters_processed,
         matchesCreated = result.matches_created,
         notificationsCreated = result.notifications_created,
+        filtersFailed = result.filters_failed,
         "Finished hybrid-search search-filter product-matching."
     );
     Ok(())
@@ -40,6 +41,7 @@ mod tests {
                     filters_processed: 1,
                     matches_created: 2,
                     notifications_created: 3,
+                    filters_failed: 0,
                 })
             })
         });

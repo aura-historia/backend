@@ -28,12 +28,14 @@ use user::service::user_service::{UserService, UserServiceError};
 
 const FILTER_PAGE_SIZE: u64 = 100;
 const PRODUCT_PAGE_SIZE: u64 = 50;
+const MAX_ATTEMPTS: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeriodicMatcherResult {
     pub filters_processed: usize,
     pub matches_created: usize,
     pub notifications_created: usize,
+    pub filters_failed: usize,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -340,7 +342,9 @@ impl<'a> PeriodicMatcherService for PeriodicMatcherServiceImpl<'a> {
             filters_processed: 0,
             matches_created: 0,
             notifications_created: 0,
+            filters_failed: 0,
         };
+        let mut pending_retry: Vec<UserSearchFilter> = Vec::new();
 
         loop {
             let page = self
@@ -352,10 +356,21 @@ impl<'a> PeriodicMatcherService for PeriodicMatcherServiceImpl<'a> {
             }
 
             for filter in page.items {
-                let (matches_created, notifications_created) = self.process_filter(filter).await?;
-                result.filters_processed += 1;
-                result.matches_created += matches_created;
-                result.notifications_created += notifications_created;
+                match self.process_filter(filter.clone()).await {
+                    Ok((matches_created, notifications_created)) => {
+                        result.filters_processed += 1;
+                        result.matches_created += matches_created;
+                        result.notifications_created += notifications_created;
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            filterId = %filter.user_search_filter_id,
+                            error = %err,
+                            "Filter processing failed; scheduled for retry"
+                        );
+                        pending_retry.push(filter);
+                    }
+                }
             }
 
             if page.cursor.search_after.is_none() || page.cursor.size == 0 {
@@ -364,6 +379,33 @@ impl<'a> PeriodicMatcherService for PeriodicMatcherServiceImpl<'a> {
             cursor = Some(page.cursor);
         }
 
+        for attempt in 2..=MAX_ATTEMPTS {
+            if pending_retry.is_empty() {
+                break;
+            }
+            let mut still_failing: Vec<UserSearchFilter> = Vec::new();
+            for filter in pending_retry {
+                match self.process_filter(filter.clone()).await {
+                    Ok((matches_created, notifications_created)) => {
+                        result.filters_processed += 1;
+                        result.matches_created += matches_created;
+                        result.notifications_created += notifications_created;
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            filterId = %filter.user_search_filter_id,
+                            attempt,
+                            error = %err,
+                            "Filter processing failed on retry"
+                        );
+                        still_failing.push(filter);
+                    }
+                }
+            }
+            pending_retry = still_failing;
+        }
+
+        result.filters_failed = pending_retry.len();
         Ok(result)
     }
 }
@@ -1063,6 +1105,7 @@ mod tests {
                 filters_processed: 2,
                 matches_created: 0,
                 notifications_created: 0,
+                filters_failed: 0,
             }
         );
     }
@@ -1357,6 +1400,149 @@ mod tests {
         assert_eq!(
             notifications_created, 1,
             "only one notification allowed by remaining quota"
+        );
+    }
+
+    #[tokio::test]
+    async fn should_count_failed_filters_after_exhausting_retries() {
+        let filter = mk_filter();
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_search_user_search_filters()
+            .return_once(move |_, _| {
+                Box::pin(async move {
+                    Ok(CursoredResult {
+                        items: vec![filter],
+                        cursor: Cursor {
+                            size: 1,
+                            search_after: None,
+                        },
+                        total: Some(1),
+                    })
+                })
+            });
+        // update_user_search_filter is reached on every attempt (products page is empty)
+        // and always fails — filter must exhaust all MAX_ATTEMPTS retries.
+        filter_service
+            .expect_update_user_search_filter()
+            .times(MAX_ATTEMPTS)
+            .returning(|_, _, _| {
+                Box::pin(async { Err(UserSearchFilterError::UserNotFound(Faker.fake())) })
+            });
+
+        let mut query_service = MockQueryProductService::default();
+        query_service
+            .expect_search_products()
+            .times(MAX_ATTEMPTS)
+            .returning(|_, _, _| Box::pin(async { Ok(CursoredResult::default()) }));
+        query_service
+            .expect_search_products_with_dynamic_semantics()
+            .times(0);
+
+        let mut embedding_service = MockMultimodalEmbeddingService::default();
+        embedding_service.expect_embed_query().times(0);
+
+        let enhanced_service = MockEnhancedSearchMatchService::default();
+        let notification_service = MockNotificationService::default();
+        let user_service = MockUserService::default();
+
+        let service = PeriodicMatcherServiceImpl::new(
+            &filter_service,
+            &query_service,
+            &embedding_service,
+            &enhanced_service,
+            &notification_service,
+            &user_service,
+        );
+
+        let result = service.match_active_filters().await.unwrap();
+
+        assert_eq!(
+            result,
+            PeriodicMatcherResult {
+                filters_processed: 0,
+                matches_created: 0,
+                notifications_created: 0,
+                filters_failed: 1,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn should_succeed_on_retry_after_initial_failure() {
+        let filter = mk_filter();
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_search_user_search_filters()
+            .return_once(move |_, _| {
+                Box::pin(async move {
+                    Ok(CursoredResult {
+                        items: vec![filter],
+                        cursor: Cursor {
+                            size: 1,
+                            search_after: None,
+                        },
+                        total: Some(1),
+                    })
+                })
+            });
+        // Fail on the first two attempts; succeed on the third.
+        let call_count = std::sync::Arc::new(std::sync::Mutex::new(0u32));
+        filter_service
+            .expect_update_user_search_filter()
+            .times(3)
+            .returning(move |_, _, _| {
+                let call_count = std::sync::Arc::clone(&call_count);
+                Box::pin(async move {
+                    let mut n = call_count.lock().unwrap();
+                    *n += 1;
+                    let attempt = *n;
+                    drop(n);
+                    if attempt < 3 {
+                        Err(UserSearchFilterError::UserNotFound(Faker.fake()))
+                    } else {
+                        Ok(Faker.fake())
+                    }
+                })
+            });
+
+        let mut query_service = MockQueryProductService::default();
+        query_service
+            .expect_search_products()
+            .times(3)
+            .returning(|_, _, _| Box::pin(async { Ok(CursoredResult::default()) }));
+        query_service
+            .expect_search_products_with_dynamic_semantics()
+            .times(0);
+
+        let mut embedding_service = MockMultimodalEmbeddingService::default();
+        embedding_service.expect_embed_query().times(0);
+
+        let enhanced_service = MockEnhancedSearchMatchService::default();
+        let notification_service = MockNotificationService::default();
+        let user_service = MockUserService::default();
+
+        let service = PeriodicMatcherServiceImpl::new(
+            &filter_service,
+            &query_service,
+            &embedding_service,
+            &enhanced_service,
+            &notification_service,
+            &user_service,
+        );
+
+        let result = service.match_active_filters().await.unwrap();
+
+        assert_eq!(
+            result,
+            PeriodicMatcherResult {
+                filters_processed: 1,
+                matches_created: 0,
+                notifications_created: 0,
+                filters_failed: 0,
+            }
         );
     }
 }
