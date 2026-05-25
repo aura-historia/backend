@@ -444,6 +444,7 @@ mod tests {
         filter.search.language = Language::En;
         filter.search.currency = common::currency::domain::Currency::Eur;
         filter.search.product_query = None;
+        filter.search.updated_query = None;
         filter.enhanced_search_description = None;
         filter.last_hybrid_search_matched = datetime!(2026-05-10 12:00 UTC);
         filter
