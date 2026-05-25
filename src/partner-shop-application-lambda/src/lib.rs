@@ -410,7 +410,8 @@ async fn handle_reject(
             input.partner_application_id,
         ))?;
 
-    let (shop_name, image) = resolve_shop_notification_data(&record, shop_repository).await?;
+    let (shop_name, image) =
+        resolve_shop_notification_data_for_reject(&record, shop_repository).await?;
 
     let record_update = PartnerShopApplicationRecordUpdate {
         business_state: Some(PartnerShopApplicationStateRecord::Rejected),
@@ -494,6 +495,19 @@ async fn resolve_shop_notification_data(
 
             Ok((shop_record.name, shop_record.image))
         }
+    }
+}
+
+async fn resolve_shop_notification_data_for_reject(
+    record: &PartnerShopApplicationRecord,
+    shop_repository: &(impl ShopDynamoDbRepository + Sync),
+) -> Result<(ShopName, Option<Url>), StepFunctionError> {
+    match resolve_shop_notification_data(record, shop_repository).await {
+        Ok(data) => Ok(data),
+        Err(StepFunctionError::ExistingShopNotFound(_) | StepFunctionError::MissingField(_)) => {
+            Ok((resolve_shop_name(record), None))
+        }
+        Err(error) => Err(error),
     }
 }
 
@@ -786,6 +800,7 @@ mod tests {
         record.applicant_user_id = applicant_user_id;
         record.payload_type = PartnerShopApplicationPayloadTypeRecord::Existing;
         record.existing_shop_id = Some(existing_shop_id);
+        record.shop_name = None;
 
         let mut mock_repo = MockPartnerShopApplicationDynamoDbRepository::new();
         mock_repo
@@ -1179,7 +1194,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_fail_reject_when_existing_shop_not_found_for_existing_application() {
+    async fn should_reject_when_existing_shop_not_found_for_existing_application() {
         let partner_application_id = PartnerShopApplicationId::new();
         let applicant_user_id = UserId::new();
         let existing_shop_id: ShopId = Faker.fake();
@@ -1200,7 +1215,33 @@ mod tests {
             .expect_get_shop_record()
             .withf(move |id| *id == existing_shop_id)
             .return_once(|_| Box::pin(async move { Ok(None) }));
-        let mock_notification = MockNotificationService::new();
+        let mut mock_notification = MockNotificationService::new();
+        mock_notification
+            .expect_create_notification()
+            .withf(move |_event_id, cmd| {
+                cmd.user_id == applicant_user_id
+                    && cmd.external
+                    && matches!(
+                        &cmd.notification_payload,
+                        NotificationPayload::PartnerApplication {
+                            shop_name,
+                            image,
+                            partner_application_payload:
+                                NotificationPartnerApplicationPayload::Rejected { .. },
+                        } if *shop_name == ShopName::from("Unknown Shop") && image.is_none()
+                    )
+            })
+            .return_once(|_, cmd| {
+                let notification = fake_notification(cmd.user_id);
+                Box::pin(async move { Ok(notification) })
+            });
+
+        mock_repo
+            .expect_update_partner_shop_application_record()
+            .withf(|_user_id, _id, update| {
+                update.business_state == Some(PartnerShopApplicationStateRecord::Rejected)
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(None) }));
 
         let input = StepFunctionInput {
             step: StepFunctionStep::Reject,
@@ -1211,11 +1252,7 @@ mod tests {
 
         let result = handle_reject(&mock_repo, &mock_shop_repo, &mock_notification, &input).await;
 
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            StepFunctionError::ExistingShopNotFound(id) if id == existing_shop_id
-        ));
+        assert!(result.is_ok());
     }
 
     #[tokio::test]
