@@ -232,7 +232,7 @@ impl<'a> PeriodicMatcherServiceImpl<'a> {
                     searchFilterId = %filter.user_search_filter_id,
                     shopId = %product.shop_id,
                     shopsProductId = %product.shops_product_id,
-                    "search-filter-lambda-periodic-match: skipping already-matched product"
+                    "Skipping already-matched product."
                 );
                 continue;
             }
@@ -245,7 +245,7 @@ impl<'a> PeriodicMatcherServiceImpl<'a> {
                         searchFilterId = %filter.user_search_filter_id,
                         shopId = %product.shop_id,
                         shopsProductId = %product.shops_product_id,
-                        "search-filter-lambda-periodic-match: enhanced match rejected product"
+                        "Enhanced matcher-service rejected product."
                     );
                     continue;
                 }
@@ -317,7 +317,7 @@ impl<'a> PeriodicMatcherServiceImpl<'a> {
                 debug!(
                     userId = %filter.user_id,
                     searchFilterId = %filter.user_search_filter_id,
-                    "search-filter-lambda-periodic-match: enhanced match rejected product"
+                    "Enhanced matcher-service rejected product."
                 );
                 Ok(EnhancedGating::Excluded)
             }
