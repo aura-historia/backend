@@ -26,6 +26,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 time = { workspace = true }
 thiserror = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
 partner-shop-application = { workspace = true, features = ["full"] }

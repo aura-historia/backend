@@ -408,6 +408,7 @@ fn build_email_subject(payload: &NotificationPayload, language: &Language) -> St
         NotificationPayload::PartnerApplication {
             shop_name,
             partner_application_payload,
+            ..
         } => match partner_application_payload {
             NotificationPartnerApplicationPayload::Approved { .. } => match language {
                 Language::De => format!("Partnerantrag genehmigt: {shop_name}"),
@@ -538,6 +539,7 @@ fn build_email_template_data(
         }
         NotificationPayload::PartnerApplication {
             shop_name,
+            image,
             partner_application_payload,
         } => {
             let (notification_type, partner_application_id) = match partner_application_payload {
@@ -557,6 +559,10 @@ fn build_email_template_data(
 
             if let Some(first_name) = user_first_name {
                 data["user_first_name"] = serde_json::json!(first_name.to_string());
+            }
+
+            if let Some(image) = image {
+                data["image_url"] = serde_json::json!(image.as_str());
             }
 
             data
@@ -2502,6 +2508,7 @@ mod tests {
 
     mod build_email_template_data_tests {
         use super::*;
+        use common::partner_shop_application_id::PartnerShopApplicationId;
 
         #[test]
         fn should_include_product_fields_for_state_change() {
@@ -2744,6 +2751,33 @@ mod tests {
                 build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
 
             assert!(data.get("user_first_name").is_none());
+        }
+
+        #[test]
+        fn should_include_partner_application_image_url_when_present() {
+            let image_url = url::Url::parse("https://example.com/logo.png").unwrap();
+            let notification = Notification {
+                user_id: UserId::new(),
+                origin_event_id: EventId::new(),
+                notification_id: NotificationId::new(),
+                notification_type: None,
+                notification_payload: NotificationPayload::PartnerApplication {
+                    shop_name: "Test Shop".into(),
+                    image: Some(image_url.clone()),
+                    partner_application_payload: NotificationPartnerApplicationPayload::Approved {
+                        partner_application_id: PartnerShopApplicationId::new(),
+                    },
+                },
+                seen: false,
+                external: true,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
+
+            assert_eq!(data["image_url"], image_url.as_str());
         }
     }
 
@@ -3655,6 +3689,7 @@ mod tests {
                 notification_type: None,
                 notification_payload: NotificationPayload::PartnerApplication {
                     shop_name: "Heritage Antiques".into(),
+                    image: None,
                     partner_application_payload: NotificationPartnerApplicationPayload::Approved {
                         partner_application_id: PartnerShopApplicationId::new(),
                     },
@@ -3674,6 +3709,7 @@ mod tests {
                 notification_type: None,
                 notification_payload: NotificationPayload::PartnerApplication {
                     shop_name: "Heritage Antiques".into(),
+                    image: None,
                     partner_application_payload: NotificationPartnerApplicationPayload::Rejected {
                         partner_application_id: PartnerShopApplicationId::new(),
                     },

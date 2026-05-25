@@ -71,6 +71,8 @@ pub enum NotificationPayloadData {
     },
     PartnerApplication {
         shop_name: ShopName,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<url::Url>,
         partner_application_payload: PartnerApplicationPayloadData,
     },
 }
@@ -198,9 +200,11 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
             },
             LocalizedNotificationPayload::PartnerApplication {
                 shop_name,
+                image,
                 partner_application_payload,
             } => NotificationPayloadData::PartnerApplication {
                 shop_name,
+                image,
                 partner_application_payload: match partner_application_payload {
                     NotificationPartnerApplicationPayload::Approved {
                         partner_application_id,
@@ -329,6 +333,7 @@ mod tests {
             "payload": {
                 "type": "PARTNER_APPLICATION",
                 "shopName": "Test Shop",
+                "image": "https://test.example/logo.jpg",
                 "partnerApplicationPayload": {
                     "type": "REJECTED",
                     "partnerApplicationId": "0196580c-e4ca-723f-a7e0-1a73588380f0"
