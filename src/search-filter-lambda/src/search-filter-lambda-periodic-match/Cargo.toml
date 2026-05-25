@@ -35,3 +35,9 @@ notification = { workspace = true, features = ["test-data"] }
 user = { workspace = true, features = ["test-data"] }
 common = { workspace = true, features = ["test-data"] }
 fake = { workspace = true }
+test-api = { workspace = true, features = ["dynamodb", "opensearch"] }
+opensearch = { workspace = true }
+serde_dynamo = { workspace = true, features = ["aws-sdk-dynamodb+1"] }
+uuid = { workspace = true }
+time = { workspace = true }
+serial_test = { workspace = true }

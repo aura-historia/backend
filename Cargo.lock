@@ -6543,16 +6543,21 @@ dependencies = [
  "lambda_runtime",
  "mockall",
  "notification",
+ "opensearch",
  "product",
  "product-pipeline-embed-text",
  "search-filter",
+ "serde_dynamo",
  "serde_json",
+ "serial_test",
+ "test-api",
  "thiserror 2.0.18",
  "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "user",
+ "uuid",
 ]
 
 [[package]]
