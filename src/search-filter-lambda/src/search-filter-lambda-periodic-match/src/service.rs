@@ -15,6 +15,7 @@ use search_filter::core::quota::SearchFilterQuota;
 use search_filter::core::search_filter_product_match::SearchFilterProductMatch;
 use search_filter::core::user_search_filter::UserSearchFilter;
 use search_filter::core::user_search_filter_search::UserSearchFilterSearch;
+use search_filter::core::user_search_filter_update::UserSearchFilterUpdate;
 use search_filter::service::enhanced_search_match_service::{
     EnhancedSearchMatchError, EnhancedSearchMatchService,
 };
@@ -170,10 +171,14 @@ impl<'a> PeriodicMatcherServiceImpl<'a> {
         }
 
         self.user_search_filter_service
-            .update_user_search_filter_last_hybrid_search_matched(
+            .update_user_search_filter(
                 &filter.user_id,
                 &filter.user_search_filter_id,
-                matched_at,
+                UserSearchFilterUpdate {
+                    updated: matched_at,
+                    last_hybrid_search_matched: Some(matched_at),
+                    ..Default::default()
+                },
             )
             .await?;
 
@@ -319,7 +324,7 @@ impl<'a> PeriodicMatcherService for PeriodicMatcherServiceImpl<'a> {
         loop {
             let page = self
                 .user_search_filter_service
-                .query_user_search_filters(&search, &cursor)
+                .search_user_search_filters(&search, &cursor)
                 .await?;
             if page.items.is_empty() {
                 break;

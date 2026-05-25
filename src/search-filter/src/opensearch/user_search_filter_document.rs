@@ -6,7 +6,7 @@ use crate::dynamodb::user_search_filter_record::UserSearchFilterRecord;
 use common::resource_state::document::ResourceStateDocument;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
-use product::data::product_search_data::ProductSearchData;
+use product::opensearch::product_search_document::ProductSearchDocument;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
@@ -24,7 +24,7 @@ pub struct UserSearchFilterDocument {
     pub notifications: bool,
     #[serde(default)]
     pub state: ResourceStateDocument,
-    pub search: ProductSearchData,
+    pub search: ProductSearchDocument,
     pub query: ProductPercolatorQuery,
 
     #[serde(with = "time::serde::rfc3339")]

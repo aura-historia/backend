@@ -11,7 +11,6 @@ use crate::core::user_search_filter_update::UserSearchFilterUpdate;
 use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
 use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
 use crate::dynamodb::user_search_filter_match_record_update::UserSearchFilterMatchRecordUpdate;
-use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::batch::Batch;
 use common::pagination::cursor::{Cursor, CursoredResult};
@@ -183,19 +182,12 @@ pub trait UserSearchFilterService {
         update: UserSearchFilterUpdate,
     ) -> Result<UserSearchFilter, UserSearchFilterError>;
 
-    async fn update_user_search_filter_last_hybrid_search_matched(
-        &self,
-        user_id: &UserId,
-        user_search_filter_id: &UserSearchFilterId,
-        last_hybrid_search_matched: OffsetDateTime,
-    ) -> Result<UserSearchFilter, UserSearchFilterError>;
-
     async fn match_user_search_filters(
         &self,
         product_document: &product::opensearch::product_document::ProductDocument,
     ) -> Result<Vec<UserSearchFilterSummary>, UserSearchFilterError>;
 
-    async fn query_user_search_filters(
+    async fn search_user_search_filters(
         &self,
         search: &UserSearchFilterSearch,
         cursor: &Option<Cursor<serde_json::Value>>,
@@ -488,31 +480,6 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
         }
     }
 
-    async fn update_user_search_filter_last_hybrid_search_matched(
-        &self,
-        user_id: &UserId,
-        user_search_filter_id: &UserSearchFilterId,
-        last_hybrid_search_matched: OffsetDateTime,
-    ) -> Result<UserSearchFilter, UserSearchFilterError> {
-        let updated_opt = self
-            .repository
-            .update_user_search_filter_record(
-                user_id,
-                user_search_filter_id,
-                UserSearchFilterRecordUpdate::last_hybrid_search_matched(
-                    last_hybrid_search_matched,
-                ),
-            )
-            .await?;
-        match updated_opt {
-            Some(updated) => Ok(updated.into()),
-            None => {
-                self.find_user_search_filter(user_id, user_search_filter_id)
-                    .await
-            }
-        }
-    }
-
     async fn match_user_search_filters(
         &self,
         product_document: &ProductDocument,
@@ -543,7 +510,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
         }
     }
 
-    async fn query_user_search_filters(
+    async fn search_user_search_filters(
         &self,
         search: &UserSearchFilterSearch,
         cursor: &Option<Cursor<serde_json::Value>>,
@@ -584,7 +551,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
         {
             let _ = search;
             let _ = cursor;
-            unimplemented!("query_user_search_filters requires the 'opensearch' feature")
+            unimplemented!("search_user_search_filters requires the 'opensearch' feature")
         }
     }
 

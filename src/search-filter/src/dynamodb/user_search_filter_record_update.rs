@@ -99,40 +99,6 @@ pub struct UserSearchFilterRecordUpdate {
 
 impl DynamoDbUpdate for UserSearchFilterRecordUpdate {}
 
-impl UserSearchFilterRecordUpdate {
-    pub fn last_hybrid_search_matched(timestamp: OffsetDateTime) -> Self {
-        Self {
-            name: None,
-            notifications: None,
-            state: None,
-            enhanced_search_description: None,
-            product_query: None,
-            shop_name_query: None,
-            exclude_shop_name_query: None,
-            seller_name_query: None,
-            exclude_seller_name_query: None,
-            shop_slug_id_query: None,
-            exclude_shop_slug_id_query: None,
-            seller_slug_id_query: None,
-            exclude_seller_slug_id_query: None,
-            shop_type_query: None,
-            country_query: None,
-            continent_query: None,
-            geo_address_distance_query: None,
-            price_query: None,
-            state_query: None,
-            created_query: None,
-            updated_query: None,
-            auction_start_query: None,
-            auction_end_query: None,
-            language: None,
-            currency: None,
-            updated: timestamp,
-            last_hybrid_search_matched: Some(timestamp),
-        }
-    }
-}
-
 #[cfg(feature = "test-data")]
 mod fake {
     use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;

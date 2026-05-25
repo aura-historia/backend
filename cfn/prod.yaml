@@ -3358,6 +3358,24 @@ Resources:
       Action: lambda:InvokeFunction
       Principal: events.amazonaws.com
       SourceArn: !GetAtt SearchFilterPeriodicMatchScheduleRule.Arn
+  SearchFilterPeriodicMatchLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-search-filter-periodic-match-errors"
+      AlarmDescription: "Alarm when search-filter-periodic-match Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref SearchFilterPeriodicMatchLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   DynamoDbProductMaterializeOpenSearchEventRule:
     Type: AWS::Events::Rule

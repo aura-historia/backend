@@ -55,6 +55,40 @@ pub struct UserSearchFilterUpdate {
     pub last_hybrid_search_matched: Option<OffsetDateTime>,
 }
 
+impl Default for UserSearchFilterUpdate {
+    fn default() -> Self {
+        Self {
+            name: None,
+            enhanced_search_description: None,
+            notifications: None,
+            state: None,
+            product_query: None,
+            shop_name_query: None,
+            exclude_shop_name_query: None,
+            seller_name_query: None,
+            exclude_seller_name_query: None,
+            shop_slug_id_query: None,
+            exclude_shop_slug_id_query: None,
+            seller_slug_id_query: None,
+            exclude_seller_slug_id_query: None,
+            shop_type_query: None,
+            country_query: None,
+            continent_query: None,
+            geo_address_distance_query: None,
+            price_query: None,
+            state_query: None,
+            created_query: None,
+            updated_query: None,
+            auction_start_query: None,
+            auction_end_query: None,
+            language: None,
+            currency: None,
+            updated: OffsetDateTime::UNIX_EPOCH,
+            last_hybrid_search_matched: None,
+        }
+    }
+}
+
 impl UserSearchFilterUpdate {
     pub fn is_empty(&self) -> bool {
         let UserSearchFilterUpdate {
