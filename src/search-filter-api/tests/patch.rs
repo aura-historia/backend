@@ -70,6 +70,9 @@ async fn should_update_search_filter() {
             seller_slug_id_query: None,
             exclude_seller_slug_id_query: None,
             shop_type_query: None,
+            country_query: None,
+            continent_query: None,
+            geo_address_distance_query: None,
             price_query: Some(RangeQuery {
                 min: Some(37),
                 max: Some(42),

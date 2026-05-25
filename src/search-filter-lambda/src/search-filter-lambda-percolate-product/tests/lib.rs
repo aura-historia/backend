@@ -88,6 +88,7 @@ fn mk_search_filter_record_with_state(
         currency: common::currency::record::CurrencyRecord::Eur,
         created: datetime!(2024-01-01 00:00:00 UTC),
         updated: datetime!(2024-01-02 00:00:00 UTC),
+        last_hybrid_search_matched: datetime!(2024-01-02 00:00:00 UTC),
     }
 }
 

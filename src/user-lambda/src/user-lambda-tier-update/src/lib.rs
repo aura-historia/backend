@@ -193,6 +193,9 @@ fn search_filter_state_update(state: ResourceStateRecord) -> UserSearchFilterRec
         seller_slug_id_query: None,
         exclude_seller_slug_id_query: None,
         shop_type_query: None,
+        country_query: None,
+        continent_query: None,
+        geo_address_distance_query: None,
         price_query: None,
         state_query: None,
         created_query: None,
@@ -202,6 +205,7 @@ fn search_filter_state_update(state: ResourceStateRecord) -> UserSearchFilterRec
         language: None,
         currency: None,
         updated: OffsetDateTime::now_utc(),
+        last_hybrid_search_matched: None,
     }
 }
 
@@ -246,6 +250,7 @@ mod tests {
             enhanced_search_description: None,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
+            last_hybrid_search_matched: OffsetDateTime::now_utc(),
         };
         filter.into()
     }
