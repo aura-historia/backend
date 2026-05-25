@@ -51,9 +51,10 @@ use uuid::Uuid;
 /// fields are empty/permissive so the filter matches any product that
 /// is in the Listed state — allowing tests to control matching through
 /// the product record's state alone.
-fn mk_search_filter_record(
+fn mk_search_filter_record_with_state(
     user_id: UserId,
     filter_id: UserSearchFilterId,
+    state: ResourceStateRecord,
 ) -> UserSearchFilterRecord {
     UserSearchFilterRecord {
         pk: format!("user#{user_id}"),
@@ -63,7 +64,7 @@ fn mk_search_filter_record(
         name: "Integration Test Filter".into(),
         enhanced_search_description: None,
         notifications: true,
-        state: ResourceStateRecord::Active,
+        state,
         product_query: None,
         shop_name_query: HashSet::new(),
         exclude_shop_name_query: HashSet::new(),
@@ -88,6 +89,13 @@ fn mk_search_filter_record(
         created: datetime!(2024-01-01 00:00:00 UTC),
         updated: datetime!(2024-01-02 00:00:00 UTC),
     }
+}
+
+fn mk_search_filter_record(
+    user_id: UserId,
+    filter_id: UserSearchFilterId,
+) -> UserSearchFilterRecord {
+    mk_search_filter_record_with_state(user_id, filter_id, ResourceStateRecord::Active)
 }
 
 /// Build a `ProductRecord` for a Listed product in a known shop.
@@ -380,6 +388,153 @@ async fn should_not_create_match_or_notification_when_no_filter_matches() {
         .unwrap();
 
     assert!(response.batch_item_failures.is_empty());
+}
+
+/// Inactive percolation match → no match records and no notifications.
+#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+async fn should_not_create_match_or_notification_when_only_inactive_filter_matches() {
+    let ddb = get_dynamodb_client().await;
+    let os = get_opensearch_client().await;
+
+    let product_repo = ProductDynamoDbRepositoryImpl::new(ddb, "table_1");
+    let sf_ddb_repo = UserSearchFilterDynamoDbRepositoryImpl::new(ddb, "table_1");
+    let sf_os_repo = UserSearchFilterOpenSearchRepositoryImpl::new(os);
+    let user_repo = UserDynamoDbRepositoryImpl::new(ddb, "table_1");
+    let user_service = UserServiceImpl::new(&user_repo);
+    let get_product_service = GetProductServiceImpl::new(&product_repo);
+    let enhanced_service = MockEnhancedSearchMatchService::default();
+
+    let sf_service =
+        UserSearchFilterServiceImpl::with_opensearch(&sf_ddb_repo, &user_service, &sf_os_repo);
+
+    let user_id = create_user(&user_service, "inactive-only@test.com").await;
+    let filter_id = UserSearchFilterId::new();
+    let record =
+        mk_search_filter_record_with_state(user_id, filter_id, ResourceStateRecord::InactiveByUser);
+    index_filter(&sf_os_repo, record).await;
+
+    let shop_id = ShopId::new();
+    let shops_product_id = ShopsProductId::new();
+    let product_record = mk_product_record(shop_id, &shops_product_id);
+    product_repo
+        .put_product_records([product_record.clone()].into())
+        .await
+        .unwrap();
+
+    let notification_service = MockNotificationService::default();
+
+    let matcher = ProductMatcherServiceImpl::new(
+        &sf_service,
+        &get_product_service,
+        &enhanced_service,
+        &user_service,
+    );
+
+    let event_record = mk_state_change_event_record(&product_record);
+    let body = mk_event_bridge_body(&event_record);
+    let event = mk_sqs_event(vec![mk_sqs_message(&body)]);
+
+    let response = handler(&matcher, &notification_service, &sf_service, event)
+        .await
+        .unwrap();
+
+    assert!(response.batch_item_failures.is_empty());
+
+    let persisted_match = sf_service
+        .find_search_filter_product_match(&user_id, &filter_id, &shop_id, &shops_product_id)
+        .await
+        .unwrap();
+    assert!(persisted_match.is_none());
+}
+
+/// Mixed active/inactive percolation matches → only active match record and notification.
+#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+async fn should_create_match_and_notification_only_for_active_filter_when_active_and_inactive_filters_match()
+ {
+    let ddb = get_dynamodb_client().await;
+    let os = get_opensearch_client().await;
+
+    let product_repo = ProductDynamoDbRepositoryImpl::new(ddb, "table_1");
+    let sf_ddb_repo = UserSearchFilterDynamoDbRepositoryImpl::new(ddb, "table_1");
+    let sf_os_repo = UserSearchFilterOpenSearchRepositoryImpl::new(os);
+    let user_repo = UserDynamoDbRepositoryImpl::new(ddb, "table_1");
+    let user_service = UserServiceImpl::new(&user_repo);
+    let get_product_service = GetProductServiceImpl::new(&product_repo);
+    let enhanced_service = MockEnhancedSearchMatchService::default();
+
+    let sf_service =
+        UserSearchFilterServiceImpl::with_opensearch(&sf_ddb_repo, &user_service, &sf_os_repo);
+
+    let active_user_id = create_user(&user_service, "active@test.com").await;
+    let active_filter_id = UserSearchFilterId::new();
+    index_filter(
+        &sf_os_repo,
+        mk_search_filter_record(active_user_id, active_filter_id),
+    )
+    .await;
+
+    let inactive_user_id = create_user(&user_service, "inactive@test.com").await;
+    let inactive_filter_id = UserSearchFilterId::new();
+    index_filter(
+        &sf_os_repo,
+        mk_search_filter_record_with_state(
+            inactive_user_id,
+            inactive_filter_id,
+            ResourceStateRecord::InactiveByRestrictedPlan,
+        ),
+    )
+    .await;
+
+    let shop_id = ShopId::new();
+    let shops_product_id = ShopsProductId::new();
+    let product_record = mk_product_record(shop_id, &shops_product_id);
+    product_repo
+        .put_product_records([product_record.clone()].into())
+        .await
+        .unwrap();
+
+    let (notification_service, notification_count) = mock_notification_service_counting_calls();
+
+    let matcher = ProductMatcherServiceImpl::new(
+        &sf_service,
+        &get_product_service,
+        &enhanced_service,
+        &user_service,
+    );
+
+    let event_record = mk_state_change_event_record(&product_record);
+    let body = mk_event_bridge_body(&event_record);
+    let event = mk_sqs_event(vec![mk_sqs_message(&body)]);
+
+    let response = handler(&matcher, &notification_service, &sf_service, event)
+        .await
+        .unwrap();
+
+    assert!(response.batch_item_failures.is_empty());
+
+    let active_match = sf_service
+        .find_search_filter_product_match(
+            &active_user_id,
+            &active_filter_id,
+            &shop_id,
+            &shops_product_id,
+        )
+        .await
+        .unwrap();
+    assert!(active_match.is_some());
+
+    let inactive_match = sf_service
+        .find_search_filter_product_match(
+            &inactive_user_id,
+            &inactive_filter_id,
+            &shop_id,
+            &shops_product_id,
+        )
+        .await
+        .unwrap();
+    assert!(inactive_match.is_none());
+
+    assert_eq!(notification_count.load(Ordering::SeqCst), 1);
 }
 
 /// Already-matched filter is skipped (dedup) → no duplicate match or notification.
