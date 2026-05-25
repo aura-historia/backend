@@ -88,6 +88,7 @@ pub enum NotificationPayload {
     },
     PartnerApplication {
         shop_name: ShopName,
+        image: Option<ProductImage>,
         partner_application_payload: NotificationPartnerApplicationPayload,
     },
 }
@@ -157,9 +158,11 @@ impl NotificationPayload {
             },
             NotificationPayload::PartnerApplication {
                 shop_name,
+                image,
                 partner_application_payload,
             } => LocalizedNotificationPayload::PartnerApplication {
                 shop_name,
+                image,
                 partner_application_payload,
             },
         }
@@ -262,6 +265,7 @@ pub enum LocalizedNotificationPayload {
     },
     PartnerApplication {
         shop_name: ShopName,
+        image: Option<ProductImage>,
         partner_application_payload: NotificationPartnerApplicationPayload,
     },
 }

@@ -592,6 +592,7 @@ impl From<Notification> for NotificationRecord {
             }
             NotificationPayload::PartnerApplication {
                 shop_name,
+                image,
                 partner_application_payload,
             } => {
                 let (notification_reason, partner_application_id) =
@@ -622,7 +623,7 @@ impl From<Notification> for NotificationRecord {
                     notification_reason,
                     seen: notification.seen,
                     external: notification.external,
-                    image: None,
+                    image: image.map(ProductImageRecord::from),
                     product_id: None,
                     product_slug_id: None,
                     shop_slug_id: None,
@@ -728,6 +729,7 @@ impl TryFrom<NotificationRecord> for Notification {
             };
             NotificationPayload::PartnerApplication {
                 shop_name,
+                image: record.image.map(ProductImage::from),
                 partner_application_payload,
             }
         } else {
@@ -1053,7 +1055,7 @@ mod image_round_trip_tests {
         match &notification.notification_payload {
             NotificationPayload::Watchlist { image, .. } => image.clone(),
             NotificationPayload::SearchFilter { image, .. } => image.clone(),
-            NotificationPayload::PartnerApplication { .. } => None,
+            NotificationPayload::PartnerApplication { image, .. } => image.clone(),
         }
     }
 

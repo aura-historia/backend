@@ -4780,6 +4780,7 @@ dependencies = [
  "lambda_runtime",
  "notification",
  "partner-shop-application",
+ "product",
  "rstest",
  "serde",
  "serde_json",
@@ -4791,6 +4792,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
  "user",
 ]
 
