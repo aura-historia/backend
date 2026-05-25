@@ -58,6 +58,9 @@ pub enum StepFunctionError {
     #[error("Partner application not found: {0}")]
     ApplicationNotFound(PartnerShopApplicationId),
 
+    #[error("Existing shop not found: {0}")]
+    ExistingShopNotFound(ShopId),
+
     #[error("DynamoDB update error: {0}")]
     DynamoDbUpdateError(String),
 
@@ -259,9 +262,7 @@ async fn create_or_resolve_shop(
                 .get_shop_record(&shop_id)
                 .await
                 .map_err(|e| StepFunctionError::DynamoDbQueryError(e.to_string()))?
-                .ok_or_else(|| {
-                    StepFunctionError::MissingField(format!("Shop not found: {shop_id}"))
-                })?;
+                .ok_or(StepFunctionError::ExistingShopNotFound(shop_id))?;
 
             Ok((shop_id, shop_record.name, shop_record.image))
         }
@@ -489,9 +490,7 @@ async fn resolve_shop_notification_data(
                 .get_shop_record(&shop_id)
                 .await
                 .map_err(|e| StepFunctionError::DynamoDbQueryError(e.to_string()))?
-                .ok_or_else(|| {
-                    StepFunctionError::MissingField(format!("Shop not found: {shop_id}"))
-                })?;
+                .ok_or(StepFunctionError::ExistingShopNotFound(shop_id))?;
 
             Ok((shop_record.name, shop_record.image))
         }
@@ -1128,6 +1127,94 @@ mod tests {
         assert!(matches!(
             result.unwrap_err(),
             StepFunctionError::MissingField(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_fail_approve_when_existing_shop_not_found_for_existing_application() {
+        let partner_application_id = PartnerShopApplicationId::new();
+        let applicant_user_id = UserId::new();
+        let existing_shop_id: ShopId = Faker.fake();
+
+        let mut record: PartnerShopApplicationRecord = Faker.fake();
+        record.id = partner_application_id;
+        record.applicant_user_id = applicant_user_id;
+        record.payload_type = PartnerShopApplicationPayloadTypeRecord::Existing;
+        record.existing_shop_id = Some(existing_shop_id);
+
+        let mut mock_repo = MockPartnerShopApplicationDynamoDbRepository::new();
+        mock_repo
+            .expect_query_partner_shop_application_record_by_id()
+            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+        let mock_shop_service = MockCommandShopService::new();
+        let mut mock_shop_repo = MockShopDynamoDbRepository::new();
+        mock_shop_repo
+            .expect_get_shop_record()
+            .withf(move |id| *id == existing_shop_id)
+            .return_once(|_| Box::pin(async move { Ok(None) }));
+        let mock_notification = MockNotificationService::new();
+
+        let input = StepFunctionInput {
+            step: StepFunctionStep::Approve,
+            task_token: None,
+            partner_application_id,
+            applicant_user_id,
+        };
+
+        let result = handle_approve(
+            &mock_repo,
+            &mock_shop_service,
+            &mock_shop_repo,
+            &mock_notification,
+            &input,
+        )
+        .await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StepFunctionError::ExistingShopNotFound(id) if id == existing_shop_id
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_fail_reject_when_existing_shop_not_found_for_existing_application() {
+        let partner_application_id = PartnerShopApplicationId::new();
+        let applicant_user_id = UserId::new();
+        let existing_shop_id: ShopId = Faker.fake();
+
+        let mut record: PartnerShopApplicationRecord = Faker.fake();
+        record.id = partner_application_id;
+        record.applicant_user_id = applicant_user_id;
+        record.payload_type = PartnerShopApplicationPayloadTypeRecord::Existing;
+        record.existing_shop_id = Some(existing_shop_id);
+
+        let mut mock_repo = MockPartnerShopApplicationDynamoDbRepository::new();
+        mock_repo
+            .expect_query_partner_shop_application_record_by_id()
+            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
+
+        let mut mock_shop_repo = MockShopDynamoDbRepository::new();
+        mock_shop_repo
+            .expect_get_shop_record()
+            .withf(move |id| *id == existing_shop_id)
+            .return_once(|_| Box::pin(async move { Ok(None) }));
+        let mock_notification = MockNotificationService::new();
+
+        let input = StepFunctionInput {
+            step: StepFunctionStep::Reject,
+            task_token: None,
+            partner_application_id,
+            applicant_user_id,
+        };
+
+        let result = handle_reject(&mock_repo, &mock_shop_repo, &mock_notification, &input).await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StepFunctionError::ExistingShopNotFound(id) if id == existing_shop_id
         ));
     }
 
