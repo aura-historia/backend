@@ -1204,6 +1204,7 @@ mod tests {
         record.applicant_user_id = applicant_user_id;
         record.payload_type = PartnerShopApplicationPayloadTypeRecord::Existing;
         record.existing_shop_id = Some(existing_shop_id);
+        record.shop_name = None;
 
         let mut mock_repo = MockPartnerShopApplicationDynamoDbRepository::new();
         mock_repo
