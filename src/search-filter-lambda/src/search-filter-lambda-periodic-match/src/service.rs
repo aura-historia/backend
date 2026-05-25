@@ -398,10 +398,8 @@ mod tests {
     use common::query::range_query::RangeQuery;
     use fake::{Fake, Faker};
     use notification::core::{
-        notification::Notification,
-        notification_id::NotificationId,
-        notification::NotificationPayload,
-        notification_type::NotificationType,
+        notification::Notification, notification::NotificationPayload,
+        notification_id::NotificationId, notification_type::NotificationType,
     };
     use notification::service::notification_service::{
         CreateNotificationsResult, MockNotificationService,
@@ -494,11 +492,13 @@ mod tests {
     fn should_keep_later_updated_min_when_search_already_has_one() {
         let min = datetime!(2026-05-01 00:00 UTC);
         let last_matched = datetime!(2026-05-10 12:00 UTC);
-        let mut search = product::core::product_search::ProductSearch::default();
-        search.updated_query = Some(RangeQuery {
-            min: Some(min),
-            max: Some(datetime!(2026-06-01 00:00 UTC)),
-        });
+        let search = product::core::product_search::ProductSearch {
+            updated_query: Some(RangeQuery {
+                min: Some(min),
+                max: Some(datetime!(2026-06-01 00:00 UTC)),
+            }),
+            ..Default::default()
+        };
 
         let updated = search_since_last_match(&search, last_matched);
 
@@ -528,7 +528,10 @@ mod tests {
                 assert_eq!(product_id, product.product_id);
                 assert_eq!(shop_id, product.shop_id);
                 assert_eq!(shops_product_id, product.shops_product_id);
-                assert_eq!(search_filter_payload.user_search_filter_id, filter.user_search_filter_id);
+                assert_eq!(
+                    search_filter_payload.user_search_filter_id,
+                    filter.user_search_filter_id
+                );
                 assert_eq!(search_filter_payload.user_search_filter_name, filter.name);
             }
             payload => panic!("expected search-filter payload, got {payload:?}"),
@@ -543,8 +546,9 @@ mod tests {
         let expected_min = filter.last_hybrid_search_matched + Duration::NANOSECOND;
 
         let mut filter_service = MockUserSearchFilterService::default();
-        filter_service.expect_update_user_search_filter().return_once(
-            move |user_id, filter_id, update| {
+        filter_service
+            .expect_update_user_search_filter()
+            .return_once(move |user_id, filter_id, update| {
                 let actual_user_id = *user_id;
                 let actual_filter_id = *filter_id;
                 Box::pin(async move {
@@ -553,14 +557,16 @@ mod tests {
                     assert_eq!(update.last_hybrid_search_matched, Some(update.updated));
                     Ok(Faker.fake())
                 })
-            },
-        );
+            });
 
         let mut query_service = MockQueryProductService::default();
         query_service
             .expect_search_products()
             .return_once(move |search, _, cursor| {
-                assert_eq!(search.updated_query.as_ref().and_then(|range| range.min), Some(expected_min));
+                assert_eq!(
+                    search.updated_query.as_ref().and_then(|range| range.min),
+                    Some(expected_min)
+                );
                 assert_eq!(
                     *cursor,
                     Some(Cursor {
@@ -623,12 +629,14 @@ mod tests {
                     })
                 })
             });
-        filter_service.expect_update_user_search_filter().return_once(
-            |_, _, update| Box::pin(async move {
-                assert_eq!(update.last_hybrid_search_matched, Some(update.updated));
-                Ok(Faker.fake())
-            }),
-        );
+        filter_service
+            .expect_update_user_search_filter()
+            .return_once(|_, _, update| {
+                Box::pin(async move {
+                    assert_eq!(update.last_hybrid_search_matched, Some(update.updated));
+                    Ok(Faker.fake())
+                })
+            });
 
         let mut query_service = MockQueryProductService::default();
         query_service.expect_search_products().times(0);
@@ -652,12 +660,10 @@ mod tests {
             });
 
         let mut embedding_service = MockMultimodalEmbeddingService::default();
-        embedding_service
-            .expect_embed_query()
-            .return_once(|query| {
-                assert_eq!(query, "gold ring");
-                Box::pin(async { Ok(vec![0.1, 0.2, 0.3]) })
-            });
+        embedding_service.expect_embed_query().return_once(|query| {
+            assert_eq!(query, "gold ring");
+            Box::pin(async { Ok(vec![0.1, 0.2, 0.3]) })
+        });
 
         let enhanced_service = MockEnhancedSearchMatchService::default();
 
@@ -755,7 +761,10 @@ mod tests {
             &user_service,
         );
 
-        let reason = service.enhanced_match_reason(&filter, &product).await.unwrap();
+        let reason = service
+            .enhanced_match_reason(&filter, &product)
+            .await
+            .unwrap();
 
         assert_eq!(reason, None);
     }
@@ -773,15 +782,17 @@ mod tests {
         let notification_service = MockNotificationService::default();
 
         let mut enhanced_service = MockEnhancedSearchMatchService::default();
-        enhanced_service.expect_evaluate().return_once(move |_, _, _, _, _| {
-            let reason = expected_reason.clone();
-            Box::pin(async move {
-                Ok(EnhancedSearchMatchResult {
-                    matches: true,
-                    reason,
+        enhanced_service
+            .expect_evaluate()
+            .return_once(move |_, _, _, _, _| {
+                let reason = expected_reason.clone();
+                Box::pin(async move {
+                    Ok(EnhancedSearchMatchResult {
+                        matches: true,
+                        reason,
+                    })
                 })
-            })
-        });
+            });
 
         let mut user_service = MockUserService::default();
         user_service
@@ -797,7 +808,10 @@ mod tests {
             &user_service,
         );
 
-        let reason = service.enhanced_match_reason(&filter, &product).await.unwrap();
+        let reason = service
+            .enhanced_match_reason(&filter, &product)
+            .await
+            .unwrap();
 
         assert_eq!(reason, Some(EnhancedMatchReason::from("close match")));
     }
@@ -814,14 +828,16 @@ mod tests {
         let notification_service = MockNotificationService::default();
 
         let mut enhanced_service = MockEnhancedSearchMatchService::default();
-        enhanced_service.expect_evaluate().return_once(|_, _, _, _, _| {
-            Box::pin(async {
-                Ok(EnhancedSearchMatchResult {
-                    matches: false,
-                    reason: None,
+        enhanced_service
+            .expect_evaluate()
+            .return_once(|_, _, _, _, _| {
+                Box::pin(async {
+                    Ok(EnhancedSearchMatchResult {
+                        matches: false,
+                        reason: None,
+                    })
                 })
-            })
-        });
+            });
 
         let mut user_service = MockUserService::default();
         user_service
@@ -837,7 +853,10 @@ mod tests {
             &user_service,
         );
 
-        let reason = service.enhanced_match_reason(&filter, &product).await.unwrap();
+        let reason = service
+            .enhanced_match_reason(&filter, &product)
+            .await
+            .unwrap();
 
         assert_eq!(reason, None);
     }
@@ -854,13 +873,15 @@ mod tests {
         let notification_service = MockNotificationService::default();
 
         let mut enhanced_service = MockEnhancedSearchMatchService::default();
-        enhanced_service.expect_evaluate().return_once(|_, _, _, _, _| {
-            Box::pin(async {
-                Err(EnhancedSearchMatchError::InvalidResponse(
-                    "bad llm response".to_string(),
-                ))
-            })
-        });
+        enhanced_service
+            .expect_evaluate()
+            .return_once(|_, _, _, _, _| {
+                Box::pin(async {
+                    Err(EnhancedSearchMatchError::InvalidResponse(
+                        "bad llm response".to_string(),
+                    ))
+                })
+            });
 
         let mut user_service = MockUserService::default();
         user_service
@@ -876,7 +897,10 @@ mod tests {
             &user_service,
         );
 
-        let reason = service.enhanced_match_reason(&filter, &product).await.unwrap();
+        let reason = service
+            .enhanced_match_reason(&filter, &product)
+            .await
+            .unwrap();
 
         assert_eq!(reason, None);
     }
@@ -988,7 +1012,9 @@ mod tests {
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
         filter_service
             .expect_count_user_search_filter_matches_for_this_month()
-            .return_once(|_| Box::pin(async { Ok(UserTier::Free.search_filter_match_quota() as u64) }));
+            .return_once(|_| {
+                Box::pin(async { Ok(UserTier::Free.search_filter_match_quota() as u64) })
+            });
         filter_service
             .expect_create_search_filter_product_matches()
             .return_once(move |matches| {
