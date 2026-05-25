@@ -2624,6 +2624,91 @@ Resources:
       FunctionResponseTypes:
         - ReportBatchItemFailures
 
+  SearchFilterPeriodicMatchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "search-filter-periodic-match-role-dev"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: SESAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: "*"
+        - PolicyName: S3ReadTemplateAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${MailTemplateBucket}/*"
+  SearchFilterPeriodicMatchLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "search-filter-periodic-match-dev"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt SearchFilterPeriodicMatchRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "search-filter-lambda-periodic-match-dev-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 900
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
+          STAGE_NAME: "dev"
+          COMMIT_SHA: !Sub "${CommitSHA}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
+          GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/dev/gemini-api-key}}"
+  SearchFilterPeriodicMatchScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: cron(0 15 * * ? *) # 17 CEST
+      State: ENABLED
+      Targets:
+        - Id: SearchFilterPeriodicMatchLambda
+          Arn: !GetAtt SearchFilterPeriodicMatchLambda.Arn
+  SearchFilterPeriodicMatchSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SearchFilterPeriodicMatchLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SearchFilterPeriodicMatchScheduleRule.Arn
+
   DynamoDbProductMaterializeOpenSearchEventRule:
     Type: AWS::Events::Rule
     Properties:

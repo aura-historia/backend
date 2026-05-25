@@ -164,6 +164,15 @@ fn check_search_filter_update_features_free(
     if search.shop_type_query.is_some() {
         return Err(ProductSearchSerdeField::ShopTypeQuery);
     }
+    if search.country_query.is_some() {
+        return Err(ProductSearchSerdeField::CountryQuery);
+    }
+    if search.continent_query.is_some() {
+        return Err(ProductSearchSerdeField::ContinentQuery);
+    }
+    if search.geo_address_distance_query.is_some() {
+        return Err(ProductSearchSerdeField::GeoAddressDistanceQuery);
+    }
     if search.created_query.is_some() {
         return Err(ProductSearchSerdeField::CreatedQuery);
     }

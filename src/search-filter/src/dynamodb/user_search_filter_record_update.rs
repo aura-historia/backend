@@ -1,4 +1,5 @@
 use crate::core::user_search_filter_name::UserSearchFilterName;
+use common::distance::data::GeoDistanceQueryData;
 use common::dynamodb_update::DynamoDbUpdate;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
@@ -6,6 +7,8 @@ use common::resource_state::record::ResourceStateRecord;
 use common::shop_name::ShopName;
 use common::slug_id::SlugId;
 use common::{currency::record::CurrencyRecord, language::record::LanguageRecord};
+use geo::data::continent_data::ContinentData;
+use isocountry::CountryCode;
 use product::dynamodb::product_state_record::ProductStateRecord;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -45,6 +48,12 @@ pub struct UserSearchFilterRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_type_query: Option<HashSet<ShopTypeRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub country_query: Option<HashSet<CountryCode>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continent_query: Option<HashSet<ContinentData>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geo_address_distance_query: Option<GeoDistanceQueryData>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price_query: Option<RangeQuery<u64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state_query: Option<HashSet<ProductStateRecord>>,
@@ -80,6 +89,12 @@ pub struct UserSearchFilterRecordUpdate {
     pub currency: Option<CurrencyRecord>,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub last_hybrid_search_matched: Option<OffsetDateTime>,
 }
 
 impl DynamoDbUpdate for UserSearchFilterRecordUpdate {}
@@ -108,6 +123,9 @@ mod fake {
                 seller_slug_id_query: config.fake_with_rng(rng),
                 exclude_seller_slug_id_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
+                country_query: None,
+                continent_query: config.fake_with_rng(rng),
+                geo_address_distance_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
                 created_query: fake_range_query_datetime(config, rng),
@@ -117,6 +135,7 @@ mod fake {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),
+                last_hybrid_search_matched: Some(OffsetDateTime::now_utc()),
             }
         }
     }

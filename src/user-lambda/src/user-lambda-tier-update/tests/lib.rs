@@ -52,6 +52,7 @@ fn search_filter_record(
         enhanced_search_description: None,
         created,
         updated: created,
+        last_hybrid_search_matched: created,
     };
     filter.into()
 }

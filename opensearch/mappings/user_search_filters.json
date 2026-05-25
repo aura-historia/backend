@@ -165,6 +165,10 @@
             "query": {
                 "type": "percolator"
             },
+            "search": {
+                "type": "object",
+                "enabled": true
+            },
             "shopName": {
                 "type": "keyword"
             },
@@ -300,6 +304,10 @@
                 "format": "strict_date_time"
             },
             "updated": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "lastHybridSearchMatched": {
                 "type": "date",
                 "format": "strict_date_time"
             },

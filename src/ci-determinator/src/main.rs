@@ -26,6 +26,7 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/product-watchlist-api",
     "src/search-filter",
     "src/search-filter-api",
+    "src/search-filter-lambda/src/search-filter-lambda-periodic-match",
     "src/search-filter-lambda/src/search-filter-lambda-percolate-product",
     "src/shop",
     "src/shop-api",
