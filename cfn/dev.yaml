@@ -2696,7 +2696,7 @@ Resources:
   SearchFilterPeriodicMatchScheduleRule:
     Type: AWS::Events::Rule
     Properties:
-      ScheduleExpression: rate(1 hour)
+      ScheduleExpression: cron(0 15 * * ? *) # 17 CEST
       State: ENABLED
       Targets:
         - Id: SearchFilterPeriodicMatchLambda

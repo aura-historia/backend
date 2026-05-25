@@ -388,3 +388,740 @@ fn mk_notification_command(
         external: filter.notifications,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::service::PeriodicMatcherServiceImpl;
+    use common::event_id::EventId;
+    use common::pagination::cursor::CursoredResult;
+    use common::query::range_query::RangeQuery;
+    use fake::{Fake, Faker};
+    use notification::core::{
+        notification::Notification,
+        notification_id::NotificationId,
+        notification::NotificationPayload,
+        notification_type::NotificationType,
+    };
+    use notification::service::notification_service::{
+        CreateNotificationsResult, MockNotificationService,
+    };
+    use product::service::query_service::MockQueryProductService;
+    use product_pipeline_embed_text::service::MockMultimodalEmbeddingService;
+    use search_filter::core::quota::SearchFilterQuota;
+    use search_filter::core::user_search_filter::EnhancedSearchDescription;
+    use search_filter::service::enhanced_search_match_service::{
+        EnhancedSearchMatchResult, MockEnhancedSearchMatchService,
+    };
+    use search_filter::service::user_search_filter_service::{
+        CreateSearchFilterProductMatchesResult, MockUserSearchFilterService,
+    };
+    use serde_json::json;
+    use time::macros::datetime;
+    use user::core::{tier::UserTier, user::User};
+    use user::service::user_service::MockUserService;
+
+    fn mk_filter() -> UserSearchFilter {
+        let mut filter: UserSearchFilter = Faker.fake();
+        filter.notifications = true;
+        filter.search.language = Language::En;
+        filter.search.currency = common::currency::domain::Currency::Eur;
+        filter.search.product_query = None;
+        filter.enhanced_search_description = None;
+        filter.last_hybrid_search_matched = datetime!(2026-05-10 12:00 UTC);
+        filter
+    }
+
+    fn mk_product() -> LocalizedProductView {
+        let mut product: LocalizedProductView = Faker.fake();
+        product.images.truncate(2);
+        product
+    }
+
+    fn mk_user(tier: UserTier) -> User {
+        let mut user: User = Faker.fake();
+        user.tier = tier;
+        user.language = Some(Language::En);
+        user
+    }
+
+    fn mk_notification(origin_event_id: EventId) -> Notification {
+        Notification {
+            user_id: Faker.fake(),
+            origin_event_id,
+            notification_id: NotificationId::new(),
+            notification_type: Some(NotificationType::Email),
+            notification_payload: Faker.fake::<NotificationPayload>(),
+            seen: false,
+            external: true,
+            created: OffsetDateTime::now_utc(),
+            updated: OffsetDateTime::now_utc(),
+        }
+    }
+
+    fn mk_search_result(
+        items: Vec<LocalizedProductView>,
+        search_after: Option<serde_json::Value>,
+    ) -> CursoredResult<LocalizedProductView, serde_json::Value> {
+        CursoredResult {
+            total: Some(items.len() as u64),
+            cursor: Cursor {
+                size: items.len() as u64,
+                search_after,
+            },
+            items,
+        }
+    }
+
+    #[test]
+    fn should_add_updated_min_after_last_match_when_none_exists() {
+        let search = product::core::product_search::ProductSearch::default();
+        let last_matched = datetime!(2026-05-10 12:00 UTC);
+
+        let updated = search_since_last_match(&search, last_matched);
+
+        assert_eq!(
+            updated.updated_query,
+            Some(RangeQuery {
+                min: Some(last_matched + Duration::NANOSECOND),
+                max: None,
+            })
+        );
+        assert_eq!(search.updated_query, None);
+    }
+
+    #[test]
+    fn should_keep_later_updated_min_when_search_already_has_one() {
+        let min = datetime!(2026-05-01 00:00 UTC);
+        let last_matched = datetime!(2026-05-10 12:00 UTC);
+        let mut search = product::core::product_search::ProductSearch::default();
+        search.updated_query = Some(RangeQuery {
+            min: Some(min),
+            max: Some(datetime!(2026-06-01 00:00 UTC)),
+        });
+
+        let updated = search_since_last_match(&search, last_matched);
+
+        assert_eq!(
+            updated.updated_query.unwrap().min,
+            Some(last_matched + Duration::NANOSECOND)
+        );
+    }
+
+    #[test]
+    fn should_build_notification_command_from_filter_and_product() {
+        let filter = mk_filter();
+        let product = mk_product();
+
+        let cmd = mk_notification_command(&product, &filter);
+
+        assert_eq!(cmd.user_id, filter.user_id);
+        assert!(cmd.external);
+        match cmd.notification_payload {
+            NotificationPayload::SearchFilter {
+                product_id,
+                shop_id,
+                shops_product_id,
+                search_filter_payload,
+                ..
+            } => {
+                assert_eq!(product_id, product.product_id);
+                assert_eq!(shop_id, product.shop_id);
+                assert_eq!(shops_product_id, product.shops_product_id);
+                assert_eq!(search_filter_payload.user_search_filter_id, filter.user_search_filter_id);
+                assert_eq!(search_filter_payload.user_search_filter_name, filter.name);
+            }
+            payload => panic!("expected search-filter payload, got {payload:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn should_update_watermark_when_no_products_match_for_filter() {
+        let filter = mk_filter();
+        let expected_user_id = filter.user_id;
+        let expected_filter_id = filter.user_search_filter_id;
+        let expected_min = filter.last_hybrid_search_matched + Duration::NANOSECOND;
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service.expect_update_user_search_filter().return_once(
+            move |user_id, filter_id, update| {
+                let actual_user_id = *user_id;
+                let actual_filter_id = *filter_id;
+                Box::pin(async move {
+                    assert_eq!(actual_user_id, expected_user_id);
+                    assert_eq!(actual_filter_id, expected_filter_id);
+                    assert_eq!(update.last_hybrid_search_matched, Some(update.updated));
+                    Ok(Faker.fake())
+                })
+            },
+        );
+
+        let mut query_service = MockQueryProductService::default();
+        query_service
+            .expect_search_products()
+            .return_once(move |search, _, cursor| {
+                assert_eq!(search.updated_query.as_ref().and_then(|range| range.min), Some(expected_min));
+                assert_eq!(
+                    *cursor,
+                    Some(Cursor {
+                        size: PRODUCT_PAGE_SIZE,
+                        search_after: None,
+                    })
+                );
+                Box::pin(async { Ok(CursoredResult::default()) })
+            });
+        query_service
+            .expect_search_products_with_dynamic_semantics()
+            .times(0);
+
+        let mut embedding_service = MockMultimodalEmbeddingService::default();
+        embedding_service.expect_embed_query().times(0);
+
+        let enhanced_service = MockEnhancedSearchMatchService::default();
+        let notification_service = MockNotificationService::default();
+        let user_service = MockUserService::default();
+
+        let service = PeriodicMatcherServiceImpl::new(
+            &filter_service,
+            &query_service,
+            &embedding_service,
+            &enhanced_service,
+            &notification_service,
+            &user_service,
+        );
+
+        let result = service.process_filter(filter).await.unwrap();
+
+        assert_eq!(result, (0, 0));
+    }
+
+    #[tokio::test]
+    async fn should_use_semantic_search_and_create_match_and_notification() {
+        let mut filter = mk_filter();
+        filter.search.product_query = Some("gold ring".try_into().unwrap());
+        let product = mk_product();
+        let product_for_match = product.clone();
+        let origin_event_id = product.event_id;
+        let user = mk_user(UserTier::Free);
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .return_once(|_| Box::pin(async { Ok(0) }));
+        filter_service
+            .expect_create_search_filter_product_matches()
+            .return_once(move |matches| {
+                Box::pin(async move {
+                    assert_eq!(matches.len(), 1);
+                    assert_eq!(matches[0].origin_event_id, product_for_match.event_id);
+                    Ok(CreateSearchFilterProductMatchesResult {
+                        processed: matches,
+                        unprocessed: vec![],
+                    })
+                })
+            });
+        filter_service.expect_update_user_search_filter().return_once(
+            |_, _, update| Box::pin(async move {
+                assert_eq!(update.last_hybrid_search_matched, Some(update.updated));
+                Ok(Faker.fake())
+            }),
+        );
+
+        let mut query_service = MockQueryProductService::default();
+        query_service.expect_search_products().times(0);
+        query_service
+            .expect_search_products_with_dynamic_semantics()
+            .return_once(move |search, embedding, cursor| {
+                assert_eq!(
+                    search.product_query.as_ref().map(|query| query.as_ref()),
+                    Some("gold ring")
+                );
+                assert_eq!(embedding, &[0.1_f32, 0.2_f32, 0.3_f32]);
+                assert_eq!(
+                    *cursor,
+                    Some(Cursor {
+                        size: PRODUCT_PAGE_SIZE,
+                        search_after: None,
+                    })
+                );
+                let product = product.clone();
+                Box::pin(async move { Ok(mk_search_result(vec![product], None)) })
+            });
+
+        let mut embedding_service = MockMultimodalEmbeddingService::default();
+        embedding_service
+            .expect_embed_query()
+            .return_once(|query| {
+                assert_eq!(query, "gold ring");
+                Box::pin(async { Ok(vec![0.1, 0.2, 0.3]) })
+            });
+
+        let enhanced_service = MockEnhancedSearchMatchService::default();
+
+        let mut notification_service = MockNotificationService::default();
+        notification_service
+            .expect_create_notifications()
+            .return_once(move |_event_id, cmds| {
+                Box::pin(async move {
+                    assert_eq!(cmds.len(), 1);
+                    assert_eq!(cmds[0].user_id, filter.user_id);
+                    CreateNotificationsResult {
+                        unprocessed: vec![],
+                        processed: vec![mk_notification(origin_event_id)],
+                    }
+                })
+            });
+
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_find_user()
+            .return_once(move |_| Box::pin(async move { Ok(user) }));
+
+        let service = PeriodicMatcherServiceImpl::new(
+            &filter_service,
+            &query_service,
+            &embedding_service,
+            &enhanced_service,
+            &notification_service,
+            &user_service,
+        );
+
+        let result = service.process_filter(filter).await.unwrap();
+
+        assert_eq!(result, (1, 1));
+    }
+
+    #[tokio::test]
+    async fn should_skip_existing_product_matches() {
+        let filter = mk_filter();
+        let product = mk_product();
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .return_once(|_| Box::pin(async { Ok(0) }));
+
+        let query_service = MockQueryProductService::default();
+        let embedding_service = MockMultimodalEmbeddingService::default();
+        let enhanced_service = MockEnhancedSearchMatchService::default();
+        let notification_service = MockNotificationService::default();
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_find_user()
+            .return_once(|_| Box::pin(async { Ok(mk_user(UserTier::Free)) }));
+
+        let service = PeriodicMatcherServiceImpl::new(
+            &filter_service,
+            &query_service,
+            &embedding_service,
+            &enhanced_service,
+            &notification_service,
+            &user_service,
+        );
+
+        let (matches, notifications) = service
+            .match_products_for_filter(&filter, vec![product])
+            .await
+            .unwrap();
+
+        assert!(matches.is_empty());
+        assert!(notifications.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_return_none_for_enhanced_reason_when_filter_has_no_enhanced_description() {
+        let filter = mk_filter();
+        let product = mk_product();
+
+        let filter_service = MockUserSearchFilterService::default();
+        let query_service = MockQueryProductService::default();
+        let embedding_service = MockMultimodalEmbeddingService::default();
+        let enhanced_service = MockEnhancedSearchMatchService::default();
+        let notification_service = MockNotificationService::default();
+        let user_service = MockUserService::default();
+
+        let service = PeriodicMatcherServiceImpl::new(
+            &filter_service,
+            &query_service,
+            &embedding_service,
+            &enhanced_service,
+            &notification_service,
+            &user_service,
+        );
+
+        let reason = service.enhanced_match_reason(&filter, &product).await.unwrap();
+
+        assert_eq!(reason, None);
+    }
+
+    #[tokio::test]
+    async fn should_return_reason_when_enhanced_match_succeeds() {
+        let mut filter = mk_filter();
+        filter.enhanced_search_description = Some(EnhancedSearchDescription::from("gold"));
+        let product = mk_product();
+        let expected_reason = Some(EnhancedMatchReason::from("close match"));
+
+        let filter_service = MockUserSearchFilterService::default();
+        let query_service = MockQueryProductService::default();
+        let embedding_service = MockMultimodalEmbeddingService::default();
+        let notification_service = MockNotificationService::default();
+
+        let mut enhanced_service = MockEnhancedSearchMatchService::default();
+        enhanced_service.expect_evaluate().return_once(move |_, _, _, _, _| {
+            let reason = expected_reason.clone();
+            Box::pin(async move {
+                Ok(EnhancedSearchMatchResult {
+                    matches: true,
+                    reason,
+                })
+            })
+        });
+
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_find_user()
+            .return_once(|_| Box::pin(async { Ok(mk_user(UserTier::Free)) }));
+
+        let service = PeriodicMatcherServiceImpl::new(
+            &filter_service,
+            &query_service,
+            &embedding_service,
+            &enhanced_service,
+            &notification_service,
+            &user_service,
+        );
+
+        let reason = service.enhanced_match_reason(&filter, &product).await.unwrap();
+
+        assert_eq!(reason, Some(EnhancedMatchReason::from("close match")));
+    }
+
+    #[tokio::test]
+    async fn should_return_none_when_enhanced_match_does_not_match() {
+        let mut filter = mk_filter();
+        filter.enhanced_search_description = Some(EnhancedSearchDescription::from("gold"));
+        let product = mk_product();
+
+        let filter_service = MockUserSearchFilterService::default();
+        let query_service = MockQueryProductService::default();
+        let embedding_service = MockMultimodalEmbeddingService::default();
+        let notification_service = MockNotificationService::default();
+
+        let mut enhanced_service = MockEnhancedSearchMatchService::default();
+        enhanced_service.expect_evaluate().return_once(|_, _, _, _, _| {
+            Box::pin(async {
+                Ok(EnhancedSearchMatchResult {
+                    matches: false,
+                    reason: None,
+                })
+            })
+        });
+
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_find_user()
+            .return_once(|_| Box::pin(async { Ok(mk_user(UserTier::Free)) }));
+
+        let service = PeriodicMatcherServiceImpl::new(
+            &filter_service,
+            &query_service,
+            &embedding_service,
+            &enhanced_service,
+            &notification_service,
+            &user_service,
+        );
+
+        let reason = service.enhanced_match_reason(&filter, &product).await.unwrap();
+
+        assert_eq!(reason, None);
+    }
+
+    #[tokio::test]
+    async fn should_ignore_enhanced_match_errors_and_continue_without_reason() {
+        let mut filter = mk_filter();
+        filter.enhanced_search_description = Some(EnhancedSearchDescription::from("gold"));
+        let product = mk_product();
+
+        let filter_service = MockUserSearchFilterService::default();
+        let query_service = MockQueryProductService::default();
+        let embedding_service = MockMultimodalEmbeddingService::default();
+        let notification_service = MockNotificationService::default();
+
+        let mut enhanced_service = MockEnhancedSearchMatchService::default();
+        enhanced_service.expect_evaluate().return_once(|_, _, _, _, _| {
+            Box::pin(async {
+                Err(EnhancedSearchMatchError::InvalidResponse(
+                    "bad llm response".to_string(),
+                ))
+            })
+        });
+
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_find_user()
+            .return_once(|_| Box::pin(async { Ok(mk_user(UserTier::Free)) }));
+
+        let service = PeriodicMatcherServiceImpl::new(
+            &filter_service,
+            &query_service,
+            &embedding_service,
+            &enhanced_service,
+            &notification_service,
+            &user_service,
+        );
+
+        let reason = service.enhanced_match_reason(&filter, &product).await.unwrap();
+
+        assert_eq!(reason, None);
+    }
+
+    #[tokio::test]
+    async fn should_paginate_filters_and_accumulate_results() {
+        let first_filter = mk_filter();
+        let second_filter = mk_filter();
+        let page_counter = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_search_user_search_filters()
+            .times(2)
+            .returning(move |search, cursor| {
+                let mut page = page_counter.lock().unwrap();
+                let result = match *page {
+                    0 => {
+                        assert_eq!(search.state, Some(ResourceState::Active));
+                        assert_eq!(
+                            *cursor,
+                            Some(Cursor {
+                                size: FILTER_PAGE_SIZE,
+                                search_after: None,
+                            })
+                        );
+                        CursoredResult {
+                            items: vec![first_filter.clone()],
+                            cursor: Cursor {
+                                size: 1,
+                                search_after: Some(json!(["cursor-1"])),
+                            },
+                            total: Some(2),
+                        }
+                    }
+                    1 => {
+                        assert_eq!(search.state, Some(ResourceState::Active));
+                        assert_eq!(
+                            *cursor,
+                            Some(Cursor {
+                                size: 1,
+                                search_after: Some(json!(["cursor-1"])),
+                            })
+                        );
+                        CursoredResult {
+                            items: vec![second_filter.clone()],
+                            cursor: Cursor {
+                                size: 1,
+                                search_after: None,
+                            },
+                            total: Some(2),
+                        }
+                    }
+                    _ => unreachable!("unexpected extra page"),
+                };
+                *page += 1;
+                Box::pin(async move { Ok(result) })
+            });
+        filter_service
+            .expect_update_user_search_filter()
+            .times(2)
+            .returning(|_, _, _| Box::pin(async { Ok(Faker.fake()) }));
+
+        let mut query_service = MockQueryProductService::default();
+        query_service
+            .expect_search_products()
+            .times(2)
+            .returning(|_, _, _| Box::pin(async { Ok(CursoredResult::default()) }));
+        query_service
+            .expect_search_products_with_dynamic_semantics()
+            .times(0);
+
+        let mut embedding_service = MockMultimodalEmbeddingService::default();
+        embedding_service.expect_embed_query().times(0);
+
+        let enhanced_service = MockEnhancedSearchMatchService::default();
+        let notification_service = MockNotificationService::default();
+        let user_service = MockUserService::default();
+
+        let service = PeriodicMatcherServiceImpl::new(
+            &filter_service,
+            &query_service,
+            &embedding_service,
+            &enhanced_service,
+            &notification_service,
+            &user_service,
+        );
+
+        let result = service.match_active_filters().await.unwrap();
+
+        assert_eq!(
+            result,
+            PeriodicMatcherResult {
+                filters_processed: 2,
+                matches_created: 0,
+                notifications_created: 0,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn should_fail_when_match_batch_write_leaves_unprocessed_items() {
+        let filter = mk_filter();
+        let product = mk_product();
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .return_once(|_| Box::pin(async { Ok(UserTier::Free.search_filter_match_quota() as u64) }));
+        filter_service
+            .expect_create_search_filter_product_matches()
+            .return_once(move |matches| {
+                let unprocessed = matches.clone();
+                Box::pin(async move {
+                    Ok(CreateSearchFilterProductMatchesResult {
+                        processed: vec![],
+                        unprocessed,
+                    })
+                })
+            });
+        filter_service.expect_update_user_search_filter().times(0);
+
+        let mut query_service = MockQueryProductService::default();
+        query_service
+            .expect_search_products()
+            .return_once(move |_, _, _| {
+                let product = product.clone();
+                Box::pin(async move { Ok(mk_search_result(vec![product], None)) })
+            });
+        query_service
+            .expect_search_products_with_dynamic_semantics()
+            .times(0);
+
+        let mut embedding_service = MockMultimodalEmbeddingService::default();
+        embedding_service.expect_embed_query().times(0);
+
+        let enhanced_service = MockEnhancedSearchMatchService::default();
+        let notification_service = MockNotificationService::default();
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_find_user()
+            .return_once(|_| Box::pin(async { Ok(mk_user(UserTier::Free)) }));
+
+        let service = PeriodicMatcherServiceImpl::new(
+            &filter_service,
+            &query_service,
+            &embedding_service,
+            &enhanced_service,
+            &notification_service,
+            &user_service,
+        );
+
+        let result = service.process_filter(filter).await;
+
+        assert!(matches!(
+            result,
+            Err(PeriodicMatcherError::UserSearchFilterError(
+                UserSearchFilterError::SdkBatchWriteItemError(_)
+            ))
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_fail_when_notification_batch_write_leaves_unprocessed_items() {
+        let filter = mk_filter();
+        let product = mk_product();
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .return_once(|_| Box::pin(async { Ok(0) }));
+        filter_service
+            .expect_create_search_filter_product_matches()
+            .return_once(move |matches| {
+                Box::pin(async move {
+                    Ok(CreateSearchFilterProductMatchesResult {
+                        processed: matches,
+                        unprocessed: vec![],
+                    })
+                })
+            });
+        filter_service.expect_update_user_search_filter().times(0);
+
+        let mut query_service = MockQueryProductService::default();
+        query_service
+            .expect_search_products()
+            .return_once(move |_, _, _| {
+                let product = product.clone();
+                Box::pin(async move { Ok(mk_search_result(vec![product], None)) })
+            });
+        query_service
+            .expect_search_products_with_dynamic_semantics()
+            .times(0);
+
+        let mut embedding_service = MockMultimodalEmbeddingService::default();
+        embedding_service.expect_embed_query().times(0);
+
+        let enhanced_service = MockEnhancedSearchMatchService::default();
+        let mut notification_service = MockNotificationService::default();
+        notification_service
+            .expect_create_notifications()
+            .return_once(|_, cmds| {
+                Box::pin(async move {
+                    CreateNotificationsResult {
+                        unprocessed: cmds
+                            .into_iter()
+                            .map(|cmd| {
+                                (
+                                    cmd,
+                                    notification::service::notification_service::NotificationError::UserNotFound(Faker.fake()),
+                                )
+                            })
+                            .collect(),
+                        processed: vec![],
+                    }
+                })
+            });
+
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_find_user()
+            .return_once(|_| Box::pin(async { Ok(mk_user(UserTier::Free)) }));
+
+        let service = PeriodicMatcherServiceImpl::new(
+            &filter_service,
+            &query_service,
+            &embedding_service,
+            &enhanced_service,
+            &notification_service,
+            &user_service,
+        );
+
+        let result = service.process_filter(filter).await;
+
+        assert!(matches!(
+            result,
+            Err(PeriodicMatcherError::UserSearchFilterError(
+                UserSearchFilterError::SdkBatchWriteItemError(_)
+            ))
+        ));
+    }
+}
