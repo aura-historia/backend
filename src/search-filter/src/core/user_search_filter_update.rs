@@ -83,7 +83,7 @@ impl Default for UserSearchFilterUpdate {
             auction_end_query: None,
             language: None,
             currency: None,
-            updated: OffsetDateTime::UNIX_EPOCH,
+            updated: OffsetDateTime::now_utc(),
             last_hybrid_search_matched: None,
         }
     }

@@ -4,7 +4,7 @@ use common::pagination::cursor::Cursor;
 use common::resource_state::domain::ResourceState;
 use notification::core::notification::{NotificationPayload, NotificationSearchFilterPayload};
 use notification::service::command::CreateNotificationCommand;
-use notification::service::notification_service::NotificationService;
+use notification::service::notification_service::{NotificationError, NotificationService};
 use product::core::description::Description;
 use product::core::product::LocalizedProductView;
 use product::core::product_search::ProductSearch;
@@ -23,7 +23,7 @@ use search_filter::service::user_search_filter_service::{
     UserSearchFilterError, UserSearchFilterService,
 };
 use time::{Duration, OffsetDateTime};
-use tracing::{debug, warn};
+use tracing::debug;
 use user::service::user_service::{UserService, UserServiceError};
 
 const FILTER_PAGE_SIZE: u64 = 100;
@@ -48,6 +48,17 @@ pub enum PeriodicMatcherError {
     EnhancedSearchMatchError(#[from] EnhancedSearchMatchError),
     #[error("UserServiceError: {0}")]
     UserServiceError(#[from] UserServiceError),
+    #[error("NotificationError: {0}")]
+    NotificationError(NotificationError),
+}
+
+/// Result of evaluating the enhanced-match gate for one product.
+#[derive(Debug, PartialEq)]
+enum EnhancedGating {
+    /// LLM confirmed the product matches (or no enhanced description was set).
+    Included(Option<EnhancedMatchReason>),
+    /// LLM explicitly rejected the product — must be excluded from matches.
+    Excluded,
 }
 
 #[async_trait::async_trait]
@@ -104,6 +115,9 @@ impl<'a> PeriodicMatcherServiceImpl<'a> {
         });
         let mut matches_created = 0;
         let mut notifications_created = 0;
+        // Quota is computed lazily on the first page that contains products,
+        // ensuring we call DynamoDB count exactly once per filter invocation.
+        let mut remaining_quota: Option<u32> = None;
 
         loop {
             let products = match embedding.as_ref() {
@@ -127,40 +141,45 @@ impl<'a> PeriodicMatcherServiceImpl<'a> {
                 break;
             }
 
-            let (matches, notifications) = self
-                .match_products_for_filter(&filter, products.items)
+            // Lazy quota init: fetch count + tier once, on first non-empty page.
+            if remaining_quota.is_none() {
+                let match_count = self
+                    .user_search_filter_service
+                    .count_user_search_filter_matches_for_this_month(&filter.user_id)
+                    .await?;
+                let user = self.user_service.find_user(&filter.user_id).await?;
+                let quota = user.tier.search_filter_match_quota();
+                remaining_quota = Some(quota.saturating_sub(match_count as u32));
+            }
+            let remaining = remaining_quota.as_mut().unwrap();
+
+            let pairs = self
+                .match_products_for_filter(&filter, products.items, remaining)
                 .await?;
 
-            if !matches.is_empty() {
+            if !pairs.is_empty() {
+                let matches: Vec<_> = pairs.iter().map(|(m, _)| m.clone()).collect();
                 let result = self
                     .user_search_filter_service
                     .create_search_filter_product_matches(matches)
                     .await?;
                 if !result.unprocessed.is_empty() {
-                    return Err(UserSearchFilterError::SdkBatchWriteItemError(
-                        aws_sdk_dynamodb::error::SdkError::construction_failure(
-                            "Failed writing all periodic hybrid search-filter matches.",
-                        ),
+                    return Err(UserSearchFilterError::PeriodicHybridMatchWriteIncomplete(
+                        result.unprocessed.len(),
                     )
                     .into());
                 }
                 matches_created += result.processed.len();
-            }
 
-            if !notifications.is_empty() {
-                let notification_result = self
-                    .notification_service
-                    .create_notifications(&common::event_id::EventId::new(), notifications)
-                    .await;
-                if !notification_result.unprocessed.is_empty() {
-                    return Err(UserSearchFilterError::SdkBatchWriteItemError(
-                        aws_sdk_dynamodb::error::SdkError::construction_failure(
-                            "Failed writing all periodic hybrid search-filter notifications.",
-                        ),
-                    )
-                    .into());
+                for (match_item, notification_cmd) in pairs {
+                    if let Some(cmd) = notification_cmd {
+                        self.notification_service
+                            .create_notification(&match_item.origin_event_id, cmd)
+                            .await
+                            .map_err(PeriodicMatcherError::NotificationError)?;
+                        notifications_created += 1;
+                    }
                 }
-                notifications_created += notification_result.processed.len();
             }
 
             let next_cursor = products.cursor;
@@ -189,17 +208,13 @@ impl<'a> PeriodicMatcherServiceImpl<'a> {
         &self,
         filter: &UserSearchFilter,
         products: Vec<LocalizedProductView>,
+        remaining_quota: &mut u32,
     ) -> Result<
-        (
-            Vec<SearchFilterProductMatch>,
-            Vec<CreateNotificationCommand>,
-        ),
+        Vec<(SearchFilterProductMatch, Option<CreateNotificationCommand>)>,
         PeriodicMatcherError,
     > {
-        let mut matches = Vec::new();
-        let mut notifications = Vec::new();
+        let mut pairs = Vec::new();
         let now = OffsetDateTime::now_utc();
-        let quota_allows_notification = self.user_allows_notification(filter).await?;
 
         for product in products {
             let existing = self
@@ -217,13 +232,27 @@ impl<'a> PeriodicMatcherServiceImpl<'a> {
                     searchFilterId = %filter.user_search_filter_id,
                     shopId = %product.shop_id,
                     shopsProductId = %product.shops_product_id,
-                    "Skipping already-matched search filter for product."
+                    "search-filter-lambda-periodic-match: skipping already-matched product"
                 );
                 continue;
             }
 
-            let enhanced_match_reason = self.enhanced_match_reason(filter, &product).await?;
-            matches.push(SearchFilterProductMatch {
+            let gating = self.evaluate_enhanced_gating(filter, &product).await?;
+            let enhanced_match_reason = match gating {
+                EnhancedGating::Excluded => {
+                    debug!(
+                        userId = %filter.user_id,
+                        searchFilterId = %filter.user_search_filter_id,
+                        shopId = %product.shop_id,
+                        shopsProductId = %product.shops_product_id,
+                        "search-filter-lambda-periodic-match: enhanced match rejected product"
+                    );
+                    continue;
+                }
+                EnhancedGating::Included(reason) => reason,
+            };
+
+            let match_item = SearchFilterProductMatch {
                 user_id: filter.user_id,
                 user_search_filter_id: filter.user_search_filter_id,
                 user_search_filter_name: Some(filter.name.clone()),
@@ -231,27 +260,32 @@ impl<'a> PeriodicMatcherServiceImpl<'a> {
                 shops_product_id: product.shops_product_id.clone(),
                 product_id: product.product_id,
                 origin_event_id: product.event_id,
-                enhanced_match_reason: enhanced_match_reason.clone(),
+                enhanced_match_reason,
                 feedback: None,
                 created: now,
                 updated: now,
-            });
+            };
 
-            if quota_allows_notification {
-                notifications.push(mk_notification_command(&product, filter));
-            }
+            let notification_cmd = if *remaining_quota > 0 {
+                *remaining_quota -= 1;
+                Some(mk_notification_command(&product, filter))
+            } else {
+                None
+            };
+
+            pairs.push((match_item, notification_cmd));
         }
 
-        Ok((matches, notifications))
+        Ok(pairs)
     }
 
-    async fn enhanced_match_reason(
+    async fn evaluate_enhanced_gating(
         &self,
         filter: &UserSearchFilter,
         product: &LocalizedProductView,
-    ) -> Result<Option<EnhancedMatchReason>, PeriodicMatcherError> {
+    ) -> Result<EnhancedGating, PeriodicMatcherError> {
         let Some(enhanced_description) = filter.enhanced_search_description.as_ref() else {
-            return Ok(None);
+            return Ok(EnhancedGating::Included(None));
         };
 
         let language = self
@@ -278,30 +312,17 @@ impl<'a> PeriodicMatcherServiceImpl<'a> {
             )
             .await
         {
-            Ok(result) if result.matches => Ok(result.reason),
-            Ok(_) => Ok(None),
-            Err(err) => {
-                warn!(
+            Ok(result) if result.matches => Ok(EnhancedGating::Included(result.reason)),
+            Ok(_) => {
+                debug!(
                     userId = %filter.user_id,
                     searchFilterId = %filter.user_search_filter_id,
-                    error = %err,
-                    "Enhanced search match evaluation failed. Including filter without reason."
+                    "search-filter-lambda-periodic-match: enhanced match rejected product"
                 );
-                Ok(None)
+                Ok(EnhancedGating::Excluded)
             }
+            Err(err) => Err(err.into()),
         }
-    }
-
-    async fn user_allows_notification(
-        &self,
-        filter: &UserSearchFilter,
-    ) -> Result<bool, PeriodicMatcherError> {
-        let user = self.user_service.find_user(&filter.user_id).await?;
-        let match_count = self
-            .user_search_filter_service
-            .count_user_search_filter_matches_for_this_month(&filter.user_id)
-            .await?;
-        Ok((match_count as u32) < user.tier.search_filter_match_quota())
     }
 }
 
@@ -401,9 +422,7 @@ mod tests {
         notification::Notification, notification::NotificationPayload,
         notification_id::NotificationId, notification_type::NotificationType,
     };
-    use notification::service::notification_service::{
-        CreateNotificationsResult, MockNotificationService,
-    };
+    use notification::service::notification_service::MockNotificationService;
     use product::service::query_service::MockQueryProductService;
     use product_pipeline_embed_text::service::MockMultimodalEmbeddingService;
     use search_filter::core::quota::SearchFilterQuota;
@@ -669,16 +688,11 @@ mod tests {
 
         let mut notification_service = MockNotificationService::default();
         notification_service
-            .expect_create_notifications()
-            .return_once(move |_event_id, cmds| {
-                Box::pin(async move {
-                    assert_eq!(cmds.len(), 1);
-                    assert_eq!(cmds[0].user_id, filter.user_id);
-                    CreateNotificationsResult {
-                        unprocessed: vec![],
-                        processed: vec![mk_notification(origin_event_id)],
-                    }
-                })
+            .expect_create_notification()
+            .return_once(move |event_id, _cmd| {
+                assert_eq!(*event_id, origin_event_id);
+                let eid = *event_id;
+                Box::pin(async move { Ok(mk_notification(eid)) })
             });
 
         let mut user_service = MockUserService::default();
@@ -709,18 +723,12 @@ mod tests {
         filter_service
             .expect_find_search_filter_product_match()
             .return_once(|_, _, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
-        filter_service
-            .expect_count_user_search_filter_matches_for_this_month()
-            .return_once(|_| Box::pin(async { Ok(0) }));
 
         let query_service = MockQueryProductService::default();
         let embedding_service = MockMultimodalEmbeddingService::default();
         let enhanced_service = MockEnhancedSearchMatchService::default();
         let notification_service = MockNotificationService::default();
-        let mut user_service = MockUserService::default();
-        user_service
-            .expect_find_user()
-            .return_once(|_| Box::pin(async { Ok(mk_user(UserTier::Free)) }));
+        let user_service = MockUserService::default();
 
         let service = PeriodicMatcherServiceImpl::new(
             &filter_service,
@@ -731,17 +739,17 @@ mod tests {
             &user_service,
         );
 
-        let (matches, notifications) = service
-            .match_products_for_filter(&filter, vec![product])
+        let mut quota = u32::MAX;
+        let pairs = service
+            .match_products_for_filter(&filter, vec![product], &mut quota)
             .await
             .unwrap();
 
-        assert!(matches.is_empty());
-        assert!(notifications.is_empty());
+        assert!(pairs.is_empty());
     }
 
     #[tokio::test]
-    async fn should_return_none_for_enhanced_reason_when_filter_has_no_enhanced_description() {
+    async fn should_return_included_with_no_reason_when_filter_has_no_enhanced_description() {
         let filter = mk_filter();
         let product = mk_product();
 
@@ -761,16 +769,16 @@ mod tests {
             &user_service,
         );
 
-        let reason = service
-            .enhanced_match_reason(&filter, &product)
+        let gating = service
+            .evaluate_enhanced_gating(&filter, &product)
             .await
             .unwrap();
 
-        assert_eq!(reason, None);
+        assert_eq!(gating, EnhancedGating::Included(None));
     }
 
     #[tokio::test]
-    async fn should_return_reason_when_enhanced_match_succeeds() {
+    async fn should_return_included_with_reason_when_enhanced_match_succeeds() {
         let mut filter = mk_filter();
         filter.enhanced_search_description = Some(EnhancedSearchDescription::from("gold"));
         let product = mk_product();
@@ -808,16 +816,19 @@ mod tests {
             &user_service,
         );
 
-        let reason = service
-            .enhanced_match_reason(&filter, &product)
+        let gating = service
+            .evaluate_enhanced_gating(&filter, &product)
             .await
             .unwrap();
 
-        assert_eq!(reason, Some(EnhancedMatchReason::from("close match")));
+        assert_eq!(
+            gating,
+            EnhancedGating::Included(Some(EnhancedMatchReason::from("close match")))
+        );
     }
 
     #[tokio::test]
-    async fn should_return_none_when_enhanced_match_does_not_match() {
+    async fn should_return_excluded_when_enhanced_match_does_not_match() {
         let mut filter = mk_filter();
         filter.enhanced_search_description = Some(EnhancedSearchDescription::from("gold"));
         let product = mk_product();
@@ -853,16 +864,16 @@ mod tests {
             &user_service,
         );
 
-        let reason = service
-            .enhanced_match_reason(&filter, &product)
+        let gating = service
+            .evaluate_enhanced_gating(&filter, &product)
             .await
             .unwrap();
 
-        assert_eq!(reason, None);
+        assert_eq!(gating, EnhancedGating::Excluded);
     }
 
     #[tokio::test]
-    async fn should_ignore_enhanced_match_errors_and_continue_without_reason() {
+    async fn should_fail_filter_when_enhanced_match_service_errors() {
         let mut filter = mk_filter();
         filter.enhanced_search_description = Some(EnhancedSearchDescription::from("gold"));
         let product = mk_product();
@@ -897,12 +908,66 @@ mod tests {
             &user_service,
         );
 
-        let reason = service
-            .enhanced_match_reason(&filter, &product)
+        let result = service.evaluate_enhanced_gating(&filter, &product).await;
+
+        assert!(matches!(
+            result,
+            Err(PeriodicMatcherError::EnhancedSearchMatchError(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_exclude_product_from_matches_when_enhanced_match_rejects() {
+        let mut filter = mk_filter();
+        filter.enhanced_search_description = Some(EnhancedSearchDescription::from("gold"));
+        let product = mk_product();
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+
+        let query_service = MockQueryProductService::default();
+        let embedding_service = MockMultimodalEmbeddingService::default();
+
+        let mut enhanced_service = MockEnhancedSearchMatchService::default();
+        enhanced_service
+            .expect_evaluate()
+            .return_once(|_, _, _, _, _| {
+                Box::pin(async {
+                    Ok(EnhancedSearchMatchResult {
+                        matches: false,
+                        reason: None,
+                    })
+                })
+            });
+
+        let notification_service = MockNotificationService::default();
+
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_find_user()
+            .return_once(|_| Box::pin(async { Ok(mk_user(UserTier::Free)) }));
+
+        let service = PeriodicMatcherServiceImpl::new(
+            &filter_service,
+            &query_service,
+            &embedding_service,
+            &enhanced_service,
+            &notification_service,
+            &user_service,
+        );
+
+        let mut quota = u32::MAX;
+        let pairs = service
+            .match_products_for_filter(&filter, vec![product], &mut quota)
             .await
             .unwrap();
 
-        assert_eq!(reason, None);
+        assert!(
+            pairs.is_empty(),
+            "LLM-rejected product must not appear in matches"
+        );
     }
 
     #[tokio::test]
@@ -1063,13 +1128,13 @@ mod tests {
         assert!(matches!(
             result,
             Err(PeriodicMatcherError::UserSearchFilterError(
-                UserSearchFilterError::SdkBatchWriteItemError(_)
+                UserSearchFilterError::PeriodicHybridMatchWriteIncomplete(_)
             ))
         ));
     }
 
     #[tokio::test]
-    async fn should_fail_when_notification_batch_write_leaves_unprocessed_items() {
+    async fn should_fail_when_notification_write_errors() {
         let filter = mk_filter();
         let product = mk_product();
 
@@ -1109,21 +1174,12 @@ mod tests {
         let enhanced_service = MockEnhancedSearchMatchService::default();
         let mut notification_service = MockNotificationService::default();
         notification_service
-            .expect_create_notifications()
-            .return_once(|_, cmds| {
-                Box::pin(async move {
-                    CreateNotificationsResult {
-                        unprocessed: cmds
-                            .into_iter()
-                            .map(|cmd| {
-                                (
-                                    cmd,
-                                    notification::service::notification_service::NotificationError::UserNotFound(Faker.fake()),
-                                )
-                            })
-                            .collect(),
-                        processed: vec![],
-                    }
+            .expect_create_notification()
+            .return_once(|_, _| {
+                Box::pin(async {
+                    Err(notification::service::notification_service::NotificationError::UserNotFound(
+                        Faker.fake(),
+                    ))
                 })
             });
 
@@ -1145,9 +1201,161 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(PeriodicMatcherError::UserSearchFilterError(
-                UserSearchFilterError::SdkBatchWriteItemError(_)
-            ))
+            Err(PeriodicMatcherError::NotificationError(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn should_suppress_notifications_when_quota_already_exhausted() {
+        let filter = mk_filter();
+        let product = mk_product();
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        // Return count equal to quota → remaining_quota = 0 → no notifications
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .return_once(|_| {
+                Box::pin(async { Ok(UserTier::Free.search_filter_match_quota() as u64) })
+            });
+        filter_service
+            .expect_create_search_filter_product_matches()
+            .return_once(move |matches| {
+                Box::pin(async move {
+                    Ok(CreateSearchFilterProductMatchesResult {
+                        processed: matches,
+                        unprocessed: vec![],
+                    })
+                })
+            });
+        filter_service
+            .expect_update_user_search_filter()
+            .return_once(|_, _, _| Box::pin(async { Ok(Faker.fake()) }));
+
+        let mut query_service = MockQueryProductService::default();
+        query_service
+            .expect_search_products()
+            .return_once(move |_, _, _| {
+                let product = product.clone();
+                Box::pin(async move { Ok(mk_search_result(vec![product], None)) })
+            });
+        query_service
+            .expect_search_products_with_dynamic_semantics()
+            .times(0);
+
+        let embedding_service = MockMultimodalEmbeddingService::default();
+        let enhanced_service = MockEnhancedSearchMatchService::default();
+        // create_notification must NOT be called because quota is exhausted
+        let notification_service = MockNotificationService::default();
+
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_find_user()
+            .return_once(|_| Box::pin(async { Ok(mk_user(UserTier::Free)) }));
+
+        let service = PeriodicMatcherServiceImpl::new(
+            &filter_service,
+            &query_service,
+            &embedding_service,
+            &enhanced_service,
+            &notification_service,
+            &user_service,
+        );
+
+        let (matches_created, notifications_created) =
+            service.process_filter(filter).await.unwrap();
+
+        assert_eq!(
+            matches_created, 1,
+            "match must be created even when quota exhausted"
+        );
+        assert_eq!(
+            notifications_created, 0,
+            "notification must be suppressed when quota exhausted"
+        );
+    }
+
+    #[tokio::test]
+    async fn should_count_down_quota_across_multiple_matches_in_same_page() {
+        let filter = mk_filter();
+        let product_a = mk_product();
+        let product_b = mk_product();
+        let user = mk_user(UserTier::Free);
+        // Set quota to 1: only the first product gets a notification
+        let quota = 1u32;
+        assert!(user.tier.search_filter_match_quota() >= quota);
+        let existing_count = user.tier.search_filter_match_quota() as u64 - quota as u64;
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_find_search_filter_product_match()
+            .times(2)
+            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .return_once(move |_| Box::pin(async move { Ok(existing_count) }));
+        filter_service
+            .expect_create_search_filter_product_matches()
+            .return_once(|matches| {
+                Box::pin(async move {
+                    Ok(CreateSearchFilterProductMatchesResult {
+                        processed: matches,
+                        unprocessed: vec![],
+                    })
+                })
+            });
+        filter_service
+            .expect_update_user_search_filter()
+            .return_once(|_, _, _| Box::pin(async { Ok(Faker.fake()) }));
+
+        let mut query_service = MockQueryProductService::default();
+        query_service
+            .expect_search_products()
+            .return_once(move |_, _, _| {
+                let a = product_a.clone();
+                let b = product_b.clone();
+                Box::pin(async move { Ok(mk_search_result(vec![a, b], None)) })
+            });
+        query_service
+            .expect_search_products_with_dynamic_semantics()
+            .times(0);
+
+        let embedding_service = MockMultimodalEmbeddingService::default();
+        let enhanced_service = MockEnhancedSearchMatchService::default();
+
+        // Only one notification must be created (for the first match)
+        let mut notification_service = MockNotificationService::default();
+        notification_service
+            .expect_create_notification()
+            .times(1)
+            .return_once(|event_id, _| {
+                let eid = *event_id;
+                Box::pin(async move { Ok(mk_notification(eid)) })
+            });
+
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_find_user()
+            .return_once(move |_| Box::pin(async move { Ok(user) }));
+
+        let service = PeriodicMatcherServiceImpl::new(
+            &filter_service,
+            &query_service,
+            &embedding_service,
+            &enhanced_service,
+            &notification_service,
+            &user_service,
+        );
+
+        let (matches_created, notifications_created) =
+            service.process_filter(filter).await.unwrap();
+
+        assert_eq!(matches_created, 2, "both products must be matched");
+        assert_eq!(
+            notifications_created, 1,
+            "only one notification allowed by remaining quota"
+        );
     }
 }

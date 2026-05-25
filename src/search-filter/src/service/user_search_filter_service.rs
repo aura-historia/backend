@@ -90,6 +90,9 @@ pub enum UserSearchFilterError {
 
     #[error("UserServiceError: {0}")]
     UserServiceError(UserServiceError),
+
+    #[error("Periodic hybrid match batch write incomplete: {0} match(es) not persisted.")]
+    PeriodicHybridMatchWriteIncomplete(usize),
 }
 
 #[cfg(feature = "data")]
@@ -139,6 +142,9 @@ pub mod api {
                         .with_detail(detail)
                 }
                 UserSearchFilterError::UserServiceError(_) => {
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
+                }
+                UserSearchFilterError::PeriodicHybridMatchWriteIncomplete(_) => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
             }

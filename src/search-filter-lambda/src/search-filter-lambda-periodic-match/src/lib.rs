@@ -9,13 +9,13 @@ pub async fn handler(
     service: &impl PeriodicMatcherService,
     event: LambdaEvent<serde_json::Value>,
 ) -> Result<(), lambda_runtime::Error> {
-    info!("Handler invoked.");
+    info!("search-filter-lambda-periodic-match: handler invoked");
     let result = service.match_active_filters().await?;
     info!(
         filtersProcessed = result.filters_processed,
         matchesCreated = result.matches_created,
         notificationsCreated = result.notifications_created,
-        "Handler finished."
+        "search-filter-lambda-periodic-match: handler finished"
     );
     Ok(())
 }
