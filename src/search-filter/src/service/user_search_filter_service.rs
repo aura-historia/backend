@@ -6,10 +6,12 @@ use crate::core::user_search_filter::{
     EnhancedSearchDescription, UserSearchFilter, UserSearchFilterSummary,
 };
 use crate::core::user_search_filter_name::UserSearchFilterName;
+use crate::core::user_search_filter_search::UserSearchFilterSearch;
 use crate::core::user_search_filter_update::UserSearchFilterUpdate;
 use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
 use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
 use crate::dynamodb::user_search_filter_match_record_update::UserSearchFilterMatchRecordUpdate;
+use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::batch::Batch;
 use common::pagination::cursor::{Cursor, CursoredResult};
@@ -181,10 +183,23 @@ pub trait UserSearchFilterService {
         update: UserSearchFilterUpdate,
     ) -> Result<UserSearchFilter, UserSearchFilterError>;
 
+    async fn update_user_search_filter_last_hybrid_search_matched(
+        &self,
+        user_id: &UserId,
+        user_search_filter_id: &UserSearchFilterId,
+        last_hybrid_search_matched: OffsetDateTime,
+    ) -> Result<UserSearchFilter, UserSearchFilterError>;
+
     async fn match_user_search_filters(
         &self,
         product_document: &product::opensearch::product_document::ProductDocument,
     ) -> Result<Vec<UserSearchFilterSummary>, UserSearchFilterError>;
+
+    async fn query_user_search_filters(
+        &self,
+        search: &UserSearchFilterSearch,
+        cursor: &Option<Cursor<serde_json::Value>>,
+    ) -> Result<CursoredResult<UserSearchFilter, serde_json::Value>, UserSearchFilterError>;
 
     async fn find_search_filter_product_match(
         &self,
@@ -377,6 +392,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             search,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
+            last_hybrid_search_matched: OffsetDateTime::now_utc(),
         };
 
         let () = user
@@ -472,6 +488,31 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
         }
     }
 
+    async fn update_user_search_filter_last_hybrid_search_matched(
+        &self,
+        user_id: &UserId,
+        user_search_filter_id: &UserSearchFilterId,
+        last_hybrid_search_matched: OffsetDateTime,
+    ) -> Result<UserSearchFilter, UserSearchFilterError> {
+        let updated_opt = self
+            .repository
+            .update_user_search_filter_record(
+                user_id,
+                user_search_filter_id,
+                UserSearchFilterRecordUpdate::last_hybrid_search_matched(
+                    last_hybrid_search_matched,
+                ),
+            )
+            .await?;
+        match updated_opt {
+            Some(updated) => Ok(updated.into()),
+            None => {
+                self.find_user_search_filter(user_id, user_search_filter_id)
+                    .await
+            }
+        }
+    }
+
     async fn match_user_search_filters(
         &self,
         product_document: &ProductDocument,
@@ -499,6 +540,51 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
         {
             let _ = product_document;
             unimplemented!("match_user_search_filters requires the 'opensearch' feature")
+        }
+    }
+
+    async fn query_user_search_filters(
+        &self,
+        search: &UserSearchFilterSearch,
+        cursor: &Option<Cursor<serde_json::Value>>,
+    ) -> Result<CursoredResult<UserSearchFilter, serde_json::Value>, UserSearchFilterError> {
+        #[cfg(feature = "opensearch")]
+        {
+            use serde::ser::Error as _;
+
+            let opensearch_repo = self.opensearch_repository.ok_or_else(|| {
+                UserSearchFilterError::OpenSearchError(opensearch::Error::from(
+                    serde_json::Error::custom(
+                        "OpenSearch repository not configured. Use UserSearchFilterServiceImpl::with_opensearch() to construct the service.",
+                    ),
+                ))
+            })?;
+            let search_response = opensearch_repo.query_documents(search, cursor).await?;
+            let cursor = Cursor {
+                size: search_response.hits.hits.len() as u64,
+                search_after: search_response
+                    .hits
+                    .hits
+                    .last()
+                    .and_then(|last| last.sort.clone()),
+            };
+            let items = search_response
+                .hits
+                .hits
+                .into_iter()
+                .map(|hit| hit.source.into())
+                .collect();
+            Ok(CursoredResult {
+                items,
+                cursor,
+                total: Some(search_response.hits.total.value),
+            })
+        }
+        #[cfg(not(feature = "opensearch"))]
+        {
+            let _ = search;
+            let _ = cursor;
+            unimplemented!("query_user_search_filters requires the 'opensearch' feature")
         }
     }
 

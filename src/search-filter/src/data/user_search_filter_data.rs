@@ -28,6 +28,8 @@ pub struct UserSearchFilterData {
 
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub last_hybrid_search_matched: OffsetDateTime,
 }
 
 impl From<UserSearchFilter> for UserSearchFilterData {
@@ -44,6 +46,7 @@ impl From<UserSearchFilter> for UserSearchFilterData {
             search: user_search_filter.search.into(),
             created: user_search_filter.created,
             updated: user_search_filter.updated,
+            last_hybrid_search_matched: user_search_filter.last_hybrid_search_matched,
         }
     }
 }
@@ -65,6 +68,7 @@ mod faker {
                 search: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
+                last_hybrid_search_matched: OffsetDateTime::now_utc(),
             }
         }
     }
@@ -147,6 +151,7 @@ mod tests {
             },
             created: datetime!(2000 - 05 - 04 0:00 UTC),
             updated: datetime!(2025 - 05 - 04 0:00 UTC),
+            last_hybrid_search_matched: datetime!(2025 - 05 - 04 1:00 UTC),
         };
 
         let expected = json!({
@@ -197,7 +202,8 @@ mod tests {
                 }
             },
             "created": "2000-05-04T00:00:00Z",
-            "updated": "2025-05-04T00:00:00Z"
+            "updated": "2025-05-04T00:00:00Z",
+            "lastHybridSearchMatched": "2025-05-04T01:00:00Z"
         });
 
         let actual = serde_json::to_value(user_search_filter).unwrap();
@@ -256,7 +262,8 @@ mod tests {
                 }
             },
             "created": "2000-05-04T00:00:00Z",
-            "updated": "2025-05-04T00:00:00Z"
+            "updated": "2025-05-04T00:00:00Z",
+            "lastHybridSearchMatched": "2025-05-04T01:00:00Z"
         });
         let expected = UserSearchFilterData {
             user_id,
@@ -312,6 +319,7 @@ mod tests {
             },
             created: datetime!(2000 - 05 - 04 0:00 UTC),
             updated: datetime!(2025 - 05 - 04 0:00 UTC),
+            last_hybrid_search_matched: datetime!(2025 - 05 - 04 1:00 UTC),
         };
 
         let actual: UserSearchFilterData = serde_json::from_value(json).unwrap();

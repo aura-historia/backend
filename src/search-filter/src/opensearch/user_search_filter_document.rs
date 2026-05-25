@@ -6,6 +6,7 @@ use crate::dynamodb::user_search_filter_record::UserSearchFilterRecord;
 use common::resource_state::document::ResourceStateDocument;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
+use product::data::product_search_data::ProductSearchData;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
@@ -23,6 +24,7 @@ pub struct UserSearchFilterDocument {
     pub notifications: bool,
     #[serde(default)]
     pub state: ResourceStateDocument,
+    pub search: ProductSearchData,
     pub query: ProductPercolatorQuery,
 
     #[serde(with = "time::serde::rfc3339")]
@@ -30,6 +32,8 @@ pub struct UserSearchFilterDocument {
 
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub last_hybrid_search_matched: OffsetDateTime,
 }
 
 impl UserSearchFilterDocument {
@@ -49,8 +53,28 @@ impl From<UserSearchFilterDocument> for UserSearchFilterSummary {
                 .map(EnhancedSearchDescription::from),
             notifications: document.notifications,
             state: document.state.into(),
+            last_hybrid_search_matched: document.last_hybrid_search_matched,
             created: document.created,
             updated: document.updated,
+        }
+    }
+}
+
+impl From<UserSearchFilterDocument> for UserSearchFilter {
+    fn from(document: UserSearchFilterDocument) -> Self {
+        UserSearchFilter {
+            user_search_filter_id: document.user_search_filter_id,
+            user_id: document.user_id,
+            name: document.name,
+            enhanced_search_description: document
+                .enhanced_search_description
+                .map(EnhancedSearchDescription::from),
+            notifications: document.notifications,
+            state: document.state.into(),
+            search: document.search.into(),
+            created: document.created,
+            updated: document.updated,
+            last_hybrid_search_matched: document.last_hybrid_search_matched,
         }
     }
 }
@@ -70,9 +94,11 @@ impl TryFrom<UserSearchFilterRecord> for UserSearchFilterDocument {
                 .map(Into::into),
             notifications: user_search_filter.notifications,
             state: user_search_filter.state.into(),
+            search: user_search_filter.search.clone().into(),
             query,
             created: user_search_filter.created,
             updated: user_search_filter.updated,
+            last_hybrid_search_matched: user_search_filter.last_hybrid_search_matched,
         };
         Ok(user_search_filter_doc)
     }

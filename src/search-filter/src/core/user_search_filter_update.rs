@@ -1,6 +1,7 @@
 use crate::core::user_search_filter::EnhancedSearchDescription;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
+use common::distance::domain::GeoDistanceQuery;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
@@ -14,6 +15,9 @@ use common::{
     price::domain::MonetaryAmount,
     product_state::domain::ProductState,
 };
+use geo::core::continent::Continent;
+use geo::data::continent_data::ContinentData;
+use isocountry::CountryCode;
 use product::dynamodb::product_state_record::ProductStateRecord;
 use shop::core::shop_type::ShopType;
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
@@ -36,6 +40,9 @@ pub struct UserSearchFilterUpdate {
     pub seller_slug_id_query: Option<HashSet<SlugId<0>>>,
     pub exclude_seller_slug_id_query: Option<HashSet<SlugId<0>>>,
     pub shop_type_query: Option<AnyOfQuery<ShopType>>,
+    pub country_query: Option<AnyOfQuery<CountryCode>>,
+    pub continent_query: Option<AnyOfQuery<Continent>>,
+    pub geo_address_distance_query: Option<GeoDistanceQuery>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
     pub state_query: Option<AnyOfQuery<ProductState>>,
     pub created_query: Option<RangeQuery<OffsetDateTime>>,
@@ -45,6 +52,7 @@ pub struct UserSearchFilterUpdate {
     pub language: Option<Language>,
     pub currency: Option<Currency>,
     pub updated: OffsetDateTime,
+    pub last_hybrid_search_matched: Option<OffsetDateTime>,
 }
 
 impl UserSearchFilterUpdate {
@@ -64,6 +72,9 @@ impl UserSearchFilterUpdate {
             seller_slug_id_query,
             exclude_seller_slug_id_query,
             shop_type_query,
+            country_query,
+            continent_query,
+            geo_address_distance_query,
             price_query,
             state_query,
             created_query,
@@ -73,6 +84,7 @@ impl UserSearchFilterUpdate {
             language,
             currency,
             updated: _,
+            last_hybrid_search_matched,
         } = self;
 
         name.is_none()
@@ -89,6 +101,9 @@ impl UserSearchFilterUpdate {
             && seller_slug_id_query.is_none()
             && exclude_seller_slug_id_query.is_none()
             && shop_type_query.is_none()
+            && country_query.is_none()
+            && continent_query.is_none()
+            && geo_address_distance_query.is_none()
             && price_query.is_none()
             && state_query.is_none()
             && created_query.is_none()
@@ -97,6 +112,7 @@ impl UserSearchFilterUpdate {
             && auction_end_query.is_none()
             && language.is_none()
             && currency.is_none()
+            && last_hybrid_search_matched.is_none()
     }
 }
 
@@ -119,6 +135,11 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
             shop_type_query: update
                 .shop_type_query
                 .map(|types| types.into_iter().map(ShopTypeRecord::from).collect()),
+            country_query: update.country_query.map(Into::into),
+            continent_query: update
+                .continent_query
+                .map(|continents| continents.into_iter().map(ContinentData::from).collect()),
+            geo_address_distance_query: update.geo_address_distance_query.map(Into::into),
             price_query: update
                 .price_query
                 .map(|range_query| range_query.map(u64::from)),
@@ -132,6 +153,7 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
             language: update.language.map(LanguageRecord::from),
             currency: update.currency.map(CurrencyRecord::from),
             updated: update.updated,
+            last_hybrid_search_matched: update.last_hybrid_search_matched,
         }
     }
 }
@@ -160,6 +182,9 @@ mod fake {
                 seller_slug_id_query: config.fake_with_rng(rng),
                 exclude_seller_slug_id_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
+                country_query: None,
+                continent_query: config.fake_with_rng(rng),
+                geo_address_distance_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
                 created_query: fake_range_query_datetime(config, rng),
@@ -169,6 +194,7 @@ mod fake {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),
+                last_hybrid_search_matched: Some(OffsetDateTime::now_utc()),
             }
         }
     }

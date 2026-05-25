@@ -19,6 +19,7 @@ pub struct UserSearchFilterSummary {
     pub state: ResourceState,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
+    pub last_hybrid_search_matched: OffsetDateTime,
 }
 
 #[derive(Debug, Clone, SerdeField)]
@@ -32,6 +33,7 @@ pub struct UserSearchFilter {
     pub enhanced_search_description: Option<EnhancedSearchDescription>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
+    pub last_hybrid_search_matched: OffsetDateTime,
 }
 
 impl From<UserSearchFilter> for UserSearchFilterSummary {
@@ -45,6 +47,7 @@ impl From<UserSearchFilter> for UserSearchFilterSummary {
             state: filter.state,
             created: filter.created,
             updated: filter.updated,
+            last_hybrid_search_matched: filter.last_hybrid_search_matched,
         }
     }
 }
@@ -66,6 +69,7 @@ mod faker {
                 enhanced_search_description: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
+                last_hybrid_search_matched: OffsetDateTime::now_utc(),
             }
         }
     }
@@ -81,6 +85,7 @@ mod faker {
                 state: ResourceState::Active,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
+                last_hybrid_search_matched: OffsetDateTime::now_utc(),
             }
         }
     }
