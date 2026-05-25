@@ -562,7 +562,7 @@ fn build_email_template_data(
             }
 
             if let Some(image) = image {
-                data["image_url"] = serde_json::json!(image.url.as_str());
+                data["image_url"] = serde_json::json!(image.as_str());
             }
 
             data
@@ -2763,11 +2763,7 @@ mod tests {
                 notification_type: None,
                 notification_payload: NotificationPayload::PartnerApplication {
                     shop_name: "Test Shop".into(),
-                    image: Some(product::core::product_image::ProductImage {
-                        url: image_url.clone(),
-                        prohibited_content:
-                            product::core::prohibited_content::ProhibitedContent::None,
-                    }),
+                    image: Some(image_url.clone()),
                     partner_application_payload: NotificationPartnerApplicationPayload::Approved {
                         partner_application_id: PartnerShopApplicationId::new(),
                     },

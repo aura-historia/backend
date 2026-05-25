@@ -182,6 +182,8 @@ pub struct NotificationRecord {
     // partner-application
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub partner_application_id: Option<PartnerShopApplicationId>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub partner_application_image: Option<url::Url>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -453,6 +455,7 @@ impl From<Notification> for NotificationRecord {
                     url: Some(url),
                     view_url: Some(view_url),
                     partner_application_id: None,
+                    partner_application_image: None,
                     new_price_native,
                     new_price_eur,
                     new_price_usd,
@@ -545,6 +548,7 @@ impl From<Notification> for NotificationRecord {
                     url: Some(url),
                     view_url: Some(view_url),
                     partner_application_id: None,
+                    partner_application_image: None,
                     new_price_native: None,
                     new_price_eur: None,
                     new_price_usd: None,
@@ -623,7 +627,7 @@ impl From<Notification> for NotificationRecord {
                     notification_reason,
                     seen: notification.seen,
                     external: notification.external,
-                    image: image.map(ProductImageRecord::from),
+                    image: None,
                     product_id: None,
                     product_slug_id: None,
                     shop_slug_id: None,
@@ -640,6 +644,7 @@ impl From<Notification> for NotificationRecord {
                     url: None,
                     view_url: None,
                     partner_application_id: Some(partner_application_id),
+                    partner_application_image: image,
                     new_price_native: None,
                     new_price_eur: None,
                     new_price_usd: None,
@@ -729,7 +734,7 @@ impl TryFrom<NotificationRecord> for Notification {
             };
             NotificationPayload::PartnerApplication {
                 shop_name,
-                image: record.image.map(ProductImage::from),
+                image: record.partner_application_image,
                 partner_application_payload,
             }
         } else {
@@ -987,6 +992,7 @@ mod faker {
                 url: Some(config.fake_with_rng(rng)),
                 view_url: Some(config.fake_with_rng(rng)),
                 partner_application_id: None,
+                partner_application_image: None,
                 created,
                 updated: created,
                 ttl: compute_ttl(&created),
@@ -1050,12 +1056,13 @@ mod image_round_trip_tests {
     use super::*;
     use fake::{Fake, Faker};
     use product::core::product_image::ProductImage;
+    use url::Url;
 
     fn extract_image(notification: &Notification) -> Option<ProductImage> {
         match &notification.notification_payload {
             NotificationPayload::Watchlist { image, .. } => image.clone(),
             NotificationPayload::SearchFilter { image, .. } => image.clone(),
-            NotificationPayload::PartnerApplication { image, .. } => image.clone(),
+            NotificationPayload::PartnerApplication { .. } => None,
         }
     }
 
@@ -1084,6 +1091,31 @@ mod image_round_trip_tests {
         assert!(
             extract_image(&notification).is_none(),
             "image should be None when record has no image"
+        );
+    }
+
+    fn extract_partner_application_image(notification: &Notification) -> Option<Url> {
+        match &notification.notification_payload {
+            NotificationPayload::PartnerApplication { image, .. } => image.clone(),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn should_preserve_partner_application_image_when_converting_notification_to_record_and_back() {
+        let image = Url::parse("https://example.com/logo.png").unwrap();
+        let mut record = Faker.fake::<NotificationRecord>();
+        record.notification_reason = NotificationReasonRecord::PartnerApplicationApproved;
+        record.partner_application_id = Some(PartnerShopApplicationId::new());
+        record.partner_application_image = Some(image.clone());
+        record.image = None;
+
+        let notification: Notification = record.try_into().expect("conversion should succeed");
+
+        assert_eq!(
+            Some(image),
+            extract_partner_application_image(&notification),
+            "partner application image should be preserved in round-trip"
         );
     }
 }

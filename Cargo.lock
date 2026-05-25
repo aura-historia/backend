@@ -4780,7 +4780,6 @@ dependencies = [
  "lambda_runtime",
  "notification",
  "partner-shop-application",
- "product",
  "rstest",
  "serde",
  "serde_json",

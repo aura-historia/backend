@@ -15,8 +15,6 @@ use partner_shop_application::dynamodb::partner_shop_application_record::Partner
 use partner_shop_application::dynamodb::partner_shop_application_record_update::PartnerShopApplicationRecordUpdate;
 use partner_shop_application::dynamodb::partner_shop_application_state_record::PartnerShopApplicationStateRecord;
 use partner_shop_application::dynamodb::repository::PartnerShopApplicationDynamoDbRepository;
-use product::core::product_image::ProductImage;
-use product::core::prohibited_content::ProhibitedContent;
 use serde::{Deserialize, Serialize};
 use shop::core::address::StructuredAddress;
 use shop::core::continent::Continent;
@@ -27,6 +25,7 @@ use shop::service::command::CreateShopCommand;
 use shop::service::command_service::CommandShopService;
 use time::OffsetDateTime;
 use tracing::info;
+use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -211,7 +210,7 @@ async fn create_or_resolve_shop(
     record: &PartnerShopApplicationRecord,
     shop_service: &(impl CommandShopService + Sync),
     shop_repository: &(impl ShopDynamoDbRepository + Sync),
-) -> Result<(ShopId, ShopName, Option<ProductImage>), StepFunctionError> {
+) -> Result<(ShopId, ShopName, Option<Url>), StepFunctionError> {
     match record.payload_type {
         PartnerShopApplicationPayloadTypeRecord::New => {
             let name = record
@@ -249,11 +248,7 @@ async fn create_or_resolve_shop(
 
             info!(shopId = %shop.shop_id, "Created new shop for partner application.");
 
-            Ok((
-                shop.shop_id,
-                name,
-                notification_image(record.shop_image.clone()),
-            ))
+            Ok((shop.shop_id, name, record.shop_image.clone()))
         }
         PartnerShopApplicationPayloadTypeRecord::Existing => {
             let shop_id = record
@@ -268,11 +263,7 @@ async fn create_or_resolve_shop(
                     StepFunctionError::MissingField(format!("Shop not found: {shop_id}"))
                 })?;
 
-            Ok((
-                shop_id,
-                shop_record.name,
-                notification_image(shop_record.image),
-            ))
+            Ok((shop_id, shop_record.name, shop_record.image))
         }
     }
 }
@@ -381,7 +372,7 @@ async fn create_approval_notification(
     notification_service: &(impl NotificationService + Sync),
     input: &StepFunctionInput,
     shop_name: ShopName,
-    image: Option<ProductImage>,
+    image: Option<Url>,
 ) -> Result<(), StepFunctionError> {
     let origin_event_id = EventId::new();
     let notification_cmd = CreateNotificationCommand {
@@ -482,22 +473,14 @@ fn resolve_shop_name(record: &PartnerShopApplicationRecord) -> ShopName {
         .unwrap_or_else(|| ShopName::from("Unknown Shop"))
 }
 
-fn notification_image(image: Option<url::Url>) -> Option<ProductImage> {
-    image.map(|url| ProductImage {
-        url,
-        prohibited_content: ProhibitedContent::None,
-    })
-}
-
 async fn resolve_shop_notification_data(
     record: &PartnerShopApplicationRecord,
     shop_repository: &(impl ShopDynamoDbRepository + Sync),
-) -> Result<(ShopName, Option<ProductImage>), StepFunctionError> {
+) -> Result<(ShopName, Option<Url>), StepFunctionError> {
     match record.payload_type {
-        PartnerShopApplicationPayloadTypeRecord::New => Ok((
-            resolve_shop_name(record),
-            notification_image(record.shop_image.clone()),
-        )),
+        PartnerShopApplicationPayloadTypeRecord::New => {
+            Ok((resolve_shop_name(record), record.shop_image.clone()))
+        }
         PartnerShopApplicationPayloadTypeRecord::Existing => {
             let shop_id = record
                 .existing_shop_id
@@ -510,7 +493,7 @@ async fn resolve_shop_notification_data(
                     StepFunctionError::MissingField(format!("Shop not found: {shop_id}"))
                 })?;
 
-            Ok((shop_record.name, notification_image(shop_record.image)))
+            Ok((shop_record.name, shop_record.image))
         }
     }
 }
@@ -719,7 +702,7 @@ mod tests {
         record.shop_type = Some(ShopTypeRecord::CommercialDealer);
         record.shop_domains = Some(Default::default());
         record.shop_image = None;
-        let expected_image = notification_image(record.shop_image.clone());
+        let expected_image = record.shop_image.clone();
 
         let mut mock_repo = MockPartnerShopApplicationDynamoDbRepository::new();
         mock_repo
@@ -822,7 +805,7 @@ mod tests {
         let mut shop_record: ShopRecord = Faker.fake();
         shop_record.shop_id = existing_shop_id;
         shop_record.partner_user_id = None;
-        let expected_image = notification_image(shop_record.image.clone());
+        let expected_image = shop_record.image.clone();
 
         let mut mock_shop_repo = MockShopDynamoDbRepository::new();
         mock_shop_repo
@@ -890,7 +873,7 @@ mod tests {
         record.applicant_user_id = applicant_user_id;
         record.payload_type = PartnerShopApplicationPayloadTypeRecord::New;
         record.shop_name = Some(shop_name.clone());
-        let expected_image = notification_image(record.shop_image.clone());
+        let expected_image = record.shop_image.clone();
 
         let mut mock_repo = MockPartnerShopApplicationDynamoDbRepository::new();
         mock_repo
@@ -966,7 +949,7 @@ mod tests {
 
         let mut shop_record: ShopRecord = Faker.fake();
         shop_record.shop_id = existing_shop_id;
-        let expected_image = notification_image(shop_record.image.clone());
+        let expected_image = shop_record.image.clone();
 
         let mut mock_shop_repo = MockShopDynamoDbRepository::new();
         mock_shop_repo

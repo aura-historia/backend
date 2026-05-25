@@ -12,7 +12,6 @@ geo = { workspace = true }
 common = { workspace = true }
 partner-shop-application = { workspace = true, features = ["service"] }
 notification = { workspace = true, features = ["service"] }
-product = { workspace = true }
 shop = { workspace = true, features = ["service", "dynamodb"] }
 user = { workspace = true, features = ["service", "data"] }
 serde = { workspace = true }
