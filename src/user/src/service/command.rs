@@ -1,15 +1,43 @@
-use crate::core::{first_name::FirstName, last_name::LastName, role::UserRole, tier::UserTier};
+use crate::core::{
+    access_token::{AccessTokenName, Scope},
+    first_name::FirstName,
+    last_name::LastName,
+    role::UserRole,
+    tier::UserTier,
+};
 use common::{
     currency::domain::Currency, language::domain::Language, stripe_customer_id::StripeCustomerId,
     user_id::UserId,
 };
 use geo::core::address::StructuredAddress;
 use serde_email::Email;
+use std::collections::HashSet;
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateUserCommand {
     pub id: UserId,
     pub email: Email,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreateAccessTokenCommand {
+    pub name: AccessTokenName,
+    pub scopes: HashSet<Scope>,
+    pub expires: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct UpdateAccessTokenCommand {
+    pub name: Option<AccessTokenName>,
+    pub scopes: Option<HashSet<Scope>>,
+    pub expires: Option<OffsetDateTime>,
+}
+
+impl UpdateAccessTokenCommand {
+    pub fn is_empty(&self) -> bool {
+        self.name.is_none() && self.scopes.is_none() && self.expires.is_none()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

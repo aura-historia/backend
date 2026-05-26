@@ -131,6 +131,7 @@ impl From<UserDocument> for User {
                 document.structured_address_country,
             ),
             geo_address: geo_address_from_document(document.geo_address.as_deref()),
+            partner_shops: Default::default(),
             created: document.created,
             updated: document.updated,
         }

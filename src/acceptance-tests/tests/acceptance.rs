@@ -103,9 +103,12 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 use test_api::*;
 use time::OffsetDateTime;
-use user::core::access_token::{HashedRawAccessToken, RawAccessToken};
+use user::core::access_token::{HashedRawAccessToken, RawAccessToken, Scope};
 use user::core::role::UserRole;
 use user::core::tier::UserTier;
+use user::data::access_token_data::{
+    CreatedAccessTokenData, GetAccessTokenData, PatchAccessTokenData, PostAccessTokenData,
+};
 use user::data::patch_admin_user_data::PatchAdminUserData;
 use user::data::role_data::UserRoleData;
 use user::data::tier_data::UserTierData;
@@ -1871,6 +1874,74 @@ async fn should_delete_user_from_cognito_and_dynamodb() {
     );
 }
 */
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_manage_user_access_tokens() {
+    let user = create_random_test_user().await;
+    let url = format!(
+        "{}/api/v1/me/access-tokens",
+        get_cfn_output().api_gateway_endpoint_url,
+    );
+
+    let post_response = reqwest::Client::new()
+        .post(url.clone())
+        .bearer_auth(user.access_token.clone())
+        .json(&PostAccessTokenData {
+            name: "Acceptance token".to_owned(),
+            scope: [Scope::ProductsWrite].into(),
+            expires_at: None,
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(201, post_response.status());
+    let created = post_response
+        .json::<CreatedAccessTokenData>()
+        .await
+        .unwrap();
+
+    let get_response = reqwest::Client::new()
+        .get(url.clone())
+        .bearer_auth(user.access_token.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, get_response.status());
+    let tokens = get_response
+        .json::<Vec<GetAccessTokenData>>()
+        .await
+        .unwrap();
+    assert!(
+        tokens
+            .iter()
+            .any(|token| token.access_token_id == created.metadata.access_token_id)
+    );
+
+    let patch_response = reqwest::Client::new()
+        .patch(url.clone())
+        .bearer_auth(user.access_token.clone())
+        .json(&PatchAccessTokenData {
+            access_token_id: created.metadata.access_token_id,
+            name: Some("Renamed acceptance token".to_owned()),
+            scope: Some([Scope::ProductsWrite].into()),
+            expires_at: None,
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, patch_response.status());
+
+    let delete_response = reqwest::Client::new()
+        .delete(format!(
+            "{}?accessTokenId={}",
+            url, created.metadata.access_token_id
+        ))
+        .bearer_auth(user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(204, delete_response.status());
+}
 
 // ---------------------------------------------------------------------------
 // Product update → notify user

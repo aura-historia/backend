@@ -9,20 +9,23 @@ use product::data::put_product_data::PutProductData;
 use product_lambda_ingest_partner_products::{
     AsyncProductCommandData, AsyncProductCommandService, UpsertAsyncProductCommandData,
 };
-use shop::core::aura_historia_api_key::api::extract_api_key;
 use shop::service::get_service::GetShopService;
+use user::service::user_service::UserService;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_shop_service: &(impl GetShopService + Sync),
+    user_service: &(impl UserService + Sync),
     async_product_command_service: &(impl AsyncProductCommandService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
-    let api_key = extract_api_key(&event.payload)?;
-
-    let partner_shop = get_shop_service
-        .verify_partner_shop(&api_key, &shop_id)
-        .await?;
+    let partner_shop = crate::authorize_partner_product_request(
+        &event.payload.headers,
+        &shop_id,
+        get_shop_service,
+        user_service,
+    )
+    .await?;
 
     let products: Vec<PutProductData> = extract_body(&event.payload)?;
 
@@ -86,10 +89,11 @@ mod tests {
     use product_lambda_ingest_partner_products::service::{
         AsyncProductCommandFailure, MockAsyncProductCommandService,
     };
-    use shop::core::aura_historia_api_key::{HashedRawAccessToken, RawAccessToken};
     use shop::core::partner_shop::PartnerShop;
     use shop::core::shop_type::ShopType;
     use shop::service::get_service::MockGetShopService;
+    use user::core::access_token::RawAccessToken;
+    use user::service::user_service::MockUserService;
 
     fn make_event_with_body_and_key(
         shop_id: &common::shop_id::ShopId,
@@ -103,7 +107,10 @@ mod tests {
             .insert("shopId".to_string(), shop_id.to_string());
         let key_str: String = api_key.clone().into();
         let mut headers = HeaderMap::new();
-        headers.insert("x-aura-historia-access-token", key_str.parse().unwrap());
+        headers.insert(
+            http::header::AUTHORIZATION,
+            ["Bea", "rer ", &key_str].concat().parse().unwrap(),
+        );
         request.headers = headers;
         request.body = body;
         LambdaEvent::new(request, lambda_runtime::Context::default())
@@ -113,8 +120,6 @@ mod tests {
         let api_key = RawAccessToken::new();
         let mut partner_shop: PartnerShop = Faker.fake();
         partner_shop.shop_type = shop_type;
-        let hashed: HashedRawAccessToken = api_key.clone().into();
-        partner_shop.hashed_api_key = Some(hashed);
         (api_key, partner_shop)
     }
 
@@ -138,15 +143,16 @@ mod tests {
         let expected_partner = partner_shop.clone();
         let mut shop_service = MockGetShopService::default();
         shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| Box::pin(async move { Ok(expected_partner) }));
+            .expect_find_partner_shop()
+            .return_once(move |_| Box::pin(async move { Ok(expected_partner) }));
 
         let mut command_service = MockAsyncProductCommandService::default();
         command_service
             .expect_send()
             .return_once(|_| Box::pin(async { vec![] }));
 
-        let result = handle(event, &shop_service, &command_service).await;
+        let user_service = MockUserService::default();
+        let result = handle(event, &shop_service, &user_service, &command_service).await;
         assert!(result.is_ok());
         let response = result.unwrap();
         assert_eq!(response.status_code, 202);
@@ -183,8 +189,8 @@ mod tests {
         let expected_partner = partner_shop.clone();
         let mut shop_service = MockGetShopService::default();
         shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| Box::pin(async move { Ok(expected_partner) }));
+            .expect_find_partner_shop()
+            .return_once(move |_| Box::pin(async move { Ok(expected_partner) }));
 
         let failed_command =
             AsyncProductCommandData::Upsert(UpsertAsyncProductCommandData::from((
@@ -217,7 +223,8 @@ mod tests {
             })
         });
 
-        let response = handle(event, &shop_service, &command_service)
+        let user_service = MockUserService::default();
+        let response = handle(event, &shop_service, &user_service, &command_service)
             .await
             .unwrap();
         assert_eq!(response.status_code, 202);
@@ -239,13 +246,14 @@ mod tests {
 
         let mut shop_service = MockGetShopService::default();
         shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| {
+            .expect_find_partner_shop()
+            .return_once(move |_| {
                 let partner: PartnerShop = Faker.fake();
                 Box::pin(async move { Ok(partner) })
             });
         let command_service = MockAsyncProductCommandService::default();
-        let result = handle(event, &shop_service, &command_service).await;
+        let user_service = MockUserService::default();
+        let result = handle(event, &shop_service, &user_service, &command_service).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status, 400);
     }
@@ -259,13 +267,14 @@ mod tests {
 
         let mut shop_service = MockGetShopService::default();
         shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| {
+            .expect_find_partner_shop()
+            .return_once(move |_| {
                 let partner: PartnerShop = Faker.fake();
                 Box::pin(async move { Ok(partner) })
             });
         let command_service = MockAsyncProductCommandService::default();
-        let result = handle(event, &shop_service, &command_service).await;
+        let user_service = MockUserService::default();
+        let result = handle(event, &shop_service, &user_service, &command_service).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status, 400);
     }
@@ -287,8 +296,8 @@ mod tests {
         let expected_partner = partner_shop.clone();
         let mut shop_service = MockGetShopService::default();
         shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| Box::pin(async move { Ok(expected_partner) }));
+            .expect_find_partner_shop()
+            .return_once(move |_| Box::pin(async move { Ok(expected_partner) }));
 
         let mut command_service = MockAsyncProductCommandService::default();
         command_service.expect_send().return_once(move |cmds| {
@@ -301,7 +310,8 @@ mod tests {
             })
         });
 
-        let result = handle(event, &shop_service, &command_service).await;
+        let user_service = MockUserService::default();
+        let result = handle(event, &shop_service, &user_service, &command_service).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().status_code, 202);
     }

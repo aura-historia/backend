@@ -48,7 +48,6 @@ impl From<ShopPartnerStatusDocument> for ShopPartnerStatusRecord {
     }
 }
 
-
 impl From<ShopPartnerStatusRecord> for ShopPartnerStatusDocument {
     fn from(record: ShopPartnerStatusRecord) -> Self {
         match record {

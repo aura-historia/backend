@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use camino::Utf8Path;
 use determinator::Determinator;
-use guppy::{graph::DependencyDirection, MetadataCommand};
+use guppy::{MetadataCommand, graph::DependencyDirection};
 use std::collections::HashSet;
 use std::process::Command;
 

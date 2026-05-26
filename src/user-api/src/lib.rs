@@ -4,6 +4,7 @@ use common::api::error_code::INTERNAL_SERVER_ERROR;
 use lambda_runtime::LambdaEvent;
 use user::service::user_service::UserService;
 
+mod access_tokens;
 mod admin;
 mod delete;
 mod get;
@@ -45,6 +46,10 @@ pub async fn handle(
         Some("PATCH /api/v1/users/{userId}") => admin::patch(event, service).await,
         Some("DELETE /api/v1/users/{userId}") => admin::delete(event, service).await,
         Some("GET /api/v1/me/account") => get::handle(event, service).await,
+        Some("POST /api/v1/me/access-tokens") => access_tokens::post(event, service).await,
+        Some("GET /api/v1/me/access-tokens") => access_tokens::get(event, service).await,
+        Some("PATCH /api/v1/me/access-tokens") => access_tokens::patch(event, service).await,
+        Some("DELETE /api/v1/me/access-tokens") => access_tokens::delete(event, service).await,
         Some("PATCH /api/v1/me/account") => patch::handle(event, service).await,
         Some("DELETE /api/v1/me") => delete::handle(event, service).await,
         Some(unknown) => Err(ApiError::internal_server_error(

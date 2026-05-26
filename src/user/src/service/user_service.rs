@@ -1,7 +1,10 @@
+use crate::core::access_token::{AccessToken, AccessTokenId, HashedRawAccessToken, RawAccessToken};
 use crate::core::role::UserRole;
 use crate::core::tier::UserTier;
 use crate::core::user::User;
 use crate::core::{sort_user_field::SortUserField, user_search::UserSearch};
+use crate::dynamodb::access_token_record::AccessTokenRecord;
+use crate::dynamodb::access_token_record_update::AccessTokenRecordUpdate;
 use crate::dynamodb::repository::UserDynamoDbRepository;
 use crate::dynamodb::role_record::UserRoleRecord;
 use crate::dynamodb::tier_record::UserTierRecord;
@@ -9,7 +12,9 @@ use crate::dynamodb::user_record::{mk_gsi1_pk, mk_gsi1_sk};
 use crate::dynamodb::user_record_update::UserRecordUpdate;
 use crate::opensearch::repository::UserOpenSearchRepository;
 use crate::service::cognito_admin_service::{CognitoAdminError, CognitoAdminService};
-use crate::service::command::{CreateUserCommand, UpdateUserCommand};
+use crate::service::command::{
+    CreateAccessTokenCommand, CreateUserCommand, UpdateAccessTokenCommand, UpdateUserCommand,
+};
 use aws_sdk_dynamodb::error::SdkError;
 use common::{
     currency::record::CurrencyRecord,
@@ -39,6 +44,9 @@ pub enum UserServiceError {
 
     #[error("User for given Stripe customer id not found.")]
     UserNotFoundByStripeCustomerId,
+
+    #[error("Access token with id '{0}' not found for user '{1}'.")]
+    AccessTokenNotFound(AccessTokenId, UserId),
 
     #[error("This action requires the 'ADMIN' role.")]
     AdminRoleRequired,
@@ -97,6 +105,9 @@ pub mod api {
                 UserServiceError::UserExistsAlready(_) => {
                     ApiError::conflict(USER_EXISTS_ALREADY, Box::new(err))
                 }
+                UserServiceError::AccessTokenNotFound(_, _) => {
+                    ApiError::not_found(USER_NOT_FOUND, Box::new(err))
+                }
                 UserServiceError::AdminRoleRequired => {
                     ApiError::forbidden(FORBIDDEN).with_detail(err.to_string())
                 }
@@ -145,13 +156,47 @@ pub trait UserService {
     ) -> Result<User, UserServiceError>;
 
     async fn delete_user(&self, user_id: &UserId) -> Result<(), UserServiceError>;
-
     async fn search_users(
         &self,
         search: &UserSearch,
         sort: &Option<Sort<SortUserField>>,
         cursor: &Option<Cursor<serde_json::Value>>,
     ) -> Result<CursoredResult<User, serde_json::Value>, UserServiceError>;
+
+    async fn get_access_tokens(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Vec<AccessToken>, UserServiceError>;
+
+    async fn find_access_token(
+        &self,
+        user_id: &UserId,
+        access_token_id: &AccessTokenId,
+    ) -> Result<AccessToken, UserServiceError>;
+
+    async fn find_access_token_by_raw(
+        &self,
+        raw_access_token: &RawAccessToken,
+    ) -> Result<AccessToken, UserServiceError>;
+
+    async fn create_access_token(
+        &self,
+        user_id: &UserId,
+        cmd: CreateAccessTokenCommand,
+    ) -> Result<(RawAccessToken, AccessToken), UserServiceError>;
+
+    async fn update_access_token(
+        &self,
+        user_id: &UserId,
+        access_token_id: &AccessTokenId,
+        cmd: UpdateAccessTokenCommand,
+    ) -> Result<AccessToken, UserServiceError>;
+
+    async fn delete_access_token(
+        &self,
+        user_id: &UserId,
+        access_token_id: &AccessTokenId,
+    ) -> Result<(), UserServiceError>;
 }
 
 pub struct UserServiceImpl<'a> {
@@ -275,6 +320,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                     stripe_customer_id: None,
                     structured_address: None,
                     geo_address: None,
+                    partner_shops: Default::default(),
                     created: now,
                     updated: now,
                 };
@@ -428,6 +474,125 @@ impl<'a> UserService for UserServiceImpl<'a> {
             }
         }
 
+        Ok(())
+    }
+
+    async fn get_access_tokens(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Vec<AccessToken>, UserServiceError> {
+        self.find_user(user_id).await?;
+        Ok(self
+            .repository
+            .query_access_token_records(user_id)
+            .await?
+            .into_iter()
+            .map(AccessToken::from)
+            .filter(|token| !token.is_expired())
+            .collect())
+    }
+
+    async fn find_access_token(
+        &self,
+        user_id: &UserId,
+        access_token_id: &AccessTokenId,
+    ) -> Result<AccessToken, UserServiceError> {
+        let token = self
+            .repository
+            .get_access_token_record(user_id, access_token_id)
+            .await?
+            .map(AccessToken::from)
+            .ok_or(UserServiceError::AccessTokenNotFound(
+                *access_token_id,
+                *user_id,
+            ))?;
+        if token.is_expired() {
+            return Err(UserServiceError::AccessTokenNotFound(
+                *access_token_id,
+                *user_id,
+            ));
+        }
+        Ok(token)
+    }
+
+    async fn find_access_token_by_raw(
+        &self,
+        raw_access_token: &RawAccessToken,
+    ) -> Result<AccessToken, UserServiceError> {
+        let hashed_token = HashedRawAccessToken::from(raw_access_token.clone());
+        let token = self
+            .repository
+            .find_access_token_record_by_hashed_token(&hashed_token)
+            .await?
+            .map(AccessToken::from)
+            .ok_or(UserServiceError::UserNotFoundByStripeCustomerId)?;
+        if token.is_expired() || !raw_access_token.check(&token.hashed_token) {
+            return Err(UserServiceError::UserNotFoundByStripeCustomerId);
+        }
+        Ok(token)
+    }
+
+    async fn create_access_token(
+        &self,
+        user_id: &UserId,
+        cmd: CreateAccessTokenCommand,
+    ) -> Result<(RawAccessToken, AccessToken), UserServiceError> {
+        self.find_user(user_id).await?;
+        let now = OffsetDateTime::now_utc();
+        let raw_access_token = RawAccessToken::new();
+        let access_token = AccessToken {
+            id: AccessTokenId::new(),
+            hashed_token: raw_access_token.clone().into(),
+            user_id: *user_id,
+            name: cmd.name.into(),
+            scopes: cmd.scopes,
+            expires: cmd.expires,
+            created: now,
+            updated: now,
+        };
+        self.repository
+            .put_access_token_record(AccessTokenRecord::from(access_token.clone()))
+            .await?;
+        Ok((raw_access_token, access_token))
+    }
+
+    async fn update_access_token(
+        &self,
+        user_id: &UserId,
+        access_token_id: &AccessTokenId,
+        cmd: UpdateAccessTokenCommand,
+    ) -> Result<AccessToken, UserServiceError> {
+        let existing = self.find_access_token(user_id, access_token_id).await?;
+        if cmd.is_empty() {
+            return Ok(existing);
+        }
+        let expires = cmd.expires.map(|expires| expires.unix_timestamp());
+        let update = AccessTokenRecordUpdate {
+            name: cmd.name.map(Into::into),
+            scopes: cmd.scopes,
+            expires,
+            ttl: expires,
+            updated: OffsetDateTime::now_utc(),
+        };
+        self.repository
+            .update_access_token_record(user_id, access_token_id, update)
+            .await?
+            .map(AccessToken::from)
+            .ok_or(UserServiceError::AccessTokenNotFound(
+                *access_token_id,
+                *user_id,
+            ))
+    }
+
+    async fn delete_access_token(
+        &self,
+        user_id: &UserId,
+        access_token_id: &AccessTokenId,
+    ) -> Result<(), UserServiceError> {
+        self.find_access_token(user_id, access_token_id).await?;
+        self.repository
+            .delete_access_token_record(user_id, access_token_id)
+            .await?;
         Ok(())
     }
 
@@ -1275,7 +1440,8 @@ mod search_users_tests {
 
     #[tokio::test]
     async fn should_search_users_when_opensearch_repository_configured() {
-        let expected_user: User = Faker.fake();
+        let mut expected_user: User = Faker.fake();
+        expected_user.partner_shops = Default::default();
         let expected_document = UserDocument::from(expected_user.clone());
         let dynamodb_repository = MockUserDynamoDbRepository::default();
         let mut opensearch_repository = MockUserOpenSearchRepository::default();

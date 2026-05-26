@@ -10,12 +10,14 @@ use time::OffsetDateTime;
 uuid_v7_newtype!(AccessTokenId);
 string_newtype!(AccessTokenName, max_length(128));
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Scope {
     ShopsManage,
     ProductsWrite,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct AccessToken {
     pub id: AccessTokenId,
     pub hashed_token: HashedRawAccessToken,
@@ -181,7 +183,7 @@ impl From<PrefixedApiKey> for HashedRawAccessToken {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
-    use fake::{Dummy, Faker, RngExt};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for RawAccessToken {
         fn dummy_with_rng<R: RngExt + ?Sized>(_config: &Faker, _rng: &mut R) -> Self {
@@ -192,6 +194,21 @@ mod faker {
     impl Dummy<Faker> for HashedRawAccessToken {
         fn dummy_with_rng<R: RngExt + ?Sized>(_config: &Faker, _rng: &mut R) -> Self {
             RawAccessToken::new().into()
+        }
+    }
+
+    impl Dummy<Faker> for AccessToken {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            AccessToken {
+                id: config.fake_with_rng(rng),
+                hashed_token: config.fake_with_rng(rng),
+                user_id: config.fake_with_rng(rng),
+                name: config.fake_with_rng(rng),
+                scopes: [Scope::ProductsWrite].into(),
+                expires: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
         }
     }
 

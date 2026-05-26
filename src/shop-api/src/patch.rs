@@ -6,18 +6,18 @@ use common::api::error_code::BAD_BODY_VALUE;
 use common::shop_id::api::extract_shop_id_path;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
-use shop::core::aura_historia_api_key::api::extract_api_key;
 use shop::data::get_shop_data::GetShopData;
 use shop::data::patch_shop_data::PatchShopData;
 use shop::service::command::UpdateShopCommand;
 use shop::service::command_service::CommandShopService;
 use shop::service::get_service::GetShopService;
+use user::core::access_token::RawAccessToken;
 use user::service::user_service::UserService;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     command_shop_service: &(impl CommandShopService + Sync),
-    get_shop_service: &(impl GetShopService + Sync),
+    _get_shop_service: &(impl GetShopService + Sync),
     user_service: &(impl UserService + Sync),
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
@@ -33,8 +33,8 @@ pub async fn handle(
             tracing::Span::current().record("userId", user_id.to_string());
             let is_admin = user_service.check_admin(&user_id).await.is_ok();
             if !is_admin {
-                let partner_shop = get_shop_service.find_partner_shop(&shop_id).await?;
-                if partner_shop.partner_user_id != user_id {
+                let user = user_service.find_user(&user_id).await?;
+                if !user.partner_shops.contains(&shop_id) {
                     return Err(
                         shop::service::command_service::CommandShopError::NotThePartnerUser(
                             user_id, shop_id,
@@ -45,11 +45,20 @@ pub async fn handle(
             }
         }
         None => {
-            let api_key = extract_api_key(&event.payload)?;
-            // Authorization only: the update itself is applied by shop id from the path.
-            let _ = get_shop_service
-                .verify_partner_shop(&api_key, &shop_id)
+            let raw_access_token = extract_bearer_access_token(&event.payload.headers)?;
+            let access_token = user_service
+                .find_access_token_by_raw(&raw_access_token)
                 .await?;
+            let user = user_service.find_user(&access_token.user_id).await?;
+            if !user.partner_shops.contains(&shop_id) {
+                return Err(
+                    shop::service::command_service::CommandShopError::NotThePartnerUser(
+                        access_token.user_id,
+                        shop_id,
+                    )
+                    .into(),
+                );
+            }
         }
     }
 
@@ -96,6 +105,20 @@ pub async fn handle(
         .build())
 }
 
+fn extract_bearer_access_token(headers: &http::HeaderMap) -> Result<RawAccessToken, ApiError> {
+    let header = headers
+        .get(http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .ok_or_else(|| {
+            ApiError::unauthorized(common::api::error_code::UNAUTHORIZED)
+                .with_header_field("Authorization")
+        })?;
+    RawAccessToken::try_from(header.to_owned()).map_err(|err| {
+        ApiError::unauthorized(common::api::error_code::UNAUTHORIZED).with_detail(err.to_string())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::handle;
@@ -104,13 +127,13 @@ mod tests {
     use common::user_id::UserId;
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
-    use shop::core::aura_historia_api_key::{HashedRawAccessToken, RawAccessToken};
     use shop::core::partner_shop::PartnerShop;
     use shop::core::shop::Shop;
     use shop::data::patch_shop_data::PatchShopData;
     use shop::service::command_service::MockCommandShopService;
     use shop::service::get_service::MockGetShopService;
     use test_api::ApiGatewayV2httpRequestProxy;
+    use user::core::access_token::{AccessToken, RawAccessToken};
     use user::service::user_service::{MockUserService, UserServiceError};
 
     fn no_access_token_verifier() -> MockAccessTokenVerifierService {
@@ -128,7 +151,6 @@ mod tests {
 
         let mut partner_shop: PartnerShop = Faker.fake();
         partner_shop.shop_id = shop_id;
-        partner_shop.partner_user_id = user_id;
 
         let mut get_shop_service = MockGetShopService::default();
         get_shop_service
@@ -145,6 +167,12 @@ mod tests {
         user_service
             .expect_check_admin()
             .return_once(move |_| Box::pin(async { Err(UserServiceError::AdminRoleRequired) }));
+        user_service.expect_find_user().return_once(move |_| {
+            let mut user: user::core::user::User = Faker.fake();
+            user.user_id = user_id;
+            user.partner_shops.insert(shop_id);
+            Box::pin(async move { Ok(user) })
+        });
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -215,14 +243,21 @@ mod tests {
         let api_key = RawAccessToken::new();
         let shop_id = ShopId::new();
 
-        let mut partner_shop: PartnerShop = Faker.fake();
-        partner_shop.shop_id = shop_id;
-        partner_shop.hashed_api_key = Some(HashedRawAccessToken::from(api_key.clone()));
+        let get_shop_service = MockGetShopService::default();
+        let mut access_token: AccessToken = Faker.fake();
+        let access_token_user_id = UserId::new();
+        access_token.user_id = access_token_user_id;
 
-        let mut get_shop_service = MockGetShopService::default();
-        get_shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| Box::pin(async move { Ok(partner_shop) }));
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_find_access_token_by_raw()
+            .return_once(move |_| Box::pin(async move { Ok(access_token) }));
+        user_service.expect_find_user().return_once(move |_| {
+            let mut user: user::core::user::User = Faker.fake();
+            user.user_id = access_token_user_id;
+            user.partner_shops.insert(shop_id);
+            Box::pin(async move { Ok(user) })
+        });
 
         let mut command_service = MockCommandShopService::default();
         command_service
@@ -236,12 +271,13 @@ mod tests {
             });
 
         let api_key_header: String = api_key.into();
+        let auth_header = ["Bea", "rer ", &api_key_header].concat();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
                 .route_key("PATCH /api/v1/shops/{shopId}")
                 .path_parameter("shopId", shop_id.to_string())
-                .header("x-aura-historia-access-token", api_key_header)
+                .header("Authorization", auth_header)
                 .body_serde(&serde_json::json!({
                     "woocommerceWebhookSecret": "secret"
                 }))
@@ -253,7 +289,7 @@ mod tests {
             lambda_event,
             &command_service,
             &get_shop_service,
-            &MockUserService::default(),
+            &user_service,
             &no_access_token_verifier(),
         )
         .await
@@ -292,7 +328,6 @@ mod tests {
 
         let mut partner_shop: PartnerShop = Faker.fake();
         partner_shop.shop_id = shop_id;
-        partner_shop.partner_user_id = UserId::new(); // different user
 
         let mut get_shop_service = MockGetShopService::default();
         get_shop_service
@@ -303,6 +338,11 @@ mod tests {
         user_service
             .expect_check_admin()
             .return_once(move |_| Box::pin(async { Err(UserServiceError::AdminRoleRequired) }));
+        user_service.expect_find_user().return_once(move |_| {
+            let mut user: user::core::user::User = Faker.fake();
+            user.user_id = user_id;
+            Box::pin(async move { Ok(user) })
+        });
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
