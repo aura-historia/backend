@@ -271,7 +271,7 @@ mod tests {
             });
 
         let api_key_header: String = api_key.into();
-        let auth_header = ["Bea", "rer ", &api_key_header].concat();
+        let auth_header = format!("{}{}", "Bearer ", api_key_header);
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)

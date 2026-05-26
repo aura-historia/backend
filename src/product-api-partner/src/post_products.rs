@@ -111,7 +111,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(
             http::header::AUTHORIZATION,
-            ["Bea", "rer ", &key_str].concat().parse().unwrap(),
+            format!("{}{}", "Bearer ", key_str).parse().unwrap(),
         );
         request.headers = headers;
         request.body = body;

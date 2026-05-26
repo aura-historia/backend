@@ -48,6 +48,9 @@ pub enum UserServiceError {
     #[error("Access token with id '{0}' not found for user '{1}'.")]
     AccessTokenNotFound(AccessTokenId, UserId),
 
+    #[error("Access token not found.")]
+    AccessTokenNotFoundByRaw,
+
     #[error("This action requires the 'ADMIN' role.")]
     AdminRoleRequired,
 
@@ -90,7 +93,8 @@ pub mod api {
     use crate::service::user_service::UserServiceError;
     use common::api::error::ApiError;
     use common::api::error_code::{
-        FORBIDDEN, INTERNAL_SERVER_ERROR, USER_EXISTS_ALREADY, USER_NOT_FOUND,
+        ACCESS_TOKEN_NOT_FOUND, FORBIDDEN, INTERNAL_SERVER_ERROR, USER_EXISTS_ALREADY,
+        USER_NOT_FOUND,
     };
 
     impl From<UserServiceError> for ApiError {
@@ -106,7 +110,11 @@ pub mod api {
                     ApiError::conflict(USER_EXISTS_ALREADY, Box::new(err))
                 }
                 UserServiceError::AccessTokenNotFound(_, _) => {
-                    ApiError::not_found(USER_NOT_FOUND, Box::new(err))
+                    ApiError::not_found(ACCESS_TOKEN_NOT_FOUND, Box::new(err))
+                }
+                UserServiceError::AccessTokenNotFoundByRaw => {
+                    ApiError::unauthorized(ACCESS_TOKEN_NOT_FOUND)
+                        .with_header_field("Authorization")
                 }
                 UserServiceError::AdminRoleRequired => {
                     ApiError::forbidden(FORBIDDEN).with_detail(err.to_string())
@@ -525,9 +533,9 @@ impl<'a> UserService for UserServiceImpl<'a> {
             .find_access_token_record_by_hashed_token(&hashed_token)
             .await?
             .map(AccessToken::from)
-            .ok_or(UserServiceError::UserNotFoundByStripeCustomerId)?;
+            .ok_or(UserServiceError::AccessTokenNotFoundByRaw)?;
         if token.is_expired() || !raw_access_token.check(&token.hashed_token) {
-            return Err(UserServiceError::UserNotFoundByStripeCustomerId);
+            return Err(UserServiceError::AccessTokenNotFoundByRaw);
         }
         Ok(token)
     }
