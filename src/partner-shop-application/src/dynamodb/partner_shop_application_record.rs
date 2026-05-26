@@ -14,8 +14,8 @@ use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use serde_fields::SerdeField;
-use shop::core::address::StructuredAddress;
 use shop::core::continent::Continent;
+use shop::core::{address::StructuredAddress, partner_status::ShopPartnerStatus};
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -213,6 +213,7 @@ impl TryFrom<PartnerShopApplicationRecord> for PartnerShopApplication {
                 PartnerShopApplicationPayload::New(CreateShopCommand {
                     name,
                     shop_type: shop_type_record.into(),
+                    shop_partner_status: ShopPartnerStatus::Partnered,
                     domains,
                     shopify_domain: None,
                     shopify_currency: None,
@@ -323,6 +324,7 @@ mod faker {
             let cmd = CreateShopCommand {
                 name: ShopName::from("Test Shop".to_string()),
                 shop_type: ShopType::CommercialDealer,
+                shop_partner_status: ShopPartnerStatus::Partnered,
                 domains: [Domain::try_from("https://www.test.com/".to_string()).unwrap()].into(),
                 shopify_domain: None,
                 shopify_currency: None,

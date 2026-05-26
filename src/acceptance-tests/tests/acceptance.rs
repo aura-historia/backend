@@ -87,11 +87,11 @@ use search_filter_api::{
     post_types::PostUserSearchFilterData,
 };
 use serde::de::DeserializeOwned;
-use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
 use shop::core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop::data::get_shop_data::GetShopData;
 use shop::data::patch_shop_data::PatchShopData;
 use shop::data::post_shop_data::PostShopData;
+use shop::dynamodb::partner_status_record::ShopPartnerStatusRecord;
 use shop::dynamodb::repository::ShopDynamoDbRepository;
 use shop::dynamodb::shop_record::ShopRecord;
 use shop::{
@@ -103,6 +103,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 use test_api::*;
 use time::OffsetDateTime;
+use user::core::access_token::{HashedRawAccessToken, RawAccessToken};
 use user::core::role::UserRole;
 use user::core::tier::UserTier;
 use user::data::patch_admin_user_data::PatchAdminUserData;
@@ -3105,11 +3106,7 @@ async fn should_respond_200_for_shop_patch_by_partner() {
     let user_id = UserId::from(user.sub);
 
     let mut shop_record: ShopRecord = Faker.fake();
-    shop_record.partner_user_id = Some(user_id);
-    shop_record.gsi1_pk = Some(shop::dynamodb::shop_record::mk_gsi1_pk(&user_id));
-    shop_record.gsi1_sk = Some(shop::dynamodb::shop_record::mk_gsi1_sk(
-        &shop_record.shop_id,
-    ));
+    shop_record.shop_partner_status = ShopPartnerStatusRecord::Partnered;
     let stack = get_cfn_output();
     let dynamodb_repository =
         ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
@@ -3167,48 +3164,12 @@ async fn should_respond_201_for_shop_post_by_admin() {
 }
 
 #[localstack_test(services = [Cloudformation()])]
-async fn should_respond_200_for_shop_put_api_key_by_partner() {
-    let user = create_random_test_user().await;
-    let user_id = UserId::from(user.sub);
-
-    let mut shop_record: ShopRecord = Faker.fake();
-    shop_record.partner_user_id = Some(user_id);
-    shop_record.gsi1_pk = Some(shop::dynamodb::shop_record::mk_gsi1_pk(&user_id));
-    shop_record.gsi1_sk = Some(shop::dynamodb::shop_record::mk_gsi1_sk(
-        &shop_record.shop_id,
-    ));
-    let stack = get_cfn_output();
-    let dynamodb_repository =
-        ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
-    dynamodb_repository
-        .put_shop_record(shop_record.clone())
-        .await
-        .unwrap();
-
-    let url = format!(
-        "{}/api/v1/shops/{}/api-key",
-        stack.api_gateway_endpoint_url, shop_record.shop_id,
-    );
-    let response = reqwest::Client::new()
-        .put(&url)
-        .bearer_auth(&user.access_token)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, response.status());
-}
-
-#[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_for_partner_get_shops() {
     let user = create_random_test_user().await;
     let user_id = UserId::from(user.sub);
 
     let mut shop_record: ShopRecord = Faker.fake();
-    shop_record.partner_user_id = Some(user_id);
-    shop_record.gsi1_pk = Some(shop::dynamodb::shop_record::mk_gsi1_pk(&user_id));
-    shop_record.gsi1_sk = Some(shop::dynamodb::shop_record::mk_gsi1_sk(
-        &shop_record.shop_id,
-    ));
+    shop_record.shop_partner_status = ShopPartnerStatusRecord::Partnered;
     let stack = get_cfn_output();
     let dynamodb_repository =
         ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
@@ -4020,15 +3981,13 @@ async fn seed_fixed_fx_rates() {
         .expect("shouldn't fail seeding FX rates record");
 }
 
-async fn prepare_partner_shop() -> (ShopRecord, PartnerShopApiKey) {
+async fn prepare_partner_shop() -> (ShopRecord, RawAccessToken) {
     seed_fixed_fx_rates().await;
     let stack = get_cfn_output();
-    let api_key = PartnerShopApiKey::new();
-    let hashed: HashedPartnerShopApiKey = api_key.clone().into();
+    let api_key = RawAccessToken::new();
+    let hashed: HashedRawAccessToken = api_key.clone().into();
     let mut record: ShopRecord = Faker.fake();
-    record.partner_api_key_short = Some(hashed.short_token().to_string());
-    record.partner_api_key_long_hash = Some(hashed.long_token_hash().to_string());
-    record.partner_user_id = Some(Faker.fake());
+    record.shop_partner_status = ShopPartnerStatusRecord::Partnered;
     let dynamodb_repository =
         ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     dynamodb_repository
@@ -4100,7 +4059,7 @@ fn woocommerce_signature(body: &str) -> String {
     base64::engine::general_purpose::STANDARD.encode(signer.sign_to_vec().unwrap())
 }
 
-async fn prepare_woocommerce_partner_shop() -> (ShopRecord, PartnerShopApiKey) {
+async fn prepare_woocommerce_partner_shop() -> (ShopRecord, RawAccessToken) {
     let (mut shop_record, api_key) = prepare_partner_shop().await;
     shop_record.woocommerce_webhook_secret =
         Some(WoocommerceWebhookSecret::from(WOOCOMMERCE_WEBHOOK_SECRET));
@@ -4128,7 +4087,7 @@ async fn post_woocommerce_webhook(topic: &str, body: &str) {
 
     let response = reqwest::Client::new()
         .post(url)
-        .header("x-api-key", api_key)
+        .header("x-aura-historia-access-token", api_key)
         .header("x-wc-webhook-topic", topic)
         .header("x-wc-webhook-signature", woocommerce_signature(body))
         .header("content-type", "application/json")
@@ -4195,7 +4154,7 @@ async fn should_respond_200_for_partner_post_products() {
     );
     let response = reqwest::Client::new()
         .post(&url)
-        .header("x-api-key", &api_key_str)
+        .header("x-aura-historia-access-token", &api_key_str)
         .json(&vec![serde_json::json!({
             "shopsProductId": "acceptance-test-product-1",
             "title": { "text": "Test Product", "language": "en" },
@@ -4326,7 +4285,7 @@ async fn should_respond_200_for_partner_patch_products() {
     // Then update the product via PATCH
     let response = reqwest::Client::new()
         .patch(&url)
-        .header("x-api-key", &api_key_str)
+        .header("x-aura-historia-access-token", &api_key_str)
         .json(&vec![serde_json::json!({
             "shopsProductId": "acceptance-test-patch-product-1",
             "state": "SOLD"
@@ -4358,7 +4317,7 @@ async fn should_respond_200_for_partner_put_products_when_creating_new() {
     );
     let response = reqwest::Client::new()
         .put(&url)
-        .header("x-api-key", &api_key_str)
+        .header("x-aura-historia-access-token", &api_key_str)
         .json(&vec![serde_json::json!({
             "shopsProductId": "acceptance-test-put-product-1",
             "title": { "text": "Test Product via PUT", "language": "en" },
@@ -4416,7 +4375,7 @@ async fn should_respond_200_for_partner_put_products_when_updating_existing() {
     // Then update the product via PUT
     let response = reqwest::Client::new()
         .put(&url)
-        .header("x-api-key", &api_key_str)
+        .header("x-aura-historia-access-token", &api_key_str)
         .json(&vec![serde_json::json!({
             "shopsProductId": "acceptance-test-put-existing-product-1",
             "state": "SOLD"
@@ -5662,6 +5621,7 @@ async fn seed_shopify_acceptance_shop() -> ShopRecord {
         shop_slug_id: slug.clone(),
         name: common::shop_name::ShopName::from("Shopify Acceptance Shop"),
         shop_type: shop::dynamodb::shop_type_record::ShopTypeRecord::Marketplace,
+        shop_partner_status: ShopPartnerStatusRecord::Partnered,
         domains: Default::default(),
         shopify_domain: Some(shopify_domain.clone()),
         shopify_currency: Some(common::currency::record::CurrencyRecord::Usd),
@@ -5682,11 +5642,6 @@ async fn seed_shopify_acceptance_shop() -> ShopRecord {
         geo_address_lon: None,
         phone: None,
         email: None,
-        partner_api_key_short: None,
-        partner_api_key_long_hash: None,
-        partner_user_id: Some(user_id),
-        gsi1_pk: Some(shop::dynamodb::shop_record::mk_gsi1_pk(&user_id)),
-        gsi1_sk: Some(shop::dynamodb::shop_record::mk_gsi1_sk(&shop_id)),
         gsi2_pk: Some(shop::dynamodb::shop_record::mk_gsi2_pk(&slug)),
         gsi2_sk: Some(shop::dynamodb::shop_record::mk_gsi2_sk().to_owned()),
         gsi3_pk: Some(shop::dynamodb::shop_record::mk_gsi3_pk(&shopify_domain)),

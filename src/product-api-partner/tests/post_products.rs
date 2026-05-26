@@ -4,7 +4,7 @@ use lambda_runtime::LambdaEvent;
 use product_lambda_ingest_partner_products::{
     AsyncProductCommandData, AsyncProductCommandServiceImpl,
 };
-use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
+use shop::core::aura_historia_api_key::{HashedRawAccessToken, RawAccessToken};
 use shop::dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl};
 use shop::dynamodb::shop_record::ShopRecord;
 use shop::service::get_service::GetShopServiceImpl;
@@ -14,8 +14,8 @@ const SQS: Sqs = Sqs {
     name: "product_api_partner_post_products",
 };
 
-fn make_partner_shop_record(api_key: &PartnerShopApiKey) -> ShopRecord {
-    let hashed: HashedPartnerShopApiKey = api_key.clone().into();
+fn make_partner_shop_record(api_key: &RawAccessToken) -> ShopRecord {
+    let hashed: HashedRawAccessToken = api_key.clone().into();
     let mut record: ShopRecord = Faker.fake();
     record.partner_api_key_short = Some(hashed.short_token().to_string());
     record.partner_api_key_long_hash = Some(hashed.long_token_hash().to_string());
@@ -46,7 +46,7 @@ async fn should_return_202_and_forward_create_command_when_products_created_succ
     let async_product_command_service =
         AsyncProductCommandServiceImpl::new(get_sqs_client().await, SQS.queue_url());
 
-    let api_key = PartnerShopApiKey::new();
+    let api_key = RawAccessToken::new();
     let shop_record = make_partner_shop_record(&api_key);
     let shop_id = shop_record.shop_id;
     shop_repository.put_shop_record(shop_record).await.unwrap();
@@ -57,7 +57,7 @@ async fn should_return_202_and_forward_create_command_when_products_created_succ
             .http_method(http::Method::POST)
             .route_key("POST /api/v1/shops/{shopId}/products")
             .path_parameter("shopId", shop_id.to_string())
-            .header("x-api-key", api_key_str)
+            .header("x-aura-historia-access-token", api_key_str)
             .body_serde(&vec![serde_json::json!({
                 "shopsProductId": "integration-product-1",
                 "title": { "text": "Test Product", "language": "en" },
@@ -108,8 +108,8 @@ async fn should_return_401_when_api_key_does_not_match() {
     let async_product_command_service =
         AsyncProductCommandServiceImpl::new(get_sqs_client().await, SQS.queue_url());
 
-    let correct_key = PartnerShopApiKey::new();
-    let wrong_key = PartnerShopApiKey::new();
+    let correct_key = RawAccessToken::new();
+    let wrong_key = RawAccessToken::new();
     let shop_record = make_partner_shop_record(&correct_key);
     let shop_id = shop_record.shop_id;
     shop_repository.put_shop_record(shop_record).await.unwrap();
@@ -120,7 +120,7 @@ async fn should_return_401_when_api_key_does_not_match() {
             .http_method(http::Method::POST)
             .route_key("POST /api/v1/shops/{shopId}/products")
             .path_parameter("shopId", shop_id.to_string())
-            .header("x-api-key", wrong_key_str)
+            .header("x-aura-historia-access-token", wrong_key_str)
             .body_serde(&vec![serde_json::json!({
                 "shopsProductId": "test-product",
                 "title": { "text": "Test", "language": "en" },
@@ -151,7 +151,7 @@ async fn should_return_404_when_shop_does_not_exist() {
     let async_product_command_service =
         AsyncProductCommandServiceImpl::new(get_sqs_client().await, SQS.queue_url());
 
-    let api_key = PartnerShopApiKey::new();
+    let api_key = RawAccessToken::new();
     let non_existent_shop_id = common::shop_id::ShopId::new();
 
     let api_key_str: String = api_key.into();
@@ -160,7 +160,7 @@ async fn should_return_404_when_shop_does_not_exist() {
             .http_method(http::Method::POST)
             .route_key("POST /api/v1/shops/{shopId}/products")
             .path_parameter("shopId", non_existent_shop_id.to_string())
-            .header("x-api-key", api_key_str)
+            .header("x-aura-historia-access-token", api_key_str)
             .body_serde(&vec![serde_json::json!({
                 "shopsProductId": "test-product",
                 "title": { "text": "Test", "language": "en" },
@@ -191,7 +191,7 @@ async fn should_return_403_when_shop_is_not_a_partner() {
     let async_product_command_service =
         AsyncProductCommandServiceImpl::new(get_sqs_client().await, SQS.queue_url());
 
-    let api_key = PartnerShopApiKey::new();
+    let api_key = RawAccessToken::new();
     let mut shop_record: ShopRecord = Faker.fake();
     shop_record.partner_api_key_short = None;
     shop_record.partner_api_key_long_hash = None;
@@ -204,7 +204,7 @@ async fn should_return_403_when_shop_is_not_a_partner() {
             .http_method(http::Method::POST)
             .route_key("POST /api/v1/shops/{shopId}/products")
             .path_parameter("shopId", shop_id.to_string())
-            .header("x-api-key", api_key_str)
+            .header("x-aura-historia-access-token", api_key_str)
             .body_serde(&vec![serde_json::json!({
                 "shopsProductId": "test-product",
                 "title": { "text": "Test", "language": "en" },

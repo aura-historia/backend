@@ -242,7 +242,7 @@ async fn should_200_respond_updated_shop_when_api_key_patches_shop() {
             .http_method(http::Method::PATCH)
             .route_key("PATCH /api/v1/shops/{shopId}")
             .path_parameter("shopId", shop.shop_id.to_string())
-            .header("x-api-key", api_key)
+            .header("x-aura-historia-access-token", api_key)
             .body_serde(&serde_json::json!({
                 "woocommerceWebhookSecret": "integration-secret"
             }))

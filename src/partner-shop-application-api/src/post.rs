@@ -9,6 +9,7 @@ use partner_shop_application::core::partner_shop_application::PartnerShopApplica
 use partner_shop_application::data::get_partner_shop_application_data::GetPartnerShopApplicationData;
 use partner_shop_application::data::post_partner_shop_application_data::PostPartnerShopApplicationPayloadData;
 use partner_shop_application::service::partner_shop_application_service::PartnerShopApplicationService;
+use shop::core::partner_status::ShopPartnerStatus;
 use shop::service::command::CreateShopCommand;
 
 pub async fn handle(
@@ -48,6 +49,7 @@ pub async fn handle(
         } => PartnerShopApplicationPayload::New(CreateShopCommand {
             name: shop_name,
             shop_type: shop_type.into(),
+            shop_partner_status: ShopPartnerStatus::Partnered,
             domains: shop_domains,
             shopify_domain: None,
             shopify_currency: None,

@@ -15,6 +15,7 @@ async-trait = { workspace = true }
 mockall = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
+prefixed-api-key = { workspace = true, features = ["sha2"] }
 
 # Optional
 serde_dynamo = { workspace = true, features = ["aws-sdk-dynamodb+1"], optional = true }

@@ -18,8 +18,9 @@ use partner_shop_application::dynamodb::repository::PartnerShopApplicationDynamo
 use serde::{Deserialize, Serialize};
 use shop::core::address::StructuredAddress;
 use shop::core::continent::Continent;
+use shop::core::partner_status::ShopPartnerStatus;
+use shop::dynamodb::partner_status_record::ShopPartnerStatusRecord::{self};
 use shop::dynamodb::repository::ShopDynamoDbRepository;
-use shop::dynamodb::shop_record;
 use shop::dynamodb::shop_record_update::ShopRecordUpdate;
 use shop::service::command::CreateShopCommand;
 use shop::service::command_service::CommandShopService;
@@ -229,6 +230,7 @@ async fn create_or_resolve_shop(
             let cmd = CreateShopCommand {
                 name: name.clone(),
                 shop_type: shop_type.into(),
+                shop_partner_status: ShopPartnerStatus::Partnered,
                 domains,
                 shopify_domain: None,
                 shopify_currency: None,
@@ -286,18 +288,17 @@ fn structured_address_from_record(
     (!structured_address.is_empty()).then_some(structured_address)
 }
 
+// TODO: Actually link via entry in partner_shops for user
 async fn link_shop_to_partner(
     shop_repository: &(impl ShopDynamoDbRepository + Sync),
     shop_id: &ShopId,
     applicant_user_id: &UserId,
 ) -> Result<(), StepFunctionError> {
     let shop_update = ShopRecordUpdate {
-        partner_user_id: Some(*applicant_user_id),
-        gsi1_pk: Some(shop_record::mk_gsi1_pk(applicant_user_id)),
-        gsi1_sk: Some(shop_record::mk_gsi1_sk(shop_id)),
         gsi3_pk: None,
         gsi3_sk: None,
         shop_type: None,
+        shop_partner_status: Some(ShopPartnerStatusRecord::Partnered),
         domains: None,
         shopify_domain: None,
         shopify_currency: None,
@@ -318,8 +319,6 @@ async fn link_shop_to_partner(
         geo_address_lon: None,
         phone: None,
         email: None,
-        partner_api_key_short: None,
-        partner_api_key_long_hash: None,
         updated: OffsetDateTime::now_utc(),
     };
 
@@ -522,6 +521,7 @@ mod tests {
     use partner_shop_application::dynamodb::repository::MockPartnerShopApplicationDynamoDbRepository;
     use rstest::rstest;
     use shop::core::shop::Shop;
+    use shop::dynamodb::partner_status_record::ShopPartnerStatusRecord;
     use shop::dynamodb::repository::MockShopDynamoDbRepository;
     use shop::dynamodb::shop_record::ShopRecord;
     use shop::dynamodb::shop_type_record::ShopTypeRecord;
@@ -743,9 +743,10 @@ mod tests {
             .expect_update_shop_record()
             .withf(move |shop_id, update| {
                 *shop_id == created_shop_id
-                    && update.partner_user_id.is_some()
-                    && update.gsi1_pk.is_some()
-                    && update.gsi1_sk.is_some()
+                    && matches!(
+                        update.shop_partner_status,
+                        Some(ShopPartnerStatusRecord::Partnered)
+                    )
             })
             .returning(|_, _| Box::pin(async { Ok(None) }));
 
@@ -818,7 +819,7 @@ mod tests {
 
         let mut shop_record: ShopRecord = Faker.fake();
         shop_record.shop_id = existing_shop_id;
-        shop_record.partner_user_id = None;
+        shop_record.shop_partner_status = ShopPartnerStatusRecord::Scraped;
         let expected_image = shop_record.image.clone();
 
         let mut mock_shop_repo = MockShopDynamoDbRepository::new();
@@ -831,9 +832,7 @@ mod tests {
             .expect_update_shop_record()
             .withf(move |shop_id, update| {
                 *shop_id == existing_shop_id
-                    && update.partner_user_id == Some(applicant_user_id)
-                    && update.gsi1_pk.is_some()
-                    && update.gsi1_sk.is_some()
+                    && update.shop_partner_status == Some(ShopPartnerStatusRecord::Partnered)
             })
             .returning(|_, _| Box::pin(async { Ok(None) }));
 

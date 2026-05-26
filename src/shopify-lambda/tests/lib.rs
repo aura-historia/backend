@@ -16,6 +16,7 @@ use product::dynamodb::product_state_record::ProductStateRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::service::command_service::CommandProductServiceImpl;
 use serde_json::{Value, json};
+use shop::dynamodb::partner_status_record::ShopPartnerStatusRecord;
 use shop::dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl};
 use shop::dynamodb::shop_record::ShopRecord;
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
@@ -139,7 +140,6 @@ fn real_shopify_sqs_event_from_detail(detail: Value) -> LambdaEvent<SqsEvent> {
 /// Seeds a Shopify partner shop record in DynamoDB and returns the shop record.
 async fn seed_shopify_partner_shop(repository: &ShopDynamoDbRepositoryImpl<'_>) -> ShopRecord {
     let shopify_domain = Domain::try_from(SHOPIFY_DOMAIN).unwrap();
-    let user_id = common::user_id::UserId::new();
     let shop_id = common::shop_id::ShopId::new();
     let slug = common::slug_id::SlugId::raw("shopify-test-shop");
     let now = OffsetDateTime::now_utc();
@@ -171,11 +171,7 @@ async fn seed_shopify_partner_shop(repository: &ShopDynamoDbRepositoryImpl<'_>) 
         geo_address_lon: None,
         phone: None,
         email: None,
-        partner_api_key_short: None,
-        partner_api_key_long_hash: None,
-        partner_user_id: Some(user_id),
-        gsi1_pk: Some(shop::dynamodb::shop_record::mk_gsi1_pk(&user_id)),
-        gsi1_sk: Some(shop::dynamodb::shop_record::mk_gsi1_sk(&shop_id)),
+        shop_partner_status: ShopPartnerStatusRecord::Partnered,
         gsi2_pk: Some(shop::dynamodb::shop_record::mk_gsi2_pk(&slug)),
         gsi2_sk: Some(shop::dynamodb::shop_record::mk_gsi2_sk().to_owned()),
         gsi3_pk: Some(shop::dynamodb::shop_record::mk_gsi3_pk(&shopify_domain)),

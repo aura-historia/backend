@@ -9,7 +9,7 @@ use openssl::sign::Signer;
 use product_lambda_ingest_partner_products::{
     AsyncProductCommandData, AsyncProductCommandServiceImpl,
 };
-use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
+use shop::core::aura_historia_api_key::{HashedRawAccessToken, RawAccessToken};
 use shop::core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop::dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl};
 use shop::dynamodb::shop_record::ShopRecord;
@@ -29,8 +29,8 @@ fn signature(body: &str) -> String {
     base64::engine::general_purpose::STANDARD.encode(signer.sign_to_vec().unwrap())
 }
 
-fn make_partner_shop_record(api_key: &PartnerShopApiKey) -> ShopRecord {
-    let hashed: HashedPartnerShopApiKey = api_key.clone().into();
+fn make_partner_shop_record(api_key: &RawAccessToken) -> ShopRecord {
+    let hashed: HashedRawAccessToken = api_key.clone().into();
     let mut record: ShopRecord = Faker.fake();
     record.partner_api_key_short = Some(hashed.short_token().to_string());
     record.partner_api_key_long_hash = Some(hashed.long_token_hash().to_string());
@@ -49,7 +49,7 @@ async fn should_return_202_and_forward_woocommerce_create_webhook_to_sqs() {
     let async_product_command_service =
         AsyncProductCommandServiceImpl::new(get_sqs_client().await, SQS.queue_url());
 
-    let api_key = PartnerShopApiKey::new();
+    let api_key = RawAccessToken::new();
     let shop_record = make_partner_shop_record(&api_key);
     let shop_id = shop_record.shop_id;
     shop_repository.put_shop_record(shop_record).await.unwrap();
@@ -70,13 +70,17 @@ async fn should_return_202_and_forward_woocommerce_create_webhook_to_sqs() {
         .http_method(http::Method::POST)
         .route_key("POST /api/v1/webhooks/woocommerce/{shopId}")
         .path_parameter("shopId", shop_id.to_string())
-        .header("x-api-key", api_key_str)
+        .header("x-aura-historia-access-token", api_key_str)
         .body_serde(&body_json)
         .build();
     let mut headers = HeaderMap::new();
     headers.insert(
-        "x-api-key",
-        request.headers.get("x-api-key").unwrap().clone(),
+        "x-aura-historia-access-token",
+        request
+            .headers
+            .get("x-aura-historia-access-token")
+            .unwrap()
+            .clone(),
     );
     headers.insert(
         "x-wc-webhook-topic",

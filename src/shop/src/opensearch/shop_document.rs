@@ -185,11 +185,7 @@ impl From<ShopRecord> for ShopDocument {
                 .map(|(lat, lon)| GeoAddress { lat, lon }.to_opensearch_geo_point()),
             phone: record.phone,
             email: record.email,
-            partner_status: if record.partner_user_id.is_some() {
-                ShopPartnerStatusDocument::Partnered
-            } else {
-                ShopPartnerStatusDocument::Scraped
-            },
+            partner_status: record.shop_partner_status.into(),
             created: record.created,
             updated: record.updated,
         }

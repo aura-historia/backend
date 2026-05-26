@@ -18,8 +18,8 @@ use product::service::product_command::UpsertProductCommand;
 use product_lambda_ingest_partner_products::{
     AsyncProductCommandData, AsyncProductCommandService, UpsertAsyncProductCommandData,
 };
+use shop::core::aura_historia_api_key::api::extract_api_key;
 use shop::core::partner_shop::PartnerShop;
-use shop::core::partner_shop_api_key::api::extract_api_key;
 use shop::service::get_service::GetShopService;
 
 pub const WOOCOMMERCE_TOPIC_PRODUCT_CREATED: &str = "product.created";
@@ -180,8 +180,8 @@ mod tests {
     use openssl::pkey::PKey;
     use openssl::sign::Signer;
     use product_lambda_ingest_partner_products::service::MockAsyncProductCommandService;
+    use shop::core::aura_historia_api_key::{HashedRawAccessToken, RawAccessToken};
     use shop::core::partner_shop::PartnerShop;
-    use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
     use shop::core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
     use shop::service::get_service::MockGetShopService;
 
@@ -194,9 +194,9 @@ mod tests {
         base64::engine::general_purpose::STANDARD.encode(signer.sign_to_vec().unwrap())
     }
 
-    fn partner_shop(api_key: &PartnerShopApiKey) -> PartnerShop {
+    fn partner_shop(api_key: &RawAccessToken) -> PartnerShop {
         let mut shop: PartnerShop = Faker.fake();
-        let hashed: HashedPartnerShopApiKey = api_key.clone().into();
+        let hashed: HashedRawAccessToken = api_key.clone().into();
         shop.hashed_api_key = Some(hashed);
         shop.woocommerce_webhook_secret = Some(WoocommerceWebhookSecret::from(SECRET));
         shop.woocommerce_currency = Some(Currency::Eur);
@@ -206,7 +206,7 @@ mod tests {
 
     fn event(
         shop: &PartnerShop,
-        api_key: &PartnerShopApiKey,
+        api_key: &RawAccessToken,
         topic: &str,
         body: &str,
         signature: String,
@@ -218,7 +218,7 @@ mod tests {
             .path_parameters
             .insert("shopId".to_owned(), shop.shop_id.to_string());
         let mut headers = HeaderMap::new();
-        headers.insert("x-api-key", key.parse().unwrap());
+        headers.insert("x-aura-historia-access-token", key.parse().unwrap());
         headers.insert(WOOCOMMERCE_TOPIC_HEADER, topic.parse().unwrap());
         headers.insert(WOOCOMMERCE_SIGNATURE_HEADER, signature.parse().unwrap());
         request.headers = headers;
@@ -242,7 +242,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_upsert_product_when_created_webhook_is_valid() {
-        let api_key = PartnerShopApiKey::new();
+        let api_key = RawAccessToken::new();
         let shop = partner_shop(&api_key);
         let body = product_body("42.69");
         let lambda_event = event(
@@ -287,7 +287,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_upsert_removed_product_when_deleted_webhook_is_valid() {
-        let api_key = PartnerShopApiKey::new();
+        let api_key = RawAccessToken::new();
         let shop = partner_shop(&api_key);
         let body = serde_json::json!({ "id": 17 }).to_string();
         let lambda_event = event(
@@ -324,7 +324,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_401_when_signature_is_invalid() {
-        let api_key = PartnerShopApiKey::new();
+        let api_key = RawAccessToken::new();
         let shop = partner_shop(&api_key);
         let body = product_body("42.69");
         let lambda_event = event(
@@ -353,7 +353,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_400_when_topic_is_unsupported() {
-        let api_key = PartnerShopApiKey::new();
+        let api_key = RawAccessToken::new();
         let shop = partner_shop(&api_key);
         let body = product_body("42.69");
         let lambda_event = event(&shop, &api_key, "coupon.created", &body, signature(&body));

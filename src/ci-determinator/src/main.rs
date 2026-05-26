@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use camino::Utf8Path;
 use determinator::Determinator;
-use guppy::{MetadataCommand, graph::DependencyDirection};
+use guppy::{graph::DependencyDirection, MetadataCommand};
 use std::collections::HashSet;
 use std::process::Command;
 
@@ -12,7 +12,6 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/fxrate",
     "src/notification",
     "src/notification-api",
-    "src/partner-api",
     "src/partner-shop-application",
     "src/partner-shop-application-api",
     "src/partner-shop-application-lambda",

@@ -1,23 +1,60 @@
+use common::{string_newtype, user_id::UserId, uuid_v7_newtype};
 use prefixed_api_key::{
     PrefixedApiKey, PrefixedApiKeyController,
     sha2::{Digest, Sha256},
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use time::OffsetDateTime;
 
-const PARTNER_SHOP_API_KEY_PREFIX: &str = "aurahistoria";
+uuid_v7_newtype!(AccessTokenId);
+string_newtype!(AccessTokenName, max_length(128));
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Scope {
+    ShopsManage,
+    ProductsWrite,
+}
+
+pub struct AccessToken {
+    pub id: AccessTokenId,
+    pub hashed_token: HashedRawAccessToken,
+    pub user_id: UserId,
+    pub name: AccessTokenName,
+    pub scopes: HashSet<Scope>,
+    pub expires: Option<OffsetDateTime>,
+    pub created: OffsetDateTime,
+    pub updated: OffsetDateTime,
+}
+
+impl AccessToken {
+    pub fn is_expired(&self) -> bool {
+        if let Some(expires) = self.expires {
+            expires < OffsetDateTime::now_utc()
+        } else {
+            false
+        }
+    }
+
+    pub fn has_scope(&self, scope: Scope) -> bool {
+        self.scopes.contains(&scope)
+    }
+}
+
+const AURA_HISTORIA_ACCESS_TOKEN_PREFIX: &str = "aurahistoria";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(into = "String", try_from = "String")]
-pub struct PartnerShopApiKey(String);
+pub struct RawAccessToken(String);
 
 #[derive(Debug, Clone, thiserror::Error)]
-#[error("PartnerShopApiKey '{0}' is invalid, because {0}")]
-pub struct InvalidPartnerShopApiKeyError(String, String);
+#[error("RawAccessToken '{0}' is invalid, because {0}")]
+pub struct InvalidRawAccessTokenError(String, String);
 
-impl PartnerShopApiKey {
+impl RawAccessToken {
     pub fn new() -> Self {
         let key = PrefixedApiKeyController::configure()
-            .prefix(PARTNER_SHOP_API_KEY_PREFIX.to_owned())
+            .prefix(AURA_HISTORIA_ACCESS_TOKEN_PREFIX.to_owned())
             .seam_defaults()
             .finalize()
             .expect("shouldn't fail creating PrefixedApiKeyController because all required fields are set")
@@ -26,30 +63,30 @@ impl PartnerShopApiKey {
         Self(key)
     }
 
-    pub fn check(&self, hashed_partner_shop_api_key: &HashedPartnerShopApiKey) -> bool {
+    pub fn check(&self, hashed_aura_historia_api_key: &HashedRawAccessToken) -> bool {
         PrefixedApiKeyController::configure()
-            .prefix(PARTNER_SHOP_API_KEY_PREFIX.to_owned())
+            .prefix(AURA_HISTORIA_ACCESS_TOKEN_PREFIX.to_owned())
             .seam_defaults()
             .finalize()
             .expect("shouldn't fail creating PrefixedApiKeyController because all required fields are set")
-            .check_hash(&self.into(), hashed_partner_shop_api_key.long_token_hash())
+            .check_hash(&self.into(), hashed_aura_historia_api_key.long_token_hash())
     }
 }
 
-impl Default for PartnerShopApiKey {
+impl Default for RawAccessToken {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl From<PartnerShopApiKey> for String {
-    fn from(value: PartnerShopApiKey) -> Self {
+impl From<RawAccessToken> for String {
+    fn from(value: RawAccessToken) -> Self {
         value.0
     }
 }
 
-impl TryFrom<String> for PartnerShopApiKey {
-    type Error = InvalidPartnerShopApiKeyError;
+impl TryFrom<String> for RawAccessToken {
+    type Error = InvalidRawAccessTokenError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let _ = parse_api_key(&value)?;
@@ -57,32 +94,34 @@ impl TryFrom<String> for PartnerShopApiKey {
     }
 }
 
-impl From<&PartnerShopApiKey> for PrefixedApiKey {
-    fn from(value: &PartnerShopApiKey) -> Self {
+impl From<&RawAccessToken> for PrefixedApiKey {
+    fn from(value: &RawAccessToken) -> Self {
         PrefixedApiKey::from_string(&value.0)
-            .expect("shouldn't fail parsing ParnterShopKey as PrefixedApiKey by construction")
+            .expect("shouldn't fail parsing RawAccessToken as PrefixedApiKey by construction")
     }
 }
 
-fn parse_api_key(api_key: &str) -> Result<(String, String), InvalidPartnerShopApiKeyError> {
+fn parse_api_key(api_key: &str) -> Result<(String, String), InvalidRawAccessTokenError> {
     let (short_token, long_token) = api_key
-        .strip_prefix(PARTNER_SHOP_API_KEY_PREFIX)
+        .strip_prefix(AURA_HISTORIA_ACCESS_TOKEN_PREFIX)
         .ok_or_else(|| {
-            InvalidPartnerShopApiKeyError(
+            InvalidRawAccessTokenError(
                 api_key.to_string(),
-                "it doesn't start with the required prefix '{PARTNER_SHOP_KEY_PREFIX}'".to_string(),
+                "it doesn't start with the required prefix '{AURA_HISTORIA_ACCESS_TOKEN_PREFIX}'"
+                    .to_string(),
             )
         })?
         .strip_prefix("_")
         .ok_or_else(|| {
-            InvalidPartnerShopApiKeyError(
+            InvalidRawAccessTokenError(
                 api_key.to_string(),
-                "it contain a '_' after prefix '{PARTNER_SHOP_KEY_PREFIX}'".to_string(),
+                "it should contain a '_' after prefix '{AURA_HISTORIA_ACCESS_TOKEN_PREFIX}'"
+                    .to_string(),
             )
         })?
         .split_once('_')
         .ok_or_else(|| {
-            InvalidPartnerShopApiKeyError(
+            InvalidRawAccessTokenError(
                 api_key.to_string(),
                 "it should contain a '_' separating the short and long token".to_string(),
             )
@@ -92,16 +131,16 @@ fn parse_api_key(api_key: &str) -> Result<(String, String), InvalidPartnerShopAp
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct HashedPartnerShopApiKey {
+pub struct HashedRawAccessToken {
     prefix: String,
     short_token: String,
     long_token_hash: String,
 }
 
-impl HashedPartnerShopApiKey {
+impl HashedRawAccessToken {
     pub fn new(short_token: String, long_token_hash: String) -> Self {
         Self {
-            prefix: PARTNER_SHOP_API_KEY_PREFIX.to_string(),
+            prefix: AURA_HISTORIA_ACCESS_TOKEN_PREFIX.to_string(),
             short_token,
             long_token_hash,
         }
@@ -120,15 +159,15 @@ impl HashedPartnerShopApiKey {
     }
 }
 
-impl From<PartnerShopApiKey> for HashedPartnerShopApiKey {
-    fn from(value: PartnerShopApiKey) -> Self {
+impl From<RawAccessToken> for HashedRawAccessToken {
+    fn from(value: RawAccessToken) -> Self {
         PrefixedApiKey::from_string(&value.0)
-            .expect("shouldn't fail parsing ParnterShopKey as PrefixedApiKey by construction")
+            .expect("shouldn't fail parsing RawAccessToken as PrefixedApiKey by construction")
             .into()
     }
 }
 
-impl From<PrefixedApiKey> for HashedPartnerShopApiKey {
+impl From<PrefixedApiKey> for HashedRawAccessToken {
     fn from(value: PrefixedApiKey) -> Self {
         let mut digest = Sha256::new();
         Self {
@@ -139,118 +178,39 @@ impl From<PrefixedApiKey> for HashedPartnerShopApiKey {
     }
 }
 
-#[cfg(feature = "api")]
-pub mod api {
-    use super::{InvalidPartnerShopApiKeyError, PartnerShopApiKey};
-    use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
-    use common::api::error::ApiError;
-    use common::api::error_code::BAD_HEADER_VALUE;
-
-    pub fn extract_api_key(
-        request: &ApiGatewayV2httpRequest,
-    ) -> Result<PartnerShopApiKey, ApiError> {
-        let api_key_str = request
-            .headers
-            .get("x-api-key")
-            .and_then(|v| v.to_str().ok())
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                ApiError::unauthorized(BAD_HEADER_VALUE)
-                    .with_header_field("x-api-key")
-                    .with_detail("Missing or empty 'x-api-key' header.")
-            })?;
-
-        PartnerShopApiKey::try_from(api_key_str.to_string()).map_err(|err| {
-            let msg = err.to_string();
-            ApiError::unauthorized(BAD_HEADER_VALUE)
-                .with_header_field("x-api-key")
-                .with_detail(msg)
-        })
-    }
-
-    impl From<InvalidPartnerShopApiKeyError> for ApiError {
-        fn from(err: InvalidPartnerShopApiKeyError) -> Self {
-            ApiError::unauthorized(BAD_HEADER_VALUE)
-                .with_header_field("x-api-key")
-                .with_detail(err.to_string())
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
-        use http::HeaderMap;
-
-        #[test]
-        fn should_extract_api_key_when_valid_header() {
-            let api_key = PartnerShopApiKey::new();
-            let key_str: String = api_key.clone().into();
-            let mut request = ApiGatewayV2httpRequest::default();
-            let mut headers = HeaderMap::new();
-            headers.insert("x-api-key", key_str.parse().unwrap());
-            request.headers = headers;
-
-            let result = extract_api_key(&request);
-            assert!(result.is_ok());
-            assert_eq!(result.unwrap(), api_key);
-        }
-
-        #[test]
-        fn should_return_401_when_api_key_header_missing() {
-            let request = ApiGatewayV2httpRequest::default();
-            let result = extract_api_key(&request);
-            assert!(result.is_err());
-            assert_eq!(result.unwrap_err().status, 401);
-        }
-
-        #[test]
-        fn should_return_401_when_api_key_header_invalid() {
-            let mut request = ApiGatewayV2httpRequest::default();
-            let mut headers = HeaderMap::new();
-            headers.insert("x-api-key", "invalid-key".parse().unwrap());
-            request.headers = headers;
-
-            let result = extract_api_key(&request);
-            assert!(result.is_err());
-            assert_eq!(result.unwrap_err().status, 401);
-        }
-    }
-}
-
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
     use fake::{Dummy, Faker, RngExt};
 
-    impl Dummy<Faker> for PartnerShopApiKey {
+    impl Dummy<Faker> for RawAccessToken {
         fn dummy_with_rng<R: RngExt + ?Sized>(_config: &Faker, _rng: &mut R) -> Self {
-            PartnerShopApiKey::new()
+            RawAccessToken::new()
         }
     }
 
-    impl Dummy<Faker> for HashedPartnerShopApiKey {
+    impl Dummy<Faker> for HashedRawAccessToken {
         fn dummy_with_rng<R: RngExt + ?Sized>(_config: &Faker, _rng: &mut R) -> Self {
-            PartnerShopApiKey::new().into()
+            RawAccessToken::new().into()
         }
     }
 
     #[cfg(test)]
     mod tests {
-        use crate::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
+        use crate::core::access_token::{HashedRawAccessToken, RawAccessToken};
         use fake::{Fake, Faker};
 
         #[test]
-        fn should_fake_shop_partner_shop_api_key() {
+        fn should_fake_access_token() {
             for _ in 0..100 {
-                let _ = Faker.fake::<PartnerShopApiKey>();
+                let _ = Faker.fake::<RawAccessToken>();
             }
         }
 
         #[test]
-        fn should_fake_hashed_shop_partner_shop_api_key() {
+        fn should_fake_hashed_access_token() {
             for _ in 0..100 {
-                let _ = Faker.fake::<HashedPartnerShopApiKey>();
+                let _ = Faker.fake::<HashedRawAccessToken>();
             }
         }
     }
@@ -261,11 +221,11 @@ mod tests {
     use super::*;
     use rstest::rstest;
 
-    // ── PartnerShopApiKey::new / default ────────────────────────────────────
+    // ── RawAccessToken::new / default ────────────────────────────────────
 
     #[test]
     fn should_start_with_prefix_when_new() {
-        let key: String = PartnerShopApiKey::new().into();
+        let key: String = RawAccessToken::new().into();
         assert!(key.starts_with("aurahistoria_"));
     }
 
@@ -273,7 +233,7 @@ mod tests {
     fn should_have_correct_token_lengths_when_new() {
         // seam_defaults() uses 8 bytes for short (base58 → 10-11 chars)
         // and 24 bytes for long (base58 → 32-33 chars); exact length depends on leading zeros
-        let key: String = PartnerShopApiKey::new().into();
+        let key: String = RawAccessToken::new().into();
         let stripped = key.strip_prefix("aurahistoria_").unwrap();
         let (short, long) = stripped.split_once('_').unwrap();
         assert!(
@@ -290,16 +250,16 @@ mod tests {
 
     #[test]
     fn should_generate_unique_keys_when_called_multiple_times() {
-        let keys: Vec<String> = (0..10).map(|_| PartnerShopApiKey::new().into()).collect();
+        let keys: Vec<String> = (0..10).map(|_| RawAccessToken::new().into()).collect();
         let unique: std::collections::HashSet<_> = keys.iter().collect();
         assert_eq!(unique.len(), 10);
     }
 
     #[test]
     fn should_produce_valid_parseable_key_when_default() {
-        let key = PartnerShopApiKey::default();
+        let key = RawAccessToken::default();
         let key_str: String = key.into();
-        let result = PartnerShopApiKey::try_from(key_str);
+        let result = RawAccessToken::try_from(key_str);
         assert!(result.is_ok());
     }
 
@@ -310,7 +270,7 @@ mod tests {
     #[case("aurahistoria_abcdefghijk_abcdefghijklmnopqrstuvwxyz1234567")]
     #[trace]
     fn should_parse_valid_key_when_try_from_string(#[case] input: &str) {
-        let result = PartnerShopApiKey::try_from(input.to_string());
+        let result = RawAccessToken::try_from(input.to_string());
         assert!(result.is_ok());
     }
 
@@ -321,34 +281,34 @@ mod tests {
     #[case::empty("")]
     #[trace]
     fn should_reject_invalid_key_when_try_from_string(#[case] input: &str) {
-        let result = PartnerShopApiKey::try_from(input.to_string());
+        let result = RawAccessToken::try_from(input.to_string());
         assert!(result.is_err());
     }
 
-    // ── From<PartnerShopApiKey> for String / round-trip ─────────────────────
+    // ── From<RawAccessToken> for String / round-trip ─────────────────────
 
     #[test]
     fn should_round_trip_through_string_when_from_and_try_from() {
-        let key = PartnerShopApiKey::new();
+        let key = RawAccessToken::new();
         let key_str: String = key.clone().into();
-        let restored = PartnerShopApiKey::try_from(key_str).unwrap();
+        let restored = RawAccessToken::try_from(key_str).unwrap();
         assert_eq!(key, restored);
     }
 
-    // ── PartnerShopApiKey::check ─────────────────────────────────────────────
+    // ── RawAccessToken::check ─────────────────────────────────────────────
 
     #[test]
     fn should_return_true_when_checking_own_hash() {
-        let key = PartnerShopApiKey::new();
-        let hash = HashedPartnerShopApiKey::from(key.clone());
+        let key = RawAccessToken::new();
+        let hash = HashedRawAccessToken::from(key.clone());
         assert!(key.check(&hash));
     }
 
     #[test]
     fn should_return_false_when_checking_hash_of_different_key() {
-        let key1 = PartnerShopApiKey::new();
-        let key2 = PartnerShopApiKey::new();
-        let hash2 = HashedPartnerShopApiKey::from(key2);
+        let key1 = RawAccessToken::new();
+        let key2 = RawAccessToken::new();
+        let hash2 = HashedRawAccessToken::from(key2);
         assert!(!key1.check(&hash2));
     }
 
@@ -356,7 +316,7 @@ mod tests {
 
     #[test]
     fn should_serialize_as_plain_json_string_when_serializing() {
-        let key = PartnerShopApiKey::new();
+        let key = RawAccessToken::new();
         let key_str: String = key.clone().into();
         let json = serde_json::to_string(&key).unwrap();
         assert_eq!(json, format!("\"{}\"", key_str));
@@ -364,9 +324,9 @@ mod tests {
 
     #[test]
     fn should_round_trip_through_serde_when_serializing_and_deserializing() {
-        let key = PartnerShopApiKey::new();
+        let key = RawAccessToken::new();
         let json = serde_json::to_string(&key).unwrap();
-        let restored: PartnerShopApiKey = serde_json::from_str(&json).unwrap();
+        let restored: RawAccessToken = serde_json::from_str(&json).unwrap();
         assert_eq!(key, restored);
     }
 
@@ -376,15 +336,15 @@ mod tests {
     #[case::wrong_prefix("\"badprefix_12345678901_123456789012345678901234567890123\"")]
     #[trace]
     fn should_fail_deserializing_when_json_contains_invalid_key(#[case] json: &str) {
-        let result = serde_json::from_str::<PartnerShopApiKey>(json);
+        let result = serde_json::from_str::<RawAccessToken>(json);
         assert!(result.is_err());
     }
 
-    // ── From<&PartnerShopApiKey> for PrefixedApiKey ──────────────────────────
+    // ── From<&RawAccessToken> for PrefixedApiKey ──────────────────────────
 
     #[test]
     fn should_preserve_prefix_and_short_token_when_converting_to_prefixed_api_key() {
-        let key = PartnerShopApiKey::new();
+        let key = RawAccessToken::new();
         let key_str: String = key.clone().into();
         let stripped = key_str.strip_prefix("aurahistoria_").unwrap();
         let (expected_short, _) = stripped.split_once('_').unwrap();
@@ -395,32 +355,32 @@ mod tests {
         assert_eq!(prefixed.short_token(), expected_short);
     }
 
-    // ── HashedPartnerShopApiKey::new and accessors ───────────────────────────
+    // ── HashedRawAccessToken::new and accessors ───────────────────────────
 
     #[test]
     fn should_store_all_fields_correctly_when_creating_via_new() {
         let short = "ABCDEFGH".to_string();
         let hash = "somehashvalue".to_string();
 
-        let hashed = HashedPartnerShopApiKey::new(short.clone(), hash.clone());
+        let hashed = HashedRawAccessToken::new(short.clone(), hash.clone());
 
-        assert_eq!(hashed.prefix(), PARTNER_SHOP_API_KEY_PREFIX);
+        assert_eq!(hashed.prefix(), AURA_HISTORIA_ACCESS_TOKEN_PREFIX);
         assert_eq!(hashed.short_token(), short);
         assert_eq!(hashed.long_token_hash(), hash);
     }
 
-    // ── From<PartnerShopApiKey> for HashedPartnerShopApiKey ──────────────────
+    // ── From<RawAccessToken> for HashedRawAccessToken ──────────────────
 
     #[test]
-    fn should_produce_sha256_hash_when_converting_from_partner_shop_api_key() {
-        let key = PartnerShopApiKey::new();
+    fn should_produce_sha256_hash_when_converting_from_aura_historia_api_key() {
+        let key = RawAccessToken::new();
         let key_str: String = key.clone().into();
         let stripped = key_str.strip_prefix("aurahistoria_").unwrap();
         let (expected_short, _) = stripped.split_once('_').unwrap();
 
-        let hashed = HashedPartnerShopApiKey::from(key);
+        let hashed = HashedRawAccessToken::from(key);
 
-        assert_eq!(hashed.prefix(), PARTNER_SHOP_API_KEY_PREFIX);
+        assert_eq!(hashed.prefix(), AURA_HISTORIA_ACCESS_TOKEN_PREFIX);
         assert_eq!(hashed.short_token(), expected_short);
         assert_eq!(
             hashed.long_token_hash().len(),
@@ -431,49 +391,49 @@ mod tests {
 
     #[test]
     fn should_produce_equal_hashes_when_converting_same_key_twice() {
-        let key = PartnerShopApiKey::new();
-        let hash1 = HashedPartnerShopApiKey::from(key.clone());
-        let hash2 = HashedPartnerShopApiKey::from(key);
+        let key = RawAccessToken::new();
+        let hash1 = HashedRawAccessToken::from(key.clone());
+        let hash2 = HashedRawAccessToken::from(key);
         assert_eq!(hash1, hash2);
     }
 
     #[test]
     fn should_produce_different_hashes_when_converting_different_keys() {
-        let key1 = PartnerShopApiKey::new();
-        let key2 = PartnerShopApiKey::new();
-        let hash1 = HashedPartnerShopApiKey::from(key1);
-        let hash2 = HashedPartnerShopApiKey::from(key2);
+        let key1 = RawAccessToken::new();
+        let key2 = RawAccessToken::new();
+        let hash1 = HashedRawAccessToken::from(key1);
+        let hash2 = HashedRawAccessToken::from(key2);
         assert_ne!(hash1, hash2);
     }
 
-    // ── From<PrefixedApiKey> for HashedPartnerShopApiKey ────────────────────
+    // ── From<PrefixedApiKey> for HashedRawAccessToken ────────────────────
 
     #[test]
-    fn should_produce_same_result_when_converting_from_prefixed_api_key_as_from_partner_shop_api_key()
+    fn should_produce_same_result_when_converting_from_prefixed_api_key_as_from_aura_historia_api_key()
      {
-        let key = PartnerShopApiKey::new();
+        let key = RawAccessToken::new();
         let prefixed: PrefixedApiKey = (&key).into();
 
-        let hash_from_key = HashedPartnerShopApiKey::from(key);
-        let hash_from_prefixed = HashedPartnerShopApiKey::from(prefixed);
+        let hash_from_key = HashedRawAccessToken::from(key);
+        let hash_from_prefixed = HashedRawAccessToken::from(prefixed);
 
         assert_eq!(hash_from_key, hash_from_prefixed);
     }
 
     #[test]
     fn should_set_correct_prefix_when_converting_from_prefixed_api_key() {
-        let key = PartnerShopApiKey::new();
+        let key = RawAccessToken::new();
         let prefixed: PrefixedApiKey = (&key).into();
-        let hashed = HashedPartnerShopApiKey::from(prefixed);
-        assert_eq!(hashed.prefix(), PARTNER_SHOP_API_KEY_PREFIX);
+        let hashed = HashedRawAccessToken::from(prefixed);
+        assert_eq!(hashed.prefix(), AURA_HISTORIA_ACCESS_TOKEN_PREFIX);
     }
 
-    // ── InvalidPartnerShopApiKeyError ────────────────────────────────────────
+    // ── InvalidRawAccessTokenError ────────────────────────────────────────
 
     #[test]
     fn should_include_input_value_in_error_message_when_parsing_fails() {
         let bad_key = "totally_wrong_format";
-        let err = PartnerShopApiKey::try_from(bad_key.to_string()).unwrap_err();
+        let err = RawAccessToken::try_from(bad_key.to_string()).unwrap_err();
         assert!(err.to_string().contains(bad_key));
     }
 
@@ -482,7 +442,7 @@ mod tests {
     #[case::no_separator("aurahistoria_12345678901123456789012345678901234567890123")]
     #[trace]
     fn should_include_bad_key_in_error_message_for_each_validation_branch(#[case] bad_key: &str) {
-        let err = PartnerShopApiKey::try_from(bad_key.to_string()).unwrap_err();
+        let err = RawAccessToken::try_from(bad_key.to_string()).unwrap_err();
         assert!(err.to_string().contains(bad_key));
     }
 }

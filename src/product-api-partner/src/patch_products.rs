@@ -9,7 +9,7 @@ use product::data::patch_product_data::PatchProductData;
 use product_lambda_ingest_partner_products::{
     AsyncProductCommandData, AsyncProductCommandService, UpdateAsyncProductCommandData,
 };
-use shop::core::partner_shop_api_key::api::extract_api_key;
+use shop::core::aura_historia_api_key::api::extract_api_key;
 use shop::service::get_service::GetShopService;
 
 pub async fn handle(
@@ -86,13 +86,13 @@ mod tests {
     use product_lambda_ingest_partner_products::service::{
         AsyncProductCommandFailure, MockAsyncProductCommandService,
     };
+    use shop::core::aura_historia_api_key::{HashedRawAccessToken, RawAccessToken};
     use shop::core::partner_shop::PartnerShop;
-    use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
     use shop::service::get_service::MockGetShopService;
 
     fn make_event_with_body_and_key(
         shop_id: &common::shop_id::ShopId,
-        api_key: &PartnerShopApiKey,
+        api_key: &RawAccessToken,
         body: Option<String>,
     ) -> LambdaEvent<ApiGatewayV2httpRequest> {
         let mut request = ApiGatewayV2httpRequest::default();
@@ -102,7 +102,7 @@ mod tests {
             .insert("shopId".to_string(), shop_id.to_string());
         let key_str: String = api_key.clone().into();
         let mut headers = HeaderMap::new();
-        headers.insert("x-api-key", key_str.parse().unwrap());
+        headers.insert("x-aura-historia-access-token", key_str.parse().unwrap());
         request.headers = headers;
         request.body = body;
         LambdaEvent::new(request, lambda_runtime::Context::default())
@@ -110,10 +110,10 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_202_with_empty_failures_when_all_products_forwarded_successfully() {
-        let api_key = PartnerShopApiKey::new();
+        let api_key = RawAccessToken::new();
         let partner_shop: PartnerShop = Faker.fake();
         let shop_id = partner_shop.shop_id;
-        let hashed: HashedPartnerShopApiKey = api_key.clone().into();
+        let hashed: HashedRawAccessToken = api_key.clone().into();
         let mut partner_shop_with_key = partner_shop;
         partner_shop_with_key.hashed_api_key = Some(hashed);
 
@@ -152,10 +152,10 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_202_with_failed_product_ids_when_some_products_fail_to_forward() {
-        let api_key = PartnerShopApiKey::new();
+        let api_key = RawAccessToken::new();
         let partner_shop: PartnerShop = Faker.fake();
         let shop_id = partner_shop.shop_id;
-        let hashed: HashedPartnerShopApiKey = api_key.clone().into();
+        let hashed: HashedRawAccessToken = api_key.clone().into();
         let mut partner_shop_with_key = partner_shop;
         partner_shop_with_key.hashed_api_key = Some(hashed);
 
@@ -222,7 +222,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_400_when_body_is_empty() {
-        let api_key = PartnerShopApiKey::new();
+        let api_key = RawAccessToken::new();
         let shop_id = common::shop_id::ShopId::new();
 
         let event = make_event_with_body_and_key(&shop_id, &api_key, None);
@@ -243,7 +243,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_400_when_body_is_invalid_json() {
-        let api_key = PartnerShopApiKey::new();
+        let api_key = RawAccessToken::new();
         let shop_id = common::shop_id::ShopId::new();
 
         let event = make_event_with_body_and_key(&shop_id, &api_key, Some("not json".to_string()));

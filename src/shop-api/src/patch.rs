@@ -6,7 +6,7 @@ use common::api::error_code::BAD_BODY_VALUE;
 use common::shop_id::api::extract_shop_id_path;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
-use shop::core::partner_shop_api_key::api::extract_api_key;
+use shop::core::aura_historia_api_key::api::extract_api_key;
 use shop::data::get_shop_data::GetShopData;
 use shop::data::patch_shop_data::PatchShopData;
 use shop::service::command::UpdateShopCommand;
@@ -69,6 +69,7 @@ pub async fn handle(
 
     let update_command = UpdateShopCommand {
         shop_type: patch_data.shop_type.map(Into::into),
+        shop_partner_status: None,
         domains: patch_data.domains,
         shopify_domain: patch_data.shopify_domain,
         shopify_currency: patch_data.shopify_currency.map(Into::into),
@@ -103,8 +104,8 @@ mod tests {
     use common::user_id::UserId;
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
+    use shop::core::aura_historia_api_key::{HashedRawAccessToken, RawAccessToken};
     use shop::core::partner_shop::PartnerShop;
-    use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
     use shop::core::shop::Shop;
     use shop::data::patch_shop_data::PatchShopData;
     use shop::service::command_service::MockCommandShopService;
@@ -211,12 +212,12 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_200_when_api_key_updates_shop_without_cognito() {
-        let api_key = PartnerShopApiKey::new();
+        let api_key = RawAccessToken::new();
         let shop_id = ShopId::new();
 
         let mut partner_shop: PartnerShop = Faker.fake();
         partner_shop.shop_id = shop_id;
-        partner_shop.hashed_api_key = Some(HashedPartnerShopApiKey::from(api_key.clone()));
+        partner_shop.hashed_api_key = Some(HashedRawAccessToken::from(api_key.clone()));
 
         let mut get_shop_service = MockGetShopService::default();
         get_shop_service
@@ -240,7 +241,7 @@ mod tests {
                 .http_method(http::Method::PATCH)
                 .route_key("PATCH /api/v1/shops/{shopId}")
                 .path_parameter("shopId", shop_id.to_string())
-                .header("x-api-key", api_key_header)
+                .header("x-aura-historia-access-token", api_key_header)
                 .body_serde(&serde_json::json!({
                     "woocommerceWebhookSecret": "secret"
                 }))
