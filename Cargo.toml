@@ -130,7 +130,7 @@ notification = { path = "src/notification" }
 notification-api = { path = "src/notification-api" }
 futures = { version = "0.3.32", default-features = false }
 hex = "0.4.3"
-http = "1.4.0"
+http = "1.4.1"
 httpdate = "1.0.3"
 product = { path = "src/product" }
 product-api = { path = "src/product-api" }
