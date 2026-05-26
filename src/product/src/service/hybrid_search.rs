@@ -21,6 +21,7 @@ use common::language::domain::Language;
 use common::opensearch::search_response::{OpenSearchTimedOutError, SearchHit, SearchResponse};
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::sort::{Sort, SortOrder};
+use serde_json::json;
 use std::collections::HashSet;
 
 const DEFAULT_PAGE_SIZE: u64 = 20;
@@ -177,15 +178,22 @@ async fn fetch_filtered_hybrid_page(
 
         let page_hits = response.hits.hits;
         let page_hit_count = page_hits.len();
-        let page_last_sort = page_hits.iter().rev().find_map(|hit| hit.sort.clone());
+        // When the OpenSearch hybrid normalization pipeline omits `sort` values from hits,
+        // fall back to the hit's `_score` wrapped in an array so that `search_after`
+        // remains usable with the single-field `[_score]` sort clause.
+        let page_last_sort = page_hits
+            .iter()
+            .rev()
+            .find_map(|hit| hit.sort.clone().or_else(|| hit.score.map(|s| json!([s]))));
 
         if page_hit_count == 0 {
             break;
         }
 
         for hit in page_hits {
-            if hit.sort.is_some() {
-                last_processed_sort = hit.sort.clone();
+            let effective_sort = hit.sort.clone().or_else(|| hit.score.map(|s| json!([s])));
+            if effective_sort.is_some() {
+                last_processed_sort = effective_sort;
             }
             scanned_hits += 1;
 
@@ -461,6 +469,23 @@ mod tests {
         }
     }
 
+    /// Creates a hit with `sort: None` to simulate OpenSearch hybrid pipeline responses that
+    /// omit sort values (e.g. when the normalization pipeline does not forward them).
+    fn mk_hit_no_sort(
+        doc: ProductDocument,
+        score: f64,
+        matched_queries: Vec<&str>,
+    ) -> SearchHit<ProductDocument> {
+        SearchHit {
+            index: "products".to_string(),
+            id: doc.product_id.to_string(),
+            score: Some(score),
+            sort: None,
+            matched_queries: matched_queries.into_iter().map(str::to_string).collect(),
+            source: doc,
+        }
+    }
+
     fn mk_response(hits: Vec<SearchHit<ProductDocument>>) -> SearchResponse<ProductDocument> {
         SearchResponse {
             took: 1,
@@ -710,6 +735,125 @@ mod tests {
         .unwrap();
 
         assert_eq!(outcome.items.items.len(), 2);
+        assert_eq!(outcome.items.cursor.search_after, Some(json!([0.8])));
+    }
+
+    #[tokio::test]
+    async fn should_propagate_pagination_cursor_using_score_fallback_when_sort_values_absent() {
+        // Simulates the case where OpenSearch's hybrid normalization pipeline omits `sort`
+        // values from hits. The fallback should produce `searchAfter: [score]` so the
+        // caller can still paginate.
+        let mut repo = MockProductOpenSearchRepository::default();
+        let probe = mk_response(vec![mk_hit(
+            mk_doc("art deco lamp"),
+            1.0,
+            json!([1.0]),
+            vec![],
+        )]);
+        let hybrid = mk_response(vec![
+            mk_hit_no_sort(mk_doc("art deco lamp"), 1.0, vec![HYBRID_BM25_QUERY_NAME]),
+            mk_hit_no_sort(
+                mk_doc("art deco floor lamp"),
+                0.9,
+                vec![HYBRID_BM25_QUERY_NAME],
+            ),
+        ]);
+        repo.expect_search_product_documents()
+            .times(1)
+            .return_once(move |_, _, _| Box::pin(async move { Ok(probe) }));
+        repo.expect_hybrid_search_product_documents()
+            .times(1)
+            .return_once(move |_, _, _, _| Box::pin(async move { Ok(hybrid) }));
+
+        let search = mk_search();
+        let outcome = hybrid_search(
+            &repo,
+            &search,
+            &one_hot_embedding(0),
+            &None,
+            &[search.language],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.items.items.len(), 2);
+        // searchAfter should be derived from the last hit's score since sort is absent
+        assert_eq!(outcome.items.cursor.search_after, Some(json!([0.9])));
+    }
+
+    #[tokio::test]
+    async fn should_scan_additional_hybrid_pages_using_score_fallback_when_sort_values_absent() {
+        // Simulates multi-page scanning where OpenSearch does not return sort values.
+        // The score-based fallback must be forwarded as `search_after` for subsequent pages.
+        let mut repo = MockProductOpenSearchRepository::default();
+        let mut seq = Sequence::new();
+
+        let probe = mk_response(vec![
+            mk_hit(mk_doc("blue ceramic vase"), 1.0, json!([1.0]), vec![]),
+            mk_hit(mk_doc("blue ceramic jar"), 0.99, json!([0.99]), vec![]),
+            mk_hit(mk_doc("blue glass vase"), 0.98, json!([0.98]), vec![]),
+        ]);
+        repo.expect_search_product_documents()
+            .times(1)
+            .in_sequence(&mut seq)
+            .return_once(move |_, _, _| Box::pin(async move { Ok(probe) }));
+
+        let bm25_hit = mk_hit_no_sort(
+            mk_doc("blue ceramic vase"),
+            1.0,
+            vec![HYBRID_BM25_QUERY_NAME],
+        );
+        let mut junk_doc = mk_doc("totally unrelated text");
+        junk_doc.embedding = Some(one_hot_embedding(1));
+        let junk_hit = mk_hit_no_sort(junk_doc, 0.9, vec![]);
+        let page_one = mk_response(vec![bm25_hit, junk_hit]);
+
+        let mut good_vector_doc = mk_doc("totally unrelated text");
+        good_vector_doc.embedding = Some(one_hot_embedding(0));
+        let page_two = mk_response(vec![mk_hit_no_sort(good_vector_doc, 0.8, vec![])]);
+
+        repo.expect_hybrid_search_product_documents()
+            .times(1)
+            .in_sequence(&mut seq)
+            .return_once(move |_, _, _, cursor| {
+                assert!(
+                    cursor
+                        .as_ref()
+                        .and_then(|page| page.search_after.clone())
+                        .is_none()
+                );
+                Box::pin(async move { Ok(page_one) })
+            });
+        repo.expect_hybrid_search_product_documents()
+            .times(1)
+            .in_sequence(&mut seq)
+            .return_once(move |_, _, _, cursor| {
+                // The score-based fallback from the junk hit (score=0.9) must be used
+                // as search_after for the second page.
+                assert_eq!(
+                    cursor.as_ref().and_then(|page| page.search_after.clone()),
+                    Some(json!([0.9]))
+                );
+                Box::pin(async move { Ok(page_two) })
+            });
+
+        let mut search = mk_search();
+        search.product_query = Some("blue ceramic vase".try_into().unwrap());
+        let outcome = hybrid_search(
+            &repo,
+            &search,
+            &one_hot_embedding(0),
+            &Some(Cursor {
+                size: 2,
+                search_after: None,
+            }),
+            &[search.language],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.items.items.len(), 2);
+        // searchAfter of final accepted page should be from the last item's score fallback
         assert_eq!(outcome.items.cursor.search_after, Some(json!([0.8])));
     }
 }
