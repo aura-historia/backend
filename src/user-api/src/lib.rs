@@ -48,6 +48,9 @@ pub async fn handle(
         Some("GET /api/v1/me/account") => get::handle(event, service).await,
         Some("POST /api/v1/me/access-tokens") => access_tokens::post(event, service).await,
         Some("GET /api/v1/me/access-tokens") => access_tokens::get(event, service).await,
+        Some("GET /api/v1/me/access-tokens/{accessTokenId}") => {
+            access_tokens::get_one(event, service).await
+        }
         Some("PATCH /api/v1/me/access-tokens") => access_tokens::patch(event, service).await,
         Some("DELETE /api/v1/me/access-tokens") => access_tokens::delete(event, service).await,
         Some("PATCH /api/v1/me/account") => patch::handle(event, service).await,

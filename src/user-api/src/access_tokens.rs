@@ -1,9 +1,11 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::BAD_BODY_VALUE;
+use common::api::error_code::{BAD_BODY_VALUE, BAD_PATH_PARAMETER_VALUE, INVALID_UUID};
+use common::error::missing_field::MissingRequiredField;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
+use std::collections::HashMap;
 use user::core::access_token::AccessTokenId;
 use user::data::access_token_data::{
     CreatedAccessTokenData, GetAccessTokenData, PatchAccessTokenData, PostAccessTokenData,
@@ -51,6 +53,23 @@ pub async fn get(
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .cache_control("no-store", None, None)
         .body_serde(tokens)?
+        .build())
+}
+
+pub async fn get_one(
+    event: LambdaEvent<ApiGatewayV2httpRequest>,
+    service: &impl UserService,
+) -> Result<ApiGatewayV2httpResponse, ApiError> {
+    let user_id = extract_user_id_request_context(&event.payload.request_context)?;
+    let access_token_id = extract_access_token_id_path(&event.payload.path_parameters)?;
+    let token: GetAccessTokenData = service
+        .find_access_token(&user_id, &access_token_id)
+        .await?
+        .into();
+
+    Ok(ApiGatewayV2HttpResponseBuilder::json(200)
+        .cache_control("no-store", None, None)
+        .body_serde(token)?
         .build())
 }
 
@@ -119,6 +138,29 @@ fn bad_json(err: serde_json::Error) -> ApiError {
     ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
 }
 
+fn extract_access_token_id_path(
+    path_params: &HashMap<String, String>,
+) -> Result<AccessTokenId, ApiError> {
+    path_params
+        .get("accessTokenId")
+        .map(AccessTokenId::try_from)
+        .transpose()
+        .map_err(|err| {
+            let msg = err.to_string();
+            ApiError::bad_request(INVALID_UUID, Box::new(err))
+                .with_path_field("accessTokenId")
+                .with_detail(msg)
+        })?
+        .ok_or(
+            ApiError::bad_request(
+                BAD_PATH_PARAMETER_VALUE,
+                Box::new(MissingRequiredField::new("accessTokenId")),
+            )
+            .with_path_field("accessTokenId")
+            .with_detail("Missing field 'accessTokenId'."),
+        )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,6 +218,29 @@ mod tests {
         };
 
         let response = get(event, &service).await.unwrap();
+        assert_eq!(200, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_get_one_access_token() {
+        let user_id = UserId::new();
+        let token: AccessToken = Faker.fake();
+        let access_token_id = token.id;
+        let mut service = MockUserService::default();
+        service
+            .expect_find_access_token()
+            .return_once(move |_, _| Box::pin(async move { Ok(token) }));
+        let event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/me/access-tokens/{accessTokenId}")
+                .jwt_claim("sub", user_id)
+                .path_parameter("accessTokenId", access_token_id.to_string())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = get_one(event, &service).await.unwrap();
         assert_eq!(200, response.status_code);
     }
 }

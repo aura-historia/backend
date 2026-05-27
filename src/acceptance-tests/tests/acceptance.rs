@@ -1917,6 +1917,16 @@ async fn should_manage_user_access_tokens() {
             .any(|token| token.access_token_id == created.metadata.access_token_id)
     );
 
+    let get_one_response = reqwest::Client::new()
+        .get(format!("{}/{}", url, created.metadata.access_token_id))
+        .bearer_auth(user.access_token.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, get_one_response.status());
+    let token = get_one_response.json::<GetAccessTokenData>().await.unwrap();
+    assert_eq!(created.metadata.access_token_id, token.access_token_id);
+
     let patch_response = reqwest::Client::new()
         .patch(url.clone())
         .bearer_auth(user.access_token.clone())

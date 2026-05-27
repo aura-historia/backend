@@ -1,6 +1,5 @@
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
-use std::collections::HashSet;
 use test_api::*;
 use user::core::access_token::Scope;
 use user::data::access_token_data::{
@@ -57,6 +56,25 @@ async fn should_crud_access_tokens() {
     let tokens: Vec<GetAccessTokenData> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(1, tokens.len());
+
+    let response = handler(
+        LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/me/access-tokens/{accessTokenId}")
+                .jwt_claim("sub", user.user_id)
+                .path_parameter("accessTokenId", access_token_id.to_string())
+                .build(),
+            context: Default::default(),
+        },
+        &service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+    let token: GetAccessTokenData =
+        serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
+    assert_eq!(access_token_id, token.access_token_id);
 
     let patch = PatchAccessTokenData {
         access_token_id,
