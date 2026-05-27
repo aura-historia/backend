@@ -61,7 +61,7 @@ pub trait UserDynamoDbRepository {
         user_id: &UserId,
     ) -> Result<Vec<AccessTokenRecord>, SdkError<QueryError>>;
 
-    async fn find_access_token_record_by_hashed_token(
+    async fn query_access_token_record_by_hashed_token(
         &self,
         hashed_token: &crate::core::access_token::HashedRawAccessToken,
     ) -> Result<Option<AccessTokenRecord>, SdkError<QueryError>>;
@@ -292,7 +292,7 @@ impl<'a> UserDynamoDbRepository for UserDynamoDbRepositoryImpl<'a> {
             .collect())
     }
 
-    async fn find_access_token_record_by_hashed_token(
+    async fn query_access_token_record_by_hashed_token(
         &self,
         hashed_token: &crate::core::access_token::HashedRawAccessToken,
     ) -> Result<Option<AccessTokenRecord>, SdkError<QueryError>> {
@@ -301,12 +301,16 @@ impl<'a> UserDynamoDbRepository for UserDynamoDbRepositoryImpl<'a> {
             .query()
             .table_name(&self.table)
             .index_name("gsi1")
-            .key_condition_expression("#gsi1_pk = :gsi1_pk_val")
+            .key_condition_expression(
+                "#gsi1_pk = :gsi1_pk_val AND begins_with(#gsi1_sk, :gsi1_sk_prefix)",
+            )
             .expression_attribute_names("#gsi1_pk", "gsi1_pk")
+            .expression_attribute_names("#gsi1_sk", "gsi1_sk")
             .expression_attribute_values(
                 ":gsi1_pk_val",
                 AttributeValue::S(access_token_record::mk_gsi1_pk(hashed_token)),
             )
+            .expression_attribute_values(":gsi1_sk_prefix", AttributeValue::S("user#".to_owned()))
             .send()
             .await?
             .items

@@ -1,5 +1,6 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
+use cognito::load_access_token_verifier_service;
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use product_api_partner::handler;
@@ -7,7 +8,9 @@ use product_lambda_ingest_partner_products::AsyncProductCommandServiceImpl;
 use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
 use shop::service::get_service::GetShopServiceImpl;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
-use user::service::user_service::UserServiceImpl;
+use user::service::{
+    authenticator_service::AuthenticatorServiceImpl, user_service::UserServiceImpl,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -21,6 +24,16 @@ async fn main() -> Result<(), Error> {
         .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
     let queue_url = std::env::var("ASYNC_PRODUCT_COMMAND_QUEUE_URL")
         .expect("shouldn't fail loading env-var 'ASYNC_PRODUCT_COMMAND_QUEUE_URL'");
+    let user_pool_id =
+        std::env::var("USER_POOL_ID").expect("shouldn't fail loading env-var 'USER_POOL_ID'");
+    let user_pool_public_client_id = std::env::var("USER_POOL_PUBLIC_CLIENT_ID")
+        .expect("shouldn't fail loading env-var 'USER_POOL_PUBLIC_CLIENT_ID'");
+    let user_pool_admin_client_id = std::env::var("USER_POOL_ADMIN_CLIENT_ID")
+        .expect("shouldn't fail loading env-var 'USER_POOL_ADMIN_CLIENT_ID'");
+    let user_pool_client_ids = [
+        user_pool_public_client_id.as_str(),
+        user_pool_admin_client_id.as_str(),
+    ];
 
     let dynamodb = aws_sdk_dynamodb::Client::new(&aws_config);
     let sqs = aws_sdk_sqs::Client::new(&aws_config);
@@ -30,6 +43,10 @@ async fn main() -> Result<(), Error> {
     let get_shop_service = GetShopServiceImpl::new(&shop_dynamodb_repository);
     let user_service = UserServiceImpl::new(&user_dynamodb_repository);
     let async_product_command_service = AsyncProductCommandServiceImpl::new(&sqs, queue_url);
+    let access_token_verifier_service =
+        load_access_token_verifier_service(&user_pool_id, &user_pool_client_ids);
+    let authenticator_service =
+        AuthenticatorServiceImpl::new(access_token_verifier_service.as_ref(), &user_service);
 
     debug!("Lambda initialized.");
 
@@ -39,6 +56,7 @@ async fn main() -> Result<(), Error> {
                 event,
                 &get_shop_service,
                 &user_service,
+                &authenticator_service,
                 &async_product_command_service,
             )
             .await

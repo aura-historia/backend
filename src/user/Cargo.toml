@@ -16,6 +16,8 @@ mockall = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 prefixed-api-key = { workspace = true, features = ["sha2"] }
+cognito_verifier = { package = "cognito", path = "../cognito", optional = true }
+http = { workspace = true, optional = true }
 
 # Optional
 serde_dynamo = { workspace = true, features = ["aws-sdk-dynamodb+1"], optional = true }
@@ -36,10 +38,11 @@ tokio = { workspace = true, features = ["macros"] }
 
 [features]
 default = []
-data = ["common/api", "geo/data"]
+data = ["common/api", "geo/data", "dep:http"]
 dynamodb = ["aws-sdk-dynamodb", "serde_dynamo", "serde_dynamo/aws-sdk-dynamodb+1", "tracing", "common/dynamodb"]
 opensearch = ["common/opensearch", "dep:opensearch", "serde_json", "tracing", "dynamodb", "tokio", "time/formatting"]
 cognito = ["aws-sdk-cognitoidentityprovider"]
 service = ["dynamodb", "tokio", "geo/service", "opensearch"]
+authenticator = ["service", "data", "dep:cognito_verifier"]
 test-data = ["fake", "common/test-data", "geo/test-data"]
-full = ["data", "test-data", "dynamodb", "opensearch", "service", "cognito"]
+full = ["data", "test-data", "dynamodb", "opensearch", "service", "authenticator", "cognito"]

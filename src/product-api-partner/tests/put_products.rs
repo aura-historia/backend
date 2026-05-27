@@ -1,246 +1,180 @@
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
-use product::dynamodb::product_record::{self, ProductRecord};
-use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product_lambda_ingest_partner_products::AsyncProductCommandServiceImpl;
-use shop::core::aura_historia_api_key::{HashedRawAccessToken, RawAccessToken};
-use shop::dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl};
-use shop::dynamodb::shop_record::ShopRecord;
-use shop::service::get_service::GetShopServiceImpl;
+use shop::{
+    core::partner_shop::PartnerShop,
+    service::get_service::{MockGetShopService, VerifyPartnerShopError},
+};
 use test_api::*;
+use user::{
+    core::access_token::{AccessToken, Scope},
+    service::{
+        authenticator_service::{AuthenticatedPrincipal, MockAuthenticatorService},
+        user_service::{MockUserService, UserServiceError},
+    },
+};
 
 const SQS: Sqs = Sqs {
     name: "product_api_partner_put_products",
 };
 
-fn make_partner_shop_record(api_key: &RawAccessToken) -> ShopRecord {
-    let hashed: HashedRawAccessToken = api_key.clone().into();
-    let mut record: ShopRecord = Faker.fake();
-    record.partner_api_key_short = Some(hashed.short_token().to_string());
-    record.partner_api_key_long_hash = Some(hashed.long_token_hash().to_string());
-    record.partner_user_id = Some(Faker.fake());
-    record
+fn authorized_services(
+    shop_id: common::shop_id::ShopId,
+) -> (MockUserService, MockAuthenticatorService) {
+    let user_id = common::user_id::UserId::new();
+
+    let mut user_service = MockUserService::default();
+    user_service.expect_find_user().return_once(move |_| {
+        let mut user: user::core::user::User = Faker.fake();
+        user.user_id = user_id;
+        user.partner_shops.insert(shop_id);
+        Box::pin(async move { Ok(user) })
+    });
+
+    let mut access_token: AccessToken = Faker.fake();
+    access_token.user_id = user_id;
+    access_token.scopes = [Scope::ProductsWrite].into();
+
+    let mut authenticator_service = MockAuthenticatorService::default();
+    authenticator_service
+        .expect_authenticate()
+        .return_once(move |_| {
+            Box::pin(async move { Ok(Some(AuthenticatedPrincipal::AccessToken(access_token))) })
+        });
+
+    (user_service, authenticator_service)
 }
 
-#[localstack_test(services = [DynamoDB(), SQS])]
-async fn should_return_200_with_empty_errors_when_upserting_new_product() {
-    let ddb_client = get_dynamodb_client().await;
-    let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let _product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let command_product_service =
-        AsyncProductCommandServiceImpl::new(get_sqs_client().await, SQS.queue_url());
-
-    let api_key = RawAccessToken::new();
-    let shop_record = make_partner_shop_record(&api_key);
-    let shop_id = shop_record.shop_id;
-    shop_repository.put_shop_record(shop_record).await.unwrap();
-
-    let api_key_str: String = api_key.into();
-    let lambda_event = LambdaEvent {
+fn make_event(
+    shop_id: common::shop_id::ShopId,
+    body: serde_json::Value,
+) -> LambdaEvent<aws_lambda_events::apigw::ApiGatewayV2httpRequest> {
+    LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::PUT)
             .route_key("PUT /api/v1/shops/{shopId}/products")
             .path_parameter("shopId", shop_id.to_string())
-            .header("x-aura-historia-access-token", api_key_str)
-            .body_serde(&vec![serde_json::json!({
-                "shopsProductId": "integration-put-new-product-1",
-                "title": { "text": "New Product via PUT", "language": "en" },
-                "description": { "text": "A new product created via upsert", "language": "en" },
-                "state": "AVAILABLE",
-                "url": "https://example.com/product/1",
-                "images": ["https://example.com/img.jpg"]
-            })])
+            .header("Authorization", "******")
+            .body_serde(&body)
             .build(),
         context: Default::default(),
-    };
-
-    let response =
-        product_api_partner::handle(lambda_event, &get_shop_service, &command_product_service)
-            .await
-            .unwrap();
-    assert_eq!(202, response.status_code);
-
-    let body: Vec<String> = serde_json::from_str(
-        response
-            .body
-            .as_ref()
-            .and_then(|b| match b {
-                aws_lambda_events::encodings::Body::Text(s) => Some(s.as_str()),
-                _ => None,
-            })
-            .unwrap(),
-    )
-    .unwrap();
-    assert!(body.is_empty());
+    }
 }
 
-#[localstack_test(services = [DynamoDB(), SQS])]
-async fn should_return_200_with_empty_errors_when_upserting_existing_product() {
-    let ddb_client = get_dynamodb_client().await;
-    let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let get_shop_service = GetShopServiceImpl::new(&shop_repository);
+#[localstack_test(services = [SQS])]
+async fn should_return_202_when_upserting_product() {
+    let shop_id = common::shop_id::ShopId::new();
     let command_product_service =
         AsyncProductCommandServiceImpl::new(get_sqs_client().await, SQS.queue_url());
 
-    let api_key = RawAccessToken::new();
-    let shop_record = make_partner_shop_record(&api_key);
-    let shop_id = shop_record.shop_id;
-    shop_repository.put_shop_record(shop_record).await.unwrap();
+    let mut partner_shop: PartnerShop = Faker.fake();
+    partner_shop.shop_id = shop_id;
+    let mut get_shop_service = MockGetShopService::default();
+    get_shop_service
+        .expect_find_partner_shop()
+        .return_once(move |_| Box::pin(async move { Ok(partner_shop) }));
 
-    // First create the product so we can update it via upsert
-    let mut product_record = Faker.fake::<ProductRecord>();
-    product_record.shop_id = shop_id;
-    product_record.shops_product_id = "integration-put-existing-product-1".into();
-    product_record.pk = product_record::mk_pk(&shop_id, &product_record.shops_product_id);
-    product_record.sk = product_record::mk_sk().to_owned();
-    product_record.state = product::dynamodb::product_state_record::ProductStateRecord::Available;
-    product_repository
-        .put_product_records([product_record].into())
-        .await
-        .unwrap();
-
-    let api_key_str: String = api_key.into();
-    let lambda_event = LambdaEvent {
-        payload: ApiGatewayV2httpRequestProxy::builder()
-            .http_method(http::Method::PUT)
-            .route_key("PUT /api/v1/shops/{shopId}/products")
-            .path_parameter("shopId", shop_id.to_string())
-            .header("x-aura-historia-access-token", api_key_str)
-            .body_serde(&vec![serde_json::json!({
-                "shopsProductId": "integration-put-existing-product-1",
-                "state": "SOLD"
-            })])
-            .build(),
-        context: Default::default(),
-    };
-
-    let response =
-        product_api_partner::handle(lambda_event, &get_shop_service, &command_product_service)
-            .await
-            .unwrap();
-    assert_eq!(202, response.status_code);
-
-    let body: Vec<String> = serde_json::from_str(
-        response
-            .body
-            .as_ref()
-            .and_then(|b| match b {
-                aws_lambda_events::encodings::Body::Text(s) => Some(s.as_str()),
-                _ => None,
-            })
-            .unwrap(),
-    )
-    .unwrap();
-    assert!(body.is_empty());
-}
-
-#[localstack_test(services = [DynamoDB(), SQS])]
-async fn should_return_401_when_api_key_does_not_match_for_put() {
-    let ddb_client = get_dynamodb_client().await;
-    let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let _product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let command_product_service =
-        AsyncProductCommandServiceImpl::new(get_sqs_client().await, SQS.queue_url());
-
-    let correct_key = RawAccessToken::new();
-    let wrong_key = RawAccessToken::new();
-    let shop_record = make_partner_shop_record(&correct_key);
-    let shop_id = shop_record.shop_id;
-    shop_repository.put_shop_record(shop_record).await.unwrap();
-
-    let wrong_key_str: String = wrong_key.into();
-    let lambda_event = LambdaEvent {
-        payload: ApiGatewayV2httpRequestProxy::builder()
-            .http_method(http::Method::PUT)
-            .route_key("PUT /api/v1/shops/{shopId}/products")
-            .path_parameter("shopId", shop_id.to_string())
-            .header("x-aura-historia-access-token", wrong_key_str)
-            .body_serde(&vec![serde_json::json!({
-                "shopsProductId": "test-product",
+    let (user_service, authenticator_service) = authorized_services(shop_id);
+    let response = product_api_partner::handle(
+        make_event(
+            shop_id,
+            serde_json::json!([{
+                "shopsProductId": "integration-put-product-1",
                 "state": "AVAILABLE"
-            })])
-            .build(),
-        context: Default::default(),
-    };
-
-    let response =
-        product_api_partner::handle(lambda_event, &get_shop_service, &command_product_service)
-            .await;
-    assert!(response.is_err());
-    assert_eq!(401, response.unwrap_err().status);
+            }]),
+        ),
+        &get_shop_service,
+        &user_service,
+        &authenticator_service,
+        &command_product_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(202, response.status_code);
 }
 
-#[localstack_test(services = [DynamoDB(), SQS])]
+#[tokio::test]
+async fn should_return_401_when_access_token_is_invalid_for_put() {
+    let shop_id = common::shop_id::ShopId::new();
+    let mut get_shop_service = MockGetShopService::default();
+    get_shop_service.expect_find_partner_shop().never();
+
+    let user_service = MockUserService::default();
+    let mut authenticator_service = MockAuthenticatorService::default();
+    authenticator_service
+        .expect_authenticate()
+        .return_once(|_| {
+            Box::pin(async move { Err(UserServiceError::AccessTokenNotFoundByRaw.into()) })
+        });
+
+    let response = product_api_partner::handle(
+        make_event(shop_id, serde_json::json!([])),
+        &get_shop_service,
+        &user_service,
+        &authenticator_service,
+        &product_lambda_ingest_partner_products::service::MockAsyncProductCommandService::default(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(401, response.status);
+}
+
+#[tokio::test]
 async fn should_return_404_when_shop_does_not_exist_for_put() {
-    let ddb_client = get_dynamodb_client().await;
-    let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let _product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let command_product_service =
-        AsyncProductCommandServiceImpl::new(get_sqs_client().await, SQS.queue_url());
+    let shop_id = common::shop_id::ShopId::new();
+    let mut get_shop_service = MockGetShopService::default();
+    get_shop_service
+        .expect_find_partner_shop()
+        .return_once(move |_| {
+            Box::pin(async move { Err(VerifyPartnerShopError::ShopNotFound(shop_id)) })
+        });
 
-    let api_key = RawAccessToken::new();
-    let non_existent_shop_id = common::shop_id::ShopId::new();
-
-    let api_key_str: String = api_key.into();
-    let lambda_event = LambdaEvent {
-        payload: ApiGatewayV2httpRequestProxy::builder()
-            .http_method(http::Method::PUT)
-            .route_key("PUT /api/v1/shops/{shopId}/products")
-            .path_parameter("shopId", non_existent_shop_id.to_string())
-            .header("x-aura-historia-access-token", api_key_str)
-            .body_serde(&vec![serde_json::json!({
-                "shopsProductId": "test-product",
-                "state": "AVAILABLE"
-            })])
-            .build(),
-        context: Default::default(),
-    };
-
-    let response =
-        product_api_partner::handle(lambda_event, &get_shop_service, &command_product_service)
-            .await;
-    assert!(response.is_err());
-    assert_eq!(404, response.unwrap_err().status);
+    let (user_service, authenticator_service) = authorized_services(shop_id);
+    let response = product_api_partner::handle(
+        make_event(shop_id, serde_json::json!([])),
+        &get_shop_service,
+        &user_service,
+        &authenticator_service,
+        &product_lambda_ingest_partner_products::service::MockAsyncProductCommandService::default(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(404, response.status);
 }
 
-#[localstack_test(services = [DynamoDB(), SQS])]
-async fn should_return_403_when_shop_is_not_a_partner_for_put() {
-    let ddb_client = get_dynamodb_client().await;
-    let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let _product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let command_product_service =
-        AsyncProductCommandServiceImpl::new(get_sqs_client().await, SQS.queue_url());
+#[tokio::test]
+async fn should_return_403_when_user_is_not_associated_with_shop_for_put() {
+    let shop_id = common::shop_id::ShopId::new();
 
-    let api_key = RawAccessToken::new();
-    let mut shop_record: ShopRecord = Faker.fake();
-    shop_record.partner_api_key_short = None;
-    shop_record.partner_api_key_long_hash = None;
-    let shop_id = shop_record.shop_id;
-    shop_repository.put_shop_record(shop_record).await.unwrap();
+    let mut get_shop_service = MockGetShopService::default();
+    get_shop_service.expect_find_partner_shop().never();
 
-    let api_key_str: String = api_key.into();
-    let lambda_event = LambdaEvent {
-        payload: ApiGatewayV2httpRequestProxy::builder()
-            .http_method(http::Method::PUT)
-            .route_key("PUT /api/v1/shops/{shopId}/products")
-            .path_parameter("shopId", shop_id.to_string())
-            .header("x-aura-historia-access-token", api_key_str)
-            .body_serde(&vec![serde_json::json!({
-                "shopsProductId": "test-product",
-                "state": "AVAILABLE"
-            })])
-            .build(),
-        context: Default::default(),
-    };
+    let user_id = common::user_id::UserId::new();
+    let mut user_service = MockUserService::default();
+    user_service.expect_find_user().return_once(move |_| {
+        let mut user: user::core::user::User = Faker.fake();
+        user.user_id = user_id;
+        Box::pin(async move { Ok(user) })
+    });
 
-    let response =
-        product_api_partner::handle(lambda_event, &get_shop_service, &command_product_service)
-            .await;
-    assert!(response.is_err());
-    assert_eq!(403, response.unwrap_err().status);
+    let mut access_token: AccessToken = Faker.fake();
+    access_token.user_id = user_id;
+    access_token.scopes = [Scope::ProductsWrite].into();
+    let mut authenticator_service = MockAuthenticatorService::default();
+    authenticator_service
+        .expect_authenticate()
+        .return_once(move |_| {
+            Box::pin(async move { Ok(Some(AuthenticatedPrincipal::AccessToken(access_token))) })
+        });
+
+    let response = product_api_partner::handle(
+        make_event(shop_id, serde_json::json!([])),
+        &get_shop_service,
+        &user_service,
+        &authenticator_service,
+        &product_lambda_ingest_partner_products::service::MockAsyncProductCommandService::default(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(403, response.status);
 }

@@ -530,7 +530,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
         let hashed_token = HashedRawAccessToken::from(raw_access_token.clone());
         let token = self
             .repository
-            .find_access_token_record_by_hashed_token(&hashed_token)
+            .query_access_token_record_by_hashed_token(&hashed_token)
             .await?
             .map(AccessToken::from)
             .ok_or(UserServiceError::AccessTokenNotFoundByRaw)?;
@@ -577,7 +577,9 @@ impl<'a> UserService for UserServiceImpl<'a> {
         let expires = cmd.expires.map(|expires| expires.unix_timestamp());
         let update = AccessTokenRecordUpdate {
             name: cmd.name.map(Into::into),
-            scopes: cmd.scopes,
+            scopes: cmd
+                .scopes
+                .map(|scopes| scopes.into_iter().map(Into::into).collect()),
             expires,
             ttl: expires,
             updated: OffsetDateTime::now_utc(),
@@ -1449,7 +1451,6 @@ mod search_users_tests {
     #[tokio::test]
     async fn should_search_users_when_opensearch_repository_configured() {
         let mut expected_user: User = Faker.fake();
-        expected_user.partner_shops = Default::default();
         let expected_document = UserDocument::from(expected_user.clone());
         let dynamodb_repository = MockUserDynamoDbRepository::default();
         let mut opensearch_repository = MockUserOpenSearchRepository::default();

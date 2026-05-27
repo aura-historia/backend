@@ -3,14 +3,56 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
+#[cfg_attr(feature = "test-data", derive(::fake::Dummy))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScopeData {
+    ShopsManage,
+    ProductsWrite,
+}
+
+impl From<Scope> for ScopeData {
+    fn from(value: Scope) -> Self {
+        match value {
+            Scope::ShopsManage => ScopeData::ShopsManage,
+            Scope::ProductsWrite => ScopeData::ProductsWrite,
+        }
+    }
+}
+
+impl From<ScopeData> for Scope {
+    fn from(value: ScopeData) -> Self {
+        match value {
+            ScopeData::ShopsManage => Scope::ShopsManage,
+            ScopeData::ProductsWrite => Scope::ProductsWrite,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum AccessTokenTypeData {
+    Bearer,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RawAccessTokenData(pub String);
+
+impl From<RawAccessToken> for RawAccessTokenData {
+    fn from(value: RawAccessToken) -> Self {
+        RawAccessTokenData(value.into())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetAccessTokenData {
     pub access_token_id: AccessTokenId,
     pub name: String,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
-    pub scope: HashSet<Scope>,
-    pub token_type: String,
+    pub scope: HashSet<ScopeData>,
+    pub token_type: AccessTokenTypeData,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -30,7 +72,7 @@ pub struct GetAccessTokenData {
 pub struct CreatedAccessTokenData {
     #[serde(flatten)]
     pub metadata: GetAccessTokenData,
-    pub access_token: RawAccessToken,
+    pub access_token: RawAccessTokenData,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -38,7 +80,7 @@ pub struct CreatedAccessTokenData {
 pub struct PostAccessTokenData {
     pub name: String,
     #[serde(default)]
-    pub scope: HashSet<Scope>,
+    pub scope: HashSet<ScopeData>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -54,7 +96,7 @@ pub struct PatchAccessTokenData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scope: Option<HashSet<Scope>>,
+    pub scope: Option<HashSet<ScopeData>>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -69,8 +111,8 @@ impl From<AccessToken> for GetAccessTokenData {
         GetAccessTokenData {
             access_token_id: access_token.id,
             name: access_token.name.into(),
-            scope: access_token.scopes,
-            token_type: "Bearer".to_owned(),
+            scope: access_token.scopes.into_iter().map(Into::into).collect(),
+            token_type: AccessTokenTypeData::Bearer,
             expires_at: access_token.expires,
             expires_in: access_token
                 .expires
@@ -85,7 +127,7 @@ impl From<(RawAccessToken, AccessToken)> for CreatedAccessTokenData {
     fn from((raw, access_token): (RawAccessToken, AccessToken)) -> Self {
         CreatedAccessTokenData {
             metadata: access_token.into(),
-            access_token: raw,
+            access_token: raw.into(),
         }
     }
 }

@@ -1,9 +1,9 @@
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use test_api::*;
-use user::core::access_token::Scope;
 use user::data::access_token_data::{
     CreatedAccessTokenData, GetAccessTokenData, PatchAccessTokenData, PostAccessTokenData,
+    ScopeData,
 };
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::{UserService, UserServiceImpl};
@@ -17,7 +17,7 @@ async fn should_crud_access_tokens() {
 
     let create = PostAccessTokenData {
         name: "Integration token".to_owned(),
-        scope: [Scope::ProductsWrite].into(),
+        scope: [ScopeData::ProductsWrite].into(),
         expires_at: None,
     };
     let response = handler(
@@ -79,7 +79,7 @@ async fn should_crud_access_tokens() {
     let patch = PatchAccessTokenData {
         access_token_id,
         name: Some("Renamed token".to_owned()),
-        scope: Some(HashSet::from([Scope::ProductsWrite])),
+        scope: Some(HashSet::from([ScopeData::ProductsWrite])),
         expires_at: None,
     };
     let response = handler(

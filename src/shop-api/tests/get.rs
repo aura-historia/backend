@@ -1,4 +1,3 @@
-use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use shop::{
@@ -13,7 +12,9 @@ use shop::{
 };
 use shop_api::handle;
 use test_api::*;
-use user::service::user_service::MockUserService;
+use user::service::{
+    authenticator_service::MockAuthenticatorService, user_service::MockUserService,
+};
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_respond_shop() {
@@ -35,9 +36,9 @@ async fn should_200_respond_shop() {
             .build(),
         context: Default::default(),
     };
-    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    let mut access_token_verifier_service = MockAuthenticatorService::default();
     access_token_verifier_service
-        .expect_verify_extract_user_id()
+        .expect_authenticate()
         .return_once(|_| Box::pin(async { Ok(None) }));
 
     let response = handle(
@@ -75,9 +76,9 @@ async fn should_200_respond_shop_for_slug() {
             .build(),
         context: Default::default(),
     };
-    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    let mut access_token_verifier_service = MockAuthenticatorService::default();
     access_token_verifier_service
-        .expect_verify_extract_user_id()
+        .expect_authenticate()
         .return_once(|_| Box::pin(async { Ok(None) }));
 
     let response = handle(

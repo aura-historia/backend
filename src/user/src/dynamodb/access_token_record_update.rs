@@ -1,4 +1,4 @@
-use crate::core::access_token::Scope;
+use crate::dynamodb::access_token_record::ScopeRecord;
 use common::dynamodb_update::DynamoDbUpdate;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -11,7 +11,7 @@ pub struct AccessTokenRecordUpdate {
     pub name: Option<String>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scopes: Option<HashSet<Scope>>,
+    pub scopes: Option<HashSet<ScopeRecord>>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires: Option<i64>,

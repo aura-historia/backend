@@ -5,6 +5,32 @@ use serde_fields::SerdeField;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
+#[cfg_attr(feature = "test-data", derive(::fake::Dummy))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ScopeRecord {
+    ShopsManage,
+    ProductsWrite,
+}
+
+impl From<crate::core::access_token::Scope> for ScopeRecord {
+    fn from(value: crate::core::access_token::Scope) -> Self {
+        match value {
+            crate::core::access_token::Scope::ShopsManage => ScopeRecord::ShopsManage,
+            crate::core::access_token::Scope::ProductsWrite => ScopeRecord::ProductsWrite,
+        }
+    }
+}
+
+impl From<ScopeRecord> for crate::core::access_token::Scope {
+    fn from(value: ScopeRecord) -> Self {
+        match value {
+            ScopeRecord::ShopsManage => crate::core::access_token::Scope::ShopsManage,
+            ScopeRecord::ProductsWrite => crate::core::access_token::Scope::ProductsWrite,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct AccessTokenRecord {
     pub pk: String,
@@ -12,7 +38,7 @@ pub struct AccessTokenRecord {
     pub access_token_id: AccessTokenId,
     pub user_id: UserId,
     pub name: String,
-    pub scopes: HashSet<crate::core::access_token::Scope>,
+    pub scopes: HashSet<ScopeRecord>,
     pub token_prefix: String,
     pub token_short: String,
     pub token_hash: String,
@@ -63,7 +89,7 @@ impl From<AccessToken> for AccessTokenRecord {
             access_token_id: access_token.id,
             user_id: access_token.user_id,
             name: access_token.name.into(),
-            scopes: access_token.scopes,
+            scopes: access_token.scopes.into_iter().map(Into::into).collect(),
             token_prefix: access_token.hashed_token.prefix().to_owned(),
             token_short: access_token.hashed_token.short_token().to_owned(),
             token_hash: access_token.hashed_token.long_token_hash().to_owned(),
@@ -84,7 +110,7 @@ impl From<AccessTokenRecord> for AccessToken {
             hashed_token: HashedRawAccessToken::new(record.token_short, record.token_hash),
             user_id: record.user_id,
             name: record.name.into(),
-            scopes: record.scopes,
+            scopes: record.scopes.into_iter().map(Into::into).collect(),
             expires: record
                 .expires
                 .and_then(|timestamp| OffsetDateTime::from_unix_timestamp(timestamp).ok()),

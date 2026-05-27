@@ -10,12 +10,13 @@ use product_lambda_ingest_partner_products::{
     AsyncProductCommandData, AsyncProductCommandService, UpsertAsyncProductCommandData,
 };
 use shop::service::get_service::GetShopService;
-use user::service::user_service::UserService;
+use user::service::{authenticator_service::AuthenticatorService, user_service::UserService};
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_shop_service: &(impl GetShopService + Sync),
     user_service: &(impl UserService + Sync),
+    authenticator_service: &(impl AuthenticatorService + Sync),
     async_product_command_service: &(impl AsyncProductCommandService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
@@ -24,6 +25,7 @@ pub async fn handle(
         &shop_id,
         get_shop_service,
         user_service,
+        authenticator_service,
     )
     .await?;
 
@@ -92,8 +94,13 @@ mod tests {
     use shop::core::partner_shop::PartnerShop;
     use shop::core::shop_type::ShopType;
     use shop::service::get_service::MockGetShopService;
-    use user::core::access_token::RawAccessToken;
-    use user::service::user_service::MockUserService;
+    use user::{
+        core::access_token::{AccessToken, RawAccessToken, Scope},
+        service::{
+            authenticator_service::{AuthenticatedPrincipal, MockAuthenticatorService},
+            user_service::MockUserService,
+        },
+    };
 
     fn make_event_with_body_and_key(
         shop_id: &common::shop_id::ShopId,
@@ -114,6 +121,32 @@ mod tests {
         request.headers = headers;
         request.body = body;
         LambdaEvent::new(request, lambda_runtime::Context::default())
+    }
+
+    fn partner_access_token_auth(
+        shop_id: common::shop_id::ShopId,
+    ) -> (MockUserService, MockAuthenticatorService) {
+        let user_id = common::user_id::UserId::new();
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().return_once(move |_| {
+            let mut user: user::core::user::User = Faker.fake();
+            user.user_id = user_id;
+            user.partner_shops.insert(shop_id);
+            Box::pin(async move { Ok(user) })
+        });
+
+        let mut access_token: AccessToken = Faker.fake();
+        access_token.user_id = user_id;
+        access_token.scopes = [Scope::ProductsWrite].into();
+
+        let mut authenticator_service = MockAuthenticatorService::default();
+        authenticator_service
+            .expect_authenticate()
+            .return_once(move |_| {
+                Box::pin(async move { Ok(Some(AuthenticatedPrincipal::AccessToken(access_token))) })
+            });
+
+        (user_service, authenticator_service)
     }
 
     fn make_partner_shop_with_type(shop_type: ShopType) -> (RawAccessToken, PartnerShop) {
@@ -151,8 +184,15 @@ mod tests {
             .expect_send()
             .return_once(|_| Box::pin(async { vec![] }));
 
-        let user_service = MockUserService::default();
-        let result = handle(event, &shop_service, &user_service, &command_service).await;
+        let (user_service, authenticator_service) = partner_access_token_auth(shop_id);
+        let result = handle(
+            event,
+            &shop_service,
+            &user_service,
+            &authenticator_service,
+            &command_service,
+        )
+        .await;
         assert!(result.is_ok());
         let response = result.unwrap();
         assert_eq!(response.status_code, 202);
@@ -223,10 +263,16 @@ mod tests {
             })
         });
 
-        let user_service = MockUserService::default();
-        let response = handle(event, &shop_service, &user_service, &command_service)
-            .await
-            .unwrap();
+        let (user_service, authenticator_service) = partner_access_token_auth(shop_id);
+        let response = handle(
+            event,
+            &shop_service,
+            &user_service,
+            &authenticator_service,
+            &command_service,
+        )
+        .await
+        .unwrap();
         assert_eq!(response.status_code, 202);
         let body: Vec<String> = match response.body {
             Some(aws_lambda_events::encodings::Body::Text(body_str)) => {
@@ -252,8 +298,15 @@ mod tests {
                 Box::pin(async move { Ok(partner) })
             });
         let command_service = MockAsyncProductCommandService::default();
-        let user_service = MockUserService::default();
-        let result = handle(event, &shop_service, &user_service, &command_service).await;
+        let (user_service, authenticator_service) = partner_access_token_auth(shop_id);
+        let result = handle(
+            event,
+            &shop_service,
+            &user_service,
+            &authenticator_service,
+            &command_service,
+        )
+        .await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status, 400);
     }
@@ -273,8 +326,15 @@ mod tests {
                 Box::pin(async move { Ok(partner) })
             });
         let command_service = MockAsyncProductCommandService::default();
-        let user_service = MockUserService::default();
-        let result = handle(event, &shop_service, &user_service, &command_service).await;
+        let (user_service, authenticator_service) = partner_access_token_auth(shop_id);
+        let result = handle(
+            event,
+            &shop_service,
+            &user_service,
+            &authenticator_service,
+            &command_service,
+        )
+        .await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status, 400);
     }
@@ -310,8 +370,15 @@ mod tests {
             })
         });
 
-        let user_service = MockUserService::default();
-        let result = handle(event, &shop_service, &user_service, &command_service).await;
+        let (user_service, authenticator_service) = partner_access_token_auth(shop_id);
+        let result = handle(
+            event,
+            &shop_service,
+            &user_service,
+            &authenticator_service,
+            &command_service,
+        )
+        .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().status_code, 202);
     }

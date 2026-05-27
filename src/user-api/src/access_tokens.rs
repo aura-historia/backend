@@ -1,12 +1,10 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::{BAD_BODY_VALUE, BAD_PATH_PARAMETER_VALUE, INVALID_UUID};
-use common::error::missing_field::MissingRequiredField;
+use common::api::error_code::BAD_BODY_VALUE;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
-use std::collections::HashMap;
-use user::core::access_token::AccessTokenId;
+use user::core::access_token::{AccessTokenId, api::extract_access_token_id_path};
 use user::data::access_token_data::{
     CreatedAccessTokenData, GetAccessTokenData, PatchAccessTokenData, PostAccessTokenData,
 };
@@ -25,7 +23,7 @@ pub async fn post(
             &user_id,
             CreateAccessTokenCommand {
                 name: data.name.into(),
-                scopes: data.scope,
+                scopes: data.scope.into_iter().map(Into::into).collect(),
                 expires: data.expires_at,
             },
         )
@@ -86,7 +84,9 @@ pub async fn patch(
             &data.access_token_id,
             UpdateAccessTokenCommand {
                 name: data.name.map(Into::into),
-                scopes: data.scope,
+                scopes: data
+                    .scope
+                    .map(|scopes| scopes.into_iter().map(Into::into).collect()),
                 expires: data.expires_at,
             },
         )
@@ -138,29 +138,6 @@ fn bad_json(err: serde_json::Error) -> ApiError {
     ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
 }
 
-fn extract_access_token_id_path(
-    path_params: &HashMap<String, String>,
-) -> Result<AccessTokenId, ApiError> {
-    path_params
-        .get("accessTokenId")
-        .map(AccessTokenId::try_from)
-        .transpose()
-        .map_err(|err| {
-            let msg = err.to_string();
-            ApiError::bad_request(INVALID_UUID, Box::new(err))
-                .with_path_field("accessTokenId")
-                .with_detail(msg)
-        })?
-        .ok_or(
-            ApiError::bad_request(
-                BAD_PATH_PARAMETER_VALUE,
-                Box::new(MissingRequiredField::new("accessTokenId")),
-            )
-            .with_path_field("accessTokenId")
-            .with_detail("Missing field 'accessTokenId'."),
-        )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,7 +145,8 @@ mod tests {
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
     use test_api::ApiGatewayV2httpRequestProxy;
-    use user::core::access_token::{AccessToken, RawAccessToken, Scope};
+    use user::core::access_token::{AccessToken, RawAccessToken};
+    use user::data::access_token_data::ScopeData;
     use user::service::user_service::MockUserService;
 
     #[tokio::test]
@@ -189,7 +167,7 @@ mod tests {
                 .jwt_claim("sub", user_id)
                 .body_serde(&PostAccessTokenData {
                     name: "CI token".to_owned(),
-                    scope: [Scope::ProductsWrite].into(),
+                    scope: [ScopeData::ProductsWrite].into(),
                     expires_at: None,
                 })
                 .build(),

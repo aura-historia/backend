@@ -3,15 +3,13 @@ use prefixed_api_key::{
     PrefixedApiKey, PrefixedApiKeyController,
     sha2::{Digest, Sha256},
 };
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
 uuid_v7_newtype!(AccessTokenId);
 string_newtype!(AccessTokenName, max_length(128));
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Scope {
     ShopsManage,
     ProductsWrite,
@@ -43,10 +41,9 @@ impl AccessToken {
     }
 }
 
-const AURA_HISTORIA_ACCESS_TOKEN_PREFIX: &str = "aurahistoria";
+pub const AURA_HISTORIA_ACCESS_TOKEN_PREFIX: &str = "aurahistoria";
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(into = "String", try_from = "String")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RawAccessToken(String);
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -93,6 +90,80 @@ impl TryFrom<String> for RawAccessToken {
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let _ = parse_api_key(&value)?;
         Ok(Self(value))
+    }
+}
+
+#[cfg(feature = "data")]
+pub mod api {
+    use crate::core::access_token::{AccessTokenId, RawAccessToken};
+    use common::{
+        api::{
+            error::ApiError,
+            error_code::{BAD_HEADER_VALUE, BAD_PATH_PARAMETER_VALUE, INVALID_UUID},
+        },
+        error::missing_field::MissingRequiredField,
+    };
+    use http::{HeaderMap, header::AUTHORIZATION};
+    use std::collections::HashMap;
+
+    pub fn extract_bearer_token(headers: &HeaderMap) -> Result<Option<String>, ApiError> {
+        let authorization = headers.get(AUTHORIZATION).map(|value| {
+            value.to_str().map_err(|err| {
+                let msg = err.to_string();
+                ApiError::bad_request(BAD_HEADER_VALUE, Box::new(err))
+                    .with_header_field(AUTHORIZATION.as_str())
+                    .with_detail(msg)
+            })
+        });
+
+        match authorization.transpose()? {
+            None => Ok(None),
+            Some(value) => value
+                .strip_prefix("Bearer ")
+                .map(ToOwned::to_owned)
+                .ok_or_else(|| {
+                    ApiError::unauthorized(common::api::error_code::UNAUTHORIZED)
+                        .with_header_field(AUTHORIZATION.as_str())
+                })
+                .map(Some),
+        }
+    }
+
+    pub fn extract_bearer_access_token(
+        headers: &HeaderMap,
+    ) -> Result<Option<RawAccessToken>, ApiError> {
+        extract_bearer_token(headers)?
+            .map(|value| {
+                RawAccessToken::try_from(value).map_err(|err| {
+                    ApiError::unauthorized(common::api::error_code::UNAUTHORIZED)
+                        .with_header_field(AUTHORIZATION.as_str())
+                        .with_detail(err.to_string())
+                })
+            })
+            .transpose()
+    }
+
+    pub fn extract_access_token_id_path(
+        path_params: &HashMap<String, String>,
+    ) -> Result<AccessTokenId, ApiError> {
+        path_params
+            .get("accessTokenId")
+            .map(AccessTokenId::try_from)
+            .transpose()
+            .map_err(|err| {
+                let msg = err.to_string();
+                ApiError::bad_request(INVALID_UUID, Box::new(err))
+                    .with_path_field("accessTokenId")
+                    .with_detail(msg)
+            })?
+            .ok_or(
+                ApiError::bad_request(
+                    BAD_PATH_PARAMETER_VALUE,
+                    Box::new(MissingRequiredField::new("accessTokenId")),
+                )
+                .with_path_field("accessTokenId")
+                .with_detail("Missing field 'accessTokenId'."),
+            )
     }
 }
 
@@ -327,34 +398,6 @@ mod tests {
         let key2 = RawAccessToken::new();
         let hash2 = HashedRawAccessToken::from(key2);
         assert!(!key1.check(&hash2));
-    }
-
-    // ── Serde ────────────────────────────────────────────────────────────────
-
-    #[test]
-    fn should_serialize_as_plain_json_string_when_serializing() {
-        let key = RawAccessToken::new();
-        let key_str: String = key.clone().into();
-        let json = serde_json::to_string(&key).unwrap();
-        assert_eq!(json, format!("\"{}\"", key_str));
-    }
-
-    #[test]
-    fn should_round_trip_through_serde_when_serializing_and_deserializing() {
-        let key = RawAccessToken::new();
-        let json = serde_json::to_string(&key).unwrap();
-        let restored: RawAccessToken = serde_json::from_str(&json).unwrap();
-        assert_eq!(key, restored);
-    }
-
-    #[rstest]
-    #[case::empty_string("\"\"")]
-    #[case::no_prefix("\"invalid_key_value\"")]
-    #[case::wrong_prefix("\"badprefix_12345678901_123456789012345678901234567890123\"")]
-    #[trace]
-    fn should_fail_deserializing_when_json_contains_invalid_key(#[case] json: &str) {
-        let result = serde_json::from_str::<RawAccessToken>(json);
-        assert!(result.is_err());
     }
 
     // ── From<&RawAccessToken> for PrefixedApiKey ──────────────────────────

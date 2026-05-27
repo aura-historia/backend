@@ -1,5 +1,4 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
-use cognito::access_token_verifier_service::AccessTokenVerifierService;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
@@ -11,25 +10,32 @@ use shop::data::patch_shop_data::PatchShopData;
 use shop::service::command::UpdateShopCommand;
 use shop::service::command_service::CommandShopService;
 use shop::service::get_service::GetShopService;
-use user::core::access_token::RawAccessToken;
-use user::service::user_service::UserService;
+use user::service::{
+    authenticator_service::{AuthenticatedPrincipal, AuthenticatorService},
+    user_service::UserService,
+};
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     command_shop_service: &(impl CommandShopService + Sync),
     _get_shop_service: &(impl GetShopService + Sync),
     user_service: &(impl UserService + Sync),
-    access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
+    authenticator_service: &(impl AuthenticatorService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
 
-    let cognito_user_id = access_token_verifier_service
-        .verify_extract_user_id(&event.payload.headers)
+    let authenticated = match authenticator_service
+        .authenticate(&event.payload.headers)
         .await?
-        .or_else(|| extract_user_id_request_context(&event.payload.request_context).ok());
+    {
+        Some(principal) => Some(principal),
+        None => extract_user_id_request_context(&event.payload.request_context)
+            .ok()
+            .map(AuthenticatedPrincipal::UserId),
+    };
 
-    match cognito_user_id {
-        Some(user_id) => {
+    match authenticated {
+        Some(AuthenticatedPrincipal::UserId(user_id)) => {
             tracing::Span::current().record("userId", user_id.to_string());
             let is_admin = user_service.check_admin(&user_id).await.is_ok();
             if !is_admin {
@@ -44,11 +50,8 @@ pub async fn handle(
                 }
             }
         }
-        None => {
-            let raw_access_token = extract_bearer_access_token(&event.payload.headers)?;
-            let access_token = user_service
-                .find_access_token_by_raw(&raw_access_token)
-                .await?;
+        Some(AuthenticatedPrincipal::AccessToken(access_token)) => {
+            tracing::Span::current().record("userId", access_token.user_id.to_string());
             let user = user_service.find_user(&access_token.user_id).await?;
             if !user.partner_shops.contains(&shop_id) {
                 return Err(
@@ -59,6 +62,12 @@ pub async fn handle(
                     .into(),
                 );
             }
+        }
+        None => {
+            return Err(
+                ApiError::unauthorized(common::api::error_code::UNAUTHORIZED)
+                    .with_header_field("Authorization"),
+            );
         }
     }
 
@@ -105,24 +114,9 @@ pub async fn handle(
         .build())
 }
 
-fn extract_bearer_access_token(headers: &http::HeaderMap) -> Result<RawAccessToken, ApiError> {
-    let header = headers
-        .get(http::header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .ok_or_else(|| {
-            ApiError::unauthorized(common::api::error_code::UNAUTHORIZED)
-                .with_header_field("Authorization")
-        })?;
-    RawAccessToken::try_from(header.to_owned()).map_err(|err| {
-        ApiError::unauthorized(common::api::error_code::UNAUTHORIZED).with_detail(err.to_string())
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::handle;
-    use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
     use common::shop_id::ShopId;
     use common::user_id::UserId;
     use fake::{Fake, Faker};
@@ -133,15 +127,18 @@ mod tests {
     use shop::service::command_service::MockCommandShopService;
     use shop::service::get_service::MockGetShopService;
     use test_api::ApiGatewayV2httpRequestProxy;
-    use user::core::access_token::{AccessToken, RawAccessToken};
-    use user::service::user_service::{MockUserService, UserServiceError};
+    use user::core::access_token::AccessToken;
+    use user::service::{
+        authenticator_service::{AuthenticatedPrincipal, MockAuthenticatorService},
+        user_service::{MockUserService, UserServiceError},
+    };
 
-    fn no_access_token_verifier() -> MockAccessTokenVerifierService {
-        let mut verifier = MockAccessTokenVerifierService::default();
-        verifier
-            .expect_verify_extract_user_id()
+    fn no_authenticator() -> MockAuthenticatorService {
+        let mut authenticator = MockAuthenticatorService::default();
+        authenticator
+            .expect_authenticate()
             .returning(|_| Box::pin(async { Ok(None) }));
-        verifier
+        authenticator
     }
 
     #[tokio::test]
@@ -190,7 +187,7 @@ mod tests {
             &command_service,
             &get_shop_service,
             &user_service,
-            &no_access_token_verifier(),
+            &no_authenticator(),
         )
         .await
         .unwrap();
@@ -231,7 +228,7 @@ mod tests {
             &command_service,
             &get_shop_service,
             &user_service,
-            &no_access_token_verifier(),
+            &no_authenticator(),
         )
         .await
         .unwrap();
@@ -239,19 +236,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_200_when_api_key_updates_shop_without_cognito() {
-        let api_key = RawAccessToken::new();
+    async fn should_return_200_when_access_token_updates_shop() {
         let shop_id = ShopId::new();
+        let access_token_user_id = UserId::new();
 
         let get_shop_service = MockGetShopService::default();
         let mut access_token: AccessToken = Faker.fake();
-        let access_token_user_id = UserId::new();
         access_token.user_id = access_token_user_id;
 
         let mut user_service = MockUserService::default();
-        user_service
-            .expect_find_access_token_by_raw()
-            .return_once(move |_| Box::pin(async move { Ok(access_token) }));
         user_service.expect_find_user().return_once(move |_| {
             let mut user: user::core::user::User = Faker.fake();
             user.user_id = access_token_user_id;
@@ -270,14 +263,18 @@ mod tests {
                 })
             });
 
-        let api_key_header: String = api_key.into();
-        let auth_header = format!("{}{}", "Bearer ", api_key_header);
+        let mut authenticator_service = MockAuthenticatorService::default();
+        authenticator_service
+            .expect_authenticate()
+            .return_once(move |_| {
+                Box::pin(async move { Ok(Some(AuthenticatedPrincipal::AccessToken(access_token))) })
+            });
+
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
                 .route_key("PATCH /api/v1/shops/{shopId}")
                 .path_parameter("shopId", shop_id.to_string())
-                .header("Authorization", auth_header)
                 .body_serde(&serde_json::json!({
                     "woocommerceWebhookSecret": "secret"
                 }))
@@ -290,7 +287,7 @@ mod tests {
             &command_service,
             &get_shop_service,
             &user_service,
-            &no_access_token_verifier(),
+            &authenticator_service,
         )
         .await
         .unwrap();
@@ -314,7 +311,7 @@ mod tests {
             &MockCommandShopService::default(),
             &MockGetShopService::default(),
             &MockUserService::default(),
-            &no_access_token_verifier(),
+            &no_authenticator(),
         )
         .await
         .unwrap_err();
@@ -360,7 +357,7 @@ mod tests {
             &MockCommandShopService::default(),
             &get_shop_service,
             &user_service,
-            &no_access_token_verifier(),
+            &no_authenticator(),
         )
         .await
         .unwrap_err();
@@ -392,7 +389,7 @@ mod tests {
             &MockCommandShopService::default(),
             &MockGetShopService::default(),
             &user_service,
-            &no_access_token_verifier(),
+            &no_authenticator(),
         )
         .await
         .unwrap_err();

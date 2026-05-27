@@ -122,6 +122,9 @@
             },
             "geoAddress": {
                 "type": "geo_point"
+            },
+            "partnerShops": {
+                "type": "keyword"
             }
         }
     }
