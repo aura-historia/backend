@@ -76,7 +76,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/partner/{userId}/shops")
+                .route_key("GET /api/v1/me/partner-shops")
                 .path_parameter("userId", user_id)
                 .jwt_claim("sub", user_id)
                 .build(),
@@ -103,7 +103,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/partner/{userId}/shops")
+                .route_key("GET /api/v1/me/partner-shops")
                 .path_parameter("userId", path_user_id)
                 .jwt_claim("sub", caller_user_id)
                 .build(),
@@ -137,7 +137,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/partner/{userId}/shops")
+                .route_key("GET /api/v1/me/partner-shops")
                 .path_parameter("userId", user_id)
                 .jwt_claim("sub", user_id)
                 .build(),
@@ -161,7 +161,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/partner/{userId}/shops")
+                .route_key("GET /api/v1/me/partner-shops")
                 .jwt_claim("sub", caller_user_id)
                 .build(),
             context: Default::default(),
@@ -201,7 +201,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/partner/{userId}/shops")
+                .route_key("GET /api/v1/me/partner-shops")
                 .path_parameter("userId", user_id)
                 .jwt_claim("sub", user_id)
                 .build(),

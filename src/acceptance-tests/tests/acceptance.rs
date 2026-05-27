@@ -3286,10 +3286,7 @@ async fn should_respond_200_for_partner_get_shops() {
     user_record.partner_shops.insert(shop_record.shop_id);
     user_repository.put_user_record(user_record).await.unwrap();
 
-    let url = format!(
-        "{}/api/v1/partner/{}/shops",
-        stack.api_gateway_endpoint_url, user_id,
-    );
+    let url = format!("{}/api/v1/me/partner-shops", stack.api_gateway_endpoint_url);
     let response = reqwest::Client::new()
         .get(&url)
         .bearer_auth(&user.access_token)

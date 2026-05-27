@@ -1708,7 +1708,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "GET /api/v1/partner/{userId}/shops"
+      RouteKey: "GET /api/v1/me/partner-shops"
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${ShopApiLambdaIntegration}"

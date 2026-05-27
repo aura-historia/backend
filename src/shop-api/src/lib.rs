@@ -80,7 +80,7 @@ pub async fn handle(
             .await
         }
         Some("POST /api/v1/shops") => post::handle(event, command_shop_service, user_service).await,
-        Some("GET /api/v1/partner/{userId}/shops") => {
+        Some("GET /api/v1/me/partner-shops") => {
             get_partner_shops::handle(event, get_shop_service, user_service).await
         }
         Some(unknown) => Err(ApiError::internal_server_error(
