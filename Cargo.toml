@@ -212,8 +212,6 @@ jsonwebtokens = "1.2.0"
 jsonwebtokens-cognito = "0.1.1"
 aws-sdk-cognitoidentityprovider = "1.117.0"
 html-escape = "0.2.13"
-pyo3 = "0.27.2"
-pyo3-ffi = "0.27.0"
 regex = "1.12.3"
 fxrate = { path = "src/fxrate" }
 fxrate-lambda = { path = "src/fxrate-lambda" }
