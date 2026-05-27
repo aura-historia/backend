@@ -1670,23 +1670,6 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
-  # --- Partner API Routes ---
-  PartnerApiGetPartnerShopsRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "GET /api/v1/partner/{partnerId}/shops"
-      AuthorizationType: JWT
-      AuthorizerId: !Ref ApiCognitoAuthorizer
-      Target: !Sub "integrations/${PartnerApiLambdaIntegration}"
-  PartnerApiLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref Api
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${PartnerApiLambda}"
-      PayloadFormatVersion: "2.0"
-
   # --- Partner Shop Application Step Function ---
   PartnerShopApplicationStepFunctionRole:
     Type: AWS::IAM::Role
