@@ -128,7 +128,7 @@ notification = { path = "src/notification" }
 notification-api = { path = "src/notification-api" }
 futures = { version = "0.3.32", default-features = false }
 hex = "0.4.3"
-http = "1.4.0"
+http = "1.4.1"
 httpdate = "1.0.3"
 product = { path = "src/product" }
 product-api = { path = "src/product-api" }
@@ -145,7 +145,7 @@ product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lam
 product-lambda-ingest-partner-products = { path = "src/product-lambda/src/product-lambda-ingest-partner-products" }
 isocountry = "0.3.2"
 itertools = "0.14.0"
-lambda_runtime = "1.2.0"
+lambda_runtime = "1.2.1"
 libc = "0.2.186"
 ctrlc = { version = "3.5.2", features = ["termination"] }
 mockall = "0.14.0"

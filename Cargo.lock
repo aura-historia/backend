@@ -17,7 +17,7 @@ dependencies = [
  "fake",
  "futures-util",
  "fxrate",
- "http 1.4.0",
+ "http 1.4.1",
  "notification",
  "notification-api",
  "opensearch",
@@ -289,7 +289,7 @@ dependencies = [
  "bytes",
  "fastrand",
  "hex",
- "http 1.4.0",
+ "http 1.4.1",
  "p256",
  "rand 0.8.5",
  "sha1 0.10.6",
@@ -356,7 +356,7 @@ dependencies = [
  "bytes-utils",
  "fastrand",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "http-body 0.4.6",
  "http-body 1.0.1",
  "percent-encoding",
@@ -384,7 +384,7 @@ dependencies = [
  "bytes",
  "fastrand",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "regex-lite",
  "tracing",
 ]
@@ -409,7 +409,7 @@ dependencies = [
  "aws-types",
  "fastrand",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "regex-lite",
  "tracing",
 ]
@@ -434,7 +434,7 @@ dependencies = [
  "bytes",
  "fastrand",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "regex-lite",
  "tracing",
 ]
@@ -458,7 +458,7 @@ dependencies = [
  "bytes",
  "fastrand",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "regex-lite",
  "tracing",
 ]
@@ -482,7 +482,7 @@ dependencies = [
  "bytes",
  "fastrand",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "regex-lite",
  "tracing",
 ]
@@ -506,7 +506,7 @@ dependencies = [
  "bytes",
  "fastrand",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "regex-lite",
  "tracing",
 ]
@@ -530,7 +530,7 @@ dependencies = [
  "bytes",
  "fastrand",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "regex-lite",
  "tracing",
 ]
@@ -560,7 +560,7 @@ dependencies = [
  "hex",
  "hmac 0.13.0",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "http-body 1.0.1",
  "lru",
  "percent-encoding",
@@ -589,7 +589,7 @@ dependencies = [
  "bytes",
  "fastrand",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "regex-lite",
  "tracing",
 ]
@@ -613,7 +613,7 @@ dependencies = [
  "bytes",
  "fastrand",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "regex-lite",
  "tracing",
 ]
@@ -637,7 +637,7 @@ dependencies = [
  "bytes",
  "fastrand",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "regex-lite",
  "tracing",
 ]
@@ -661,7 +661,7 @@ dependencies = [
  "bytes",
  "fastrand",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "regex-lite",
  "tracing",
 ]
@@ -685,7 +685,7 @@ dependencies = [
  "bytes",
  "fastrand",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "regex-lite",
  "tracing",
 ]
@@ -709,7 +709,7 @@ dependencies = [
  "bytes",
  "fastrand",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "regex-lite",
  "tracing",
 ]
@@ -734,7 +734,7 @@ dependencies = [
  "aws-types",
  "fastrand",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "regex-lite",
  "tracing",
 ]
@@ -756,7 +756,7 @@ dependencies = [
  "hex",
  "hmac 0.13.0",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "p256",
  "percent-encoding",
  "sha2 0.11.0",
@@ -788,7 +788,7 @@ dependencies = [
  "bytes",
  "crc-fast",
  "hex",
- "http 1.4.0",
+ "http 1.4.1",
  "http-body 1.0.1",
  "http-body-util",
  "md-5 0.11.0",
@@ -822,7 +822,7 @@ dependencies = [
  "bytes-utils",
  "futures-core",
  "futures-util",
- "http 1.4.0",
+ "http 1.4.1",
  "http-body 1.0.1",
  "http-body-util",
  "percent-encoding",
@@ -843,7 +843,7 @@ dependencies = [
  "h2 0.3.27",
  "h2 0.4.11",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "http-body 0.4.6",
  "hyper 0.14.32",
  "hyper 1.9.0",
@@ -907,7 +907,7 @@ dependencies = [
  "bytes",
  "fastrand",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "http-body 0.4.6",
  "http-body 1.0.1",
  "http-body-util",
@@ -928,7 +928,7 @@ dependencies = [
  "aws-smithy-types",
  "bytes",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "pin-project-lite",
  "tokio",
  "tracing",
@@ -954,7 +954,7 @@ checksum = "7442cb268338f0eb8278140a107c046756aa01093d8ef5e99628d34ae09c94f5"
 dependencies = [
  "aws-smithy-runtime-api",
  "aws-smithy-types",
- "http 1.4.0",
+ "http 1.4.1",
 ]
 
 [[package]]
@@ -968,7 +968,7 @@ dependencies = [
  "bytes-utils",
  "futures-core",
  "http 0.2.12",
- "http 1.4.0",
+ "http 1.4.1",
  "http-body 0.4.6",
  "http-body 1.0.1",
  "http-body-util",
@@ -1034,7 +1034,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "chrono",
- "http 1.4.0",
+ "http 1.4.1",
  "http-body 1.0.1",
  "http-serde",
  "query_map",
@@ -1178,7 +1178,7 @@ dependencies = [
  "futures-util",
  "hex",
  "home",
- "http 1.4.0",
+ "http 1.4.1",
  "http-body-util",
  "hyper 1.9.0",
  "hyper-named-pipe",
@@ -1469,7 +1469,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
- "http 1.4.0",
+ "http 1.4.1",
  "jsonwebtokens",
  "jsonwebtokens-cognito",
  "mockall",
@@ -1491,7 +1491,7 @@ dependencies = [
  "aws_lambda_events",
  "common",
  "fake",
- "http 1.4.0",
+ "http 1.4.1",
  "lambda_runtime",
  "rstest",
  "serde-email",
@@ -1524,7 +1524,7 @@ dependencies = [
  "aws-sdk-sqs",
  "aws_lambda_events",
  "fake",
- "http 1.4.0",
+ "http 1.4.1",
  "httpdate",
  "itertools 0.14.0",
  "lambda_runtime",
@@ -2880,7 +2880,7 @@ dependencies = [
  "fnv",
  "futures-core",
  "futures-sink",
- "http 1.4.0",
+ "http 1.4.1",
  "indexmap 2.13.0",
  "slab",
  "tokio",
@@ -3065,9 +3065,9 @@ dependencies = [
 
 [[package]]
 name = "http"
-version = "1.4.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3ba2a386d7f85a81f119ad7498ebe444d2e22c2af0b86b069416ace48b3311a"
+checksum = "8be7462df143984c4598a256ef469b251d7d7f9e271135073e78fc535414f3d0"
 dependencies = [
  "bytes",
  "itoa 1.0.17",
@@ -3091,7 +3091,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1efedce1fb8e6913f23e0c92de8e62cd5b772a67e7b3946df930a62566c93184"
 dependencies = [
  "bytes",
- "http 1.4.0",
+ "http 1.4.1",
 ]
 
 [[package]]
@@ -3102,7 +3102,7 @@ checksum = "b021d93e26becf5dc7e1b75b1bed1fd93124b374ceb73f43d4d4eafec896a64a"
 dependencies = [
  "bytes",
  "futures-core",
- "http 1.4.0",
+ "http 1.4.1",
  "http-body 1.0.1",
  "pin-project-lite",
 ]
@@ -3113,7 +3113,7 @@ version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f056c8559e3757392c8d091e796416e4649d8e49e88b8d76df6c002f05027fd"
 dependencies = [
- "http 1.4.0",
+ "http 1.4.1",
  "serde",
 ]
 
@@ -3173,7 +3173,7 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "h2 0.4.11",
- "http 1.4.0",
+ "http 1.4.1",
  "http-body 1.0.1",
  "httparse",
  "httpdate",
@@ -3220,7 +3220,7 @@ version = "0.27.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3c93eb611681b207e1fe55d5a71ecf91572ec8a6705cdb6857f7d8d5242cf58"
 dependencies = [
- "http 1.4.0",
+ "http 1.4.1",
  "hyper 1.9.0",
  "hyper-util",
  "rustls 0.23.31",
@@ -3272,7 +3272,7 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "futures-util",
- "http 1.4.0",
+ "http 1.4.1",
  "http-body 1.0.1",
  "hyper 1.9.0",
  "ipnet",
@@ -3663,15 +3663,15 @@ dependencies = [
 
 [[package]]
 name = "lambda_runtime"
-version = "1.2.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cc1b380b7fb92ddf3913b01f094c3fcf59e31d995bb609645cd64dcdb56ce63"
+checksum = "4de91395937cd37777dce2c98ed95060a6fbd7dfaefb7ae3cc5fec84bb8379d0"
 dependencies = [
  "async-stream",
  "base64 0.22.1",
  "bytes",
  "futures",
- "http 1.4.0",
+ "http 1.4.1",
  "http-body-util",
  "http-serde",
  "hyper 1.9.0",
@@ -3695,7 +3695,7 @@ dependencies = [
  "bytes",
  "futures-channel",
  "futures-util",
- "http 1.4.0",
+ "http 1.4.1",
  "http-body 1.0.1",
  "http-body-util",
  "hyper 1.9.0",
@@ -4242,7 +4242,7 @@ dependencies = [
  "cognito",
  "common",
  "fake",
- "http 1.4.0",
+ "http 1.4.1",
  "lambda_runtime",
  "mockall",
  "reqwest 0.12.28",
@@ -4330,7 +4330,7 @@ dependencies = [
  "aws_lambda_events",
  "common",
  "fake",
- "http 1.4.0",
+ "http 1.4.1",
  "lambda_runtime",
  "notification",
  "rstest",
@@ -4728,7 +4728,7 @@ dependencies = [
  "aws_lambda_events",
  "common",
  "fake",
- "http 1.4.0",
+ "http 1.4.1",
  "lambda_runtime",
  "partner-shop-application",
  "serde",
@@ -5250,7 +5250,7 @@ dependencies = [
  "common",
  "fake",
  "geo",
- "http 1.4.0",
+ "http 1.4.1",
  "isocountry",
  "lambda_runtime",
  "notification",
@@ -5286,7 +5286,7 @@ dependencies = [
  "fake",
  "fxrate",
  "geo",
- "http 1.4.0",
+ "http 1.4.1",
  "lambda_runtime",
  "llm",
  "opensearch",
@@ -5533,7 +5533,7 @@ dependencies = [
  "cognito",
  "common",
  "fake",
- "http 1.4.0",
+ "http 1.4.1",
  "lambda_runtime",
  "notification",
  "product",
@@ -5938,7 +5938,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2 0.4.11",
- "http 1.4.0",
+ "http 1.4.1",
  "http-body 1.0.1",
  "http-body-util",
  "hyper 1.9.0",
@@ -5983,7 +5983,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "futures-core",
- "http 1.4.0",
+ "http 1.4.1",
  "http-body 1.0.1",
  "http-body-util",
  "hyper 1.9.0",
@@ -6419,7 +6419,7 @@ dependencies = [
  "common",
  "fake",
  "geo",
- "http 1.4.0",
+ "http 1.4.1",
  "isocountry",
  "lambda_runtime",
  "notification",
@@ -6998,7 +6998,7 @@ dependencies = [
  "fake",
  "field",
  "geo",
- "http 1.4.0",
+ "http 1.4.1",
  "isocountry",
  "llm",
  "mockall",
@@ -7033,7 +7033,7 @@ dependencies = [
  "cognito",
  "common",
  "fake",
- "http 1.4.0",
+ "http 1.4.1",
  "lambda_runtime",
  "opensearch",
  "rstest",
@@ -7283,7 +7283,7 @@ checksum = "f4e26862e5b31d1292804e64d59601af1594b1ab6e0474c2b62dcd447497ae89"
 dependencies = [
  "aho-corasick",
  "case_insensitive_string",
- "http 1.4.0",
+ "http 1.4.1",
  "lazy_static",
  "phf 0.11.3",
  "phf_codegen 0.11.3",
@@ -7549,7 +7549,7 @@ dependencies = [
  "common",
  "fake",
  "futures-util",
- "http 1.4.0",
+ "http 1.4.1",
  "notification",
  "notification-api",
  "opensearch",
@@ -7664,7 +7664,7 @@ dependencies = [
  "aws_lambda_events",
  "common",
  "fake",
- "http 1.4.0",
+ "http 1.4.1",
  "lambda_runtime",
  "mockall",
  "reqwest 0.12.28",
@@ -8315,7 +8315,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-util",
- "http 1.4.0",
+ "http 1.4.1",
  "http-body 1.0.1",
  "http-body-util",
  "iri-string",
@@ -8583,7 +8583,7 @@ dependencies = [
  "common",
  "fake",
  "geo",
- "http 1.4.0",
+ "http 1.4.1",
  "isocountry",
  "mockall",
  "opensearch",
@@ -8616,7 +8616,7 @@ dependencies = [
  "common",
  "fake",
  "geo",
- "http 1.4.0",
+ "http 1.4.1",
  "isocountry",
  "lambda_runtime",
  "mockall",
@@ -8981,7 +8981,7 @@ dependencies = [
  "fxrate",
  "geo",
  "html2text",
- "http 1.4.0",
+ "http 1.4.1",
  "lambda_runtime",
  "llm",
  "opensearch",
@@ -9481,7 +9481,7 @@ dependencies = [
  "base64 0.22.1",
  "deadpool",
  "futures",
- "http 1.4.0",
+ "http 1.4.1",
  "http-body-util",
  "hyper 1.9.0",
  "hyper-util",
