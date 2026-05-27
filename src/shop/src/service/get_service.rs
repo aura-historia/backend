@@ -94,7 +94,7 @@ pub mod api {
                 }
                 VerifyPartnerShopError::ApiKeyMismatch(_) => {
                     ApiError::unauthorized(AURA_HISTORIA_API_KEY_MISMATCH)
-                        .with_header_field("x-aura-historia-access-token")
+                        .with_header_field("Authorization")
                 }
                 VerifyPartnerShopError::SdkGetItemError(err) => err.into(),
             }
