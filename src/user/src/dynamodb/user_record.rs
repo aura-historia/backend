@@ -65,7 +65,11 @@ pub struct UserRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub geo_address_lon: Option<f64>,
 
-    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "HashSet::is_empty",
+        with = "serde_dynamo::string_set"
+    )]
     pub partner_shops: HashSet<ShopId>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
