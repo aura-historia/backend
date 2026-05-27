@@ -1847,6 +1847,9 @@ Resources:
           STAGE: "ephemeral"
           DYNAMODB_TABLE_NAME: !Ref TableOne
           ASYNC_PRODUCT_COMMAND_QUEUE_URL: !Ref ProductPartnerIngestQ
+          USER_POOL_ID: !Ref PrimaryUserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
   WebhookApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
