@@ -1,5 +1,8 @@
 use crate::{
-    core::access_token::{AURA_HISTORIA_ACCESS_TOKEN_PREFIX, AccessToken, RawAccessToken},
+    core::access_token::{
+        AURA_HISTORIA_ACCESS_TOKEN_PREFIX, AccessToken, RawAccessToken,
+        api::ExtractBearerTokenError,
+    },
     service::user_service::{UserService, UserServiceError},
 };
 use cognito_verifier::access_token_verifier_service::{
@@ -27,8 +30,8 @@ impl AuthenticatedPrincipal {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, thiserror::Error)]
 pub enum AuthenticatorError {
-    #[error("{0}")]
-    Api(#[from] common::api::error::ApiError),
+    #[error("Failed to extract bearer token from headers: {0}")]
+    ExtractBearerTokenError(#[from] ExtractBearerTokenError),
 
     #[error("Cognito access-token verification failed: {0}")]
     AccessTokenVerifier(#[from] AccessTokenVerifierError),
@@ -48,7 +51,7 @@ pub mod api {
     impl From<AuthenticatorError> for ApiError {
         fn from(value: AuthenticatorError) -> Self {
             match value {
-                AuthenticatorError::Api(err) => err,
+                AuthenticatorError::ExtractBearerTokenError(err) => err.into(),
                 AuthenticatorError::AccessTokenVerifier(err) => err.into(),
                 AuthenticatorError::UserService(err) => err.into(),
                 AuthenticatorError::InvalidRawAccessToken(err) => {

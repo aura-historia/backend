@@ -106,25 +106,47 @@ pub mod api {
     use http::{HeaderMap, header::AUTHORIZATION};
     use std::collections::HashMap;
 
-    pub fn extract_bearer_token(headers: &HeaderMap) -> Result<Option<String>, ApiError> {
-        let authorization = headers.get(AUTHORIZATION).map(|value| {
-            value.to_str().map_err(|err| {
-                let msg = err.to_string();
-                ApiError::bad_request(BAD_HEADER_VALUE, Box::new(err))
-                    .with_header_field(AUTHORIZATION.as_str())
-                    .with_detail(msg)
-            })
-        });
+    #[derive(Debug, thiserror::Error)]
+    pub enum ExtractBearerTokenError {
+        #[error("Invalid authorization header value: '{0}'")]
+        InvalidHeaderValue(#[from] http::header::ToStrError),
+        #[error("Token in authorization header is not a valid bearer token")]
+        InvalidBearerTokenFormat,
+    }
 
-        match authorization.transpose()? {
+    impl From<ExtractBearerTokenError> for ApiError {
+        fn from(value: ExtractBearerTokenError) -> Self {
+            match value {
+                ExtractBearerTokenError::InvalidHeaderValue(err) => {
+                    let msg = err.to_string();
+                    ApiError::bad_request(BAD_HEADER_VALUE, Box::new(err))
+                        .with_header_field(AUTHORIZATION.as_str())
+                        .with_detail(msg)
+                }
+                err @ ExtractBearerTokenError::InvalidBearerTokenFormat => {
+                    let msg = err.to_string();
+                    ApiError::bad_request(BAD_HEADER_VALUE, Box::new(err))
+                        .with_header_field(AUTHORIZATION.as_str())
+                        .with_detail(msg)
+                }
+            }
+        }
+    }
+
+    pub fn extract_bearer_token(
+        headers: &HeaderMap,
+    ) -> Result<Option<String>, ExtractBearerTokenError> {
+        let authorization = headers
+            .get(AUTHORIZATION)
+            .map(|value| value.to_str())
+            .transpose()?;
+
+        match authorization {
             None => Ok(None),
             Some(value) => value
                 .strip_prefix("Bearer ")
                 .map(ToOwned::to_owned)
-                .ok_or_else(|| {
-                    ApiError::unauthorized(common::api::error_code::UNAUTHORIZED)
-                        .with_header_field(AUTHORIZATION.as_str())
-                })
+                .ok_or(ExtractBearerTokenError::InvalidBearerTokenFormat)
                 .map(Some),
         }
     }
