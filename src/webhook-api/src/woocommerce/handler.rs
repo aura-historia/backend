@@ -6,7 +6,8 @@ use base64::Engine;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::{
-    BAD_BODY_VALUE, BAD_HEADER_VALUE, INTERNAL_SERVER_ERROR, SERVICE_UNAVAILABLE,
+    BAD_BODY_VALUE, BAD_HEADER_VALUE, INTERNAL_SERVER_ERROR, PARTNER_SHOP_NOT_PARTNERED,
+    SERVICE_UNAVAILABLE, UNAUTHORIZED,
 };
 use common::shop_id::api::extract_shop_id_path;
 use lambda_runtime::LambdaEvent;
@@ -18,9 +19,10 @@ use product::service::product_command::UpsertProductCommand;
 use product_lambda_ingest_partner_products::{
     AsyncProductCommandData, AsyncProductCommandService, UpsertAsyncProductCommandData,
 };
-use shop::core::aura_historia_api_key::api::extract_api_key;
 use shop::core::partner_shop::PartnerShop;
 use shop::service::get_service::GetShopService;
+use user::service::authenticator_service::{AuthenticatedPrincipal, AuthenticatorService};
+use user::service::user_service::UserService;
 
 pub const WOOCOMMERCE_TOPIC_PRODUCT_CREATED: &str = "product.created";
 pub const WOOCOMMERCE_TOPIC_PRODUCT_UPDATED: &str = "product.updated";
@@ -31,13 +33,33 @@ const WOOCOMMERCE_SIGNATURE_HEADER: &str = "x-wc-webhook-signature";
 pub async fn handle_woocommerce(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_shop_service: &(impl GetShopService + Sync),
+    user_service: &(impl UserService + Sync),
+    authenticator_service: &(impl AuthenticatorService + Sync),
     async_product_command_service: &(impl AsyncProductCommandService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
-    let api_key = extract_api_key(&event.payload)?;
-    let partner_shop = get_shop_service
-        .verify_partner_shop(&api_key, &shop_id)
-        .await?;
+
+    let authenticated = authenticator_service
+        .authenticate(&event.payload.headers)
+        .await?
+        .ok_or_else(|| ApiError::unauthorized(UNAUTHORIZED).with_header_field("Authorization"))?;
+
+    let user_id = match authenticated {
+        AuthenticatedPrincipal::UserId(user_id) => user_id,
+        AuthenticatedPrincipal::AccessToken(access_token) => access_token.user_id,
+    };
+
+    let user = user_service.find_user(&user_id).await?;
+    if !user.partner_shops.contains(&shop_id) {
+        return Err(
+            ApiError::forbidden(PARTNER_SHOP_NOT_PARTNERED).with_detail(format!(
+                "User '{}' is not the partner of shop '{}'",
+                user_id, shop_id
+            )),
+        );
+    }
+
+    let partner_shop = get_shop_service.find_partner_shop(&shop_id).await?;
 
     let body = body_bytes(&event.payload)?;
     verify_signature(&event.payload, &body, &partner_shop)?;
@@ -173,6 +195,8 @@ mod tests {
     use common::currency::domain::Currency;
     use common::price::domain::MonetaryAmount;
     use common::product_state::domain::ProductState;
+    use common::shop_id::ShopId;
+    use common::user_id::UserId;
     use fake::{Fake, Faker};
     use http::HeaderMap;
     use lambda_runtime::{Context, LambdaEvent};
@@ -180,10 +204,12 @@ mod tests {
     use openssl::pkey::PKey;
     use openssl::sign::Signer;
     use product_lambda_ingest_partner_products::service::MockAsyncProductCommandService;
-    use shop::core::aura_historia_api_key::{HashedRawAccessToken, RawAccessToken};
     use shop::core::partner_shop::PartnerShop;
     use shop::core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
     use shop::service::get_service::MockGetShopService;
+    use user::core::access_token::AccessToken;
+    use user::service::authenticator_service::{AuthenticatedPrincipal, MockAuthenticatorService};
+    use user::service::user_service::MockUserService;
 
     const SECRET: &str = "woocommerce-secret";
 
@@ -194,31 +220,53 @@ mod tests {
         base64::engine::general_purpose::STANDARD.encode(signer.sign_to_vec().unwrap())
     }
 
-    fn partner_shop(api_key: &RawAccessToken) -> PartnerShop {
+    fn partner_shop(shop_id: ShopId) -> PartnerShop {
         let mut shop: PartnerShop = Faker.fake();
-        let hashed: HashedRawAccessToken = api_key.clone().into();
-        shop.hashed_api_key = Some(hashed);
+        shop.shop_id = shop_id;
         shop.woocommerce_webhook_secret = Some(WoocommerceWebhookSecret::from(SECRET));
         shop.woocommerce_currency = Some(Currency::Eur);
         shop.woocommerce_language = Some(common::language::domain::Language::En);
         shop
     }
 
+    fn make_access_token(user_id: UserId) -> AccessToken {
+        let mut token: AccessToken = Faker.fake();
+        token.user_id = user_id;
+        token
+    }
+
+    fn authorized_services(shop_id: ShopId) -> (MockAuthenticatorService, MockUserService) {
+        let user_id = UserId::new();
+        let access_token = make_access_token(user_id);
+
+        let mut authenticator = MockAuthenticatorService::default();
+        authenticator.expect_authenticate().return_once(move |_| {
+            Box::pin(async move { Ok(Some(AuthenticatedPrincipal::AccessToken(access_token))) })
+        });
+
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().return_once(move |_| {
+            let mut user: user::core::user::User = Faker.fake();
+            user.user_id = user_id;
+            user.partner_shops.insert(shop_id);
+            Box::pin(async move { Ok(user) })
+        });
+
+        (authenticator, user_service)
+    }
+
     fn event(
         shop: &PartnerShop,
-        api_key: &RawAccessToken,
         topic: &str,
         body: &str,
         signature: String,
     ) -> LambdaEvent<ApiGatewayV2httpRequest> {
-        let key: String = api_key.clone().into();
         let mut request = ApiGatewayV2httpRequest::default();
         request.route_key = Some("POST /api/v1/webhooks/woocommerce/{shopId}".to_owned());
         request
             .path_parameters
             .insert("shopId".to_owned(), shop.shop_id.to_string());
         let mut headers = HeaderMap::new();
-        headers.insert("x-aura-historia-access-token", key.parse().unwrap());
         headers.insert(WOOCOMMERCE_TOPIC_HEADER, topic.parse().unwrap());
         headers.insert(WOOCOMMERCE_SIGNATURE_HEADER, signature.parse().unwrap());
         request.headers = headers;
@@ -242,22 +290,23 @@ mod tests {
 
     #[tokio::test]
     async fn should_upsert_product_when_created_webhook_is_valid() {
-        let api_key = RawAccessToken::new();
-        let shop = partner_shop(&api_key);
+        let shop_id = ShopId::new();
+        let shop = partner_shop(shop_id);
         let body = product_body("42.69");
         let lambda_event = event(
             &shop,
-            &api_key,
             WOOCOMMERCE_TOPIC_PRODUCT_CREATED,
             &body,
             signature(&body),
         );
 
+        let (authenticator, user_service) = authorized_services(shop_id);
+
         let expected_shop = shop.clone();
         let mut get_shop_service = MockGetShopService::default();
         get_shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| Box::pin(async move { Ok(expected_shop) }));
+            .expect_find_partner_shop()
+            .return_once(move |_| Box::pin(async move { Ok(expected_shop) }));
 
         let mut product_service = MockAsyncProductCommandService::default();
         product_service.expect_send().return_once(move |cmds| {
@@ -279,30 +328,37 @@ mod tests {
             })
         });
 
-        let response = handle_woocommerce(lambda_event, &get_shop_service, &product_service)
-            .await
-            .unwrap();
+        let response = handle_woocommerce(
+            lambda_event,
+            &get_shop_service,
+            &user_service,
+            &authenticator,
+            &product_service,
+        )
+        .await
+        .unwrap();
         assert_eq!(202, response.status_code);
     }
 
     #[tokio::test]
     async fn should_upsert_removed_product_when_deleted_webhook_is_valid() {
-        let api_key = RawAccessToken::new();
-        let shop = partner_shop(&api_key);
+        let shop_id = ShopId::new();
+        let shop = partner_shop(shop_id);
         let body = serde_json::json!({ "id": 17 }).to_string();
         let lambda_event = event(
             &shop,
-            &api_key,
             WOOCOMMERCE_TOPIC_PRODUCT_DELETED,
             &body,
             signature(&body),
         );
 
+        let (authenticator, user_service) = authorized_services(shop_id);
+
         let expected_shop = shop.clone();
         let mut get_shop_service = MockGetShopService::default();
         get_shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| Box::pin(async move { Ok(expected_shop) }));
+            .expect_find_partner_shop()
+            .return_once(move |_| Box::pin(async move { Ok(expected_shop) }));
 
         let mut product_service = MockAsyncProductCommandService::default();
         product_service.expect_send().return_once(move |cmds| {
@@ -316,34 +372,40 @@ mod tests {
             })
         });
 
-        let response = handle_woocommerce(lambda_event, &get_shop_service, &product_service)
-            .await
-            .unwrap();
+        let response = handle_woocommerce(
+            lambda_event,
+            &get_shop_service,
+            &user_service,
+            &authenticator,
+            &product_service,
+        )
+        .await
+        .unwrap();
         assert_eq!(202, response.status_code);
     }
 
     #[tokio::test]
-    async fn should_return_401_when_signature_is_invalid() {
-        let api_key = RawAccessToken::new();
-        let shop = partner_shop(&api_key);
+    async fn should_return_401_when_unauthenticated() {
+        let shop_id = ShopId::new();
+        let shop = partner_shop(shop_id);
         let body = product_body("42.69");
         let lambda_event = event(
             &shop,
-            &api_key,
             WOOCOMMERCE_TOPIC_PRODUCT_UPDATED,
             &body,
-            "bad-signature".to_owned(),
+            signature(&body),
         );
 
-        let expected_shop = shop.clone();
-        let mut get_shop_service = MockGetShopService::default();
-        get_shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| Box::pin(async move { Ok(expected_shop) }));
+        let mut authenticator = MockAuthenticatorService::default();
+        authenticator
+            .expect_authenticate()
+            .return_once(|_| Box::pin(async { Ok(None) }));
 
         let err = handle_woocommerce(
             lambda_event,
-            &get_shop_service,
+            &MockGetShopService::default(),
+            &MockUserService::default(),
+            &authenticator,
             &MockAsyncProductCommandService::default(),
         )
         .await
@@ -352,21 +414,98 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_400_when_topic_is_unsupported() {
-        let api_key = RawAccessToken::new();
-        let shop = partner_shop(&api_key);
+    async fn should_return_401_when_signature_is_invalid() {
+        let shop_id = ShopId::new();
+        let shop = partner_shop(shop_id);
         let body = product_body("42.69");
-        let lambda_event = event(&shop, &api_key, "coupon.created", &body, signature(&body));
+        let lambda_event = event(
+            &shop,
+            WOOCOMMERCE_TOPIC_PRODUCT_UPDATED,
+            &body,
+            "bad-signature".to_owned(),
+        );
+
+        let (authenticator, user_service) = authorized_services(shop_id);
 
         let expected_shop = shop.clone();
         let mut get_shop_service = MockGetShopService::default();
         get_shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| Box::pin(async move { Ok(expected_shop) }));
+            .expect_find_partner_shop()
+            .return_once(move |_| Box::pin(async move { Ok(expected_shop) }));
 
         let err = handle_woocommerce(
             lambda_event,
             &get_shop_service,
+            &user_service,
+            &authenticator,
+            &MockAsyncProductCommandService::default(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(401, err.status);
+    }
+
+    #[tokio::test]
+    async fn should_return_403_when_user_is_not_partner_of_shop() {
+        let shop_id = ShopId::new();
+        let shop = partner_shop(shop_id);
+        let body = product_body("42.69");
+        let lambda_event = event(
+            &shop,
+            WOOCOMMERCE_TOPIC_PRODUCT_CREATED,
+            &body,
+            signature(&body),
+        );
+
+        let user_id = UserId::new();
+        let access_token = make_access_token(user_id);
+
+        let mut authenticator = MockAuthenticatorService::default();
+        authenticator.expect_authenticate().return_once(move |_| {
+            Box::pin(async move { Ok(Some(AuthenticatedPrincipal::AccessToken(access_token))) })
+        });
+
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().return_once(move |_| {
+            let mut user: user::core::user::User = Faker.fake();
+            user.user_id = user_id;
+            // partner_shops does NOT contain shop_id
+            user.partner_shops.clear();
+            Box::pin(async move { Ok(user) })
+        });
+
+        let err = handle_woocommerce(
+            lambda_event,
+            &MockGetShopService::default(),
+            &user_service,
+            &authenticator,
+            &MockAsyncProductCommandService::default(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(403, err.status);
+    }
+
+    #[tokio::test]
+    async fn should_return_400_when_topic_is_unsupported() {
+        let shop_id = ShopId::new();
+        let shop = partner_shop(shop_id);
+        let body = product_body("42.69");
+        let lambda_event = event(&shop, "coupon.created", &body, signature(&body));
+
+        let (authenticator, user_service) = authorized_services(shop_id);
+
+        let expected_shop = shop.clone();
+        let mut get_shop_service = MockGetShopService::default();
+        get_shop_service
+            .expect_find_partner_shop()
+            .return_once(move |_| Box::pin(async move { Ok(expected_shop) }));
+
+        let err = handle_woocommerce(
+            lambda_event,
+            &get_shop_service,
+            &user_service,
+            &authenticator,
             &MockAsyncProductCommandService::default(),
         )
         .await

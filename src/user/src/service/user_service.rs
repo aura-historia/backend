@@ -552,7 +552,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
             id: AccessTokenId::new(),
             hashed_token: raw_access_token.clone().into(),
             user_id: *user_id,
-            name: cmd.name.into(),
+            name: cmd.name,
             scopes: cmd.scopes,
             expires: cmd.expires,
             created: now,
@@ -1450,7 +1450,7 @@ mod search_users_tests {
 
     #[tokio::test]
     async fn should_search_users_when_opensearch_repository_configured() {
-        let mut expected_user: User = Faker.fake();
+        let expected_user: User = Faker.fake();
         let expected_document = UserDocument::from(expected_user.clone());
         let dynamodb_repository = MockUserDynamoDbRepository::default();
         let mut opensearch_repository = MockUserOpenSearchRepository::default();

@@ -7,10 +7,12 @@ use common::api::{
 use lambda_runtime::LambdaEvent;
 use product_lambda_ingest_partner_products::AsyncProductCommandService;
 use shop::service::get_service::GetShopService;
+use user::service::authenticator_service::AuthenticatorService;
+use user::service::user_service::UserService;
 pub mod woocommerce;
 
 #[tracing::instrument(
-    skip(event, get_shop_service, async_product_command_service),
+    skip(event, get_shop_service, user_service, authenticator_service, async_product_command_service),
     fields(
         requestId = %event.context.request_id,
         method = event.payload.request_context.http.method.as_str(),
@@ -22,9 +24,19 @@ pub mod woocommerce;
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_shop_service: &(impl GetShopService + Sync),
+    user_service: &(impl UserService + Sync),
+    authenticator_service: &(impl AuthenticatorService + Sync),
     async_product_command_service: &(impl AsyncProductCommandService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(event, get_shop_service, async_product_command_service).await {
+    match handle(
+        event,
+        get_shop_service,
+        user_service,
+        authenticator_service,
+        async_product_command_service,
+    )
+    .await
+    {
         Ok(response) => Ok(response),
         Err(err) => {
             log_api_error(&err);
@@ -36,11 +48,20 @@ pub async fn handler(
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_shop_service: &(impl GetShopService + Sync),
+    user_service: &(impl UserService + Sync),
+    authenticator_service: &(impl AuthenticatorService + Sync),
     async_product_command_service: &(impl AsyncProductCommandService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
         Some("POST /api/v1/webhooks/woocommerce/{shopId}") => {
-            handle_woocommerce(event, get_shop_service, async_product_command_service).await
+            handle_woocommerce(
+                event,
+                get_shop_service,
+                user_service,
+                authenticator_service,
+                async_product_command_service,
+            )
+            .await
         }
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,

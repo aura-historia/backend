@@ -9,12 +9,14 @@ use openssl::sign::Signer;
 use product_lambda_ingest_partner_products::{
     AsyncProductCommandData, AsyncProductCommandServiceImpl,
 };
-use shop::core::aura_historia_api_key::{HashedRawAccessToken, RawAccessToken};
 use shop::core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
+use shop::dynamodb::partner_status_record::ShopPartnerStatusRecord;
 use shop::dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl};
 use shop::dynamodb::shop_record::ShopRecord;
 use shop::service::get_service::GetShopServiceImpl;
 use test_api::*;
+use user::service::authenticator_service::{AuthenticatedPrincipal, MockAuthenticatorService};
+use user::service::user_service::MockUserService;
 use webhook_api::woocommerce::handler::{WOOCOMMERCE_TOPIC_PRODUCT_CREATED, handle_woocommerce};
 
 const SQS: Sqs = Sqs {
@@ -29,16 +31,39 @@ fn signature(body: &str) -> String {
     base64::engine::general_purpose::STANDARD.encode(signer.sign_to_vec().unwrap())
 }
 
-fn make_partner_shop_record(api_key: &RawAccessToken) -> ShopRecord {
-    let hashed: HashedRawAccessToken = api_key.clone().into();
+fn make_partner_shop_record() -> ShopRecord {
     let mut record: ShopRecord = Faker.fake();
-    record.partner_api_key_short = Some(hashed.short_token().to_string());
-    record.partner_api_key_long_hash = Some(hashed.long_token_hash().to_string());
-    record.partner_user_id = Some(Faker.fake());
+    record.shop_partner_status = ShopPartnerStatusRecord::Partnered;
     record.woocommerce_webhook_secret = Some(WoocommerceWebhookSecret::from(SECRET));
     record.woocommerce_currency = Some(common::currency::record::CurrencyRecord::Eur);
     record.woocommerce_language = Some(common::language::record::LanguageRecord::En);
     record
+}
+
+fn authorized_services(
+    shop_id: common::shop_id::ShopId,
+) -> (MockAuthenticatorService, MockUserService) {
+    let user_id = common::user_id::UserId::new();
+
+    let mut access_token: user::core::access_token::AccessToken = Faker.fake();
+    access_token.user_id = user_id;
+
+    let mut authenticator_service = MockAuthenticatorService::default();
+    authenticator_service
+        .expect_authenticate()
+        .return_once(move |_| {
+            Box::pin(async move { Ok(Some(AuthenticatedPrincipal::AccessToken(access_token))) })
+        });
+
+    let mut user_service = MockUserService::default();
+    user_service.expect_find_user().return_once(move |_| {
+        let mut user: user::core::user::User = Faker.fake();
+        user.user_id = user_id;
+        user.partner_shops.insert(shop_id);
+        Box::pin(async move { Ok(user) })
+    });
+
+    (authenticator_service, user_service)
 }
 
 #[localstack_test(services = [DynamoDB(), SQS])]
@@ -49,10 +74,11 @@ async fn should_return_202_and_forward_woocommerce_create_webhook_to_sqs() {
     let async_product_command_service =
         AsyncProductCommandServiceImpl::new(get_sqs_client().await, SQS.queue_url());
 
-    let api_key = RawAccessToken::new();
-    let shop_record = make_partner_shop_record(&api_key);
+    let shop_record = make_partner_shop_record();
     let shop_id = shop_record.shop_id;
     shop_repository.put_shop_record(shop_record).await.unwrap();
+
+    let (authenticator_service, user_service) = authorized_services(shop_id);
 
     let body_json = serde_json::json!({
         "id": 17,
@@ -65,23 +91,14 @@ async fn should_return_202_and_forward_woocommerce_create_webhook_to_sqs() {
         "images": []
     });
     let body = body_json.to_string();
-    let api_key_str: String = api_key.into();
+
     let mut request = ApiGatewayV2httpRequestProxy::builder()
         .http_method(http::Method::POST)
         .route_key("POST /api/v1/webhooks/woocommerce/{shopId}")
         .path_parameter("shopId", shop_id.to_string())
-        .header("x-aura-historia-access-token", api_key_str)
         .body_serde(&body_json)
         .build();
     let mut headers = HeaderMap::new();
-    headers.insert(
-        "x-aura-historia-access-token",
-        request
-            .headers
-            .get("x-aura-historia-access-token")
-            .unwrap()
-            .clone(),
-    );
     headers.insert(
         "x-wc-webhook-topic",
         WOOCOMMERCE_TOPIC_PRODUCT_CREATED.parse().unwrap(),
@@ -92,6 +109,8 @@ async fn should_return_202_and_forward_woocommerce_create_webhook_to_sqs() {
     let response = handle_woocommerce(
         LambdaEvent::new(request, Context::default()),
         &get_shop_service,
+        &user_service,
+        &authenticator_service,
         &async_product_command_service,
     )
     .await

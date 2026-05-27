@@ -103,11 +103,12 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 use test_api::*;
 use time::OffsetDateTime;
-use user::core::access_token::{HashedRawAccessToken, RawAccessToken, Scope};
+use user::core::access_token::RawAccessToken;
 use user::core::role::UserRole;
 use user::core::tier::UserTier;
 use user::data::access_token_data::{
     CreatedAccessTokenData, GetAccessTokenData, PatchAccessTokenData, PostAccessTokenData,
+    ScopeData,
 };
 use user::data::patch_admin_user_data::PatchAdminUserData;
 use user::data::role_data::UserRoleData;
@@ -1888,7 +1889,7 @@ async fn should_manage_user_access_tokens() {
         .bearer_auth(user.access_token.clone())
         .json(&PostAccessTokenData {
             name: "Acceptance token".to_owned(),
-            scope: [Scope::ProductsWrite].into(),
+            scope: HashSet::from_iter([ScopeData::ProductsWrite].into_iter()),
             expires_at: None,
         })
         .send()
@@ -1933,7 +1934,7 @@ async fn should_manage_user_access_tokens() {
         .json(&PatchAccessTokenData {
             access_token_id: created.metadata.access_token_id,
             name: Some("Renamed acceptance token".to_owned()),
-            scope: Some([Scope::ProductsWrite].into()),
+            scope: Some(HashSet::from_iter([ScopeData::ProductsWrite].into_iter())),
             expires_at: None,
         })
         .send()
@@ -3184,7 +3185,6 @@ async fn should_respond_200_for_shop_get_by_slug() {
 #[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_for_shop_patch_by_partner() {
     let user = create_random_test_user().await;
-    let user_id = UserId::from(user.sub);
 
     let mut shop_record: ShopRecord = Faker.fake();
     shop_record.shop_partner_status = ShopPartnerStatusRecord::Partnered;
@@ -4066,7 +4066,6 @@ async fn prepare_partner_shop() -> (ShopRecord, RawAccessToken) {
     seed_fixed_fx_rates().await;
     let stack = get_cfn_output();
     let api_key = RawAccessToken::new();
-    let hashed: HashedRawAccessToken = api_key.clone().into();
     let mut record: ShopRecord = Faker.fake();
     record.shop_partner_status = ShopPartnerStatusRecord::Partnered;
     let dynamodb_repository =
@@ -5691,7 +5690,6 @@ async fn seed_shopify_acceptance_shop() -> ShopRecord {
     let shop_repo = ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
 
     let shopify_domain = common::domain::Domain::try_from(SHOPIFY_ACCEPTANCE_DOMAIN).unwrap();
-    let user_id = UserId::new();
     let shop_id = common::shop_id::ShopId::new();
     let slug = common::slug_id::SlugId::raw("shopify-acc-test-shop");
 

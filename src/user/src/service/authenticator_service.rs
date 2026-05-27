@@ -8,6 +8,7 @@ use cognito_verifier::access_token_verifier_service::{
 use common::user_id::UserId;
 use http::HeaderMap;
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum AuthenticatedPrincipal {
     UserId(UserId),
@@ -23,6 +24,7 @@ impl AuthenticatedPrincipal {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, thiserror::Error)]
 pub enum AuthenticatorError {
     #[error("{0}")]

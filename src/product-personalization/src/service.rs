@@ -992,6 +992,7 @@ mod tests {
             stripe_customer_id: None,
             structured_address: None,
             geo_address: None,
+            partner_shops: Default::default(),
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
