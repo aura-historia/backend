@@ -31,6 +31,7 @@ url = { workspace = true }
 time = { workspace = true }
 
 [dev-dependencies]
+user = { workspace = true, features = ["test-data"] }
 common = { workspace = true, features = ["test-data"] }
 product = { workspace = true, features = ["test-data"] }
 
