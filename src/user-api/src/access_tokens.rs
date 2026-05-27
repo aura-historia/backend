@@ -6,7 +6,7 @@ use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
 use user::core::access_token::{AccessTokenId, api::extract_access_token_id_path};
 use user::data::access_token_data::{
-    CreatedAccessTokenData, GetAccessTokenData, PatchAccessTokenData, PostAccessTokenData,
+    GetAccessTokenData, PatchAccessTokenData, PostAccessTokenData,
 };
 use user::service::command::{CreateAccessTokenCommand, UpdateAccessTokenCommand};
 use user::service::user_service::UserService;
@@ -18,7 +18,7 @@ pub async fn post(
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     let body = non_empty_body(event.payload.body)?;
     let data: PostAccessTokenData = serde_json::from_str(&body).map_err(bad_json)?;
-    let created: CreatedAccessTokenData = service
+    let created: GetAccessTokenData = service
         .create_access_token(
             &user_id,
             CreateAccessTokenCommand {

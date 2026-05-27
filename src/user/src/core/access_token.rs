@@ -232,6 +232,12 @@ pub struct HashedRawAccessToken {
     long_token_hash: String,
 }
 
+impl std::fmt::Display for HashedRawAccessToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}_{}_****", self.prefix, self.short_token)
+    }
+}
+
 impl HashedRawAccessToken {
     pub fn new(short_token: String, long_token_hash: String) -> Self {
         Self {

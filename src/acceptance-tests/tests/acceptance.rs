@@ -109,8 +109,7 @@ use user::core::access_token::{
 use user::core::role::UserRole;
 use user::core::tier::UserTier;
 use user::data::access_token_data::{
-    CreatedAccessTokenData, GetAccessTokenData, PatchAccessTokenData, PostAccessTokenData,
-    ScopeData,
+    GetAccessTokenData, PatchAccessTokenData, PostAccessTokenData, ScopeData,
 };
 use user::data::patch_admin_user_data::PatchAdminUserData;
 use user::data::role_data::UserRoleData;
@@ -1900,10 +1899,7 @@ async fn should_manage_user_access_tokens() {
         .await
         .unwrap();
     assert_eq!(201, post_response.status());
-    let created = post_response
-        .json::<CreatedAccessTokenData>()
-        .await
-        .unwrap();
+    let created = post_response.json::<GetAccessTokenData>().await.unwrap();
 
     let get_response = reqwest::Client::new()
         .get(url.clone())
@@ -1919,24 +1915,24 @@ async fn should_manage_user_access_tokens() {
     assert!(
         tokens
             .iter()
-            .any(|token| token.access_token_id == created.metadata.access_token_id)
+            .any(|token| token.access_token_id == created.access_token_id)
     );
 
     let get_one_response = reqwest::Client::new()
-        .get(format!("{}/{}", url, created.metadata.access_token_id))
+        .get(format!("{}/{}", url, created.access_token_id))
         .bearer_auth(user.access_token.clone())
         .send()
         .await
         .unwrap();
     assert_eq!(200, get_one_response.status());
     let token = get_one_response.json::<GetAccessTokenData>().await.unwrap();
-    assert_eq!(created.metadata.access_token_id, token.access_token_id);
+    assert_eq!(created.access_token_id, token.access_token_id);
 
     let patch_response = reqwest::Client::new()
         .patch(url.clone())
         .bearer_auth(user.access_token.clone())
         .json(&PatchAccessTokenData {
-            access_token_id: created.metadata.access_token_id,
+            access_token_id: created.access_token_id,
             name: Some("Renamed acceptance token".to_owned()),
             scope: Some(HashSet::from_iter([ScopeData::ProductsWrite].into_iter())),
             expires_at: None,
@@ -1947,10 +1943,7 @@ async fn should_manage_user_access_tokens() {
     assert_eq!(200, patch_response.status());
 
     let delete_response = reqwest::Client::new()
-        .delete(format!(
-            "{}?accessTokenId={}",
-            url, created.metadata.access_token_id
-        ))
+        .delete(format!("{}?accessTokenId={}", url, created.access_token_id))
         .bearer_auth(user.access_token)
         .send()
         .await

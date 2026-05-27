@@ -2,8 +2,7 @@ use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use test_api::*;
 use user::data::access_token_data::{
-    CreatedAccessTokenData, GetAccessTokenData, PatchAccessTokenData, PostAccessTokenData,
-    ScopeData,
+    GetAccessTokenData, PatchAccessTokenData, PostAccessTokenData, ScopeData,
 };
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::{UserService, UserServiceImpl};
@@ -35,9 +34,9 @@ async fn should_crud_access_tokens() {
     .await
     .unwrap();
     assert_eq!(201, response.status_code);
-    let created: CreatedAccessTokenData =
+    let created: GetAccessTokenData =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
-    let access_token_id = created.metadata.access_token_id;
+    let access_token_id = created.access_token_id;
 
     let response = handler(
         LambdaEvent {

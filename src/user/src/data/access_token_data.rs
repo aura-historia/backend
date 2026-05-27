@@ -52,6 +52,7 @@ pub struct GetAccessTokenData {
     pub name: String,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub scope: HashSet<ScopeData>,
+    pub token: String,
     pub token_type: AccessTokenTypeData,
     #[serde(
         default,
@@ -65,14 +66,6 @@ pub struct GetAccessTokenData {
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CreatedAccessTokenData {
-    #[serde(flatten)]
-    pub metadata: GetAccessTokenData,
-    pub access_token: RawAccessTokenData,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -111,6 +104,7 @@ impl From<AccessToken> for GetAccessTokenData {
         GetAccessTokenData {
             access_token_id: access_token.id,
             name: access_token.name.into(),
+            token: access_token.hashed_token.to_string(),
             scope: access_token.scopes.into_iter().map(Into::into).collect(),
             token_type: AccessTokenTypeData::Bearer,
             expires_at: access_token.expires,
@@ -123,11 +117,59 @@ impl From<AccessToken> for GetAccessTokenData {
     }
 }
 
-impl From<(RawAccessToken, AccessToken)> for CreatedAccessTokenData {
+impl From<(RawAccessToken, AccessToken)> for GetAccessTokenData {
     fn from((raw, access_token): (RawAccessToken, AccessToken)) -> Self {
-        CreatedAccessTokenData {
-            metadata: access_token.into(),
-            access_token: raw.into(),
+        GetAccessTokenData {
+            access_token_id: access_token.id,
+            name: access_token.name.into(),
+            token: raw.into(),
+            scope: access_token.scopes.into_iter().map(Into::into).collect(),
+            token_type: AccessTokenTypeData::Bearer,
+            expires_at: access_token.expires,
+            expires_in: access_token
+                .expires
+                .map(|expires| (expires - OffsetDateTime::now_utc()).whole_seconds().max(0)),
+            created: access_token.created,
+            updated: access_token.updated,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        core::access_token::AccessTokenId,
+        data::access_token_data::{AccessTokenTypeData, GetAccessTokenData, ScopeData},
+    };
+    use time::OffsetDateTime;
+
+    #[test]
+    fn should_serialize_get_access_token_data() {
+        let data = GetAccessTokenData {
+            access_token_id: AccessTokenId::new(),
+            name: "Test Token".to_string(),
+            scope: [ScopeData::ProductsWrite].into_iter().collect(),
+            token: "hashed_token".to_string(),
+            token_type: AccessTokenTypeData::Bearer,
+            expires_at: Some(OffsetDateTime::now_utc() + time::Duration::days(30)),
+            expires_in: Some(2592000),
+            created: OffsetDateTime::now_utc(),
+            updated: OffsetDateTime::now_utc(),
+        };
+
+        let expected = serde_json::json!({
+            "accessTokenId": data.access_token_id.to_string(),
+            "name": "Test Token",
+            "scope": ["products_write"],
+            "token": "hashed_token",
+            "tokenType": "BEARER",
+            "expiresAt": data.expires_at.unwrap().format(&time::format_description::well_known::Rfc3339).unwrap(),
+            "expiresIn": 2592000,
+            "created": data.created.format(&time::format_description::well_known::Rfc3339).unwrap(),
+            "updated": data.updated.format(&time::format_description::well_known::Rfc3339).unwrap(),
+        });
+
+        let actual = serde_json::to_value(&data).unwrap();
+        assert_eq!(expected, actual);
     }
 }
