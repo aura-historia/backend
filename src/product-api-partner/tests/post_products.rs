@@ -8,9 +8,16 @@ use shop::{
     core::partner_shop::PartnerShop,
     service::get_service::{MockGetShopService, VerifyPartnerShopError},
 };
+use std::collections::HashSet;
 use test_api::*;
+use time::OffsetDateTime;
 use user::{
-    core::access_token::{AccessToken, Scope},
+    core::{
+        access_token::{AccessToken, AccessTokenId, AccessTokenName, RawAccessToken, Scope},
+        role::UserRole,
+        tier::UserTier,
+        user::User,
+    },
     service::{
         authenticator_service::{AuthenticatedPrincipal, MockAuthenticatorService},
         user_service::{MockUserService, UserServiceError},
@@ -21,22 +28,51 @@ const SQS: Sqs = Sqs {
     name: "product_api_partner_post_products",
 };
 
+fn make_user(user_id: common::user_id::UserId, shop_id: Option<common::shop_id::ShopId>) -> User {
+    User {
+        user_id,
+        email: "partner@example.com".try_into().unwrap(),
+        first_name: None,
+        last_name: None,
+        language: None,
+        currency: None,
+        prohibited_content_consent: false,
+        tier: UserTier::Free,
+        role: UserRole::User,
+        stripe_customer_id: None,
+        structured_address: None,
+        geo_address: None,
+        partner_shops: shop_id.into_iter().collect(),
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+    }
+}
+
+fn make_access_token(user_id: common::user_id::UserId) -> AccessToken {
+    let raw = RawAccessToken::new();
+    AccessToken {
+        id: AccessTokenId::new(),
+        hashed_token: raw.into(),
+        user_id,
+        name: AccessTokenName::from("integration token"),
+        scopes: HashSet::from([Scope::ProductsWrite]),
+        expires: None,
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+    }
+}
+
 fn authorized_services(
     shop_id: common::shop_id::ShopId,
 ) -> (MockUserService, MockAuthenticatorService) {
     let user_id = common::user_id::UserId::new();
 
     let mut user_service = MockUserService::default();
-    user_service.expect_find_user().return_once(move |_| {
-        let mut user: user::core::user::User = Faker.fake();
-        user.user_id = user_id;
-        user.partner_shops.insert(shop_id);
-        Box::pin(async move { Ok(user) })
-    });
+    user_service
+        .expect_find_user()
+        .return_once(move |_| Box::pin(async move { Ok(make_user(user_id, Some(shop_id))) }));
 
-    let mut access_token: AccessToken = Faker.fake();
-    access_token.user_id = user_id;
-    access_token.scopes = [Scope::ProductsWrite].into();
+    let access_token = make_access_token(user_id);
 
     let mut authenticator_service = MockAuthenticatorService::default();
     authenticator_service
@@ -181,15 +217,11 @@ async fn should_return_403_when_user_is_not_associated_with_shop() {
 
     let user_id = common::user_id::UserId::new();
     let mut user_service = MockUserService::default();
-    user_service.expect_find_user().return_once(move |_| {
-        let mut user: user::core::user::User = Faker.fake();
-        user.user_id = user_id;
-        Box::pin(async move { Ok(user) })
-    });
+    user_service
+        .expect_find_user()
+        .return_once(move |_| Box::pin(async move { Ok(make_user(user_id, None)) }));
 
-    let mut access_token: AccessToken = Faker.fake();
-    access_token.user_id = user_id;
-    access_token.scopes = [Scope::ProductsWrite].into();
+    let access_token = make_access_token(user_id);
     let mut authenticator_service = MockAuthenticatorService::default();
     authenticator_service
         .expect_authenticate()
