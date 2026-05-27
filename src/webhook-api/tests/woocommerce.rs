@@ -1,4 +1,5 @@
 use base64::Engine;
+use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
 use common::has_key::HasKey;
 use fake::{Fake, Faker};
 use http::HeaderMap;
@@ -15,8 +16,13 @@ use shop::dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryI
 use shop::dynamodb::shop_record::ShopRecord;
 use shop::service::get_service::GetShopServiceImpl;
 use test_api::*;
-use user::service::authenticator_service::{AuthenticatedPrincipal, MockAuthenticatorService};
-use user::service::user_service::MockUserService;
+use user::core::access_token::{AccessToken, HashedRawAccessToken, RawAccessToken};
+use user::core::user::User;
+use user::dynamodb::access_token_record::AccessTokenRecord;
+use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
+use user::dynamodb::user_record::UserRecord;
+use user::service::authenticator_service::AuthenticatorServiceImpl;
+use user::service::user_service::UserServiceImpl;
 use webhook_api::woocommerce::handler::{WOOCOMMERCE_TOPIC_PRODUCT_CREATED, handle_woocommerce};
 
 const SQS: Sqs = Sqs {
@@ -40,30 +46,31 @@ fn make_partner_shop_record() -> ShopRecord {
     record
 }
 
-fn authorized_services(
+async fn seed_partner_user_with_token(
+    user_repo: &UserDynamoDbRepositoryImpl<'_>,
     shop_id: common::shop_id::ShopId,
-) -> (MockAuthenticatorService, MockUserService) {
+) -> (common::user_id::UserId, RawAccessToken) {
     let user_id = common::user_id::UserId::new();
 
-    let mut access_token: user::core::access_token::AccessToken = Faker.fake();
+    let mut user: User = Faker.fake();
+    user.user_id = user_id;
+    user.partner_shops = std::iter::once(shop_id).collect();
+    user_repo
+        .put_user_record(UserRecord::from(user))
+        .await
+        .unwrap();
+
+    let raw_token = RawAccessToken::new();
+    let mut access_token: AccessToken = Faker.fake();
     access_token.user_id = user_id;
+    access_token.hashed_token = HashedRawAccessToken::from(raw_token.clone());
+    access_token.expires = None;
+    user_repo
+        .put_access_token_record(AccessTokenRecord::from(access_token))
+        .await
+        .unwrap();
 
-    let mut authenticator_service = MockAuthenticatorService::default();
-    authenticator_service
-        .expect_authenticate()
-        .return_once(move |_| {
-            Box::pin(async move { Ok(Some(AuthenticatedPrincipal::AccessToken(access_token))) })
-        });
-
-    let mut user_service = MockUserService::default();
-    user_service.expect_find_user().return_once(move |_| {
-        let mut user: user::core::user::User = Faker.fake();
-        user.user_id = user_id;
-        user.partner_shops.insert(shop_id);
-        Box::pin(async move { Ok(user) })
-    });
-
-    (authenticator_service, user_service)
+    (user_id, raw_token)
 }
 
 #[localstack_test(services = [DynamoDB(), SQS])]
@@ -78,7 +85,12 @@ async fn should_return_202_and_forward_woocommerce_create_webhook_to_sqs() {
     let shop_id = shop_record.shop_id;
     shop_repository.put_shop_record(shop_record).await.unwrap();
 
-    let (authenticator_service, user_service) = authorized_services(shop_id);
+    let user_repo = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let (_, raw_token) = seed_partner_user_with_token(&user_repo, shop_id).await;
+    let user_service_for_auth = UserServiceImpl::new(&user_repo);
+    let user_service_for_handler = UserServiceImpl::new(&user_repo);
+    let verifier = MockAccessTokenVerifierService::default();
+    let authenticator = AuthenticatorServiceImpl::new(&verifier, &user_service_for_auth);
 
     let body_json = serde_json::json!({
         "id": 17,
@@ -104,13 +116,19 @@ async fn should_return_202_and_forward_woocommerce_create_webhook_to_sqs() {
         WOOCOMMERCE_TOPIC_PRODUCT_CREATED.parse().unwrap(),
     );
     headers.insert("x-wc-webhook-signature", signature(&body).parse().unwrap());
+    headers.insert(
+        "Authorization",
+        format!("Bearer {}", String::from(raw_token))
+            .parse()
+            .unwrap(),
+    );
     request.headers = headers;
 
     let response = handle_woocommerce(
         LambdaEvent::new(request, Context::default()),
         &get_shop_service,
-        &user_service,
-        &authenticator_service,
+        &user_service_for_handler,
+        &authenticator,
         &async_product_command_service,
     )
     .await

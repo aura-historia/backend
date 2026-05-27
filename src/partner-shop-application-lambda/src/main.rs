@@ -70,6 +70,7 @@ async fn main() -> Result<(), Error> {
             &partner_app_repository,
             &shop_service,
             &shop_repository,
+            &user_repository,
             &notification_service,
             event,
         )

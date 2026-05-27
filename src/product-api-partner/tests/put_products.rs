@@ -10,7 +10,10 @@ use test_api::*;
 use time::OffsetDateTime;
 use user::{
     core::{
-        access_token::{AccessToken, AccessTokenId, AccessTokenName, RawAccessToken, Scope},
+        access_token::{
+            AccessToken, AccessTokenId, AccessTokenName, HashedRawAccessToken, RawAccessToken,
+            Scope,
+        },
         role::UserRole,
         tier::UserTier,
         user::User,
@@ -21,9 +24,43 @@ use user::{
     },
 };
 
+use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
+use user::dynamodb::access_token_record::AccessTokenRecord;
+use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
+use user::dynamodb::user_record::UserRecord;
+use user::service::authenticator_service::AuthenticatorServiceImpl;
+use user::service::user_service::UserServiceImpl;
+
 const SQS: Sqs = Sqs {
     name: "product_api_partner_put_products",
 };
+
+async fn seed_partner_user_with_token(
+    user_repo: &UserDynamoDbRepositoryImpl<'_>,
+    shop_id: common::shop_id::ShopId,
+) -> (common::user_id::UserId, RawAccessToken) {
+    let user_id = common::user_id::UserId::new();
+
+    let mut user: User = Faker.fake();
+    user.user_id = user_id;
+    user.partner_shops = std::iter::once(shop_id).collect();
+    user_repo
+        .put_user_record(UserRecord::from(user))
+        .await
+        .unwrap();
+
+    let raw_token = RawAccessToken::new();
+    let mut access_token: AccessToken = Faker.fake();
+    access_token.user_id = user_id;
+    access_token.hashed_token = HashedRawAccessToken::from(raw_token.clone());
+    access_token.expires = None;
+    user_repo
+        .put_access_token_record(AccessTokenRecord::from(access_token))
+        .await
+        .unwrap();
+
+    (user_id, raw_token)
+}
 
 fn make_user(user_id: common::user_id::UserId, shop_id: Option<common::shop_id::ShopId>) -> User {
     User {
@@ -84,20 +121,21 @@ fn authorized_services(
 fn make_event(
     shop_id: common::shop_id::ShopId,
     body: serde_json::Value,
+    authorization: &str,
 ) -> LambdaEvent<aws_lambda_events::apigw::ApiGatewayV2httpRequest> {
     LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::PUT)
             .route_key("PUT /api/v1/shops/{shopId}/products")
             .path_parameter("shopId", shop_id.to_string())
-            .header("Authorization", "******")
+            .header("Authorization", authorization)
             .body_serde(&body)
             .build(),
         context: Default::default(),
     }
 }
 
-#[localstack_test(services = [SQS])]
+#[localstack_test(services = [DynamoDB(), SQS])]
 async fn should_return_202_when_upserting_product() {
     let shop_id = common::shop_id::ShopId::new();
     let command_product_service =
@@ -110,7 +148,12 @@ async fn should_return_202_when_upserting_product() {
         .expect_find_partner_shop()
         .return_once(move |_| Box::pin(async move { Ok(partner_shop) }));
 
-    let (user_service, authenticator_service) = authorized_services(shop_id);
+    let user_repo = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let (_, raw_token) = seed_partner_user_with_token(&user_repo, shop_id).await;
+    let user_service_for_auth = UserServiceImpl::new(&user_repo);
+    let user_service_for_handler = UserServiceImpl::new(&user_repo);
+    let verifier = MockAccessTokenVerifierService::default();
+    let authenticator_service = AuthenticatorServiceImpl::new(&verifier, &user_service_for_auth);
     let response = product_api_partner::handle(
         make_event(
             shop_id,
@@ -118,9 +161,10 @@ async fn should_return_202_when_upserting_product() {
                 "shopsProductId": "integration-put-product-1",
                 "state": "AVAILABLE"
             }]),
+            &format!("Bearer {}", String::from(raw_token)),
         ),
         &get_shop_service,
-        &user_service,
+        &user_service_for_handler,
         &authenticator_service,
         &command_product_service,
     )
@@ -144,7 +188,7 @@ async fn should_return_401_when_access_token_is_invalid_for_put() {
         });
 
     let response = product_api_partner::handle(
-        make_event(shop_id, serde_json::json!([])),
+        make_event(shop_id, serde_json::json!([]), "Bearer invalid"),
         &get_shop_service,
         &user_service,
         &authenticator_service,
@@ -167,7 +211,7 @@ async fn should_return_404_when_shop_does_not_exist_for_put() {
 
     let (user_service, authenticator_service) = authorized_services(shop_id);
     let response = product_api_partner::handle(
-        make_event(shop_id, serde_json::json!([])),
+        make_event(shop_id, serde_json::json!([]), "Bearer invalid"),
         &get_shop_service,
         &user_service,
         &authenticator_service,
@@ -200,7 +244,7 @@ async fn should_return_403_when_user_is_not_associated_with_shop_for_put() {
         });
 
     let response = product_api_partner::handle(
-        make_event(shop_id, serde_json::json!([])),
+        make_event(shop_id, serde_json::json!([]), "Bearer invalid"),
         &get_shop_service,
         &user_service,
         &authenticator_service,

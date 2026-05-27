@@ -17,7 +17,8 @@ use aws_sdk_dynamodb::{
     types::{AttributeValue, ReturnValue},
 };
 use common::{
-    dynamodb_update::DynamoDbUpdate, stripe_customer_id::StripeCustomerId, user_id::UserId,
+    dynamodb_update::DynamoDbUpdate, shop_id::ShopId, stripe_customer_id::StripeCustomerId,
+    user_id::UserId,
 };
 use tracing::error;
 
@@ -49,6 +50,12 @@ pub trait UserDynamoDbRepository {
         &self,
         user_id: &UserId,
     ) -> Result<DeleteItemOutput, SdkError<DeleteItemError>>;
+
+    async fn add_partner_shop(
+        &self,
+        user_id: &UserId,
+        shop_id: &ShopId,
+    ) -> Result<(), SdkError<UpdateItemError>>;
 
     async fn get_access_token_record(
         &self,
@@ -228,6 +235,24 @@ impl<'a> UserDynamoDbRepository for UserDynamoDbRepositoryImpl<'a> {
             .key("sk", AttributeValue::S(mk_sk().to_owned()))
             .send()
             .await
+    }
+
+    async fn add_partner_shop(
+        &self,
+        user_id: &UserId,
+        shop_id: &ShopId,
+    ) -> Result<(), SdkError<UpdateItemError>> {
+        self.client
+            .update_item()
+            .table_name(&self.table)
+            .key("pk", AttributeValue::S(mk_pk(user_id)))
+            .key("sk", AttributeValue::S(mk_sk().to_owned()))
+            .update_expression("ADD #partner_shops :shop_id")
+            .expression_attribute_names("#partner_shops", "partner_shops")
+            .expression_attribute_values(":shop_id", AttributeValue::Ss(vec![shop_id.to_string()]))
+            .send()
+            .await?;
+        Ok(())
     }
 
     async fn get_access_token_record(
