@@ -103,7 +103,9 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 use test_api::*;
 use time::OffsetDateTime;
-use user::core::access_token::RawAccessToken;
+use user::core::access_token::{
+    AccessToken, AccessTokenId, AccessTokenName, RawAccessToken, Scope,
+};
 use user::core::role::UserRole;
 use user::core::tier::UserTier;
 use user::data::access_token_data::{
@@ -119,7 +121,9 @@ use user::service::user_service::UserService;
 use user::{
     data::{get_user_data::GetUserAccountData, patch_user_data::PatchUserAccountData},
     dynamodb::{
+        access_token_record::AccessTokenRecord,
         repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl},
+        user_record::UserRecord,
         user_record_update::UserRecordUpdate,
     },
 };
@@ -3196,6 +3200,18 @@ async fn should_respond_200_for_shop_patch_by_partner() {
         .await
         .unwrap();
 
+    // Link the shop to the user's partner_shops so the PATCH succeeds
+    let user_id = UserId::from(user.sub);
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    let mut user_record = user_repository
+        .get_user_record(&user_id)
+        .await
+        .unwrap()
+        .expect("user record must exist after create_random_test_user");
+    user_record.partner_shops.insert(shop_record.shop_id);
+    user_repository.put_user_record(user_record).await.unwrap();
+
     let patch_data = PatchShopData {
         shop_type: None,
         domains: None,
@@ -3258,6 +3274,17 @@ async fn should_respond_200_for_partner_get_shops() {
         .put_shop_record(shop_record.clone())
         .await
         .unwrap();
+
+    // Link the shop to the user's partner_shops so the GET returns it
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    let mut user_record = user_repository
+        .get_user_record(&user_id)
+        .await
+        .unwrap()
+        .expect("user record must exist after create_random_test_user");
+    user_record.partner_shops.insert(shop_record.shop_id);
+    user_repository.put_user_record(user_record).await.unwrap();
 
     let url = format!(
         "{}/api/v1/partner/{}/shops",
@@ -4065,16 +4092,44 @@ async fn seed_fixed_fx_rates() {
 async fn prepare_partner_shop() -> (ShopRecord, RawAccessToken) {
     seed_fixed_fx_rates().await;
     let stack = get_cfn_output();
-    let api_key = RawAccessToken::new();
+
+    // Create the partnered shop record
     let mut record: ShopRecord = Faker.fake();
     record.shop_partner_status = ShopPartnerStatusRecord::Partnered;
-    let dynamodb_repository =
-        ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
-    dynamodb_repository
+    let shop_id = record.shop_id;
+    ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name)
         .put_shop_record(record.clone())
         .await
         .unwrap();
-    (record, api_key)
+
+    // Create a user record with the shop in partner_shops
+    let mut user: user::core::user::User = Faker.fake();
+    user.partner_shops = [shop_id].into();
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    user_repository
+        .put_user_record(UserRecord::from(user.clone()))
+        .await
+        .unwrap();
+
+    // Create an access token in DynamoDB so the partner can authenticate
+    let raw_token = RawAccessToken::new();
+    let access_token = AccessToken {
+        id: AccessTokenId::new(),
+        hashed_token: raw_token.clone().into(),
+        user_id: user.user_id,
+        name: AccessTokenName::from("partner-shop"),
+        scopes: [Scope::ProductsWrite].into(),
+        expires: None,
+        created: time::OffsetDateTime::now_utc(),
+        updated: time::OffsetDateTime::now_utc(),
+    };
+    user_repository
+        .put_access_token_record(AccessTokenRecord::from(access_token))
+        .await
+        .unwrap();
+
+    (record, raw_token)
 }
 
 async fn wait_for_partner_product_record(
@@ -4167,7 +4222,7 @@ async fn post_woocommerce_webhook(topic: &str, body: &str) {
 
     let response = reqwest::Client::new()
         .post(url)
-        .header("x-aura-historia-access-token", api_key)
+        .bearer_auth(api_key)
         .header("x-wc-webhook-topic", topic)
         .header("x-wc-webhook-signature", woocommerce_signature(body))
         .header("content-type", "application/json")
@@ -4234,7 +4289,7 @@ async fn should_respond_200_for_partner_post_products() {
     );
     let response = reqwest::Client::new()
         .post(&url)
-        .header("x-aura-historia-access-token", &api_key_str)
+        .bearer_auth(&api_key_str)
         .json(&vec![serde_json::json!({
             "shopsProductId": "acceptance-test-product-1",
             "title": { "text": "Test Product", "language": "en" },
@@ -4365,7 +4420,7 @@ async fn should_respond_200_for_partner_patch_products() {
     // Then update the product via PATCH
     let response = reqwest::Client::new()
         .patch(&url)
-        .header("x-aura-historia-access-token", &api_key_str)
+        .bearer_auth(&api_key_str)
         .json(&vec![serde_json::json!({
             "shopsProductId": "acceptance-test-patch-product-1",
             "state": "SOLD"
@@ -4397,7 +4452,7 @@ async fn should_respond_200_for_partner_put_products_when_creating_new() {
     );
     let response = reqwest::Client::new()
         .put(&url)
-        .header("x-aura-historia-access-token", &api_key_str)
+        .bearer_auth(&api_key_str)
         .json(&vec![serde_json::json!({
             "shopsProductId": "acceptance-test-put-product-1",
             "title": { "text": "Test Product via PUT", "language": "en" },
@@ -4455,7 +4510,7 @@ async fn should_respond_200_for_partner_put_products_when_updating_existing() {
     // Then update the product via PUT
     let response = reqwest::Client::new()
         .put(&url)
-        .header("x-aura-historia-access-token", &api_key_str)
+        .bearer_auth(&api_key_str)
         .json(&vec![serde_json::json!({
             "shopsProductId": "acceptance-test-put-existing-product-1",
             "state": "SOLD"
