@@ -8,6 +8,7 @@ use shop::service::query_service::QueryShopService;
 use user::service::{authenticator_service::AuthenticatorService, user_service::UserService};
 
 pub mod get;
+pub mod get_partner_shops;
 pub mod patch;
 pub mod post;
 pub mod search;
@@ -79,6 +80,9 @@ pub async fn handle(
             .await
         }
         Some("POST /api/v1/shops") => post::handle(event, command_shop_service, user_service).await,
+        Some("GET /api/v1/partner/{userId}/shops") => {
+            get_partner_shops::handle(event, get_shop_service, user_service).await
+        }
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,
             format!("Unknown route-key '{unknown}' in AWS-Payload").into(),

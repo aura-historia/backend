@@ -1525,6 +1525,14 @@ Resources:
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${ShopApiLambdaIntegration}"
+  ShopApiGetPartnerShopsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/partner/{userId}/shops"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
   ShopApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
@@ -1763,6 +1771,9 @@ Resources:
           STAGE: "ephemeral"
           DYNAMODB_TABLE_NAME: !Ref TableOne
           ASYNC_PRODUCT_COMMAND_QUEUE_URL: !Ref ProductPartnerIngestQ
+          USER_POOL_ID: !Ref PrimaryUserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
   ProductApiPartnerLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -2055,6 +2066,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
+                  - dynamodb:PutItem
                   - dynamodb:UpdateItem
                   - dynamodb:DeleteItem
                   - dynamodb:Query
