@@ -11,7 +11,8 @@ use user::core::access_token::{RawAccessToken, Scope};
 async fn should_crud_oauth_records() {
     let repository = OAuthDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let secret = RawAccessToken::new();
-    let now = OffsetDateTime::now_utc();
+    let now =
+        OffsetDateTime::from_unix_timestamp(OffsetDateTime::now_utc().unix_timestamp()).unwrap();
     let client = OAuthClient {
         client_id: OAuthClientId::from("client_1"),
         hashed_client_secret: secret.into(),
