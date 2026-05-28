@@ -76,7 +76,6 @@ mod tests {
     use common::user_id::UserId;
     use std::collections::HashSet;
     use time::OffsetDateTime;
-    use user::core::access_token::Scope;
 
     #[test]
     fn should_round_trip_through_serde_dynamo() {
@@ -92,9 +91,7 @@ mod tests {
             scopes: HashSet::from([
                 user::dynamodb::access_token_record::ScopeRecord::ProductsWrite,
             ]),
-            code_challenge: OAuthCodeChallenge::from(
-                "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
-            ),
+            code_challenge: OAuthCodeChallenge::from("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"),
             code_challenge_method: CodeChallengeMethod::S256,
             expires: now.unix_timestamp() + 600,
             ttl: now.unix_timestamp() + 600,
@@ -102,13 +99,15 @@ mod tests {
         };
 
         let item: serde_dynamo::Item = serde_dynamo::to_item(record.clone()).unwrap();
-        eprintln!("Serialized: {:?}", item);
 
         let back: AuthorizationCodeRecord = serde_dynamo::from_item(item).unwrap();
 
         assert_eq!(record.code, back.code, "code mismatch");
         assert_eq!(record.client_id, back.client_id, "client_id mismatch");
-        assert_eq!(record.redirect_uri, back.redirect_uri, "redirect_uri mismatch");
+        assert_eq!(
+            record.redirect_uri, back.redirect_uri,
+            "redirect_uri mismatch"
+        );
         assert_eq!(record.scopes, back.scopes, "scopes mismatch");
         assert_eq!(
             record.code_challenge, back.code_challenge,
