@@ -217,7 +217,7 @@ impl OAuthService for OAuthServiceImpl<'_> {
 
         let mut params = HashMap::from([("code", code.code.to_string())]);
         if let Some(state) = request.state {
-            params.insert("state", state.into());
+            params.insert("state", state.as_ref().to_owned());
         }
         let redirect_to = append_query_params(request.redirect_uri.as_ref(), params);
         Ok(AuthorizeResponse { redirect_to })

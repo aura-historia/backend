@@ -74,6 +74,7 @@ impl From<OAuthTokenType> for String {
     }
 }
 
+/// Converts scopes into the OAuth space-separated scope string used in REST responses.
 pub fn scope_string(scopes: &HashSet<user::core::access_token::Scope>) -> String {
     let mut values = scopes
         .iter()

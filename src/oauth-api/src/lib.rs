@@ -9,9 +9,8 @@ use oauth::core::authorization_code::{
 };
 use oauth::core::client::{OAuthClientId, OAuthRedirectUri};
 use oauth::service::oauth_service::{
-    AuthorizeRequest, IntrospectionResponse, OAuthGrantType, OAuthResponseType, OAuthService,
-    OAuthServiceError, OAuthState, OAuthTokenType, TokenIntrospectionRequest, TokenRequest,
-    TokenResponse, TokenRevocationRequest,
+    AuthorizeRequest, OAuthGrantType, OAuthResponseType, OAuthService, OAuthServiceError,
+    OAuthState, TokenIntrospectionRequest, TokenRequest, TokenRevocationRequest,
 };
 use std::collections::HashSet;
 use user::core::access_token::{RawAccessToken, Scope};
@@ -249,7 +248,9 @@ fn oauth_error(err: OAuthServiceError) -> ApiError {
 mod tests {
     use super::*;
     use lambda_runtime::LambdaEvent;
-    use oauth::service::oauth_service::{AuthorizeResponse, MockOAuthService};
+    use oauth::service::oauth_service::{
+        AuthorizeResponse, IntrospectionResponse, MockOAuthService, OAuthTokenType, TokenResponse,
+    };
     use test_api::ApiGatewayV2httpRequestProxy;
 
     #[tokio::test]
