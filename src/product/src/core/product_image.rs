@@ -1,7 +1,7 @@
 use crate::core::prohibited_content::ProhibitedContent;
 use url::Url;
 
-#[derive(Debug, Clone, Hash, PartialEq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ProductImage {
     pub url: Url,
     pub prohibited_content: ProhibitedContent,

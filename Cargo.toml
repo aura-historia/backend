@@ -213,6 +213,7 @@ jsonwebtokens-cognito = "0.1.1"
 aws-sdk-cognitoidentityprovider = "1.117.0"
 html-escape = "0.2.13"
 regex = "1.12.3"
+indexmap = { version = "2.13.0", features = ["serde"] }
 fxrate = { path = "src/fxrate" }
 fxrate-lambda = { path = "src/fxrate-lambda" }
 slug = "0.1.6"

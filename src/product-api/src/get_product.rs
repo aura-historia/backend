@@ -200,7 +200,7 @@ mod tests {
                         "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
                     )
                     .unwrap(),
-                    images: vec![],
+                    images: Default::default(),
                     auction_start: None,
                     auction_end: None,
                     created: OffsetDateTime::now_utc(),
@@ -266,7 +266,7 @@ mod tests {
                         "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
                     )
                     .unwrap(),
-                    images: vec![],
+                    images: Default::default(),
                     auction_start: None,
                     auction_end: None,
                     created: OffsetDateTime::now_utc(),
@@ -338,7 +338,7 @@ mod tests {
                         "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
                     )
                     .unwrap(),
-                    images: vec![],
+                    images: Default::default(),
                     auction_start: None,
                     auction_end: None,
                     created: timestamp,
@@ -523,7 +523,7 @@ mod tests {
                         "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
                     )
                     .unwrap(),
-                    images: vec![],
+                    images: Default::default(),
                     auction_start: None,
                     auction_end: None,
                     created: OffsetDateTime::now_utc(),
@@ -601,7 +601,7 @@ mod tests {
                         "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
                     )
                     .unwrap(),
-                    images: vec![],
+                    images: Default::default(),
                     auction_start: None,
                     auction_end: None,
                     created: OffsetDateTime::now_utc(),
@@ -678,7 +678,7 @@ mod tests {
                         "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
                     )
                     .unwrap(),
-                    images: vec![],
+                    images: Default::default(),
                     auction_start: None,
                     auction_end: None,
                     created: OffsetDateTime::now_utc(),
@@ -756,7 +756,7 @@ mod tests {
                         "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
                     )
                     .unwrap(),
-                    images: vec![],
+                    images: Default::default(),
                     auction_start: None,
                     auction_end: None,
                     created: OffsetDateTime::now_utc(),

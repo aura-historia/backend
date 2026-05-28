@@ -5,7 +5,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-#[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductImageDocument {
     pub url: Url,

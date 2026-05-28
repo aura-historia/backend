@@ -3,6 +3,7 @@ use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
 use common::shops_product_id::ShopsProductId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
+use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use url::Url;
@@ -26,7 +27,7 @@ pub struct PutProductData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub images: Option<Vec<Url>>,
+    pub images: Option<IndexSet<Url>>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         default,

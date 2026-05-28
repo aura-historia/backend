@@ -6,6 +6,7 @@ use crate::opensearch::product_state_document::ProductStateDocument;
 use common::event_id::EventId;
 use common::language::record::LanguageRecord;
 use common::mergeable::Mergeable;
+use indexmap::IndexSet;
 use serde::Serialize;
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
@@ -68,7 +69,7 @@ pub struct ProductUpdateDocument {
     pub title_it: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub images: Option<Vec<ProductImageDocument>>,
+    pub images: Option<IndexSet<ProductImageDocument>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_estimate_min_eur: Option<u64>,
@@ -734,7 +735,12 @@ mod faker {
                 title_fr: Some(config.fake_with_rng::<Title, _>(rng).into()),
                 title_es: Some(config.fake_with_rng::<Title, _>(rng).into()),
                 title_it: Some(config.fake_with_rng::<Title, _>(rng).into()),
-                images: Some(config.fake_with_rng(rng)),
+                images: Some(
+                    config
+                        .fake_with_rng::<Vec<ProductImageDocument>, _>(rng)
+                        .into_iter()
+                        .collect(),
+                ),
                 price_estimate_min_eur: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_estimate_min_usd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_estimate_min_gbp: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),

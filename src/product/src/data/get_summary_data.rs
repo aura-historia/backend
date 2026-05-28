@@ -10,6 +10,7 @@ use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
+use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
 use shop::data::shop_type_data::ShopTypeData;
 use time::OffsetDateTime;
@@ -35,7 +36,7 @@ pub struct GetProductSummaryData {
     pub url: Url,
     pub view_url: Url,
     #[serde(default)]
-    pub images: Vec<ProductImageData>,
+    pub images: IndexSet<ProductImageData>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub auction: Option<AuctionData>,
 
@@ -173,7 +174,9 @@ mod tests {
                     url: Some(Url::parse("https://my-shop.de/item/images/2").unwrap()),
                     prohibited_content: ProhibitedContentData::NaziGermany,
                 },
-            ],
+            ]
+            .into_iter()
+            .collect(),
             auction: Some(AuctionData {
                 start: Some(utc_datetime!(2025 - 05 - 01 12:00).into()),
                 end: Some(utc_datetime!(2025 - 05 - 10 12:00).into()),
