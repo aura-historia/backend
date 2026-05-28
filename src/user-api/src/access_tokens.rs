@@ -4,13 +4,7 @@ use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
-<<<<<<< HEAD
-use user::core::access_token::{
-    AccessTokenId, AccessTokenOrigin, api::extract_access_token_id_path,
-};
-=======
-use user::core::access_token::api::extract_access_token_id_path;
->>>>>>> origin/develop
+use user::core::access_token::{AccessTokenOrigin, api::extract_access_token_id_path};
 use user::data::access_token_data::{
     GetAccessTokenData, PatchAccessTokenData, PostAccessTokenData,
 };
