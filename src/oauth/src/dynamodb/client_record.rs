@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashSet;
 use time::OffsetDateTime;
-use user::core::access_token::HashedRawAccessToken;
+use user::core::access_token::HashedRawOAuthClientSecret;
 use user::dynamodb::access_token_record::ScopeRecord;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
@@ -55,7 +55,7 @@ impl From<OAuthClientRecord> for OAuthClient {
     fn from(record: OAuthClientRecord) -> Self {
         Self {
             client_id: record.client_id,
-            hashed_client_secret: HashedRawAccessToken::new(
+            hashed_client_secret: HashedRawOAuthClientSecret::new(
                 record.secret_short,
                 record.secret_hash,
             ),

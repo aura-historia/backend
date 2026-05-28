@@ -5,12 +5,12 @@ use oauth::dynamodb::client_record::OAuthClientRecord;
 use oauth::dynamodb::repository::{OAuthDynamoDbRepositoryImpl, OAuthRepository};
 use test_api::*;
 use time::{Duration, OffsetDateTime};
-use user::core::access_token::{RawAccessToken, Scope};
+use user::core::access_token::{RawOAuthClientSecret, Scope};
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_crud_oauth_records() {
     let repository = OAuthDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let secret = RawAccessToken::new();
+    let secret = RawOAuthClientSecret::new();
     let now =
         OffsetDateTime::from_unix_timestamp(OffsetDateTime::now_utc().unix_timestamp()).unwrap();
     let client = OAuthClient {

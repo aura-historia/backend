@@ -14,7 +14,7 @@ use oauth::service::oauth_service::{
     OAuthState, TokenIntrospectionRequest, TokenRequest, TokenRevocationRequest,
 };
 use std::collections::HashSet;
-use user::core::access_token::{RawAccessToken, Scope};
+use user::core::access_token::{RawAccessToken, RawOAuthClientSecret, Scope};
 use user::data::access_token_data::ScopeData;
 
 mod response;
@@ -108,8 +108,10 @@ async fn token(
         )?,
         redirect_uri: OAuthRedirectUri::from(required_form(&form, "redirect_uri")?),
         client_id: OAuthClientId::from(required_form(&form, "client_id")?),
-        client_secret: RawAccessToken::try_from(required_form(&form, "client_secret")?.to_owned())
-            .map_err(|err| ApiError::unauthorized(UNAUTHORIZED).with_detail(err.to_string()))?,
+        client_secret: RawOAuthClientSecret::try_from(
+            required_form(&form, "client_secret")?.to_owned(),
+        )
+        .map_err(|err| ApiError::unauthorized(UNAUTHORIZED).with_detail(err.to_string()))?,
         code_verifier: OAuthCodeVerifier::from(required_form(&form, "code_verifier")?),
     };
     let response = service.token(request).await.map_err(oauth_error)?;
@@ -126,8 +128,10 @@ async fn revoke(
             |err| ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_body_field("token"),
         )?,
         client_id: OAuthClientId::from(required_form(&form, "client_id")?),
-        client_secret: RawAccessToken::try_from(required_form(&form, "client_secret")?.to_owned())
-            .map_err(|err| ApiError::unauthorized(UNAUTHORIZED).with_detail(err.to_string()))?,
+        client_secret: RawOAuthClientSecret::try_from(
+            required_form(&form, "client_secret")?.to_owned(),
+        )
+        .map_err(|err| ApiError::unauthorized(UNAUTHORIZED).with_detail(err.to_string()))?,
     };
     service.revoke(request).await.map_err(oauth_error)?;
     Ok(
@@ -149,8 +153,10 @@ async fn introspect(
             |err| ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_body_field("token"),
         )?,
         client_id: OAuthClientId::from(required_form(&form, "client_id")?),
-        client_secret: RawAccessToken::try_from(required_form(&form, "client_secret")?.to_owned())
-            .map_err(|err| ApiError::unauthorized(UNAUTHORIZED).with_detail(err.to_string()))?,
+        client_secret: RawOAuthClientSecret::try_from(
+            required_form(&form, "client_secret")?.to_owned(),
+        )
+        .map_err(|err| ApiError::unauthorized(UNAUTHORIZED).with_detail(err.to_string()))?,
     };
     let response = service.introspect(request).await.map_err(oauth_error)?;
     response::json_no_store(200, oauth::data::IntrospectionResponseData::from(response))
@@ -298,7 +304,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_exchange_token() {
-        let secret = RawAccessToken::new();
+        let secret = RawOAuthClientSecret::new();
         let token_value: String = RawAccessToken::new().into();
         let mut service = MockOAuthService::default();
         service.expect_token().return_once(move |_| {
@@ -336,7 +342,7 @@ mod tests {
     #[tokio::test]
     async fn should_introspect_inactive_token() {
         let token_value = RawAccessToken::new();
-        let secret = RawAccessToken::new();
+        let secret = RawOAuthClientSecret::new();
         let mut service = MockOAuthService::default();
         service.expect_introspect().return_once(|_| {
             Box::pin(async {

@@ -12,7 +12,7 @@ use common::{string_newtype, user_id::UserId};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
-use user::core::access_token::{AccessTokenOrigin, RawAccessToken, Scope};
+use user::core::access_token::{AccessTokenOrigin, RawAccessToken, RawOAuthClientSecret, Scope};
 use user::service::command::CreateAccessTokenCommand;
 use user::service::user_service::{UserService, UserServiceError};
 
@@ -57,7 +57,7 @@ pub struct TokenRequest {
     pub code: OAuthAuthorizationCode,
     pub redirect_uri: OAuthRedirectUri,
     pub client_id: OAuthClientId,
-    pub client_secret: RawAccessToken,
+    pub client_secret: RawOAuthClientSecret,
     pub code_verifier: OAuthCodeVerifier,
 }
 
@@ -73,7 +73,7 @@ pub struct TokenResponse {
 pub struct TokenIntrospectionRequest {
     pub token: RawAccessToken,
     pub client_id: OAuthClientId,
-    pub client_secret: RawAccessToken,
+    pub client_secret: RawOAuthClientSecret,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -91,7 +91,7 @@ pub struct IntrospectionResponse {
 pub struct TokenRevocationRequest {
     pub token: RawAccessToken,
     pub client_id: OAuthClientId,
-    pub client_secret: RawAccessToken,
+    pub client_secret: RawOAuthClientSecret,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -173,7 +173,7 @@ impl<'a> OAuthServiceImpl<'a> {
     async fn authenticate_client(
         &self,
         client_id: &OAuthClientId,
-        client_secret: &RawAccessToken,
+        client_secret: &RawOAuthClientSecret,
     ) -> Result<OAuthClient, OAuthServiceError> {
         let client = self.find_client(client_id).await?;
         if client_secret.check(&client.hashed_client_secret) {
@@ -346,10 +346,10 @@ mod tests {
     use crate::core::client::OAuthClientName;
     use crate::dynamodb::client_record::OAuthClientRecord;
     use crate::dynamodb::repository::MockOAuthRepository;
-    use user::core::access_token::{AccessToken, AccessTokenId};
+    use user::core::access_token::{AccessToken, AccessTokenId, RawOAuthClientSecret};
     use user::service::user_service::MockUserService;
 
-    fn oauth_client(secret: &RawAccessToken) -> OAuthClient {
+    fn oauth_client(secret: &RawOAuthClientSecret) -> OAuthClient {
         let now = OffsetDateTime::now_utc();
         OAuthClient {
             client_id: OAuthClientId::from("client_1"),
@@ -374,7 +374,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_create_authorization_code() {
-        let secret = RawAccessToken::new();
+        let secret = RawOAuthClientSecret::new();
         let client = oauth_client(&secret);
         let client_record = OAuthClientRecord::from(client.clone());
         let mut repository = MockOAuthRepository::default();
@@ -418,7 +418,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_reject_invalid_client_secret() {
-        let secret = RawAccessToken::new();
+        let secret = RawOAuthClientSecret::new();
         let client_record = OAuthClientRecord::from(oauth_client(&secret));
         let mut repository = MockOAuthRepository::default();
         repository
@@ -431,7 +431,7 @@ mod tests {
             .introspect(TokenIntrospectionRequest {
                 token: RawAccessToken::new(),
                 client_id: OAuthClientId::from("client_1"),
-                client_secret: RawAccessToken::new(),
+                client_secret: RawOAuthClientSecret::new(),
             })
             .await
             .unwrap_err();
@@ -441,7 +441,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_exchange_authorization_code_for_access_token() {
-        let secret = RawAccessToken::new();
+        let secret = RawOAuthClientSecret::new();
         let client = oauth_client(&secret);
         let now = OffsetDateTime::now_utc();
         let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";

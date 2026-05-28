@@ -1,7 +1,7 @@
 use common::{string_newtype, user_id::UserId};
 use std::collections::HashSet;
 use time::OffsetDateTime;
-use user::core::access_token::{HashedRawAccessToken, Scope};
+use user::core::access_token::{HashedRawOAuthClientSecret, Scope};
 
 string_newtype!(OAuthClientId, derives(serde::Serialize, serde::Deserialize));
 string_newtype!(
@@ -16,7 +16,7 @@ string_newtype!(
 #[derive(Debug, Clone, PartialEq)]
 pub struct OAuthClient {
     pub client_id: OAuthClientId,
-    pub hashed_client_secret: HashedRawAccessToken,
+    pub hashed_client_secret: HashedRawOAuthClientSecret,
     pub name: OAuthClientName,
     pub redirect_uris: HashSet<OAuthRedirectUri>,
     pub scopes: HashSet<Scope>,

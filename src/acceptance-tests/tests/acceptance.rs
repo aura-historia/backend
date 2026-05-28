@@ -112,7 +112,8 @@ use std::time::{Duration, Instant, SystemTime};
 use test_api::*;
 use time::OffsetDateTime;
 use user::core::access_token::{
-    AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, RawAccessToken, Scope,
+    AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, RawAccessToken,
+    RawOAuthClientSecret, Scope,
 };
 use user::core::role::UserRole;
 use user::core::tier::UserTier;
@@ -1964,7 +1965,7 @@ async fn should_complete_oauth_authorization_code_flow() {
     let cfn = get_cfn_output();
     let user = create_random_test_user().await;
     let client_id = OAuthClientId::from(format!("client-{}", uuid::Uuid::new_v4()));
-    let client_secret = RawAccessToken::new();
+    let client_secret = RawOAuthClientSecret::new();
     let redirect_uri = OAuthRedirectUri::from("https://client.example/callback");
     let now = OffsetDateTime::now_utc();
     let oauth_repository =

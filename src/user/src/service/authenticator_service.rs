@@ -1,7 +1,6 @@
 use crate::{
     core::access_token::{
-        AURA_HISTORIA_ACCESS_TOKEN_PREFIX, AccessToken, RawAccessToken,
-        api::ExtractBearerTokenError,
+        AccessToken, AccessTokenPrefix, RawAccessToken, TokenPrefix, api::ExtractBearerTokenError,
     },
     service::user_service::{UserService, UserServiceError},
 };
@@ -101,7 +100,7 @@ impl<'a> AuthenticatorService for AuthenticatorServiceImpl<'a> {
             return Ok(None);
         };
 
-        if access_token.starts_with(AURA_HISTORIA_ACCESS_TOKEN_PREFIX) {
+        if access_token.starts_with(AccessTokenPrefix::PREFIX) {
             let raw_access_token = RawAccessToken::try_from(access_token)?;
             let access_token = self
                 .user_service
