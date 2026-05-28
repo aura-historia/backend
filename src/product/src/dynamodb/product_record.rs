@@ -19,6 +19,7 @@ use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use field::field;
 use geo::dynamodb::{geo_address_from_record, structured_address_from_record};
+use indexmap::IndexSet;
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -199,8 +200,8 @@ pub struct ProductRecord {
     pub state: ProductStateRecord,
     pub url: Url,
     pub view_url: Url,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub images: Vec<ProductImageRecord>,
+    #[serde(skip_serializing_if = "IndexSet::is_empty", default)]
+    pub images: IndexSet<ProductImageRecord>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub embedding: Option<Vec<f32>>,
 
@@ -743,7 +744,10 @@ mod faker {
                     config.fake_with_rng::<u16, _>(rng)
                 ))
                 .unwrap(),
-                images: config.fake_with_rng(rng),
+                images: config
+                    .fake_with_rng::<Vec<ProductImageRecord>, _>(rng)
+                    .into_iter()
+                    .collect(),
                 embedding: if config.fake_with_rng(rng) {
                     Some(fake::vec![f32; 768])
                 } else {

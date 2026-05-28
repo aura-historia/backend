@@ -12,6 +12,7 @@ use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use geo::core::address::{GeoAddress, StructuredAddress};
+use indexmap::IndexSet;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 use url::Url;
@@ -48,7 +49,7 @@ pub struct CreateProductCommand {
     pub other_price_estimate_max: HashMap<Currency, MonetaryAmount>,
     pub state: ProductState,
     pub url: Url,
-    pub images: Vec<ProductImage>,
+    pub images: IndexSet<ProductImage>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
 }
@@ -71,7 +72,7 @@ pub struct UpdateProductCommand {
     pub native_price_estimate_min: Option<Price>,
     pub native_price_estimate_max: Option<Price>,
     pub url: Option<Url>,
-    pub images: Option<Vec<ProductImage>>,
+    pub images: Option<IndexSet<ProductImage>>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
     pub embedding: Option<Vec<f32>>,
@@ -142,7 +143,7 @@ pub struct UpsertProductCommand {
     pub native_price_estimate_max: Option<Price>,
     pub state: Option<ProductState>,
     pub url: Option<Url>,
-    pub images: Vec<ProductImage>,
+    pub images: IndexSet<ProductImage>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
 }
@@ -314,7 +315,10 @@ mod faker {
                 other_price_estimate_max: other_price_estimate_max.unwrap_or_default(),
                 state: config.fake_with_rng(rng),
                 url: Url::parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ").unwrap(),
-                images: Faker.fake(),
+                images: Faker
+                    .fake::<Vec<ProductImage>>()
+                    .into_iter()
+                    .collect(),
                 auction_start: if config.fake_with_rng(rng) {
                     Some(OffsetDateTime::now_utc())
                 } else {
@@ -337,7 +341,12 @@ mod faker {
                 native_price_estimate_min: config.fake_with_rng(rng),
                 native_price_estimate_max: config.fake_with_rng(rng),
                 url: Some(Url::parse("https://www.example.com/product/updated").unwrap()),
-                images: Some(Faker.fake()),
+                images: Some(
+                    Faker
+                        .fake::<Vec<ProductImage>>()
+                        .into_iter()
+                        .collect(),
+                ),
                 auction_start: if config.fake_with_rng(rng) {
                     Some(OffsetDateTime::now_utc())
                 } else {
@@ -369,7 +378,10 @@ mod faker {
                 native_price_estimate_max: config.fake_with_rng(rng),
                 state: config.fake_with_rng(rng),
                 url: Some(Url::parse("https://www.example.com/product/upserted").unwrap()),
-                images: config.fake_with_rng(rng),
+                images: config
+                    .fake_with_rng::<Vec<ProductImage>, _>(rng)
+                    .into_iter()
+                    .collect(),
                 auction_start: if config.fake_with_rng(rng) {
                     Some(OffsetDateTime::now_utc())
                 } else {
@@ -424,7 +436,9 @@ mod tests {
             images: Some(vec![ProductImage {
                 url: Url::parse("https://example.com/product/image.jpg").unwrap(),
                 prohibited_content: Default::default(),
-            }]),
+            }]
+            .into_iter()
+            .collect()),
             auction_start: None,
             auction_end: None,
             embedding: Some(vec![0.1, 0.2, 0.3]),
@@ -472,7 +486,7 @@ mod tests {
             native_price_estimate_max: None,
             state: None,
             url: None,
-            images: vec![],
+            images: Default::default(),
             auction_start: None,
             auction_end: None,
         };
@@ -493,7 +507,9 @@ mod tests {
             images: vec![ProductImage {
                 url: Url::parse("https://example.com/product/image.jpg").unwrap(),
                 prohibited_content: Default::default(),
-            }],
+            }]
+            .into_iter()
+            .collect(),
             auction_start: None,
             auction_end: None,
         });

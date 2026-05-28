@@ -13,6 +13,7 @@ use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use geo::core::address::{GeoAddress, StructuredAddress};
+use indexmap::IndexSet;
 use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
 use time::OffsetDateTime;
@@ -284,7 +285,7 @@ pub struct ProductCreatedDomainEventPayload {
     pub state: ProductState,
     pub url: Url,
     pub view_url: Url,
-    pub images: Vec<ProductImage>,
+    pub images: IndexSet<ProductImage>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
 }
@@ -422,12 +423,11 @@ impl ProductCommonEventPayload for ProductUrlChangeDomainEventPayload {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 pub struct ProductImagesChangeDomainEventPayload {
     pub shop_id: ShopId,
     pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
-    pub images: Vec<ProductImage>,
+    pub images: IndexSet<ProductImage>,
 }
 
 impl ProductCommonEventPayload for ProductImagesChangeDomainEventPayload {
@@ -498,7 +498,10 @@ mod faker_payloads {
                 url: Url::parse("https://www.example.com/product").unwrap(),
                 view_url: Url::parse("https://www.example.com/product?utm_source=aura-historia")
                     .unwrap(),
-                images: config.fake_with_rng(rng),
+                images: config
+                    .fake_with_rng::<Vec<ProductImage>, _>(rng)
+                    .into_iter()
+                    .collect(),
                 auction_start: if config.fake_with_rng(rng) {
                     Some(OffsetDateTime::now_utc())
                 } else {
@@ -532,6 +535,20 @@ mod faker_payloads {
             }
         }
     }
+
+    impl Dummy<Faker> for ProductImagesChangeDomainEventPayload {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            ProductImagesChangeDomainEventPayload {
+                shop_id: config.fake_with_rng(rng),
+                seller_id: config.fake_with_rng(rng),
+                shops_product_id: config.fake_with_rng(rng),
+                images: config
+                    .fake_with_rng::<Vec<ProductImage>, _>(rng)
+                    .into_iter()
+                    .collect(),
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -559,7 +576,7 @@ pub struct LocalizedProductCreatedDomainEventPayloadView {
     pub price: Option<Price>,
     pub state: ProductState,
     pub url: Url,
-    pub images: Vec<ProductImage>,
+    pub images: IndexSet<ProductImage>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -602,7 +619,7 @@ pub struct LocalizedProductImagesChangeDomainEventPayloadView {
     pub shop_id: ShopId,
     pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
-    pub images: Vec<ProductImage>,
+    pub images: IndexSet<ProductImage>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

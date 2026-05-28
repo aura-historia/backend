@@ -5,6 +5,7 @@ use common::{
     event::Event, event_id::EventId, price::data::PriceData, product_id::ProductId,
     shop_id::ShopId, shops_product_id::ShopsProductId,
 };
+use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -74,7 +75,7 @@ pub struct ProductEventUrlChangedPayloadData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductEventImagesChangedPayloadData {
-    pub images: Vec<product_image_data::ProductImageData>,
+    pub images: IndexSet<product_image_data::ProductImageData>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

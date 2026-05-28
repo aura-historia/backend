@@ -7,6 +7,7 @@ use common::dynamodb_update::DynamoDbUpdate;
 use common::event_id::EventId;
 use common::language::record::LanguageRecord;
 use common::price::record::PriceRecord;
+use indexmap::IndexSet;
 use serde::Serialize;
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
@@ -71,7 +72,7 @@ pub struct ProductRecordUpdate {
     pub title_it: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub images: Option<Vec<ProductImageRecord>>,
+    pub images: Option<IndexSet<ProductImageRecord>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_estimate_min_native: Option<PriceRecord>,
@@ -482,7 +483,12 @@ mod faker {
                 title_fr: Some(config.fake_with_rng::<Title, _>(rng).into()),
                 title_es: Some(config.fake_with_rng::<Title, _>(rng).into()),
                 title_it: Some(config.fake_with_rng::<Title, _>(rng).into()),
-                images: Some(config.fake_with_rng(rng)),
+                images: Some(
+                    config
+                        .fake_with_rng::<Vec<ProductImageRecord>, _>(rng)
+                        .into_iter()
+                        .collect(),
+                ),
                 price_estimate_min_native: Some(config.fake_with_rng::<Price, _>(rng).into()),
                 price_estimate_min_eur: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_estimate_min_usd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),

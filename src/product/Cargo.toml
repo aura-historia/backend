@@ -22,6 +22,7 @@ regex = { workspace = true }
 shop = { workspace = true }
 fxrate = { workspace = true, optional = true }
 tracing = { workspace = true}
+indexmap = { workspace = true }
 
 # Optional
 field = { workspace = true, optional = true }

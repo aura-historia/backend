@@ -28,6 +28,7 @@ use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use field::field;
 use geo::dynamodb::{geo_address_from_record, structured_address_from_record};
+use indexmap::IndexSet;
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -262,7 +263,7 @@ pub struct ProductDomainEventRecord {
     pub view_url: Option<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub images: Option<Vec<ProductImageRecord>>,
+    pub images: Option<IndexSet<ProductImageRecord>>,
 
     #[serde(
         with = "time::serde::rfc3339::option",
