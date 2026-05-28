@@ -1,3 +1,4 @@
+use crate::core::partner_status::ShopPartnerStatus;
 use crate::core::shop::Shop;
 use crate::core::shop_search::ShopSearch;
 use crate::core::shop_type::ShopType;
@@ -222,6 +223,7 @@ impl<'a> SellerService for SellerServiceImpl<'a> {
                         .create(CreateShopCommand {
                             name: raw_shop_name.clone(),
                             shop_type: ShopType::AuctionHouse,
+                            shop_partner_status: ShopPartnerStatus::Scraped,
                             domains: Default::default(),
                             shopify_domain: None,
                             shopify_currency: None,
@@ -244,6 +246,7 @@ impl<'a> SellerService for SellerServiceImpl<'a> {
                 .create(CreateShopCommand {
                     name: raw_shop_name.clone(),
                     shop_type: ShopType::AuctionHouse,
+                    shop_partner_status: ShopPartnerStatus::Scraped,
                     domains: Default::default(),
                     shopify_domain: None,
                     shopify_currency: None,

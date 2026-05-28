@@ -14,7 +14,9 @@ use shop::service::get_service::GetShopServiceImpl;
 use shop::service::query_service::QueryShopServiceImpl;
 use shop_api::handler;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
-use user::service::user_service::UserServiceImpl;
+use user::service::{
+    authenticator_service::AuthenticatorServiceImpl, user_service::UserServiceImpl,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -57,6 +59,8 @@ async fn main() -> Result<(), Error> {
 
     let access_token_verifier_service =
         load_access_token_verifier_service(&user_pool_id, &user_pool_client_ids);
+    let authenticator_service =
+        AuthenticatorServiceImpl::new(access_token_verifier_service.as_ref(), &user_service);
 
     debug!("Lambda initialized.");
 
@@ -68,7 +72,7 @@ async fn main() -> Result<(), Error> {
                 &query_shop_service,
                 &command_shop_service,
                 &user_service,
-                &access_token_verifier_service,
+                &authenticator_service,
             )
             .await
         },

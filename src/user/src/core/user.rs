@@ -2,11 +2,12 @@ use crate::core::{
     first_name::FirstName, last_name::LastName, name::Name, role::UserRole, tier::UserTier,
 };
 use common::{
-    currency::domain::Currency, language::domain::Language, stripe_customer_id::StripeCustomerId,
-    user_id::UserId,
+    currency::domain::Currency, language::domain::Language, shop_id::ShopId,
+    stripe_customer_id::StripeCustomerId, user_id::UserId,
 };
 use geo::core::address::{GeoAddress, StructuredAddress};
 use serde_email::Email;
+use std::collections::HashSet;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -23,6 +24,7 @@ pub struct User {
     pub stripe_customer_id: Option<StripeCustomerId>,
     pub structured_address: Option<StructuredAddress>,
     pub geo_address: Option<GeoAddress>,
+    pub partner_shops: HashSet<ShopId>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -69,6 +71,7 @@ mod fake {
                 stripe_customer_id: config.fake_with_rng(rng),
                 structured_address: config.fake_with_rng(rng),
                 geo_address: config.fake_with_rng(rng),
+                partner_shops: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

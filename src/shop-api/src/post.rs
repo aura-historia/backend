@@ -4,6 +4,7 @@ use common::api::error::ApiError;
 use common::api::error_code::{BAD_BODY_VALUE, FORBIDDEN};
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
+use shop::core::partner_status::ShopPartnerStatus;
 use shop::data::get_shop_data::GetShopData;
 use shop::data::post_shop_data::PostShopData;
 use shop::service::command::CreateShopCommand;
@@ -40,6 +41,7 @@ pub async fn handle(
     let create_command = CreateShopCommand {
         name: post_data.name,
         shop_type: post_data.shop_type.into(),
+        shop_partner_status: ShopPartnerStatus::Scraped,
         domains: post_data.domains,
         shopify_domain: post_data.shopify_domain,
         shopify_currency: post_data.shopify_currency.map(Into::into),

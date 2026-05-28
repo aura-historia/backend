@@ -40,11 +40,12 @@ pub const NOTIFICATION_NOT_FOUND: ApiErrorCode = ApiErrorCode("NOTIFICATION_NOT_
 pub const SHOP_NOT_FOUND: ApiErrorCode = ApiErrorCode("SHOP_NOT_FOUND");
 pub const SHOP_EXISTS_ALREADY: ApiErrorCode = ApiErrorCode("SHOP_EXISTS_ALREADY");
 pub const PARTNER_SHOP_NOT_PARTNERED: ApiErrorCode = ApiErrorCode("PARTNER_SHOP_NOT_PARTNERED");
-pub const PARTNER_SHOP_API_KEY_MISMATCH: ApiErrorCode =
-    ApiErrorCode("PARTNER_SHOP_API_KEY_MISMATCH");
+pub const AURA_HISTORIA_API_KEY_MISMATCH: ApiErrorCode =
+    ApiErrorCode("AURA_HISTORIA_API_KEY_MISMATCH");
 pub const MONETARY_AMOUNT_OVERFLOW: ApiErrorCode = ApiErrorCode("MONETARY_AMOUNT_OVERFLOW");
 pub const TEXT_QUERY_TOO_SHORT: ApiErrorCode = ApiErrorCode("TEXT_QUERY_TOO_SHORT");
 pub const USER_NOT_FOUND: ApiErrorCode = ApiErrorCode("USER_NOT_FOUND");
+pub const ACCESS_TOKEN_NOT_FOUND: ApiErrorCode = ApiErrorCode("ACCESS_TOKEN_NOT_FOUND");
 pub const USER_EXISTS_ALREADY: ApiErrorCode = ApiErrorCode("USER_EXISTS_ALREADY");
 pub const PARTNER_SHOP_APPLICATION_NOT_FOUND: ApiErrorCode =
     ApiErrorCode("PARTNER_SHOP_APPLICATION_NOT_FOUND");

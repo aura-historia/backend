@@ -1,4 +1,3 @@
-use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
 use common::pagination::cursor::api::JsonCursoredData;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
@@ -12,7 +11,9 @@ use shop::service::get_service::MockGetShopService;
 use shop::service::query_service::QueryShopServiceImpl;
 use shop_api::handle;
 use test_api::*;
-use user::service::user_service::MockUserService;
+use user::service::{
+    authenticator_service::MockAuthenticatorService, user_service::MockUserService,
+};
 
 #[rstest::rstest]
 #[trace]
@@ -51,9 +52,9 @@ async fn should_follow_up_search_after_query(
             .build(),
         context: Default::default(),
     };
-    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    let mut access_token_verifier_service = MockAuthenticatorService::default();
     access_token_verifier_service
-        .expect_verify_extract_user_id()
+        .expect_authenticate()
         .return_once(|_| Box::pin(async { Ok(None) }));
     let response1 = handle(
         lambda_event,
@@ -89,9 +90,9 @@ async fn should_follow_up_search_after_query(
             .build(),
         context: Default::default(),
     };
-    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    let mut access_token_verifier_service = MockAuthenticatorService::default();
     access_token_verifier_service
-        .expect_verify_extract_user_id()
+        .expect_authenticate()
         .return_once(|_| Box::pin(async { Ok(None) }));
     let response2 = handle(
         lambda_event,
@@ -158,9 +159,9 @@ async fn should_200_when_shop_type_query(
             .build(),
         context: Default::default(),
     };
-    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    let mut access_token_verifier_service = MockAuthenticatorService::default();
     access_token_verifier_service
-        .expect_verify_extract_user_id()
+        .expect_authenticate()
         .return_once(|_| Box::pin(async { Ok(None) }));
     let response = handle(
         lambda_event,
@@ -226,9 +227,9 @@ async fn should_200_when_partner_status_query_via_post(
             .build(),
         context: Default::default(),
     };
-    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    let mut access_token_verifier_service = MockAuthenticatorService::default();
     access_token_verifier_service
-        .expect_verify_extract_user_id()
+        .expect_authenticate()
         .return_once(|_| Box::pin(async { Ok(None) }));
     let response = handle(
         lambda_event,
@@ -285,9 +286,9 @@ async fn should_200_when_partner_status_query_via_get(
             .build(),
         context: Default::default(),
     };
-    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    let mut access_token_verifier_service = MockAuthenticatorService::default();
     access_token_verifier_service
-        .expect_verify_extract_user_id()
+        .expect_authenticate()
         .return_once(|_| Box::pin(async { Ok(None) }));
     let response = handle(
         lambda_event,

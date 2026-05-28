@@ -18,14 +18,16 @@ use partner_shop_application::dynamodb::repository::PartnerShopApplicationDynamo
 use serde::{Deserialize, Serialize};
 use shop::core::address::StructuredAddress;
 use shop::core::continent::Continent;
+use shop::core::partner_status::ShopPartnerStatus;
+use shop::dynamodb::partner_status_record::ShopPartnerStatusRecord::{self};
 use shop::dynamodb::repository::ShopDynamoDbRepository;
-use shop::dynamodb::shop_record;
 use shop::dynamodb::shop_record_update::ShopRecordUpdate;
 use shop::service::command::CreateShopCommand;
 use shop::service::command_service::CommandShopService;
 use time::OffsetDateTime;
 use tracing::info;
 use url::Url;
+use user::dynamodb::repository::UserDynamoDbRepository;
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -78,13 +80,14 @@ pub enum StepFunctionError {
 }
 
 #[tracing::instrument(
-    skip(partner_app_repository, shop_service, shop_repository, notification_service, event),
+    skip(partner_app_repository, shop_service, shop_repository, user_repository, notification_service, event),
     fields(requestId = %event.context.request_id)
 )]
 pub async fn handler(
     partner_app_repository: &(impl PartnerShopApplicationDynamoDbRepository + Sync),
     shop_service: &(impl CommandShopService + Sync),
     shop_repository: &(impl ShopDynamoDbRepository + Sync),
+    user_repository: &(impl UserDynamoDbRepository + Sync),
     notification_service: &(impl NotificationService + Sync),
     event: LambdaEvent<serde_json::Value>,
 ) -> Result<serde_json::Value, lambda_runtime::Error> {
@@ -106,6 +109,7 @@ pub async fn handler(
                 partner_app_repository,
                 shop_service,
                 shop_repository,
+                user_repository,
                 notification_service,
                 &input,
             )
@@ -180,6 +184,7 @@ async fn handle_approve(
     repository: &(impl PartnerShopApplicationDynamoDbRepository + Sync),
     shop_service: &(impl CommandShopService + Sync),
     shop_repository: &(impl ShopDynamoDbRepository + Sync),
+    user_repository: &(impl UserDynamoDbRepository + Sync),
     notification_service: &(impl NotificationService + Sync),
     input: &StepFunctionInput,
 ) -> Result<(), StepFunctionError> {
@@ -194,7 +199,13 @@ async fn handle_approve(
     let (shop_id, shop_name, image) =
         create_or_resolve_shop(&record, shop_service, shop_repository).await?;
 
-    link_shop_to_partner(shop_repository, &shop_id, &input.applicant_user_id).await?;
+    link_shop_to_partner(
+        shop_repository,
+        user_repository,
+        &shop_id,
+        &input.applicant_user_id,
+    )
+    .await?;
 
     persist_approved_state(repository, input).await?;
 
@@ -229,6 +240,7 @@ async fn create_or_resolve_shop(
             let cmd = CreateShopCommand {
                 name: name.clone(),
                 shop_type: shop_type.into(),
+                shop_partner_status: ShopPartnerStatus::Partnered,
                 domains,
                 shopify_domain: None,
                 shopify_currency: None,
@@ -288,16 +300,15 @@ fn structured_address_from_record(
 
 async fn link_shop_to_partner(
     shop_repository: &(impl ShopDynamoDbRepository + Sync),
+    user_repository: &(impl UserDynamoDbRepository + Sync),
     shop_id: &ShopId,
     applicant_user_id: &UserId,
 ) -> Result<(), StepFunctionError> {
     let shop_update = ShopRecordUpdate {
-        partner_user_id: Some(*applicant_user_id),
-        gsi1_pk: Some(shop_record::mk_gsi1_pk(applicant_user_id)),
-        gsi1_sk: Some(shop_record::mk_gsi1_sk(shop_id)),
         gsi3_pk: None,
         gsi3_sk: None,
         shop_type: None,
+        shop_partner_status: Some(ShopPartnerStatusRecord::Partnered),
         domains: None,
         shopify_domain: None,
         shopify_currency: None,
@@ -318,13 +329,16 @@ async fn link_shop_to_partner(
         geo_address_lon: None,
         phone: None,
         email: None,
-        partner_api_key_short: None,
-        partner_api_key_long_hash: None,
         updated: OffsetDateTime::now_utc(),
     };
 
     shop_repository
         .update_shop_record(shop_id, shop_update)
+        .await
+        .map_err(|e| StepFunctionError::DynamoDbUpdateError(e.to_string()))?;
+
+    user_repository
+        .add_partner_shop(applicant_user_id, shop_id)
         .await
         .map_err(|e| StepFunctionError::DynamoDbUpdateError(e.to_string()))?;
 
@@ -522,10 +536,12 @@ mod tests {
     use partner_shop_application::dynamodb::repository::MockPartnerShopApplicationDynamoDbRepository;
     use rstest::rstest;
     use shop::core::shop::Shop;
+    use shop::dynamodb::partner_status_record::ShopPartnerStatusRecord;
     use shop::dynamodb::repository::MockShopDynamoDbRepository;
     use shop::dynamodb::shop_record::ShopRecord;
     use shop::dynamodb::shop_type_record::ShopTypeRecord;
     use shop::service::command_service::MockCommandShopService;
+    use user::dynamodb::repository::MockUserDynamoDbRepository;
 
     fn fake_notification(user_id: UserId) -> Notification {
         Notification {
@@ -645,6 +661,7 @@ mod tests {
 
         let mock_shop_service = MockCommandShopService::new();
         let mock_shop_repo = MockShopDynamoDbRepository::new();
+        let mock_user_repo = MockUserDynamoDbRepository::new();
         let mock_notification = MockNotificationService::new();
 
         let input = StepFunctionInput {
@@ -658,6 +675,7 @@ mod tests {
             &mock_repo,
             &mock_shop_service,
             &mock_shop_repo,
+            &mock_user_repo,
             &mock_notification,
             &input,
         )
@@ -743,11 +761,18 @@ mod tests {
             .expect_update_shop_record()
             .withf(move |shop_id, update| {
                 *shop_id == created_shop_id
-                    && update.partner_user_id.is_some()
-                    && update.gsi1_pk.is_some()
-                    && update.gsi1_sk.is_some()
+                    && matches!(
+                        update.shop_partner_status,
+                        Some(ShopPartnerStatusRecord::Partnered)
+                    )
             })
             .returning(|_, _| Box::pin(async { Ok(None) }));
+
+        let mut mock_user_repo = MockUserDynamoDbRepository::new();
+        mock_user_repo
+            .expect_add_partner_shop()
+            .withf(move |uid, _sid| *uid == applicant_user_id)
+            .returning(|_, _| Box::pin(async { Ok(()) }));
 
         let mut mock_notification = MockNotificationService::new();
         mock_notification
@@ -781,6 +806,7 @@ mod tests {
             &mock_repo,
             &mock_shop_service,
             &mock_shop_repo,
+            &mock_user_repo,
             &mock_notification,
             &input,
         )
@@ -818,7 +844,7 @@ mod tests {
 
         let mut shop_record: ShopRecord = Faker.fake();
         shop_record.shop_id = existing_shop_id;
-        shop_record.partner_user_id = None;
+        shop_record.shop_partner_status = ShopPartnerStatusRecord::Scraped;
         let expected_image = shop_record.image.clone();
 
         let mut mock_shop_repo = MockShopDynamoDbRepository::new();
@@ -831,11 +857,15 @@ mod tests {
             .expect_update_shop_record()
             .withf(move |shop_id, update| {
                 *shop_id == existing_shop_id
-                    && update.partner_user_id == Some(applicant_user_id)
-                    && update.gsi1_pk.is_some()
-                    && update.gsi1_sk.is_some()
+                    && update.shop_partner_status == Some(ShopPartnerStatusRecord::Partnered)
             })
             .returning(|_, _| Box::pin(async { Ok(None) }));
+
+        let mut mock_user_repo = MockUserDynamoDbRepository::new();
+        mock_user_repo
+            .expect_add_partner_shop()
+            .withf(move |uid, _sid| *uid == applicant_user_id)
+            .returning(|_, _| Box::pin(async { Ok(()) }));
 
         let mut mock_notification = MockNotificationService::new();
         mock_notification
@@ -868,6 +898,7 @@ mod tests {
             &mock_repo,
             &mock_shop_service,
             &mock_shop_repo,
+            &mock_user_repo,
             &mock_notification,
             &input,
         )
@@ -1033,6 +1064,7 @@ mod tests {
         });
 
         let mock_shop_repo = MockShopDynamoDbRepository::new();
+        let mock_user_repo = MockUserDynamoDbRepository::new();
         let mock_notification = MockNotificationService::new();
 
         let input = StepFunctionInput {
@@ -1046,6 +1078,7 @@ mod tests {
             &mock_repo,
             &mock_shop_service,
             &mock_shop_repo,
+            &mock_user_repo,
             &mock_notification,
             &input,
         )
@@ -1077,6 +1110,7 @@ mod tests {
 
         let mock_shop_service = MockCommandShopService::new();
         let mock_shop_repo = MockShopDynamoDbRepository::new();
+        let mock_user_repo = MockUserDynamoDbRepository::new();
         let mock_notification = MockNotificationService::new();
 
         let input = StepFunctionInput {
@@ -1090,6 +1124,7 @@ mod tests {
             &mock_repo,
             &mock_shop_service,
             &mock_shop_repo,
+            &mock_user_repo,
             &mock_notification,
             &input,
         )
@@ -1120,6 +1155,7 @@ mod tests {
 
         let mock_shop_service = MockCommandShopService::new();
         let mock_shop_repo = MockShopDynamoDbRepository::new();
+        let mock_user_repo = MockUserDynamoDbRepository::new();
         let mock_notification = MockNotificationService::new();
 
         let input = StepFunctionInput {
@@ -1133,6 +1169,7 @@ mod tests {
             &mock_repo,
             &mock_shop_service,
             &mock_shop_repo,
+            &mock_user_repo,
             &mock_notification,
             &input,
         )
@@ -1168,6 +1205,7 @@ mod tests {
             .expect_get_shop_record()
             .withf(move |id| *id == existing_shop_id)
             .return_once(|_| Box::pin(async move { Ok(None) }));
+        let mock_user_repo = MockUserDynamoDbRepository::new();
         let mock_notification = MockNotificationService::new();
 
         let input = StepFunctionInput {
@@ -1181,6 +1219,7 @@ mod tests {
             &mock_repo,
             &mock_shop_service,
             &mock_shop_repo,
+            &mock_user_repo,
             &mock_notification,
             &input,
         )
@@ -1279,6 +1318,7 @@ mod tests {
 
         let mock_shop_service = MockCommandShopService::new();
         let mock_shop_repo = MockShopDynamoDbRepository::new();
+        let mock_user_repo = MockUserDynamoDbRepository::new();
         let mock_notification = MockNotificationService::new();
 
         let event = lambda_runtime::LambdaEvent::new(payload, lambda_runtime::Context::default());
@@ -1287,6 +1327,7 @@ mod tests {
             &mock_repo,
             &mock_shop_service,
             &mock_shop_repo,
+            &mock_user_repo,
             &mock_notification,
             event,
         )

@@ -1,5 +1,4 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
-use cognito::access_token_verifier_service::AccessTokenVerifierService;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::INTERNAL_SERVER_ERROR;
@@ -7,17 +6,18 @@ use common::shop_id::api::{extract_shop_id_path, extract_shop_slug_id_path};
 use lambda_runtime::LambdaEvent;
 use shop::data::get_shop_data::GetShopData;
 use shop::service::get_service::GetShopService;
+use user::service::authenticator_service::AuthenticatorService;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl GetShopService,
-    access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
+    authenticator_service: &(impl AuthenticatorService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let user_id_opt = access_token_verifier_service
-        .verify_extract_user_id(&event.payload.headers)
+    let authenticated = authenticator_service
+        .authenticate(&event.payload.headers)
         .await?;
-    if let Some(user_id) = user_id_opt {
-        tracing::Span::current().record("userId", user_id.to_string());
+    if let Some(principal) = authenticated.as_ref() {
+        tracing::Span::current().record("userId", principal.user_id().to_string());
     }
 
     let shop = match event.payload.route_key.as_deref() {
@@ -45,7 +45,7 @@ pub async fn handle(
 
     let shop_data: GetShopData = GetShopData::from(shop);
 
-    let (cache_directive, max_age, s_max_age) = if user_id_opt.is_some() {
+    let (cache_directive, max_age, s_max_age) = if authenticated.is_some() {
         ("no-store", None, None)
     } else {
         ("public", Some(600), Some(3600))
@@ -61,7 +61,6 @@ pub async fn handle(
 #[cfg(test)]
 mod tests {
     use crate::handle;
-    use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
     use common::shop_id::ShopId;
     use fake::{Fake, Faker};
     use http::header::{CACHE_CONTROL, LAST_MODIFIED};
@@ -72,7 +71,9 @@ mod tests {
     use shop::service::query_service::MockQueryShopService;
     use test_api::ApiGatewayV2httpRequestProxy;
     use time::macros::datetime;
-    use user::service::user_service::MockUserService;
+    use user::service::{
+        authenticator_service::MockAuthenticatorService, user_service::MockUserService,
+    };
 
     #[tokio::test]
     async fn should_include_updated_timestamp_as_header_last_modified() {
@@ -92,9 +93,9 @@ mod tests {
                 .build(),
             context: Default::default(),
         };
-        let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
-        access_token_verifier_service
-            .expect_verify_extract_user_id()
+        let mut authenticator_service = MockAuthenticatorService::default();
+        authenticator_service
+            .expect_authenticate()
             .return_once(|_| Box::pin(async { Ok(None) }));
         let response = handle(
             lambda_event,
@@ -102,7 +103,7 @@ mod tests {
             &MockQueryShopService::default(),
             &MockCommandShopService::default(),
             &MockUserService::default(),
-            &access_token_verifier_service,
+            &authenticator_service,
         )
         .await
         .unwrap();
@@ -124,9 +125,9 @@ mod tests {
                 .build(),
             context: Default::default(),
         };
-        let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
-        access_token_verifier_service
-            .expect_verify_extract_user_id()
+        let mut authenticator_service = MockAuthenticatorService::default();
+        authenticator_service
+            .expect_authenticate()
             .return_once(|_| Box::pin(async { Ok(None) }));
 
         let response = handle(
@@ -135,7 +136,7 @@ mod tests {
             &MockQueryShopService::default(),
             &MockCommandShopService::default(),
             &MockUserService::default(),
-            &access_token_verifier_service,
+            &authenticator_service,
         )
         .await
         .unwrap_err();
@@ -159,9 +160,9 @@ mod tests {
             let shop_id = *shop_id;
             Box::pin(async move { Err(GetShopError::ShopNotFound(shop_id)) })
         });
-        let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
-        access_token_verifier_service
-            .expect_verify_extract_user_id()
+        let mut authenticator_service = MockAuthenticatorService::default();
+        authenticator_service
+            .expect_authenticate()
             .return_once(|_| Box::pin(async { Ok(None) }));
 
         let response = handle(
@@ -170,7 +171,7 @@ mod tests {
             &MockQueryShopService::default(),
             &MockCommandShopService::default(),
             &MockUserService::default(),
-            &access_token_verifier_service,
+            &authenticator_service,
         )
         .await
         .unwrap_err();
@@ -193,9 +194,9 @@ mod tests {
                 .build(),
             context: Default::default(),
         };
-        let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
-        access_token_verifier_service
-            .expect_verify_extract_user_id()
+        let mut authenticator_service = MockAuthenticatorService::default();
+        authenticator_service
+            .expect_authenticate()
             .return_once(|_| Box::pin(async { Ok(None) }));
 
         let response = handle(
@@ -204,7 +205,7 @@ mod tests {
             &MockQueryShopService::default(),
             &MockCommandShopService::default(),
             &MockUserService::default(),
-            &access_token_verifier_service,
+            &authenticator_service,
         )
         .await
         .unwrap();
@@ -224,6 +225,7 @@ mod tests {
     #[tokio::test]
     async fn should_set_cache_control_to_no_store_when_authenticated() {
         use common::user_id::UserId;
+        use user::service::authenticator_service::AuthenticatedPrincipal;
 
         let mut service = MockGetShopService::default();
         service.expect_find_shop().return_once(move |_| {
@@ -240,10 +242,12 @@ mod tests {
             context: Default::default(),
         };
         let user_id = UserId::new();
-        let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
-        access_token_verifier_service
-            .expect_verify_extract_user_id()
-            .return_once(move |_| Box::pin(async move { Ok(Some(user_id)) }));
+        let mut authenticator_service = MockAuthenticatorService::default();
+        authenticator_service
+            .expect_authenticate()
+            .return_once(move |_| {
+                Box::pin(async move { Ok(Some(AuthenticatedPrincipal::UserId(user_id))) })
+            });
 
         let response = handle(
             lambda_event,
@@ -251,7 +255,7 @@ mod tests {
             &MockQueryShopService::default(),
             &MockCommandShopService::default(),
             &MockUserService::default(),
-            &access_token_verifier_service,
+            &authenticator_service,
         )
         .await
         .unwrap();

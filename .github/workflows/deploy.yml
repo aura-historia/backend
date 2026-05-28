@@ -88,7 +88,6 @@ jobs:
           - src/user-lambda/src/user-lambda-tier-update
           - src/partner-shop-application-api
           - src/partner-shop-application-lambda
-          - src/partner-api
           - src/cognito-post-confirmation
           - src/notification-send
           - src/notification-api

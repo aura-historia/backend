@@ -7,7 +7,7 @@ edition = "2024"
 common = { workspace = true, features = ["api", "opensearch"] }
 cognito = { workspace = true }
 shop = { workspace = true, features = ["api", "dynamodb", "data", "service", "opensearch"] }
-user = { workspace = true, features = ["dynamodb", "service", "data"] }
+user = { workspace = true, features = ["dynamodb", "service", "data", "authenticator"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["macros"] }

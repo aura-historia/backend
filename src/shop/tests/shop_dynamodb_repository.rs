@@ -91,35 +91,10 @@ async fn should_return_some_when_shop_record_exists_for_query_shop_by_shopify_do
 async fn should_return_none_when_shop_record_not_exists_for_update_shop_record() {
     let repository = get_repository().await;
     let update = ShopRecordUpdate {
-        partner_user_id: None,
-        gsi1_pk: None,
-        gsi1_sk: None,
-        gsi3_pk: None,
-        gsi3_sk: None,
         shop_type: Some(ShopTypeRecord::Marketplace),
         domains: Some(HashSet::from([Domain::try_from("test-shop.com").unwrap()])),
-        shopify_domain: None,
-        shopify_currency: None,
-        shopify_language: None,
-        woocommerce_webhook_secret: None,
-        woocommerce_currency: None,
-        woocommerce_language: None,
-        url: None,
-        view_url: None,
-        image: None,
-        structured_address_addressline: None,
-        structured_address_addressline_extra: None,
-        structured_address_locality: None,
-        structured_address_region: None,
-        structured_address_postal_code: None,
-        structured_address_country: None,
-        geo_address_lat: None,
-        geo_address_lon: None,
-        phone: None,
-        email: None,
-        partner_api_key_short: None,
-        partner_api_key_long_hash: None,
         updated: OffsetDateTime::now_utc(),
+        ..Default::default()
     };
 
     let actual = repository
@@ -131,7 +106,7 @@ async fn should_return_none_when_shop_record_not_exists_for_update_shop_record()
 }
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_return_updated_record_when_updating_all_fields_for_update_shop_record() {
+async fn should_return_updated_record_when_updating_many_fields_for_update_shop_record() {
     let repository = get_repository().await;
     let initial = ShopRecord::from(Faker.fake::<Shop>());
     let _ = repository.put_shop_record(initial.clone()).await.unwrap();
@@ -145,35 +120,11 @@ async fn should_return_updated_record_when_updating_all_fields_for_update_shop_r
     let updated_at = OffsetDateTime::now_utc();
 
     let update = ShopRecordUpdate {
-        partner_user_id: None,
-        gsi1_pk: None,
-        gsi1_sk: None,
-        gsi3_pk: None,
-        gsi3_sk: None,
         shop_type: Some(new_shop_type),
         domains: Some(new_domains.clone()),
-        shopify_domain: None,
-        shopify_currency: None,
-        shopify_language: None,
-        woocommerce_webhook_secret: None,
-        woocommerce_currency: None,
-        woocommerce_language: None,
-        url: None,
-        view_url: None,
         image: Some(new_image.clone()),
-        structured_address_addressline: None,
-        structured_address_addressline_extra: None,
-        structured_address_locality: None,
-        structured_address_region: None,
-        structured_address_postal_code: None,
-        structured_address_country: None,
-        geo_address_lat: None,
-        geo_address_lon: None,
-        phone: None,
-        email: None,
-        partner_api_key_short: None,
-        partner_api_key_long_hash: None,
         updated: updated_at,
+        ..Default::default()
     };
 
     let result = repository
@@ -200,35 +151,8 @@ async fn should_preserve_unchanged_fields_when_updating_only_timestamp_for_updat
 
     let updated_at = OffsetDateTime::now_utc();
     let update = ShopRecordUpdate {
-        partner_user_id: None,
-        gsi1_pk: None,
-        gsi1_sk: None,
-        gsi3_pk: None,
-        gsi3_sk: None,
-        shop_type: None,
-        domains: None,
-        shopify_domain: None,
-        shopify_currency: None,
-        shopify_language: None,
-        woocommerce_webhook_secret: None,
-        woocommerce_currency: None,
-        woocommerce_language: None,
-        url: None,
-        view_url: None,
-        image: None,
-        structured_address_addressline: None,
-        structured_address_addressline_extra: None,
-        structured_address_locality: None,
-        structured_address_region: None,
-        structured_address_postal_code: None,
-        structured_address_country: None,
-        geo_address_lat: None,
-        geo_address_lon: None,
-        phone: None,
-        email: None,
-        partner_api_key_short: None,
-        partner_api_key_long_hash: None,
         updated: updated_at,
+        ..Default::default()
     };
 
     let result = repository
@@ -342,65 +266,4 @@ async fn should_return_none_when_different_raw_shop_name_not_exists_for_get_raw_
         .unwrap();
 
     assert!(actual.is_none());
-}
-
-#[localstack_test(services = [DynamoDB()])]
-async fn should_return_shops_for_partner_when_exists_for_query_shops_by_partner() {
-    let repository = get_repository().await;
-    let partner_user_id = common::user_id::UserId::new();
-
-    let mut shop_record: ShopRecord = Faker.fake();
-    shop_record.partner_user_id = Some(partner_user_id);
-    shop_record.gsi1_pk = Some(shop::dynamodb::shop_record::mk_gsi1_pk(&partner_user_id));
-    shop_record.gsi1_sk = Some(shop::dynamodb::shop_record::mk_gsi1_sk(
-        &shop_record.shop_id,
-    ));
-    repository
-        .put_shop_record(shop_record.clone())
-        .await
-        .unwrap();
-
-    let actual = repository
-        .query_shops_by_partner(&partner_user_id)
-        .await
-        .unwrap();
-
-    assert_eq!(1, actual.len());
-    assert_eq!(shop_record.shop_id, actual[0].shop_id);
-}
-
-#[localstack_test(services = [DynamoDB()])]
-async fn should_return_empty_when_no_shops_for_partner_for_query_shops_by_partner() {
-    let repository = get_repository().await;
-    let partner_user_id = common::user_id::UserId::new();
-
-    let actual = repository
-        .query_shops_by_partner(&partner_user_id)
-        .await
-        .unwrap();
-
-    assert!(actual.is_empty());
-}
-
-#[localstack_test(services = [DynamoDB()])]
-async fn should_return_multiple_shops_for_partner_for_query_shops_by_partner() {
-    let repository = get_repository().await;
-    let partner_user_id = common::user_id::UserId::new();
-
-    for _ in 0..3 {
-        let mut shop_record: ShopRecord = Faker.fake();
-        shop_record.partner_user_id = Some(partner_user_id);
-        shop_record.gsi1_pk = Some(shop::dynamodb::shop_record::mk_gsi1_pk(&partner_user_id));
-        shop_record.gsi1_sk = Some(shop::dynamodb::shop_record::mk_gsi1_sk(
-            &shop_record.shop_id,
-        ));
-        repository.put_shop_record(shop_record).await.unwrap();
-    }
-
-    let actual = repository
-        .query_shops_by_partner(&partner_user_id)
-        .await
-        .unwrap();
-
-    assert_eq!(3, actual.len());
 }

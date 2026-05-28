@@ -1,15 +1,12 @@
 use crate::core::{
     address::{GeoAddress, StructuredAddress},
     affiliate_configuration::AffiliateConfiguration,
-    partner_shop_api_key::HashedPartnerShopApiKey,
     shop_type::ShopType,
     woocommerce_webhook_secret::WoocommerceWebhookSecret,
 };
 use common::currency::domain::Currency;
 use common::language::domain::Language;
-use common::{
-    domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::UserId,
-};
+use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use serde_email::Email;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -17,7 +14,6 @@ use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PartnerShop {
-    pub hashed_api_key: Option<HashedPartnerShopApiKey>,
     pub shop_id: ShopId,
     pub shop_slug_id: SlugId<0>,
     pub name: ShopName,
@@ -36,7 +32,6 @@ pub struct PartnerShop {
     pub geo_address: Option<GeoAddress>,
     pub phone: Option<String>,
     pub email: Option<Email>,
-    pub partner_user_id: UserId,
     pub affiliate_configuration: Option<AffiliateConfiguration>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -59,7 +54,6 @@ mod faker {
                     .unwrap_or_else(|| common::utm::append_utm_params(u.clone()))
             });
             PartnerShop {
-                hashed_api_key: Some(config.fake_with_rng(rng)),
                 shop_id: config.fake_with_rng(rng),
                 shop_slug_id: SlugId::from(name.as_ref()),
                 name,
@@ -78,7 +72,6 @@ mod faker {
                 geo_address: None,
                 phone: None,
                 email: None,
-                partner_user_id: config.fake_with_rng(rng),
                 affiliate_configuration,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),

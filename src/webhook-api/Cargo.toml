@@ -26,6 +26,8 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 tracing = { workspace = true }
 url = { workspace = true }
+cognito = { workspace = true }
+user = { workspace = true, features = ["dynamodb", "service", "data", "authenticator"] }
 
 [dev-dependencies]
 common = { workspace = true, features = ["test-data"] }
@@ -36,3 +38,4 @@ rstest = { workspace = true }
 serial_test = { workspace = true }
 shop = { workspace = true, features = ["test-data", "seller"] }
 test-api = { workspace = true, features = ["api-gateway", "dynamodb", "sqs"] }
+user = { workspace = true, features = ["test-data"] }
