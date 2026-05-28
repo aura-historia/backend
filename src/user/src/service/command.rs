@@ -1,5 +1,5 @@
 use crate::core::{
-    access_token::{AccessTokenName, Scope},
+    access_token::{AccessTokenName, AccessTokenOrigin, Scope},
     first_name::FirstName,
     last_name::LastName,
     role::UserRole,
@@ -25,6 +25,7 @@ pub struct CreateAccessTokenCommand {
     pub name: AccessTokenName,
     pub scopes: HashSet<Scope>,
     pub expires: Option<OffsetDateTime>,
+    pub origin: AccessTokenOrigin,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

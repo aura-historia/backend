@@ -22,9 +22,16 @@ pub struct AccessToken {
     pub user_id: UserId,
     pub name: AccessTokenName,
     pub scopes: HashSet<Scope>,
+    pub origin: AccessTokenOrigin,
     pub expires: Option<OffsetDateTime>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AccessTokenOrigin {
+    User,
+    OAuth { client_id: String },
 }
 
 impl AccessToken {
@@ -304,6 +311,7 @@ mod faker {
                 user_id: config.fake_with_rng(rng),
                 name: config.fake_with_rng(rng),
                 scopes: [Scope::ProductsWrite].into(),
+                origin: AccessTokenOrigin::User,
                 expires: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),

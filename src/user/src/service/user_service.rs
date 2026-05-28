@@ -205,6 +205,11 @@ pub trait UserService {
         user_id: &UserId,
         access_token_id: &AccessTokenId,
     ) -> Result<(), UserServiceError>;
+
+    async fn delete_access_token_by_raw(
+        &self,
+        raw_access_token: &RawAccessToken,
+    ) -> Result<(), UserServiceError>;
 }
 
 pub struct UserServiceImpl<'a> {
@@ -554,6 +559,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
             user_id: *user_id,
             name: cmd.name,
             scopes: cmd.scopes,
+            origin: cmd.origin,
             expires: cmd.expires,
             created: now,
             updated: now,
@@ -602,6 +608,17 @@ impl<'a> UserService for UserServiceImpl<'a> {
         self.find_access_token(user_id, access_token_id).await?;
         self.repository
             .delete_access_token_record(user_id, access_token_id)
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_access_token_by_raw(
+        &self,
+        raw_access_token: &RawAccessToken,
+    ) -> Result<(), UserServiceError> {
+        let token = self.find_access_token_by_raw(raw_access_token).await?;
+        self.repository
+            .delete_access_token_record(&token.user_id, &token.id)
             .await?;
         Ok(())
     }
