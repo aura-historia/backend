@@ -1,5 +1,5 @@
-use oauth::core::authorization_code::{AuthorizationCode, CodeChallengeMethod};
-use oauth::core::client::{OAuthClient, OAuthClientId};
+use oauth::core::authorization_code::{AuthorizationCode, CodeChallengeMethod, OAuthCodeChallenge};
+use oauth::core::client::{OAuthClient, OAuthClientId, OAuthClientName, OAuthRedirectUri};
 use oauth::dynamodb::authorization_code_record::AuthorizationCodeRecord;
 use oauth::dynamodb::client_record::OAuthClientRecord;
 use oauth::dynamodb::repository::{OAuthDynamoDbRepositoryImpl, OAuthRepository};
@@ -16,8 +16,8 @@ async fn should_crud_oauth_records() {
     let client = OAuthClient {
         client_id: OAuthClientId::from("client_1"),
         hashed_client_secret: secret.into(),
-        name: "Test client".to_owned(),
-        redirect_uris: HashSet::from(["https://client.example/callback".to_owned()]),
+        name: OAuthClientName::from("Test client"),
+        redirect_uris: HashSet::from([OAuthRedirectUri::from("https://client.example/callback")]),
         scopes: HashSet::from([Scope::ProductsWrite]),
         created_by: common::user_id::UserId::new(),
         created: now,
@@ -40,9 +40,9 @@ async fn should_crud_oauth_records() {
         code: oauth::core::authorization_code::OAuthAuthorizationCode::new(),
         client_id: client.client_id,
         user_id: client.created_by,
-        redirect_uri: "https://client.example/callback".to_owned(),
+        redirect_uri: OAuthRedirectUri::from("https://client.example/callback"),
         scopes: HashSet::from([Scope::ProductsWrite]),
-        code_challenge: "challenge".to_owned(),
+        code_challenge: OAuthCodeChallenge::from("challenge"),
         code_challenge_method: CodeChallengeMethod::S256,
         expires: now + Duration::minutes(10),
         created: now,

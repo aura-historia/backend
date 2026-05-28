@@ -4,10 +4,14 @@ use common::api::error_code::{
     BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE, INTERNAL_SERVER_ERROR, UNAUTHORIZED,
 };
 use lambda_runtime::LambdaEvent;
-use oauth::core::authorization_code::{CodeChallengeMethod, OAuthAuthorizationCode};
+use oauth::core::authorization_code::{
+    CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge, OAuthCodeVerifier,
+};
+use oauth::core::client::{OAuthClientId, OAuthRedirectUri};
 use oauth::service::oauth_service::{
-    AuthorizeRequest, OAuthService, OAuthServiceError, TokenIntrospectionRequest, TokenRequest,
-    TokenRevocationRequest,
+    AuthorizeRequest, IntrospectionResponse, OAuthGrantType, OAuthResponseType, OAuthService,
+    OAuthServiceError, OAuthState, OAuthTokenType, TokenIntrospectionRequest, TokenRequest,
+    TokenResponse, TokenRevocationRequest,
 };
 use std::collections::HashSet;
 use user::core::access_token::{RawAccessToken, Scope};
@@ -68,12 +72,12 @@ async fn authorize(
         common::user_id::api::extract_user_id_request_context(&event.payload.request_context)?;
     let params = &event.payload.query_string_parameters;
     let request = AuthorizeRequest {
-        response_type: required_query(params, "response_type")?.to_owned(),
-        client_id: required_query(params, "client_id")?.to_owned().into(),
-        redirect_uri: required_query(params, "redirect_uri")?.to_owned(),
+        response_type: parse_response_type(required_query(params, "response_type")?)?,
+        client_id: OAuthClientId::from(required_query(params, "client_id")?),
+        redirect_uri: OAuthRedirectUri::from(required_query(params, "redirect_uri")?),
         scope: parse_scope(params.first("scope"))?,
-        state: params.first("state").map(ToOwned::to_owned),
-        code_challenge: required_query(params, "code_challenge")?.to_owned(),
+        state: params.first("state").map(OAuthState::from),
+        code_challenge: OAuthCodeChallenge::from(required_query(params, "code_challenge")?),
         code_challenge_method: match required_query(params, "code_challenge_method")? {
             "S256" => CodeChallengeMethod::S256,
             value => {
@@ -98,18 +102,18 @@ async fn token(
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let form = parse_form(event.payload.body)?;
     let request = TokenRequest {
-        grant_type: required_form(&form, "grant_type")?.to_owned(),
+        grant_type: parse_grant_type(required_form(&form, "grant_type")?)?,
         code: OAuthAuthorizationCode::try_from(required_form(&form, "code")?.to_owned()).map_err(
             |err| ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_body_field("code"),
         )?,
-        redirect_uri: required_form(&form, "redirect_uri")?.to_owned(),
-        client_id: required_form(&form, "client_id")?.to_owned().into(),
+        redirect_uri: OAuthRedirectUri::from(required_form(&form, "redirect_uri")?),
+        client_id: OAuthClientId::from(required_form(&form, "client_id")?),
         client_secret: RawAccessToken::try_from(required_form(&form, "client_secret")?.to_owned())
             .map_err(|err| ApiError::unauthorized(UNAUTHORIZED).with_detail(err.to_string()))?,
-        code_verifier: required_form(&form, "code_verifier")?.to_owned(),
+        code_verifier: OAuthCodeVerifier::from(required_form(&form, "code_verifier")?),
     };
     let response = service.token(request).await.map_err(oauth_error)?;
-    response::json_no_store(200, response)
+    response::json_no_store(200, oauth::data::TokenResponseData::from(response))
 }
 
 async fn revoke(
@@ -121,7 +125,7 @@ async fn revoke(
         token: RawAccessToken::try_from(required_form(&form, "token")?.to_owned()).map_err(
             |err| ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_body_field("token"),
         )?,
-        client_id: required_form(&form, "client_id")?.to_owned().into(),
+        client_id: OAuthClientId::from(required_form(&form, "client_id")?),
         client_secret: RawAccessToken::try_from(required_form(&form, "client_secret")?.to_owned())
             .map_err(|err| ApiError::unauthorized(UNAUTHORIZED).with_detail(err.to_string()))?,
     };
@@ -144,12 +148,12 @@ async fn introspect(
         token: RawAccessToken::try_from(required_form(&form, "token")?.to_owned()).map_err(
             |err| ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_body_field("token"),
         )?,
-        client_id: required_form(&form, "client_id")?.to_owned().into(),
+        client_id: OAuthClientId::from(required_form(&form, "client_id")?),
         client_secret: RawAccessToken::try_from(required_form(&form, "client_secret")?.to_owned())
             .map_err(|err| ApiError::unauthorized(UNAUTHORIZED).with_detail(err.to_string()))?,
     };
     let response = service.introspect(request).await.map_err(oauth_error)?;
-    response::json_no_store(200, response)
+    response::json_no_store(200, oauth::data::IntrospectionResponseData::from(response))
 }
 
 fn required_query<'a>(
@@ -197,18 +201,37 @@ fn parse_scope(value: Option<&str>) -> Result<HashSet<Scope>, ApiError> {
         .collect()
 }
 
+fn parse_response_type(value: &str) -> Result<OAuthResponseType, ApiError> {
+    match value {
+        "code" => Ok(OAuthResponseType::Code),
+        value => Err(ApiError::bad_request(
+            BAD_QUERY_PARAMETER_VALUE,
+            format!("Unsupported response_type '{value}'").into(),
+        )
+        .with_query_field("response_type")),
+    }
+}
+
+fn parse_grant_type(value: &str) -> Result<OAuthGrantType, ApiError> {
+    match value {
+        "authorization_code" => Ok(OAuthGrantType::AuthorizationCode),
+        value => Err(ApiError::bad_request(
+            BAD_BODY_VALUE,
+            format!("Unsupported grant_type '{value}'").into(),
+        )
+        .with_body_field("grant_type")),
+    }
+}
+
 fn oauth_error(err: OAuthServiceError) -> ApiError {
     match err {
         OAuthServiceError::InvalidClientSecret | OAuthServiceError::ClientNotFound => {
             ApiError::unauthorized(UNAUTHORIZED).with_detail(err.to_string())
         }
-        OAuthServiceError::UnsupportedResponseType(_)
-        | OAuthServiceError::InvalidRedirectUri
-        | OAuthServiceError::InvalidScope => {
+        OAuthServiceError::InvalidRedirectUri | OAuthServiceError::InvalidScope => {
             ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE, Box::new(err))
         }
-        OAuthServiceError::UnsupportedGrantType(_)
-        | OAuthServiceError::AuthorizationCodeNotFound
+        OAuthServiceError::AuthorizationCodeNotFound
         | OAuthServiceError::AuthorizationCodeExpired
         | OAuthServiceError::AuthorizationCodeClientMismatch
         | OAuthServiceError::AuthorizationCodeRedirectUriMismatch
@@ -226,10 +249,8 @@ fn oauth_error(err: OAuthServiceError) -> ApiError {
 mod tests {
     use super::*;
     use lambda_runtime::LambdaEvent;
-    use oauth::data::{IntrospectionResponseData, TokenResponseData};
     use oauth::service::oauth_service::{AuthorizeResponse, MockOAuthService};
     use test_api::ApiGatewayV2httpRequestProxy;
-    use user::data::access_token_data::AccessTokenTypeData;
 
     #[tokio::test]
     async fn should_authorize() {
@@ -272,11 +293,11 @@ mod tests {
         let mut service = MockOAuthService::default();
         service.expect_token().return_once(move |_| {
             Box::pin(async move {
-                Ok(TokenResponseData {
-                    access_token: token_value,
-                    token_type: AccessTokenTypeData::Bearer,
-                    expires_in: Some(3600),
-                    scope: "products:write".to_owned(),
+                Ok(TokenResponse {
+                    access_token: RawAccessToken::try_from(token_value).unwrap(),
+                    token_type: OAuthTokenType::Bearer,
+                    expires: Some(time::OffsetDateTime::now_utc() + time::Duration::hours(1)),
+                    scopes: HashSet::from([Scope::ProductsWrite]),
                 })
             })
         });
@@ -309,14 +330,14 @@ mod tests {
         let mut service = MockOAuthService::default();
         service.expect_introspect().return_once(|_| {
             Box::pin(async {
-                Ok(IntrospectionResponseData {
+                Ok(IntrospectionResponse {
                     active: false,
-                    scope: None,
+                    scopes: None,
                     client_id: None,
-                    sub: None,
+                    subject: None,
                     token_type: None,
-                    exp: None,
-                    iat: None,
+                    expires: None,
+                    issued_at: None,
                 })
             })
         });

@@ -1,7 +1,7 @@
 use crate::core::access_token::{
     AccessToken, AccessTokenId, AccessTokenOrigin, HashedRawAccessToken,
 };
-use common::user_id::UserId;
+use common::{error::missing_field::MissingPersistenceField, user_id::UserId};
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashSet;
@@ -127,16 +127,19 @@ impl From<AccessToken> for AccessTokenRecord {
     }
 }
 
-impl From<AccessTokenRecord> for AccessToken {
-    fn from(record: AccessTokenRecord) -> Self {
+impl TryFrom<AccessTokenRecord> for AccessToken {
+    type Error = MissingPersistenceField;
+
+    fn try_from(record: AccessTokenRecord) -> Result<Self, Self::Error> {
         let origin = match record.origin {
             AccessTokenOriginRecord::User => AccessTokenOrigin::User,
-            AccessTokenOriginRecord::OAuth => record
-                .oauth_client_id
-                .map(|client_id| AccessTokenOrigin::OAuth { client_id })
-                .unwrap_or(AccessTokenOrigin::User),
+            AccessTokenOriginRecord::OAuth => AccessTokenOrigin::OAuth {
+                client_id: record
+                    .oauth_client_id
+                    .ok_or_else(|| MissingPersistenceField::new("oauth_client_id"))?,
+            },
         };
-        AccessToken {
+        Ok(AccessToken {
             id: record.access_token_id,
             hashed_token: HashedRawAccessToken::new(record.token_short, record.token_hash),
             user_id: record.user_id,
@@ -148,7 +151,7 @@ impl From<AccessTokenRecord> for AccessToken {
                 .and_then(|timestamp| OffsetDateTime::from_unix_timestamp(timestamp).ok()),
             created: record.created,
             updated: record.updated,
-        }
+        })
     }
 }
 

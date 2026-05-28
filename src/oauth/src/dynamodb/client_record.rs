@@ -1,4 +1,4 @@
-use crate::core::client::{OAuthClient, OAuthClientId};
+use crate::core::client::{OAuthClient, OAuthClientId, OAuthClientName, OAuthRedirectUri};
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashSet;
@@ -11,8 +11,8 @@ pub struct OAuthClientRecord {
     pub pk: String,
     pub sk: String,
     pub client_id: OAuthClientId,
-    pub name: String,
-    pub redirect_uris: HashSet<String>,
+    pub name: OAuthClientName,
+    pub redirect_uris: HashSet<OAuthRedirectUri>,
     pub scopes: HashSet<ScopeRecord>,
     pub secret_prefix: String,
     pub secret_short: String,

@@ -1,7 +1,7 @@
 use crate::core::authorization_code::{
-    AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode,
+    AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge,
 };
-use crate::core::client::OAuthClientId;
+use crate::core::client::{OAuthClientId, OAuthRedirectUri};
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashSet;
@@ -15,9 +15,9 @@ pub struct AuthorizationCodeRecord {
     pub code: OAuthAuthorizationCode,
     pub client_id: OAuthClientId,
     pub user_id: common::user_id::UserId,
-    pub redirect_uri: String,
+    pub redirect_uri: OAuthRedirectUri,
     pub scopes: HashSet<ScopeRecord>,
-    pub code_challenge: String,
+    pub code_challenge: OAuthCodeChallenge,
     pub code_challenge_method: CodeChallengeMethod,
     pub expires: i64,
     pub ttl: i64,

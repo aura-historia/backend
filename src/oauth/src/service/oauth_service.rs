@@ -1,33 +1,48 @@
 use crate::core::authorization_code::{
-    AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode,
+    AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge,
+    OAuthCodeVerifier,
 };
-use crate::core::client::{OAuthClient, OAuthClientId};
-use crate::data::{IntrospectionResponseData, TokenResponseData, scope_string};
+use crate::core::client::{OAuthClient, OAuthClientId, OAuthRedirectUri};
 use crate::dynamodb::authorization_code_record::AuthorizationCodeRecord;
 use crate::dynamodb::repository::OAuthRepository;
 use aws_sdk_dynamodb::error::SdkError;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use common::user_id::UserId;
+use common::{string_newtype, user_id::UserId};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
-use time::{Duration, OffsetDateTime};
+use time::OffsetDateTime;
 use user::core::access_token::{AccessTokenOrigin, RawAccessToken, Scope};
-use user::data::access_token_data::AccessTokenTypeData;
 use user::service::command::CreateAccessTokenCommand;
 use user::service::user_service::{UserService, UserServiceError};
 
-const AUTHORIZATION_CODE_TTL: Duration = Duration::minutes(10);
-const ACCESS_TOKEN_TTL: Duration = Duration::days(30);
+const AUTHORIZATION_CODE_TTL: time::Duration = time::Duration::minutes(10);
+
+string_newtype!(OAuthState);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OAuthResponseType {
+    Code,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OAuthGrantType {
+    AuthorizationCode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OAuthTokenType {
+    Bearer,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuthorizeRequest {
-    pub response_type: String,
+    pub response_type: OAuthResponseType,
     pub client_id: OAuthClientId,
-    pub redirect_uri: String,
+    pub redirect_uri: OAuthRedirectUri,
     pub scope: HashSet<Scope>,
-    pub state: Option<String>,
-    pub code_challenge: String,
+    pub state: Option<OAuthState>,
+    pub code_challenge: OAuthCodeChallenge,
     pub code_challenge_method: CodeChallengeMethod,
 }
 
@@ -38,12 +53,20 @@ pub struct AuthorizeResponse {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TokenRequest {
-    pub grant_type: String,
+    pub grant_type: OAuthGrantType,
     pub code: OAuthAuthorizationCode,
-    pub redirect_uri: String,
+    pub redirect_uri: OAuthRedirectUri,
     pub client_id: OAuthClientId,
     pub client_secret: RawAccessToken,
-    pub code_verifier: String,
+    pub code_verifier: OAuthCodeVerifier,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TokenResponse {
+    pub access_token: RawAccessToken,
+    pub token_type: OAuthTokenType,
+    pub expires: Option<OffsetDateTime>,
+    pub scopes: HashSet<Scope>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,6 +74,17 @@ pub struct TokenIntrospectionRequest {
     pub token: RawAccessToken,
     pub client_id: OAuthClientId,
     pub client_secret: RawAccessToken,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IntrospectionResponse {
+    pub active: bool,
+    pub scopes: Option<HashSet<Scope>>,
+    pub client_id: Option<OAuthClientId>,
+    pub subject: Option<UserId>,
+    pub token_type: Option<OAuthTokenType>,
+    pub expires: Option<OffsetDateTime>,
+    pub issued_at: Option<OffsetDateTime>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -66,10 +100,6 @@ pub enum OAuthServiceError {
     ClientNotFound,
     #[error("Invalid OAuth client secret.")]
     InvalidClientSecret,
-    #[error("Unsupported response_type '{0}'.")]
-    UnsupportedResponseType(String),
-    #[error("Unsupported grant_type '{0}'.")]
-    UnsupportedGrantType(String),
     #[error("Redirect URI is not registered for client.")]
     InvalidRedirectUri,
     #[error("Requested scope is not allowed for client.")]
@@ -103,14 +133,14 @@ pub trait OAuthService {
         request: AuthorizeRequest,
     ) -> Result<AuthorizeResponse, OAuthServiceError>;
 
-    async fn token(&self, request: TokenRequest) -> Result<TokenResponseData, OAuthServiceError>;
+    async fn token(&self, request: TokenRequest) -> Result<TokenResponse, OAuthServiceError>;
 
     async fn revoke(&self, request: TokenRevocationRequest) -> Result<(), OAuthServiceError>;
 
     async fn introspect(
         &self,
         request: TokenIntrospectionRequest,
-    ) -> Result<IntrospectionResponseData, OAuthServiceError>;
+    ) -> Result<IntrospectionResponse, OAuthServiceError>;
 }
 
 pub struct OAuthServiceImpl<'a> {
@@ -161,11 +191,6 @@ impl OAuthService for OAuthServiceImpl<'_> {
         user_id: &UserId,
         request: AuthorizeRequest,
     ) -> Result<AuthorizeResponse, OAuthServiceError> {
-        if request.response_type != "code" {
-            return Err(OAuthServiceError::UnsupportedResponseType(
-                request.response_type,
-            ));
-        }
         let client = self.find_client(&request.client_id).await?;
         if !client.redirect_uris.contains(&request.redirect_uri) {
             return Err(OAuthServiceError::InvalidRedirectUri);
@@ -192,16 +217,13 @@ impl OAuthService for OAuthServiceImpl<'_> {
 
         let mut params = HashMap::from([("code", code.code.to_string())]);
         if let Some(state) = request.state {
-            params.insert("state", state);
+            params.insert("state", state.into());
         }
-        let redirect_to = append_query_params(&request.redirect_uri, params);
+        let redirect_to = append_query_params(request.redirect_uri.as_ref(), params);
         Ok(AuthorizeResponse { redirect_to })
     }
 
-    async fn token(&self, request: TokenRequest) -> Result<TokenResponseData, OAuthServiceError> {
-        if request.grant_type != "authorization_code" {
-            return Err(OAuthServiceError::UnsupportedGrantType(request.grant_type));
-        }
+    async fn token(&self, request: TokenRequest) -> Result<TokenResponse, OAuthServiceError> {
         let client = self
             .authenticate_client(&request.client_id, &request.client_secret)
             .await?;
@@ -227,7 +249,6 @@ impl OAuthService for OAuthServiceImpl<'_> {
             return Err(OAuthServiceError::InvalidCodeVerifier);
         }
 
-        let expires = OffsetDateTime::now_utc() + ACCESS_TOKEN_TTL;
         let (raw, access_token) = self
             .user_service
             .create_access_token(
@@ -235,20 +256,18 @@ impl OAuthService for OAuthServiceImpl<'_> {
                 CreateAccessTokenCommand {
                     name: format!("OAuth client {}", client.client_id).into(),
                     scopes: code.scopes,
-                    expires: Some(expires),
+                    expires: None,
                     origin: AccessTokenOrigin::OAuth {
-                        client_id: client.client_id.to_string(),
+                        client_id: client.client_id.into(),
                     },
                 },
             )
             .await?;
-        Ok(TokenResponseData {
-            access_token: raw.into(),
-            token_type: AccessTokenTypeData::Bearer,
-            expires_in: access_token
-                .expires
-                .map(|expires| (expires - OffsetDateTime::now_utc()).whole_seconds().max(0)),
-            scope: scope_string(&access_token.scopes),
+        Ok(TokenResponse {
+            access_token: raw,
+            token_type: OAuthTokenType::Bearer,
+            expires: access_token.expires,
+            scopes: access_token.scopes,
         })
     }
 
@@ -269,7 +288,7 @@ impl OAuthService for OAuthServiceImpl<'_> {
     async fn introspect(
         &self,
         request: TokenIntrospectionRequest,
-    ) -> Result<IntrospectionResponseData, OAuthServiceError> {
+    ) -> Result<IntrospectionResponse, OAuthServiceError> {
         let _ = self
             .authenticate_client(&request.client_id, &request.client_secret)
             .await?;
@@ -280,30 +299,30 @@ impl OAuthService for OAuthServiceImpl<'_> {
         {
             Ok(token) => token,
             Err(UserServiceError::AccessTokenNotFoundByRaw) => {
-                return Ok(IntrospectionResponseData {
+                return Ok(IntrospectionResponse {
                     active: false,
-                    scope: None,
+                    scopes: None,
                     client_id: None,
-                    sub: None,
+                    subject: None,
                     token_type: None,
-                    exp: None,
-                    iat: None,
+                    expires: None,
+                    issued_at: None,
                 });
             }
             Err(err) => return Err(err.into()),
         };
         let client_id = match &token.origin {
-            AccessTokenOrigin::OAuth { client_id } => Some(client_id.clone()),
+            AccessTokenOrigin::OAuth { client_id } => Some(client_id.clone().into()),
             AccessTokenOrigin::User => None,
         };
-        Ok(IntrospectionResponseData {
+        Ok(IntrospectionResponse {
             active: true,
-            scope: Some(scope_string(&token.scopes)),
+            scopes: Some(token.scopes),
             client_id,
-            sub: Some(token.user_id.to_string()),
-            token_type: Some("Bearer".to_owned()),
-            exp: token.expires.map(|expires| expires.unix_timestamp()),
-            iat: Some(token.created.unix_timestamp()),
+            subject: Some(token.user_id),
+            token_type: Some(OAuthTokenType::Bearer),
+            expires: token.expires,
+            issued_at: Some(token.created),
         })
     }
 }
@@ -324,22 +343,9 @@ fn verify_s256(verifier: &str, expected_challenge: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn should_verify_s256_challenge() {
-        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
-        let challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
-        assert!(verify_s256(verifier, challenge));
-    }
-}
-
-#[cfg(test)]
-mod oauth_service_tests {
-    use super::*;
+    use crate::core::client::OAuthClientName;
     use crate::dynamodb::client_record::OAuthClientRecord;
     use crate::dynamodb::repository::MockOAuthRepository;
-    use common::user_id::UserId;
-    use std::collections::HashSet;
     use user::core::access_token::{AccessToken, AccessTokenId};
     use user::service::user_service::MockUserService;
 
@@ -348,13 +354,22 @@ mod oauth_service_tests {
         OAuthClient {
             client_id: OAuthClientId::from("client_1"),
             hashed_client_secret: secret.clone().into(),
-            name: "Client".to_owned(),
-            redirect_uris: HashSet::from(["https://client.example/callback".to_owned()]),
+            name: OAuthClientName::from("Client"),
+            redirect_uris: HashSet::from([OAuthRedirectUri::from(
+                "https://client.example/callback",
+            )]),
             scopes: HashSet::from([Scope::ProductsWrite]),
             created_by: UserId::new(),
             created: now,
             updated: now,
         }
+    }
+
+    #[test]
+    fn should_verify_s256_challenge() {
+        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+        let challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
+        assert!(verify_s256(verifier, challenge));
     }
 
     #[tokio::test]
@@ -380,12 +395,12 @@ mod oauth_service_tests {
             .authorize(
                 &UserId::new(),
                 AuthorizeRequest {
-                    response_type: "code".to_owned(),
+                    response_type: OAuthResponseType::Code,
                     client_id: client.client_id,
-                    redirect_uri: "https://client.example/callback".to_owned(),
+                    redirect_uri: OAuthRedirectUri::from("https://client.example/callback"),
                     scope: HashSet::from([Scope::ProductsWrite]),
-                    state: Some("state_1".to_owned()),
-                    code_challenge: "challenge".to_owned(),
+                    state: Some(OAuthState::from("state_1")),
+                    code_challenge: OAuthCodeChallenge::from("challenge"),
                     code_challenge_method: CodeChallengeMethod::S256,
                 },
             )
@@ -434,11 +449,11 @@ mod oauth_service_tests {
             code: OAuthAuthorizationCode::new(),
             client_id: client.client_id.clone(),
             user_id: UserId::new(),
-            redirect_uri: "https://client.example/callback".to_owned(),
+            redirect_uri: OAuthRedirectUri::from("https://client.example/callback"),
             scopes: HashSet::from([Scope::ProductsWrite]),
-            code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM".to_owned(),
+            code_challenge: OAuthCodeChallenge::from("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"),
             code_challenge_method: CodeChallengeMethod::S256,
-            expires: now + Duration::minutes(10),
+            expires: now + time::Duration::minutes(10),
             created: now,
         };
         let code_record = AuthorizationCodeRecord::from(code.clone());
@@ -483,16 +498,17 @@ mod oauth_service_tests {
 
         let response = service
             .token(TokenRequest {
-                grant_type: "authorization_code".to_owned(),
+                grant_type: OAuthGrantType::AuthorizationCode,
                 code: code.code,
                 redirect_uri: code.redirect_uri,
                 client_id: client.client_id,
                 client_secret: secret,
-                code_verifier: verifier.to_owned(),
+                code_verifier: OAuthCodeVerifier::from(verifier),
             })
             .await
             .unwrap();
 
-        assert_eq!("products:write", response.scope);
+        assert_eq!(HashSet::from([Scope::ProductsWrite]), response.scopes);
+        assert_eq!(None, response.expires);
     }
 }

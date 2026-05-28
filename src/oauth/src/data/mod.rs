@@ -1,5 +1,7 @@
+use crate::service::oauth_service::{IntrospectionResponse, OAuthTokenType, TokenResponse};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use time::OffsetDateTime;
 use user::data::access_token_data::{AccessTokenTypeData, ScopeData};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -8,6 +10,19 @@ pub struct TokenResponseData {
     pub token_type: AccessTokenTypeData,
     pub expires_in: Option<i64>,
     pub scope: String,
+}
+
+impl From<TokenResponse> for TokenResponseData {
+    fn from(response: TokenResponse) -> Self {
+        Self {
+            access_token: response.access_token.into(),
+            token_type: response.token_type.into(),
+            expires_in: response
+                .expires
+                .map(|expires| (expires - OffsetDateTime::now_utc()).whole_seconds().max(0)),
+            scope: scope_string(&response.scopes),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -25,6 +40,38 @@ pub struct IntrospectionResponseData {
     pub exp: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iat: Option<i64>,
+}
+
+impl From<IntrospectionResponse> for IntrospectionResponseData {
+    fn from(response: IntrospectionResponse) -> Self {
+        Self {
+            active: response.active,
+            scope: response.scopes.as_ref().map(scope_string),
+            client_id: response.client_id.map(Into::into),
+            sub: response.subject.map(|user_id| user_id.to_string()),
+            token_type: response.token_type.map(String::from),
+            exp: response.expires.map(|expires| expires.unix_timestamp()),
+            iat: response
+                .issued_at
+                .map(|issued_at| issued_at.unix_timestamp()),
+        }
+    }
+}
+
+impl From<OAuthTokenType> for AccessTokenTypeData {
+    fn from(value: OAuthTokenType) -> Self {
+        match value {
+            OAuthTokenType::Bearer => AccessTokenTypeData::Bearer,
+        }
+    }
+}
+
+impl From<OAuthTokenType> for String {
+    fn from(value: OAuthTokenType) -> Self {
+        match value {
+            OAuthTokenType::Bearer => "Bearer".to_owned(),
+        }
+    }
 }
 
 pub fn scope_string(scopes: &HashSet<user::core::access_token::Scope>) -> String {
