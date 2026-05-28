@@ -84,6 +84,7 @@ jobs:
           - src/shop-lambda/src/shop-lambda-opensearch-index
           - src/shopify-lambda
           - src/user-api
+          - src/oauth-api
           - src/user-lambda/src/user-lambda-index-opensearch
           - src/user-lambda/src/user-lambda-tier-update
           - src/partner-shop-application-api

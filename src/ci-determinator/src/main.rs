@@ -12,6 +12,8 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/fxrate",
     "src/notification",
     "src/notification-api",
+    "src/oauth",
+    "src/oauth-api",
     "src/partner-shop-application",
     "src/partner-shop-application-api",
     "src/partner-shop-application-lambda",

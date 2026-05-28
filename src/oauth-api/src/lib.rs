@@ -222,3 +222,138 @@ fn oauth_error(err: OAuthServiceError) -> ApiError {
         OAuthServiceError::UserServiceError(user_err) => user_err.into(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lambda_runtime::LambdaEvent;
+    use oauth::data::{IntrospectionResponseData, TokenResponseData};
+    use oauth::service::oauth_service::{AuthorizeResponse, MockOAuthService};
+    use test_api::ApiGatewayV2httpRequestProxy;
+    use user::data::access_token_data::AccessTokenTypeData;
+
+    #[tokio::test]
+    async fn should_authorize() {
+        let user_id = common::user_id::UserId::new();
+        let mut service = MockOAuthService::default();
+        service.expect_authorize().return_once(|_, _| {
+            Box::pin(async {
+                Ok(AuthorizeResponse {
+                    redirect_to: "https://client.example/callback?code=abc".to_owned(),
+                })
+            })
+        });
+        let event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/oauth/authorize")
+                .jwt_claim("sub", user_id)
+                .query_string_parameter("response_type", "code")
+                .query_string_parameter("client_id", "client_1")
+                .query_string_parameter("redirect_uri", "https://client.example/callback")
+                .query_string_parameter("scope", "products:write")
+                .query_string_parameter("code_challenge", "challenge")
+                .query_string_parameter("code_challenge_method", "S256")
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = authorize(event, &service).await.unwrap();
+        assert_eq!(302, response.status_code);
+        assert_eq!(
+            "https://client.example/callback?code=abc",
+            response.headers.get(http::header::LOCATION).unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn should_exchange_token() {
+        let secret = RawAccessToken::new();
+        let token_value: String = RawAccessToken::new().into();
+        let mut service = MockOAuthService::default();
+        service.expect_token().return_once(move |_| {
+            Box::pin(async move {
+                Ok(TokenResponseData {
+                    access_token: token_value,
+                    token_type: AccessTokenTypeData::Bearer,
+                    expires_in: Some(3600),
+                    scope: "products:write".to_owned(),
+                })
+            })
+        });
+        let body = format!(
+            "grant_type=authorization_code&code={}&redirect_uri={}&client_id=client_1&client_secret={}&code_verifier=verifier",
+            oauth::core::authorization_code::OAuthAuthorizationCode::new(),
+            url::form_urlencoded::byte_serialize(b"https://client.example/callback")
+                .collect::<String>(),
+            url::form_urlencoded::byte_serialize(String::from(secret).as_bytes())
+                .collect::<String>(),
+        );
+        let mut payload = ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .route_key("POST /api/v1/oauth/token")
+            .build();
+        payload.body = Some(body);
+        let event = LambdaEvent {
+            payload,
+            context: Default::default(),
+        };
+
+        let response = token(event, &service).await.unwrap();
+        assert_eq!(200, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_introspect_inactive_token() {
+        let token_value = RawAccessToken::new();
+        let secret = RawAccessToken::new();
+        let mut service = MockOAuthService::default();
+        service.expect_introspect().return_once(|_| {
+            Box::pin(async {
+                Ok(IntrospectionResponseData {
+                    active: false,
+                    scope: None,
+                    client_id: None,
+                    sub: None,
+                    token_type: None,
+                    exp: None,
+                    iat: None,
+                })
+            })
+        });
+        let body = format!(
+            "token={}&client_id=client_1&client_secret={}",
+            url::form_urlencoded::byte_serialize(String::from(token_value).as_bytes())
+                .collect::<String>(),
+            url::form_urlencoded::byte_serialize(String::from(secret).as_bytes())
+                .collect::<String>(),
+        );
+        let mut payload = ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .route_key("POST /api/v1/oauth/introspect")
+            .build();
+        payload.body = Some(body);
+        let event = LambdaEvent {
+            payload,
+            context: Default::default(),
+        };
+
+        let response = introspect(event, &service).await.unwrap();
+        assert_eq!(200, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_reject_empty_token_body() {
+        let service = MockOAuthService::default();
+        let event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::POST)
+                .route_key("POST /api/v1/oauth/token")
+                .build(),
+            context: Default::default(),
+        };
+
+        let err = token(event, &service).await.unwrap_err();
+        assert_eq!(400, err.status);
+    }
+}

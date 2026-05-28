@@ -21,14 +21,16 @@ sha2 = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 http = { workspace = true }
+fake = { workspace = true, optional = true }
 
 [dev-dependencies]
 oauth = { workspace = true, features = ["test-data"] }
 test-api = { workspace = true, features = ["dynamodb"] }
 fake = { workspace = true }
 rstest = { workspace = true }
+serial_test = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 
 [features]
 default = []
-test-data = ["common/test-data", "user/test-data"]
+test-data = ["dep:fake", "common/test-data", "user/test-data"]

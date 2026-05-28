@@ -332,3 +332,167 @@ mod tests {
         assert!(verify_s256(verifier, challenge));
     }
 }
+
+#[cfg(test)]
+mod oauth_service_tests {
+    use super::*;
+    use crate::dynamodb::client_record::OAuthClientRecord;
+    use crate::dynamodb::repository::MockOAuthRepository;
+    use common::user_id::UserId;
+    use std::collections::HashSet;
+    use user::core::access_token::{AccessToken, AccessTokenId};
+    use user::service::user_service::MockUserService;
+
+    fn oauth_client(secret: &RawAccessToken) -> OAuthClient {
+        let now = OffsetDateTime::now_utc();
+        OAuthClient {
+            client_id: OAuthClientId::from("client_1"),
+            hashed_client_secret: secret.clone().into(),
+            name: "Client".to_owned(),
+            redirect_uris: HashSet::from(["https://client.example/callback".to_owned()]),
+            scopes: HashSet::from([Scope::ProductsWrite]),
+            created_by: UserId::new(),
+            created: now,
+            updated: now,
+        }
+    }
+
+    #[tokio::test]
+    async fn should_create_authorization_code() {
+        let secret = RawAccessToken::new();
+        let client = oauth_client(&secret);
+        let client_record = OAuthClientRecord::from(client.clone());
+        let mut repository = MockOAuthRepository::default();
+        repository
+            .expect_get_client_record()
+            .return_once(move |_| Box::pin(async move { Ok(Some(client_record)) }));
+        repository
+            .expect_put_authorization_code_record()
+            .return_once(|_| {
+                Box::pin(async {
+                    Ok(aws_sdk_dynamodb::operation::put_item::PutItemOutput::builder().build())
+                })
+            });
+        let user_service = MockUserService::default();
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        let response = service
+            .authorize(
+                &UserId::new(),
+                AuthorizeRequest {
+                    response_type: "code".to_owned(),
+                    client_id: client.client_id,
+                    redirect_uri: "https://client.example/callback".to_owned(),
+                    scope: HashSet::from([Scope::ProductsWrite]),
+                    state: Some("state_1".to_owned()),
+                    code_challenge: "challenge".to_owned(),
+                    code_challenge_method: CodeChallengeMethod::S256,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            response
+                .redirect_to
+                .starts_with("https://client.example/callback?")
+        );
+        assert!(response.redirect_to.contains("code="));
+        assert!(response.redirect_to.contains("state=state_1"));
+    }
+
+    #[tokio::test]
+    async fn should_reject_invalid_client_secret() {
+        let secret = RawAccessToken::new();
+        let client_record = OAuthClientRecord::from(oauth_client(&secret));
+        let mut repository = MockOAuthRepository::default();
+        repository
+            .expect_get_client_record()
+            .return_once(move |_| Box::pin(async move { Ok(Some(client_record)) }));
+        let user_service = MockUserService::default();
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        let err = service
+            .introspect(TokenIntrospectionRequest {
+                token: RawAccessToken::new(),
+                client_id: OAuthClientId::from("client_1"),
+                client_secret: RawAccessToken::new(),
+            })
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, OAuthServiceError::InvalidClientSecret));
+    }
+
+    #[tokio::test]
+    async fn should_exchange_authorization_code_for_access_token() {
+        let secret = RawAccessToken::new();
+        let client = oauth_client(&secret);
+        let now = OffsetDateTime::now_utc();
+        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+        let code = AuthorizationCode {
+            code: OAuthAuthorizationCode::new(),
+            client_id: client.client_id.clone(),
+            user_id: UserId::new(),
+            redirect_uri: "https://client.example/callback".to_owned(),
+            scopes: HashSet::from([Scope::ProductsWrite]),
+            code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM".to_owned(),
+            code_challenge_method: CodeChallengeMethod::S256,
+            expires: now + Duration::minutes(10),
+            created: now,
+        };
+        let code_record = AuthorizationCodeRecord::from(code.clone());
+        let client_record = OAuthClientRecord::from(client.clone());
+        let mut repository = MockOAuthRepository::default();
+        repository
+            .expect_get_client_record()
+            .return_once(move |_| Box::pin(async move { Ok(Some(client_record)) }));
+        repository
+            .expect_get_authorization_code_record()
+            .return_once(move |_| Box::pin(async move { Ok(Some(code_record)) }));
+        repository
+            .expect_delete_authorization_code_record()
+            .return_once(|_| {
+                Box::pin(async {
+                    Ok(
+                        aws_sdk_dynamodb::operation::delete_item::DeleteItemOutput::builder()
+                            .build(),
+                    )
+                })
+            });
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_create_access_token()
+            .return_once(|user_id, cmd| {
+                let raw = RawAccessToken::new();
+                let now = OffsetDateTime::now_utc();
+                let token = AccessToken {
+                    id: AccessTokenId::new(),
+                    hashed_token: raw.clone().into(),
+                    user_id: *user_id,
+                    name: cmd.name,
+                    scopes: cmd.scopes,
+                    origin: cmd.origin,
+                    expires: cmd.expires,
+                    created: now,
+                    updated: now,
+                };
+                Box::pin(async move { Ok((raw, token)) })
+            });
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        let response = service
+            .token(TokenRequest {
+                grant_type: "authorization_code".to_owned(),
+                code: code.code,
+                redirect_uri: code.redirect_uri,
+                client_id: client.client_id,
+                client_secret: secret,
+                code_verifier: verifier.to_owned(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!("products:write", response.scope);
+    }
+}

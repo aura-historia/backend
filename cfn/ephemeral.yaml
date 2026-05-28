@@ -2123,6 +2123,99 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
+
+
+  # --- OAuth API ---
+  OAuthApiAuthorizeRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/oauth/authorize"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiTokenRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/oauth/token"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiRevokeRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/oauth/revoke"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiIntrospectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/oauth/introspect"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${OAuthApiLambda}"
+      PayloadFormatVersion: "2.0"
+  OAuthApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "oauth-api-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+  OAuthApiLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "oauth-api-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt OAuthApiRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "oauth-api-${StageName}-${CommitSHA}.zip"
+      MemorySize: 128
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          LOCALSTACK_MAPPED_PORT: !Ref LocalStackMappedPort
+  OAuthApiLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OAuthApiLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
+
   # --- Newsletter API ---
   NewsletterApiPutRoute:
     Type: AWS::ApiGatewayV2::Route

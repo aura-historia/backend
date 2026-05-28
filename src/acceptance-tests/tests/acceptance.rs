@@ -30,6 +30,14 @@ use notification::{
     },
 };
 use notification_api::notification_get::EventIdCursoredData;
+use oauth::{
+    core::client::{OAuthClient, OAuthClientId},
+    data::{IntrospectionResponseData, TokenResponseData},
+    dynamodb::{
+        client_record::OAuthClientRecord,
+        repository::{OAuthDynamoDbRepositoryImpl, OAuthRepository},
+    },
+};
 use opensearch::GetParts;
 use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
 use partner_shop_application::data::{
@@ -104,7 +112,7 @@ use std::time::{Duration, Instant, SystemTime};
 use test_api::*;
 use time::OffsetDateTime;
 use user::core::access_token::{
-    AccessToken, AccessTokenId, AccessTokenName, RawAccessToken, Scope,
+    AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, RawAccessToken, Scope,
 };
 use user::core::role::UserRole;
 use user::core::tier::UserTier;
@@ -1949,6 +1957,160 @@ async fn should_manage_user_access_tokens() {
         .await
         .unwrap();
     assert_eq!(204, delete_response.status());
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_complete_oauth_authorization_code_flow() {
+    let cfn = get_cfn_output();
+    let user = create_random_test_user().await;
+    let client_id = OAuthClientId::from(format!("client-{}", uuid::Uuid::new_v4()));
+    let client_secret = RawAccessToken::new();
+    let redirect_uri = "https://client.example/callback".to_owned();
+    let now = OffsetDateTime::now_utc();
+    let oauth_repository =
+        OAuthDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &cfn.dynamodb_table_1_name);
+    oauth_repository
+        .put_client_record(OAuthClientRecord::from(OAuthClient {
+            client_id: client_id.clone(),
+            hashed_client_secret: client_secret.clone().into(),
+            name: "Acceptance OAuth client".to_owned(),
+            redirect_uris: HashSet::from([redirect_uri.clone()]),
+            scopes: HashSet::from([Scope::ProductsWrite]),
+            created_by: UserId::from(user.sub),
+            created: now,
+            updated: now,
+        }))
+        .await
+        .unwrap();
+
+    let http = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    let authorize_response = http
+        .get(format!(
+            "{}/api/v1/oauth/authorize",
+            cfn.api_gateway_endpoint_url
+        ))
+        .bearer_auth(user.access_token)
+        .query(&[
+            ("response_type", "code"),
+            ("client_id", client_id.0.as_str()),
+            ("redirect_uri", redirect_uri.as_str()),
+            ("scope", "products:write"),
+            ("state", "state_1"),
+            (
+                "code_challenge",
+                "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            ),
+            ("code_challenge_method", "S256"),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(302, authorize_response.status());
+    let location = authorize_response
+        .headers()
+        .get(http::header::LOCATION)
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let callback = url::Url::parse(location).unwrap();
+    assert_eq!(
+        Some("state_1"),
+        callback
+            .query_pairs()
+            .find_map(|(key, value)| { (key == "state").then_some(value) })
+            .as_deref()
+    );
+    let code = callback
+        .query_pairs()
+        .find_map(|(key, value)| (key == "code").then_some(value.into_owned()))
+        .unwrap();
+    let client_secret_string = String::from(client_secret.clone());
+
+    let token_response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/oauth/token",
+            cfn.api_gateway_endpoint_url
+        ))
+        .form(&[
+            ("grant_type", "authorization_code"),
+            ("code", code.as_str()),
+            ("redirect_uri", redirect_uri.as_str()),
+            ("client_id", client_id.0.as_str()),
+            ("client_secret", client_secret_string.as_str()),
+            (
+                "code_verifier",
+                "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+            ),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, token_response.status());
+    let token = token_response.json::<TokenResponseData>().await.unwrap();
+    assert_eq!("products:write", token.scope);
+
+    let introspect_response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/oauth/introspect",
+            cfn.api_gateway_endpoint_url
+        ))
+        .form(&[
+            ("token", token.access_token.as_str()),
+            ("client_id", client_id.0.as_str()),
+            ("client_secret", client_secret_string.as_str()),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, introspect_response.status());
+    let introspection = introspect_response
+        .json::<IntrospectionResponseData>()
+        .await
+        .unwrap();
+    assert!(introspection.active);
+    assert_eq!(Some("products:write"), introspection.scope.as_deref());
+    assert_eq!(
+        Some(client_id.0.as_str()),
+        introspection.client_id.as_deref()
+    );
+
+    let revoke_response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/oauth/revoke",
+            cfn.api_gateway_endpoint_url
+        ))
+        .form(&[
+            ("token", token.access_token.as_str()),
+            ("client_id", client_id.0.as_str()),
+            ("client_secret", client_secret_string.as_str()),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, revoke_response.status());
+
+    let introspect_after_revoke_response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/oauth/introspect",
+            cfn.api_gateway_endpoint_url
+        ))
+        .form(&[
+            ("token", token.access_token.as_str()),
+            ("client_id", client_id.0.as_str()),
+            ("client_secret", client_secret_string.as_str()),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, introspect_after_revoke_response.status());
+    let introspection = introspect_after_revoke_response
+        .json::<IntrospectionResponseData>()
+        .await
+        .unwrap();
+    assert!(!introspection.active);
 }
 
 // ---------------------------------------------------------------------------
@@ -4110,6 +4272,7 @@ async fn prepare_partner_shop() -> (ShopRecord, RawAccessToken) {
         user_id: user.user_id,
         name: AccessTokenName::from("partner-shop"),
         scopes: [Scope::ProductsWrite].into(),
+        origin: AccessTokenOrigin::User,
         expires: None,
         created: time::OffsetDateTime::now_utc(),
         updated: time::OffsetDateTime::now_utc(),
