@@ -166,10 +166,9 @@ fn required_query<'a>(
 }
 
 fn parse_form(body: Option<String>) -> Result<std::collections::HashMap<String, String>, ApiError> {
-    let body = body.filter(|body| !body.is_empty()).ok_or_else(|| {
-        ApiError::bad_request(BAD_BODY_VALUE, "Body cannot be empty".into())
-            .with_detail("Body cannot be empty")
-    })?;
+    let body = body
+        .filter(|body| !body.is_empty())
+        .ok_or_else(|| ApiError::bad_request(BAD_BODY_VALUE, "Body cannot be empty".into()))?;
     Ok(url::form_urlencoded::parse(body.as_bytes())
         .into_owned()
         .collect())

@@ -309,7 +309,7 @@ impl OAuthService for OAuthServiceImpl<'_> {
 }
 
 fn append_query_params(uri: &str, params: HashMap<&str, String>) -> String {
-    let mut url = url::Url::parse(uri).expect("redirect_uri was validated as client URI");
+    let mut url = url::Url::parse(uri).expect("uri should be a valid URL");
     for (key, value) in params {
         url.query_pairs_mut().append_pair(key, &value);
     }

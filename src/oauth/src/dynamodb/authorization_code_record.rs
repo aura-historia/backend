@@ -63,7 +63,7 @@ impl From<AuthorizationCodeRecord> for AuthorizationCode {
             code_challenge: record.code_challenge,
             code_challenge_method: record.code_challenge_method,
             expires: OffsetDateTime::from_unix_timestamp(record.expires)
-                .unwrap_or_else(|_| OffsetDateTime::now_utc()),
+                .unwrap_or(OffsetDateTime::UNIX_EPOCH),
             created: record.created,
         }
     }

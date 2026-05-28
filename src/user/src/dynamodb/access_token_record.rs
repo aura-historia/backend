@@ -131,9 +131,10 @@ impl From<AccessTokenRecord> for AccessToken {
     fn from(record: AccessTokenRecord) -> Self {
         let origin = match record.origin {
             AccessTokenOriginRecord::User => AccessTokenOrigin::User,
-            AccessTokenOriginRecord::OAuth => AccessTokenOrigin::OAuth {
-                client_id: record.oauth_client_id.unwrap_or_default(),
-            },
+            AccessTokenOriginRecord::OAuth => record
+                .oauth_client_id
+                .map(|client_id| AccessTokenOrigin::OAuth { client_id })
+                .unwrap_or(AccessTokenOrigin::User),
         };
         AccessToken {
             id: record.access_token_id,

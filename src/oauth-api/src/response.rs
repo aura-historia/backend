@@ -8,9 +8,12 @@ pub fn redirect(location: &str) -> ApiGatewayV2httpResponse {
     let mut response = ApiGatewayV2HttpResponseBuilder::new(302)
         .cache_control("no-store", None, None)
         .build();
-    response
-        .headers
-        .insert(LOCATION, location.parse().expect("valid redirect location"));
+    response.headers.insert(
+        LOCATION,
+        location
+            .parse()
+            .expect("failed to parse redirect location as HeaderValue"),
+    );
     response
 }
 
