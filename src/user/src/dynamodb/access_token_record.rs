@@ -1,5 +1,7 @@
-use crate::core::access_token::{AccessToken, AccessTokenId, HashedRawAccessToken};
-use common::user_id::UserId;
+use crate::core::access_token::{
+    AccessToken, AccessTokenId, AccessTokenOrigin, HashedRawAccessToken,
+};
+use common::{error::missing_field::MissingPersistenceField, user_id::UserId};
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashSet;
@@ -11,6 +13,14 @@ use time::OffsetDateTime;
 pub enum ScopeRecord {
     ShopsManage,
     ProductsWrite,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AccessTokenOriginRecord {
+    #[default]
+    User,
+    OAuth,
 }
 
 impl From<crate::core::access_token::Scope> for ScopeRecord {
@@ -42,6 +52,12 @@ pub struct AccessTokenRecord {
     pub token_prefix: String,
     pub token_short: String,
     pub token_hash: String,
+
+    #[serde(default)]
+    pub origin: AccessTokenOriginRecord,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth_client_id: Option<String>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires: Option<i64>,
@@ -83,6 +99,12 @@ pub fn mk_gsi1_sk(user_id: &UserId, access_token_id: &AccessTokenId) -> String {
 impl From<AccessToken> for AccessTokenRecord {
     fn from(access_token: AccessToken) -> Self {
         let expires = access_token.expires.map(|expires| expires.unix_timestamp());
+        let (origin, oauth_client_id) = match access_token.origin {
+            AccessTokenOrigin::User => (AccessTokenOriginRecord::User, None),
+            AccessTokenOrigin::OAuth { client_id } => {
+                (AccessTokenOriginRecord::OAuth, Some(client_id))
+            }
+        };
         AccessTokenRecord {
             pk: mk_pk(&access_token.user_id),
             sk: mk_sk(&access_token.id),
@@ -93,6 +115,8 @@ impl From<AccessToken> for AccessTokenRecord {
             token_prefix: access_token.hashed_token.prefix().to_owned(),
             token_short: access_token.hashed_token.short_token().to_owned(),
             token_hash: access_token.hashed_token.long_token_hash().to_owned(),
+            origin,
+            oauth_client_id,
             expires,
             ttl: expires,
             gsi1_pk: Some(mk_gsi1_pk(&access_token.hashed_token)),
@@ -103,20 +127,31 @@ impl From<AccessToken> for AccessTokenRecord {
     }
 }
 
-impl From<AccessTokenRecord> for AccessToken {
-    fn from(record: AccessTokenRecord) -> Self {
-        AccessToken {
+impl TryFrom<AccessTokenRecord> for AccessToken {
+    type Error = MissingPersistenceField;
+
+    fn try_from(record: AccessTokenRecord) -> Result<Self, Self::Error> {
+        let origin = match record.origin {
+            AccessTokenOriginRecord::User => AccessTokenOrigin::User,
+            AccessTokenOriginRecord::OAuth => AccessTokenOrigin::OAuth {
+                client_id: record
+                    .oauth_client_id
+                    .ok_or_else(|| MissingPersistenceField::new("oauth_client_id"))?,
+            },
+        };
+        Ok(AccessToken {
             id: record.access_token_id,
             hashed_token: HashedRawAccessToken::new(record.token_short, record.token_hash),
             user_id: record.user_id,
             name: record.name.into(),
             scopes: record.scopes.into_iter().map(Into::into).collect(),
+            origin,
             expires: record
                 .expires
                 .and_then(|timestamp| OffsetDateTime::from_unix_timestamp(timestamp).ok()),
             created: record.created,
             updated: record.updated,
-        }
+        })
     }
 }
 

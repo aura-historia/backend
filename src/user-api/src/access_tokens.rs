@@ -4,7 +4,7 @@ use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
-use user::core::access_token::api::extract_access_token_id_path;
+use user::core::access_token::{AccessTokenOrigin, api::extract_access_token_id_path};
 use user::data::access_token_data::{
     GetAccessTokenData, PatchAccessTokenData, PostAccessTokenData,
 };
@@ -25,6 +25,7 @@ pub async fn post(
                 name: data.name.into(),
                 scopes: data.scope.into_iter().map(Into::into).collect(),
                 expires: data.expires_at,
+                origin: AccessTokenOrigin::User,
             },
         )
         .await?

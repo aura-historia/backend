@@ -18,6 +18,7 @@ use crate::service::command::{
 use aws_sdk_dynamodb::error::SdkError;
 use common::{
     currency::record::CurrencyRecord,
+    error::missing_field::MissingPersistenceField,
     language::record::LanguageRecord,
     opensearch::search_response::OpenSearchTimedOutError,
     pagination::cursor::{Cursor, CursoredResult},
@@ -84,6 +85,9 @@ pub enum UserServiceError {
     #[error("OpenSearchTimedOut: {0}")]
     OpenSearchTimedOut(#[from] OpenSearchTimedOutError),
 
+    #[error("Missing persistence field: {0}")]
+    MissingPersistenceField(#[from] MissingPersistenceField),
+
     #[error("User OpenSearch repository not configured")]
     UserOpenSearchRepositoryNotConfigured,
 }
@@ -135,6 +139,9 @@ pub mod api {
                 }
                 UserServiceError::OpenSearchError(opensearch_err) => opensearch_err.into(),
                 UserServiceError::OpenSearchTimedOut(timeout_err) => timeout_err.into(),
+                UserServiceError::MissingPersistenceField(_) => {
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
+                }
                 UserServiceError::UserOpenSearchRepositoryNotConfigured => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
@@ -204,6 +211,11 @@ pub trait UserService {
         &self,
         user_id: &UserId,
         access_token_id: &AccessTokenId,
+    ) -> Result<(), UserServiceError>;
+
+    async fn delete_access_token_by_raw(
+        &self,
+        raw_access_token: &RawAccessToken,
     ) -> Result<(), UserServiceError>;
 }
 
@@ -495,7 +507,9 @@ impl<'a> UserService for UserServiceImpl<'a> {
             .query_access_token_records(user_id)
             .await?
             .into_iter()
-            .map(AccessToken::from)
+            .map(AccessToken::try_from)
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
             .filter(|token| !token.is_expired())
             .collect())
     }
@@ -509,7 +523,8 @@ impl<'a> UserService for UserServiceImpl<'a> {
             .repository
             .get_access_token_record(user_id, access_token_id)
             .await?
-            .map(AccessToken::from)
+            .map(AccessToken::try_from)
+            .transpose()?
             .ok_or(UserServiceError::AccessTokenNotFound(
                 *access_token_id,
                 *user_id,
@@ -532,7 +547,8 @@ impl<'a> UserService for UserServiceImpl<'a> {
             .repository
             .query_access_token_record_by_hashed_token(&hashed_token)
             .await?
-            .map(AccessToken::from)
+            .map(AccessToken::try_from)
+            .transpose()?
             .ok_or(UserServiceError::AccessTokenNotFoundByRaw)?;
         if token.is_expired() || !raw_access_token.check(&token.hashed_token) {
             return Err(UserServiceError::AccessTokenNotFoundByRaw);
@@ -554,6 +570,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
             user_id: *user_id,
             name: cmd.name,
             scopes: cmd.scopes,
+            origin: cmd.origin,
             expires: cmd.expires,
             created: now,
             updated: now,
@@ -587,7 +604,8 @@ impl<'a> UserService for UserServiceImpl<'a> {
         self.repository
             .update_access_token_record(user_id, access_token_id, update)
             .await?
-            .map(AccessToken::from)
+            .map(AccessToken::try_from)
+            .transpose()?
             .ok_or(UserServiceError::AccessTokenNotFound(
                 *access_token_id,
                 *user_id,
@@ -602,6 +620,17 @@ impl<'a> UserService for UserServiceImpl<'a> {
         self.find_access_token(user_id, access_token_id).await?;
         self.repository
             .delete_access_token_record(user_id, access_token_id)
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_access_token_by_raw(
+        &self,
+        raw_access_token: &RawAccessToken,
+    ) -> Result<(), UserServiceError> {
+        let token = self.find_access_token_by_raw(raw_access_token).await?;
+        self.repository
+            .delete_access_token_record(&token.user_id, &token.id)
             .await?;
         Ok(())
     }

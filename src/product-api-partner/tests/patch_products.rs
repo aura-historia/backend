@@ -11,8 +11,8 @@ use time::OffsetDateTime;
 use user::{
     core::{
         access_token::{
-            AccessToken, AccessTokenId, AccessTokenName, HashedRawAccessToken, RawAccessToken,
-            Scope,
+            AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, HashedRawAccessToken,
+            RawAccessToken, Scope,
         },
         role::UserRole,
         tier::UserTier,
@@ -90,6 +90,7 @@ fn make_access_token(user_id: common::user_id::UserId) -> AccessToken {
         user_id,
         name: AccessTokenName::from("integration token"),
         scopes: HashSet::from([Scope::ProductsWrite]),
+        origin: AccessTokenOrigin::User,
         expires: None,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
