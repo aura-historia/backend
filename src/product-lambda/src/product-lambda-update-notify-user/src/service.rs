@@ -709,7 +709,9 @@ mod tests {
         let second_image: product::core::product_image::ProductImage = Faker.fake();
         let base: Product = Faker.fake();
         let product = Product {
-            images: vec![first_image.clone(), second_image],
+            images: vec![first_image.clone(), second_image]
+                .into_iter()
+                .collect(),
             ..base
         };
         let expected_image = first_image;

@@ -315,10 +315,7 @@ mod faker {
                 other_price_estimate_max: other_price_estimate_max.unwrap_or_default(),
                 state: config.fake_with_rng(rng),
                 url: Url::parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ").unwrap(),
-                images: Faker
-                    .fake::<Vec<ProductImage>>()
-                    .into_iter()
-                    .collect(),
+                images: Faker.fake::<Vec<ProductImage>>().into_iter().collect(),
                 auction_start: if config.fake_with_rng(rng) {
                     Some(OffsetDateTime::now_utc())
                 } else {
@@ -341,12 +338,7 @@ mod faker {
                 native_price_estimate_min: config.fake_with_rng(rng),
                 native_price_estimate_max: config.fake_with_rng(rng),
                 url: Some(Url::parse("https://www.example.com/product/updated").unwrap()),
-                images: Some(
-                    Faker
-                        .fake::<Vec<ProductImage>>()
-                        .into_iter()
-                        .collect(),
-                ),
+                images: Some(Faker.fake::<Vec<ProductImage>>().into_iter().collect()),
                 auction_start: if config.fake_with_rng(rng) {
                     Some(OffsetDateTime::now_utc())
                 } else {
@@ -433,12 +425,14 @@ mod tests {
             native_price_estimate_min: None,
             native_price_estimate_max: None,
             url: Some(Url::parse("https://example.com/product").unwrap()),
-            images: Some(vec![ProductImage {
-                url: Url::parse("https://example.com/product/image.jpg").unwrap(),
-                prohibited_content: Default::default(),
-            }]
-            .into_iter()
-            .collect()),
+            images: Some(
+                vec![ProductImage {
+                    url: Url::parse("https://example.com/product/image.jpg").unwrap(),
+                    prohibited_content: Default::default(),
+                }]
+                .into_iter()
+                .collect(),
+            ),
             auction_start: None,
             auction_end: None,
             embedding: Some(vec![0.1, 0.2, 0.3]),

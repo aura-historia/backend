@@ -367,7 +367,10 @@ impl Product {
         })
     }
 
-    pub fn change_images(&mut self, images: impl IntoIterator<Item = ProductImage>) -> Vec<ProductEvent> {
+    pub fn change_images(
+        &mut self,
+        images: impl IntoIterator<Item = ProductImage>,
+    ) -> Vec<ProductEvent> {
         let existing_urls: HashSet<&Url> = self.images.iter().map(|img| &img.url).collect();
 
         // Text-based heuristic decision for new or previously-unclassified images.

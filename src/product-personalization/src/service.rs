@@ -1048,7 +1048,9 @@ mod tests {
         );
 
         let mut input = Faker.fake::<LocalizedProductView>();
-        input.images = vec![make_safe_image(), make_safe_image()].into_iter().collect();
+        input.images = vec![make_safe_image(), make_safe_image()]
+            .into_iter()
+            .collect();
 
         let actual = service
             .personalize_prohibited_content(&Faker.fake(), input)
@@ -1104,7 +1106,9 @@ mod tests {
         );
 
         let mut input = Faker.fake::<LocalizedProductView>();
-        input.images = vec![make_safe_image(), make_unsafe_image()].into_iter().collect();
+        input.images = vec![make_safe_image(), make_unsafe_image()]
+            .into_iter()
+            .collect();
 
         let actual = service
             .personalize_prohibited_content(&Faker.fake(), input)
@@ -1134,7 +1138,9 @@ mod tests {
         );
 
         let mut input = Faker.fake::<LocalizedProductView>();
-        input.images = vec![make_safe_image(), make_unsafe_image()].into_iter().collect();
+        input.images = vec![make_safe_image(), make_unsafe_image()]
+            .into_iter()
+            .collect();
 
         let actual = service
             .personalize_prohibited_content(&Faker.fake(), input)
@@ -1191,7 +1197,9 @@ mod tests {
         let mut input1 = Faker.fake::<LocalizedProductView>();
         input1.images = vec![make_safe_image()].into_iter().collect();
         let mut input2 = Faker.fake::<LocalizedProductView>();
-        input2.images = vec![make_safe_image(), make_safe_image()].into_iter().collect();
+        input2.images = vec![make_safe_image(), make_safe_image()]
+            .into_iter()
+            .collect();
 
         let actual = service
             .personalize_all_prohibited_content(&Faker.fake(), vec![input1, input2])
