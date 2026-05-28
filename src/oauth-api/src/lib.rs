@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use base64::Engine as _;
 use common::api::error::{ApiError, log_api_error};
 use common::api::error_code::{
     BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE, INTERNAL_SERVER_ERROR, UNAUTHORIZED,
@@ -99,7 +100,7 @@ async fn token(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl OAuthService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let form = parse_form(event.payload.body)?;
+    let form = parse_form(event.payload.body, event.payload.is_base64_encoded)?;
     let request = TokenRequest {
         grant_type: parse_grant_type(required_form(&form, "grant_type")?)?,
         code: OAuthAuthorizationCode::try_from(required_form(&form, "code")?.to_owned()).map_err(
@@ -119,7 +120,7 @@ async fn revoke(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl OAuthService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let form = parse_form(event.payload.body)?;
+    let form = parse_form(event.payload.body, event.payload.is_base64_encoded)?;
     let request = TokenRevocationRequest {
         token: RawAccessToken::try_from(required_form(&form, "token")?.to_owned()).map_err(
             |err| ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_body_field("token"),
@@ -142,7 +143,7 @@ async fn introspect(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl OAuthService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let form = parse_form(event.payload.body)?;
+    let form = parse_form(event.payload.body, event.payload.is_base64_encoded)?;
     let request = TokenIntrospectionRequest {
         token: RawAccessToken::try_from(required_form(&form, "token")?.to_owned()).map_err(
             |err| ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_body_field("token"),
@@ -168,13 +169,21 @@ fn required_query<'a>(
     })
 }
 
-fn parse_form(body: Option<String>) -> Result<std::collections::HashMap<String, String>, ApiError> {
+fn parse_form(
+    body: Option<String>,
+    is_base64_encoded: bool,
+) -> Result<std::collections::HashMap<String, String>, ApiError> {
     let body = body
         .filter(|body| !body.is_empty())
         .ok_or_else(|| ApiError::bad_request(BAD_BODY_VALUE, "Body cannot be empty".into()))?;
-    Ok(url::form_urlencoded::parse(body.as_bytes())
-        .into_owned()
-        .collect())
+    let bytes = if is_base64_encoded {
+        base64::engine::general_purpose::STANDARD
+            .decode(body.as_bytes())
+            .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)))?
+    } else {
+        body.into_bytes()
+    };
+    Ok(url::form_urlencoded::parse(&bytes).into_owned().collect())
 }
 
 fn required_form<'a>(

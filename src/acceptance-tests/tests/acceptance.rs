@@ -2048,6 +2048,7 @@ async fn should_complete_oauth_authorization_code_flow() {
         .send()
         .await
         .unwrap();
+
     assert_eq!(200, token_response.status());
     let token = token_response.json::<TokenResponseData>().await.unwrap();
     assert_eq!("products:write", token.scope);
