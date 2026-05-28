@@ -254,7 +254,7 @@ mod tests {
                     price_estimate_max: None,
                     state: ProductStateData::Available,
                     url: url::Url::parse("https://example.com/product/1").unwrap(),
-                    images: vec![],
+                    images: Default::default(),
                     auction_start: None,
                     auction_end: None,
                     seller_name: None,
@@ -409,7 +409,9 @@ mod tests {
             price_estimate_max: None,
             state: ProductStateData::Listed,
             url: url::Url::parse("https://example.com").unwrap(),
-            images: vec![url::Url::parse("https://example.com/img.jpg").unwrap()],
+            images: vec![url::Url::parse("https://example.com/img.jpg").unwrap()]
+                .into_iter()
+                .collect(),
             auction_start: None,
             auction_end: None,
             seller_name: Some("Test Seller".to_string()),

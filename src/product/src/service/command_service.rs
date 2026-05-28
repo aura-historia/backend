@@ -1163,11 +1163,13 @@ mod tests {
 
             let mut product: Product = Faker.fake();
             let key = product.key();
-            product.images = vec![];
+            product.images = Default::default();
             let new_images = vec![ProductImage {
                 url: url::Url::parse("https://img.example.com/new.jpg").unwrap(),
                 prohibited_content: ProhibitedContent::None,
-            }];
+            }]
+            .into_iter()
+            .collect();
             let cmd = UpdateProductCommand {
                 native_price: product.native_price,
                 state: Some(product.state),
@@ -1572,7 +1574,9 @@ mod tests {
             cmd.images = vec![ProductImage {
                 url: url::Url::parse("https://img.example.com/item.jpg").unwrap(),
                 prohibited_content: crate::core::prohibited_content::ProhibitedContent::Unknown,
-            }];
+            }]
+            .into_iter()
+            .collect();
             cmd
         }
 

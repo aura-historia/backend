@@ -104,9 +104,9 @@ async fn should_crud_access_tokens() {
         LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::DELETE)
-                .route_key("DELETE /api/v1/me/access-tokens")
+                .route_key("DELETE /api/v1/me/access-tokens/{accessTokenId}")
                 .jwt_claim("sub", user.user_id)
-                .query_string_parameter("accessTokenId", access_token_id.to_string())
+                .path_parameter("accessTokenId", access_token_id.to_string())
                 .build(),
             context: Default::default(),
         },

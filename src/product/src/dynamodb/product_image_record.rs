@@ -4,7 +4,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-#[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProductImageRecord {
     pub url: Url,
     pub prohibited_content: ProhibitedContentRecord,

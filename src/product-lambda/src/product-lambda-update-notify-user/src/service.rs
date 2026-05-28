@@ -709,7 +709,9 @@ mod tests {
         let second_image: product::core::product_image::ProductImage = Faker.fake();
         let base: Product = Faker.fake();
         let product = Product {
-            images: vec![first_image.clone(), second_image],
+            images: vec![first_image.clone(), second_image]
+                .into_iter()
+                .collect(),
             ..base
         };
         let expected_image = first_image;
@@ -752,7 +754,7 @@ mod tests {
     async fn should_set_image_to_none_when_product_has_no_images() {
         let base: Product = Faker.fake();
         let product = Product {
-            images: vec![],
+            images: Default::default(),
             ..base
         };
 

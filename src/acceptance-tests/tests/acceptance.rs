@@ -1323,7 +1323,7 @@ async fn should_materialize_product_in_dynamodb_for_images_changed_event() {
     let mut materialized_old: ProductRecord = Faker.fake();
     materialized_old.pk = mk_pk(&shop.shop_id, &materialized_old.shops_product_id);
     materialized_old.shop_id = shop.shop_id;
-    materialized_old.images = vec![];
+    materialized_old.images = Default::default();
     materialized_old
         .url
         .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
@@ -1343,7 +1343,7 @@ async fn should_materialize_product_in_dynamodb_for_images_changed_event() {
     let update_cmd = UpdateProductCommand {
         native_price: materialized_old.price_native.map(|p| p.into()),
         state: Some(materialized_old.state.into()),
-        images: Some(new_images.clone()),
+        images: Some(new_images.clone().into_iter().collect()),
         ..empty_update_product_command()
     };
 
@@ -1951,7 +1951,7 @@ async fn should_manage_user_access_tokens() {
     assert_eq!(200, patch_response.status());
 
     let delete_response = reqwest::Client::new()
-        .delete(format!("{}?accessTokenId={}", url, created.access_token_id))
+        .delete(format!("{}/{}", url, created.access_token_id))
         .bearer_auth(user.access_token)
         .send()
         .await
@@ -4462,6 +4462,62 @@ async fn should_respond_200_for_partner_post_products() {
         product.shops_product_id.to_string(),
         "acceptance-test-product-1"
     );
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_preserve_partner_post_product_image_order_when_read_via_rest_api() {
+    let (shop_record, api_key) = prepare_partner_shop().await;
+    let api_key_str: String = api_key.into();
+    let shops_product_id = "acceptance-test-product-image-order-1";
+    let expected_images = [
+        "https://example.com/img-3.jpg",
+        "https://example.com/img-1.jpg",
+        "https://example.com/img-2.jpg",
+    ];
+
+    let post_url = format!(
+        "{}/api/v1/shops/{}/products",
+        get_cfn_output().api_gateway_endpoint_url,
+        shop_record.shop_id,
+    );
+    let response = reqwest::Client::new()
+        .post(&post_url)
+        .bearer_auth(&api_key_str)
+        .json(&vec![serde_json::json!({
+            "shopsProductId": shops_product_id,
+            "title": { "text": "Ordered Product Images", "language": "en" },
+            "description": { "text": "A test product with ordered images", "language": "en" },
+            "state": "AVAILABLE",
+            "url": "https://example.com/product/ordered-images",
+            "images": expected_images
+        })])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(202, response.status());
+
+    let body: Vec<String> = response.json().await.unwrap();
+    assert!(body.is_empty());
+
+    wait_for_partner_product_record(shop_record.shop_id, shops_product_id.into()).await;
+
+    let get_url = format!(
+        "{}/api/v1/shops/{}/products/{}?currency=EUR",
+        get_cfn_output().api_gateway_endpoint_url,
+        shop_record.shop_id,
+        shops_product_id
+    );
+    let response = reqwest::get(get_url).await.unwrap();
+    assert_eq!(200, response.status());
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    let actual_images: Vec<&str> = body["item"]["images"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|image| image["url"].as_str().unwrap())
+        .collect();
+    assert_eq!(expected_images.to_vec(), actual_images);
 }
 
 // ─── Product Pipeline Embed Text (Lambda) ─────────────────────────────────────

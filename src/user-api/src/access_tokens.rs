@@ -4,9 +4,13 @@ use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
+<<<<<<< HEAD
 use user::core::access_token::{
     AccessTokenId, AccessTokenOrigin, api::extract_access_token_id_path,
 };
+=======
+use user::core::access_token::api::extract_access_token_id_path;
+>>>>>>> origin/develop
 use user::data::access_token_data::{
     GetAccessTokenData, PatchAccessTokenData, PostAccessTokenData,
 };
@@ -107,21 +111,7 @@ pub async fn delete(
     service: &impl UserService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
-    let access_token_id = event
-        .payload
-        .query_string_parameters
-        .first("accessTokenId")
-        .ok_or_else(|| {
-            ApiError::bad_request(
-                BAD_BODY_VALUE,
-                "Missing query parameter accessTokenId".into(),
-            )
-            .with_detail("Missing query parameter accessTokenId")
-        })?
-        .to_owned();
-    let access_token_id = AccessTokenId::try_from(access_token_id).map_err(|err| {
-        ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail("Invalid accessTokenId")
-    })?;
+    let access_token_id = extract_access_token_id_path(&event.payload.path_parameters)?;
     service
         .delete_access_token(&user_id, &access_token_id)
         .await?;
@@ -148,7 +138,7 @@ mod tests {
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
     use test_api::ApiGatewayV2httpRequestProxy;
-    use user::core::access_token::{AccessToken, RawAccessToken};
+    use user::core::access_token::{AccessToken, AccessTokenId, RawAccessToken};
     use user::data::access_token_data::ScopeData;
     use user::service::user_service::MockUserService;
 
@@ -223,5 +213,31 @@ mod tests {
 
         let response = get_one(event, &service).await.unwrap();
         assert_eq!(200, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_delete_access_token() {
+        let user_id = UserId::new();
+        let access_token_id: AccessTokenId = Faker.fake();
+        let mut service = MockUserService::default();
+        service.expect_delete_access_token().return_once(
+            move |actual_user_id, actual_access_token_id| {
+                assert_eq!(&user_id, actual_user_id);
+                assert_eq!(&access_token_id, actual_access_token_id);
+                Box::pin(async move { Ok(()) })
+            },
+        );
+        let event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::DELETE)
+                .route_key("DELETE /api/v1/me/access-tokens/{accessTokenId}")
+                .jwt_claim("sub", user_id)
+                .path_parameter("accessTokenId", access_token_id.to_string())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = delete(event, &service).await.unwrap();
+        assert_eq!(204, response.status_code);
     }
 }

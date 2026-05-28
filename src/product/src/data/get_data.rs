@@ -11,6 +11,7 @@ use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
+use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
 use shop::data::shop_type_data::ShopTypeData;
 use time::OffsetDateTime;
@@ -41,7 +42,7 @@ pub struct GetProductData {
     pub url: Url,
     pub view_url: Url,
     #[serde(default)]
-    pub images: Vec<ProductImageData>,
+    pub images: IndexSet<ProductImageData>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub auction: Option<AuctionData>,
     #[serde(with = "time::serde::rfc3339")]

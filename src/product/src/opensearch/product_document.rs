@@ -20,6 +20,7 @@ use geo::core::continent::Continent;
 use geo::opensearch::{
     geo_address_from_document, geo_address_to_document, structured_address_from_document,
 };
+use indexmap::IndexSet;
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -188,8 +189,8 @@ pub struct ProductDocument {
     pub state: ProductStateDocument,
     pub url: Url,
     pub view_url: Url,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub images: Vec<ProductImageDocument>,
+    #[serde(skip_serializing_if = "IndexSet::is_empty", default)]
+    pub images: IndexSet<ProductImageDocument>,
 
     // dim=768 via google/gemini-embedding-2
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -1166,7 +1167,10 @@ mod faker {
                     config.fake_with_rng::<u16, _>(rng)
                 ))
                 .unwrap(),
-                images: config.fake_with_rng(rng),
+                images: config
+                    .fake_with_rng::<Vec<ProductImageDocument>, _>(rng)
+                    .into_iter()
+                    .collect(),
                 embedding: None,
                 auction_start: if config.fake_with_rng(rng) {
                     Some(OffsetDateTime::now_utc())

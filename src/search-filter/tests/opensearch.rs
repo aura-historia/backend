@@ -10,7 +10,6 @@ use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
-use fake::{Fake, Faker};
 use opensearch::http::Url;
 use product::opensearch::product_document::ProductDocument;
 use product::opensearch::product_state_document::ProductStateDocument;
@@ -889,7 +888,7 @@ fn base_product_document() -> ProductDocument {
         state: ProductStateDocument::Listed,
         url: Url::parse("https://example.com/products/renaissance-cabinet").unwrap(),
         view_url: Url::parse("https://example.com/products/renaissance-cabinet?utm_source=aura_historia&utm_medium=referral").unwrap(),
-        images: Faker.fake(),
+        images: Default::default(),
         embedding: None,
         auction_start: Some(datetime!(2024-01-20 10:00:00 UTC)),
         auction_end: Some(datetime!(2024-01-25 18:00:00 UTC)),
@@ -1048,7 +1047,7 @@ fn silver_tea_set_product_document() -> ProductDocument {
         state: ProductStateDocument::Listed,
         url: Url::parse("https://example.com/products/victorian-silver-tea-service").unwrap(),
         view_url: Url::parse("https://example.com/products/victorian-silver-tea-service?utm_source=aura_historia&utm_medium=referral").unwrap(),
-        images: Faker.fake(),
+        images: Default::default(),
         embedding: None,
         auction_start: None,
         auction_end: None,
@@ -1220,7 +1219,7 @@ fn ming_vase_product_document() -> ProductDocument {
         state: ProductStateDocument::Listed,
         url: Url::parse("https://example.com/products/ming-dynasty-blue-white-vase").unwrap(),
         view_url: Url::parse("https://example.com/products/ming-dynasty-blue-white-vase?utm_source=aura_historia&utm_medium=referral").unwrap(),
-        images: Faker.fake(),
+        images: Default::default(),
         embedding: None,
         auction_start: None,
         auction_end: None,
@@ -1386,7 +1385,7 @@ fn louis_xv_fauteuil_product_document() -> ProductDocument {
         state: ProductStateDocument::Listed,
         url: Url::parse("https://example.com/products/louis-xv-walnut-fauteuil").unwrap(),
         view_url: Url::parse("https://example.com/products/louis-xv-walnut-fauteuil?utm_source=aura_historia&utm_medium=referral").unwrap(),
-        images: Faker.fake(),
+        images: Default::default(),
         embedding: None,
         auction_start: None,
         auction_end: None,

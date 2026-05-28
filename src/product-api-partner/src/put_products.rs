@@ -441,9 +441,11 @@ mod tests {
             price_estimate_max: None,
             state: Some(product::data::product_state_data::ProductStateData::Available),
             url: Some(url::Url::parse("https://example.com").unwrap()),
-            images: Some(vec![
-                url::Url::parse("https://example.com/img.jpg").unwrap(),
-            ]),
+            images: Some(
+                vec![url::Url::parse("https://example.com/img.jpg").unwrap()]
+                    .into_iter()
+                    .collect(),
+            ),
             auction_start: None,
             auction_end: None,
             seller_name: Some("Full Seller".to_string()),
