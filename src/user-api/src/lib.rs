@@ -52,7 +52,9 @@ pub async fn handle(
             access_tokens::get_one(event, service).await
         }
         Some("PATCH /api/v1/me/access-tokens") => access_tokens::patch(event, service).await,
-        Some("DELETE /api/v1/me/access-tokens") => access_tokens::delete(event, service).await,
+        Some("DELETE /api/v1/me/access-tokens/{accessTokenId}") => {
+            access_tokens::delete(event, service).await
+        }
         Some("PATCH /api/v1/me/account") => patch::handle(event, service).await,
         Some("DELETE /api/v1/me") => delete::handle(event, service).await,
         Some(unknown) => Err(ApiError::internal_server_error(

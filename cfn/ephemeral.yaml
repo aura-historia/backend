@@ -1420,7 +1420,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "DELETE /api/v1/me/access-tokens"
+      RouteKey: "DELETE /api/v1/me/access-tokens/{accessTokenId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${UserApiLambdaIntegration}"

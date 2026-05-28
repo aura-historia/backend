@@ -1943,7 +1943,7 @@ async fn should_manage_user_access_tokens() {
     assert_eq!(200, patch_response.status());
 
     let delete_response = reqwest::Client::new()
-        .delete(format!("{}?accessTokenId={}", url, created.access_token_id))
+        .delete(format!("{}/{}", url, created.access_token_id))
         .bearer_auth(user.access_token)
         .send()
         .await
