@@ -752,7 +752,7 @@ mod tests {
     async fn should_set_image_to_none_when_product_has_no_images() {
         let base: Product = Faker.fake();
         let product = Product {
-            images: vec![],
+            images: Default::default(),
             ..base
         };
 

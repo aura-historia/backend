@@ -1313,7 +1313,7 @@ mod tests {
     async fn should_set_image_to_none_when_product_has_no_images_for_search_filter_command() {
         let base: Product = Faker.fake();
         let product = Product {
-            images: vec![],
+            images: Default::default(),
             ..base
         };
         let event = mk_event(&product);
@@ -1903,7 +1903,7 @@ mod tests {
     async fn should_forward_empty_images_to_enhanced_match_service_when_product_has_no_images() {
         let base: Product = Faker.fake();
         let product = Product {
-            images: vec![],
+            images: Default::default(),
             ..base
         };
         let event = mk_event(&product);

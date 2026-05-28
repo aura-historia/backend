@@ -289,7 +289,7 @@ pub fn normalize_to_upsert(
         native_price_estimate_max: product.price_estimate_max,
         state: Some(product.state),
         url: Some(product.url),
-        images: product.images,
+        images: product.images.into_iter().collect(),
         auction_start: product.auction_start,
         auction_end: product.auction_end,
     })
