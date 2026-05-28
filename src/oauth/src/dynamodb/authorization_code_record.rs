@@ -68,3 +68,56 @@ impl From<AuthorizationCodeRecord> for AuthorizationCode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::authorization_code::OAuthCodeChallenge;
+    use common::user_id::UserId;
+    use std::collections::HashSet;
+    use time::OffsetDateTime;
+    use user::core::access_token::Scope;
+
+    #[test]
+    fn should_round_trip_through_serde_dynamo() {
+        let now = OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
+        let code_val = OAuthAuthorizationCode::new();
+        let record = AuthorizationCodeRecord {
+            pk: format!("oauth_authorization_code#{}", code_val),
+            sk: "oauth_authorization_code".to_owned(),
+            code: code_val,
+            client_id: OAuthClientId::from("test-client"),
+            user_id: UserId::new(),
+            redirect_uri: OAuthRedirectUri::from("https://example.com/callback"),
+            scopes: HashSet::from([
+                user::dynamodb::access_token_record::ScopeRecord::ProductsWrite,
+            ]),
+            code_challenge: OAuthCodeChallenge::from(
+                "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            ),
+            code_challenge_method: CodeChallengeMethod::S256,
+            expires: now.unix_timestamp() + 600,
+            ttl: now.unix_timestamp() + 600,
+            created: now,
+        };
+
+        let item: serde_dynamo::Item = serde_dynamo::to_item(record.clone()).unwrap();
+        eprintln!("Serialized: {:?}", item);
+
+        let back: AuthorizationCodeRecord = serde_dynamo::from_item(item).unwrap();
+
+        assert_eq!(record.code, back.code, "code mismatch");
+        assert_eq!(record.client_id, back.client_id, "client_id mismatch");
+        assert_eq!(record.redirect_uri, back.redirect_uri, "redirect_uri mismatch");
+        assert_eq!(record.scopes, back.scopes, "scopes mismatch");
+        assert_eq!(
+            record.code_challenge, back.code_challenge,
+            "code_challenge mismatch"
+        );
+        assert_eq!(
+            record.code_challenge_method, back.code_challenge_method,
+            "code_challenge_method mismatch"
+        );
+        assert_eq!(record.expires, back.expires, "expires mismatch");
+    }
+}
