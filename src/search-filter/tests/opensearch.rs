@@ -10,7 +10,6 @@ use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
-use fake::{Fake, Faker};
 use opensearch::http::Url;
 use product::opensearch::product_document::ProductDocument;
 use product::opensearch::product_state_document::ProductStateDocument;
