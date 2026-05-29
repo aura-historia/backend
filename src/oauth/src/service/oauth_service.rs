@@ -257,7 +257,8 @@ impl OAuthService for OAuthServiceImpl<'_> {
         user_id: &UserId,
         request: CreateClientRequest,
     ) -> Result<(RawOAuthClientSecret, OAuthClient), OAuthServiceError> {
-        validate_redirect_uris(&request.redirect_uris)?;
+        validate_redirect_uris(&request.redirect_uris)
+            .map_err(OAuthServiceError::InvalidClientMetadata)?;
         let now = OffsetDateTime::now_utc();
         let raw_secret = RawOAuthClientSecret::new();
         let client = OAuthClient {
@@ -302,7 +303,8 @@ impl OAuthService for OAuthServiceImpl<'_> {
     ) -> Result<OAuthClient, OAuthServiceError> {
         let _ = self.find_client_for_user(user_id, client_id).await?;
         if let Some(redirect_uris) = &request.redirect_uris {
-            validate_redirect_uris(redirect_uris)?;
+            validate_redirect_uris(redirect_uris)
+                .map_err(OAuthServiceError::InvalidClientMetadata)?;
         }
         let update = OAuthClientRecordUpdate {
             name: request.name,
@@ -483,24 +485,15 @@ fn verify_s256(verifier: &str, expected_challenge: &str) -> bool {
     URL_SAFE_NO_PAD.encode(digest) == expected_challenge
 }
 
-fn validate_redirect_uris(
-    redirect_uris: &HashSet<OAuthRedirectUri>,
-) -> Result<(), OAuthServiceError> {
+fn validate_redirect_uris(redirect_uris: &HashSet<OAuthRedirectUri>) -> Result<(), String> {
     if redirect_uris.is_empty() {
-        return Err(OAuthServiceError::InvalidClientMetadata(
-            "redirect_uris cannot be empty".to_owned(),
-        ));
+        return Err("redirect_uris cannot be empty".to_owned());
     }
     for redirect_uri in redirect_uris {
-        let url = url::Url::parse(redirect_uri.as_ref()).map_err(|err| {
-            OAuthServiceError::InvalidClientMetadata(format!(
-                "redirect_uri '{redirect_uri}' is not a valid URL: {err}"
-            ))
-        })?;
+        let url = url::Url::parse(redirect_uri.as_ref())
+            .map_err(|err| format!("redirect_uri '{redirect_uri}' is not a valid URL: {err}"))?;
         if url.scheme() != "https" {
-            return Err(OAuthServiceError::InvalidClientMetadata(format!(
-                "redirect_uri '{redirect_uri}' must use https"
-            )));
+            return Err(format!("redirect_uri '{redirect_uri}' must use https"));
         }
     }
     Ok(())
