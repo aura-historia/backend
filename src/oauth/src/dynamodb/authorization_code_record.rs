@@ -85,7 +85,7 @@ mod tests {
             pk: format!("oauth_authorization_code#{}", code_val),
             sk: "oauth_authorization_code".to_owned(),
             code: code_val,
-            client_id: OAuthClientId::from("test-client"),
+            client_id: OAuthClientId::new(),
             user_id: UserId::new(),
             redirect_uri: OAuthRedirectUri::from("https://example.com/callback"),
             scopes: HashSet::from([

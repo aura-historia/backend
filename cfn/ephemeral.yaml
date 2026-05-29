@@ -2229,7 +2229,6 @@ Resources:
                   - dynamodb:Query
                 Resource:
                   - !GetAtt TableOne.Arn
-                  - !Sub "${TableOne.Arn}/index/*"
   OAuthApiLambda:
     Type: AWS::Lambda::Function
     Properties:

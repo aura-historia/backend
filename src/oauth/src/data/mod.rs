@@ -31,8 +31,7 @@ pub struct OAuthClientMetadataPatchData {
 #[serde(rename_all = "snake_case")]
 pub struct OAuthClientMetadataResponseData {
     pub client_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub client_secret: Option<String>,
+    pub client_secret: String,
     pub client_name: String,
     pub redirect_uris: HashSet<String>,
     pub scope: HashSet<ScopeData>,
@@ -81,7 +80,7 @@ impl From<OAuthClient> for OAuthClientMetadataResponseData {
     fn from(client: OAuthClient) -> Self {
         Self {
             client_id: client.client_id.into(),
-            client_secret: None,
+            client_secret: client.hashed_client_secret.to_string(),
             client_name: client.name.into(),
             redirect_uris: client.redirect_uris.into_iter().map(Into::into).collect(),
             scope: client.scopes.into_iter().map(Into::into).collect(),
@@ -93,12 +92,14 @@ impl From<OAuthClient> for OAuthClientMetadataResponseData {
 impl From<(RawOAuthClientSecret, OAuthClient)> for OAuthClientMetadataResponseData {
     fn from((secret, client): (RawOAuthClientSecret, OAuthClient)) -> Self {
         let mut response = OAuthClientMetadataResponseData::from(client);
-        response.client_secret = Some(secret.into());
+        response.client_secret = secret.into();
         response
     }
 }
 
-impl From<OAuthClientMetadataRequestData> for crate::service::oauth_service::CreateClientRequest {
+impl From<OAuthClientMetadataRequestData>
+    for crate::service::oauth_service::CreateOAuthClientCommand
+{
     fn from(data: OAuthClientMetadataRequestData) -> Self {
         Self {
             name: OAuthClientName::from(data.client_name),
@@ -112,7 +113,9 @@ impl From<OAuthClientMetadataRequestData> for crate::service::oauth_service::Cre
     }
 }
 
-impl From<OAuthClientMetadataPatchData> for crate::service::oauth_service::UpdateClientRequest {
+impl From<OAuthClientMetadataPatchData>
+    for crate::service::oauth_service::UpdateOAuthClientCommand
+{
     fn from(data: OAuthClientMetadataPatchData) -> Self {
         Self {
             name: data.client_name.map(OAuthClientName::from),

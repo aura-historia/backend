@@ -15,7 +15,7 @@ use aws_sdk_dynamodb::{
     },
     types::{AttributeValue, ReturnValue},
 };
-use common::{dynamodb_update::DynamoDbUpdate, user_id::UserId};
+use common::dynamodb_update::DynamoDbUpdate;
 use tracing::error;
 
 #[async_trait::async_trait]
@@ -31,10 +31,7 @@ pub trait OAuthRepository {
         record: OAuthClientRecord,
     ) -> Result<PutItemOutput, SdkError<PutItemError>>;
 
-    async fn query_client_records(
-        &self,
-        user_id: &UserId,
-    ) -> Result<Vec<OAuthClientRecord>, SdkError<QueryError>>;
+    async fn query_client_records(&self) -> Result<Vec<OAuthClientRecord>, SdkError<QueryError>>;
 
     async fn update_client_record(
         &self,
@@ -88,8 +85,8 @@ impl OAuthRepository for OAuthDynamoDbRepositoryImpl<'_> {
             .client
             .get_item()
             .table_name(&self.table)
-            .key("pk", AttributeValue::S(client_record::mk_pk(client_id)))
-            .key("sk", AttributeValue::S(client_record::mk_sk().to_owned()))
+            .key("pk", AttributeValue::S(client_record::mk_pk().to_owned()))
+            .key("sk", AttributeValue::S(client_record::mk_sk(client_id)))
             .send()
             .await?
             .item
@@ -117,26 +114,20 @@ impl OAuthRepository for OAuthDynamoDbRepositoryImpl<'_> {
             .await
     }
 
-    async fn query_client_records(
-        &self,
-        user_id: &UserId,
-    ) -> Result<Vec<OAuthClientRecord>, SdkError<QueryError>> {
+    async fn query_client_records(&self) -> Result<Vec<OAuthClientRecord>, SdkError<QueryError>> {
         let items = self
             .client
             .query()
             .table_name(&self.table)
-            .index_name("gsi1")
-            .key_condition_expression(
-                "#gsi1_pk = :gsi1_pk_val AND begins_with(#gsi1_sk, :gsi1_sk_prefix)",
-            )
-            .expression_attribute_names("#gsi1_pk", "gsi1_pk")
-            .expression_attribute_names("#gsi1_sk", "gsi1_sk")
+            .key_condition_expression("#pk = :pk_val AND begins_with(#sk, :sk_prefix)")
+            .expression_attribute_names("#pk", "pk")
+            .expression_attribute_names("#sk", "sk")
             .expression_attribute_values(
-                ":gsi1_pk_val",
-                AttributeValue::S(client_record::mk_gsi1_pk(user_id)),
+                ":pk_val",
+                AttributeValue::S(client_record::mk_pk().to_owned()),
             )
             .expression_attribute_values(
-                ":gsi1_sk_prefix",
+                ":sk_prefix",
                 AttributeValue::S("oauth_client#".to_owned()),
             )
             .send()
@@ -149,7 +140,7 @@ impl OAuthRepository for OAuthDynamoDbRepositoryImpl<'_> {
             .filter_map(|item| match serde_dynamo::from_item::<_, OAuthClientRecord>(item) {
                 Ok(record) => Some(record),
                 Err(err) => {
-                    error!(error = %err, type = %std::any::type_name::<OAuthClientRecord>(), "Failed deserializing OAuthClientRecord from gsi1 query.");
+                    error!(error = %err, type = %std::any::type_name::<OAuthClientRecord>(), "Failed deserializing OAuthClientRecord from query.");
                     None
                 }
             })
@@ -166,8 +157,8 @@ impl OAuthRepository for OAuthDynamoDbRepositoryImpl<'_> {
         self.client
             .update_item()
             .table_name(&self.table)
-            .key("pk", AttributeValue::S(client_record::mk_pk(client_id)))
-            .key("sk", AttributeValue::S(client_record::mk_sk().to_owned()))
+            .key("pk", AttributeValue::S(client_record::mk_pk().to_owned()))
+            .key("sk", AttributeValue::S(client_record::mk_sk(client_id)))
             .update_expression(update_expr.update_expr)
             .set_expression_attribute_names(Some(update_expr.expr_attr_names))
             .set_expression_attribute_values(Some(update_expr.expr_attr_values))
@@ -195,8 +186,8 @@ impl OAuthRepository for OAuthDynamoDbRepositoryImpl<'_> {
         self.client
             .delete_item()
             .table_name(&self.table)
-            .key("pk", AttributeValue::S(client_record::mk_pk(client_id)))
-            .key("sk", AttributeValue::S(client_record::mk_sk().to_owned()))
+            .key("pk", AttributeValue::S(client_record::mk_pk().to_owned()))
+            .key("sk", AttributeValue::S(client_record::mk_sk(client_id)))
             .send()
             .await
     }

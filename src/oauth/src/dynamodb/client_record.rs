@@ -10,10 +10,6 @@ use user::dynamodb::access_token_record::ScopeRecord;
 pub struct OAuthClientRecord {
     pub pk: String,
     pub sk: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub gsi1_pk: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub gsi1_sk: Option<String>,
     pub client_id: OAuthClientId,
     pub name: OAuthClientName,
     pub redirect_uris: HashSet<OAuthRedirectUri>,
@@ -28,29 +24,19 @@ pub struct OAuthClientRecord {
     pub updated: OffsetDateTime,
 }
 
-pub fn mk_pk(client_id: &OAuthClientId) -> String {
-    format!("oauth_client#{client_id}")
+pub fn mk_pk() -> &'static str {
+    "oauth_clients"
 }
 
-pub fn mk_sk() -> &'static str {
-    "oauth_client"
-}
-
-pub fn mk_gsi1_pk(user_id: &common::user_id::UserId) -> String {
-    format!("user#{user_id}")
-}
-
-pub fn mk_gsi1_sk(client_id: &OAuthClientId) -> String {
+pub fn mk_sk(client_id: &OAuthClientId) -> String {
     format!("oauth_client#{client_id}")
 }
 
 impl From<OAuthClient> for OAuthClientRecord {
     fn from(client: OAuthClient) -> Self {
         Self {
-            pk: mk_pk(&client.client_id),
-            sk: mk_sk().to_owned(),
-            gsi1_pk: Some(mk_gsi1_pk(&client.created_by)),
-            gsi1_sk: Some(mk_gsi1_sk(&client.client_id)),
+            pk: mk_pk().to_owned(),
+            sk: mk_sk(&client.client_id),
             client_id: client.client_id,
             name: client.name,
             redirect_uris: client.redirect_uris,

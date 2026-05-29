@@ -99,14 +99,14 @@ pub struct TokenRevocationRequest {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct CreateClientRequest {
+pub struct CreateOAuthClientCommand {
     pub name: OAuthClientName,
     pub redirect_uris: HashSet<OAuthRedirectUri>,
     pub scopes: HashSet<Scope>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct UpdateClientRequest {
+pub struct UpdateOAuthClientCommand {
     pub name: Option<OAuthClientName>,
     pub redirect_uris: Option<HashSet<OAuthRedirectUri>>,
     pub scopes: Option<HashSet<Scope>>,
@@ -150,35 +150,64 @@ pub enum OAuthServiceError {
     UserServiceError(#[from] UserServiceError),
 }
 
+impl From<OAuthServiceError> for common::api::error::ApiError {
+    fn from(err: OAuthServiceError) -> Self {
+        use common::api::error_code::{
+            BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE, FORBIDDEN, UNAUTHORIZED,
+        };
+
+        match err {
+            OAuthServiceError::InvalidClientSecret | OAuthServiceError::ClientNotFound => {
+                common::api::error::ApiError::unauthorized(UNAUTHORIZED)
+                    .with_detail(err.to_string())
+            }
+            OAuthServiceError::InvalidRedirectUri | OAuthServiceError::InvalidScope => {
+                common::api::error::ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE, Box::new(err))
+            }
+            OAuthServiceError::ClientForbidden => {
+                common::api::error::ApiError::forbidden(FORBIDDEN).with_detail(err.to_string())
+            }
+            OAuthServiceError::InvalidClientMetadata(_) => {
+                common::api::error::ApiError::bad_request(BAD_BODY_VALUE, Box::new(err))
+            }
+            OAuthServiceError::AuthorizationCodeNotFound
+            | OAuthServiceError::AuthorizationCodeExpired
+            | OAuthServiceError::AuthorizationCodeClientMismatch
+            | OAuthServiceError::AuthorizationCodeRedirectUriMismatch
+            | OAuthServiceError::InvalidCodeVerifier => {
+                common::api::error::ApiError::bad_request(BAD_BODY_VALUE, Box::new(err))
+            }
+            OAuthServiceError::SdkGetItemError(sdk_error) => sdk_error.into(),
+            OAuthServiceError::SdkPutItemError(sdk_error) => sdk_error.into(),
+            OAuthServiceError::SdkQueryError(sdk_error) => sdk_error.into(),
+            OAuthServiceError::SdkUpdateItemError(sdk_error) => sdk_error.into(),
+            OAuthServiceError::SdkDeleteItemError(sdk_error) => sdk_error.into(),
+            OAuthServiceError::UserServiceError(user_err) => user_err.into(),
+        }
+    }
+}
+
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait OAuthService {
     async fn create_client(
         &self,
         user_id: &UserId,
-        request: CreateClientRequest,
+        command: CreateOAuthClientCommand,
     ) -> Result<(RawOAuthClientSecret, OAuthClient), OAuthServiceError>;
 
-    async fn get_clients(&self, user_id: &UserId) -> Result<Vec<OAuthClient>, OAuthServiceError>;
+    async fn get_clients(&self) -> Result<Vec<OAuthClient>, OAuthServiceError>;
 
-    async fn get_client(
-        &self,
-        user_id: &UserId,
-        client_id: &OAuthClientId,
-    ) -> Result<OAuthClient, OAuthServiceError>;
+    async fn get_client(&self, client_id: &OAuthClientId)
+    -> Result<OAuthClient, OAuthServiceError>;
 
     async fn update_client(
         &self,
-        user_id: &UserId,
         client_id: &OAuthClientId,
-        request: UpdateClientRequest,
+        command: UpdateOAuthClientCommand,
     ) -> Result<OAuthClient, OAuthServiceError>;
 
-    async fn delete_client(
-        &self,
-        user_id: &UserId,
-        client_id: &OAuthClientId,
-    ) -> Result<(), OAuthServiceError>;
+    async fn delete_client(&self, client_id: &OAuthClientId) -> Result<(), OAuthServiceError>;
 
     async fn authorize(
         &self,
@@ -235,19 +264,6 @@ impl<'a> OAuthServiceImpl<'a> {
             Err(OAuthServiceError::InvalidClientSecret)
         }
     }
-
-    async fn find_client_for_user(
-        &self,
-        user_id: &UserId,
-        client_id: &OAuthClientId,
-    ) -> Result<OAuthClient, OAuthServiceError> {
-        let client = self.find_client(client_id).await?;
-        if &client.created_by == user_id {
-            Ok(client)
-        } else {
-            Err(OAuthServiceError::ClientForbidden)
-        }
-    }
 }
 
 #[async_trait::async_trait]
@@ -255,18 +271,18 @@ impl OAuthService for OAuthServiceImpl<'_> {
     async fn create_client(
         &self,
         user_id: &UserId,
-        request: CreateClientRequest,
+        command: CreateOAuthClientCommand,
     ) -> Result<(RawOAuthClientSecret, OAuthClient), OAuthServiceError> {
-        validate_redirect_uris(&request.redirect_uris)
+        validate_redirect_uris(&command.redirect_uris)
             .map_err(OAuthServiceError::InvalidClientMetadata)?;
         let now = OffsetDateTime::now_utc();
         let raw_secret = RawOAuthClientSecret::new();
         let client = OAuthClient {
-            client_id: OAuthClientId::from(format!("client-{}", uuid::Uuid::new_v4())),
+            client_id: OAuthClientId::new(),
             hashed_client_secret: HashedRawOAuthClientSecret::from(raw_secret.clone()),
-            name: request.name,
-            redirect_uris: request.redirect_uris,
-            scopes: request.scopes,
+            name: command.name,
+            redirect_uris: command.redirect_uris,
+            scopes: command.scopes,
             created_by: *user_id,
             created: now,
             updated: now,
@@ -277,10 +293,10 @@ impl OAuthService for OAuthServiceImpl<'_> {
         Ok((raw_secret, client))
     }
 
-    async fn get_clients(&self, user_id: &UserId) -> Result<Vec<OAuthClient>, OAuthServiceError> {
+    async fn get_clients(&self) -> Result<Vec<OAuthClient>, OAuthServiceError> {
         Ok(self
             .repository
-            .query_client_records(user_id)
+            .query_client_records()
             .await?
             .into_iter()
             .map(Into::into)
@@ -289,27 +305,24 @@ impl OAuthService for OAuthServiceImpl<'_> {
 
     async fn get_client(
         &self,
-        user_id: &UserId,
         client_id: &OAuthClientId,
     ) -> Result<OAuthClient, OAuthServiceError> {
-        self.find_client_for_user(user_id, client_id).await
+        self.find_client(client_id).await
     }
 
     async fn update_client(
         &self,
-        user_id: &UserId,
         client_id: &OAuthClientId,
-        request: UpdateClientRequest,
+        command: UpdateOAuthClientCommand,
     ) -> Result<OAuthClient, OAuthServiceError> {
-        let _authorized_client = self.find_client_for_user(user_id, client_id).await?;
-        if let Some(redirect_uris) = &request.redirect_uris {
+        if let Some(redirect_uris) = &command.redirect_uris {
             validate_redirect_uris(redirect_uris)
                 .map_err(OAuthServiceError::InvalidClientMetadata)?;
         }
         let update = OAuthClientRecordUpdate {
-            name: request.name,
-            redirect_uris: request.redirect_uris,
-            scopes: request
+            name: command.name,
+            redirect_uris: command.redirect_uris,
+            scopes: command
                 .scopes
                 .map(|scopes| scopes.into_iter().map(Into::into).collect()),
             updated: OffsetDateTime::now_utc(),
@@ -321,12 +334,7 @@ impl OAuthService for OAuthServiceImpl<'_> {
             .ok_or(OAuthServiceError::ClientNotFound)
     }
 
-    async fn delete_client(
-        &self,
-        user_id: &UserId,
-        client_id: &OAuthClientId,
-    ) -> Result<(), OAuthServiceError> {
-        let _ = self.find_client_for_user(user_id, client_id).await?;
+    async fn delete_client(&self, client_id: &OAuthClientId) -> Result<(), OAuthServiceError> {
         self.repository.delete_client_record(client_id).await?;
         Ok(())
     }
@@ -457,7 +465,7 @@ impl OAuthService for OAuthServiceImpl<'_> {
             Err(err) => return Err(err.into()),
         };
         let client_id = match &token.origin {
-            AccessTokenOrigin::OAuth { client_id } => Some(client_id.clone().into()),
+            AccessTokenOrigin::OAuth { client_id } => OAuthClientId::try_from(client_id).ok(),
             AccessTokenOrigin::User => None,
         };
         Ok(IntrospectionResponse {
@@ -505,13 +513,19 @@ mod tests {
     use crate::core::client::OAuthClientName;
     use crate::dynamodb::client_record::OAuthClientRecord;
     use crate::dynamodb::repository::MockOAuthRepository;
-    use user::core::access_token::{AccessToken, AccessTokenId, RawOAuthClientSecret};
+    use user::core::access_token::{
+        AccessToken, AccessTokenId, AccessTokenOrigin, RawOAuthClientSecret,
+    };
     use user::service::user_service::MockUserService;
+
+    fn client_id() -> OAuthClientId {
+        OAuthClientId::try_from("018f6e7a-8b9c-7d0e-8f12-3456789abcde").unwrap()
+    }
 
     fn oauth_client(secret: &RawOAuthClientSecret) -> OAuthClient {
         let now = OffsetDateTime::now_utc();
         OAuthClient {
-            client_id: OAuthClientId::from("client_1"),
+            client_id: client_id(),
             hashed_client_secret: secret.clone().into(),
             name: OAuthClientName::from("Client"),
             redirect_uris: HashSet::from([OAuthRedirectUri::from(
@@ -521,6 +535,14 @@ mod tests {
             created_by: UserId::new(),
             created: now,
             updated: now,
+        }
+    }
+
+    fn create_command(redirect_uri: &str) -> CreateOAuthClientCommand {
+        CreateOAuthClientCommand {
+            name: OAuthClientName::from("Client"),
+            redirect_uris: HashSet::from([OAuthRedirectUri::from(redirect_uri)]),
+            scopes: HashSet::from([Scope::ProductsWrite]),
         }
     }
 
@@ -589,7 +611,7 @@ mod tests {
         let err = service
             .introspect(TokenIntrospectionRequest {
                 token: RawAccessToken::new(),
-                client_id: OAuthClientId::from("client_1"),
+                client_id: client_id(),
                 client_secret: RawOAuthClientSecret::new(),
             })
             .await
@@ -615,16 +637,7 @@ mod tests {
         let service = OAuthServiceImpl::new(&repository, &user_service);
 
         let (secret, client) = service
-            .create_client(
-                &user_id,
-                CreateClientRequest {
-                    name: OAuthClientName::from("Client"),
-                    redirect_uris: HashSet::from([OAuthRedirectUri::from(
-                        "https://client.example/callback",
-                    )]),
-                    scopes: HashSet::from([Scope::ProductsWrite]),
-                },
-            )
+            .create_client(&user_id, create_command("https://client.example/callback"))
             .await
             .unwrap();
 
@@ -633,21 +646,97 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_reject_oauth_client_update_for_another_user() {
+    async fn should_reject_invalid_oauth_client_metadata() {
+        let repository = MockOAuthRepository::default();
+        let user_service = MockUserService::default();
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        let err = service
+            .create_client(
+                &UserId::new(),
+                create_command("http://client.example/callback"),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, OAuthServiceError::InvalidClientMetadata(_)));
+    }
+
+    #[tokio::test]
+    async fn should_get_oauth_clients() {
         let secret = RawOAuthClientSecret::new();
-        let client_record = OAuthClientRecord::from(oauth_client(&secret));
+        let client = oauth_client(&secret);
+        let mut repository = MockOAuthRepository::default();
+        repository
+            .expect_query_client_records()
+            .return_once(move || {
+                Box::pin(async move { Ok(vec![OAuthClientRecord::from(client)]) })
+            });
+        let user_service = MockUserService::default();
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        let clients = service.get_clients().await.unwrap();
+
+        assert_eq!(1, clients.len());
+    }
+
+    #[tokio::test]
+    async fn should_reject_missing_oauth_client() {
         let mut repository = MockOAuthRepository::default();
         repository
             .expect_get_client_record()
-            .return_once(move |_| Box::pin(async move { Ok(Some(client_record)) }));
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let user_service = MockUserService::default();
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        let err = service.get_client(&client_id()).await.unwrap_err();
+
+        assert!(matches!(err, OAuthServiceError::ClientNotFound));
+    }
+
+    #[tokio::test]
+    async fn should_update_oauth_client() {
+        let secret = RawOAuthClientSecret::new();
+        let mut client = oauth_client(&secret);
+        let mut repository = MockOAuthRepository::default();
+        repository
+            .expect_update_client_record()
+            .return_once(move |actual_client_id, update| {
+                assert_eq!(&client.client_id, actual_client_id);
+                client.name = update.name.unwrap();
+                Box::pin(async move { Ok(Some(OAuthClientRecord::from(client))) })
+            });
+        let user_service = MockUserService::default();
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        let updated = service
+            .update_client(
+                &client_id(),
+                UpdateOAuthClientCommand {
+                    name: Some(OAuthClientName::from("Updated")),
+                    redirect_uris: None,
+                    scopes: None,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(OAuthClientName::from("Updated"), updated.name);
+    }
+
+    #[tokio::test]
+    async fn should_reject_missing_oauth_client_update() {
+        let mut repository = MockOAuthRepository::default();
+        repository
+            .expect_update_client_record()
+            .return_once(|_, _| Box::pin(async { Ok(None) }));
         let user_service = MockUserService::default();
         let service = OAuthServiceImpl::new(&repository, &user_service);
 
         let err = service
             .update_client(
-                &UserId::new(),
-                &OAuthClientId::from("client_1"),
-                UpdateClientRequest {
+                &client_id(),
+                UpdateOAuthClientCommand {
                     name: Some(OAuthClientName::from("Updated")),
                     redirect_uris: None,
                     scopes: None,
@@ -656,7 +745,81 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(matches!(err, OAuthServiceError::ClientForbidden));
+        assert!(matches!(err, OAuthServiceError::ClientNotFound));
+    }
+
+    #[tokio::test]
+    async fn should_delete_oauth_client() {
+        let mut repository = MockOAuthRepository::default();
+        repository.expect_delete_client_record().return_once(|_| {
+            Box::pin(async {
+                Ok(aws_sdk_dynamodb::operation::delete_item::DeleteItemOutput::builder().build())
+            })
+        });
+        let user_service = MockUserService::default();
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        service.delete_client(&client_id()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn should_reject_authorize_with_invalid_redirect_uri() {
+        let secret = RawOAuthClientSecret::new();
+        let client = oauth_client(&secret);
+        let mut repository = MockOAuthRepository::default();
+        repository.expect_get_client_record().return_once(move |_| {
+            Box::pin(async move { Ok(Some(OAuthClientRecord::from(client))) })
+        });
+        let user_service = MockUserService::default();
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        let err = service
+            .authorize(
+                &UserId::new(),
+                AuthorizeRequest {
+                    response_type: OAuthResponseType::Code,
+                    client_id: client_id(),
+                    redirect_uri: OAuthRedirectUri::from("https://client.example/other"),
+                    scope: HashSet::from([Scope::ProductsWrite]),
+                    state: None,
+                    code_challenge: OAuthCodeChallenge::from("challenge"),
+                    code_challenge_method: CodeChallengeMethod::S256,
+                },
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, OAuthServiceError::InvalidRedirectUri));
+    }
+
+    #[tokio::test]
+    async fn should_reject_authorize_with_invalid_scope() {
+        let secret = RawOAuthClientSecret::new();
+        let client = oauth_client(&secret);
+        let mut repository = MockOAuthRepository::default();
+        repository.expect_get_client_record().return_once(move |_| {
+            Box::pin(async move { Ok(Some(OAuthClientRecord::from(client))) })
+        });
+        let user_service = MockUserService::default();
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        let err = service
+            .authorize(
+                &UserId::new(),
+                AuthorizeRequest {
+                    response_type: OAuthResponseType::Code,
+                    client_id: client_id(),
+                    redirect_uri: OAuthRedirectUri::from("https://client.example/callback"),
+                    scope: HashSet::from([Scope::ShopsManage]),
+                    state: None,
+                    code_challenge: OAuthCodeChallenge::from("challenge"),
+                    code_challenge_method: CodeChallengeMethod::S256,
+                },
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, OAuthServiceError::InvalidScope));
     }
 
     #[tokio::test]
@@ -730,5 +893,124 @@ mod tests {
 
         assert_eq!(HashSet::from([Scope::ProductsWrite]), response.scopes);
         assert_eq!(None, response.expires);
+    }
+
+    #[tokio::test]
+    async fn should_reject_expired_authorization_code() {
+        let secret = RawOAuthClientSecret::new();
+        let client = oauth_client(&secret);
+        let now = OffsetDateTime::now_utc();
+        let code = AuthorizationCode {
+            code: OAuthAuthorizationCode::new(),
+            client_id: client.client_id,
+            user_id: UserId::new(),
+            redirect_uri: OAuthRedirectUri::from("https://client.example/callback"),
+            scopes: HashSet::from([Scope::ProductsWrite]),
+            code_challenge: OAuthCodeChallenge::from("challenge"),
+            code_challenge_method: CodeChallengeMethod::S256,
+            expires: now - time::Duration::minutes(1),
+            created: now,
+        };
+        let mut repository = MockOAuthRepository::default();
+        repository.expect_get_client_record().return_once(move |_| {
+            Box::pin(async move { Ok(Some(OAuthClientRecord::from(client))) })
+        });
+        repository
+            .expect_get_authorization_code_record()
+            .return_once(move |_| {
+                Box::pin(async move { Ok(Some(AuthorizationCodeRecord::from(code))) })
+            });
+        repository
+            .expect_delete_authorization_code_record()
+            .return_once(|_| {
+                Box::pin(async {
+                    Ok(
+                        aws_sdk_dynamodb::operation::delete_item::DeleteItemOutput::builder()
+                            .build(),
+                    )
+                })
+            });
+        let user_service = MockUserService::default();
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        let err = service
+            .token(TokenRequest {
+                grant_type: OAuthGrantType::AuthorizationCode,
+                code: OAuthAuthorizationCode::new(),
+                redirect_uri: OAuthRedirectUri::from("https://client.example/callback"),
+                client_id: client_id(),
+                client_secret: secret,
+                code_verifier: OAuthCodeVerifier::from("verifier"),
+            })
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, OAuthServiceError::AuthorizationCodeExpired));
+    }
+
+    #[tokio::test]
+    async fn should_revoke_oauth_access_token() {
+        let secret = RawOAuthClientSecret::new();
+        let client = oauth_client(&secret);
+        let mut repository = MockOAuthRepository::default();
+        repository.expect_get_client_record().return_once(move |_| {
+            Box::pin(async move { Ok(Some(OAuthClientRecord::from(client))) })
+        });
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_delete_access_token_by_raw()
+            .return_once(|_| Box::pin(async { Ok(()) }));
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        service
+            .revoke(TokenRevocationRequest {
+                token: RawAccessToken::new(),
+                client_id: client_id(),
+                client_secret: secret,
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn should_introspect_active_oauth_access_token() {
+        let secret = RawOAuthClientSecret::new();
+        let client = oauth_client(&secret);
+        let raw = RawAccessToken::new();
+        let now = OffsetDateTime::now_utc();
+        let access_token = AccessToken {
+            id: AccessTokenId::new(),
+            hashed_token: raw.clone().into(),
+            user_id: UserId::new(),
+            name: "OAuth token".into(),
+            scopes: HashSet::from([Scope::ProductsWrite]),
+            origin: AccessTokenOrigin::OAuth {
+                client_id: client.client_id.to_string(),
+            },
+            expires: None,
+            created: now,
+            updated: now,
+        };
+        let mut repository = MockOAuthRepository::default();
+        repository.expect_get_client_record().return_once(move |_| {
+            Box::pin(async move { Ok(Some(OAuthClientRecord::from(client))) })
+        });
+        let mut user_service = MockUserService::default();
+        user_service
+            .expect_find_access_token_by_raw()
+            .return_once(move |_| Box::pin(async move { Ok(access_token) }));
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        let response = service
+            .introspect(TokenIntrospectionRequest {
+                token: raw,
+                client_id: client_id(),
+                client_secret: secret,
+            })
+            .await
+            .unwrap();
+
+        assert!(response.active);
+        assert_eq!(Some(client_id()), response.client_id);
     }
 }

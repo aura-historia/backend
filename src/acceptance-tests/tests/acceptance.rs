@@ -31,11 +31,12 @@ use notification::{
 };
 use notification_api::notification_get::EventIdCursoredData;
 use oauth::{
-    core::client::OAuthRedirectUri,
+    core::client::{OAuthClient, OAuthClientId, OAuthClientName, OAuthRedirectUri},
     data::{
         IntrospectionResponseData, OAuthClientMetadataRequestData, OAuthClientMetadataResponseData,
         TokenResponseData,
     },
+    dynamodb::{client_record::OAuthClientRecord, repository::OAuthRepository},
 };
 use opensearch::GetParts;
 use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
@@ -1963,28 +1964,27 @@ async fn should_complete_oauth_authorization_code_flow() {
     let cfn = get_cfn_output();
     let user = create_random_test_user().await;
     let redirect_uri = OAuthRedirectUri::from("https://client.example/callback");
-
-    let create_client_response = reqwest::Client::new()
-        .post(format!(
-            "{}/api/v1/oauth/clients",
-            cfn.api_gateway_endpoint_url
-        ))
-        .bearer_auth(user.id_token.clone())
-        .json(&OAuthClientMetadataRequestData {
-            client_name: "Acceptance OAuth client".to_owned(),
-            redirect_uris: HashSet::from([redirect_uri.to_string()]),
-            scope: HashSet::from([ScopeData::ProductsWrite]),
-        })
-        .send()
+    let client_secret = user::core::access_token::RawOAuthClientSecret::new();
+    let client = OAuthClient {
+        client_id: OAuthClientId::new(),
+        hashed_client_secret: client_secret.clone().into(),
+        name: OAuthClientName::from("Acceptance OAuth client"),
+        redirect_uris: HashSet::from([redirect_uri.clone()]),
+        scopes: HashSet::from([Scope::ProductsWrite]),
+        created_by: user.sub.into(),
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+    };
+    let oauth_repository = oauth::dynamodb::repository::OAuthDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &cfn.dynamodb_table_1_name,
+    );
+    oauth_repository
+        .put_client_record(OAuthClientRecord::from(client.clone()))
         .await
         .unwrap();
-    assert_eq!(201, create_client_response.status());
-    let created_client = create_client_response
-        .json::<OAuthClientMetadataResponseData>()
-        .await
-        .unwrap();
-    let client_id = created_client.client_id;
-    let client_secret_string = created_client.client_secret.unwrap();
+    let client_id = client.client_id.to_string();
+    let client_secret_string = String::from(client_secret);
 
     let http = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -2111,6 +2111,86 @@ async fn should_complete_oauth_authorization_code_flow() {
         .await
         .unwrap();
     assert!(!introspection.active);
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_manage_oauth_client_metadata() {
+    let cfn = get_cfn_output();
+    let admin = create_admin_test_user().await;
+    let url = format!("{}/api/v1/oauth/clients", cfn.api_gateway_endpoint_url);
+
+    let create_response = reqwest::Client::new()
+        .post(&url)
+        .bearer_auth(admin.access_token.clone())
+        .json(&OAuthClientMetadataRequestData {
+            client_name: "Acceptance OAuth client".to_owned(),
+            redirect_uris: HashSet::from(["https://client.example/callback".to_owned()]),
+            scope: HashSet::from([ScopeData::ProductsWrite]),
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(201, create_response.status());
+    assert!(
+        create_response
+            .headers()
+            .contains_key(http::header::LOCATION)
+    );
+    let created = create_response
+        .json::<OAuthClientMetadataResponseData>()
+        .await
+        .unwrap();
+
+    let get_all_response = reqwest::Client::new()
+        .get(&url)
+        .bearer_auth(admin.access_token.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, get_all_response.status());
+    let clients = get_all_response
+        .json::<Vec<OAuthClientMetadataResponseData>>()
+        .await
+        .unwrap();
+    assert!(
+        clients
+            .iter()
+            .any(|client| client.client_id == created.client_id)
+    );
+
+    let get_one_response = reqwest::Client::new()
+        .get(format!("{}/{}", url, created.client_id))
+        .bearer_auth(admin.access_token.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, get_one_response.status());
+
+    let patch_response = reqwest::Client::new()
+        .patch(format!("{}/{}", url, created.client_id))
+        .bearer_auth(admin.access_token.clone())
+        .json(&oauth::data::OAuthClientMetadataPatchData {
+            client_name: Some("Updated acceptance OAuth client".to_owned()),
+            redirect_uris: Some(HashSet::from(["https://client.example/updated".to_owned()])),
+            scope: Some(HashSet::from([ScopeData::ShopsManage])),
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, patch_response.status());
+    let updated = patch_response
+        .json::<OAuthClientMetadataResponseData>()
+        .await
+        .unwrap();
+    assert_eq!("Updated acceptance OAuth client", updated.client_name);
+
+    let delete_response = reqwest::Client::new()
+        .delete(format!("{}/{}", url, created.client_id))
+        .bearer_auth(admin.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(204, delete_response.status());
 }
 
 // ---------------------------------------------------------------------------
