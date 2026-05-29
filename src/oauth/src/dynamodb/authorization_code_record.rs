@@ -1,7 +1,8 @@
 use crate::core::authorization_code::{
     AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge,
 };
-use crate::core::client::{OAuthClientId, OAuthRedirectUri};
+use crate::core::client::OAuthRedirectUri;
+use common::oauth_client_id::OAuthClientId;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashSet;
@@ -73,7 +74,7 @@ impl From<AuthorizationCodeRecord> for AuthorizationCode {
 mod tests {
     use super::*;
     use crate::core::authorization_code::OAuthCodeChallenge;
-    use common::user_id::UserId;
+    use common::{oauth_client_id::OAuthClientId, user_id::UserId};
     use std::collections::HashSet;
     use time::OffsetDateTime;
 

@@ -1,5 +1,6 @@
+use common::oauth_client_id::OAuthClientId;
 use oauth::core::authorization_code::{AuthorizationCode, CodeChallengeMethod, OAuthCodeChallenge};
-use oauth::core::client::{OAuthClient, OAuthClientId, OAuthClientName, OAuthRedirectUri};
+use oauth::core::client::{OAuthClient, OAuthClientName, OAuthRedirectUri};
 use oauth::dynamodb::authorization_code_record::AuthorizationCodeRecord;
 use oauth::dynamodb::client_record::OAuthClientRecord;
 use oauth::dynamodb::client_record_update::OAuthClientRecordUpdate;

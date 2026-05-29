@@ -6,11 +6,12 @@ use common::api::error_code::{
     BAD_BODY_VALUE, BAD_PATH_PARAMETER_VALUE, BAD_QUERY_PARAMETER_VALUE, INTERNAL_SERVER_ERROR,
     INVALID_UUID, UNAUTHORIZED,
 };
+use common::oauth_client_id::OAuthClientId;
 use lambda_runtime::LambdaEvent;
 use oauth::core::authorization_code::{
     CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge, OAuthCodeVerifier,
 };
-use oauth::core::client::{OAuthClientId, OAuthRedirectUri};
+use oauth::core::client::OAuthRedirectUri;
 use oauth::data::{
     OAuthClientMetadataPatchData, OAuthClientMetadataRequestData, OAuthClientMetadataResponseData,
 };

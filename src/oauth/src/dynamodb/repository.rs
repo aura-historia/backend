@@ -1,5 +1,4 @@
 use crate::core::authorization_code::OAuthAuthorizationCode;
-use crate::core::client::OAuthClientId;
 use crate::dynamodb::authorization_code_record::{self, AuthorizationCodeRecord};
 use crate::dynamodb::client_record::{self, OAuthClientRecord};
 use crate::dynamodb::client_record_update::OAuthClientRecordUpdate;
@@ -16,6 +15,7 @@ use aws_sdk_dynamodb::{
     types::{AttributeValue, ReturnValue},
 };
 use common::dynamodb_update::DynamoDbUpdate;
+use common::oauth_client_id::OAuthClientId;
 use tracing::error;
 
 #[async_trait::async_trait]

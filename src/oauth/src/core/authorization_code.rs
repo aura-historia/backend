@@ -1,5 +1,5 @@
-use crate::core::client::{OAuthClientId, OAuthRedirectUri};
-use common::{string_newtype, user_id::UserId, uuid_v7_newtype};
+use crate::core::client::OAuthRedirectUri;
+use common::{oauth_client_id::OAuthClientId, string_newtype, user_id::UserId, uuid_v7_newtype};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use user::core::access_token::Scope;

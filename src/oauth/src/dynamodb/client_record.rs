@@ -1,4 +1,5 @@
-use crate::core::client::{OAuthClient, OAuthClientId, OAuthClientName, OAuthRedirectUri};
+use crate::core::client::{OAuthClient, OAuthClientName, OAuthRedirectUri};
+use common::oauth_client_id::OAuthClientId;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashSet;

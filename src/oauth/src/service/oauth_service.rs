@@ -2,7 +2,7 @@ use crate::core::authorization_code::{
     AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge,
     OAuthCodeVerifier,
 };
-use crate::core::client::{OAuthClient, OAuthClientId, OAuthClientName, OAuthRedirectUri};
+use crate::core::client::{OAuthClient, OAuthClientName, OAuthRedirectUri};
 use crate::dynamodb::authorization_code_record::AuthorizationCodeRecord;
 use crate::dynamodb::client_record::OAuthClientRecord;
 use crate::dynamodb::client_record_update::OAuthClientRecordUpdate;
@@ -10,6 +10,7 @@ use crate::dynamodb::repository::OAuthRepository;
 use aws_sdk_dynamodb::error::SdkError;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use common::oauth_client_id::OAuthClientId;
 use common::{string_newtype, user_id::UserId};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -411,7 +412,7 @@ impl OAuthService for OAuthServiceImpl<'_> {
                     scopes: code.scopes,
                     expires: None,
                     origin: AccessTokenOrigin::OAuth {
-                        client_id: client.client_id.into(),
+                        client_id: client.client_id,
                     },
                 },
             )
@@ -465,7 +466,7 @@ impl OAuthService for OAuthServiceImpl<'_> {
             Err(err) => return Err(err.into()),
         };
         let client_id = match &token.origin {
-            AccessTokenOrigin::OAuth { client_id } => OAuthClientId::try_from(client_id).ok(),
+            AccessTokenOrigin::OAuth { client_id } => Some(*client_id),
             AccessTokenOrigin::User => None,
         };
         Ok(IntrospectionResponse {
@@ -985,7 +986,7 @@ mod tests {
             name: "OAuth token".into(),
             scopes: HashSet::from([Scope::ProductsWrite]),
             origin: AccessTokenOrigin::OAuth {
-                client_id: client.client_id.to_string(),
+                client_id: client.client_id,
             },
             expires: None,
             created: now,

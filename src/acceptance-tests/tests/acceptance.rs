@@ -1,6 +1,7 @@
 use aws_tests_common::get_cfn_output;
 use base64::Engine;
 use common::execution_state::data::ExecutionStateData;
+use common::oauth_client_id::OAuthClientId;
 use common::personalized::api::PersonalizedData;
 use common::resource_state::record::ResourceStateRecord;
 use common::{
@@ -31,7 +32,7 @@ use notification::{
 };
 use notification_api::notification_get::EventIdCursoredData;
 use oauth::{
-    core::client::{OAuthClient, OAuthClientId, OAuthClientName, OAuthRedirectUri},
+    core::client::{OAuthClient, OAuthClientName, OAuthRedirectUri},
     data::{
         IntrospectionResponseData, OAuthClientMetadataRequestData, OAuthClientMetadataResponseData,
         TokenResponseData,
