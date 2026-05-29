@@ -307,15 +307,15 @@ fn parse_form(
     body: Option<String>,
     is_base64_encoded: bool,
 ) -> Result<std::collections::HashMap<String, String>, ApiError> {
-    let body = body
+    let body_value = body
         .filter(|body| !body.is_empty())
         .ok_or_else(|| ApiError::bad_request(BAD_BODY_VALUE, "Body cannot be empty".into()))?;
     let bytes = if is_base64_encoded {
         base64::engine::general_purpose::STANDARD
-            .decode(body.as_bytes())
+            .decode(body_value.as_bytes())
             .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)))?
     } else {
-        body.into_bytes()
+        body_value.into_bytes()
     };
     Ok(url::form_urlencoded::parse(&bytes).into_owned().collect())
 }

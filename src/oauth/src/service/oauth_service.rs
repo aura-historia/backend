@@ -262,7 +262,7 @@ impl OAuthService for OAuthServiceImpl<'_> {
         let now = OffsetDateTime::now_utc();
         let raw_secret = RawOAuthClientSecret::new();
         let client = OAuthClient {
-            client_id: OAuthClientId::from(format!("client_{}", uuid::Uuid::new_v4())),
+            client_id: OAuthClientId::from(format!("client-{}", uuid::Uuid::new_v4())),
             hashed_client_secret: HashedRawOAuthClientSecret::from(raw_secret.clone()),
             name: request.name,
             redirect_uris: request.redirect_uris,
@@ -301,7 +301,7 @@ impl OAuthService for OAuthServiceImpl<'_> {
         client_id: &OAuthClientId,
         request: UpdateClientRequest,
     ) -> Result<OAuthClient, OAuthServiceError> {
-        let _ = self.find_client_for_user(user_id, client_id).await?;
+        let _authorized_client = self.find_client_for_user(user_id, client_id).await?;
         if let Some(redirect_uris) = &request.redirect_uris {
             validate_redirect_uris(redirect_uris)
                 .map_err(OAuthServiceError::InvalidClientMetadata)?;
