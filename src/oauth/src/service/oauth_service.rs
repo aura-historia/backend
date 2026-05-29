@@ -2,8 +2,10 @@ use crate::core::authorization_code::{
     AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge,
     OAuthCodeVerifier,
 };
-use crate::core::client::{OAuthClient, OAuthClientId, OAuthRedirectUri};
+use crate::core::client::{OAuthClient, OAuthClientId, OAuthClientName, OAuthRedirectUri};
 use crate::dynamodb::authorization_code_record::AuthorizationCodeRecord;
+use crate::dynamodb::client_record::OAuthClientRecord;
+use crate::dynamodb::client_record_update::OAuthClientRecordUpdate;
 use crate::dynamodb::repository::OAuthRepository;
 use aws_sdk_dynamodb::error::SdkError;
 use base64::Engine;
@@ -12,7 +14,9 @@ use common::{string_newtype, user_id::UserId};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
-use user::core::access_token::{AccessTokenOrigin, RawAccessToken, RawOAuthClientSecret, Scope};
+use user::core::access_token::{
+    AccessTokenOrigin, HashedRawOAuthClientSecret, RawAccessToken, RawOAuthClientSecret, Scope,
+};
 use user::service::command::CreateAccessTokenCommand;
 use user::service::user_service::{UserService, UserServiceError};
 
@@ -94,6 +98,20 @@ pub struct TokenRevocationRequest {
     pub client_secret: RawOAuthClientSecret,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreateClientRequest {
+    pub name: OAuthClientName,
+    pub redirect_uris: HashSet<OAuthRedirectUri>,
+    pub scopes: HashSet<Scope>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UpdateClientRequest {
+    pub name: Option<OAuthClientName>,
+    pub redirect_uris: Option<HashSet<OAuthRedirectUri>>,
+    pub scopes: Option<HashSet<Scope>>,
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum OAuthServiceError {
     #[error("OAuth client not found.")]
@@ -114,10 +132,18 @@ pub enum OAuthServiceError {
     AuthorizationCodeRedirectUriMismatch,
     #[error("PKCE code_verifier did not match code_challenge.")]
     InvalidCodeVerifier,
+    #[error("OAuth client does not belong to the authenticated user.")]
+    ClientForbidden,
+    #[error("OAuth client metadata is invalid: {0}")]
+    InvalidClientMetadata(String),
     #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(#[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>),
     #[error("Encountered DynamoDB SdkError for PutItem: {0:?}")]
     SdkPutItemError(#[from] SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError>),
+    #[error("Encountered DynamoDB SdkError for Query: {0:?}")]
+    SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError>),
+    #[error("Encountered DynamoDB SdkError for UpdateItem: {0:?}")]
+    SdkUpdateItemError(#[from] SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError>),
     #[error("Encountered DynamoDB SdkError for DeleteItem: {0:?}")]
     SdkDeleteItemError(#[from] SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError>),
     #[error("User service error: {0}")]
@@ -127,6 +153,33 @@ pub enum OAuthServiceError {
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait OAuthService {
+    async fn create_client(
+        &self,
+        user_id: &UserId,
+        request: CreateClientRequest,
+    ) -> Result<(RawOAuthClientSecret, OAuthClient), OAuthServiceError>;
+
+    async fn get_clients(&self, user_id: &UserId) -> Result<Vec<OAuthClient>, OAuthServiceError>;
+
+    async fn get_client(
+        &self,
+        user_id: &UserId,
+        client_id: &OAuthClientId,
+    ) -> Result<OAuthClient, OAuthServiceError>;
+
+    async fn update_client(
+        &self,
+        user_id: &UserId,
+        client_id: &OAuthClientId,
+        request: UpdateClientRequest,
+    ) -> Result<OAuthClient, OAuthServiceError>;
+
+    async fn delete_client(
+        &self,
+        user_id: &UserId,
+        client_id: &OAuthClientId,
+    ) -> Result<(), OAuthServiceError>;
+
     async fn authorize(
         &self,
         user_id: &UserId,
@@ -182,10 +235,100 @@ impl<'a> OAuthServiceImpl<'a> {
             Err(OAuthServiceError::InvalidClientSecret)
         }
     }
+
+    async fn find_client_for_user(
+        &self,
+        user_id: &UserId,
+        client_id: &OAuthClientId,
+    ) -> Result<OAuthClient, OAuthServiceError> {
+        let client = self.find_client(client_id).await?;
+        if &client.created_by == user_id {
+            Ok(client)
+        } else {
+            Err(OAuthServiceError::ClientForbidden)
+        }
+    }
 }
 
 #[async_trait::async_trait]
 impl OAuthService for OAuthServiceImpl<'_> {
+    async fn create_client(
+        &self,
+        user_id: &UserId,
+        request: CreateClientRequest,
+    ) -> Result<(RawOAuthClientSecret, OAuthClient), OAuthServiceError> {
+        validate_redirect_uris(&request.redirect_uris)?;
+        let now = OffsetDateTime::now_utc();
+        let raw_secret = RawOAuthClientSecret::new();
+        let client = OAuthClient {
+            client_id: OAuthClientId::from(format!("client_{}", uuid::Uuid::new_v4())),
+            hashed_client_secret: HashedRawOAuthClientSecret::from(raw_secret.clone()),
+            name: request.name,
+            redirect_uris: request.redirect_uris,
+            scopes: request.scopes,
+            created_by: *user_id,
+            created: now,
+            updated: now,
+        };
+        self.repository
+            .put_client_record(OAuthClientRecord::from(client.clone()))
+            .await?;
+        Ok((raw_secret, client))
+    }
+
+    async fn get_clients(&self, user_id: &UserId) -> Result<Vec<OAuthClient>, OAuthServiceError> {
+        Ok(self
+            .repository
+            .query_client_records(user_id)
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect())
+    }
+
+    async fn get_client(
+        &self,
+        user_id: &UserId,
+        client_id: &OAuthClientId,
+    ) -> Result<OAuthClient, OAuthServiceError> {
+        self.find_client_for_user(user_id, client_id).await
+    }
+
+    async fn update_client(
+        &self,
+        user_id: &UserId,
+        client_id: &OAuthClientId,
+        request: UpdateClientRequest,
+    ) -> Result<OAuthClient, OAuthServiceError> {
+        let _ = self.find_client_for_user(user_id, client_id).await?;
+        if let Some(redirect_uris) = &request.redirect_uris {
+            validate_redirect_uris(redirect_uris)?;
+        }
+        let update = OAuthClientRecordUpdate {
+            name: request.name,
+            redirect_uris: request.redirect_uris,
+            scopes: request
+                .scopes
+                .map(|scopes| scopes.into_iter().map(Into::into).collect()),
+            updated: OffsetDateTime::now_utc(),
+        };
+        self.repository
+            .update_client_record(client_id, update)
+            .await?
+            .map(Into::into)
+            .ok_or(OAuthServiceError::ClientNotFound)
+    }
+
+    async fn delete_client(
+        &self,
+        user_id: &UserId,
+        client_id: &OAuthClientId,
+    ) -> Result<(), OAuthServiceError> {
+        let _ = self.find_client_for_user(user_id, client_id).await?;
+        self.repository.delete_client_record(client_id).await?;
+        Ok(())
+    }
+
     async fn authorize(
         &self,
         user_id: &UserId,
@@ -338,6 +481,29 @@ fn append_query_params(uri: &str, params: HashMap<&str, String>) -> String {
 fn verify_s256(verifier: &str, expected_challenge: &str) -> bool {
     let digest = Sha256::digest(verifier.as_bytes());
     URL_SAFE_NO_PAD.encode(digest) == expected_challenge
+}
+
+fn validate_redirect_uris(
+    redirect_uris: &HashSet<OAuthRedirectUri>,
+) -> Result<(), OAuthServiceError> {
+    if redirect_uris.is_empty() {
+        return Err(OAuthServiceError::InvalidClientMetadata(
+            "redirect_uris cannot be empty".to_owned(),
+        ));
+    }
+    for redirect_uri in redirect_uris {
+        let url = url::Url::parse(redirect_uri.as_ref()).map_err(|err| {
+            OAuthServiceError::InvalidClientMetadata(format!(
+                "redirect_uri '{redirect_uri}' is not a valid URL: {err}"
+            ))
+        })?;
+        if url.scheme() != "https" {
+            return Err(OAuthServiceError::InvalidClientMetadata(format!(
+                "redirect_uri '{redirect_uri}' must use https"
+            )));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

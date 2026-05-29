@@ -1,14 +1,19 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use base64::Engine as _;
+use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::{ApiError, log_api_error};
 use common::api::error_code::{
-    BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE, INTERNAL_SERVER_ERROR, UNAUTHORIZED,
+    BAD_BODY_VALUE, BAD_PATH_PARAMETER_VALUE, BAD_QUERY_PARAMETER_VALUE, FORBIDDEN,
+    INTERNAL_SERVER_ERROR, UNAUTHORIZED,
 };
 use lambda_runtime::LambdaEvent;
 use oauth::core::authorization_code::{
     CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge, OAuthCodeVerifier,
 };
 use oauth::core::client::{OAuthClientId, OAuthRedirectUri};
+use oauth::data::{
+    OAuthClientMetadataPatchData, OAuthClientMetadataRequestData, OAuthClientMetadataResponseData,
+};
 use oauth::service::oauth_service::{
     AuthorizeRequest, OAuthGrantType, OAuthResponseType, OAuthService, OAuthServiceError,
     OAuthState, TokenIntrospectionRequest, TokenRequest, TokenRevocationRequest,
@@ -49,6 +54,11 @@ pub async fn handle(
     service: &(impl OAuthService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
+        Some("POST /api/v1/oauth/clients") => create_client(event, service).await,
+        Some("GET /api/v1/oauth/clients") => get_clients(event, service).await,
+        Some("GET /api/v1/oauth/clients/{clientId}") => get_client(event, service).await,
+        Some("PATCH /api/v1/oauth/clients/{clientId}") => update_client(event, service).await,
+        Some("DELETE /api/v1/oauth/clients/{clientId}") => delete_client(event, service).await,
         Some("GET /api/v1/oauth/authorize") => authorize(event, service).await,
         Some("POST /api/v1/oauth/token") => token(event, service).await,
         Some("POST /api/v1/oauth/revoke") => revoke(event, service).await,
@@ -62,6 +72,96 @@ pub async fn handle(
             "Missing route-key in AWS-Payload".into(),
         )),
     }
+}
+
+async fn create_client(
+    event: LambdaEvent<ApiGatewayV2httpRequest>,
+    service: &impl OAuthService,
+) -> Result<ApiGatewayV2httpResponse, ApiError> {
+    let user_id =
+        common::user_id::api::extract_user_id_request_context(&event.payload.request_context)?;
+    let data: OAuthClientMetadataRequestData =
+        serde_json::from_str(&non_empty_body(event.payload.body)?).map_err(bad_json)?;
+    let response: OAuthClientMetadataResponseData = service
+        .create_client(&user_id, data.into())
+        .await
+        .map_err(oauth_error)?
+        .into();
+    Ok(ApiGatewayV2HttpResponseBuilder::json(201)
+        .cache_control("no-store", None, None)
+        .body_serde(response)?
+        .build())
+}
+
+async fn get_clients(
+    event: LambdaEvent<ApiGatewayV2httpRequest>,
+    service: &impl OAuthService,
+) -> Result<ApiGatewayV2httpResponse, ApiError> {
+    let user_id =
+        common::user_id::api::extract_user_id_request_context(&event.payload.request_context)?;
+    let response: Vec<OAuthClientMetadataResponseData> = service
+        .get_clients(&user_id)
+        .await
+        .map_err(oauth_error)?
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    Ok(ApiGatewayV2HttpResponseBuilder::json(200)
+        .cache_control("no-store", None, None)
+        .body_serde(response)?
+        .build())
+}
+
+async fn get_client(
+    event: LambdaEvent<ApiGatewayV2httpRequest>,
+    service: &impl OAuthService,
+) -> Result<ApiGatewayV2httpResponse, ApiError> {
+    let user_id =
+        common::user_id::api::extract_user_id_request_context(&event.payload.request_context)?;
+    let client_id = extract_client_id_path(&event.payload.path_parameters)?;
+    let response: OAuthClientMetadataResponseData = service
+        .get_client(&user_id, &client_id)
+        .await
+        .map_err(oauth_error)?
+        .into();
+    Ok(ApiGatewayV2HttpResponseBuilder::json(200)
+        .cache_control("no-store", None, None)
+        .body_serde(response)?
+        .build())
+}
+
+async fn update_client(
+    event: LambdaEvent<ApiGatewayV2httpRequest>,
+    service: &impl OAuthService,
+) -> Result<ApiGatewayV2httpResponse, ApiError> {
+    let user_id =
+        common::user_id::api::extract_user_id_request_context(&event.payload.request_context)?;
+    let client_id = extract_client_id_path(&event.payload.path_parameters)?;
+    let data: OAuthClientMetadataPatchData =
+        serde_json::from_str(&non_empty_body(event.payload.body)?).map_err(bad_json)?;
+    let response: OAuthClientMetadataResponseData = service
+        .update_client(&user_id, &client_id, data.into())
+        .await
+        .map_err(oauth_error)?
+        .into();
+    Ok(ApiGatewayV2HttpResponseBuilder::json(200)
+        .cache_control("no-store", None, None)
+        .body_serde(response)?
+        .build())
+}
+
+async fn delete_client(
+    event: LambdaEvent<ApiGatewayV2httpRequest>,
+    service: &impl OAuthService,
+) -> Result<ApiGatewayV2httpResponse, ApiError> {
+    let user_id =
+        common::user_id::api::extract_user_id_request_context(&event.payload.request_context)?;
+    let client_id = extract_client_id_path(&event.payload.path_parameters)?;
+    service
+        .delete_client(&user_id, &client_id)
+        .await
+        .map_err(oauth_error)?;
+    Ok(ApiGatewayV2HttpResponseBuilder::new(204).build())
 }
 
 async fn authorize(
@@ -175,6 +275,34 @@ fn required_query<'a>(
     })
 }
 
+fn extract_client_id_path(
+    path_parameters: &std::collections::HashMap<String, String>,
+) -> Result<OAuthClientId, ApiError> {
+    path_parameters
+        .get("clientId")
+        .map(OAuthClientId::from)
+        .ok_or_else(|| {
+            ApiError::bad_request(
+                BAD_PATH_PARAMETER_VALUE,
+                "Missing path parameter clientId".into(),
+            )
+            .with_detail("Missing path parameter clientId")
+            .with_path_field("clientId")
+        })
+}
+
+fn non_empty_body(body: Option<String>) -> Result<String, ApiError> {
+    body.filter(|body| !body.is_empty()).ok_or_else(|| {
+        ApiError::bad_request(BAD_BODY_VALUE, "Body cannot be empty".into())
+            .with_detail("Body cannot be empty")
+    })
+}
+
+fn bad_json(err: serde_json::Error) -> ApiError {
+    let err_msg = err.to_string();
+    ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
+}
+
 fn parse_form(
     body: Option<String>,
     is_base64_encoded: bool,
@@ -245,6 +373,12 @@ fn oauth_error(err: OAuthServiceError) -> ApiError {
         OAuthServiceError::InvalidRedirectUri | OAuthServiceError::InvalidScope => {
             ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE, Box::new(err))
         }
+        OAuthServiceError::ClientForbidden => {
+            ApiError::forbidden(FORBIDDEN).with_detail(err.to_string())
+        }
+        OAuthServiceError::InvalidClientMetadata(_) => {
+            ApiError::bad_request(BAD_BODY_VALUE, Box::new(err))
+        }
         OAuthServiceError::AuthorizationCodeNotFound
         | OAuthServiceError::AuthorizationCodeExpired
         | OAuthServiceError::AuthorizationCodeClientMismatch
@@ -254,6 +388,8 @@ fn oauth_error(err: OAuthServiceError) -> ApiError {
         }
         OAuthServiceError::SdkGetItemError(sdk_error) => sdk_error.into(),
         OAuthServiceError::SdkPutItemError(sdk_error) => sdk_error.into(),
+        OAuthServiceError::SdkQueryError(sdk_error) => sdk_error.into(),
+        OAuthServiceError::SdkUpdateItemError(sdk_error) => sdk_error.into(),
         OAuthServiceError::SdkDeleteItemError(sdk_error) => sdk_error.into(),
         OAuthServiceError::UserServiceError(user_err) => user_err.into(),
     }
