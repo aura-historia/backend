@@ -90,6 +90,7 @@ async fn create_client(
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id =
         common::user_id::api::extract_user_id_request_context(&event.payload.request_context)?;
+    tracing::Span::current().record("userId", user_id.to_string());
     user_service.check_admin(&user_id).await?;
     let data: OAuthClientMetadataRequestData =
         serde_json::from_str(&non_empty_body(event.payload.body)?).map_err(bad_json)?;
@@ -146,6 +147,7 @@ async fn update_client(
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id =
         common::user_id::api::extract_user_id_request_context(&event.payload.request_context)?;
+    tracing::Span::current().record("userId", user_id.to_string());
     user_service.check_admin(&user_id).await?;
     let client_id = extract_client_id_path(&event.payload.path_parameters)?;
     let data: OAuthClientMetadataPatchData =
@@ -165,6 +167,7 @@ async fn delete_client(
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id =
         common::user_id::api::extract_user_id_request_context(&event.payload.request_context)?;
+    tracing::Span::current().record("userId", user_id.to_string());
     user_service.check_admin(&user_id).await?;
     let client_id = extract_client_id_path(&event.payload.path_parameters)?;
     service.delete_client(&client_id).await?;
