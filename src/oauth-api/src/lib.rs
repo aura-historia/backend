@@ -399,10 +399,92 @@ fn oauth_error(err: OAuthServiceError) -> ApiError {
 mod tests {
     use super::*;
     use lambda_runtime::LambdaEvent;
+    use oauth::core::client::{OAuthClient, OAuthClientName};
     use oauth::service::oauth_service::{
         AuthorizeResponse, IntrospectionResponse, MockOAuthService, OAuthTokenType, TokenResponse,
     };
     use test_api::ApiGatewayV2httpRequestProxy;
+
+    fn oauth_client(user_id: common::user_id::UserId) -> OAuthClient {
+        let secret = RawOAuthClientSecret::new();
+        let now = time::OffsetDateTime::now_utc();
+        OAuthClient {
+            client_id: OAuthClientId::from("client_1"),
+            hashed_client_secret: secret.into(),
+            name: OAuthClientName::from("Client"),
+            redirect_uris: HashSet::from([OAuthRedirectUri::from(
+                "https://client.example/callback",
+            )]),
+            scopes: HashSet::from([Scope::ProductsWrite]),
+            created_by: user_id,
+            created: now,
+            updated: now,
+        }
+    }
+
+    #[tokio::test]
+    async fn should_create_client_metadata() {
+        let user_id = common::user_id::UserId::new();
+        let mut service = MockOAuthService::default();
+        service
+            .expect_create_client()
+            .return_once(move |actual_user_id, request| {
+                assert_eq!(&user_id, actual_user_id);
+                assert_eq!(OAuthClientName::from("Client"), request.name);
+                Box::pin(async move { Ok((RawOAuthClientSecret::new(), oauth_client(user_id))) })
+            });
+        let event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::POST)
+                .route_key("POST /api/v1/oauth/clients")
+                .jwt_claim("sub", user_id)
+                .body_serde(&OAuthClientMetadataRequestData {
+                    client_name: "Client".to_owned(),
+                    redirect_uris: HashSet::from(["https://client.example/callback".to_owned()]),
+                    scope: HashSet::from([ScopeData::ProductsWrite]),
+                })
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = create_client(event, &service).await.unwrap();
+        assert_eq!(201, response.status_code);
+        let body = match response.body.unwrap() {
+            aws_lambda_events::encodings::Body::Text(body) => body,
+            body => panic!("unexpected response body: {body:?}"),
+        };
+        assert!(body.contains("client_secret"));
+    }
+
+    #[tokio::test]
+    async fn should_get_client_metadata() {
+        let user_id = common::user_id::UserId::new();
+        let mut service = MockOAuthService::default();
+        service
+            .expect_get_client()
+            .return_once(move |actual_user_id, client_id| {
+                assert_eq!(&user_id, actual_user_id);
+                assert_eq!(&OAuthClientId::from("client_1"), client_id);
+                Box::pin(async move { Ok(oauth_client(user_id)) })
+            });
+        let event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/oauth/clients/{clientId}")
+                .jwt_claim("sub", user_id)
+                .path_parameter("clientId", "client_1")
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = get_client(event, &service).await.unwrap();
+        assert_eq!(200, response.status_code);
+        let body = match response.body.unwrap() {
+            aws_lambda_events::encodings::Body::Text(body) => body,
+            body => panic!("unexpected response body: {body:?}"),
+        };
+        assert!(!body.contains("client_secret"));
+    }
 
     #[tokio::test]
     async fn should_authorize() {

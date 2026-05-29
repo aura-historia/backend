@@ -2126,6 +2126,46 @@ Resources:
 
 
   # --- OAuth API ---
+  OAuthApiCreateClientRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/oauth/clients"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiGetClientsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/oauth/clients"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiGetClientRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/oauth/clients/{clientId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiUpdateClientRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PATCH /api/v1/oauth/clients/{clientId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiDeleteClientRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "DELETE /api/v1/oauth/clients/{clientId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
   OAuthApiAuthorizeRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -2184,6 +2224,7 @@ Resources:
                 Action:
                   - dynamodb:GetItem
                   - dynamodb:PutItem
+                  - dynamodb:UpdateItem
                   - dynamodb:DeleteItem
                   - dynamodb:Query
                 Resource:

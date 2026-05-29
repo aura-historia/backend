@@ -606,6 +606,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_create_oauth_client() {
+        let user_id = UserId::new();
+        let mut repository = MockOAuthRepository::default();
+        repository
+            .expect_put_client_record()
+            .return_once(move |record| {
+                assert_eq!(user_id, record.created_by);
+                assert_eq!(OAuthClientName::from("Client"), record.name);
+                Box::pin(async {
+                    Ok(aws_sdk_dynamodb::operation::put_item::PutItemOutput::builder().build())
+                })
+            });
+        let user_service = MockUserService::default();
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        let (secret, client) = service
+            .create_client(
+                &user_id,
+                CreateClientRequest {
+                    name: OAuthClientName::from("Client"),
+                    redirect_uris: HashSet::from([OAuthRedirectUri::from(
+                        "https://client.example/callback",
+                    )]),
+                    scopes: HashSet::from([Scope::ProductsWrite]),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert!(secret.check(&client.hashed_client_secret));
+        assert_eq!(user_id, client.created_by);
+    }
+
+    #[tokio::test]
+    async fn should_reject_oauth_client_update_for_another_user() {
+        let secret = RawOAuthClientSecret::new();
+        let client_record = OAuthClientRecord::from(oauth_client(&secret));
+        let mut repository = MockOAuthRepository::default();
+        repository
+            .expect_get_client_record()
+            .return_once(move |_| Box::pin(async move { Ok(Some(client_record)) }));
+        let user_service = MockUserService::default();
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        let err = service
+            .update_client(
+                &UserId::new(),
+                &OAuthClientId::from("client_1"),
+                UpdateClientRequest {
+                    name: Some(OAuthClientName::from("Updated")),
+                    redirect_uris: None,
+                    scopes: None,
+                },
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, OAuthServiceError::ClientForbidden));
+    }
+
+    #[tokio::test]
     async fn should_exchange_authorization_code_for_access_token() {
         let secret = RawOAuthClientSecret::new();
         let client = oauth_client(&secret);
