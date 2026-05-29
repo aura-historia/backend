@@ -830,7 +830,7 @@ mod tests {
         let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
         let code = AuthorizationCode {
             code: OAuthAuthorizationCode::new(),
-            client_id: client.client_id.clone(),
+            client_id: client.client_id,
             user_id: UserId::new(),
             redirect_uri: OAuthRedirectUri::from("https://client.example/callback"),
             scopes: HashSet::from([Scope::ProductsWrite]),
