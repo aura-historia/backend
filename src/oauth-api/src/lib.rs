@@ -36,6 +36,7 @@ mod response;
         body = &event.payload.body.as_deref().unwrap_or("NULL"),
         ip = &event.payload.request_context.http.source_ip.as_deref().unwrap_or("NULL"),
         userAgent = &event.payload.request_context.http.user_agent.as_deref().unwrap_or("NULL"),
+        userId = tracing::field::Empty,
     )
 )]
 pub async fn handler(
@@ -59,10 +60,8 @@ pub async fn handle(
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
         Some("POST /api/v1/oauth/clients") => create_client(event, service, user_service).await,
-        Some("GET /api/v1/oauth/clients") => get_clients(event, service, user_service).await,
-        Some("GET /api/v1/oauth/clients/{clientId}") => {
-            get_client(event, service, user_service).await
-        }
+        Some("GET /api/v1/oauth/clients") => get_clients(event, service).await,
+        Some("GET /api/v1/oauth/clients/{clientId}") => get_client(event, service).await,
         Some("PATCH /api/v1/oauth/clients/{clientId}") => {
             update_client(event, service, user_service).await
         }
@@ -109,11 +108,10 @@ async fn create_client(
 async fn get_clients(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl OAuthService,
-    user_service: &impl UserService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id =
         common::user_id::api::extract_user_id_request_context(&event.payload.request_context)?;
-    user_service.check_admin(&user_id).await?;
+    tracing::Span::current().record("userId", user_id.to_string());
     let response: Vec<OAuthClientMetadataResponseData> = service
         .get_clients()
         .await?
@@ -129,11 +127,10 @@ async fn get_clients(
 async fn get_client(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl OAuthService,
-    user_service: &impl UserService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id =
         common::user_id::api::extract_user_id_request_context(&event.payload.request_context)?;
-    user_service.check_admin(&user_id).await?;
+    tracing::Span::current().record("userId", user_id.to_string());
     let client_id = extract_client_id_path(&event.payload.path_parameters)?;
     let response: OAuthClientMetadataResponseData = service.get_client(&client_id).await?.into();
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
@@ -490,7 +487,6 @@ mod tests {
     async fn should_get_all_client_metadata() {
         let user_id = common::user_id::UserId::new();
         let mut service = MockOAuthService::default();
-        let user_service = admin_ok(user_id);
         service
             .expect_get_clients()
             .return_once(move || Box::pin(async move { Ok(vec![oauth_client(user_id)]) }));
@@ -503,7 +499,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = get_clients(event, &service, &user_service).await.unwrap();
+        let response = get_clients(event, &service).await.unwrap();
 
         assert_eq!(200, response.status_code);
         let body = match response.body.unwrap() {
@@ -517,7 +513,6 @@ mod tests {
     async fn should_get_client_metadata() {
         let user_id = common::user_id::UserId::new();
         let mut service = MockOAuthService::default();
-        let user_service = admin_ok(user_id);
         service
             .expect_get_client()
             .return_once(move |actual_client_id| {
@@ -534,7 +529,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = get_client(event, &service, &user_service).await.unwrap();
+        let response = get_client(event, &service).await.unwrap();
         assert_eq!(200, response.status_code);
         let body = match response.body.unwrap() {
             aws_lambda_events::encodings::Body::Text(body) => body,
@@ -644,7 +639,6 @@ mod tests {
     async fn should_map_client_metadata_service_errors() {
         let user_id = common::user_id::UserId::new();
         let mut service = MockOAuthService::default();
-        let user_service = admin_ok(user_id);
         service.expect_get_clients().return_once(|| {
             Box::pin(async {
                 Err(oauth::service::oauth_service::OAuthServiceError::ClientForbidden)
@@ -659,9 +653,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let err = get_clients(event, &service, &user_service)
-            .await
-            .unwrap_err();
+        let err = get_clients(event, &service).await.unwrap_err();
 
         assert_eq!(403, err.status);
     }
@@ -670,7 +662,6 @@ mod tests {
     async fn should_reject_invalid_client_id_path() {
         let user_id = common::user_id::UserId::new();
         let service = MockOAuthService::default();
-        let user_service = admin_ok(user_id);
         let event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -681,9 +672,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let err = get_client(event, &service, &user_service)
-            .await
-            .unwrap_err();
+        let err = get_client(event, &service).await.unwrap_err();
 
         assert_eq!(400, err.status);
     }
