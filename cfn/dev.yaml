@@ -1276,8 +1276,6 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
-
-
   # --- OAuth API ---
   OAuthApiCreateClientRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1382,6 +1380,7 @@ Resources:
                   - dynamodb:Query
                 Resource:
                   - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
   OAuthApiLambda:
     Type: AWS::Lambda::Function
     Properties:
