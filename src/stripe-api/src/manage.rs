@@ -1,6 +1,7 @@
 use crate::billing::BillingRequest;
 use crate::service::{CreateStripeCustomerCommand, StripeService};
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::{
@@ -75,6 +76,9 @@ pub async fn handle(
 
                     user_service
                         .update_user(
+                            &RequestContext {
+                                actor: Actor::User(user_id),
+                            },
                             &user_id,
                             UpdateUserCommand {
                                 stripe_customer_id: Some(stripe_customer_id.clone()),

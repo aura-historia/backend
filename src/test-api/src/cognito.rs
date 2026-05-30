@@ -1,6 +1,7 @@
 use crate::{IntegrationTestService, get_dynamodb_client, localstack::get_aws_config};
 use aws_sdk_cognitoidentityprovider::types::{AttributeType, AuthFlowType, MessageActionType};
 use aws_tests_common::get_cfn_output;
+use common::actor::{RequestContext, domain::Actor};
 use fake::{
     Fake,
     faker::internet::de_de::{Password, SafeEmail},
@@ -141,7 +142,15 @@ pub async fn create_test_user(email: &str) -> TestUser {
         id: sub.into(),
         email: email.try_into().unwrap(),
     };
-    let _ = user_service.create_user(create_user_command).await.unwrap();
+    let _ = user_service
+        .create_user(
+            &RequestContext {
+                actor: Actor::User(sub.into()),
+            },
+            create_user_command,
+        )
+        .await
+        .unwrap();
 
     TestUser {
         access_token: auth.access_token.unwrap(),

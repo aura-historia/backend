@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
@@ -50,7 +51,7 @@ pub async fn handle(
                 }
             }
         }
-        Some(AuthenticatedPrincipal::AccessToken(access_token)) => {
+        Some(AuthenticatedPrincipal::AccessToken(ref access_token)) => {
             tracing::Span::current().record("userId", access_token.user_id.to_string());
             let user = user_service.find_user(&access_token.user_id).await?;
             if !user.partner_shops.contains(&shop_id) {
@@ -102,8 +103,16 @@ pub async fn handle(
         email: patch_data.email,
     };
 
+    let actor = match authenticated {
+        Some(AuthenticatedPrincipal::UserId(user_id)) => Actor::User(user_id),
+        Some(AuthenticatedPrincipal::AccessToken(access_token)) => {
+            Actor::User(access_token.user_id)
+        }
+        None => unreachable!("authentication already checked"),
+    };
+
     let updated_shop = command_shop_service
-        .update(&shop_id, update_command)
+        .update(&RequestContext { actor }, &shop_id, update_command)
         .await?;
 
     let shop_data: GetShopData = GetShopData::from(updated_shop);
@@ -155,7 +164,7 @@ mod tests {
             .return_once(move |_| Box::pin(async move { Ok(partner_shop) }));
 
         let mut command_service = MockCommandShopService::default();
-        command_service.expect_update().return_once(move |_, _| {
+        command_service.expect_update().return_once(move |_, _, _| {
             let shop: Shop = Faker.fake();
             Box::pin(async move { Ok(shop) })
         });
@@ -200,7 +209,7 @@ mod tests {
         let shop_id = ShopId::new();
 
         let mut command_service = MockCommandShopService::default();
-        command_service.expect_update().return_once(move |_, _| {
+        command_service.expect_update().return_once(move |_, _, _| {
             let shop: Shop = Faker.fake();
             Box::pin(async move { Ok(shop) })
         });
@@ -255,7 +264,7 @@ mod tests {
         let mut command_service = MockCommandShopService::default();
         command_service
             .expect_update()
-            .return_once(move |_, command| {
+            .return_once(move |_, _, command| {
                 Box::pin(async move {
                     assert!(command.woocommerce_webhook_secret.is_some());
                     let shop: Shop = Faker.fake();

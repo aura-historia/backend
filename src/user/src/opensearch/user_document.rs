@@ -7,8 +7,8 @@ use crate::{
 };
 use common::{
     actor::document::ActorDocument, currency::record::CurrencyRecord,
-    language::record::LanguageRecord, shop_id::ShopId,
-    stripe_customer_id::StripeCustomerId, user_id::UserId,
+    language::record::LanguageRecord, shop_id::ShopId, stripe_customer_id::StripeCustomerId,
+    user_id::UserId,
 };
 use geo::core::continent::Continent;
 use geo::data::continent_data::ContinentData;

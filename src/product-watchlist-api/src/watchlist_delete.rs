@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::shop_id::api::extract_shop_id_path;
@@ -17,7 +18,14 @@ pub async fn handle(
     let shops_product_id = extract_shops_product_id_path(&event.payload.path_parameters)?;
 
     let () = service
-        .delete_watchlist_product(&user_id, &shop_id, &shops_product_id)
+        .delete_watchlist_product(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            &user_id,
+            &shop_id,
+            &shops_product_id,
+        )
         .await?;
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(204).build())
@@ -37,7 +45,7 @@ mod tests {
         let mut service = MockProductWatchListService::default();
         service
             .expect_delete_watchlist_product()
-            .return_once(|_, _, _| Box::pin(async { Ok(()) }));
+            .return_once(|_, _, _, _| Box::pin(async { Ok(()) }));
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()

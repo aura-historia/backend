@@ -20,7 +20,11 @@
 //!   identifiers (`subscriptionId`, the event-id) so logs stay PII-free.
 
 use aws_lambda_events::eventbridge::EventBridgeEvent;
-use common::{stripe_customer_id::StripeCustomerId, user_id::UserId};
+use common::{
+    actor::{RequestContext, domain::Actor},
+    stripe_customer_id::StripeCustomerId,
+    user_id::UserId,
+};
 use lambda_runtime::LambdaEvent;
 use serde::Deserialize;
 use serde_json::Value;
@@ -271,7 +275,16 @@ async fn handle_subscription_created(
         stripe_customer_id: Some(stripe_customer_id),
         ..Default::default()
     };
-    match service.update_user(&user_id, cmd).await {
+    match service
+        .update_user(
+            &RequestContext {
+                actor: Actor::System,
+            },
+            &user_id,
+            cmd,
+        )
+        .await
+    {
         Ok(_) => {
             info!(
                 subscriptionId = %subscription_id,
@@ -416,7 +429,16 @@ async fn apply_tier_change_by_customer_id(
         tier: Some(tier),
         ..Default::default()
     };
-    match service.update_user(&user.user_id, cmd).await {
+    match service
+        .update_user(
+            &RequestContext {
+                actor: Actor::System,
+            },
+            &user.user_id,
+            cmd,
+        )
+        .await
+    {
         Ok(_) => {
             debug!(
                 subscriptionId = %subscription_id,

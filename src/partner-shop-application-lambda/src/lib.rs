@@ -1,3 +1,4 @@
+use common::actor::{RequestContext, domain::Actor, record::ActorRecord};
 use common::event_id::EventId;
 use common::execution_state::record::ExecutionStateRecord;
 use common::shop_id::ShopId;
@@ -160,6 +161,7 @@ async fn handle_wait_for_review(
         shop_structured_address_country: None,
         shop_phone: None,
         shop_email: None,
+        updated_by: ActorRecord::System,
         updated: OffsetDateTime::now_utc(),
     };
 
@@ -257,7 +259,12 @@ async fn create_or_resolve_shop(
             };
 
             let shop = shop_service
-                .create(cmd)
+                .create(
+                    &RequestContext {
+                        actor: Actor::System,
+                    },
+                    cmd,
+                )
                 .await
                 .map_err(|e| StepFunctionError::ShopCreationError(e.to_string()))?;
 
@@ -329,6 +336,7 @@ async fn link_shop_to_partner(
         geo_address_lon: None,
         phone: None,
         email: None,
+        updated_by: ActorRecord::System,
         updated: OffsetDateTime::now_utc(),
     };
 
@@ -368,6 +376,7 @@ async fn persist_approved_state(
         shop_structured_address_country: None,
         shop_phone: None,
         shop_email: None,
+        updated_by: ActorRecord::System,
         updated: OffsetDateTime::now_utc(),
     };
 
@@ -403,7 +412,13 @@ async fn create_approval_notification(
     };
 
     notification_service
-        .create_notification(&origin_event_id, notification_cmd)
+        .create_notification(
+            &RequestContext {
+                actor: Actor::System,
+            },
+            &origin_event_id,
+            notification_cmd,
+        )
         .await
         .map_err(|e| StepFunctionError::NotificationError(e.to_string()))?;
 
@@ -444,6 +459,7 @@ async fn handle_reject(
         shop_structured_address_country: None,
         shop_phone: None,
         shop_email: None,
+        updated_by: ActorRecord::System,
         updated: OffsetDateTime::now_utc(),
     };
 
@@ -470,7 +486,13 @@ async fn handle_reject(
     };
 
     notification_service
-        .create_notification(&origin_event_id, notification_cmd)
+        .create_notification(
+            &RequestContext {
+                actor: Actor::System,
+            },
+            &origin_event_id,
+            notification_cmd,
+        )
         .await
         .map_err(|e| StepFunctionError::NotificationError(e.to_string()))?;
 
@@ -756,8 +778,8 @@ mod tests {
         let mut mock_shop_service = MockCommandShopService::new();
         mock_shop_service
             .expect_create()
-            .withf(move |cmd| cmd.name == ShopName::from("My New Shop"))
-            .return_once(move |_| Box::pin(async move { Ok(created_shop) }));
+            .withf(move |_, cmd| cmd.name == ShopName::from("My New Shop"))
+            .return_once(move |_, _| Box::pin(async move { Ok(created_shop) }));
 
         let mut mock_shop_repo = MockShopDynamoDbRepository::new();
         mock_shop_repo
@@ -780,7 +802,7 @@ mod tests {
         let mut mock_notification = MockNotificationService::new();
         mock_notification
             .expect_create_notification()
-            .withf(move |_event_id, cmd| {
+            .withf(move |_, _event_id, cmd| {
                 cmd.user_id == applicant_user_id
                     && cmd.external
                     && matches!(
@@ -790,10 +812,10 @@ mod tests {
                             partner_application_payload:
                                 NotificationPartnerApplicationPayload::Approved { .. },
                             ..
-                        } if *image == expected_image
+                        } if image == &expected_image
                     )
             })
-            .return_once(|_, cmd| {
+            .return_once(|_, _, cmd| {
                 let notification = fake_notification(cmd.user_id);
                 Box::pin(async move { Ok(notification) })
             });
@@ -873,7 +895,7 @@ mod tests {
         let mut mock_notification = MockNotificationService::new();
         mock_notification
             .expect_create_notification()
-            .withf(move |_event_id, cmd| {
+            .withf(move |_, _event_id, cmd| {
                 cmd.user_id == applicant_user_id
                     && matches!(
                         &cmd.notification_payload,
@@ -882,10 +904,10 @@ mod tests {
                             partner_application_payload:
                                 NotificationPartnerApplicationPayload::Approved { .. },
                             ..
-                        } if *image == expected_image
+                        } if image == &expected_image
                     )
             })
-            .return_once(|_, cmd| {
+            .return_once(|_, _, cmd| {
                 let notification = fake_notification(cmd.user_id);
                 Box::pin(async move { Ok(notification) })
             });
@@ -939,7 +961,7 @@ mod tests {
         let mut mock_notification = MockNotificationService::new();
         mock_notification
             .expect_create_notification()
-            .withf(move |_event_id, cmd| {
+            .withf(move |_, _event_id, cmd| {
                 cmd.user_id == applicant_user_id
                     && cmd.external
                     && matches!(
@@ -949,10 +971,10 @@ mod tests {
                             partner_application_payload:
                                 NotificationPartnerApplicationPayload::Rejected { .. },
                             ..
-                        } if *image == expected_image
+                        } if image == &expected_image
                     )
             })
-            .return_once(|_, cmd| {
+            .return_once(|_, _, cmd| {
                 let notification = fake_notification(cmd.user_id);
                 Box::pin(async move { Ok(notification) })
             });
@@ -1008,7 +1030,7 @@ mod tests {
         let mut mock_notification = MockNotificationService::new();
         mock_notification
             .expect_create_notification()
-            .withf(move |_event_id, cmd| {
+            .withf(move |_, _event_id, cmd| {
                 cmd.user_id == applicant_user_id
                     && cmd.external
                     && matches!(
@@ -1018,10 +1040,10 @@ mod tests {
                             partner_application_payload:
                                 NotificationPartnerApplicationPayload::Rejected { .. },
                             ..
-                        } if *image == expected_image
+                        } if image == &expected_image
                     )
             })
-            .return_once(|_, cmd| {
+            .return_once(|_, _, cmd| {
                 let notification = fake_notification(cmd.user_id);
                 Box::pin(async move { Ok(notification) })
             });
@@ -1056,7 +1078,7 @@ mod tests {
             .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
 
         let mut mock_shop_service = MockCommandShopService::new();
-        mock_shop_service.expect_create().return_once(|_| {
+        mock_shop_service.expect_create().return_once(|_, _| {
             use shop::service::command_service::CommandShopError;
             Box::pin(async {
                 Err(CommandShopError::ShopSlugExistsAlready(
@@ -1261,7 +1283,7 @@ mod tests {
         let mut mock_notification = MockNotificationService::new();
         mock_notification
             .expect_create_notification()
-            .withf(move |_event_id, cmd| {
+            .withf(move |_, _event_id, cmd| {
                 cmd.user_id == applicant_user_id
                     && cmd.external
                     && matches!(
@@ -1271,10 +1293,10 @@ mod tests {
                             image,
                             partner_application_payload:
                                 NotificationPartnerApplicationPayload::Rejected { .. },
-                        } if *shop_name == ShopName::from("Unknown Shop") && image.is_none()
+                        } if shop_name == &ShopName::from("Unknown Shop") && image.is_none()
                     )
             })
-            .return_once(|_, cmd| {
+            .return_once(|_, _, cmd| {
                 let notification = fake_notification(cmd.user_id);
                 Box::pin(async move { Ok(notification) })
             });

@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::user_id::api::extract_user_id_request_context;
@@ -16,7 +17,13 @@ pub async fn handle(
     let application_id = extract_partner_application_id_path(&event.payload.path_parameters)?;
 
     service
-        .delete_partner_shop_application(&user_id, &application_id)
+        .delete_partner_shop_application(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            &user_id,
+            &application_id,
+        )
         .await?;
 
     Ok(ApiGatewayV2HttpResponseBuilder::new(204).build())
@@ -41,7 +48,7 @@ mod tests {
         let mut service = MockPartnerShopApplicationService::default();
         service
             .expect_delete_partner_shop_application()
-            .return_once(move |_, _| Box::pin(async move { Ok(()) }));
+            .return_once(move |_, _, _| Box::pin(async move { Ok(()) }));
         let user_service = MockUserService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -100,7 +107,7 @@ mod tests {
         let mut service = MockPartnerShopApplicationService::default();
         service
             .expect_delete_partner_shop_application()
-            .return_once(move |user_id, id| {
+            .return_once(move |_, user_id, id| {
                 let user_id = *user_id;
                 let id = *id;
                 Box::pin(async move { Err(PartnerShopApplicationError::NotFound(user_id, id)) })

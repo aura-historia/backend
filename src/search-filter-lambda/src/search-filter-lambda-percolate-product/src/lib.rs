@@ -3,7 +3,7 @@ pub mod service;
 use crate::service::ProductMatcherService;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use common::{
-    actor::{domain::Actor, RequestContext},
+    actor::{RequestContext, domain::Actor},
     dynamodb_stream::extract_sqs_event_bridge_dynamodb_record,
 };
 use lambda_runtime::LambdaEvent;
@@ -324,7 +324,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_create_notifications()
-            .return_once(|_, _| {
+            .return_once(|_, _, _| {
                 Box::pin(async {
                     CreateNotificationsResult {
                         unprocessed: vec![],
@@ -336,7 +336,7 @@ mod tests {
         let mut search_filter_service = MockUserSearchFilterService::default();
         search_filter_service
             .expect_create_search_filter_product_matches()
-            .return_once(|_| {
+            .return_once(|_, _| {
                 Box::pin(async {
                     Ok(search_filter::service::user_search_filter_service::CreateSearchFilterProductMatchesResult {
                         processed: vec![],

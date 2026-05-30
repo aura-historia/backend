@@ -12,7 +12,7 @@ use crate::{
 };
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::{
-    actor::{domain::Actor, RequestContext},
+    actor::RequestContext,
     pagination::cursor::{Cursor, CursoredResult},
     price::domain::MonetaryAmountOverflowError,
     product_id::ProductId,

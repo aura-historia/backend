@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
@@ -45,7 +46,14 @@ pub async fn handle(
     };
 
     let data: GetPartnerShopApplicationData = service
-        .update_partner_shop_application(&user_id, &application_id, update_cmd)
+        .update_partner_shop_application(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            &user_id,
+            &application_id,
+            update_cmd,
+        )
         .await?
         .into();
 
@@ -79,7 +87,7 @@ mod tests {
         let mut service = MockPartnerShopApplicationService::default();
         service
             .expect_update_partner_shop_application()
-            .return_once(move |_, _, _| {
+            .return_once(move |_, _, _, _| {
                 let app: PartnerShopApplication = Faker.fake();
                 Box::pin(async move { Ok(app) })
             });
@@ -164,7 +172,7 @@ mod tests {
         let mut service = MockPartnerShopApplicationService::default();
         service
             .expect_update_partner_shop_application()
-            .return_once(move |user_id, id, _| {
+            .return_once(move |_, user_id, id, _| {
                 let user_id = *user_id;
                 let id = *id;
                 Box::pin(async move { Err(PartnerShopApplicationError::NotFound(user_id, id)) })

@@ -143,6 +143,7 @@ mod tests {
             shop_phone: None,
             shop_email: None,
             task_token: None,
+            updated_by: ActorRecord::System,
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -171,6 +172,7 @@ mod tests {
             shop_phone: None,
             shop_email: None,
             task_token: None,
+            updated_by: ActorRecord::System,
             updated: OffsetDateTime::now_utc(),
         };
 

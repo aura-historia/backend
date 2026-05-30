@@ -1,6 +1,7 @@
 use crate::patch_types::PatchUserSearchFilterData;
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::{
+    actor::{RequestContext, domain::Actor},
     api::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError,
         error_code::BAD_BODY_VALUE,
@@ -36,7 +37,14 @@ pub async fn handle(
                     .into()
             } else {
                 service
-                    .update_user_search_filter(&user_id, &search_filter_id, update)
+                    .update_user_search_filter(
+                        &RequestContext {
+                            actor: Actor::User(user_id),
+                        },
+                        &user_id,
+                        &search_filter_id,
+                        update,
+                    )
                     .await?
                     .into()
             }
@@ -90,7 +98,7 @@ mod tests {
         let mut service = MockUserSearchFilterService::default();
         service
             .expect_update_user_search_filter()
-            .return_once(|_, _, _| Box::pin(async { Ok(Faker.fake()) }));
+            .return_once(|_, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
 
         let get_product_service = MockGetProductService::default();
         let query_product_service = MockQueryProductService::default();
@@ -235,7 +243,7 @@ mod tests {
         let mut service = MockUserSearchFilterService::default();
         service
             .expect_update_user_search_filter()
-            .return_once(|_, _, _| {
+            .return_once(|_, _, _, _| {
                 Box::pin(async {
                     Err(UserSearchFilterError::UserSearchFilterNotFound(
                         Faker.fake(),
@@ -289,7 +297,7 @@ mod tests {
         });
         service
             .expect_update_user_search_filter()
-            .returning(|_, _, _| {
+            .returning(|_, _, _, _| {
                 Box::pin(async {
                     Err(UserSearchFilterError::UserSearchFilterNotFound(
                         Faker.fake(),

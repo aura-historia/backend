@@ -3,7 +3,7 @@ pub mod service;
 use crate::service::ProductEventWatchlistNotificationsService;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use common::{
-    actor::{domain::Actor, RequestContext},
+    actor::{RequestContext, domain::Actor},
     dynamodb_stream::extract_sqs_event_bridge_dynamodb_record,
 };
 use lambda_runtime::LambdaEvent;
@@ -222,7 +222,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_create_notifications()
-            .returning(|_, _| {
+            .returning(|_, _, _| {
                 Box::pin(async {
                     CreateNotificationsResult {
                         processed: vec![],
@@ -257,7 +257,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_create_notifications()
-            .returning(|_, _| {
+            .returning(|_, _, _| {
                 Box::pin(async {
                     CreateNotificationsResult {
                         processed: vec![],
@@ -325,7 +325,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_create_notifications()
-            .returning(|_, cmds| {
+            .returning(|_, _, cmds| {
                 let unprocessed = cmds
                     .into_iter()
                     .map(|cmd| {
@@ -373,7 +373,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_create_notifications()
-            .returning(|_, _| {
+            .returning(|_, _, _| {
                 Box::pin(async {
                     CreateNotificationsResult {
                         processed: vec![],
@@ -548,7 +548,7 @@ mod tests {
         // Called twice for the two succeeding messages
         notification_service
             .expect_create_notifications()
-            .returning(|_, _| {
+            .returning(|_, _, _| {
                 Box::pin(async {
                     CreateNotificationsResult {
                         processed: vec![],
@@ -592,7 +592,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_create_notifications()
-            .returning(|_, mut cmds| {
+            .returning(|_, _, mut cmds| {
                 // Only one of three commands fails — the message is still failed (strict mode)
                 let unprocessed_cmd = cmds.pop().unwrap();
                 Box::pin(async move {
@@ -641,7 +641,7 @@ mod tests {
         notification_service
             .expect_create_notifications()
             .times(1)
-            .returning(|_, _| {
+            .returning(|_, _, _| {
                 Box::pin(async {
                     CreateNotificationsResult {
                         processed: vec![],
@@ -677,7 +677,7 @@ mod tests {
         notification_service
             .expect_create_notifications()
             .times(1)
-            .returning(|_, _| {
+            .returning(|_, _, _| {
                 Box::pin(async {
                     CreateNotificationsResult {
                         processed: vec![],
@@ -719,7 +719,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_create_notifications()
-            .returning(move |_, cmds| {
+            .returning(move |_, _, cmds| {
                 let call_count = call_count.clone();
                 let mut count = call_count.lock().unwrap();
                 *count += 1;
@@ -797,7 +797,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_create_notifications()
-            .returning(|_, _| {
+            .returning(|_, _, _| {
                 Box::pin(async {
                     CreateNotificationsResult {
                         processed: vec![],

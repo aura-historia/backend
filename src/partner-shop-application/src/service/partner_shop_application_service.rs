@@ -15,10 +15,7 @@ use crate::{
 };
 use aws_sdk_dynamodb::config::http::HttpResponse;
 use aws_sdk_dynamodb::error::SdkError;
-use common::{
-    actor::{domain::Actor, RequestContext},
-    user_id::UserId,
-};
+use common::{actor::RequestContext, user_id::UserId};
 use time::OffsetDateTime;
 use tracing::info;
 
@@ -617,6 +614,12 @@ mod tests {
         )
     }
 
+    fn system_ctx() -> RequestContext {
+        RequestContext {
+            actor: common::actor::domain::Actor::System,
+        }
+    }
+
     mod create {
         use super::*;
 
@@ -638,7 +641,7 @@ mod tests {
             };
 
             let actual = service
-                .create_partner_shop_application(cmd.clone())
+                .create_partner_shop_application(&system_ctx(), cmd.clone())
                 .await
                 .unwrap();
 
@@ -679,7 +682,7 @@ mod tests {
             let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
             let service = make_service(&repository, &sfn_adapter);
             let cmd: CreatePartnerShopApplicationCommand = Faker.fake();
-            let actual = service.create_partner_shop_application(cmd).await;
+            let actual = service.create_partner_shop_application(&system_ctx(), cmd).await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -796,6 +799,7 @@ mod tests {
             let service = make_service(&repository, &sfn_adapter);
             let actual = service
                 .update_partner_shop_application(
+                    &system_ctx(),
                     &expected.applicant_user_id,
                     &expected.id,
                     UpdatePartnerShopApplicationCommand::default(),
@@ -826,6 +830,7 @@ mod tests {
             let service = make_service(&repository, &sfn_adapter);
             let actual = service
                 .update_partner_shop_application(
+                    &system_ctx(),
                     &expected.applicant_user_id,
                     &expected.id,
                     UpdatePartnerShopApplicationCommand {
@@ -854,6 +859,7 @@ mod tests {
             let id = PartnerShopApplicationId::new();
             let actual = service
                 .update_partner_shop_application(
+                    &system_ctx(),
                     &user_id,
                     &id,
                     UpdatePartnerShopApplicationCommand {
@@ -894,7 +900,11 @@ mod tests {
             let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
             let service = make_service(&repository, &sfn_adapter);
             let actual = service
-                .delete_partner_shop_application(&expected.applicant_user_id, &expected.id)
+                .delete_partner_shop_application(
+                    &system_ctx(),
+                    &expected.applicant_user_id,
+                    &expected.id,
+                )
                 .await;
 
             assert!(actual.is_ok());
@@ -912,7 +922,7 @@ mod tests {
             let user_id = UserId::new();
             let id = PartnerShopApplicationId::new();
             let actual = service
-                .delete_partner_shop_application(&user_id, &id)
+                .delete_partner_shop_application(&system_ctx(), &user_id, &id)
                 .await
                 .unwrap_err();
 
@@ -959,7 +969,11 @@ mod tests {
             let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
             let service = make_service(&repository, &sfn_adapter);
             let actual = service
-                .delete_partner_shop_application(&existing.applicant_user_id, &existing.id)
+                .delete_partner_shop_application(
+                    &system_ctx(),
+                    &existing.applicant_user_id,
+                    &existing.id,
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -1117,7 +1131,7 @@ mod tests {
                 payload: PartnerShopApplicationPayload::Existing(ShopId::new()),
             };
 
-            let actual = service.create_partner_shop_application(cmd).await;
+            let actual = service.create_partner_shop_application(&system_ctx(), cmd).await;
             assert!(actual.is_ok());
             let app = actual.unwrap();
             assert_eq!(app.business_state, PartnerShopApplicationState::Submitted);
@@ -1170,7 +1184,11 @@ mod tests {
 
             let service = make_service(&repository, &sfn_adapter);
             let actual = service
-                .submit_decision_by_id(&id, PartnerShopApplicationDecision::Approve)
+                .submit_decision_by_id(
+                    &system_ctx(),
+                    &id,
+                    PartnerShopApplicationDecision::Approve,
+                )
                 .await;
 
             assert!(actual.is_ok());
@@ -1218,7 +1236,11 @@ mod tests {
 
             let service = make_service(&repository, &sfn_adapter);
             let actual = service
-                .submit_decision_by_id(&id, PartnerShopApplicationDecision::Reject)
+                .submit_decision_by_id(
+                    &system_ctx(),
+                    &id,
+                    PartnerShopApplicationDecision::Reject,
+                )
                 .await;
 
             assert!(actual.is_ok());
@@ -1243,7 +1265,11 @@ mod tests {
             let service = make_service(&repository, &sfn_adapter);
 
             let actual = service
-                .submit_decision_by_id(&id, PartnerShopApplicationDecision::Approve)
+                .submit_decision_by_id(
+                    &system_ctx(),
+                    &id,
+                    PartnerShopApplicationDecision::Approve,
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -1273,7 +1299,11 @@ mod tests {
             let service = make_service(&repository, &sfn_adapter);
 
             let actual = service
-                .submit_decision_by_id(&id, PartnerShopApplicationDecision::Approve)
+                .submit_decision_by_id(
+                    &system_ctx(),
+                    &id,
+                    PartnerShopApplicationDecision::Approve,
+                )
                 .await;
 
             assert!(actual.is_err());

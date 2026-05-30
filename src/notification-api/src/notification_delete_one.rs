@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::event_id::api::extract_event_id_path;
@@ -14,7 +15,15 @@ pub async fn handle(
     tracing::Span::current().record("userId", user_id.to_string());
     let event_id = extract_event_id_path(&event.payload.path_parameters)?;
 
-    service.delete_notification(&user_id, &event_id).await?;
+    service
+        .delete_notification(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            &user_id,
+            &event_id,
+        )
+        .await?;
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(204).build())
 }

@@ -17,7 +17,7 @@ use crate::service::command::{
 };
 use aws_sdk_dynamodb::error::SdkError;
 use common::{
-    actor::{domain::Actor, RequestContext},
+    actor::RequestContext,
     currency::record::CurrencyRecord,
     error::missing_field::MissingPersistenceField,
     language::record::LanguageRecord,

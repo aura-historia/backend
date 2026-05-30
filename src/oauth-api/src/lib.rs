@@ -1,12 +1,12 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use base64::Engine as _;
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::{ApiError, log_api_error};
 use common::api::error_code::{
     BAD_BODY_VALUE, BAD_PATH_PARAMETER_VALUE, BAD_QUERY_PARAMETER_VALUE, INTERNAL_SERVER_ERROR,
     INVALID_UUID, UNAUTHORIZED,
 };
-use common::actor::{domain::Actor, RequestContext};
 use common::oauth_client_id::OAuthClientId;
 use lambda_runtime::LambdaEvent;
 use oauth::core::authorization_code::{
@@ -95,17 +95,16 @@ async fn create_client(
     user_service.check_admin(&user_id).await?;
     let data: OAuthClientMetadataRequestData =
         serde_json::from_str(&non_empty_body(event.payload.body)?).map_err(bad_json)?;
-    let response: OAuthClientMetadataResponseData =
-        service
-            .create_client(
-                &RequestContext {
-                    actor: Actor::User(user_id),
-                },
-                &user_id,
-                data.into(),
-            )
-            .await?
-            .into();
+    let response: OAuthClientMetadataResponseData = service
+        .create_client(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            &user_id,
+            data.into(),
+        )
+        .await?
+        .into();
     Ok(ApiGatewayV2HttpResponseBuilder::json(201)
         .location(
             &format!("oauth/clients/{}", response.client_id),
@@ -162,17 +161,16 @@ async fn update_client(
     let client_id = extract_client_id_path(&event.payload.path_parameters)?;
     let data: OAuthClientMetadataPatchData =
         serde_json::from_str(&non_empty_body(event.payload.body)?).map_err(bad_json)?;
-    let response: OAuthClientMetadataResponseData =
-        service
-            .update_client(
-                &RequestContext {
-                    actor: Actor::User(user_id),
-                },
-                &client_id,
-                data.into(),
-            )
-            .await?
-            .into();
+    let response: OAuthClientMetadataResponseData = service
+        .update_client(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            &client_id,
+            data.into(),
+        )
+        .await?
+        .into();
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .cache_control("no-store", None, None)
         .body_serde(response)?
@@ -503,7 +501,7 @@ mod tests {
         let user_service = admin_ok(user_id);
         service
             .expect_create_client()
-            .return_once(move |actual_user_id, request| {
+            .return_once(move |_, actual_user_id, request| {
                 assert_eq!(&user_id, actual_user_id);
                 assert_eq!(OAuthClientName::from("Client"), request.name);
                 Box::pin(async move { Ok((RawOAuthClientSecret::new(), oauth_client(user_id))) })
@@ -582,7 +580,7 @@ mod tests {
         let user_service = admin_ok(user_id);
         service
             .expect_update_client()
-            .return_once(move |actual_client_id, command| {
+            .return_once(move |_, actual_client_id, command| {
                 assert_eq!(&client_id(), actual_client_id);
                 assert_eq!(Some(OAuthClientName::from("Updated")), command.name);
                 Box::pin(async move { Ok(oauth_client(user_id)) })
@@ -614,7 +612,7 @@ mod tests {
         let user_service = admin_ok(user_id);
         service
             .expect_delete_client()
-            .return_once(|actual_client_id| {
+            .return_once(|_, actual_client_id| {
                 assert_eq!(&client_id(), actual_client_id);
                 Box::pin(async { Ok(()) })
             });
@@ -741,7 +739,7 @@ mod tests {
         let user_id = common::user_id::UserId::new();
         let mut service = MockOAuthService::default();
         let user_service = admin_ok(user_id);
-        service.expect_delete_client().return_once(|_| {
+        service.expect_delete_client().return_once(|_, _| {
             Box::pin(async {
                 Err(oauth::service::oauth_service::OAuthServiceError::ClientNotFound)
             })

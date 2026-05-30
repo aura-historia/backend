@@ -3,9 +3,8 @@ use crate::{
     dynamodb::{role_record::UserRoleRecord, tier_record::UserTierRecord},
 };
 use common::{
-    actor::record::ActorRecord, currency::record::CurrencyRecord,
-    dynamodb_update::DynamoDbUpdate, language::record::LanguageRecord,
-    stripe_customer_id::StripeCustomerId,
+    actor::record::ActorRecord, currency::record::CurrencyRecord, dynamodb_update::DynamoDbUpdate,
+    language::record::LanguageRecord, stripe_customer_id::StripeCustomerId,
 };
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};

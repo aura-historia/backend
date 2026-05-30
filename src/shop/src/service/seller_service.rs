@@ -12,7 +12,7 @@ use common::logging::{
     LlmInvocationMetrics, LlmModel, LlmOperation, LlmProvider, log_llm_invocation,
 };
 use common::{
-    actor::{domain::Actor, RequestContext},
+    actor::{RequestContext, domain::Actor},
     query::text_query::TextQuery,
     shop_id::ShopId,
     shop_name::ShopName,
@@ -226,47 +226,57 @@ impl<'a> SellerService for SellerServiceImpl<'a> {
                 }
                 None => {
                     self.command_shop_service
-                        .create(&RequestContext { actor: Actor::System }, CreateShopCommand {
-                            name: raw_shop_name.clone(),
-                            shop_type: ShopType::AuctionHouse,
-                            shop_partner_status: ShopPartnerStatus::Scraped,
-                            domains: Default::default(),
-                            shopify_domain: None,
-                            shopify_currency: None,
-                            shopify_language: None,
-                            woocommerce_webhook_secret: None,
-                            woocommerce_currency: None,
-                            woocommerce_language: None,
-                            url: None,
-                            image: None,
-                            structured_address: None,
-                            phone: None,
-                            email: None,
-                            affiliate_configuration: None,
-                        })
+                        .create(
+                            &RequestContext {
+                                actor: Actor::System,
+                            },
+                            CreateShopCommand {
+                                name: raw_shop_name.clone(),
+                                shop_type: ShopType::AuctionHouse,
+                                shop_partner_status: ShopPartnerStatus::Scraped,
+                                domains: Default::default(),
+                                shopify_domain: None,
+                                shopify_currency: None,
+                                shopify_language: None,
+                                woocommerce_webhook_secret: None,
+                                woocommerce_currency: None,
+                                woocommerce_language: None,
+                                url: None,
+                                image: None,
+                                structured_address: None,
+                                phone: None,
+                                email: None,
+                                affiliate_configuration: None,
+                            },
+                        )
                         .await?
                 }
             }
         } else {
             self.command_shop_service
-                .create(&RequestContext { actor: Actor::System }, CreateShopCommand {
-                    name: raw_shop_name.clone(),
-                    shop_type: ShopType::AuctionHouse,
-                    shop_partner_status: ShopPartnerStatus::Scraped,
-                    domains: Default::default(),
-                    shopify_domain: None,
-                    shopify_currency: None,
-                    shopify_language: None,
-                    woocommerce_webhook_secret: None,
-                    woocommerce_currency: None,
-                    woocommerce_language: None,
-                    url: None,
-                    image: None,
-                    structured_address: None,
-                    phone: None,
-                    email: None,
-                    affiliate_configuration: None,
-                })
+                .create(
+                    &RequestContext {
+                        actor: Actor::System,
+                    },
+                    CreateShopCommand {
+                        name: raw_shop_name.clone(),
+                        shop_type: ShopType::AuctionHouse,
+                        shop_partner_status: ShopPartnerStatus::Scraped,
+                        domains: Default::default(),
+                        shopify_domain: None,
+                        shopify_currency: None,
+                        shopify_language: None,
+                        woocommerce_webhook_secret: None,
+                        woocommerce_currency: None,
+                        woocommerce_language: None,
+                        url: None,
+                        image: None,
+                        structured_address: None,
+                        phone: None,
+                        email: None,
+                        affiliate_configuration: None,
+                    },
+                )
                 .await?
         };
 

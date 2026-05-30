@@ -1,4 +1,4 @@
-use common::actor::{domain::Actor, RequestContext};
+use common::actor::{RequestContext, domain::Actor};
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::language::domain::Language;
 use common::pagination::cursor::Cursor;
@@ -629,7 +629,7 @@ mod tests {
         let mut filter_service = MockUserSearchFilterService::default();
         filter_service
             .expect_update_user_search_filter()
-            .return_once(move |user_id, filter_id, update| {
+            .return_once(move |_, user_id, filter_id, update| {
                 let actual_user_id = *user_id;
                 let actual_filter_id = *filter_id;
                 Box::pin(async move {
@@ -700,7 +700,7 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(0) }));
         filter_service
             .expect_create_search_filter_product_matches()
-            .return_once(move |matches| {
+            .return_once(move |_, matches| {
                 Box::pin(async move {
                     assert_eq!(matches.len(), 1);
                     assert_eq!(matches[0].origin_event_id, product_for_match.event_id);
@@ -712,7 +712,7 @@ mod tests {
             });
         filter_service
             .expect_update_user_search_filter()
-            .return_once(|_, _, update| {
+            .return_once(|_, _, _, update| {
                 Box::pin(async move {
                     assert_eq!(update.last_hybrid_search_matched, Some(update.updated));
                     Ok(Faker.fake())
@@ -751,7 +751,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_create_notification()
-            .return_once(move |event_id, _cmd| {
+            .return_once(move |_, event_id, _cmd| {
                 assert_eq!(*event_id, origin_event_id);
                 let eid = *event_id;
                 Box::pin(async move { Ok(mk_notification(eid)) })
@@ -1089,7 +1089,7 @@ mod tests {
         filter_service
             .expect_update_user_search_filter()
             .times(2)
-            .returning(|_, _, _| Box::pin(async { Ok(Faker.fake()) }));
+            .returning(|_, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
 
         let mut query_service = MockQueryProductService::default();
         query_service
@@ -1145,7 +1145,7 @@ mod tests {
             });
         filter_service
             .expect_create_search_filter_product_matches()
-            .return_once(move |matches| {
+            .return_once(move |_, matches| {
                 let unprocessed = matches.clone();
                 Box::pin(async move {
                     Ok(CreateSearchFilterProductMatchesResult {
@@ -1210,7 +1210,7 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(0) }));
         filter_service
             .expect_create_search_filter_product_matches()
-            .return_once(move |matches| {
+            .return_once(move |_, matches| {
                 Box::pin(async move {
                     Ok(CreateSearchFilterProductMatchesResult {
                         processed: matches,
@@ -1238,7 +1238,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_create_notification()
-            .return_once(|_, _| {
+            .return_once(|_, _, _| {
                 Box::pin(async {
                     Err(notification::service::notification_service::NotificationError::UserNotFound(
                         Faker.fake(),
@@ -1285,7 +1285,7 @@ mod tests {
             });
         filter_service
             .expect_create_search_filter_product_matches()
-            .return_once(move |matches| {
+            .return_once(move |_, matches| {
                 Box::pin(async move {
                     Ok(CreateSearchFilterProductMatchesResult {
                         processed: matches,
@@ -1295,7 +1295,7 @@ mod tests {
             });
         filter_service
             .expect_update_user_search_filter()
-            .return_once(|_, _, _| Box::pin(async { Ok(Faker.fake()) }));
+            .return_once(|_, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
 
         let mut query_service = MockQueryProductService::default();
         query_service
@@ -1361,7 +1361,7 @@ mod tests {
             .return_once(move |_| Box::pin(async move { Ok(existing_count) }));
         filter_service
             .expect_create_search_filter_product_matches()
-            .return_once(|matches| {
+            .return_once(|_, matches| {
                 Box::pin(async move {
                     Ok(CreateSearchFilterProductMatchesResult {
                         processed: matches,
@@ -1371,7 +1371,7 @@ mod tests {
             });
         filter_service
             .expect_update_user_search_filter()
-            .return_once(|_, _, _| Box::pin(async { Ok(Faker.fake()) }));
+            .return_once(|_, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
 
         let mut query_service = MockQueryProductService::default();
         query_service
@@ -1393,7 +1393,7 @@ mod tests {
         notification_service
             .expect_create_notification()
             .times(1)
-            .return_once(|event_id, _| {
+            .return_once(|_, event_id, _| {
                 let eid = *event_id;
                 Box::pin(async move { Ok(mk_notification(eid)) })
             });
@@ -1446,7 +1446,7 @@ mod tests {
         filter_service
             .expect_update_user_search_filter()
             .times(MAX_ATTEMPTS)
-            .returning(|_, _, _| {
+            .returning(|_, _, _, _| {
                 Box::pin(async { Err(UserSearchFilterError::UserNotFound(Faker.fake())) })
             });
 
@@ -1512,7 +1512,7 @@ mod tests {
         filter_service
             .expect_update_user_search_filter()
             .times(3)
-            .returning(move |_, _, _| {
+            .returning(move |_, _, _, _| {
                 let call_count = std::sync::Arc::clone(&call_count);
                 Box::pin(async move {
                     let mut n = call_count.lock().unwrap();

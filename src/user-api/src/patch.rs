@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
@@ -43,7 +44,13 @@ pub async fn handle(
         structured_address: patch_user_account_data.structured_address.map(Into::into),
     };
     let updated_user_account_data: GetUserAccountData = service
-        .update_user(&user_id, update_user_command)
+        .update_user(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            &user_id,
+            update_user_command,
+        )
         .await?
         .into();
 
@@ -72,7 +79,7 @@ mod tests {
     async fn should_include_updated_timestamp_as_header_last_modified() {
         let timestamp = datetime!(2020-01-01 0:00 UTC);
         let mut service = MockUserService::default();
-        service.expect_update_user().return_once(move |_, _| {
+        service.expect_update_user().return_once(move |_, _, _| {
             let mut user: User = Faker.fake();
             user.updated = timestamp;
             Box::pin(async move { Ok(user) })
@@ -123,7 +130,7 @@ mod tests {
         };
 
         let mut service = MockUserService::default();
-        service.expect_update_user().return_once(move |user_id, _| {
+        service.expect_update_user().return_once(move |_, user_id, _| {
             let user_id = *user_id;
             Box::pin(async move { Err(UserServiceError::UserNotFound(user_id)) })
         });

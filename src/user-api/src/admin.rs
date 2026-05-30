@@ -1,5 +1,6 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::{
+    actor::{RequestContext, domain::Actor},
     api::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
         error::ApiError,
@@ -113,6 +114,7 @@ pub async fn patch(
     service: &(impl UserService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     ensure_admin(&event, service).await?;
+    let requester_user_id = extract_user_id_request_context(&event.payload.request_context)?;
     let user_id = extract_user_id_path(&event.payload.path_parameters)?;
     let body = event
         .payload
@@ -137,7 +139,16 @@ pub async fn patch(
         stripe_customer_id: patch_data.stripe_customer_id,
         structured_address: patch_data.structured_address.map(Into::into),
     };
-    let updated_user_data: GetUserAccountData = service.update_user(&user_id, cmd).await?.into();
+    let updated_user_data: GetUserAccountData = service
+        .update_user(
+            &RequestContext {
+                actor: Actor::User(requester_user_id),
+            },
+            &user_id,
+            cmd,
+        )
+        .await?
+        .into();
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .last_modified(updated_user_data.updated)
@@ -150,8 +161,16 @@ pub async fn delete(
     service: &(impl UserService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     ensure_admin(&event, service).await?;
+    let requester_user_id = extract_user_id_request_context(&event.payload.request_context)?;
     let user_id = extract_user_id_path(&event.payload.path_parameters)?;
-    service.delete_user(&user_id).await?;
+    service
+        .delete_user(
+            &RequestContext {
+                actor: Actor::User(requester_user_id),
+            },
+            &user_id,
+        )
+        .await?;
 
     Ok(ApiGatewayV2HttpResponseBuilder::new(204).build())
 }
@@ -258,7 +277,7 @@ mod tests {
             .return_once(move |_| Box::pin(async { Ok(()) }));
         service
             .expect_update_user()
-            .return_once(move |user_id, cmd| {
+            .return_once(move |_, user_id, cmd| {
                 assert_eq!(&target_user_id, user_id);
                 assert!(cmd.tier.is_some());
                 Box::pin(async move { Ok(target_user) })
@@ -286,7 +305,7 @@ mod tests {
         service
             .expect_check_admin()
             .return_once(move |_| Box::pin(async { Ok(()) }));
-        service.expect_delete_user().return_once(move |user_id| {
+        service.expect_delete_user().return_once(move |_, user_id| {
             assert_eq!(&target_user_id, user_id);
             Box::pin(async move { Ok(()) })
         });

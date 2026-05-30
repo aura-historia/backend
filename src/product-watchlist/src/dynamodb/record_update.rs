@@ -24,7 +24,10 @@ pub struct WatchlistProductRecordUpdate {
 impl DynamoDbUpdate for WatchlistProductRecordUpdate {}
 
 impl WatchlistProductRecordUpdate {
-    pub fn from_cmd(cmd: UpdateWatchlistProductCommand, actor: Actor) -> WatchlistProductRecordUpdate {
+    pub fn from_cmd(
+        cmd: UpdateWatchlistProductCommand,
+        actor: Actor,
+    ) -> WatchlistProductRecordUpdate {
         WatchlistProductRecordUpdate {
             notifications: cmd.notifications,
             state: cmd.state.map(ResourceStateRecord::from),

@@ -12,7 +12,7 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use common::oauth_client_id::OAuthClientId;
 use common::{
-    actor::{domain::Actor, RequestContext},
+    actor::{RequestContext, domain::Actor},
     string_newtype,
     user_id::UserId,
 };
@@ -671,7 +671,13 @@ mod tests {
         let service = OAuthServiceImpl::new(&repository, &user_service);
 
         let (secret, client) = service
-            .create_client(&user_id, create_command("https://client.example/callback"))
+            .create_client(
+                &RequestContext {
+                    actor: Actor::User(user_id),
+                },
+                &user_id,
+                create_command("https://client.example/callback"),
+            )
             .await
             .unwrap();
 
@@ -690,6 +696,9 @@ mod tests {
 
         let err = service
             .create_client(
+                &RequestContext {
+                    actor: Actor::System,
+                },
                 &UserId::new(),
                 create_command("http://client.example/callback"),
             )
@@ -748,6 +757,9 @@ mod tests {
 
         let updated = service
             .update_client(
+                &RequestContext {
+                    actor: Actor::System,
+                },
                 &client_id(),
                 UpdateOAuthClientCommand {
                     name: Some(OAuthClientName::from("Updated")),
@@ -772,6 +784,9 @@ mod tests {
 
         let err = service
             .update_client(
+                &RequestContext {
+                    actor: Actor::System,
+                },
                 &client_id(),
                 UpdateOAuthClientCommand {
                     name: Some(OAuthClientName::from("Updated")),
@@ -796,7 +811,15 @@ mod tests {
         let user_service = MockUserService::default();
         let service = OAuthServiceImpl::new(&repository, &user_service);
 
-        service.delete_client(&client_id()).await.unwrap();
+        service
+            .delete_client(
+                &RequestContext {
+                    actor: Actor::System,
+                },
+                &client_id(),
+            )
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -898,7 +921,7 @@ mod tests {
         let mut user_service = MockUserService::default();
         user_service
             .expect_create_access_token()
-            .return_once(|user_id, cmd| {
+            .return_once(|_, user_id, cmd| {
                 let raw = RawAccessToken::new();
                 let now = OffsetDateTime::now_utc();
                 let token = AccessToken {
@@ -998,15 +1021,20 @@ mod tests {
         let mut user_service = MockUserService::default();
         user_service
             .expect_delete_access_token_by_raw()
-            .return_once(|_| Box::pin(async { Ok(()) }));
+            .return_once(|_, _| Box::pin(async { Ok(()) }));
         let service = OAuthServiceImpl::new(&repository, &user_service);
 
         service
-            .revoke(TokenRevocationRequest {
-                token: RawAccessToken::new(),
-                client_id: client_id(),
-                client_secret: secret,
-            })
+            .revoke(
+                &RequestContext {
+                    actor: Actor::System,
+                },
+                TokenRevocationRequest {
+                    token: RawAccessToken::new(),
+                    client_id: client_id(),
+                    client_secret: secret,
+                },
+            )
             .await
             .unwrap();
     }
