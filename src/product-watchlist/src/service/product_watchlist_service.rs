@@ -438,6 +438,12 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
+    fn system_ctx() -> common::actor::RequestContext {
+        common::actor::RequestContext {
+            actor: common::actor::domain::Actor::System,
+        }
+    }
+
     mod find_watchlist_product {
         use crate::{
             dynamodb::repository::MockWatchlistProductDynamoDbRepository,
@@ -587,7 +593,7 @@ mod tests {
                 &user_service,
             );
             service
-                .create_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .create_watchlist_product(&super::system_ctx(), &Faker.fake(), &Faker.fake(), &Faker.fake())
                 .await
                 .unwrap();
         }
@@ -613,7 +619,7 @@ mod tests {
                 &user_service,
             );
             let actual = service
-                .create_watchlist_product(&user_id, &ShopId::new(), &ShopsProductId::new())
+                .create_watchlist_product(&super::system_ctx(), &user_id, &ShopId::new(), &ShopsProductId::new())
                 .await
                 .unwrap_err();
 
@@ -647,7 +653,7 @@ mod tests {
             let shop_id = ShopId::new();
             let shops_product_id = ShopsProductId::new();
             let actual = service
-                .create_watchlist_product(&Faker.fake(), &shop_id, &shops_product_id)
+                .create_watchlist_product(&super::system_ctx(), &Faker.fake(), &shop_id, &shops_product_id)
                 .await
                 .unwrap_err();
 
@@ -699,7 +705,7 @@ mod tests {
             let shop_id = ShopId::new();
             let shops_product_id = ShopsProductId::new();
             let actual = service
-                .create_watchlist_product(&Faker.fake(), &shop_id, &shops_product_id)
+                .create_watchlist_product(&super::system_ctx(), &Faker.fake(), &shop_id, &shops_product_id)
                 .await
                 .unwrap_err();
 
@@ -759,7 +765,7 @@ mod tests {
             );
 
             let actual = service
-                .create_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .create_watchlist_product(&super::system_ctx(), &Faker.fake(), &Faker.fake(), &Faker.fake())
                 .await;
 
             assert!(actual.is_err());
@@ -814,7 +820,7 @@ mod tests {
             );
 
             let actual = service
-                .create_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .create_watchlist_product(&super::system_ctx(), &Faker.fake(), &Faker.fake(), &Faker.fake())
                 .await;
 
             assert!(actual.is_err());
@@ -859,7 +865,7 @@ mod tests {
                 &user_service,
             );
             service
-                .delete_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .delete_watchlist_product(&super::system_ctx(), &Faker.fake(), &Faker.fake(), &Faker.fake())
                 .await
                 .unwrap();
         }
@@ -883,7 +889,7 @@ mod tests {
             let shop_id = ShopId::new();
             let shops_product_id = ShopsProductId::new();
             let actual = service
-                .delete_watchlist_product(&user_id, &shop_id, &shops_product_id)
+                .delete_watchlist_product(&super::system_ctx(), &user_id, &shop_id, &shops_product_id)
                 .await
                 .unwrap_err();
 
@@ -939,7 +945,7 @@ mod tests {
             );
 
             let actual = service
-                .delete_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .delete_watchlist_product(&super::system_ctx(), &Faker.fake(), &Faker.fake(), &Faker.fake())
                 .await;
 
             assert!(actual.is_err());
@@ -986,7 +992,7 @@ mod tests {
             );
 
             let actual = service
-                .delete_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .delete_watchlist_product(&super::system_ctx(), &Faker.fake(), &Faker.fake(), &Faker.fake())
                 .await;
 
             assert!(actual.is_err());
@@ -1039,6 +1045,7 @@ mod tests {
             );
             service
                 .update_watchlist_product(
+                    &super::system_ctx(),
                     &Faker.fake(),
                     &Faker.fake(),
                     &Faker.fake(),
@@ -1071,6 +1078,7 @@ mod tests {
             let shops_product_id = ShopsProductId::new();
             let actual = service
                 .update_watchlist_product(
+                    &super::system_ctx(),
                     &user_id,
                     &shop_id,
                     &shops_product_id,
@@ -1135,6 +1143,7 @@ mod tests {
 
             let actual = service
                 .update_watchlist_product(
+                    &super::system_ctx(),
                     &Faker.fake(),
                     &Faker.fake(),
                     &Faker.fake(),
@@ -1196,6 +1205,7 @@ mod tests {
 
             let actual = service
                 .update_watchlist_product(
+                    &super::system_ctx(),
                     &Faker.fake(),
                     &Faker.fake(),
                     &Faker.fake(),

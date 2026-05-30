@@ -41,7 +41,7 @@ mod tests {
         let mut service = MockNotificationService::default();
         service
             .expect_delete_notification()
-            .return_once(|_, _| Box::pin(async { Ok(()) }));
+            .return_once(|_, _, _| Box::pin(async { Ok(()) }));
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()

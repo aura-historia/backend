@@ -594,7 +594,7 @@ mod tests {
         let mut command_shop_service = MockCommandShopService::default();
         command_shop_service
             .expect_create()
-            .return_once(move |_| Box::pin(async move { Ok(shop) }));
+            .return_once(move |_, _| Box::pin(async move { Ok(shop) }));
 
         let service = SellerServiceImpl {
             repository: &repository,
@@ -698,7 +698,7 @@ mod tests {
         let mut command_shop_service = MockCommandShopService::default();
         command_shop_service
             .expect_create()
-            .return_once(move |_| Box::pin(async move { Ok(new_shop) }));
+            .return_once(move |_, _| Box::pin(async move { Ok(new_shop) }));
 
         let service = SellerServiceImpl {
             repository: &repository,
@@ -865,7 +865,7 @@ mod tests {
         let mut command_shop_service = MockCommandShopService::default();
         command_shop_service
             .expect_create()
-            .return_once(|_| Box::pin(async { Err(CommandShopError::SdkBatchGetItemUnprocessed) }));
+            .return_once(|_, _| Box::pin(async { Err(CommandShopError::SdkBatchGetItemUnprocessed) }));
 
         let service = SellerServiceImpl {
             repository: &repository,
@@ -953,7 +953,7 @@ mod tests {
         let mut command_shop_service = MockCommandShopService::default();
         command_shop_service
             .expect_create()
-            .return_once(move |_| Box::pin(async move { Ok(new_shop) }));
+            .return_once(move |_, _| Box::pin(async move { Ok(new_shop) }));
 
         let service = SellerServiceImpl {
             repository: &repository,

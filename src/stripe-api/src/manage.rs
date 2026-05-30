@@ -167,7 +167,7 @@ mod tests {
         user_service
             .expect_find_user()
             .return_once(|_| Box::pin(async move { Ok(user_with_tier(UserTier::Free, None)) }));
-        user_service.expect_update_user().return_once(|_, _| {
+        user_service.expect_update_user().return_once(|_, _, _| {
             Box::pin(async move { Ok(user_with_tier(UserTier::Free, Some("cus_freshly_created"))) })
         });
 

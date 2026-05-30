@@ -153,7 +153,7 @@ mod tests {
             .return_once(|_| Box::pin(async move { Ok(user_without_stripe_customer_id()) }));
         user_service
             .expect_update_user()
-            .return_once(|_, _| Box::pin(async move { Ok(user_without_stripe_customer_id()) }));
+            .return_once(|_, _, _| Box::pin(async move { Ok(user_without_stripe_customer_id()) }));
 
         let mut stripe_service = MockStripeService::default();
         let created_customer_id = StripeCustomerId::from("cus_freshly_created");

@@ -1546,6 +1546,7 @@ mod tests {
             let origin_event_id = EventId::new();
             let actual = service
                 .update_notification(
+                    &system_ctx(),
                     &user_id,
                     &origin_event_id,
                     UpdateNotificationCommand { seen: Some(true) },

@@ -89,7 +89,7 @@ mod tests {
         let mut service = MockNotificationService::default();
         service
             .expect_update_notifications()
-            .return_once(|_, _| Box::pin(async { Ok(empty_result()) }));
+            .return_once(|_, _, _| Box::pin(async { Ok(empty_result()) }));
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -109,7 +109,7 @@ mod tests {
         let mut service = MockNotificationService::default();
         service
             .expect_update_notifications()
-            .return_once(|_, _| Box::pin(async { Ok(empty_result()) }));
+            .return_once(|_, _, _| Box::pin(async { Ok(empty_result()) }));
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -136,7 +136,7 @@ mod tests {
         let mut service = MockNotificationService::default();
         service
             .expect_update_notifications()
-            .return_once(move |_, _| Box::pin(async move { Ok(one_result(record)) }));
+            .return_once(move |_, _, _| Box::pin(async move { Ok(one_result(record)) }));
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()

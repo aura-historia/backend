@@ -66,7 +66,7 @@ mod tests {
     #[tokio::test]
     async fn should_200_when_success() {
         let mut service = MockNotificationService::default();
-        service.expect_update_notification().return_once(|_, _, _| {
+        service.expect_update_notification().return_once(|_, _, _, _| {
             Box::pin(async { Ok(Faker.fake::<NotificationRecord>().try_into().unwrap()) })
         });
 
