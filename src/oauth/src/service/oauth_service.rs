@@ -11,7 +11,7 @@ use aws_sdk_dynamodb::error::SdkError;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use common::oauth_client_id::OAuthClientId;
-use common::{string_newtype, user_id::UserId};
+use common::{actor::domain::Actor, string_newtype, user_id::UserId};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
@@ -284,7 +284,8 @@ impl OAuthService for OAuthServiceImpl<'_> {
             name: command.name,
             redirect_uris: command.redirect_uris,
             scopes: command.scopes,
-            created_by: *user_id,
+            created_by: Actor::User(*user_id),
+            updated_by: Actor::User(*user_id),
             created: now,
             updated: now,
         };
@@ -533,7 +534,8 @@ mod tests {
                 "https://client.example/callback",
             )]),
             scopes: HashSet::from([Scope::ProductsWrite]),
-            created_by: UserId::new(),
+            created_by: Actor::User(UserId::new()),
+            updated_by: Actor::System,
             created: now,
             updated: now,
         }

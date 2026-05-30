@@ -3,6 +3,7 @@ use crate::{
     dynamodb::{role_record::UserRoleRecord, tier_record::UserTierRecord},
 };
 use common::{
+    actor::record::ActorRecord,
     currency::{domain::Currency, record::CurrencyRecord},
     language::{domain::Language, record::LanguageRecord},
     shop_id::ShopId,
@@ -78,6 +79,8 @@ pub struct UserRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gsi1_sk: Option<String>,
 
+    pub created_by: ActorRecord,
+    pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -140,6 +143,8 @@ impl From<User> for UserRecord {
             partner_shops: user.partner_shops,
             gsi1_pk,
             gsi1_sk,
+            created_by: user.created_by.into(),
+            updated_by: user.updated_by.into(),
             created: user.created,
             updated: user.updated,
         }
@@ -169,6 +174,8 @@ impl From<UserRecord> for User {
             ),
             geo_address: geo_address_from_record(record.geo_address_lat, record.geo_address_lon),
             partner_shops: record.partner_shops,
+            created_by: record.created_by.into(),
+            updated_by: record.updated_by.into(),
             created: record.created,
             updated: record.updated,
         }

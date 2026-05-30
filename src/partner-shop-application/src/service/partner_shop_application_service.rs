@@ -15,7 +15,7 @@ use crate::{
 };
 use aws_sdk_dynamodb::config::http::HttpResponse;
 use aws_sdk_dynamodb::error::SdkError;
-use common::user_id::UserId;
+use common::{actor::domain::Actor, user_id::UserId};
 use time::OffsetDateTime;
 use tracing::info;
 
@@ -197,6 +197,8 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             execution_state: common::execution_state::ExecutionState::Processing,
             applicant_user_id: cmd.applicant_user_id,
             payload: cmd.payload,
+            created_by: Actor::User(cmd.applicant_user_id),
+            updated_by: Actor::User(cmd.applicant_user_id),
             created: now,
             updated: now,
         };

@@ -2,7 +2,7 @@ use crate::core::{
     first_name::FirstName, last_name::LastName, name::Name, role::UserRole, tier::UserTier,
 };
 use common::{
-    currency::domain::Currency, language::domain::Language, shop_id::ShopId,
+    actor::domain::Actor, currency::domain::Currency, language::domain::Language, shop_id::ShopId,
     stripe_customer_id::StripeCustomerId, user_id::UserId,
 };
 use geo::core::address::{GeoAddress, StructuredAddress};
@@ -25,6 +25,8 @@ pub struct User {
     pub structured_address: Option<StructuredAddress>,
     pub geo_address: Option<GeoAddress>,
     pub partner_shops: HashSet<ShopId>,
+    pub created_by: Actor,
+    pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -72,6 +74,8 @@ mod fake {
                 structured_address: config.fake_with_rng(rng),
                 geo_address: config.fake_with_rng(rng),
                 partner_shops: config.fake_with_rng(rng),
+                created_by: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

@@ -1,4 +1,4 @@
-use common::{oauth_client_id::OAuthClientId, string_newtype, user_id::UserId};
+use common::{actor::domain::Actor, oauth_client_id::OAuthClientId, string_newtype};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use user::core::access_token::{HashedRawOAuthClientSecret, Scope};
@@ -19,7 +19,8 @@ pub struct OAuthClient {
     pub name: OAuthClientName,
     pub redirect_uris: HashSet<OAuthRedirectUri>,
     pub scopes: HashSet<Scope>,
-    pub created_by: UserId,
+    pub created_by: Actor,
+    pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }

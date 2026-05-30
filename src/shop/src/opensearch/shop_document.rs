@@ -10,7 +10,10 @@ use crate::{
         shop_type_document::ShopTypeDocument,
     },
 };
-use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
+use common::{
+    actor::record::ActorRecord, domain::Domain, shop_id::ShopId, shop_name::ShopName,
+    slug_id::SlugId,
+};
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
@@ -59,6 +62,8 @@ pub struct ShopDocument {
     pub email: Option<Email>,
 
     pub partner_status: ShopPartnerStatusDocument,
+    pub created_by: ActorRecord,
+    pub updated_by: ActorRecord,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -114,6 +119,8 @@ impl From<Shop> for ShopDocument {
             phone: shop.phone,
             email: shop.email,
             partner_status: shop.partner_status.into(),
+            created_by: shop.created_by.into(),
+            updated_by: shop.updated_by.into(),
             created: shop.created,
             updated: shop.updated,
         }
@@ -153,6 +160,8 @@ impl From<ShopDocument> for Shop {
             email: document.email,
             partner_status: document.partner_status.into(),
             affiliate_configuration: None,
+            created_by: document.created_by.into(),
+            updated_by: document.updated_by.into(),
             created: document.created,
             updated: document.updated,
         }
@@ -186,6 +195,8 @@ impl From<ShopRecord> for ShopDocument {
             phone: record.phone,
             email: record.email,
             partner_status: record.shop_partner_status.into(),
+            created_by: record.created_by,
+            updated_by: record.updated_by,
             created: record.created,
             updated: record.updated,
         }

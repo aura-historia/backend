@@ -1,3 +1,4 @@
+use common::actor::domain::Actor;
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::language::domain::Language;
 use common::pagination::cursor::Cursor;
@@ -264,6 +265,8 @@ impl<'a> PeriodicMatcherServiceImpl<'a> {
                 origin_event_id: product.event_id,
                 enhanced_match_reason,
                 feedback: None,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: now,
                 updated: now,
             };

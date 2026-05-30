@@ -23,6 +23,7 @@ use aws_sdk_sesv2::{
     types::{Body, Content, EmailContent, Message, MessageTag},
 };
 use common::{
+    actor::domain::Actor,
     batch::Batch,
     currency::domain::Currency,
     event_id::EventId,
@@ -603,6 +604,8 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             notification_payload: cmd.notification_payload,
             seen: false,
             external: cmd.external,
+            created_by: Actor::User(cmd.user_id),
+            updated_by: Actor::User(cmd.user_id),
             created: now,
             updated: now,
         };
@@ -640,6 +643,8 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                     notification_payload: cmd.notification_payload.clone(),
                     seen: false,
                     external: cmd.external,
+                    created_by: Actor::User(cmd.user_id),
+                    updated_by: Actor::User(cmd.user_id),
                     created: now,
                     updated: now,
                 };

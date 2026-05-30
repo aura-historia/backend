@@ -1,6 +1,7 @@
 use crate::core::{
     user_search_filter::UserSearchFilter, user_search_filter_name::UserSearchFilterName,
 };
+use common::actor::data::ActorData;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::{resource_state::data::ResourceStateData, user_id::UserId};
 use product::data::product_search_data::ProductSearchData;
@@ -22,6 +23,8 @@ pub struct UserSearchFilterData {
     pub state: ResourceStateData,
 
     pub search: ProductSearchData,
+    pub created_by: ActorData,
+    pub updated_by: ActorData,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -44,6 +47,8 @@ impl From<UserSearchFilter> for UserSearchFilterData {
             notifications: user_search_filter.notifications,
             state: user_search_filter.state.into(),
             search: user_search_filter.search.into(),
+            created_by: user_search_filter.created_by.into(),
+            updated_by: user_search_filter.updated_by.into(),
             created: user_search_filter.created,
             updated: user_search_filter.updated,
             last_hybrid_search_matched: user_search_filter.last_hybrid_search_matched,
@@ -66,6 +71,8 @@ mod faker {
                 notifications: true,
                 state: ResourceStateData::Active,
                 search: config.fake_with_rng(rng),
+                created_by: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
                 last_hybrid_search_matched: OffsetDateTime::now_utc(),
@@ -84,7 +91,10 @@ mod tests {
     use common::shop_name::ShopName;
     use common::slug_id::SlugId;
     use common::user_search_filter_id::UserSearchFilterId;
-    use common::{currency::data::CurrencyData, language::data::LanguageData, user_id::UserId};
+    use common::{
+        actor::data::ActorData, currency::data::CurrencyData, language::data::LanguageData,
+        user_id::UserId,
+    };
     use geo::data::continent_data::ContinentData;
     use product::data::product_search_data::ProductSearchData;
     use product::data::product_state_data::ProductStateData;
@@ -149,6 +159,8 @@ mod tests {
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
                 }),
             },
+            created_by: ActorData::System,
+            updated_by: ActorData::User(user_id),
             created: datetime!(2000 - 05 - 04 0:00 UTC),
             updated: datetime!(2025 - 05 - 04 0:00 UTC),
             last_hybrid_search_matched: datetime!(2025 - 05 - 04 1:00 UTC),
@@ -201,6 +213,8 @@ mod tests {
                     "max": "2025-05-04T00:00:00Z"
                 }
             },
+            "createdBy": "SYSTEM",
+            "updatedBy": user_id.to_string(),
             "created": "2000-05-04T00:00:00Z",
             "updated": "2025-05-04T00:00:00Z",
             "lastHybridSearchMatched": "2025-05-04T01:00:00Z"
@@ -261,6 +275,8 @@ mod tests {
                     "max": "2025-05-04T00:00:00Z"
                 }
             },
+            "createdBy": "SYSTEM",
+            "updatedBy": user_id.to_string(),
             "created": "2000-05-04T00:00:00Z",
             "updated": "2025-05-04T00:00:00Z",
             "lastHybridSearchMatched": "2025-05-04T01:00:00Z"
@@ -317,6 +333,8 @@ mod tests {
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
                 }),
             },
+            created_by: ActorData::System,
+            updated_by: ActorData::User(user_id),
             created: datetime!(2000 - 05 - 04 0:00 UTC),
             updated: datetime!(2025 - 05 - 04 0:00 UTC),
             last_hybrid_search_matched: datetime!(2025 - 05 - 04 1:00 UTC),

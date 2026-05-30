@@ -12,6 +12,7 @@ use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
 use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
 use crate::dynamodb::user_search_filter_match_record_update::UserSearchFilterMatchRecordUpdate;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
+use common::actor::domain::Actor;
 use common::batch::Batch;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::resource_state::domain::ResourceState;
@@ -388,6 +389,8 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             notifications: true,
             state: ResourceState::Active,
             search,
+            created_by: Actor::User(*user_id),
+            updated_by: Actor::User(*user_id),
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
             last_hybrid_search_matched: OffsetDateTime::now_utc(),

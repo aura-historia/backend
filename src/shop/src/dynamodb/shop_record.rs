@@ -11,6 +11,7 @@ use crate::{
     },
     dynamodb::partner_status_record::ShopPartnerStatusRecord,
 };
+use common::actor::record::ActorRecord;
 use common::currency::record::CurrencyRecord;
 use common::language::record::LanguageRecord;
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
@@ -90,6 +91,8 @@ pub struct ShopRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub affiliate_configuration: Option<AffiliateConfigurationRecord>,
 
+    pub created_by: ActorRecord,
+    pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -178,6 +181,8 @@ impl From<Shop> for ShopRecord {
             phone: shop.phone,
             email: shop.email,
             affiliate_configuration,
+            created_by: shop.created_by.into(),
+            updated_by: shop.updated_by.into(),
             created: shop.created,
             updated: shop.updated,
         }
@@ -216,6 +221,8 @@ impl From<ShopRecord> for Shop {
             affiliate_configuration: record
                 .affiliate_configuration
                 .map(AffiliateConfiguration::from),
+            created_by: record.created_by.into(),
+            updated_by: record.updated_by.into(),
             created: record.created,
             updated: record.updated,
         }
@@ -262,6 +269,8 @@ impl TryFrom<ShopRecord> for PartnerShop {
             affiliate_configuration: value
                 .affiliate_configuration
                 .map(AffiliateConfiguration::from),
+            created_by: value.created_by.into(),
+            updated_by: value.updated_by.into(),
             created: value.created,
             updated: value.updated,
         })

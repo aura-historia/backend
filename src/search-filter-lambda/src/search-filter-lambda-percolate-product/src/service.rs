@@ -1,5 +1,6 @@
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
+use common::actor::domain::Actor;
 use common::has_key::HasKey;
 use common::language::domain::Language;
 use notification::core::notification::{NotificationPayload, NotificationSearchFilterPayload};
@@ -168,6 +169,8 @@ impl<'a> ProductMatcherServiceImpl<'a> {
                 embedding: None,
                 auction_start: created_payload.auction_start,
                 auction_end: created_payload.auction_end,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: event.timestamp,
                 updated: event.timestamp,
             },
@@ -370,6 +373,8 @@ impl<'a> ProductMatcherService for ProductMatcherServiceImpl<'a> {
                 origin_event_id: event_id,
                 enhanced_match_reason: m.enhanced_match_reason.clone(),
                 feedback: None,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: now,
                 updated: now,
             })

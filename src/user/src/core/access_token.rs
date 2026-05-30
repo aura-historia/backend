@@ -1,4 +1,7 @@
-use common::{oauth_client_id::OAuthClientId, string_newtype, user_id::UserId, uuid_v7_newtype};
+use common::{
+    actor::domain::Actor, oauth_client_id::OAuthClientId, string_newtype, user_id::UserId,
+    uuid_v7_newtype,
+};
 use prefixed_api_key::{
     PrefixedApiKey, PrefixedApiKeyController,
     sha2::{Digest, Sha256},
@@ -25,6 +28,8 @@ pub struct AccessToken {
     pub scopes: HashSet<Scope>,
     pub origin: AccessTokenOrigin,
     pub expires: Option<OffsetDateTime>,
+    pub created_by: Actor,
+    pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -370,6 +375,8 @@ mod faker {
                 scopes: [Scope::ProductsWrite].into(),
                 origin: AccessTokenOrigin::User,
                 expires: None,
+                created_by: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

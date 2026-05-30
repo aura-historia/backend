@@ -6,6 +6,7 @@ use crate::{
         shop_type_data::ShopTypeData,
     },
 };
+use common::actor::data::ActorData;
 use common::currency::data::CurrencyData;
 use common::language::data::LanguageData;
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
@@ -48,6 +49,8 @@ pub struct GetShopData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub email: Option<Email>,
     pub partner_status: ShopPartnerStatusData,
+    pub created_by: ActorData,
+    pub updated_by: ActorData,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -76,6 +79,8 @@ impl From<Shop> for GetShopData {
             phone: shop.phone,
             email: shop.email,
             partner_status: shop.partner_status.into(),
+            created_by: shop.created_by.into(),
+            updated_by: shop.updated_by.into(),
             created: shop.created,
             updated: shop.updated,
         }

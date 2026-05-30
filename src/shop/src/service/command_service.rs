@@ -7,7 +7,9 @@ use crate::{
     service::command::{CreateShopCommand, UpdateShopCommand},
 };
 use aws_sdk_dynamodb::error::SdkError;
-use common::{shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::UserId};
+use common::{
+    actor::domain::Actor, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::UserId,
+};
 use time::OffsetDateTime;
 use tracing::info;
 
@@ -166,6 +168,8 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             email: command.email,
             partner_status: ShopPartnerStatus::default(),
             affiliate_configuration: command.affiliate_configuration,
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };

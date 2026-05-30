@@ -6,7 +6,8 @@ use crate::{
     opensearch::{role_document::UserRoleDocument, tier_document::UserTierDocument},
 };
 use common::{
-    currency::record::CurrencyRecord, language::record::LanguageRecord, shop_id::ShopId,
+    actor::record::ActorRecord, currency::record::CurrencyRecord, language::record::LanguageRecord,
+    shop_id::ShopId,
     stripe_customer_id::StripeCustomerId, user_id::UserId,
 };
 use geo::core::continent::Continent;
@@ -57,6 +58,8 @@ pub struct UserDocument {
     pub geo_address: Option<String>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub partner_shops: HashSet<ShopId>,
+    pub created_by: ActorRecord,
+    pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -107,6 +110,8 @@ impl From<User> for UserDocument {
                 .map(|country| ContinentData::from(Continent::from(country))),
             geo_address: geo_address_to_document(user.geo_address),
             partner_shops: user.partner_shops,
+            created_by: user.created_by.into(),
+            updated_by: user.updated_by.into(),
             created: user.created,
             updated: user.updated,
         }
@@ -136,6 +141,8 @@ impl From<UserDocument> for User {
             ),
             geo_address: geo_address_from_document(document.geo_address.as_deref()),
             partner_shops: document.partner_shops,
+            created_by: document.created_by.into(),
+            updated_by: document.updated_by.into(),
             created: document.created,
             updated: document.updated,
         }

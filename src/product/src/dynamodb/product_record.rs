@@ -3,6 +3,7 @@ use crate::core::product_image::ProductImage;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
+use common::actor::record::ActorRecord;
 use common::currency::domain::Currency;
 use common::error::mapping_error::PersistenceMappingError;
 use common::error::missing_field::MissingPersistenceField;
@@ -218,6 +219,8 @@ pub struct ProductRecord {
     )]
     pub auction_end: Option<OffsetDateTime>,
 
+    pub created_by: ActorRecord,
+    pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -480,6 +483,8 @@ impl From<ProductRecord> for Product {
             embedding: record.embedding,
             auction_start: record.auction_start,
             auction_end: record.auction_end,
+            created_by: record.created_by.into(),
+            updated_by: record.updated_by.into(),
             created: record.created,
             updated: record.updated,
         }
@@ -608,6 +613,8 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
             embedding: None,
             auction_start: event_record.auction_start,
             auction_end: event_record.auction_end,
+            created_by: ActorRecord::System,
+            updated_by: ActorRecord::System,
             created: event_record.timestamp,
             updated: event_record.timestamp,
         };
@@ -763,6 +770,8 @@ mod faker {
                 } else {
                     None
                 },
+                created_by: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 created: now,
                 updated: now,
             }

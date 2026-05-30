@@ -14,6 +14,7 @@ use crate::{
 use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::{
+    actor::record::ActorRecord,
     currency::domain::Currency,
     error::missing_field::MissingPersistenceField,
     event_id::EventId,
@@ -60,6 +61,8 @@ pub struct NotificationRecord {
     pub external: bool,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<ProductImageRecord>,
+    pub created_by: ActorRecord,
+    pub updated_by: ActorRecord,
 
     // watchlist
     // product
@@ -496,6 +499,8 @@ impl From<Notification> for NotificationRecord {
                     old_price_chf,
                     new_state,
                     old_state,
+                    created_by: notification.created_by.into(),
+                    updated_by: notification.updated_by.into(),
                     created: notification.created,
                     updated: notification.updated,
                     ttl: compute_ttl(&notification.created),
@@ -589,6 +594,8 @@ impl From<Notification> for NotificationRecord {
                     old_price_chf: None,
                     new_state: None,
                     old_state: None,
+                    created_by: notification.created_by.into(),
+                    updated_by: notification.updated_by.into(),
                     created: notification.created,
                     updated: notification.updated,
                     ttl: compute_ttl(&notification.created),
@@ -685,6 +692,8 @@ impl From<Notification> for NotificationRecord {
                     old_price_chf: None,
                     new_state: None,
                     old_state: None,
+                    created_by: notification.created_by.into(),
+                    updated_by: notification.updated_by.into(),
                     created: notification.created,
                     updated: notification.updated,
                     ttl: compute_ttl(&notification.created),
@@ -903,6 +912,8 @@ impl TryFrom<NotificationRecord> for Notification {
             notification_payload,
             seen: record.seen,
             external: record.external,
+            created_by: record.created_by.into(),
+            updated_by: record.updated_by.into(),
             created: record.created,
             updated: record.updated,
         })
@@ -993,6 +1004,8 @@ mod faker {
                 view_url: Some(config.fake_with_rng(rng)),
                 partner_application_id: None,
                 partner_application_image: None,
+                created_by: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 created,
                 updated: created,
                 ttl: compute_ttl(&created),

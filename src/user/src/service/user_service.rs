@@ -17,6 +17,7 @@ use crate::service::command::{
 };
 use aws_sdk_dynamodb::error::SdkError;
 use common::{
+    actor::domain::Actor,
     currency::record::CurrencyRecord,
     error::missing_field::MissingPersistenceField,
     language::record::LanguageRecord,
@@ -341,6 +342,8 @@ impl<'a> UserService for UserServiceImpl<'a> {
                     structured_address: None,
                     geo_address: None,
                     partner_shops: Default::default(),
+                    created_by: Actor::User(cmd.id),
+                    updated_by: Actor::User(cmd.id),
                     created: now,
                     updated: now,
                 };
@@ -572,6 +575,8 @@ impl<'a> UserService for UserServiceImpl<'a> {
             scopes: cmd.scopes,
             origin: cmd.origin,
             expires: cmd.expires,
+            created_by: Actor::User(*user_id),
+            updated_by: Actor::User(*user_id),
             created: now,
             updated: now,
         };

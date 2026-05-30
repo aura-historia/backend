@@ -6,7 +6,7 @@ use crate::core::notification_id::NotificationId;
 use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::{
-    event_id::EventId, language::data::LocalizedTextData, price::data::PriceData,
+    actor::data::ActorData, event_id::EventId, language::data::LocalizedTextData, price::data::PriceData,
     product_id::ProductId, shop_id::ShopId, shop_name::ShopName, shops_product_id::ShopsProductId,
     slug_id::SlugId,
 };
@@ -25,6 +25,8 @@ pub struct GetNotificationData {
     pub payload: NotificationPayloadData,
     pub seen: bool,
     pub external: bool,
+    pub created_by: ActorData,
+    pub updated_by: ActorData,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -230,6 +232,8 @@ impl From<LocalizedNotification> for GetNotificationData {
             payload: notification.notification_payload.into(),
             seen: notification.seen,
             external: notification.external,
+            created_by: notification.created_by.into(),
+            updated_by: notification.updated_by.into(),
             created: notification.created,
             updated: notification.updated,
         }

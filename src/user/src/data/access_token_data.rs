@@ -1,4 +1,5 @@
 use crate::core::access_token::{AccessToken, AccessTokenId, RawAccessToken, Scope};
+use common::actor::data::ActorData;
 use serde::{
     Deserialize, Serialize,
     de::{self, Visitor},
@@ -131,6 +132,8 @@ pub struct GetAccessTokenData {
     pub expires_at: Option<OffsetDateTime>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_in: Option<i64>,
+    pub created_by: ActorData,
+    pub updated_by: ActorData,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -180,6 +183,8 @@ impl From<AccessToken> for GetAccessTokenData {
             expires_in: access_token
                 .expires
                 .map(|expires| (expires - now).whole_seconds().max(0)),
+            created_by: access_token.created_by.into(),
+            updated_by: access_token.updated_by.into(),
             created: access_token.created,
             updated: access_token.updated,
         }
@@ -198,6 +203,8 @@ impl From<(RawAccessToken, AccessToken)> for GetAccessTokenData {
             expires_in: access_token
                 .expires
                 .map(|expires| (expires - OffsetDateTime::now_utc()).whole_seconds().max(0)),
+            created_by: access_token.created_by.into(),
+            updated_by: access_token.updated_by.into(),
             created: access_token.created,
             updated: access_token.updated,
         }
