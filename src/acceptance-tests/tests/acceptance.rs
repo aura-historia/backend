@@ -31,6 +31,7 @@ use notification::{
     },
 };
 use notification_api::notification_get::EventIdCursoredData;
+use oauth::dynamodb::repository::OAuthDynamoDbRepositoryImpl;
 use oauth::{
     core::client::{OAuthClient, OAuthClientName, OAuthRedirectUri},
     data::{
@@ -113,7 +114,8 @@ use std::time::{Duration, Instant, SystemTime};
 use test_api::*;
 use time::OffsetDateTime;
 use user::core::access_token::{
-    AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, RawAccessToken, Scope,
+    AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, RawAccessToken,
+    RawOAuthClientSecret, Scope,
 };
 use user::core::role::UserRole;
 use user::core::tier::UserTier;
@@ -1964,28 +1966,25 @@ async fn should_manage_user_access_tokens() {
 async fn should_complete_oauth_authorization_code_flow() {
     let cfn = get_cfn_output();
     let user = create_random_test_user().await;
+    let client_id = OAuthClientId::new();
+    let client_secret = RawOAuthClientSecret::new();
     let redirect_uri = OAuthRedirectUri::from("https://client.example/callback");
-    let client_secret = user::core::access_token::RawOAuthClientSecret::new();
-    let client = OAuthClient {
-        client_id: OAuthClientId::new(),
-        hashed_client_secret: client_secret.clone().into(),
-        name: OAuthClientName::from("Acceptance OAuth client"),
-        redirect_uris: HashSet::from([redirect_uri.clone()]),
-        scopes: HashSet::from([Scope::ProductsWrite]),
-        created_by: user.sub.into(),
-        created: OffsetDateTime::now_utc(),
-        updated: OffsetDateTime::now_utc(),
-    };
-    let oauth_repository = oauth::dynamodb::repository::OAuthDynamoDbRepositoryImpl::new(
-        get_dynamodb_client().await,
-        &cfn.dynamodb_table_1_name,
-    );
+    let now = OffsetDateTime::now_utc();
+    let oauth_repository =
+        OAuthDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &cfn.dynamodb_table_1_name);
     oauth_repository
-        .put_client_record(OAuthClientRecord::from(client.clone()))
+        .put_client_record(OAuthClientRecord::from(OAuthClient {
+            client_id,
+            hashed_client_secret: client_secret.clone().into(),
+            name: OAuthClientName::from("Acceptance OAuth client"),
+            redirect_uris: HashSet::from([redirect_uri.clone()]),
+            scopes: HashSet::from([Scope::ProductsWrite]),
+            created_by: UserId::from(user.sub),
+            created: now,
+            updated: now,
+        }))
         .await
         .unwrap();
-    let client_id = client.client_id.to_string();
-    let client_secret_string = String::from(client_secret);
 
     let http = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -1999,7 +1998,7 @@ async fn should_complete_oauth_authorization_code_flow() {
         .bearer_auth(user.access_token)
         .query(&[
             ("response_type", "code"),
-            ("client_id", client_id.as_str()),
+            ("client_id", &client_id.to_string()),
             ("redirect_uri", redirect_uri.as_ref()),
             ("scope", "products:write"),
             ("state", "state_1"),
@@ -2031,6 +2030,7 @@ async fn should_complete_oauth_authorization_code_flow() {
         .query_pairs()
         .find_map(|(key, value)| (key == "code").then_some(value.into_owned()))
         .unwrap();
+    let client_secret_string = String::from(client_secret.clone());
 
     let token_response = reqwest::Client::new()
         .post(format!(
@@ -2041,7 +2041,7 @@ async fn should_complete_oauth_authorization_code_flow() {
             ("grant_type", "authorization_code"),
             ("code", code.as_str()),
             ("redirect_uri", redirect_uri.as_ref()),
-            ("client_id", client_id.as_str()),
+            ("client_id", &client_id.to_string()),
             ("client_secret", client_secret_string.as_str()),
             (
                 "code_verifier",
@@ -2063,7 +2063,7 @@ async fn should_complete_oauth_authorization_code_flow() {
         ))
         .form(&[
             ("token", token.access_token.as_str()),
-            ("client_id", client_id.as_str()),
+            ("client_id", &client_id.to_string()),
             ("client_secret", client_secret_string.as_str()),
         ])
         .send()
@@ -2076,7 +2076,7 @@ async fn should_complete_oauth_authorization_code_flow() {
         .unwrap();
     assert!(introspection.active);
     assert_eq!(Some("products:write"), introspection.scope.as_deref());
-    assert_eq!(Some(client_id.as_str()), introspection.client_id.as_deref());
+    assert_eq!(Some(client_id.to_string()), introspection.client_id.clone());
 
     let revoke_response = reqwest::Client::new()
         .post(format!(
@@ -2085,7 +2085,7 @@ async fn should_complete_oauth_authorization_code_flow() {
         ))
         .form(&[
             ("token", token.access_token.as_str()),
-            ("client_id", client_id.as_str()),
+            ("client_id", &client_id.to_string()),
             ("client_secret", client_secret_string.as_str()),
         ])
         .send()
@@ -2100,7 +2100,7 @@ async fn should_complete_oauth_authorization_code_flow() {
         ))
         .form(&[
             ("token", token.access_token.as_str()),
-            ("client_id", client_id.as_str()),
+            ("client_id", &client_id.to_string()),
             ("client_secret", client_secret_string.as_str()),
         ])
         .send()
