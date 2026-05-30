@@ -1,4 +1,5 @@
-use crate::core::client::{OAuthClient, OAuthClientId, OAuthClientName, OAuthRedirectUri};
+use crate::core::client::{OAuthClient, OAuthClientName, OAuthRedirectUri};
+use common::oauth_client_id::OAuthClientId;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashSet;
@@ -24,19 +25,19 @@ pub struct OAuthClientRecord {
     pub updated: OffsetDateTime,
 }
 
-pub fn mk_pk(client_id: &OAuthClientId) -> String {
-    format!("oauth_client#{client_id}")
+pub fn mk_pk() -> &'static str {
+    "oauth_clients"
 }
 
-pub fn mk_sk() -> &'static str {
-    "oauth_client"
+pub fn mk_sk(client_id: &OAuthClientId) -> String {
+    format!("oauth_client#{client_id}")
 }
 
 impl From<OAuthClient> for OAuthClientRecord {
     fn from(client: OAuthClient) -> Self {
         Self {
-            pk: mk_pk(&client.client_id),
-            sk: mk_sk().to_owned(),
+            pk: mk_pk().to_owned(),
+            sk: mk_sk(&client.client_id),
             client_id: client.client_id,
             name: client.name,
             redirect_uris: client.redirect_uris,

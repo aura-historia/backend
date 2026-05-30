@@ -23,7 +23,7 @@ async fn main() -> Result<(), Error> {
 
     run(service_fn(
         |event: LambdaEvent<ApiGatewayV2httpRequest>| async {
-            handler(event, &oauth_service).await
+            handler(event, &oauth_service, &user_service).await
         },
     ))
     .await

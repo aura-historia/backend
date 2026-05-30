@@ -1,7 +1,9 @@
 use crate::core::access_token::{
     AccessToken, AccessTokenId, AccessTokenOrigin, HashedRawAccessToken,
 };
-use common::{error::missing_field::MissingPersistenceField, user_id::UserId};
+use common::{
+    error::missing_field::MissingPersistenceField, oauth_client_id::OAuthClientId, user_id::UserId,
+};
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashSet;
@@ -57,7 +59,7 @@ pub struct AccessTokenRecord {
     pub origin: AccessTokenOriginRecord,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oauth_client_id: Option<String>,
+    pub oauth_client_id: Option<OAuthClientId>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires: Option<i64>,

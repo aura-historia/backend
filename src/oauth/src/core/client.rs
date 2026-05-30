@@ -1,9 +1,8 @@
-use common::{string_newtype, user_id::UserId};
+use common::{oauth_client_id::OAuthClientId, string_newtype, user_id::UserId};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use user::core::access_token::{HashedRawOAuthClientSecret, Scope};
 
-string_newtype!(OAuthClientId, derives(serde::Serialize, serde::Deserialize));
 string_newtype!(
     OAuthClientName,
     derives(serde::Serialize, serde::Deserialize)

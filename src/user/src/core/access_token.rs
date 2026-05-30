@@ -1,4 +1,4 @@
-use common::{string_newtype, user_id::UserId, uuid_v7_newtype};
+use common::{oauth_client_id::OAuthClientId, string_newtype, user_id::UserId, uuid_v7_newtype};
 use prefixed_api_key::{
     PrefixedApiKey, PrefixedApiKeyController,
     sha2::{Digest, Sha256},
@@ -32,7 +32,7 @@ pub struct AccessToken {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AccessTokenOrigin {
     User,
-    OAuth { client_id: String },
+    OAuth { client_id: OAuthClientId },
 }
 
 impl AccessToken {

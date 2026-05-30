@@ -1,8 +1,42 @@
+use crate::core::client::{OAuthClient, OAuthClientName, OAuthRedirectUri};
 use crate::service::oauth_service::{IntrospectionResponse, OAuthTokenType, TokenResponse};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
+use user::core::access_token::RawOAuthClientSecret;
 use user::data::access_token_data::{AccessTokenTypeData, ScopeData};
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct OAuthClientMetadataRequestData {
+    pub client_name: String,
+    #[serde(default)]
+    pub redirect_uris: HashSet<String>,
+    #[serde(default)]
+    pub scope: HashSet<ScopeData>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct OAuthClientMetadataPatchData {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redirect_uris: Option<HashSet<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<HashSet<ScopeData>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct OAuthClientMetadataResponseData {
+    pub client_id: String,
+    pub client_secret: String,
+    pub client_name: String,
+    pub redirect_uris: HashSet<String>,
+    pub scope: HashSet<ScopeData>,
+    pub client_id_issued_at: i64,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TokenResponseData {
@@ -40,6 +74,59 @@ pub struct IntrospectionResponseData {
     pub exp: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iat: Option<i64>,
+}
+
+impl From<OAuthClient> for OAuthClientMetadataResponseData {
+    fn from(client: OAuthClient) -> Self {
+        Self {
+            client_id: client.client_id.into(),
+            client_secret: client.hashed_client_secret.to_string(),
+            client_name: client.name.into(),
+            redirect_uris: client.redirect_uris.into_iter().map(Into::into).collect(),
+            scope: client.scopes.into_iter().map(Into::into).collect(),
+            client_id_issued_at: client.created.unix_timestamp(),
+        }
+    }
+}
+
+impl From<(RawOAuthClientSecret, OAuthClient)> for OAuthClientMetadataResponseData {
+    fn from((secret, client): (RawOAuthClientSecret, OAuthClient)) -> Self {
+        let mut response = OAuthClientMetadataResponseData::from(client);
+        response.client_secret = secret.into();
+        response
+    }
+}
+
+impl From<OAuthClientMetadataRequestData>
+    for crate::service::oauth_service::CreateOAuthClientCommand
+{
+    fn from(data: OAuthClientMetadataRequestData) -> Self {
+        Self {
+            name: OAuthClientName::from(data.client_name),
+            redirect_uris: data
+                .redirect_uris
+                .into_iter()
+                .map(OAuthRedirectUri::from)
+                .collect(),
+            scopes: data.scope.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<OAuthClientMetadataPatchData>
+    for crate::service::oauth_service::UpdateOAuthClientCommand
+{
+    fn from(data: OAuthClientMetadataPatchData) -> Self {
+        Self {
+            name: data.client_name.map(OAuthClientName::from),
+            redirect_uris: data
+                .redirect_uris
+                .map(|uris| uris.into_iter().map(OAuthRedirectUri::from).collect()),
+            scopes: data
+                .scope
+                .map(|scopes| scopes.into_iter().map(Into::into).collect()),
+        }
+    }
 }
 
 impl From<IntrospectionResponse> for IntrospectionResponseData {
