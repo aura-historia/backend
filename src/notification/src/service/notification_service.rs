@@ -23,7 +23,7 @@ use aws_sdk_sesv2::{
     types::{Body, Content, EmailContent, Message, MessageTag},
 };
 use common::{
-    actor::domain::Actor,
+    actor::{domain::Actor, RequestContext},
     batch::Batch,
     currency::domain::Currency,
     event_id::EventId,
@@ -115,18 +115,21 @@ pub trait NotificationService {
 
     async fn create_notification(
         &self,
+        ctx: &RequestContext,
         origin_event_id: &EventId,
         cmd: CreateNotificationCommand,
     ) -> Result<Notification, NotificationError>;
 
     async fn create_notifications(
         &self,
+        ctx: &RequestContext,
         origin_event_id: &EventId,
         cmds: Vec<CreateNotificationCommand>,
     ) -> CreateNotificationsResult;
 
     async fn update_notification(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         origin_event_id: &EventId,
         update: UpdateNotificationCommand,
@@ -142,23 +145,30 @@ pub trait NotificationService {
 
     async fn send_externally(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         origin_event_id: &EventId,
     ) -> Result<Notification, NotificationError>;
 
     async fn update_notifications(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         cmd: UpdateNotificationCommand,
     ) -> Result<CursoredResult<Notification, EventId>, NotificationError>;
 
     async fn delete_notification(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         origin_event_id: &EventId,
     ) -> Result<(), NotificationError>;
 
-    async fn delete_notifications(&self, user_id: &UserId) -> Result<(), NotificationError>;
+    async fn delete_notifications(
+        &self,
+        ctx: &RequestContext,
+        user_id: &UserId,
+    ) -> Result<(), NotificationError>;
 
     async fn find_notifications_by_product(
         &self,
@@ -592,6 +602,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
     async fn create_notification(
         &self,
+        ctx: &RequestContext,
         origin_event_id: &EventId,
         cmd: CreateNotificationCommand,
     ) -> Result<Notification, NotificationError> {
@@ -604,8 +615,8 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             notification_payload: cmd.notification_payload,
             seen: false,
             external: cmd.external,
-            created_by: Actor::User(cmd.user_id),
-            updated_by: Actor::User(cmd.user_id),
+            created_by: ctx.actor,
+            updated_by: ctx.actor,
             created: now,
             updated: now,
         };
@@ -619,6 +630,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
     async fn create_notifications(
         &self,
+        ctx: &RequestContext,
         origin_event_id: &EventId,
         cmds: Vec<CreateNotificationCommand>,
     ) -> CreateNotificationsResult {
@@ -643,8 +655,8 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                     notification_payload: cmd.notification_payload.clone(),
                     seen: false,
                     external: cmd.external,
-                    created_by: Actor::User(cmd.user_id),
-                    updated_by: Actor::User(cmd.user_id),
+                    created_by: ctx.actor,
+                    updated_by: ctx.actor,
                     created: now,
                     updated: now,
                 };
@@ -716,6 +728,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                 }
                 Err(err) => {
                     warn!(
+                        actor = %ctx.actor,
                         error = ?err,
                         "Failed writing NotificationRecord batch due to SdkError."
                     );
@@ -741,6 +754,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
     async fn update_notification(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         origin_event_id: &EventId,
         update: UpdateNotificationCommand,
@@ -760,6 +774,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             let record_update = NotificationRecordUpdate {
                 seen: update.seen,
                 notification_type: None,
+                updated_by: ctx.actor.into(),
                 updated: OffsetDateTime::now_utc(),
             };
 
@@ -820,6 +835,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
     async fn send_externally(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         origin_event_id: &EventId,
     ) -> Result<Notification, NotificationError> {
@@ -837,6 +853,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         // Idempotency: if already sent externally, return as-is.
         if notification.notification_type.is_some() {
             info!(
+                actor = %ctx.actor,
                 userId = %user_id,
                 originEventId = %origin_event_id,
                 notificationType = ?notification.notification_type,
@@ -848,6 +865,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         // Only send externally if the user opted in.
         if !notification.external {
             debug!(
+                actor = %ctx.actor,
                 userId = %user_id,
                 originEventId = %origin_event_id,
                 "Notification has external=false. Skipping external send."
@@ -863,6 +881,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         let record_update = NotificationRecordUpdate {
             seen: None,
             notification_type: Some(NotificationTypeRecord::Email),
+            updated_by: ctx.actor.into(),
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -878,6 +897,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
         let updated_notification: Notification = updated_record.try_into()?;
         info!(
+            actor = %ctx.actor,
             userId = %user_id,
             originEventId = %origin_event_id,
             "Notification sent externally as email and persisted."
@@ -888,6 +908,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
     async fn update_notifications(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         cmd: UpdateNotificationCommand,
     ) -> Result<CursoredResult<Notification, EventId>, NotificationError> {
@@ -899,6 +920,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         let record_update = NotificationRecordUpdate {
             seen: cmd.seen,
             notification_type: None,
+            updated_by: ctx.actor.into(),
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -909,6 +931,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         }
 
         info!(
+            actor = %ctx.actor,
             userId = %user_id,
             count = all_records.len(),
             cmd = ?cmd,
@@ -948,6 +971,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
     async fn delete_notification(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         origin_event_id: &EventId,
     ) -> Result<(), NotificationError> {
@@ -964,6 +988,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             .await?;
 
         info!(
+            actor = %ctx.actor,
             userId = %user_id,
             originEventId = %origin_event_id,
             "Notification deleted."
@@ -972,7 +997,11 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         Ok(())
     }
 
-    async fn delete_notifications(&self, user_id: &UserId) -> Result<(), NotificationError> {
+    async fn delete_notifications(
+        &self,
+        ctx: &RequestContext,
+        user_id: &UserId,
+    ) -> Result<(), NotificationError> {
         let all_records = self
             .notification_repository
             .query_all_notification_records(user_id)
@@ -991,6 +1020,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         }
 
         info!(
+            actor = %ctx.actor,
             userId = %user_id,
             count = all_records.len(),
             "All notifications deleted."

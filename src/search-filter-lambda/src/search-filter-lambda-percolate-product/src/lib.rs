@@ -2,7 +2,10 @@ pub mod service;
 
 use crate::service::ProductMatcherService;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
+use common::{
+    actor::{domain::Actor, RequestContext},
+    dynamodb_stream::extract_sqs_event_bridge_dynamodb_record,
+};
 use lambda_runtime::LambdaEvent;
 use notification::service::notification_service::NotificationService;
 use product::core::product_event::{ProductDomainEvent, ProductEvent};
@@ -83,7 +86,12 @@ pub async fn handler(
                     // First: persist all eligible matches
                     if !result.matches.is_empty() {
                         let match_result = search_filter_service
-                            .create_search_filter_product_matches(result.matches)
+                            .create_search_filter_product_matches(
+                                &RequestContext {
+                                    actor: Actor::System,
+                                },
+                                result.matches,
+                            )
                             .await;
                         match match_result {
                             Ok(res) if !res.unprocessed.is_empty() => {
@@ -111,7 +119,13 @@ pub async fn handler(
                     // Then: create notifications for quota-eligible users
                     if !result.notification_commands.is_empty() {
                         let create_notifications_res = notification_service
-                            .create_notifications(&event_id, result.notification_commands)
+                            .create_notifications(
+                                &RequestContext {
+                                    actor: Actor::System,
+                                },
+                                &event_id,
+                                result.notification_commands,
+                            )
                             .await;
 
                         if !create_notifications_res.unprocessed.is_empty() {

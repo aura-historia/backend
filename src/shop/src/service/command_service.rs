@@ -8,7 +8,11 @@ use crate::{
 };
 use aws_sdk_dynamodb::error::SdkError;
 use common::{
-    actor::domain::Actor, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::UserId,
+    actor::{domain::Actor, RequestContext},
+    shop_id::ShopId,
+    shop_name::ShopName,
+    slug_id::SlugId,
+    user_id::UserId,
 };
 use time::OffsetDateTime;
 use tracing::info;
@@ -98,9 +102,14 @@ pub mod api {
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait CommandShopService {
-    async fn create(&self, command: CreateShopCommand) -> Result<Shop, CommandShopError>;
+    async fn create(
+        &self,
+        ctx: &RequestContext,
+        command: CreateShopCommand,
+    ) -> Result<Shop, CommandShopError>;
     async fn update(
         &self,
+        ctx: &RequestContext,
         shop_id: &ShopId,
         command: UpdateShopCommand,
     ) -> Result<Shop, CommandShopError>;
@@ -125,7 +134,11 @@ impl<'a> CommandShopServiceImpl<'a> {
 
 #[async_trait::async_trait]
 impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
-    async fn create(&self, command: CreateShopCommand) -> Result<Shop, CommandShopError> {
+    async fn create(
+        &self,
+        ctx: &RequestContext,
+        command: CreateShopCommand,
+    ) -> Result<Shop, CommandShopError> {
         let shop_slug_id = SlugId::from(command.name.as_ref());
         let existing_shop_opt = self.repository.query_shop_id(&shop_slug_id).await?;
         if existing_shop_opt.is_some() {
@@ -168,21 +181,22 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             email: command.email,
             partner_status: ShopPartnerStatus::default(),
             affiliate_configuration: command.affiliate_configuration,
-            created_by: Actor::System,
-            updated_by: Actor::System,
+            created_by: ctx.actor,
+            updated_by: ctx.actor,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };
 
         let _ = self.repository.put_shop_record(shop.clone().into()).await?;
 
-        info!(shopId = %shop.shop_id, name = %shop.name, slug = %shop.shop_slug_id, domains = ?shop.domains, "Created Shop.");
+        info!(actor = %ctx.actor, shopId = %shop.shop_id, name = %shop.name, slug = %shop.shop_slug_id, domains = ?shop.domains, "Created Shop.");
 
         Ok(shop)
     }
 
     async fn update(
         &self,
+        ctx: &RequestContext,
         shop_id: &ShopId,
         command: UpdateShopCommand,
     ) -> Result<Shop, CommandShopError> {
@@ -254,6 +268,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             geo_address_lon: geo_address.as_ref().map(|address| address.lon),
             phone: command.phone.clone(),
             email: command.email.clone(),
+            updated_by: ctx.actor.into(),
             updated: OffsetDateTime::now_utc(),
         };
         let shop_record = self
@@ -266,7 +281,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
                 ))
             })?;
 
-        info!(shopId = %shop_record.shop_id, name = %shop_record.name, slug = %shop_record.shop_slug_id, payload = ?command, "Updated Shop.");
+        info!(actor = %ctx.actor, shopId = %shop_record.shop_id, name = %shop_record.name, slug = %shop_record.shop_slug_id, payload = ?command, "Updated Shop.");
 
         Ok(shop_record.into())
     }

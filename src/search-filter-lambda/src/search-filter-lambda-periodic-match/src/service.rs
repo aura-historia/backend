@@ -1,4 +1,4 @@
-use common::actor::domain::Actor;
+use common::actor::{domain::Actor, RequestContext};
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::language::domain::Language;
 use common::pagination::cursor::Cursor;
@@ -164,7 +164,12 @@ impl<'a> PeriodicMatcherServiceImpl<'a> {
                 let matches: Vec<_> = pairs.iter().map(|(m, _)| m.clone()).collect();
                 let result = self
                     .user_search_filter_service
-                    .create_search_filter_product_matches(matches)
+                    .create_search_filter_product_matches(
+                        &RequestContext {
+                            actor: Actor::System,
+                        },
+                        matches,
+                    )
                     .await?;
                 if !result.unprocessed.is_empty() {
                     return Err(UserSearchFilterError::PeriodicHybridMatchWriteIncomplete(
@@ -177,7 +182,13 @@ impl<'a> PeriodicMatcherServiceImpl<'a> {
                 for (match_item, notification_cmd) in pairs {
                     if let Some(cmd) = notification_cmd {
                         self.notification_service
-                            .create_notification(&match_item.origin_event_id, cmd)
+                            .create_notification(
+                                &RequestContext {
+                                    actor: Actor::System,
+                                },
+                                &match_item.origin_event_id,
+                                cmd,
+                            )
                             .await
                             .map_err(PeriodicMatcherError::NotificationError)?;
                         notifications_created += 1;
@@ -194,6 +205,9 @@ impl<'a> PeriodicMatcherServiceImpl<'a> {
 
         self.user_search_filter_service
             .update_user_search_filter(
+                &RequestContext {
+                    actor: Actor::System,
+                },
                 &filter.user_id,
                 &filter.user_search_filter_id,
                 UserSearchFilterUpdate {

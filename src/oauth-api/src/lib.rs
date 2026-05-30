@@ -6,6 +6,7 @@ use common::api::error_code::{
     BAD_BODY_VALUE, BAD_PATH_PARAMETER_VALUE, BAD_QUERY_PARAMETER_VALUE, INTERNAL_SERVER_ERROR,
     INVALID_UUID, UNAUTHORIZED,
 };
+use common::actor::{domain::Actor, RequestContext};
 use common::oauth_client_id::OAuthClientId;
 use lambda_runtime::LambdaEvent;
 use oauth::core::authorization_code::{
@@ -95,7 +96,16 @@ async fn create_client(
     let data: OAuthClientMetadataRequestData =
         serde_json::from_str(&non_empty_body(event.payload.body)?).map_err(bad_json)?;
     let response: OAuthClientMetadataResponseData =
-        service.create_client(&user_id, data.into()).await?.into();
+        service
+            .create_client(
+                &RequestContext {
+                    actor: Actor::User(user_id),
+                },
+                &user_id,
+                data.into(),
+            )
+            .await?
+            .into();
     Ok(ApiGatewayV2HttpResponseBuilder::json(201)
         .location(
             &format!("oauth/clients/{}", response.client_id),
@@ -153,7 +163,16 @@ async fn update_client(
     let data: OAuthClientMetadataPatchData =
         serde_json::from_str(&non_empty_body(event.payload.body)?).map_err(bad_json)?;
     let response: OAuthClientMetadataResponseData =
-        service.update_client(&client_id, data.into()).await?.into();
+        service
+            .update_client(
+                &RequestContext {
+                    actor: Actor::User(user_id),
+                },
+                &client_id,
+                data.into(),
+            )
+            .await?
+            .into();
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .cache_control("no-store", None, None)
         .body_serde(response)?
@@ -170,7 +189,14 @@ async fn delete_client(
     tracing::Span::current().record("userId", user_id.to_string());
     user_service.check_admin(&user_id).await?;
     let client_id = extract_client_id_path(&event.payload.path_parameters)?;
-    service.delete_client(&client_id).await?;
+    service
+        .delete_client(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            &client_id,
+        )
+        .await?;
     Ok(ApiGatewayV2HttpResponseBuilder::new(204).build())
 }
 
@@ -257,7 +283,14 @@ async fn revoke(
         )
         .map_err(|err| ApiError::unauthorized(UNAUTHORIZED).with_detail(err.to_string()))?,
     };
-    service.revoke(request).await?;
+    service
+        .revoke(
+            &RequestContext {
+                actor: Actor::System,
+            },
+            request,
+        )
+        .await?;
     Ok(
         common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder::new(
             200,

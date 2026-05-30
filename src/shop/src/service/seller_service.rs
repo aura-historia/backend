@@ -11,7 +11,13 @@ use crate::service::query_service::QueryShopService;
 use common::logging::{
     LlmInvocationMetrics, LlmModel, LlmOperation, LlmProvider, log_llm_invocation,
 };
-use common::{query::text_query::TextQuery, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
+use common::{
+    actor::{domain::Actor, RequestContext},
+    query::text_query::TextQuery,
+    shop_id::ShopId,
+    shop_name::ShopName,
+    slug_id::SlugId,
+};
 use llm::{LLMProvider, chat::ChatMessage};
 use std::time::Instant;
 use time::OffsetDateTime;
@@ -220,7 +226,7 @@ impl<'a> SellerService for SellerServiceImpl<'a> {
                 }
                 None => {
                     self.command_shop_service
-                        .create(CreateShopCommand {
+                        .create(&RequestContext { actor: Actor::System }, CreateShopCommand {
                             name: raw_shop_name.clone(),
                             shop_type: ShopType::AuctionHouse,
                             shop_partner_status: ShopPartnerStatus::Scraped,
@@ -243,7 +249,7 @@ impl<'a> SellerService for SellerServiceImpl<'a> {
             }
         } else {
             self.command_shop_service
-                .create(CreateShopCommand {
+                .create(&RequestContext { actor: Actor::System }, CreateShopCommand {
                     name: raw_shop_name.clone(),
                     shop_type: ShopType::AuctionHouse,
                     shop_partner_status: ShopPartnerStatus::Scraped,

@@ -4,7 +4,7 @@ use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_record::ProductRecord;
 use crate::opensearch::product_image_document::ProductImageDocument;
 use crate::opensearch::product_state_document::ProductStateDocument;
-use common::actor::data::ActorData;
+use common::actor::document::ActorDocument;
 use common::currency::domain::Currency;
 use common::error::mapping_error::PersistenceMappingError;
 use common::error::missing_field::MissingPersistenceField;
@@ -210,8 +210,8 @@ pub struct ProductDocument {
     )]
     pub auction_end: Option<OffsetDateTime>,
 
-    pub created_by: ActorData,
-    pub updated_by: ActorData,
+    pub created_by: ActorDocument,
+    pub updated_by: ActorDocument,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -368,8 +368,8 @@ impl TryFrom<ProductDomainEventRecord> for ProductDocument {
             embedding: None,
             auction_start: event_product_document.auction_start,
             auction_end: event_product_document.auction_end,
-            created_by: ActorData::System,
-            updated_by: ActorData::System,
+            created_by: ActorDocument::System,
+            updated_by: ActorDocument::System,
             created: event_product_document.timestamp,
             updated: event_product_document.timestamp,
         };

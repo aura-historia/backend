@@ -12,7 +12,7 @@ use crate::{
 };
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::{
-    actor::domain::Actor,
+    actor::{domain::Actor, RequestContext},
     pagination::cursor::{Cursor, CursoredResult},
     price::domain::MonetaryAmountOverflowError,
     product_id::ProductId,
@@ -149,6 +149,7 @@ pub trait ProductWatchListService {
 
     async fn create_watchlist_product(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -156,6 +157,7 @@ pub trait ProductWatchListService {
 
     async fn delete_watchlist_product(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -163,6 +165,7 @@ pub trait ProductWatchListService {
 
     async fn update_watchlist_product(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -238,6 +241,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
 
     async fn create_watchlist_product(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -283,8 +287,8 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
             shops_product_id: product_record.shops_product_id,
             notifications: false,
             state: ResourceState::Active.into(),
-            created_by: Actor::User(*user_id).into(),
-            updated_by: Actor::User(*user_id).into(),
+            created_by: ctx.actor.into(),
+            updated_by: ctx.actor.into(),
             created: now,
             updated: now,
         };
@@ -297,6 +301,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
 
     async fn delete_watchlist_product(
         &self,
+        _ctx: &RequestContext,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -321,6 +326,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
 
     async fn update_watchlist_product(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -366,7 +372,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
                     user_id,
                     shop_id,
                     shops_product_id,
-                    WatchlistProductRecordUpdate::from_cmd(update),
+                    WatchlistProductRecordUpdate::from_cmd(update, ctx.actor),
                 )
                 .await?
                 .ok_or_else(|| {

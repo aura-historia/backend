@@ -1,6 +1,7 @@
 use crate::core::user_search_filter::EnhancedSearchDescription;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
+use common::actor::record::ActorRecord;
 use common::distance::domain::GeoDistanceQuery;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
@@ -186,6 +187,7 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
             auction_end_query: update.auction_end_query,
             language: update.language.map(LanguageRecord::from),
             currency: update.currency.map(CurrencyRecord::from),
+            updated_by: ActorRecord::System,
             updated: update.updated,
             last_hybrid_search_matched: update.last_hybrid_search_matched,
         }

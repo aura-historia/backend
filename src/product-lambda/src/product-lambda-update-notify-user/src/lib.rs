@@ -2,7 +2,10 @@ pub mod service;
 
 use crate::service::ProductEventWatchlistNotificationsService;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
+use common::{
+    actor::{domain::Actor, RequestContext},
+    dynamodb_stream::extract_sqs_event_bridge_dynamodb_record,
+};
 use lambda_runtime::LambdaEvent;
 use notification::service::notification_service::NotificationService;
 use product::core::product_event::ProductDomainEvent;
@@ -40,7 +43,13 @@ pub async fn handler(
                     match notification_cmds_res {
                         Ok(cmds) => {
                             let create_notifications_res = notification_service
-                                .create_notifications(&event_id, cmds)
+                                .create_notifications(
+                                    &RequestContext {
+                                        actor: Actor::System,
+                                    },
+                                    &event_id,
+                                    cmds,
+                                )
                                 .await;
                             // strictly fail on partial failure
                             // this is fine as all downstream components dedup on origin_event_id

@@ -3,7 +3,7 @@ use crate::core::user_search_filter::UserSearchFilter;
 use crate::core::user_search_filter::UserSearchFilterSummary;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::dynamodb::user_search_filter_record::UserSearchFilterRecord;
-use common::actor::data::ActorData;
+use common::actor::document::ActorDocument;
 use common::resource_state::document::ResourceStateDocument;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
@@ -27,8 +27,8 @@ pub struct UserSearchFilterDocument {
     pub state: ResourceStateDocument,
     pub search: ProductSearchDocument,
     pub query: ProductPercolatorQuery,
-    pub created_by: ActorData,
-    pub updated_by: ActorData,
+    pub created_by: ActorDocument,
+    pub updated_by: ActorDocument,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,

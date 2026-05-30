@@ -1,4 +1,4 @@
-use common::dynamodb_update::DynamoDbUpdate;
+use common::{actor::record::ActorRecord, dynamodb_update::DynamoDbUpdate};
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashSet;
@@ -16,6 +16,7 @@ pub struct OAuthClientRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scopes: Option<HashSet<ScopeRecord>>,
 
+    pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }

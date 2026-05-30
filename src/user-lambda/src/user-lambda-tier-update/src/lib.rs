@@ -1,6 +1,7 @@
 use aws_lambda_events::sqs::SqsEvent;
 use common::{
-    dynamodb_stream::extract_from_dynamodb_stream, resource_state::record::ResourceStateRecord,
+    actor::record::ActorRecord, dynamodb_stream::extract_from_dynamodb_stream,
+    resource_state::record::ResourceStateRecord,
 };
 use lambda_runtime::LambdaEvent;
 use product_watchlist::{
@@ -141,6 +142,7 @@ async fn update_watchlist_state(
             WatchlistProductRecordUpdate {
                 notifications: None,
                 state: Some(target_state),
+                updated_by: ActorRecord::System,
                 updated: OffsetDateTime::now_utc(),
             },
         )
@@ -204,6 +206,7 @@ fn search_filter_state_update(state: ResourceStateRecord) -> UserSearchFilterRec
         auction_end_query: None,
         language: None,
         currency: None,
+        updated_by: ActorRecord::System,
         updated: OffsetDateTime::now_utc(),
         last_hybrid_search_matched: None,
     }

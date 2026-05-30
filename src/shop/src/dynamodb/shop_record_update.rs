@@ -1,6 +1,7 @@
 use crate::core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use crate::dynamodb::partner_status_record::ShopPartnerStatusRecord;
 use crate::dynamodb::shop_type_record::ShopTypeRecord;
+use common::actor::record::ActorRecord;
 use common::currency::record::CurrencyRecord;
 use common::language::record::LanguageRecord;
 use common::{domain::Domain, dynamodb_update::DynamoDbUpdate};
@@ -69,6 +70,7 @@ pub struct ShopRecordUpdate {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub email: Option<Email>,
 
+    pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -102,6 +104,7 @@ impl Default for ShopRecordUpdate {
             geo_address_lon: None,
             phone: None,
             email: None,
+            updated_by: ActorRecord::System,
             updated: OffsetDateTime::now_utc(),
         }
     }

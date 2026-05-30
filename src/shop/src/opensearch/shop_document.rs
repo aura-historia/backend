@@ -11,7 +11,7 @@ use crate::{
     },
 };
 use common::{
-    actor::record::ActorRecord, domain::Domain, shop_id::ShopId, shop_name::ShopName,
+    actor::document::ActorDocument, domain::Domain, shop_id::ShopId, shop_name::ShopName,
     slug_id::SlugId,
 };
 use isocountry::CountryCode;
@@ -62,8 +62,8 @@ pub struct ShopDocument {
     pub email: Option<Email>,
 
     pub partner_status: ShopPartnerStatusDocument,
-    pub created_by: ActorRecord,
-    pub updated_by: ActorRecord,
+    pub created_by: ActorDocument,
+    pub updated_by: ActorDocument,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -195,8 +195,8 @@ impl From<ShopRecord> for ShopDocument {
             phone: record.phone,
             email: record.email,
             partner_status: record.shop_partner_status.into(),
-            created_by: record.created_by,
-            updated_by: record.updated_by,
+            created_by: record.created_by.into(),
+            updated_by: record.updated_by.into(),
             created: record.created,
             updated: record.updated,
         }

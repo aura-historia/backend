@@ -3,8 +3,9 @@ use crate::{
     dynamodb::{role_record::UserRoleRecord, tier_record::UserTierRecord},
 };
 use common::{
-    currency::record::CurrencyRecord, dynamodb_update::DynamoDbUpdate,
-    language::record::LanguageRecord, stripe_customer_id::StripeCustomerId,
+    actor::record::ActorRecord, currency::record::CurrencyRecord,
+    dynamodb_update::DynamoDbUpdate, language::record::LanguageRecord,
+    stripe_customer_id::StripeCustomerId,
 };
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
@@ -61,6 +62,7 @@ pub struct UserRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub geo_address_lon: Option<f64>,
 
+    pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -97,6 +99,7 @@ mod fake {
                 structured_address_country: None,
                 geo_address_lat: config.fake_with_rng(rng),
                 geo_address_lon: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),
             }
         }

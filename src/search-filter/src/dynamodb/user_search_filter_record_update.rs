@@ -1,4 +1,5 @@
 use crate::core::user_search_filter_name::UserSearchFilterName;
+use common::actor::record::ActorRecord;
 use common::distance::data::GeoDistanceQueryData;
 use common::dynamodb_update::DynamoDbUpdate;
 use common::query::range_query::RangeQuery;
@@ -87,6 +88,7 @@ pub struct UserSearchFilterRecordUpdate {
     pub language: Option<LanguageRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<CurrencyRecord>,
+    pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
     #[serde(
@@ -134,6 +136,7 @@ mod fake {
                 auction_end_query: fake_range_query_datetime(config, rng),
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),
                 last_hybrid_search_matched: Some(OffsetDateTime::now_utc()),
             }

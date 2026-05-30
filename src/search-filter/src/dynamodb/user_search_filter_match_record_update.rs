@@ -1,5 +1,5 @@
 use crate::core::command::UpdateUserSearchFilterMatchCommand;
-use common::dynamodb_update::DynamoDbUpdate;
+use common::{actor::record::ActorRecord, dynamodb_update::DynamoDbUpdate};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -8,6 +8,7 @@ pub struct UserSearchFilterMatchRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub feedback: Option<bool>,
 
+    pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -18,6 +19,7 @@ impl From<UpdateUserSearchFilterMatchCommand> for UserSearchFilterMatchRecordUpd
     fn from(command: UpdateUserSearchFilterMatchCommand) -> Self {
         UserSearchFilterMatchRecordUpdate {
             feedback: command.feedback,
+            updated_by: ActorRecord::System,
             updated: OffsetDateTime::now_utc(),
         }
     }

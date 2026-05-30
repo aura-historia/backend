@@ -6,8 +6,9 @@ use crate::{
     opensearch::{role_document::UserRoleDocument, tier_document::UserTierDocument},
 };
 use common::{
-    actor::record::ActorRecord, currency::record::CurrencyRecord, language::record::LanguageRecord,
-    shop_id::ShopId, stripe_customer_id::StripeCustomerId, user_id::UserId,
+    actor::document::ActorDocument, currency::record::CurrencyRecord,
+    language::record::LanguageRecord, shop_id::ShopId,
+    stripe_customer_id::StripeCustomerId, user_id::UserId,
 };
 use geo::core::continent::Continent;
 use geo::data::continent_data::ContinentData;
@@ -57,8 +58,8 @@ pub struct UserDocument {
     pub geo_address: Option<String>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub partner_shops: HashSet<ShopId>,
-    pub created_by: ActorRecord,
-    pub updated_by: ActorRecord,
+    pub created_by: ActorDocument,
+    pub updated_by: ActorDocument,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]

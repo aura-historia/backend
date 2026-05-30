@@ -12,7 +12,7 @@ use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
 use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
 use crate::dynamodb::user_search_filter_match_record_update::UserSearchFilterMatchRecordUpdate;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
-use common::actor::domain::Actor;
+use common::actor::{domain::Actor, RequestContext};
 use common::batch::Batch;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::resource_state::domain::ResourceState;
@@ -170,6 +170,7 @@ pub trait UserSearchFilterService {
 
     async fn create_user_search_filter(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         name: UserSearchFilterName,
         search_filter: ProductSearch,
@@ -178,12 +179,14 @@ pub trait UserSearchFilterService {
 
     async fn delete_user_search_filter(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         user_search_filter_id: &UserSearchFilterId,
     ) -> Result<(), UserSearchFilterError>;
 
     async fn update_user_search_filter(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         user_search_filter_id: &UserSearchFilterId,
         update: UserSearchFilterUpdate,
@@ -231,11 +234,13 @@ pub trait UserSearchFilterService {
 
     async fn create_search_filter_product_match(
         &self,
+        ctx: &RequestContext,
         product_match: SearchFilterProductMatch,
     ) -> Result<SearchFilterProductMatch, UserSearchFilterError>;
 
     async fn update_search_filter_product_match(
         &self,
+        ctx: &RequestContext,
         user_id: UserId,
         search_filter_id: UserSearchFilterId,
         shop_id: ShopId,
@@ -245,6 +250,7 @@ pub trait UserSearchFilterService {
 
     async fn create_search_filter_product_matches(
         &self,
+        ctx: &RequestContext,
         product_matches: Vec<SearchFilterProductMatch>,
     ) -> Result<CreateSearchFilterProductMatchesResult, UserSearchFilterError>;
 
@@ -349,6 +355,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
 
     async fn create_user_search_filter(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         name: UserSearchFilterName,
         search: ProductSearch,
@@ -389,8 +396,8 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             notifications: true,
             state: ResourceState::Active,
             search,
-            created_by: Actor::User(*user_id),
-            updated_by: Actor::User(*user_id),
+            created_by: ctx.actor,
+            updated_by: ctx.actor,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
             last_hybrid_search_matched: OffsetDateTime::now_utc(),
@@ -406,13 +413,14 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             .put_user_search_filter_record(user_search_filter.clone().into())
             .await?;
 
-        info!(userId = %user_id, userSearchFilterId = %user_search_filter.user_search_filter_id, "Created UserSearchFilter.");
+        info!(actor = %ctx.actor, userId = %user_id, userSearchFilterId = %user_search_filter.user_search_filter_id, "Created UserSearchFilter.");
 
         Ok(user_search_filter)
     }
 
     async fn delete_user_search_filter(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         user_search_filter_id: &UserSearchFilterId,
     ) -> Result<(), UserSearchFilterError> {
@@ -424,12 +432,13 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             .repository
             .delete_user_search_filter_record(user_id, user_search_filter_id)
             .await?;
-        info!(userId = %user_id, userSearchFilterId = %user_search_filter_id, "Deleted UserSearchFilter.");
+        info!(actor = %ctx.actor, userId = %user_id, userSearchFilterId = %user_search_filter_id, "Deleted UserSearchFilter.");
         Ok(())
     }
 
     async fn update_user_search_filter(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         user_search_filter_id: &UserSearchFilterId,
         update: UserSearchFilterUpdate,
@@ -475,11 +484,15 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             }
         }
 
+        let mut record_update: crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate =
+            update.into();
+        record_update.updated_by = ctx.actor.into();
+
         let updated_opt = self
             .repository
-            .update_user_search_filter_record(user_id, user_search_filter_id, update.into())
+            .update_user_search_filter_record(user_id, user_search_filter_id, record_update)
             .await?;
-        info!(userId = %user_id, userSearchFilterId = %user_search_filter_id, "Updated UserSearchFilter.");
+        info!(actor = %ctx.actor, userId = %user_id, userSearchFilterId = %user_search_filter_id, "Updated UserSearchFilter.");
         match updated_opt {
             Some(updated) => Ok(updated.into()),
             None => {
@@ -675,6 +688,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
 
     async fn create_search_filter_product_match(
         &self,
+        ctx: &RequestContext,
         product_match: SearchFilterProductMatch,
     ) -> Result<SearchFilterProductMatch, UserSearchFilterError> {
         let record = UserSearchFilterMatchRecord::from(product_match.clone());
@@ -682,6 +696,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             .put_user_search_filter_match_record(record)
             .await?;
         info!(
+            actor = %ctx.actor,
             userId = %product_match.user_id,
             searchFilterId = %product_match.user_search_filter_id,
             shopId = %product_match.shop_id,
@@ -693,6 +708,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
 
     async fn update_search_filter_product_match(
         &self,
+        ctx: &RequestContext,
         user_id: UserId,
         search_filter_id: UserSearchFilterId,
         shop_id: ShopId,
@@ -728,7 +744,10 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
                 &search_filter_id,
                 &shop_id,
                 &shops_product_id,
-                UserSearchFilterMatchRecordUpdate::from(update),
+                UserSearchFilterMatchRecordUpdate {
+                    updated_by: ctx.actor.into(),
+                    ..UserSearchFilterMatchRecordUpdate::from(update)
+                },
             )
             .await?
             .ok_or_else(|| {
@@ -737,13 +756,14 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
                 ))
             })?;
 
-        info!(userId = %user_id, searchFilterId = %search_filter_id, shopId = %shop_id, shopsProductId = %shops_product_id, "Updated SearchFilterProductMatch.");
+        info!(actor = %ctx.actor, userId = %user_id, searchFilterId = %search_filter_id, shopId = %shop_id, shopsProductId = %shops_product_id, "Updated SearchFilterProductMatch.");
 
         Ok(updated.into())
     }
 
     async fn create_search_filter_product_matches(
         &self,
+        ctx: &RequestContext,
         product_matches: Vec<SearchFilterProductMatch>,
     ) -> Result<CreateSearchFilterProductMatchesResult, UserSearchFilterError> {
         if product_matches.is_empty() {
@@ -793,6 +813,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
                 }
                 Err(err) => {
                     warn!(
+                        actor = %ctx.actor,
                         error = ?err,
                         "Failed writing UserSearchFilterMatchRecord batch."
                     );

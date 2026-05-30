@@ -11,7 +11,11 @@ use aws_sdk_dynamodb::error::SdkError;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use common::oauth_client_id::OAuthClientId;
-use common::{actor::domain::Actor, string_newtype, user_id::UserId};
+use common::{
+    actor::{domain::Actor, RequestContext},
+    string_newtype,
+    user_id::UserId,
+};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
@@ -193,7 +197,8 @@ impl From<OAuthServiceError> for common::api::error::ApiError {
 pub trait OAuthService {
     async fn create_client(
         &self,
-        user_id: &UserId,
+        ctx: &RequestContext,
+        _user_id: &UserId,
         command: CreateOAuthClientCommand,
     ) -> Result<(RawOAuthClientSecret, OAuthClient), OAuthServiceError>;
 
@@ -204,11 +209,16 @@ pub trait OAuthService {
 
     async fn update_client(
         &self,
+        ctx: &RequestContext,
         client_id: &OAuthClientId,
         command: UpdateOAuthClientCommand,
     ) -> Result<OAuthClient, OAuthServiceError>;
 
-    async fn delete_client(&self, client_id: &OAuthClientId) -> Result<(), OAuthServiceError>;
+    async fn delete_client(
+        &self,
+        ctx: &RequestContext,
+        client_id: &OAuthClientId,
+    ) -> Result<(), OAuthServiceError>;
 
     async fn authorize(
         &self,
@@ -218,7 +228,11 @@ pub trait OAuthService {
 
     async fn token(&self, request: TokenRequest) -> Result<TokenResponse, OAuthServiceError>;
 
-    async fn revoke(&self, request: TokenRevocationRequest) -> Result<(), OAuthServiceError>;
+    async fn revoke(
+        &self,
+        ctx: &RequestContext,
+        request: TokenRevocationRequest,
+    ) -> Result<(), OAuthServiceError>;
 
     async fn introspect(
         &self,
@@ -271,7 +285,8 @@ impl<'a> OAuthServiceImpl<'a> {
 impl OAuthService for OAuthServiceImpl<'_> {
     async fn create_client(
         &self,
-        user_id: &UserId,
+        ctx: &RequestContext,
+        _user_id: &UserId,
         command: CreateOAuthClientCommand,
     ) -> Result<(RawOAuthClientSecret, OAuthClient), OAuthServiceError> {
         validate_redirect_uris(&command.redirect_uris)
@@ -284,8 +299,8 @@ impl OAuthService for OAuthServiceImpl<'_> {
             name: command.name,
             redirect_uris: command.redirect_uris,
             scopes: command.scopes,
-            created_by: Actor::User(*user_id),
-            updated_by: Actor::User(*user_id),
+            created_by: ctx.actor,
+            updated_by: ctx.actor,
             created: now,
             updated: now,
         };
@@ -314,6 +329,7 @@ impl OAuthService for OAuthServiceImpl<'_> {
 
     async fn update_client(
         &self,
+        ctx: &RequestContext,
         client_id: &OAuthClientId,
         command: UpdateOAuthClientCommand,
     ) -> Result<OAuthClient, OAuthServiceError> {
@@ -327,6 +343,7 @@ impl OAuthService for OAuthServiceImpl<'_> {
             scopes: command
                 .scopes
                 .map(|scopes| scopes.into_iter().map(Into::into).collect()),
+            updated_by: ctx.actor.into(),
             updated: OffsetDateTime::now_utc(),
         };
         self.repository
@@ -336,7 +353,11 @@ impl OAuthService for OAuthServiceImpl<'_> {
             .ok_or(OAuthServiceError::ClientNotFound)
     }
 
-    async fn delete_client(&self, client_id: &OAuthClientId) -> Result<(), OAuthServiceError> {
+    async fn delete_client(
+        &self,
+        _ctx: &RequestContext,
+        client_id: &OAuthClientId,
+    ) -> Result<(), OAuthServiceError> {
         self.repository.delete_client_record(client_id).await?;
         Ok(())
     }
@@ -407,6 +428,9 @@ impl OAuthService for OAuthServiceImpl<'_> {
         let (raw, access_token) = self
             .user_service
             .create_access_token(
+                &RequestContext {
+                    actor: Actor::User(code.user_id),
+                },
                 &code.user_id,
                 CreateAccessTokenCommand {
                     name: format!("OAuth client {}", client.client_id).into(),
@@ -426,13 +450,17 @@ impl OAuthService for OAuthServiceImpl<'_> {
         })
     }
 
-    async fn revoke(&self, request: TokenRevocationRequest) -> Result<(), OAuthServiceError> {
+    async fn revoke(
+        &self,
+        ctx: &RequestContext,
+        request: TokenRevocationRequest,
+    ) -> Result<(), OAuthServiceError> {
         let _ = self
             .authenticate_client(&request.client_id, &request.client_secret)
             .await?;
         match self
             .user_service
-            .delete_access_token_by_raw(&request.token)
+            .delete_access_token_by_raw(ctx, &request.token)
             .await
         {
             Ok(()) | Err(UserServiceError::AccessTokenNotFoundByRaw) => Ok(()),

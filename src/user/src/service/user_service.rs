@@ -17,7 +17,7 @@ use crate::service::command::{
 };
 use aws_sdk_dynamodb::error::SdkError;
 use common::{
-    actor::domain::Actor,
+    actor::{domain::Actor, RequestContext},
     currency::record::CurrencyRecord,
     error::missing_field::MissingPersistenceField,
     language::record::LanguageRecord,
@@ -163,15 +163,24 @@ pub trait UserService {
 
     async fn check_admin(&self, user_id: &UserId) -> Result<(), UserServiceError>;
 
-    async fn create_user(&self, cmd: CreateUserCommand) -> Result<User, UserServiceError>;
+    async fn create_user(
+        &self,
+        ctx: &RequestContext,
+        cmd: CreateUserCommand,
+    ) -> Result<User, UserServiceError>;
 
     async fn update_user(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         cmd: UpdateUserCommand,
     ) -> Result<User, UserServiceError>;
 
-    async fn delete_user(&self, user_id: &UserId) -> Result<(), UserServiceError>;
+    async fn delete_user(
+        &self,
+        ctx: &RequestContext,
+        user_id: &UserId,
+    ) -> Result<(), UserServiceError>;
     async fn search_users(
         &self,
         search: &UserSearch,
@@ -197,12 +206,14 @@ pub trait UserService {
 
     async fn create_access_token(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         cmd: CreateAccessTokenCommand,
     ) -> Result<(RawAccessToken, AccessToken), UserServiceError>;
 
     async fn update_access_token(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         access_token_id: &AccessTokenId,
         cmd: UpdateAccessTokenCommand,
@@ -210,12 +221,14 @@ pub trait UserService {
 
     async fn delete_access_token(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         access_token_id: &AccessTokenId,
     ) -> Result<(), UserServiceError>;
 
     async fn delete_access_token_by_raw(
         &self,
+        ctx: &RequestContext,
         raw_access_token: &RawAccessToken,
     ) -> Result<(), UserServiceError>;
 }
@@ -322,7 +335,11 @@ impl<'a> UserService for UserServiceImpl<'a> {
         Ok(())
     }
 
-    async fn create_user(&self, cmd: CreateUserCommand) -> Result<User, UserServiceError> {
+    async fn create_user(
+        &self,
+        ctx: &RequestContext,
+        cmd: CreateUserCommand,
+    ) -> Result<User, UserServiceError> {
         let exists_guard = self.repository.get_user_record(&cmd.id).await?;
         match exists_guard {
             Some(_) => Err(UserServiceError::UserExistsAlready(cmd.id)),
@@ -342,13 +359,13 @@ impl<'a> UserService for UserServiceImpl<'a> {
                     structured_address: None,
                     geo_address: None,
                     partner_shops: Default::default(),
-                    created_by: Actor::User(cmd.id),
-                    updated_by: Actor::User(cmd.id),
+                    created_by: ctx.actor,
+                    updated_by: ctx.actor,
                     created: now,
                     updated: now,
                 };
                 let _ = self.repository.put_user_record(user.clone().into()).await?;
-                info!(userId = %user.user_id, "Created User.");
+                info!(actor = %ctx.actor, userId = %user.user_id, "Created User.");
                 Ok(user)
             }
         }
@@ -356,6 +373,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
 
     async fn update_user(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         cmd: UpdateUserCommand,
     ) -> Result<User, UserServiceError> {
@@ -398,6 +416,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                 structured_address_country: structured_address.and_then(|address| address.country),
                 geo_address_lat: geo_address.map(|address| address.lat),
                 geo_address_lon: geo_address.map(|address| address.lon),
+                updated_by: ctx.actor.into(),
                 updated: OffsetDateTime::now_utc(),
             };
             let user = self.repository
@@ -407,31 +426,36 @@ impl<'a> UserService for UserServiceImpl<'a> {
                     SdkError::construction_failure("Failed deserializing updated UserRecord in UpdateItem-Response from DynamoDB."),
                 )).map(User::from)?;
 
-            info!(userId = %user.user_id, "Updated User.");
+            info!(actor = %ctx.actor, userId = %user.user_id, "Updated User.");
 
             Ok(user)
         }
     }
 
-    async fn delete_user(&self, user_id: &UserId) -> Result<(), UserServiceError> {
+    async fn delete_user(
+        &self,
+        ctx: &RequestContext,
+        user_id: &UserId,
+    ) -> Result<(), UserServiceError> {
         let cognito = self
             .cognito_admin_service
             .ok_or(UserServiceError::CognitoAdminServiceNotConfigured)?;
 
         cognito.admin_delete_user(user_id).await?;
-        info!(userId = %user_id, "Deleted Cognito user.");
+        info!(actor = %ctx.actor, userId = %user_id, "Deleted Cognito user.");
 
         let mut last_err = None;
         for attempt in 1..=MAX_DELETE_RETRIES {
             match self.repository.delete_user_record(user_id).await {
                 Ok(_) => {
-                    info!(userId = %user_id, "Deleted User.");
+                    info!(actor = %ctx.actor, userId = %user_id, "Deleted User.");
                     last_err = None;
                     break;
                 }
                 Err(err) => {
                     if attempt < MAX_DELETE_RETRIES {
                         warn!(
+                            actor = %ctx.actor,
                             userId = %user_id,
                             attempt,
                             error = %err,
@@ -443,6 +467,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                         .await;
                     } else {
                         error!(
+                            actor = %ctx.actor,
                             userId = %user_id,
                             attempt,
                             error = %err,
@@ -463,13 +488,14 @@ impl<'a> UserService for UserServiceImpl<'a> {
             for attempt in 1..=MAX_DELETE_RETRIES {
                 match repository.delete_user_document(user_id).await {
                     Ok(_) => {
-                        info!(userId = %user_id, "Deleted User OpenSearch document.");
+                        info!(actor = %ctx.actor, userId = %user_id, "Deleted User OpenSearch document.");
                         last_os_err = None;
                         break;
                     }
                     Err(err) => {
                         if attempt < MAX_DELETE_RETRIES {
                             warn!(
+                                actor = %ctx.actor,
                                 userId = %user_id,
                                 attempt,
                                 error = %err,
@@ -481,6 +507,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                             .await;
                         } else {
                             error!(
+                                actor = %ctx.actor,
                                 userId = %user_id,
                                 attempt,
                                 error = %err,
@@ -561,6 +588,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
 
     async fn create_access_token(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         cmd: CreateAccessTokenCommand,
     ) -> Result<(RawAccessToken, AccessToken), UserServiceError> {
@@ -575,8 +603,8 @@ impl<'a> UserService for UserServiceImpl<'a> {
             scopes: cmd.scopes,
             origin: cmd.origin,
             expires: cmd.expires,
-            created_by: Actor::User(*user_id),
-            updated_by: Actor::User(*user_id),
+            created_by: ctx.actor,
+            updated_by: ctx.actor,
             created: now,
             updated: now,
         };
@@ -588,6 +616,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
 
     async fn update_access_token(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         access_token_id: &AccessTokenId,
         cmd: UpdateAccessTokenCommand,
@@ -604,6 +633,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                 .map(|scopes| scopes.into_iter().map(Into::into).collect()),
             expires,
             ttl: expires,
+            updated_by: ctx.actor.into(),
             updated: OffsetDateTime::now_utc(),
         };
         self.repository
@@ -619,6 +649,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
 
     async fn delete_access_token(
         &self,
+        _ctx: &RequestContext,
         user_id: &UserId,
         access_token_id: &AccessTokenId,
     ) -> Result<(), UserServiceError> {
@@ -631,6 +662,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
 
     async fn delete_access_token_by_raw(
         &self,
+        _ctx: &RequestContext,
         raw_access_token: &RawAccessToken,
     ) -> Result<(), UserServiceError> {
         let token = self.find_access_token_by_raw(raw_access_token).await?;
