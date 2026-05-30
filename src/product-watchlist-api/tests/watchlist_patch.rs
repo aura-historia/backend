@@ -1,3 +1,4 @@
+use common::actor::record::ActorRecord;
 use common::personalized::api::PersonalizedData;
 use fake::Fake;
 use fake::Faker;
@@ -107,6 +108,8 @@ async fn should_respond_with_patched_notifications(
         shops_product_id: product_record.shops_product_id.clone(),
         notifications: old_notifications,
         state: common::resource_state::record::ResourceStateRecord::Active,
+        created_by: ActorRecord::System,
+        updated_by: ActorRecord::System,
         created,
         updated: created,
     };

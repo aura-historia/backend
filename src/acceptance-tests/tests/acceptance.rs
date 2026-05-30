@@ -1979,7 +1979,8 @@ async fn should_complete_oauth_authorization_code_flow() {
             name: OAuthClientName::from("Acceptance OAuth client"),
             redirect_uris: HashSet::from([redirect_uri.clone()]),
             scopes: HashSet::from([Scope::ProductsWrite]),
-            created_by: UserId::from(user.sub),
+            created_by: common::actor::domain::Actor::User(UserId::from(user.sub)),
+            updated_by: common::actor::domain::Actor::User(UserId::from(user.sub)),
             created: now,
             updated: now,
         }))
@@ -4355,6 +4356,8 @@ async fn prepare_partner_shop() -> (ShopRecord, RawAccessToken) {
         scopes: [Scope::ProductsWrite].into(),
         origin: AccessTokenOrigin::User,
         expires: None,
+        created_by: common::actor::domain::Actor::User(user.user_id),
+        updated_by: common::actor::domain::Actor::User(user.user_id),
         created: time::OffsetDateTime::now_utc(),
         updated: time::OffsetDateTime::now_utc(),
     };
@@ -5882,6 +5885,8 @@ async fn should_deactivate_over_quota_watchlist_entries_when_tier_is_downgraded(
             shops_product_id,
             notifications: true,
             state: ResourceStateRecord::Active,
+            created_by: common::actor::record::ActorRecord::User(user_id),
+            updated_by: common::actor::record::ActorRecord::User(user_id),
             created,
             updated: created,
         };
@@ -5974,6 +5979,8 @@ async fn should_reactivate_plan_restricted_watchlist_entries_when_tier_is_upgrad
             shops_product_id,
             notifications: true,
             state: ResourceStateRecord::InactiveByRestrictedPlan,
+            created_by: common::actor::record::ActorRecord::User(user_id),
+            updated_by: common::actor::record::ActorRecord::User(user_id),
             created,
             updated: created,
         };
@@ -6071,6 +6078,8 @@ async fn seed_shopify_acceptance_shop() -> ShopRecord {
         gsi3_pk: Some(shop::dynamodb::shop_record::mk_gsi3_pk(&shopify_domain)),
         gsi3_sk: Some(shop::dynamodb::shop_record::mk_gsi3_sk().to_owned()),
         affiliate_configuration: None,
+        created_by: common::actor::record::ActorRecord::System,
+        updated_by: common::actor::record::ActorRecord::System,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };

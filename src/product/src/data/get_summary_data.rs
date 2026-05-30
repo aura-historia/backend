@@ -132,6 +132,7 @@ mod tests {
         prohibited_content_data::ProhibitedContentData,
     };
     use common::{
+        actor::data::ActorData,
         currency::data::CurrencyData,
         event_id::EventId,
         language::data::{LanguageData, LocalizedTextData},
@@ -186,6 +187,8 @@ mod tests {
                 start: Some(utc_datetime!(2025 - 05 - 01 12:00).into()),
                 end: Some(utc_datetime!(2025 - 05 - 10 12:00).into()),
             }),
+            created_by: ActorData::System,
+            updated_by: ActorData::System,
             created: utc_datetime!(2025 - 05 - 05 0:00).into(),
             updated: utc_datetime!(2025 - 05 - 05 0:00).into(),
         };
@@ -225,6 +228,8 @@ mod tests {
                 "start": "2025-05-01T12:00:00Z",
                 "end": "2025-05-10T12:00:00Z"
             },
+            "createdBy": "SYSTEM",
+            "updatedBy": "SYSTEM",
             "created": "2025-05-05T00:00:00Z",
             "updated": "2025-05-05T00:00:00Z",
         });

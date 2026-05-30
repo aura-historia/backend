@@ -1,7 +1,7 @@
 use crate::core::watchlist_product::WatchlistProduct;
 use common::{
-    actor::data::ActorData, product_id::ProductId, resource_state::data::ResourceStateData, shop_id::ShopId,
-    shops_product_id::ShopsProductId,
+    actor::data::ActorData, product_id::ProductId, resource_state::data::ResourceStateData,
+    shop_id::ShopId, shops_product_id::ShopsProductId,
 };
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;

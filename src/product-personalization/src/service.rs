@@ -697,6 +697,7 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
 #[cfg(test)]
 mod tests {
     use common::product_id::ProductId;
+    use common::{actor::domain::Actor, actor::record::ActorRecord};
     use fake::{Fake, Faker};
     use product::core::product::LocalizedProductView;
     use product::core::product_image::ProductImage;
@@ -727,6 +728,8 @@ mod tests {
                         product_id,
                         notifications: false,
                         state: common::resource_state::record::ResourceStateRecord::Active,
+                        created_by: ActorRecord::System,
+                        updated_by: ActorRecord::System,
                         created: OffsetDateTime::now_utc(),
                         updated: OffsetDateTime::now_utc(),
                         pk: "dummy".to_owned(),
@@ -777,6 +780,8 @@ mod tests {
                         product_id,
                         notifications: true,
                         state: common::resource_state::record::ResourceStateRecord::Active,
+                        created_by: ActorRecord::System,
+                        updated_by: ActorRecord::System,
                         created: OffsetDateTime::now_utc(),
                         updated: OffsetDateTime::now_utc(),
                         pk: "dummy".to_owned(),
@@ -860,6 +865,8 @@ mod tests {
                             product_id: product1_id,
                             notifications: false,
                             state: common::resource_state::record::ResourceStateRecord::Active,
+                            created_by: ActorRecord::System,
+                            updated_by: ActorRecord::System,
                             created: OffsetDateTime::now_utc(),
                             updated: OffsetDateTime::now_utc(),
                             pk: "dummy".to_owned(),
@@ -875,6 +882,8 @@ mod tests {
                             product_id: product2_id,
                             notifications: true,
                             state: common::resource_state::record::ResourceStateRecord::Active,
+                            created_by: ActorRecord::System,
+                            updated_by: ActorRecord::System,
                             created: OffsetDateTime::now_utc(),
                             updated: OffsetDateTime::now_utc(),
                             pk: "dummy".to_owned(),
@@ -890,6 +899,8 @@ mod tests {
                             product_id: product3_id,
                             notifications: true,
                             state: common::resource_state::record::ResourceStateRecord::Active,
+                            created_by: ActorRecord::System,
+                            updated_by: ActorRecord::System,
                             created: OffsetDateTime::now_utc(),
                             updated: OffsetDateTime::now_utc(),
                             pk: "dummy".to_owned(),
@@ -993,6 +1004,8 @@ mod tests {
             structured_address: None,
             geo_address: None,
             partner_shops: Default::default(),
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -1027,6 +1040,8 @@ mod tests {
             },
             seen,
             external: false,
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -1263,6 +1278,8 @@ mod tests {
                         product_id,
                         notifications: true,
                         state: common::resource_state::record::ResourceStateRecord::Active,
+                        created_by: ActorRecord::System,
+                        updated_by: ActorRecord::System,
                         created: OffsetDateTime::now_utc(),
                         updated: OffsetDateTime::now_utc(),
                         pk: "dummy".to_owned(),
@@ -1328,6 +1345,8 @@ mod tests {
                         product_id: product1_id,
                         notifications: true,
                         state: common::resource_state::record::ResourceStateRecord::Active,
+                        created_by: ActorRecord::System,
+                        updated_by: ActorRecord::System,
                         created: OffsetDateTime::now_utc(),
                         updated: OffsetDateTime::now_utc(),
                         pk: "dummy".to_owned(),

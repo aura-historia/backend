@@ -167,6 +167,8 @@ mod tests {
                 "shopDomains": ["test.example"],
                 "shopImage": "https://test.example/logo.svg"
             },
+            "createdBy": "SYSTEM",
+            "updatedBy": "SYSTEM",
             "created": "2026-04-22T00:00:00Z",
             "updated": "2026-04-22T01:00:00Z",
         });

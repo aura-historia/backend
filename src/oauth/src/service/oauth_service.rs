@@ -630,7 +630,10 @@ mod tests {
         repository
             .expect_put_client_record()
             .return_once(move |record| {
-                assert_eq!(user_id, record.created_by);
+                assert_eq!(
+                    common::actor::record::ActorRecord::User(user_id),
+                    record.created_by
+                );
                 assert_eq!(OAuthClientName::from("Client"), record.name);
                 Box::pin(async {
                     Ok(aws_sdk_dynamodb::operation::put_item::PutItemOutput::builder().build())
@@ -645,7 +648,10 @@ mod tests {
             .unwrap();
 
         assert!(secret.check(&client.hashed_client_secret));
-        assert_eq!(user_id, client.created_by);
+        assert_eq!(
+            common::actor::domain::Actor::User(user_id),
+            client.created_by
+        );
     }
 
     #[tokio::test]
@@ -875,6 +881,8 @@ mod tests {
                     scopes: cmd.scopes,
                     origin: cmd.origin,
                     expires: cmd.expires,
+                    created_by: common::actor::domain::Actor::User(*user_id),
+                    updated_by: common::actor::domain::Actor::User(*user_id),
                     created: now,
                     updated: now,
                 };
@@ -981,16 +989,19 @@ mod tests {
         let client = oauth_client(&secret);
         let raw = RawAccessToken::new();
         let now = OffsetDateTime::now_utc();
+        let user_id = UserId::new();
         let access_token = AccessToken {
             id: AccessTokenId::new(),
             hashed_token: raw.clone().into(),
-            user_id: UserId::new(),
+            user_id,
             name: "OAuth token".into(),
             scopes: HashSet::from([Scope::ProductsWrite]),
             origin: AccessTokenOrigin::OAuth {
                 client_id: client.client_id,
             },
             expires: None,
+            created_by: common::actor::domain::Actor::User(user_id),
+            updated_by: common::actor::domain::Actor::User(user_id),
             created: now,
             updated: now,
         };

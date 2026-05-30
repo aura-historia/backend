@@ -58,10 +58,7 @@ mod tests {
     #[rstest]
     #[case(ActorRecord::System, "\"SYSTEM\"")]
     #[case(ActorRecord::User(UserId::from(uuid::uuid!("00000000-0000-4000-8000-000000000001"))), "\"00000000-0000-4000-8000-000000000001\"")]
-    fn should_serialize_actor_as_plain_string(
-        #[case] actor: ActorRecord,
-        #[case] expected: &str,
-    ) {
+    fn should_serialize_actor_as_plain_string(#[case] actor: ActorRecord, #[case] expected: &str) {
         assert_eq!(serde_json::to_string(&actor).unwrap(), expected);
     }
 
@@ -72,6 +69,9 @@ mod tests {
         #[case] actor: &str,
         #[case] expected: ActorRecord,
     ) {
-        assert_eq!(serde_json::from_str::<ActorRecord>(actor).unwrap(), expected);
+        assert_eq!(
+            serde_json::from_str::<ActorRecord>(actor).unwrap(),
+            expected
+        );
     }
 }

@@ -3,8 +3,8 @@ use crate::{
     data::{role_data::UserRoleData, tier_data::UserTierData},
 };
 use common::{
-    actor::data::ActorData, currency::data::CurrencyData, language::data::LanguageData, shop_id::ShopId,
-    stripe_customer_id::StripeCustomerId, user_id::UserId,
+    actor::data::ActorData, currency::data::CurrencyData, language::data::LanguageData,
+    shop_id::ShopId, stripe_customer_id::StripeCustomerId, user_id::UserId,
 };
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use serde::{Deserialize, Serialize};

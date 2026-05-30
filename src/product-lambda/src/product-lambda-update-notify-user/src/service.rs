@@ -185,7 +185,7 @@ mod tests {
     use super::*;
     use aws_sdk_dynamodb::error::SdkError;
     use common::{
-        event::Event, event_id::EventId, product_id::ProductId,
+        actor::domain::Actor, event::Event, event_id::EventId, product_id::ProductId,
         product_state::domain::ProductState, user_id::UserId,
     };
     use fake::{Fake, Faker};
@@ -222,6 +222,8 @@ mod tests {
             product_id: ProductId::new(),
             notifications,
             state: common::resource_state::domain::ResourceState::Active,
+            created_by: Actor::User(user_id),
+            updated_by: Actor::User(user_id),
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }

@@ -517,6 +517,8 @@ mod tests {
             notification_payload: Faker.fake::<NotificationPayload>(),
             seen: false,
             external: true,
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }

@@ -93,7 +93,7 @@ mod tests {
         get_shop_data::GetShopData, partner_status_data::ShopPartnerStatusData,
         shop_type_data::ShopTypeData,
     };
-    use common::{domain::Domain, shop_id::ShopId};
+    use common::{actor::data::ActorData, domain::Domain, shop_id::ShopId};
     use serde_json::json;
     use time::macros::datetime;
     use url::Url;
@@ -124,6 +124,8 @@ mod tests {
             phone: None,
             email: None,
             partner_status: ShopPartnerStatusData::Partnered,
+            created_by: ActorData::System,
+            updated_by: ActorData::System,
             created: datetime!(1976 - 12 - 01 0:00 UTC),
             updated: datetime!(1976 - 12 - 01 0:00 UTC),
         };
@@ -139,6 +141,8 @@ mod tests {
             "viewUrl": "https://woaah.co.ltd.com/?utm_source=aura_historia&utm_medium=referral",
             "image": "https://woaah.co.ltd.com/logo.svg",
             "partnerStatus": "PARTNERED",
+            "createdBy": "SYSTEM",
+            "updatedBy": "SYSTEM",
             "created": "1976-12-01T00:00:00Z",
             "updated": "1976-12-01T00:00:00Z",
         });

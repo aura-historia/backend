@@ -121,6 +121,7 @@ pub async fn handle(
 mod tests {
     use super::handle;
     use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
+    use common::actor::domain::Actor;
     use common::event_id::EventId;
     use common::language::data::LanguageData;
     use common::language::domain::Language;
@@ -203,6 +204,8 @@ mod tests {
                     images: Default::default(),
                     auction_start: None,
                     auction_end: None,
+                    created_by: Actor::System,
+                    updated_by: Actor::System,
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
                 };
@@ -269,6 +272,8 @@ mod tests {
                     images: Default::default(),
                     auction_start: None,
                     auction_end: None,
+                    created_by: Actor::System,
+                    updated_by: Actor::System,
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
                 };
@@ -341,6 +346,8 @@ mod tests {
                     images: Default::default(),
                     auction_start: None,
                     auction_end: None,
+                    created_by: Actor::System,
+                    updated_by: Actor::System,
                     created: timestamp,
                     updated: timestamp,
                 };
@@ -526,6 +533,8 @@ mod tests {
                     images: Default::default(),
                     auction_start: None,
                     auction_end: None,
+                    created_by: Actor::System,
+                    updated_by: Actor::System,
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
                 };
@@ -604,6 +613,8 @@ mod tests {
                     images: Default::default(),
                     auction_start: None,
                     auction_end: None,
+                    created_by: Actor::System,
+                    updated_by: Actor::System,
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
                 };
@@ -681,6 +692,8 @@ mod tests {
                     images: Default::default(),
                     auction_start: None,
                     auction_end: None,
+                    created_by: Actor::System,
+                    updated_by: Actor::System,
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
                 };
@@ -759,6 +772,8 @@ mod tests {
                     images: Default::default(),
                     auction_start: None,
                     auction_end: None,
+                    created_by: Actor::System,
+                    updated_by: Actor::System,
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
                 };

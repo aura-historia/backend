@@ -427,7 +427,8 @@ mod tests {
                 "https://client.example/callback",
             )]),
             scopes: HashSet::from([Scope::ProductsWrite]),
-            created_by: user_id,
+            created_by: common::actor::domain::Actor::User(user_id),
+            updated_by: common::actor::domain::Actor::User(user_id),
             created: now,
             updated: now,
         }

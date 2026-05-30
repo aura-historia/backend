@@ -1,3 +1,4 @@
+use common::actor::domain::Actor;
 use common::shop_name::ShopName;
 use common::user_id::UserId;
 use fake::{Fake, Faker};
@@ -36,6 +37,8 @@ fn fake_notification(user_id: UserId) -> Notification {
         notification_payload: Faker.fake(),
         seen: false,
         external: true,
+        created_by: Actor::System,
+        updated_by: Actor::System,
         created: time::OffsetDateTime::now_utc(),
         updated: time::OffsetDateTime::now_utc(),
     }

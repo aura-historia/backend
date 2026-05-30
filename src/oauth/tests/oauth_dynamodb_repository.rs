@@ -17,13 +17,15 @@ fn now() -> OffsetDateTime {
 
 fn oauth_client() -> OAuthClient {
     let now = now();
+    let user_id = common::user_id::UserId::new();
     OAuthClient {
         client_id: OAuthClientId::new(),
         hashed_client_secret: RawOAuthClientSecret::new().into(),
         name: OAuthClientName::from("Test client"),
         redirect_uris: HashSet::from([OAuthRedirectUri::from("https://client.example/callback")]),
         scopes: HashSet::from([Scope::ProductsWrite]),
-        created_by: common::user_id::UserId::new(),
+        created_by: common::actor::domain::Actor::User(user_id),
+        updated_by: common::actor::domain::Actor::User(user_id),
         created: now,
         updated: now,
     }
@@ -34,7 +36,10 @@ fn authorization_code(client: &OAuthClient) -> AuthorizationCode {
     AuthorizationCode {
         code: oauth::core::authorization_code::OAuthAuthorizationCode::new(),
         client_id: client.client_id,
-        user_id: client.created_by,
+        user_id: match client.created_by {
+            common::actor::domain::Actor::User(user_id) => user_id,
+            common::actor::domain::Actor::System => panic!("expected user actor"),
+        },
         redirect_uri: OAuthRedirectUri::from("https://client.example/callback"),
         scopes: HashSet::from([Scope::ProductsWrite]),
         code_challenge: OAuthCodeChallenge::from("challenge"),

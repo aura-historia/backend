@@ -1082,8 +1082,8 @@ mod tests {
     };
     use aws_sdk_sesv2::operation::send_email::SendEmailOutput;
     use common::{
-        currency::domain::Currency, language::domain::Language, price::domain::MonetaryAmount,
-        product_state::domain::ProductState, user_id::UserId,
+        actor::domain::Actor, currency::domain::Currency, language::domain::Language,
+        price::domain::MonetaryAmount, product_state::domain::ProductState, user_id::UserId,
     };
     use fake::{Fake, Faker};
     use std::collections::HashMap;
@@ -1121,6 +1121,8 @@ mod tests {
             structured_address: None,
             geo_address: None,
             partner_shops: Default::default(),
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -2050,6 +2052,8 @@ mod tests {
                 structured_address: None,
                 geo_address: None,
                 partner_shops: Default::default(),
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2545,6 +2549,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2587,6 +2593,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2628,6 +2636,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2667,6 +2677,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2707,6 +2719,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2750,6 +2764,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2777,6 +2793,8 @@ mod tests {
                 },
                 seen: false,
                 external: true,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -3247,6 +3265,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -3285,6 +3305,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -3323,6 +3345,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -3509,6 +3533,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -3703,6 +3729,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -3723,6 +3751,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

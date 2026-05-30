@@ -6,9 +6,9 @@ use crate::core::notification_id::NotificationId;
 use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::{
-    actor::data::ActorData, event_id::EventId, language::data::LocalizedTextData, price::data::PriceData,
-    product_id::ProductId, shop_id::ShopId, shop_name::ShopName, shops_product_id::ShopsProductId,
-    slug_id::SlugId,
+    actor::data::ActorData, event_id::EventId, language::data::LocalizedTextData,
+    price::data::PriceData, product_id::ProductId, shop_id::ShopId, shop_name::ShopName,
+    shops_product_id::ShopsProductId, slug_id::SlugId,
 };
 use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
@@ -345,6 +345,8 @@ mod tests {
             },
             "seen": false,
             "external": true,
+            "createdBy": "SYSTEM",
+            "updatedBy": "SYSTEM",
             "created": "2026-04-22T00:00:00Z",
             "updated": "2026-04-22T01:00:00Z",
         });

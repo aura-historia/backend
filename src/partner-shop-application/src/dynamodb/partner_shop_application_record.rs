@@ -294,6 +294,7 @@ mod faker {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use common::actor::domain::Actor;
         use fake::{Fake, Faker};
 
         #[test]
@@ -309,6 +310,8 @@ mod faker {
                 execution_state: common::execution_state::ExecutionState::Processing,
                 applicant_user_id: UserId::new(),
                 payload: PartnerShopApplicationPayload::Existing(ShopId::new()),
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -353,6 +356,8 @@ mod faker {
                 execution_state: common::execution_state::ExecutionState::Waiting,
                 applicant_user_id: UserId::new(),
                 payload: PartnerShopApplicationPayload::New(cmd),
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };

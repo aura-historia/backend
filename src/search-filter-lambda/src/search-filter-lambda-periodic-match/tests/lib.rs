@@ -1,3 +1,4 @@
+use common::actor::{domain::Actor, record::ActorRecord};
 use common::resource_state::record::ResourceStateRecord;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
@@ -87,6 +88,8 @@ fn mk_search_filter_record_with_state(
         auction_end_query: None,
         language: common::language::record::LanguageRecord::En,
         currency: common::currency::record::CurrencyRecord::Eur,
+        created_by: ActorRecord::User(user_id),
+        updated_by: ActorRecord::User(user_id),
         created: datetime!(2024-01-01 00:00:00 UTC),
         updated: datetime!(2024-01-02 00:00:00 UTC),
         last_hybrid_search_matched: datetime!(2024-01-02 00:00:00 UTC),
@@ -213,6 +216,8 @@ fn mock_notification_service_counting_calls() -> (MockNotificationService, Arc<A
                     notification_payload: payload,
                     seen: false,
                     external: true,
+                    created_by: Actor::System,
+                    updated_by: Actor::System,
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
                 })

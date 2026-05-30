@@ -1,6 +1,6 @@
 use common::{
-    actor::domain::Actor, product_id::ProductId, resource_state::domain::ResourceState, shop_id::ShopId,
-    shops_product_id::ShopsProductId, user_id::UserId,
+    actor::domain::Actor, product_id::ProductId, resource_state::domain::ResourceState,
+    shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId,
 };
 use time::OffsetDateTime;
 

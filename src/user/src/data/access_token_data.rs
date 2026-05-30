@@ -217,6 +217,7 @@ mod tests {
         core::access_token::AccessTokenId,
         data::access_token_data::{AccessTokenTypeData, GetAccessTokenData, ScopeData},
     };
+    use common::actor::data::ActorData;
     use rstest::rstest;
     use std::collections::HashSet;
     use time::OffsetDateTime;
@@ -304,6 +305,8 @@ mod tests {
             token_type: AccessTokenTypeData::Bearer,
             expires_at: Some(OffsetDateTime::now_utc() + time::Duration::days(30)),
             expires_in: Some(2592000),
+            created_by: ActorData::System,
+            updated_by: ActorData::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };
@@ -316,6 +319,8 @@ mod tests {
             "tokenType": "BEARER",
             "expiresAt": data.expires_at.unwrap().format(&time::format_description::well_known::Rfc3339).unwrap(),
             "expiresIn": 2592000,
+            "createdBy": "SYSTEM",
+            "updatedBy": "SYSTEM",
             "created": data.created.format(&time::format_description::well_known::Rfc3339).unwrap(),
             "updated": data.updated.format(&time::format_description::well_known::Rfc3339).unwrap(),
         });
@@ -332,6 +337,8 @@ mod tests {
             "scope": ["shops:manage", "products:write"],
             "token": "raw_token",
             "tokenType": "BEARER",
+            "createdBy": "SYSTEM",
+            "updatedBy": "SYSTEM",
             "created": "2025-01-01T00:00:00Z",
             "updated": "2025-01-01T00:00:00Z",
         });

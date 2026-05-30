@@ -528,6 +528,7 @@ async fn resolve_shop_notification_data_for_reject(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common::actor::domain::Actor;
     use fake::{Fake, Faker};
     use notification::core::notification::Notification;
     use notification::core::notification_id::NotificationId;
@@ -552,6 +553,8 @@ mod tests {
             notification_payload: Faker.fake(),
             seen: false,
             external: true,
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: time::OffsetDateTime::now_utc(),
             updated: time::OffsetDateTime::now_utc(),
         }

@@ -1,6 +1,6 @@
+use common::actor::domain::Actor;
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
-use common::actor::domain::Actor;
 use common::has_key::HasKey;
 use common::language::domain::Language;
 use notification::core::notification::{NotificationPayload, NotificationSearchFilterPayload};
@@ -511,6 +511,8 @@ mod tests {
             enhanced_search_description: None,
             notifications: true,
             state,
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
             last_hybrid_search_matched: OffsetDateTime::now_utc(),
@@ -532,6 +534,8 @@ mod tests {
             enhanced_search_description: Some(EnhancedSearchDescription::from(description)),
             notifications: true,
             state: ResourceState::Active,
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
             last_hybrid_search_matched: OffsetDateTime::now_utc(),
@@ -814,6 +818,8 @@ mod tests {
             enhanced_search_description: None,
             notifications: true,
             state: ResourceState::Active,
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
             last_hybrid_search_matched: OffsetDateTime::now_utc(),

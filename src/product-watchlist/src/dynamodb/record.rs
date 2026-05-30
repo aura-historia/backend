@@ -1,7 +1,7 @@
 use crate::core::watchlist_product::WatchlistProduct;
 use common::{
-    actor::record::ActorRecord, product_id::ProductId, resource_state::record::ResourceStateRecord, shop_id::ShopId,
-    shops_product_id::ShopsProductId, user_id::UserId,
+    actor::record::ActorRecord, product_id::ProductId, resource_state::record::ResourceStateRecord,
+    shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
