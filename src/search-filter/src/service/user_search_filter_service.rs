@@ -485,7 +485,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
         }
 
         let mut record_update: crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate =
-            update.into();
+            (update, ctx.actor).into();
         record_update.updated_by = ctx.actor.into();
 
         let updated_opt = self
@@ -744,10 +744,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
                 &search_filter_id,
                 &shop_id,
                 &shops_product_id,
-                UserSearchFilterMatchRecordUpdate {
-                    updated_by: ctx.actor.into(),
-                    ..UserSearchFilterMatchRecordUpdate::from(update)
-                },
+                UserSearchFilterMatchRecordUpdate::from((update, ctx.actor)),
             )
             .await?
             .ok_or_else(|| {
@@ -1084,7 +1081,13 @@ mod tests {
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&super::system_ctx(), &UserId::new(), Faker.fake(), Faker.fake(), None)
+                .create_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    Faker.fake(),
+                    Faker.fake(),
+                    None,
+                )
                 .await;
             assert!(actual.is_ok());
         }
@@ -1126,7 +1129,13 @@ mod tests {
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&super::system_ctx(), &UserId::new(), Faker.fake(), Faker.fake(), None)
+                .create_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    Faker.fake(),
+                    Faker.fake(),
+                    None,
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -1160,7 +1169,13 @@ mod tests {
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&super::system_ctx(), &UserId::new(), Faker.fake(), Faker.fake(), None)
+                .create_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    Faker.fake(),
+                    Faker.fake(),
+                    None,
+                )
                 .await
                 .unwrap_err();
 
@@ -1186,7 +1201,13 @@ mod tests {
             let repository = MockUserSearchFilterDynamoDbRepository::default();
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&super::system_ctx(), &user_id, Faker.fake(), Faker.fake(), None)
+                .create_user_search_filter(
+                    &super::system_ctx(),
+                    &user_id,
+                    Faker.fake(),
+                    Faker.fake(),
+                    None,
+                )
                 .await
                 .unwrap_err();
 
@@ -1238,7 +1259,13 @@ mod tests {
                 .expect("Should generate a search with forbidden features");
 
             let actual = service
-                .create_user_search_filter(&super::system_ctx(), &UserId::new(), Faker.fake(), search, None)
+                .create_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    Faker.fake(),
+                    search,
+                    None,
+                )
                 .await
                 .unwrap_err();
 
@@ -1281,7 +1308,13 @@ mod tests {
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let actual = service
-                .create_user_search_filter(&super::system_ctx(), &UserId::new(), Faker.fake(), Faker.fake(), None)
+                .create_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    Faker.fake(),
+                    Faker.fake(),
+                    None,
+                )
                 .await;
 
             assert!(actual.is_ok());
@@ -1317,7 +1350,13 @@ mod tests {
             // Generate searches until we find one with forbidden features for Free tier
             let search: ProductSearch = Faker.fake();
             let actual = service
-                .create_user_search_filter(&super::system_ctx(), &UserId::new(), Faker.fake(), search, Some(Faker.fake()))
+                .create_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    Faker.fake(),
+                    search,
+                    Some(Faker.fake()),
+                )
                 .await
                 .unwrap_err();
 
@@ -1394,7 +1433,11 @@ mod tests {
             let user_service = user::service::user_service::MockUserService::default();
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .delete_user_search_filter(&super::system_ctx(), &UserId::new(), &UserSearchFilterId::new())
+                .delete_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                )
                 .await;
             assert!(actual.is_ok());
         }
@@ -1453,7 +1496,11 @@ mod tests {
             let user_service = user::service::user_service::MockUserService::default();
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .delete_user_search_filter(&super::system_ctx(), &UserId::new(), &UserSearchFilterId::new())
+                .delete_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -1493,7 +1540,11 @@ mod tests {
             let user_service = user::service::user_service::MockUserService::default();
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .delete_user_search_filter(&super::system_ctx(), &UserId::new(), &UserSearchFilterId::new())
+                .delete_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -1532,7 +1583,12 @@ mod tests {
                 .return_once(|_| Box::pin(async { Ok(fake::Fake::fake(&fake::Faker)) }));
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .update_user_search_filter(&super::system_ctx(), &UserId::new(), &UserSearchFilterId::new(), Faker.fake())
+                .update_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                    Faker.fake(),
+                )
                 .await;
             assert!(actual.is_ok());
         }
@@ -1552,7 +1608,12 @@ mod tests {
             let user_id = UserId::new();
             let user_search_filter_id = UserSearchFilterId::new();
             let actual = service
-                .update_user_search_filter(&super::system_ctx(), &user_id, &user_search_filter_id, Faker.fake())
+                .update_user_search_filter(
+                    &super::system_ctx(),
+                    &user_id,
+                    &user_search_filter_id,
+                    Faker.fake(),
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -1598,7 +1659,12 @@ mod tests {
                 .return_once(|_| Box::pin(async { Ok(fake::Fake::fake(&fake::Faker)) }));
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .update_user_search_filter(&super::system_ctx(), &UserId::new(), &UserSearchFilterId::new(), Faker.fake())
+                .update_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                    Faker.fake(),
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -1641,7 +1707,12 @@ mod tests {
                 .return_once(|_| Box::pin(async { Ok(fake::Fake::fake(&fake::Faker)) }));
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .update_user_search_filter(&super::system_ctx(), &UserId::new(), &UserSearchFilterId::new(), Faker.fake())
+                .update_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                    Faker.fake(),
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -1688,7 +1759,12 @@ mod tests {
                 .expect("Should generate an update with forbidden features");
 
             let actual = service
-                .update_user_search_filter(&super::system_ctx(), &UserId::new(), &UserSearchFilterId::new(), update)
+                .update_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                    update,
+                )
                 .await
                 .unwrap_err();
 
@@ -1722,7 +1798,12 @@ mod tests {
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let actual = service
-                .update_user_search_filter(&super::system_ctx(), &UserId::new(), &UserSearchFilterId::new(), Faker.fake())
+                .update_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                    Faker.fake(),
+                )
                 .await;
 
             assert!(actual.is_ok());
