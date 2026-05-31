@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
@@ -71,8 +72,15 @@ pub async fn handle(
         payload,
     };
 
-    let data: GetPartnerShopApplicationData =
-        service.create_partner_shop_application(cmd).await?.into();
+    let data: GetPartnerShopApplicationData = service
+        .create_partner_shop_application(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            cmd,
+        )
+        .await?
+        .into();
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(201)
         .last_modified(data.updated)
@@ -99,7 +107,7 @@ mod tests {
         let mut service = MockPartnerShopApplicationService::default();
         service
             .expect_create_partner_shop_application()
-            .return_once(move |_| {
+            .return_once(move |_, _| {
                 let app: PartnerShopApplication = Faker.fake();
                 Box::pin(async move { Ok(app) })
             });

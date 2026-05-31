@@ -2,7 +2,8 @@ use crate::core::access_token::{
     AccessToken, AccessTokenId, AccessTokenOrigin, HashedRawAccessToken,
 };
 use common::{
-    error::missing_field::MissingPersistenceField, oauth_client_id::OAuthClientId, user_id::UserId,
+    actor::record::ActorRecord, error::missing_field::MissingPersistenceField,
+    oauth_client_id::OAuthClientId, user_id::UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -72,6 +73,8 @@ pub struct AccessTokenRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gsi1_sk: Option<String>,
 
+    pub created_by: ActorRecord,
+    pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -123,6 +126,8 @@ impl From<AccessToken> for AccessTokenRecord {
             ttl: expires,
             gsi1_pk: Some(mk_gsi1_pk(&access_token.hashed_token)),
             gsi1_sk: Some(mk_gsi1_sk(&access_token.user_id, &access_token.id)),
+            created_by: access_token.created_by.into(),
+            updated_by: access_token.updated_by.into(),
             created: access_token.created,
             updated: access_token.updated,
         }
@@ -151,6 +156,8 @@ impl TryFrom<AccessTokenRecord> for AccessToken {
             expires: record
                 .expires
                 .and_then(|timestamp| OffsetDateTime::from_unix_timestamp(timestamp).ok()),
+            created_by: record.created_by.into(),
+            updated_by: record.updated_by.into(),
             created: record.created,
             updated: record.updated,
         })

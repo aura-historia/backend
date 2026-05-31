@@ -6,6 +6,7 @@ use crate::{
         shop_type_data::ShopTypeData,
     },
 };
+use common::actor::data::ActorData;
 use common::currency::data::CurrencyData;
 use common::language::data::LanguageData;
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
@@ -48,6 +49,8 @@ pub struct GetShopData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub email: Option<Email>,
     pub partner_status: ShopPartnerStatusData,
+    pub created_by: ActorData,
+    pub updated_by: ActorData,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -76,6 +79,8 @@ impl From<Shop> for GetShopData {
             phone: shop.phone,
             email: shop.email,
             partner_status: shop.partner_status.into(),
+            created_by: shop.created_by.into(),
+            updated_by: shop.updated_by.into(),
             created: shop.created,
             updated: shop.updated,
         }
@@ -88,7 +93,7 @@ mod tests {
         get_shop_data::GetShopData, partner_status_data::ShopPartnerStatusData,
         shop_type_data::ShopTypeData,
     };
-    use common::{domain::Domain, shop_id::ShopId};
+    use common::{actor::data::ActorData, domain::Domain, shop_id::ShopId};
     use serde_json::json;
     use time::macros::datetime;
     use url::Url;
@@ -119,6 +124,8 @@ mod tests {
             phone: None,
             email: None,
             partner_status: ShopPartnerStatusData::Partnered,
+            created_by: ActorData::System,
+            updated_by: ActorData::System,
             created: datetime!(1976 - 12 - 01 0:00 UTC),
             updated: datetime!(1976 - 12 - 01 0:00 UTC),
         };
@@ -134,6 +141,8 @@ mod tests {
             "viewUrl": "https://woaah.co.ltd.com/?utm_source=aura_historia&utm_medium=referral",
             "image": "https://woaah.co.ltd.com/logo.svg",
             "partnerStatus": "PARTNERED",
+            "createdBy": "SYSTEM",
+            "updatedBy": "SYSTEM",
             "created": "1976-12-01T00:00:00Z",
             "updated": "1976-12-01T00:00:00Z",
         });

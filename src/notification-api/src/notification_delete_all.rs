@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::user_id::api::extract_user_id_request_context;
@@ -12,7 +13,14 @@ pub async fn handle(
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
 
-    service.delete_notifications(&user_id).await?;
+    service
+        .delete_notifications(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            &user_id,
+        )
+        .await?;
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(204).build())
 }
@@ -30,7 +38,7 @@ mod tests {
         let mut service = MockNotificationService::default();
         service
             .expect_delete_notifications()
-            .return_once(|_| Box::pin(async { Ok(()) }));
+            .return_once(|_, _| Box::pin(async { Ok(()) }));
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()

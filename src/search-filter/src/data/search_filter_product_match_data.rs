@@ -1,4 +1,5 @@
 use crate::core::search_filter_product_match::SearchFilterProductMatch;
+use common::actor::data::ActorData;
 use common::product_id::ProductId;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
@@ -18,6 +19,8 @@ pub struct SearchFilterProductMatchData {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub feedback: Option<bool>,
+    pub created_by: ActorData,
+    pub updated_by: ActorData,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -35,6 +38,8 @@ impl From<SearchFilterProductMatch> for SearchFilterProductMatchData {
             shops_product_id: product_match.shops_product_id,
             product_id: product_match.product_id,
             feedback: product_match.feedback,
+            created_by: product_match.created_by.into(),
+            updated_by: product_match.updated_by.into(),
             created: product_match.created,
             updated: product_match.updated,
         }
@@ -55,6 +60,8 @@ mod faker {
                 shops_product_id: config.fake_with_rng(rng),
                 product_id: config.fake_with_rng(rng),
                 feedback: config.fake_with_rng(rng),
+                created_by: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

@@ -1,4 +1,5 @@
 use crate::core::access_token::{AccessToken, AccessTokenId, RawAccessToken, Scope};
+use common::actor::data::ActorData;
 use serde::{
     Deserialize, Serialize,
     de::{self, Visitor},
@@ -131,6 +132,8 @@ pub struct GetAccessTokenData {
     pub expires_at: Option<OffsetDateTime>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_in: Option<i64>,
+    pub created_by: ActorData,
+    pub updated_by: ActorData,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -180,6 +183,8 @@ impl From<AccessToken> for GetAccessTokenData {
             expires_in: access_token
                 .expires
                 .map(|expires| (expires - now).whole_seconds().max(0)),
+            created_by: access_token.created_by.into(),
+            updated_by: access_token.updated_by.into(),
             created: access_token.created,
             updated: access_token.updated,
         }
@@ -198,6 +203,8 @@ impl From<(RawAccessToken, AccessToken)> for GetAccessTokenData {
             expires_in: access_token
                 .expires
                 .map(|expires| (expires - OffsetDateTime::now_utc()).whole_seconds().max(0)),
+            created_by: access_token.created_by.into(),
+            updated_by: access_token.updated_by.into(),
             created: access_token.created,
             updated: access_token.updated,
         }
@@ -210,6 +217,7 @@ mod tests {
         core::access_token::AccessTokenId,
         data::access_token_data::{AccessTokenTypeData, GetAccessTokenData, ScopeData},
     };
+    use common::actor::data::ActorData;
     use rstest::rstest;
     use std::collections::HashSet;
     use time::OffsetDateTime;
@@ -297,6 +305,8 @@ mod tests {
             token_type: AccessTokenTypeData::Bearer,
             expires_at: Some(OffsetDateTime::now_utc() + time::Duration::days(30)),
             expires_in: Some(2592000),
+            created_by: ActorData::System,
+            updated_by: ActorData::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };
@@ -309,6 +319,8 @@ mod tests {
             "tokenType": "BEARER",
             "expiresAt": data.expires_at.unwrap().format(&time::format_description::well_known::Rfc3339).unwrap(),
             "expiresIn": 2592000,
+            "createdBy": "SYSTEM",
+            "updatedBy": "SYSTEM",
             "created": data.created.format(&time::format_description::well_known::Rfc3339).unwrap(),
             "updated": data.updated.format(&time::format_description::well_known::Rfc3339).unwrap(),
         });
@@ -325,6 +337,8 @@ mod tests {
             "scope": ["shops:manage", "products:write"],
             "token": "raw_token",
             "tokenType": "BEARER",
+            "createdBy": "SYSTEM",
+            "updatedBy": "SYSTEM",
             "created": "2025-01-01T00:00:00Z",
             "updated": "2025-01-01T00:00:00Z",
         });

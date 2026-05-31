@@ -12,6 +12,7 @@ use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
 use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
 use crate::dynamodb::user_search_filter_match_record_update::UserSearchFilterMatchRecordUpdate;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
+use common::actor::RequestContext;
 use common::batch::Batch;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::resource_state::domain::ResourceState;
@@ -169,6 +170,7 @@ pub trait UserSearchFilterService {
 
     async fn create_user_search_filter(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         name: UserSearchFilterName,
         search_filter: ProductSearch,
@@ -177,12 +179,14 @@ pub trait UserSearchFilterService {
 
     async fn delete_user_search_filter(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         user_search_filter_id: &UserSearchFilterId,
     ) -> Result<(), UserSearchFilterError>;
 
     async fn update_user_search_filter(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         user_search_filter_id: &UserSearchFilterId,
         update: UserSearchFilterUpdate,
@@ -230,11 +234,13 @@ pub trait UserSearchFilterService {
 
     async fn create_search_filter_product_match(
         &self,
+        ctx: &RequestContext,
         product_match: SearchFilterProductMatch,
     ) -> Result<SearchFilterProductMatch, UserSearchFilterError>;
 
     async fn update_search_filter_product_match(
         &self,
+        ctx: &RequestContext,
         user_id: UserId,
         search_filter_id: UserSearchFilterId,
         shop_id: ShopId,
@@ -244,6 +250,7 @@ pub trait UserSearchFilterService {
 
     async fn create_search_filter_product_matches(
         &self,
+        ctx: &RequestContext,
         product_matches: Vec<SearchFilterProductMatch>,
     ) -> Result<CreateSearchFilterProductMatchesResult, UserSearchFilterError>;
 
@@ -348,6 +355,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
 
     async fn create_user_search_filter(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         name: UserSearchFilterName,
         search: ProductSearch,
@@ -388,6 +396,8 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             notifications: true,
             state: ResourceState::Active,
             search,
+            created_by: ctx.actor,
+            updated_by: ctx.actor,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
             last_hybrid_search_matched: OffsetDateTime::now_utc(),
@@ -403,13 +413,14 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             .put_user_search_filter_record(user_search_filter.clone().into())
             .await?;
 
-        info!(userId = %user_id, userSearchFilterId = %user_search_filter.user_search_filter_id, "Created UserSearchFilter.");
+        info!(actor = %ctx.actor, userId = %user_id, userSearchFilterId = %user_search_filter.user_search_filter_id, "Created UserSearchFilter.");
 
         Ok(user_search_filter)
     }
 
     async fn delete_user_search_filter(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         user_search_filter_id: &UserSearchFilterId,
     ) -> Result<(), UserSearchFilterError> {
@@ -421,12 +432,13 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             .repository
             .delete_user_search_filter_record(user_id, user_search_filter_id)
             .await?;
-        info!(userId = %user_id, userSearchFilterId = %user_search_filter_id, "Deleted UserSearchFilter.");
+        info!(actor = %ctx.actor, userId = %user_id, userSearchFilterId = %user_search_filter_id, "Deleted UserSearchFilter.");
         Ok(())
     }
 
     async fn update_user_search_filter(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         user_search_filter_id: &UserSearchFilterId,
         update: UserSearchFilterUpdate,
@@ -472,11 +484,15 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             }
         }
 
+        let mut record_update: crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate =
+            (update, ctx.actor).into();
+        record_update.updated_by = ctx.actor.into();
+
         let updated_opt = self
             .repository
-            .update_user_search_filter_record(user_id, user_search_filter_id, update.into())
+            .update_user_search_filter_record(user_id, user_search_filter_id, record_update)
             .await?;
-        info!(userId = %user_id, userSearchFilterId = %user_search_filter_id, "Updated UserSearchFilter.");
+        info!(actor = %ctx.actor, userId = %user_id, userSearchFilterId = %user_search_filter_id, "Updated UserSearchFilter.");
         match updated_opt {
             Some(updated) => Ok(updated.into()),
             None => {
@@ -672,6 +688,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
 
     async fn create_search_filter_product_match(
         &self,
+        ctx: &RequestContext,
         product_match: SearchFilterProductMatch,
     ) -> Result<SearchFilterProductMatch, UserSearchFilterError> {
         let record = UserSearchFilterMatchRecord::from(product_match.clone());
@@ -679,6 +696,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             .put_user_search_filter_match_record(record)
             .await?;
         info!(
+            actor = %ctx.actor,
             userId = %product_match.user_id,
             searchFilterId = %product_match.user_search_filter_id,
             shopId = %product_match.shop_id,
@@ -690,6 +708,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
 
     async fn update_search_filter_product_match(
         &self,
+        ctx: &RequestContext,
         user_id: UserId,
         search_filter_id: UserSearchFilterId,
         shop_id: ShopId,
@@ -725,7 +744,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
                 &search_filter_id,
                 &shop_id,
                 &shops_product_id,
-                UserSearchFilterMatchRecordUpdate::from(update),
+                UserSearchFilterMatchRecordUpdate::from((update, ctx.actor)),
             )
             .await?
             .ok_or_else(|| {
@@ -734,13 +753,14 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
                 ))
             })?;
 
-        info!(userId = %user_id, searchFilterId = %search_filter_id, shopId = %shop_id, shopsProductId = %shops_product_id, "Updated SearchFilterProductMatch.");
+        info!(actor = %ctx.actor, userId = %user_id, searchFilterId = %search_filter_id, shopId = %shop_id, shopsProductId = %shops_product_id, "Updated SearchFilterProductMatch.");
 
         Ok(updated.into())
     }
 
     async fn create_search_filter_product_matches(
         &self,
+        ctx: &RequestContext,
         product_matches: Vec<SearchFilterProductMatch>,
     ) -> Result<CreateSearchFilterProductMatchesResult, UserSearchFilterError> {
         if product_matches.is_empty() {
@@ -790,6 +810,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
                 }
                 Err(err) => {
                     warn!(
+                        actor = %ctx.actor,
                         error = ?err,
                         "Failed writing UserSearchFilterMatchRecord batch."
                     );
@@ -856,6 +877,12 @@ fn extract_failed_sort_keys(
 
 #[cfg(test)]
 mod tests {
+    fn system_ctx() -> common::actor::RequestContext {
+        common::actor::RequestContext {
+            actor: common::actor::domain::Actor::System,
+        }
+    }
+
     mod find_search_filters {
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::dynamodb::user_search_filter_record::UserSearchFilterRecord;
@@ -1054,7 +1081,13 @@ mod tests {
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), None)
+                .create_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    Faker.fake(),
+                    Faker.fake(),
+                    None,
+                )
                 .await;
             assert!(actual.is_ok());
         }
@@ -1096,7 +1129,13 @@ mod tests {
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), None)
+                .create_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    Faker.fake(),
+                    Faker.fake(),
+                    None,
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -1130,7 +1169,13 @@ mod tests {
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), None)
+                .create_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    Faker.fake(),
+                    Faker.fake(),
+                    None,
+                )
                 .await
                 .unwrap_err();
 
@@ -1156,7 +1201,13 @@ mod tests {
             let repository = MockUserSearchFilterDynamoDbRepository::default();
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), None)
+                .create_user_search_filter(
+                    &super::system_ctx(),
+                    &user_id,
+                    Faker.fake(),
+                    Faker.fake(),
+                    None,
+                )
                 .await
                 .unwrap_err();
 
@@ -1208,7 +1259,13 @@ mod tests {
                 .expect("Should generate a search with forbidden features");
 
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), search, None)
+                .create_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    Faker.fake(),
+                    search,
+                    None,
+                )
                 .await
                 .unwrap_err();
 
@@ -1251,7 +1308,13 @@ mod tests {
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake(), None)
+                .create_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    Faker.fake(),
+                    Faker.fake(),
+                    None,
+                )
                 .await;
 
             assert!(actual.is_ok());
@@ -1287,7 +1350,13 @@ mod tests {
             // Generate searches until we find one with forbidden features for Free tier
             let search: ProductSearch = Faker.fake();
             let actual = service
-                .create_user_search_filter(&UserId::new(), Faker.fake(), search, Some(Faker.fake()))
+                .create_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    Faker.fake(),
+                    search,
+                    Some(Faker.fake()),
+                )
                 .await
                 .unwrap_err();
 
@@ -1326,6 +1395,7 @@ mod tests {
 
             let actual = service
                 .create_user_search_filter(
+                    &super::system_ctx(),
                     &UserId::new(),
                     Faker.fake(),
                     Faker.fake(),
@@ -1363,7 +1433,11 @@ mod tests {
             let user_service = user::service::user_service::MockUserService::default();
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .delete_user_search_filter(&UserId::new(), &UserSearchFilterId::new())
+                .delete_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                )
                 .await;
             assert!(actual.is_ok());
         }
@@ -1379,7 +1453,7 @@ mod tests {
             let user_service = user::service::user_service::MockUserService::default();
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .delete_user_search_filter(&user_id, &user_search_filter_id)
+                .delete_user_search_filter(&super::system_ctx(), &user_id, &user_search_filter_id)
                 .await;
 
             assert!(actual.is_err());
@@ -1422,7 +1496,11 @@ mod tests {
             let user_service = user::service::user_service::MockUserService::default();
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .delete_user_search_filter(&UserId::new(), &UserSearchFilterId::new())
+                .delete_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -1462,7 +1540,11 @@ mod tests {
             let user_service = user::service::user_service::MockUserService::default();
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .delete_user_search_filter(&UserId::new(), &UserSearchFilterId::new())
+                .delete_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -1501,7 +1583,12 @@ mod tests {
                 .return_once(|_| Box::pin(async { Ok(fake::Fake::fake(&fake::Faker)) }));
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .update_user_search_filter(&UserId::new(), &UserSearchFilterId::new(), Faker.fake())
+                .update_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                    Faker.fake(),
+                )
                 .await;
             assert!(actual.is_ok());
         }
@@ -1521,7 +1608,12 @@ mod tests {
             let user_id = UserId::new();
             let user_search_filter_id = UserSearchFilterId::new();
             let actual = service
-                .update_user_search_filter(&user_id, &user_search_filter_id, Faker.fake())
+                .update_user_search_filter(
+                    &super::system_ctx(),
+                    &user_id,
+                    &user_search_filter_id,
+                    Faker.fake(),
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -1567,7 +1659,12 @@ mod tests {
                 .return_once(|_| Box::pin(async { Ok(fake::Fake::fake(&fake::Faker)) }));
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .update_user_search_filter(&UserId::new(), &UserSearchFilterId::new(), Faker.fake())
+                .update_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                    Faker.fake(),
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -1610,7 +1707,12 @@ mod tests {
                 .return_once(|_| Box::pin(async { Ok(fake::Fake::fake(&fake::Faker)) }));
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
             let actual = service
-                .update_user_search_filter(&UserId::new(), &UserSearchFilterId::new(), Faker.fake())
+                .update_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                    Faker.fake(),
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -1657,7 +1759,12 @@ mod tests {
                 .expect("Should generate an update with forbidden features");
 
             let actual = service
-                .update_user_search_filter(&UserId::new(), &UserSearchFilterId::new(), update)
+                .update_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                    update,
+                )
                 .await
                 .unwrap_err();
 
@@ -1691,7 +1798,12 @@ mod tests {
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let actual = service
-                .update_user_search_filter(&UserId::new(), &UserSearchFilterId::new(), Faker.fake())
+                .update_user_search_filter(
+                    &super::system_ctx(),
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                    Faker.fake(),
+                )
                 .await;
 
             assert!(actual.is_ok());
@@ -2518,7 +2630,7 @@ mod tests {
 
             let product_match: SearchFilterProductMatch = Faker.fake();
             let actual = service
-                .create_search_filter_product_match(product_match.clone())
+                .create_search_filter_product_match(&super::system_ctx(), product_match.clone())
                 .await;
             assert!(actual.is_ok());
             assert_eq!(actual.unwrap(), product_match);
@@ -2538,7 +2650,7 @@ mod tests {
 
             let product_match: SearchFilterProductMatch = Faker.fake();
             let actual = service
-                .create_search_filter_product_match(product_match)
+                .create_search_filter_product_match(&super::system_ctx(), product_match)
                 .await;
             assert!(actual.is_err());
         }
@@ -2583,6 +2695,7 @@ mod tests {
 
             let actual = service
                 .update_search_filter_product_match(
+                    &super::system_ctx(),
                     user_id,
                     search_filter_id,
                     shop_id,
@@ -2614,6 +2727,7 @@ mod tests {
 
             let actual = service
                 .update_search_filter_product_match(
+                    &super::system_ctx(),
                     UserId::new(),
                     UserSearchFilterId::new(),
                     ShopId::new(),
@@ -2640,6 +2754,7 @@ mod tests {
 
             let actual = service
                 .update_search_filter_product_match(
+                    &super::system_ctx(),
                     UserId::new(),
                     UserSearchFilterId::new(),
                     ShopId::new(),
@@ -2676,6 +2791,7 @@ mod tests {
 
             let actual = service
                 .update_search_filter_product_match(
+                    &super::system_ctx(),
                     UserId::new(),
                     UserSearchFilterId::new(),
                     ShopId::new(),
@@ -2705,7 +2821,9 @@ mod tests {
             let user_service = user::service::user_service::MockUserService::default();
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
-            let actual = service.create_search_filter_product_matches(vec![]).await;
+            let actual = service
+                .create_search_filter_product_matches(&super::system_ctx(), vec![])
+                .await;
             assert!(actual.is_ok());
             let result = actual.unwrap();
             assert!(result.processed.is_empty());
@@ -2722,7 +2840,9 @@ mod tests {
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let matches: Vec<SearchFilterProductMatch> = (0..3).map(|_| Faker.fake()).collect();
-            let actual = service.create_search_filter_product_matches(matches).await;
+            let actual = service
+                .create_search_filter_product_matches(&super::system_ctx(), matches)
+                .await;
             assert!(actual.is_ok());
             let result = actual.unwrap();
             assert_eq!(result.processed.len(), 3);
@@ -2742,7 +2862,9 @@ mod tests {
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
             let matches: Vec<SearchFilterProductMatch> = (0..3).map(|_| Faker.fake()).collect();
-            let actual = service.create_search_filter_product_matches(matches).await;
+            let actual = service
+                .create_search_filter_product_matches(&super::system_ctx(), matches)
+                .await;
             assert!(actual.is_ok());
             let result = actual.unwrap();
             assert!(result.processed.is_empty());

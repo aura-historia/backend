@@ -11,10 +11,15 @@ use aws_sdk_dynamodb::error::SdkError;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use common::oauth_client_id::OAuthClientId;
-use common::{string_newtype, user_id::UserId};
+use common::{
+    actor::{RequestContext, domain::Actor},
+    string_newtype,
+    user_id::UserId,
+};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
+use tracing::info;
 use url::Url;
 use user::core::access_token::{
     AccessTokenOrigin, HashedRawOAuthClientSecret, RawAccessToken, RawOAuthClientSecret, Scope,
@@ -202,7 +207,7 @@ impl From<OAuthServiceError> for common::api::error::ApiError {
 pub trait OAuthService {
     async fn create_client(
         &self,
-        user_id: &UserId,
+        ctx: &RequestContext,
         command: CreateOAuthClientCommand,
     ) -> Result<(RawOAuthClientSecret, OAuthClient), OAuthServiceError>;
 
@@ -213,11 +218,16 @@ pub trait OAuthService {
 
     async fn update_client(
         &self,
+        ctx: &RequestContext,
         client_id: &OAuthClientId,
         command: UpdateOAuthClientCommand,
     ) -> Result<OAuthClient, OAuthServiceError>;
 
-    async fn delete_client(&self, client_id: &OAuthClientId) -> Result<(), OAuthServiceError>;
+    async fn delete_client(
+        &self,
+        ctx: &RequestContext,
+        client_id: &OAuthClientId,
+    ) -> Result<(), OAuthServiceError>;
 
     async fn authorize(
         &self,
@@ -227,7 +237,11 @@ pub trait OAuthService {
 
     async fn token(&self, request: TokenRequest) -> Result<TokenResponse, OAuthServiceError>;
 
-    async fn revoke(&self, request: TokenRevocationRequest) -> Result<(), OAuthServiceError>;
+    async fn revoke(
+        &self,
+        ctx: &RequestContext,
+        request: TokenRevocationRequest,
+    ) -> Result<(), OAuthServiceError>;
 
     async fn introspect(
         &self,
@@ -280,7 +294,7 @@ impl<'a> OAuthServiceImpl<'a> {
 impl OAuthService for OAuthServiceImpl<'_> {
     async fn create_client(
         &self,
-        user_id: &UserId,
+        ctx: &RequestContext,
         command: CreateOAuthClientCommand,
     ) -> Result<(RawOAuthClientSecret, OAuthClient), OAuthServiceError> {
         validate_redirect_uris(&command.redirect_uris)
@@ -297,13 +311,19 @@ impl OAuthService for OAuthServiceImpl<'_> {
             logo_uri: command.logo_uri,
             redirect_uris: command.redirect_uris,
             scopes: command.scopes,
-            created_by: *user_id,
+            created_by: ctx.actor,
+            updated_by: ctx.actor,
             created: now,
             updated: now,
         };
         self.repository
             .put_client_record(OAuthClientRecord::from(client.clone()))
             .await?;
+        info!(
+            actor = %ctx.actor,
+            clientId = %client.client_id,
+            "Created OAuth client."
+        );
         Ok((raw_secret, client))
     }
 
@@ -326,6 +346,7 @@ impl OAuthService for OAuthServiceImpl<'_> {
 
     async fn update_client(
         &self,
+        ctx: &RequestContext,
         client_id: &OAuthClientId,
         command: UpdateOAuthClientCommand,
     ) -> Result<OAuthClient, OAuthServiceError> {
@@ -334,17 +355,25 @@ impl OAuthService for OAuthServiceImpl<'_> {
                 .map_err(OAuthServiceError::InvalidClientMetadata)?;
         }
         let update = OAuthClientRecordUpdate {
-            name: command.name,
-            tos_uri: command.tos_uri,
-            policy_uri: command.policy_uri,
-            client_uri: command.client_uri,
-            logo_uri: command.logo_uri,
-            redirect_uris: command.redirect_uris,
+            name: command.name.clone(),
+            tos_uri: command.tos_uri.clone(),
+            policy_uri: command.policy_uri.clone(),
+            client_uri: command.client_uri.clone(),
+            logo_uri: command.logo_uri.clone(),
+            redirect_uris: command.redirect_uris.clone(),
             scopes: command
                 .scopes
+                .clone()
                 .map(|scopes| scopes.into_iter().map(Into::into).collect()),
+            updated_by: ctx.actor.into(),
             updated: OffsetDateTime::now_utc(),
         };
+        info!(
+            actor = %ctx.actor,
+            clientId = %client_id,
+            update = ?command,
+            "Updated OAuth client."
+        );
         self.repository
             .update_client_record(client_id, update)
             .await?
@@ -352,8 +381,17 @@ impl OAuthService for OAuthServiceImpl<'_> {
             .ok_or(OAuthServiceError::ClientNotFound)
     }
 
-    async fn delete_client(&self, client_id: &OAuthClientId) -> Result<(), OAuthServiceError> {
+    async fn delete_client(
+        &self,
+        ctx: &RequestContext,
+        client_id: &OAuthClientId,
+    ) -> Result<(), OAuthServiceError> {
         self.repository.delete_client_record(client_id).await?;
+        info!(
+            actor = %ctx.actor,
+            clientId = %client_id,
+            "Deleted OAuth client."
+        );
         Ok(())
     }
 
@@ -423,6 +461,9 @@ impl OAuthService for OAuthServiceImpl<'_> {
         let (raw, access_token) = self
             .user_service
             .create_access_token(
+                &RequestContext {
+                    actor: Actor::User(code.user_id),
+                },
                 &code.user_id,
                 CreateAccessTokenCommand {
                     name: format!("OAuth client {}", client.client_id).into(),
@@ -442,13 +483,17 @@ impl OAuthService for OAuthServiceImpl<'_> {
         })
     }
 
-    async fn revoke(&self, request: TokenRevocationRequest) -> Result<(), OAuthServiceError> {
+    async fn revoke(
+        &self,
+        ctx: &RequestContext,
+        request: TokenRevocationRequest,
+    ) -> Result<(), OAuthServiceError> {
         let _ = self
             .authenticate_client(&request.client_id, &request.client_secret)
             .await?;
         match self
             .user_service
-            .delete_access_token_by_raw(&request.token)
+            .delete_access_token_by_raw(ctx, &request.token)
             .await
         {
             Ok(()) | Err(UserServiceError::AccessTokenNotFoundByRaw) => Ok(()),
@@ -552,7 +597,8 @@ mod tests {
             client_uri: Url::parse("https://client.example").unwrap(),
             logo_uri: Url::parse("https://client.example/logo.png").unwrap(),
             scopes: HashSet::from([Scope::ProductsWrite]),
-            created_by: UserId::new(),
+            created_by: Actor::User(UserId::new()),
+            updated_by: Actor::System,
             created: now,
             updated: now,
         }
@@ -651,7 +697,10 @@ mod tests {
         repository
             .expect_put_client_record()
             .return_once(move |record| {
-                assert_eq!(user_id, record.created_by);
+                assert_eq!(
+                    common::actor::record::ActorRecord::User(user_id),
+                    record.created_by
+                );
                 assert_eq!(OAuthClientName::from("Client"), record.name);
                 assert_eq!(
                     Url::parse("https://client.example/tos").unwrap(),
@@ -677,12 +726,20 @@ mod tests {
         let service = OAuthServiceImpl::new(&repository, &user_service);
 
         let (secret, client) = service
-            .create_client(&user_id, create_command("https://client.example/callback"))
+            .create_client(
+                &RequestContext {
+                    actor: Actor::User(user_id),
+                },
+                create_command("https://client.example/callback"),
+            )
             .await
             .unwrap();
 
         assert!(secret.check(&client.hashed_client_secret));
-        assert_eq!(user_id, client.created_by);
+        assert_eq!(
+            common::actor::domain::Actor::User(user_id),
+            client.created_by
+        );
         assert_eq!(
             Url::parse("https://client.example/tos").unwrap(),
             client.tos_uri
@@ -709,7 +766,9 @@ mod tests {
 
         let err = service
             .create_client(
-                &UserId::new(),
+                &RequestContext {
+                    actor: Actor::System,
+                },
                 create_command("http://client.example/callback"),
             )
             .await
@@ -768,6 +827,9 @@ mod tests {
 
         let updated = service
             .update_client(
+                &RequestContext {
+                    actor: Actor::System,
+                },
                 &client_id(),
                 UpdateOAuthClientCommand {
                     name: Some(OAuthClientName::from("Updated")),
@@ -800,6 +862,9 @@ mod tests {
 
         let err = service
             .update_client(
+                &RequestContext {
+                    actor: Actor::System,
+                },
                 &client_id(),
                 UpdateOAuthClientCommand {
                     name: Some(OAuthClientName::from("Updated")),
@@ -828,7 +893,15 @@ mod tests {
         let user_service = MockUserService::default();
         let service = OAuthServiceImpl::new(&repository, &user_service);
 
-        service.delete_client(&client_id()).await.unwrap();
+        service
+            .delete_client(
+                &RequestContext {
+                    actor: Actor::System,
+                },
+                &client_id(),
+            )
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -930,7 +1003,7 @@ mod tests {
         let mut user_service = MockUserService::default();
         user_service
             .expect_create_access_token()
-            .return_once(|user_id, cmd| {
+            .return_once(|_, user_id, cmd| {
                 let raw = RawAccessToken::new();
                 let now = OffsetDateTime::now_utc();
                 let token = AccessToken {
@@ -941,6 +1014,8 @@ mod tests {
                     scopes: cmd.scopes,
                     origin: cmd.origin,
                     expires: cmd.expires,
+                    created_by: common::actor::domain::Actor::User(*user_id),
+                    updated_by: common::actor::domain::Actor::User(*user_id),
                     created: now,
                     updated: now,
                 };
@@ -1028,15 +1103,20 @@ mod tests {
         let mut user_service = MockUserService::default();
         user_service
             .expect_delete_access_token_by_raw()
-            .return_once(|_| Box::pin(async { Ok(()) }));
+            .return_once(|_, _| Box::pin(async { Ok(()) }));
         let service = OAuthServiceImpl::new(&repository, &user_service);
 
         service
-            .revoke(TokenRevocationRequest {
-                token: RawAccessToken::new(),
-                client_id: client_id(),
-                client_secret: secret,
-            })
+            .revoke(
+                &RequestContext {
+                    actor: Actor::System,
+                },
+                TokenRevocationRequest {
+                    token: RawAccessToken::new(),
+                    client_id: client_id(),
+                    client_secret: secret,
+                },
+            )
             .await
             .unwrap();
     }
@@ -1047,16 +1127,19 @@ mod tests {
         let client = oauth_client(&secret);
         let raw = RawAccessToken::new();
         let now = OffsetDateTime::now_utc();
+        let user_id = UserId::new();
         let access_token = AccessToken {
             id: AccessTokenId::new(),
             hashed_token: raw.clone().into(),
-            user_id: UserId::new(),
+            user_id,
             name: "OAuth token".into(),
             scopes: HashSet::from([Scope::ProductsWrite]),
             origin: AccessTokenOrigin::OAuth {
                 client_id: client.client_id,
             },
             expires: None,
+            created_by: common::actor::domain::Actor::User(user_id),
+            updated_by: common::actor::domain::Actor::User(user_id),
             created: now,
             updated: now,
         };

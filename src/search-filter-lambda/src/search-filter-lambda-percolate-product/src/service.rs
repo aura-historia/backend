@@ -1,3 +1,4 @@
+use common::actor::domain::Actor;
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
 use common::has_key::HasKey;
@@ -168,6 +169,8 @@ impl<'a> ProductMatcherServiceImpl<'a> {
                 embedding: None,
                 auction_start: created_payload.auction_start,
                 auction_end: created_payload.auction_end,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: event.timestamp,
                 updated: event.timestamp,
             },
@@ -370,6 +373,8 @@ impl<'a> ProductMatcherService for ProductMatcherServiceImpl<'a> {
                 origin_event_id: event_id,
                 enhanced_match_reason: m.enhanced_match_reason.clone(),
                 feedback: None,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: now,
                 updated: now,
             })
@@ -506,6 +511,8 @@ mod tests {
             enhanced_search_description: None,
             notifications: true,
             state,
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
             last_hybrid_search_matched: OffsetDateTime::now_utc(),
@@ -527,6 +534,8 @@ mod tests {
             enhanced_search_description: Some(EnhancedSearchDescription::from(description)),
             notifications: true,
             state: ResourceState::Active,
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
             last_hybrid_search_matched: OffsetDateTime::now_utc(),
@@ -809,6 +818,8 @@ mod tests {
             enhanced_search_description: None,
             notifications: true,
             state: ResourceState::Active,
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
             last_hybrid_search_matched: OffsetDateTime::now_utc(),

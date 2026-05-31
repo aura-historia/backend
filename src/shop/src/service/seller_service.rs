@@ -11,7 +11,13 @@ use crate::service::query_service::QueryShopService;
 use common::logging::{
     LlmInvocationMetrics, LlmModel, LlmOperation, LlmProvider, log_llm_invocation,
 };
-use common::{query::text_query::TextQuery, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
+use common::{
+    actor::{RequestContext, domain::Actor},
+    query::text_query::TextQuery,
+    shop_id::ShopId,
+    shop_name::ShopName,
+    slug_id::SlugId,
+};
 use llm::{LLMProvider, chat::ChatMessage};
 use std::time::Instant;
 use time::OffsetDateTime;
@@ -220,47 +226,57 @@ impl<'a> SellerService for SellerServiceImpl<'a> {
                 }
                 None => {
                     self.command_shop_service
-                        .create(CreateShopCommand {
-                            name: raw_shop_name.clone(),
-                            shop_type: ShopType::AuctionHouse,
-                            shop_partner_status: ShopPartnerStatus::Scraped,
-                            domains: Default::default(),
-                            shopify_domain: None,
-                            shopify_currency: None,
-                            shopify_language: None,
-                            woocommerce_webhook_secret: None,
-                            woocommerce_currency: None,
-                            woocommerce_language: None,
-                            url: None,
-                            image: None,
-                            structured_address: None,
-                            phone: None,
-                            email: None,
-                            affiliate_configuration: None,
-                        })
+                        .create(
+                            &RequestContext {
+                                actor: Actor::System,
+                            },
+                            CreateShopCommand {
+                                name: raw_shop_name.clone(),
+                                shop_type: ShopType::AuctionHouse,
+                                shop_partner_status: ShopPartnerStatus::Scraped,
+                                domains: Default::default(),
+                                shopify_domain: None,
+                                shopify_currency: None,
+                                shopify_language: None,
+                                woocommerce_webhook_secret: None,
+                                woocommerce_currency: None,
+                                woocommerce_language: None,
+                                url: None,
+                                image: None,
+                                structured_address: None,
+                                phone: None,
+                                email: None,
+                                affiliate_configuration: None,
+                            },
+                        )
                         .await?
                 }
             }
         } else {
             self.command_shop_service
-                .create(CreateShopCommand {
-                    name: raw_shop_name.clone(),
-                    shop_type: ShopType::AuctionHouse,
-                    shop_partner_status: ShopPartnerStatus::Scraped,
-                    domains: Default::default(),
-                    shopify_domain: None,
-                    shopify_currency: None,
-                    shopify_language: None,
-                    woocommerce_webhook_secret: None,
-                    woocommerce_currency: None,
-                    woocommerce_language: None,
-                    url: None,
-                    image: None,
-                    structured_address: None,
-                    phone: None,
-                    email: None,
-                    affiliate_configuration: None,
-                })
+                .create(
+                    &RequestContext {
+                        actor: Actor::System,
+                    },
+                    CreateShopCommand {
+                        name: raw_shop_name.clone(),
+                        shop_type: ShopType::AuctionHouse,
+                        shop_partner_status: ShopPartnerStatus::Scraped,
+                        domains: Default::default(),
+                        shopify_domain: None,
+                        shopify_currency: None,
+                        shopify_language: None,
+                        woocommerce_webhook_secret: None,
+                        woocommerce_currency: None,
+                        woocommerce_language: None,
+                        url: None,
+                        image: None,
+                        structured_address: None,
+                        phone: None,
+                        email: None,
+                        affiliate_configuration: None,
+                    },
+                )
                 .await?
         };
 
@@ -578,7 +594,7 @@ mod tests {
         let mut command_shop_service = MockCommandShopService::default();
         command_shop_service
             .expect_create()
-            .return_once(move |_| Box::pin(async move { Ok(shop) }));
+            .return_once(move |_, _| Box::pin(async move { Ok(shop) }));
 
         let service = SellerServiceImpl {
             repository: &repository,
@@ -682,7 +698,7 @@ mod tests {
         let mut command_shop_service = MockCommandShopService::default();
         command_shop_service
             .expect_create()
-            .return_once(move |_| Box::pin(async move { Ok(new_shop) }));
+            .return_once(move |_, _| Box::pin(async move { Ok(new_shop) }));
 
         let service = SellerServiceImpl {
             repository: &repository,
@@ -847,9 +863,9 @@ mod tests {
             });
 
         let mut command_shop_service = MockCommandShopService::default();
-        command_shop_service
-            .expect_create()
-            .return_once(|_| Box::pin(async { Err(CommandShopError::SdkBatchGetItemUnprocessed) }));
+        command_shop_service.expect_create().return_once(|_, _| {
+            Box::pin(async { Err(CommandShopError::SdkBatchGetItemUnprocessed) })
+        });
 
         let service = SellerServiceImpl {
             repository: &repository,
@@ -937,7 +953,7 @@ mod tests {
         let mut command_shop_service = MockCommandShopService::default();
         command_shop_service
             .expect_create()
-            .return_once(move |_| Box::pin(async move { Ok(new_shop) }));
+            .return_once(move |_, _| Box::pin(async move { Ok(new_shop) }));
 
         let service = SellerServiceImpl {
             repository: &repository,

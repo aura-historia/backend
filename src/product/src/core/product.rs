@@ -20,6 +20,7 @@ use crate::core::product_event::{
 use crate::core::product_image::ProductImage;
 use crate::core::prohibited_content::{ProhibitedContent, ProhibitedContentReason};
 use crate::core::title::Title;
+use common::actor::domain::Actor;
 use common::currency::domain::Currency;
 use common::event::Event;
 use common::event_id::EventId;
@@ -72,6 +73,8 @@ pub struct Product {
     pub embedding: Option<Vec<f32>>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
+    pub created_by: Actor,
+    pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -719,6 +722,8 @@ impl Product {
             images: self.images,
             auction_start: self.auction_start,
             auction_end: self.auction_end,
+            created_by: self.created_by,
+            updated_by: self.updated_by,
             created: self.created,
             updated: self.updated,
         }
@@ -780,6 +785,8 @@ pub struct LocalizedProductView {
     pub images: IndexSet<ProductImage>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
+    pub created_by: Actor,
+    pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -860,6 +867,8 @@ mod faker {
                 } else {
                     None
                 },
+                created_by: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -910,6 +919,20 @@ mod tests {
 
     fn image_set(images: impl IntoIterator<Item = ProductImage>) -> IndexSet<ProductImage> {
         images.into_iter().collect()
+    }
+
+    #[test]
+    fn should_preserve_actor_metadata_when_localizing_product() {
+        let product = Product {
+            created_by: Actor::System,
+            updated_by: Actor::User(common::user_id::UserId::new()),
+            ..Faker.fake()
+        };
+
+        let localized = product.clone().localized(&Currency::Eur, &[Language::En]);
+
+        assert_eq!(localized.created_by, product.created_by);
+        assert_eq!(localized.updated_by, product.updated_by);
     }
 
     fn product_with_nazi_title() -> Product {

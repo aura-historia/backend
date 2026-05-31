@@ -1,4 +1,5 @@
 use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
+use common::actor::record::ActorRecord;
 use common::resource_state::record::ResourceStateRecord;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
@@ -86,6 +87,8 @@ fn mk_search_filter_record_with_state(
         auction_end_query: None,
         language: common::language::record::LanguageRecord::En,
         currency: common::currency::record::CurrencyRecord::Eur,
+        created_by: ActorRecord::User(user_id),
+        updated_by: ActorRecord::User(user_id),
         created: datetime!(2024-01-01 00:00:00 UTC),
         updated: datetime!(2024-01-02 00:00:00 UTC),
         last_hybrid_search_matched: datetime!(2024-01-02 00:00:00 UTC),
@@ -209,10 +212,15 @@ fn mk_state_change_event_record(
 async fn create_user(user_service: &impl UserService, email: &str) -> UserId {
     let user_id = UserId::new();
     user_service
-        .create_user(user::service::command::CreateUserCommand {
-            id: user_id,
-            email: email.parse().unwrap(),
-        })
+        .create_user(
+            &common::actor::RequestContext {
+                actor: common::actor::domain::Actor::User(user_id),
+            },
+            user::service::command::CreateUserCommand {
+                id: user_id,
+                email: email.parse().unwrap(),
+            },
+        )
         .await
         .unwrap();
     user_id
@@ -252,7 +260,7 @@ fn mock_notification_service_counting_calls() -> (MockNotificationService, Arc<A
     let counter = call_count.clone();
     let mut svc = MockNotificationService::default();
     svc.expect_create_notifications().returning(
-        move |_, cmds: Vec<notification::service::command::CreateNotificationCommand>| {
+        move |_, _, cmds: Vec<notification::service::command::CreateNotificationCommand>| {
             counter.fetch_add(cmds.len(), Ordering::SeqCst);
             Box::pin(async {
                 CreateNotificationsResult {

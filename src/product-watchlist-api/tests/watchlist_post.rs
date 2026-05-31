@@ -28,9 +28,10 @@ use user::dynamodb::user_record::UserRecord;
 use user::service::user_service::UserServiceImpl;
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
+async fn should_201_when_new_watchlist_entry_would_reach_quota() {
     let client = get_dynamodb_client().await;
-    let user_record = Faker.fake::<UserRecord>();
+    let mut user_record = Faker.fake::<UserRecord>();
+    user_record.tier = user::dynamodb::tier_record::UserTierRecord::Free;
 
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
@@ -100,6 +101,8 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
             shops_product_id: product_record.shops_product_id,
             notifications: false,
             state: common::resource_state::record::ResourceStateRecord::Active,
+            created_by: common::actor::record::ActorRecord::System,
+            updated_by: common::actor::record::ActorRecord::System,
             created,
             updated: created,
         };
@@ -209,6 +212,8 @@ async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
             shops_product_id: product_record.shops_product_id,
             notifications: false,
             state: common::resource_state::record::ResourceStateRecord::Active,
+            created_by: common::actor::record::ActorRecord::System,
+            updated_by: common::actor::record::ActorRecord::System,
             created,
             updated: created,
         };

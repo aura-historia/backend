@@ -1,5 +1,5 @@
 use crate::dynamodb::access_token_record::ScopeRecord;
-use common::dynamodb_update::DynamoDbUpdate;
+use common::{actor::record::ActorRecord, dynamodb_update::DynamoDbUpdate};
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashSet;
@@ -19,6 +19,7 @@ pub struct AccessTokenRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ttl: Option<i64>,
 
+    pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }

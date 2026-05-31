@@ -1,5 +1,6 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::{
+    actor::{RequestContext, domain::Actor},
     api::{api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError},
     user_id::api::extract_user_id_request_context,
     user_search_filter_id::api::extract_user_search_filter_id_path,
@@ -16,7 +17,13 @@ pub async fn handle(
     let search_filter_id = extract_user_search_filter_id_path(&event.payload.path_parameters)?;
 
     service
-        .delete_user_search_filter(&user_id, &search_filter_id)
+        .delete_user_search_filter(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            &user_id,
+            &search_filter_id,
+        )
         .await?;
 
     Ok(ApiGatewayV2HttpResponseBuilder::new(204).build())
@@ -52,7 +59,7 @@ mod tests {
         let mut service = MockUserSearchFilterService::default();
         service
             .expect_delete_user_search_filter()
-            .return_once(|_, _| Box::pin(async { Ok(()) }));
+            .return_once(|_, _, _| Box::pin(async { Ok(()) }));
 
         let get_product_service = MockGetProductService::default();
         let query_product_service = MockQueryProductService::default();
@@ -118,7 +125,7 @@ mod tests {
         let mut service = MockUserSearchFilterService::default();
         service
             .expect_delete_user_search_filter()
-            .return_once(|_, _| {
+            .return_once(|_, _, _| {
                 Box::pin(async {
                     Err(UserSearchFilterError::UserSearchFilterNotFound(
                         Faker.fake(),
@@ -159,7 +166,7 @@ mod tests {
         let mut service = MockUserSearchFilterService::default();
         service
             .expect_delete_user_search_filter()
-            .return_once(|_, _| {
+            .return_once(|_, _, _| {
                 Box::pin(async {
                     Err(UserSearchFilterError::UserSearchFilterNotFound(
                         Faker.fake(),

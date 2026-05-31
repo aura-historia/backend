@@ -138,6 +138,12 @@ use user::{
     },
 };
 
+fn request_context_for_user(user_id: UserId) -> common::actor::RequestContext {
+    common::actor::RequestContext {
+        actor: common::actor::domain::Actor::User(user_id),
+    }
+}
+
 // Shared 1024-dimensional text embedding used across multiple tests.
 // Values are real embedding coordinates that produce meaningful ANN results in OpenSearch.
 #[allow(dead_code)]
@@ -1983,7 +1989,8 @@ async fn should_complete_oauth_authorization_code_flow() {
             logo_uri: url::Url::parse("https://client.example/logo.png").unwrap(),
             redirect_uris: HashSet::from([redirect_uri.clone()]),
             scopes: HashSet::from([Scope::ProductsWrite]),
-            created_by: UserId::from(user.sub),
+            created_by: common::actor::domain::Actor::User(UserId::from(user.sub)),
+            updated_by: common::actor::domain::Actor::User(UserId::from(user.sub)),
             created: now,
             updated: now,
         }))
@@ -2242,6 +2249,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
 
     // Create and configure user
     let user = create_test_user("watchlist-test@example.com").await;
+    let user_id = UserId::from(user.sub);
     tokio::time::sleep(Duration::from_secs(10)).await;
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
@@ -2254,7 +2262,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     );
     user_repository
         .update_user_record(
-            &user.sub.into(),
+            &user_id,
             UserRecordUpdate {
                 first_name: Some("Thomas".into()),
                 last_name: Some("Testperson".into()),
@@ -2274,6 +2282,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
                 geo_address_lon: None,
                 gsi1_pk: None,
                 gsi1_sk: None,
+                updated_by: common::actor::record::ActorRecord::User(user_id),
                 updated: OffsetDateTime::now_utc(),
             },
         )
@@ -2880,6 +2889,7 @@ async fn should_respond_200_and_personalize_similar_products_for_authenticated()
     for pr in product_records.iter() {
         watchlist_service
             .create_watchlist_product(
+                &request_context_for_user(user_id),
                 &user_id,
                 &pr.shop_id,
                 &pr.shops_product_id,
@@ -3111,12 +3121,14 @@ async fn should_get_all_search_filters_when_authorized() {
     let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
     let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+    let user_ctx = request_context_for_user(user_id);
     let update_cmd = UpdateUserCommand {
         tier: Some(UserTier::Ultimate),
         ..Default::default()
     };
     user_service
-        .update_user(&user.sub.into(), update_cmd)
+        .update_user(&user_ctx, &user_id, update_cmd)
         .await
         .unwrap();
 
@@ -3126,7 +3138,8 @@ async fn should_get_all_search_filters_when_authorized() {
     let expected2_name = Faker.fake::<UserSearchFilterName>();
     service
         .create_user_search_filter(
-            &user.sub.into(),
+            &user_ctx,
+            &user_id,
             expected1_name.clone(),
             expected1.clone(),
             None,
@@ -3135,7 +3148,8 @@ async fn should_get_all_search_filters_when_authorized() {
         .unwrap();
     service
         .create_user_search_filter(
-            &user.sub.into(),
+            &user_ctx,
+            &user_id,
             expected2_name.clone(),
             expected2.clone(),
             None,
@@ -3177,6 +3191,8 @@ async fn should_get_all_search_filters_when_authorized() {
 #[localstack_test(services = [Cloudformation()])]
 async fn should_post_get_patch_delete_search_filter() {
     let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+    let user_ctx = request_context_for_user(user_id);
     let update_cmd = UpdateUserCommand {
         tier: Some(UserTier::Ultimate),
         ..Default::default()
@@ -3187,7 +3203,7 @@ async fn should_post_get_patch_delete_search_filter() {
     );
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
     user_service
-        .update_user(&user.sub.into(), update_cmd)
+        .update_user(&user_ctx, &user_id, update_cmd)
         .await
         .unwrap();
 
@@ -3910,12 +3926,14 @@ async fn create_admin_test_user() -> TestUser {
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &cfn.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_id = UserId::from(user.sub);
+    let user_ctx = request_context_for_user(user_id);
     let update_cmd = UpdateUserCommand {
         role: Some(UserRole::Admin),
         ..Default::default()
     };
     user_service
-        .update_user(&user.sub.into(), update_cmd)
+        .update_user(&user_ctx, &user_id, update_cmd)
         .await
         .unwrap();
     user
@@ -4372,6 +4390,8 @@ async fn prepare_partner_shop() -> (ShopRecord, RawAccessToken) {
         scopes: [Scope::ProductsWrite].into(),
         origin: AccessTokenOrigin::User,
         expires: None,
+        created_by: common::actor::domain::Actor::User(user.user_id),
+        updated_by: common::actor::domain::Actor::User(user.user_id),
         created: time::OffsetDateTime::now_utc(),
         updated: time::OffsetDateTime::now_utc(),
     };
@@ -4867,11 +4887,15 @@ async fn should_count_search_filter_matches_for_current_month_for_quota_enforcem
 
     // Create a Free tier user
     let user_id = UserId::new();
+    let user_ctx = request_context_for_user(user_id);
     let user = user_service
-        .create_user(user::service::command::CreateUserCommand {
-            id: user_id,
-            email: "quota-test@example.com".parse().unwrap(),
-        })
+        .create_user(
+            &user_ctx,
+            user::service::command::CreateUserCommand {
+                id: user_id,
+                email: "quota-test@example.com".parse().unwrap(),
+            },
+        )
         .await
         .unwrap();
     assert_eq!(user.tier, UserTier::Free);
@@ -5057,11 +5081,13 @@ async fn should_update_tier_when_subscription_updated_event() {
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_ctx = request_context_for_user(user_id);
 
     // First, set the user to Pro with a stripe_customer_id via the created flow
     let stripe_customer_id = common::stripe_customer_id::StripeCustomerId::from("cus_test_updated");
     user_service
         .update_user(
+            &user_ctx,
             &user_id,
             UpdateUserCommand {
                 tier: Some(UserTier::Pro),
@@ -5137,11 +5163,13 @@ async fn should_set_free_tier_when_subscription_deleted_event() {
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_ctx = request_context_for_user(user_id);
 
     // First, set the user to Ultimate with a stripe_customer_id
     let stripe_customer_id = common::stripe_customer_id::StripeCustomerId::from("cus_test_deleted");
     user_service
         .update_user(
+            &user_ctx,
             &user_id,
             UpdateUserCommand {
                 tier: Some(UserTier::Ultimate),
@@ -5270,9 +5298,12 @@ async fn should_409_for_billing_checkout_when_user_already_has_stripe_customer_i
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_id = UserId::from(user.sub);
+    let user_ctx = request_context_for_user(user_id);
     user_service
         .update_user(
-            &user.sub.into(),
+            &user_ctx,
+            &user_id,
             UpdateUserCommand {
                 stripe_customer_id: Some(stripe_customer_id),
                 ..Default::default()
@@ -5312,9 +5343,12 @@ async fn should_201_for_billing_portal_when_user_has_stripe_customer_id() {
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_id = UserId::from(user.sub);
+    let user_ctx = request_context_for_user(user_id);
     user_service
         .update_user(
-            &user.sub.into(),
+            &user_ctx,
+            &user_id,
             UpdateUserCommand {
                 stripe_customer_id: Some(stripe_customer_id),
                 ..Default::default()
@@ -5424,9 +5458,12 @@ async fn should_201_for_billing_manage_with_checkout_for_free_and_portal_for_pai
     );
 
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_id = UserId::from(user.sub);
+    let user_ctx = request_context_for_user(user_id);
     user_service
         .update_user(
-            &user.sub.into(),
+            &user_ctx,
+            &user_id,
             UpdateUserCommand {
                 tier: Some(UserTier::Pro),
                 stripe_customer_id: Some(common::stripe_customer_id::StripeCustomerId::from(
@@ -5669,6 +5706,7 @@ async fn should_deactivate_over_quota_search_filters_when_tier_is_downgraded() {
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_ctx = request_context_for_user(user_id);
 
     let sf_repository = UserSearchFilterDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -5716,6 +5754,7 @@ async fn should_deactivate_over_quota_search_filters_when_tier_is_downgraded() {
     // Downgrade triggers DynamoDB stream → EventBridge → UserTierUpdateQ → Lambda
     user_service
         .update_user(
+            &user_ctx,
             &user_id,
             UpdateUserCommand {
                 tier: Some(UserTier::Free),
@@ -5772,6 +5811,7 @@ async fn should_reactivate_plan_restricted_search_filters_when_tier_is_upgraded(
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_ctx = request_context_for_user(user_id);
 
     let sf_repository = UserSearchFilterDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -5817,6 +5857,7 @@ async fn should_reactivate_plan_restricted_search_filters_when_tier_is_upgraded(
     // Upgrade triggers DynamoDB stream → Lambda reactivates all filters
     user_service
         .update_user(
+            &user_ctx,
             &user_id,
             UpdateUserCommand {
                 tier: Some(UserTier::Ultimate),
@@ -5873,6 +5914,7 @@ async fn should_deactivate_over_quota_watchlist_entries_when_tier_is_downgraded(
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_ctx = request_context_for_user(user_id);
 
     let watchlist_repo = WatchlistProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -5899,6 +5941,8 @@ async fn should_deactivate_over_quota_watchlist_entries_when_tier_is_downgraded(
             shops_product_id,
             notifications: true,
             state: ResourceStateRecord::Active,
+            created_by: common::actor::record::ActorRecord::User(user_id),
+            updated_by: common::actor::record::ActorRecord::User(user_id),
             created,
             updated: created,
         };
@@ -5907,6 +5951,7 @@ async fn should_deactivate_over_quota_watchlist_entries_when_tier_is_downgraded(
 
     user_service
         .update_user(
+            &user_ctx,
             &user_id,
             UpdateUserCommand {
                 tier: Some(UserTier::Free),
@@ -5966,6 +6011,7 @@ async fn should_reactivate_plan_restricted_watchlist_entries_when_tier_is_upgrad
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_ctx = request_context_for_user(user_id);
 
     let watchlist_repo = WatchlistProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -5991,6 +6037,8 @@ async fn should_reactivate_plan_restricted_watchlist_entries_when_tier_is_upgrad
             shops_product_id,
             notifications: true,
             state: ResourceStateRecord::InactiveByRestrictedPlan,
+            created_by: common::actor::record::ActorRecord::User(user_id),
+            updated_by: common::actor::record::ActorRecord::User(user_id),
             created,
             updated: created,
         };
@@ -6000,6 +6048,7 @@ async fn should_reactivate_plan_restricted_watchlist_entries_when_tier_is_upgrad
     // Upgrade triggers DynamoDB stream → Lambda reactivates all entries
     user_service
         .update_user(
+            &user_ctx,
             &user_id,
             UpdateUserCommand {
                 tier: Some(UserTier::Ultimate),
@@ -6088,6 +6137,8 @@ async fn seed_shopify_acceptance_shop() -> ShopRecord {
         gsi3_pk: Some(shop::dynamodb::shop_record::mk_gsi3_pk(&shopify_domain)),
         gsi3_sk: Some(shop::dynamodb::shop_record::mk_gsi3_sk().to_owned()),
         affiliate_configuration: None,
+        created_by: common::actor::record::ActorRecord::System,
+        updated_by: common::actor::record::ActorRecord::System,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };

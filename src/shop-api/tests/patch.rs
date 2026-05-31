@@ -26,6 +26,12 @@ use user::{
     service::{authenticator_service::MockAuthenticatorService, user_service::MockUserService},
 };
 
+fn system_ctx() -> common::actor::RequestContext {
+    common::actor::RequestContext {
+        actor: common::actor::domain::Actor::System,
+    }
+}
+
 fn image_patch_data() -> PatchShopData {
     PatchShopData {
         shop_type: None,
@@ -89,7 +95,10 @@ async fn should_200_respond_updated_shop_when_admin_patches_shop() {
     );
 
     let admin_user_id = UserId::new();
-    let shop = command_service.create(Faker.fake()).await.unwrap();
+    let shop = command_service
+        .create(&system_ctx(), Faker.fake())
+        .await
+        .unwrap();
 
     let mut user_service = MockUserService::default();
     user_service
@@ -128,7 +137,10 @@ async fn should_200_respond_updated_shop_when_partner_patches_shop() {
     );
 
     let user_id = UserId::new();
-    let shop = command_service.create(Faker.fake()).await.unwrap();
+    let shop = command_service
+        .create(&system_ctx(), Faker.fake())
+        .await
+        .unwrap();
 
     let mut user_service = MockUserService::default();
     user_service.expect_check_admin().return_once(move |_| {
@@ -172,7 +184,10 @@ async fn should_200_respond_updated_shop_when_access_token_patches_shop() {
         &shop::service::geocoding_service::NoopGeocodingService,
     );
 
-    let shop = command_service.create(Faker.fake()).await.unwrap();
+    let shop = command_service
+        .create(&system_ctx(), Faker.fake())
+        .await
+        .unwrap();
 
     let user_repo = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let (_, raw_token) = seed_partner_user_with_token(&user_repo, shop.shop_id).await;

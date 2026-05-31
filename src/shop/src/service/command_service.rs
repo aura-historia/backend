@@ -7,7 +7,9 @@ use crate::{
     service::command::{CreateShopCommand, UpdateShopCommand},
 };
 use aws_sdk_dynamodb::error::SdkError;
-use common::{shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::UserId};
+use common::{
+    actor::RequestContext, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::UserId,
+};
 use time::OffsetDateTime;
 use tracing::info;
 
@@ -96,9 +98,14 @@ pub mod api {
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait CommandShopService {
-    async fn create(&self, command: CreateShopCommand) -> Result<Shop, CommandShopError>;
+    async fn create(
+        &self,
+        ctx: &RequestContext,
+        command: CreateShopCommand,
+    ) -> Result<Shop, CommandShopError>;
     async fn update(
         &self,
+        ctx: &RequestContext,
         shop_id: &ShopId,
         command: UpdateShopCommand,
     ) -> Result<Shop, CommandShopError>;
@@ -123,7 +130,11 @@ impl<'a> CommandShopServiceImpl<'a> {
 
 #[async_trait::async_trait]
 impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
-    async fn create(&self, command: CreateShopCommand) -> Result<Shop, CommandShopError> {
+    async fn create(
+        &self,
+        ctx: &RequestContext,
+        command: CreateShopCommand,
+    ) -> Result<Shop, CommandShopError> {
         let shop_slug_id = SlugId::from(command.name.as_ref());
         let existing_shop_opt = self.repository.query_shop_id(&shop_slug_id).await?;
         if existing_shop_opt.is_some() {
@@ -166,19 +177,22 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             email: command.email,
             partner_status: ShopPartnerStatus::default(),
             affiliate_configuration: command.affiliate_configuration,
+            created_by: ctx.actor,
+            updated_by: ctx.actor,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };
 
         let _ = self.repository.put_shop_record(shop.clone().into()).await?;
 
-        info!(shopId = %shop.shop_id, name = %shop.name, slug = %shop.shop_slug_id, domains = ?shop.domains, "Created Shop.");
+        info!(actor = %ctx.actor, shopId = %shop.shop_id, name = %shop.name, slug = %shop.shop_slug_id, domains = ?shop.domains, "Created Shop.");
 
         Ok(shop)
     }
 
     async fn update(
         &self,
+        ctx: &RequestContext,
         shop_id: &ShopId,
         command: UpdateShopCommand,
     ) -> Result<Shop, CommandShopError> {
@@ -250,6 +264,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             geo_address_lon: geo_address.as_ref().map(|address| address.lon),
             phone: command.phone.clone(),
             email: command.email.clone(),
+            updated_by: ctx.actor.into(),
             updated: OffsetDateTime::now_utc(),
         };
         let shop_record = self
@@ -262,7 +277,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
                 ))
             })?;
 
-        info!(shopId = %shop_record.shop_id, name = %shop_record.name, slug = %shop_record.shop_slug_id, payload = ?command, "Updated Shop.");
+        info!(actor = %ctx.actor, shopId = %shop_record.shop_id, name = %shop_record.name, slug = %shop_record.shop_slug_id, payload = ?command, "Updated Shop.");
 
         Ok(shop_record.into())
     }
@@ -270,6 +285,12 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
+    fn system_ctx() -> common::actor::RequestContext {
+        common::actor::RequestContext {
+            actor: common::actor::domain::Actor::System,
+        }
+    }
+
     mod create {
         use crate::{
             core::{
@@ -321,7 +342,7 @@ mod tests {
                 email: None,
                 affiliate_configuration: None,
             };
-            let actual = service.create(cmd).await.unwrap_err();
+            let actual = service.create(&super::system_ctx(), cmd).await.unwrap_err();
             match actual {
                 CommandShopError::ShopSlugExistsAlready(_, _) => {}
                 other => {
@@ -346,7 +367,10 @@ mod tests {
             );
 
             let create_cmd: CreateShopCommand = Faker.fake();
-            let actual = service.create(create_cmd.clone()).await.unwrap();
+            let actual = service
+                .create(&super::system_ctx(), create_cmd.clone())
+                .await
+                .unwrap();
 
             assert_eq!(create_cmd.name, actual.name);
             assert_eq!(create_cmd.shop_type, actual.shop_type);
@@ -407,7 +431,7 @@ mod tests {
                 affiliate_configuration: None,
             };
 
-            let actual = service.create(cmd).await.unwrap();
+            let actual = service.create(&super::system_ctx(), cmd).await.unwrap();
 
             assert_eq!(Some(geo_address), actual.geo_address);
         }
@@ -438,7 +462,7 @@ mod tests {
                 &crate::service::geocoding_service::NoopGeocodingService,
             );
 
-            let actual = service.create(Faker.fake()).await;
+            let actual = service.create(&super::system_ctx(), Faker.fake()).await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -476,7 +500,7 @@ mod tests {
                 &crate::service::geocoding_service::NoopGeocodingService,
             );
 
-            let actual = service.create(Faker.fake()).await;
+            let actual = service.create(&super::system_ctx(), Faker.fake()).await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -524,7 +548,9 @@ mod tests {
                 &crate::service::geocoding_service::NoopGeocodingService,
             );
 
-            let actual = service.update(&ShopId::new(), Default::default()).await;
+            let actual = service
+                .update(&super::system_ctx(), &ShopId::new(), Default::default())
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -550,7 +576,7 @@ mod tests {
                 &crate::service::geocoding_service::NoopGeocodingService,
             );
             let actual = service
-                .update(&expected.shop_id, Default::default())
+                .update(&super::system_ctx(), &expected.shop_id, Default::default())
                 .await
                 .unwrap();
 
@@ -592,7 +618,10 @@ mod tests {
                 image: Some(new_image_url),
                 ..Default::default()
             };
-            let actual = service.update(&shop.shop_id, cmd).await.unwrap();
+            let actual = service
+                .update(&super::system_ctx(), &shop.shop_id, cmd)
+                .await
+                .unwrap();
 
             assert_eq!(
                 "https://hanses.shoppy/img/foo",
@@ -636,7 +665,10 @@ mod tests {
                 &shop_repository,
                 &crate::service::geocoding_service::NoopGeocodingService,
             );
-            let actual = service.update(&shop.shop_id, cmd).await.unwrap();
+            let actual = service
+                .update(&super::system_ctx(), &shop.shop_id, cmd)
+                .await
+                .unwrap();
 
             assert_eq!(new_domains, actual.domains);
         }
@@ -683,7 +715,10 @@ mod tests {
                 &shop_repository,
                 &crate::service::geocoding_service::NoopGeocodingService,
             );
-            let actual = service.update(&shop.shop_id, cmd).await.unwrap();
+            let actual = service
+                .update(&super::system_ctx(), &shop.shop_id, cmd)
+                .await
+                .unwrap();
 
             assert_eq!(reduced_domains, actual.domains);
         }
@@ -734,6 +769,7 @@ mod tests {
             let service = CommandShopServiceImpl::new(&shop_repository, &geocoding_service);
             let actual = service
                 .update(
+                    &super::system_ctx(),
                     &shop.shop_id,
                     UpdateShopCommand {
                         structured_address: Some(structured_address),
@@ -772,7 +808,9 @@ mod tests {
                 &crate::service::geocoding_service::NoopGeocodingService,
             );
 
-            let actual = service.update(&ShopId::new(), Default::default()).await;
+            let actual = service
+                .update(&super::system_ctx(), &ShopId::new(), Default::default())
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -816,7 +854,9 @@ mod tests {
                 image: Some(Url::parse("https://example.com/img").unwrap()),
                 ..Default::default()
             };
-            let actual = service.update(&ShopId::new(), cmd).await;
+            let actual = service
+                .update(&super::system_ctx(), &ShopId::new(), cmd)
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {

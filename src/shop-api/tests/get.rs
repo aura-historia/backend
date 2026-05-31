@@ -16,6 +16,12 @@ use user::service::{
     authenticator_service::MockAuthenticatorService, user_service::MockUserService,
 };
 
+fn system_ctx() -> common::actor::RequestContext {
+    common::actor::RequestContext {
+        actor: common::actor::domain::Actor::System,
+    }
+}
+
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_respond_shop() {
     let repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -27,7 +33,10 @@ async fn should_200_respond_shop() {
 
     let mut create_cmd: CreateShopCommand = Faker.fake();
     create_cmd.url = None;
-    let expected = command_service.create(create_cmd).await.unwrap();
+    let expected = command_service
+        .create(&system_ctx(), create_cmd)
+        .await
+        .unwrap();
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
@@ -67,7 +76,10 @@ async fn should_200_respond_shop_for_slug() {
 
     let mut create_cmd: CreateShopCommand = Faker.fake();
     create_cmd.url = None;
-    let expected = command_service.create(create_cmd).await.unwrap();
+    let expected = command_service
+        .create(&system_ctx(), create_cmd)
+        .await
+        .unwrap();
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)

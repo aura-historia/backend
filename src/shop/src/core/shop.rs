@@ -8,7 +8,9 @@ use crate::core::{
 };
 use common::currency::domain::Currency;
 use common::language::domain::Language;
-use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
+use common::{
+    actor::domain::Actor, domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId,
+};
 use serde_email::Email;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -36,6 +38,8 @@ pub struct Shop {
     pub email: Option<Email>,
     pub partner_status: ShopPartnerStatus,
     pub affiliate_configuration: Option<AffiliateConfiguration>,
+    pub created_by: Actor,
+    pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -63,6 +67,8 @@ impl From<PartnerShop> for Shop {
             email: partner_shop.email,
             partner_status: ShopPartnerStatus::Partnered,
             affiliate_configuration: partner_shop.affiliate_configuration,
+            created_by: partner_shop.created_by,
+            updated_by: partner_shop.updated_by,
             created: partner_shop.created,
             updated: partner_shop.updated,
         }
@@ -106,6 +112,8 @@ mod faker {
                 email: None,
                 partner_status: config.fake_with_rng(rng),
                 affiliate_configuration,
+                created_by: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -120,6 +128,16 @@ mod faker {
         #[test]
         fn should_fake_shop() {
             let _ = Faker.fake::<Shop>();
+        }
+
+        #[test]
+        fn should_preserve_actor_metadata_when_converting_from_partner_shop() {
+            let partner_shop: super::PartnerShop = Faker.fake();
+
+            let shop = Shop::from(partner_shop.clone());
+
+            assert_eq!(shop.created_by, partner_shop.created_by);
+            assert_eq!(shop.updated_by, partner_shop.updated_by);
         }
     }
 }

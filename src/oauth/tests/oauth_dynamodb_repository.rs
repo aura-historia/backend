@@ -1,4 +1,5 @@
 use common::oauth_client_id::OAuthClientId;
+use fake::{Fake, Faker};
 use oauth::core::authorization_code::{AuthorizationCode, CodeChallengeMethod, OAuthCodeChallenge};
 use oauth::core::client::{OAuthClient, OAuthClientName};
 use oauth::dynamodb::authorization_code_record::AuthorizationCodeRecord;
@@ -18,6 +19,7 @@ fn now() -> OffsetDateTime {
 
 fn oauth_client() -> OAuthClient {
     let now = now();
+    let user_id = common::user_id::UserId::new();
     OAuthClient {
         client_id: OAuthClientId::new(),
         hashed_client_secret: RawOAuthClientSecret::new().into(),
@@ -28,7 +30,8 @@ fn oauth_client() -> OAuthClient {
         client_uri: Url::parse("https://client.example").unwrap(),
         logo_uri: Url::parse("https://client.example/logo.png").unwrap(),
         scopes: HashSet::from([Scope::ProductsWrite]),
-        created_by: common::user_id::UserId::new(),
+        created_by: common::actor::domain::Actor::User(user_id),
+        updated_by: common::actor::domain::Actor::User(user_id),
         created: now,
         updated: now,
     }
@@ -39,7 +42,10 @@ fn authorization_code(client: &OAuthClient) -> AuthorizationCode {
     AuthorizationCode {
         code: oauth::core::authorization_code::OAuthAuthorizationCode::new(),
         client_id: client.client_id,
-        user_id: client.created_by,
+        user_id: match client.created_by {
+            common::actor::domain::Actor::User(user_id) => user_id,
+            common::actor::domain::Actor::System => panic!("expected user actor"),
+        },
         redirect_uri: url::Url::parse("https://client.example/callback").unwrap(),
         scopes: HashSet::from([Scope::ProductsWrite]),
         code_challenge: OAuthCodeChallenge::from("challenge"),
@@ -116,6 +122,7 @@ async fn should_update_client_record() {
                 logo_uri: Some(Url::parse("https://updated-client.example/logo.png").unwrap()),
                 scopes: Some(HashSet::from([ScopeRecord::ShopsManage])),
                 updated: now() + Duration::seconds(1),
+                updated_by: Faker.fake(),
             },
         )
         .await

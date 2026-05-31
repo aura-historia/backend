@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
@@ -34,7 +35,14 @@ pub async fn handle(
     })?;
 
     let notification = service
-        .update_notification(&user_id, &event_id, patch.into())
+        .update_notification(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            &user_id,
+            &event_id,
+            patch.into(),
+        )
         .await?;
 
     let localized = notification.localized(&currency.into(), &[language.into()]);
@@ -58,9 +66,11 @@ mod tests {
     #[tokio::test]
     async fn should_200_when_success() {
         let mut service = MockNotificationService::default();
-        service.expect_update_notification().return_once(|_, _, _| {
-            Box::pin(async { Ok(Faker.fake::<NotificationRecord>().try_into().unwrap()) })
-        });
+        service
+            .expect_update_notification()
+            .return_once(|_, _, _, _| {
+                Box::pin(async { Ok(Faker.fake::<NotificationRecord>().try_into().unwrap()) })
+            });
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()

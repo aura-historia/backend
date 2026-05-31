@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
@@ -20,6 +21,9 @@ pub async fn post(
     let data: PostAccessTokenData = serde_json::from_str(&body).map_err(bad_json)?;
     let created: GetAccessTokenData = service
         .create_access_token(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
             &user_id,
             CreateAccessTokenCommand {
                 name: data.name.into(),
@@ -81,6 +85,9 @@ pub async fn patch(
     let data: PatchAccessTokenData = serde_json::from_str(&body).map_err(bad_json)?;
     let updated: GetAccessTokenData = service
         .update_access_token(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
             &user_id,
             &data.access_token_id,
             UpdateAccessTokenCommand {
@@ -107,7 +114,13 @@ pub async fn delete(
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     let access_token_id = extract_access_token_id_path(&event.payload.path_parameters)?;
     service
-        .delete_access_token(&user_id, &access_token_id)
+        .delete_access_token(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            &user_id,
+            &access_token_id,
+        )
         .await?;
 
     Ok(ApiGatewayV2HttpResponseBuilder::new(204).build())
@@ -142,7 +155,7 @@ mod tests {
         let mut service = MockUserService::default();
         service
             .expect_create_access_token()
-            .return_once(move |_, _| {
+            .return_once(move |_, _, _| {
                 let raw = RawAccessToken::new();
                 let token: AccessToken = Faker.fake();
                 Box::pin(async move { Ok((raw, token)) })
@@ -215,7 +228,7 @@ mod tests {
         let access_token_id: AccessTokenId = Faker.fake();
         let mut service = MockUserService::default();
         service.expect_delete_access_token().return_once(
-            move |actual_user_id, actual_access_token_id| {
+            move |_, actual_user_id, actual_access_token_id| {
                 assert_eq!(&user_id, actual_user_id);
                 assert_eq!(&access_token_id, actual_access_token_id);
                 Box::pin(async move { Ok(()) })

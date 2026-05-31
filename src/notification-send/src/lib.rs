@@ -1,5 +1,8 @@
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use common::dynamodb_stream::extract_from_dynamodb_stream;
+use common::{
+    actor::{RequestContext, domain::Actor},
+    dynamodb_stream::extract_from_dynamodb_stream,
+};
 use lambda_runtime::LambdaEvent;
 use notification::{
     core::notification::Notification, dynamodb::notification_record::NotificationRecord,
@@ -29,7 +32,16 @@ pub async fn handler(
         let user_id = notification.user_id;
         let origin_event_id = notification.origin_event_id;
 
-        match service.send_externally(&user_id, &origin_event_id).await {
+        match service
+            .send_externally(
+                &RequestContext {
+                    actor: Actor::System,
+                },
+                &user_id,
+                &origin_event_id,
+            )
+            .await
+        {
             Ok(_) => {
                 debug!(
                     messageId = message_id,
@@ -156,9 +168,9 @@ mod tests {
             Faker.fake::<NotificationRecord>().try_into().unwrap();
         mock_service
             .expect_send_externally()
-            .withf(move |uid, eid| *uid == user_id && *eid == origin_event_id)
+            .withf(move |_, uid, eid| *uid == user_id && *eid == origin_event_id)
             .times(1)
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let n = returned_notification.clone();
                 Box::pin(async move { Ok(n) })
             });
@@ -179,7 +191,7 @@ mod tests {
         mock_service
             .expect_send_externally()
             .times(2)
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let n = returned.clone();
                 Box::pin(async move { Ok(n) })
             });
@@ -201,9 +213,9 @@ mod tests {
         let mut mock_service = MockNotificationService::default();
         mock_service
             .expect_send_externally()
-            .withf(move |uid, eid| *uid == user_id && *eid == origin_event_id)
+            .withf(move |_, uid, eid| *uid == user_id && *eid == origin_event_id)
             .times(1)
-            .returning(move |uid, eid| {
+            .returning(move |_, uid, eid| {
                 let err = NotificationError::NotificationNotFound(*uid, *eid);
                 Box::pin(async move { Err(err) })
             });
@@ -230,18 +242,18 @@ mod tests {
 
         mock_service
             .expect_send_externally()
-            .withf(move |uid, eid| *uid == fail_user_id && *eid == fail_origin_event_id)
+            .withf(move |_, uid, eid| *uid == fail_user_id && *eid == fail_origin_event_id)
             .times(1)
-            .returning(move |uid, eid| {
+            .returning(move |_, uid, eid| {
                 let err = NotificationError::NotificationNotFound(*uid, *eid);
                 Box::pin(async move { Err(err) })
             });
 
         mock_service
             .expect_send_externally()
-            .withf(move |uid, eid| *uid != fail_user_id || *eid != fail_origin_event_id)
+            .withf(move |_, uid, eid| *uid != fail_user_id || *eid != fail_origin_event_id)
             .times(1)
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let n = returned.clone();
                 Box::pin(async move { Ok(n) })
             });
@@ -303,7 +315,7 @@ mod tests {
         mock_service
             .expect_send_externally()
             .times(2)
-            .returning(|uid, eid| {
+            .returning(|_, uid, eid| {
                 let err = NotificationError::NotificationNotFound(*uid, *eid);
                 Box::pin(async move { Err(err) })
             });
@@ -334,7 +346,7 @@ mod tests {
         mock_service
             .expect_send_externally()
             .times(1)
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let n = returned.clone();
                 Box::pin(async move { Ok(n) })
             });
@@ -376,7 +388,7 @@ mod tests {
         mock_service
             .expect_send_externally()
             .times(batch_size)
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let n = returned.clone();
                 Box::pin(async move { Ok(n) })
             });
@@ -399,7 +411,7 @@ mod tests {
         mock_service
             .expect_send_externally()
             .times(1)
-            .returning(move |_, _| {
+            .returning(move |_, _, _| {
                 let n = returned.clone();
                 Box::pin(async move { Ok(n) })
             });

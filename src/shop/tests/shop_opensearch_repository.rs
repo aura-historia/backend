@@ -204,6 +204,8 @@ async fn should_update_shop_document_for_index() {
         email: None,
         partner_status:
             shop::opensearch::partner_status_document::ShopPartnerStatusDocument::Scraped,
+        created_by: created.created_by,
+        updated_by: created.updated_by,
         created: created.created,
         updated: OffsetDateTime::now_utc(),
     };

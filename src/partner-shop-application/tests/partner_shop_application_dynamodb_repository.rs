@@ -81,6 +81,7 @@ fn should_update_partner_shop_application_record_state() {
                 shop_phone: None,
                 shop_email: None,
                 task_token: None,
+                updated_by: common::actor::record::ActorRecord::System,
                 updated: updated_time,
             },
         )

@@ -1,5 +1,6 @@
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
+use common::actor::record::ActorRecord;
 use common::batch::Batch;
 use common::domain::Domain;
 use common::price::domain::FixedFxRate;
@@ -177,6 +178,8 @@ async fn seed_shopify_partner_shop(repository: &ShopDynamoDbRepositoryImpl<'_>) 
         gsi3_pk: Some(shop::dynamodb::shop_record::mk_gsi3_pk(&shopify_domain)),
         gsi3_sk: Some(shop::dynamodb::shop_record::mk_gsi3_sk().to_owned()),
         affiliate_configuration: None,
+        created_by: ActorRecord::System,
+        updated_by: ActorRecord::System,
         created: now,
         updated: now,
     };

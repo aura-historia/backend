@@ -6,7 +6,9 @@ use crate::core::{
 };
 use common::currency::domain::Currency;
 use common::language::domain::Language;
-use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
+use common::{
+    actor::domain::Actor, domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId,
+};
 use serde_email::Email;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -33,6 +35,8 @@ pub struct PartnerShop {
     pub phone: Option<String>,
     pub email: Option<Email>,
     pub affiliate_configuration: Option<AffiliateConfiguration>,
+    pub created_by: Actor,
+    pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -73,6 +77,8 @@ mod faker {
                 phone: None,
                 email: None,
                 affiliate_configuration,
+                created_by: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

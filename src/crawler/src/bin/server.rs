@@ -598,7 +598,9 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::should_sync_shop;
-    use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
+    use common::{
+        actor::domain::Actor, domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId,
+    };
     use shop::core::shop_type::ShopType;
     use shop::core::{partner_status::ShopPartnerStatus, shop::Shop};
     use time::OffsetDateTime;
@@ -625,6 +627,8 @@ mod tests {
             email: None,
             partner_status,
             affiliate_configuration: None,
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }

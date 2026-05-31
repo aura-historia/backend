@@ -3,6 +3,7 @@ use crate::core::user_search_filter::UserSearchFilter;
 use crate::core::user_search_filter::UserSearchFilterSummary;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::dynamodb::user_search_filter_record::UserSearchFilterRecord;
+use common::actor::document::ActorDocument;
 use common::resource_state::document::ResourceStateDocument;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
@@ -26,6 +27,8 @@ pub struct UserSearchFilterDocument {
     pub state: ResourceStateDocument,
     pub search: ProductSearchDocument,
     pub query: ProductPercolatorQuery,
+    pub created_by: ActorDocument,
+    pub updated_by: ActorDocument,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -54,6 +57,8 @@ impl From<UserSearchFilterDocument> for UserSearchFilterSummary {
             notifications: document.notifications,
             state: document.state.into(),
             last_hybrid_search_matched: document.last_hybrid_search_matched,
+            created_by: document.created_by.into(),
+            updated_by: document.updated_by.into(),
             created: document.created,
             updated: document.updated,
         }
@@ -72,6 +77,8 @@ impl From<UserSearchFilterDocument> for UserSearchFilter {
             notifications: document.notifications,
             state: document.state.into(),
             search: document.search.into(),
+            created_by: document.created_by.into(),
+            updated_by: document.updated_by.into(),
             created: document.created,
             updated: document.updated,
             last_hybrid_search_matched: document.last_hybrid_search_matched,
@@ -96,6 +103,8 @@ impl TryFrom<UserSearchFilterRecord> for UserSearchFilterDocument {
             state: user_search_filter.state.into(),
             search: user_search_filter.search.clone().into(),
             query,
+            created_by: user_search_filter.created_by.into(),
+            updated_by: user_search_filter.updated_by.into(),
             created: user_search_filter.created,
             updated: user_search_filter.updated,
             last_hybrid_search_matched: user_search_filter.last_hybrid_search_matched,

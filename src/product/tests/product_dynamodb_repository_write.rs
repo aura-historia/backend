@@ -145,6 +145,8 @@ async fn should_put_product_records_for_multiple_records() {
         embedding: Some(fake::vec![f32; 768]),
         auction_start: None,
         auction_end: None,
+        created_by: common::actor::record::ActorRecord::System,
+        updated_by: common::actor::record::ActorRecord::System,
         created: now1,
         updated: now1,
     };
@@ -248,6 +250,8 @@ async fn should_put_product_records_for_multiple_records() {
         embedding: Some(fake::vec![f32; 768]),
         auction_start: None,
         auction_end: None,
+        created_by: common::actor::record::ActorRecord::System,
+        updated_by: common::actor::record::ActorRecord::System,
         created: now2,
         updated: now2,
     };
@@ -683,6 +687,8 @@ async fn should_update_product_record() {
         embedding: Some(fake::vec![f32; 768]),
         auction_start: None,
         auction_end: None,
+        created_by: common::actor::record::ActorRecord::System,
+        updated_by: common::actor::record::ActorRecord::System,
         created: now,
         updated: now,
     };

@@ -3,8 +3,8 @@ use crate::{
     data::{role_data::UserRoleData, tier_data::UserTierData},
 };
 use common::{
-    currency::data::CurrencyData, language::data::LanguageData, shop_id::ShopId,
-    stripe_customer_id::StripeCustomerId, user_id::UserId,
+    actor::data::ActorData, currency::data::CurrencyData, language::data::LanguageData,
+    shop_id::ShopId, stripe_customer_id::StripeCustomerId, user_id::UserId,
 };
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use serde::{Deserialize, Serialize};
@@ -48,6 +48,8 @@ pub struct GetUserAccountData {
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub partner_shops: HashSet<ShopId>,
 
+    pub created_by: ActorData,
+    pub updated_by: ActorData,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -70,6 +72,8 @@ impl From<User> for GetUserAccountData {
             structured_address: user.structured_address.map(StructuredAddressData::from),
             geo_address: user.geo_address.map(GeoAddressData::from),
             partner_shops: user.partner_shops,
+            created_by: user.created_by.into(),
+            updated_by: user.updated_by.into(),
             created: user.created,
             updated: user.updated,
         }

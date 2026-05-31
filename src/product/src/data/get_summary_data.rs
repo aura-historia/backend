@@ -2,6 +2,7 @@ use crate::core::product::LocalizedProductView;
 use crate::data::auction_data::AuctionData;
 use crate::data::product_image_data::ProductImageData;
 use crate::data::product_state_data::ProductStateData;
+use common::actor::data::ActorData;
 use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::language::data::LocalizedTextData;
@@ -39,6 +40,8 @@ pub struct GetProductSummaryData {
     pub images: IndexSet<ProductImageData>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub auction: Option<AuctionData>,
+    pub created_by: ActorData,
+    pub updated_by: ActorData,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -84,6 +87,8 @@ impl GetProductSummaryData {
                 (start @ Some(_), end) => Some(AuctionData { start, end }),
                 _ => None,
             },
+            created_by: product_view.created_by.into(),
+            updated_by: product_view.updated_by.into(),
             created: product_view.created,
             updated: product_view.updated,
         }
@@ -127,6 +132,7 @@ mod tests {
         prohibited_content_data::ProhibitedContentData,
     };
     use common::{
+        actor::data::ActorData,
         currency::data::CurrencyData,
         event_id::EventId,
         language::data::{LanguageData, LocalizedTextData},
@@ -181,6 +187,8 @@ mod tests {
                 start: Some(utc_datetime!(2025 - 05 - 01 12:00).into()),
                 end: Some(utc_datetime!(2025 - 05 - 10 12:00).into()),
             }),
+            created_by: ActorData::System,
+            updated_by: ActorData::System,
             created: utc_datetime!(2025 - 05 - 05 0:00).into(),
             updated: utc_datetime!(2025 - 05 - 05 0:00).into(),
         };
@@ -220,6 +228,8 @@ mod tests {
                 "start": "2025-05-01T12:00:00Z",
                 "end": "2025-05-10T12:00:00Z"
             },
+            "createdBy": "SYSTEM",
+            "updatedBy": "SYSTEM",
             "created": "2025-05-05T00:00:00Z",
             "updated": "2025-05-05T00:00:00Z",
         });

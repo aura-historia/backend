@@ -15,7 +15,7 @@ use crate::{
 };
 use aws_sdk_dynamodb::config::http::HttpResponse;
 use aws_sdk_dynamodb::error::SdkError;
-use common::user_id::UserId;
+use common::{actor::RequestContext, user_id::UserId};
 use time::OffsetDateTime;
 use tracing::info;
 
@@ -107,6 +107,7 @@ pub mod api {
 pub trait PartnerShopApplicationService {
     async fn create_partner_shop_application(
         &self,
+        ctx: &RequestContext,
         cmd: CreatePartnerShopApplicationCommand,
     ) -> Result<PartnerShopApplication, PartnerShopApplicationError>;
 
@@ -118,6 +119,7 @@ pub trait PartnerShopApplicationService {
 
     async fn update_partner_shop_application(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         id: &PartnerShopApplicationId,
         update: UpdatePartnerShopApplicationCommand,
@@ -125,6 +127,7 @@ pub trait PartnerShopApplicationService {
 
     async fn delete_partner_shop_application(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         id: &PartnerShopApplicationId,
     ) -> Result<(), PartnerShopApplicationError>;
@@ -140,12 +143,14 @@ pub trait PartnerShopApplicationService {
 
     async fn update_partner_shop_application_by_id(
         &self,
+        ctx: &RequestContext,
         id: &PartnerShopApplicationId,
         update: UpdatePartnerShopApplicationCommand,
     ) -> Result<PartnerShopApplication, PartnerShopApplicationError>;
 
     async fn submit_decision(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         id: &PartnerShopApplicationId,
         decision: PartnerShopApplicationDecision,
@@ -153,6 +158,7 @@ pub trait PartnerShopApplicationService {
 
     async fn submit_decision_by_id(
         &self,
+        ctx: &RequestContext,
         id: &PartnerShopApplicationId,
         decision: PartnerShopApplicationDecision,
     ) -> Result<PartnerShopApplication, PartnerShopApplicationError>;
@@ -187,6 +193,7 @@ impl<'a> PartnerShopApplicationServiceImpl<'a> {
 impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a> {
     async fn create_partner_shop_application(
         &self,
+        ctx: &RequestContext,
         cmd: CreatePartnerShopApplicationCommand,
     ) -> Result<PartnerShopApplication, PartnerShopApplicationError> {
         let now = OffsetDateTime::now_utc();
@@ -197,6 +204,8 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             execution_state: common::execution_state::ExecutionState::Processing,
             applicant_user_id: cmd.applicant_user_id,
             payload: cmd.payload,
+            created_by: ctx.actor,
+            updated_by: ctx.actor,
             created: now,
             updated: now,
         };
@@ -214,6 +223,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             .await?;
 
         info!(
+            actor = %ctx.actor,
             partnerShopApplicationId = %application.id,
             userId = %application.applicant_user_id,
             "PartnerShopApplication created and step function started."
@@ -238,6 +248,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
 
     async fn update_partner_shop_application(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         id: &PartnerShopApplicationId,
         update: UpdatePartnerShopApplicationCommand,
@@ -287,6 +298,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             shop_phone: update.shop_phone,
             shop_email: update.shop_email,
             task_token: None,
+            updated_by: ctx.actor.into(),
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -301,6 +313,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             })?;
 
         info!(
+            actor = %ctx.actor,
             partnerShopApplicationId = %id,
             userId = %user_id,
             "PartnerShopApplication updated."
@@ -311,6 +324,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
 
     async fn delete_partner_shop_application(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         id: &PartnerShopApplicationId,
     ) -> Result<(), PartnerShopApplicationError> {
@@ -324,6 +338,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             .await?;
 
         info!(
+            actor = %ctx.actor,
             partnerShopApplicationId = %id,
             userId = %user_id,
             "PartnerShopApplication deleted."
@@ -363,6 +378,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
 
     async fn update_partner_shop_application_by_id(
         &self,
+        ctx: &RequestContext,
         id: &PartnerShopApplicationId,
         update: UpdatePartnerShopApplicationCommand,
     ) -> Result<PartnerShopApplication, PartnerShopApplicationError> {
@@ -413,6 +429,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             shop_phone: update.shop_phone,
             shop_email: update.shop_email,
             task_token: None,
+            updated_by: ctx.actor.into(),
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -427,6 +444,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             })?;
 
         info!(
+            actor = %ctx.actor,
             partnerShopApplicationId = %id,
             userId = %user_id,
             "PartnerShopApplication updated by admin."
@@ -437,6 +455,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
 
     async fn submit_decision(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         id: &PartnerShopApplicationId,
         decision: PartnerShopApplicationDecision,
@@ -447,12 +466,13 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             .await?
             .ok_or(PartnerShopApplicationError::NotFound(*user_id, *id))?;
 
-        self.resume_step_function(id, &existing_record, decision)
+        self.resume_step_function(ctx, id, &existing_record, decision)
             .await
     }
 
     async fn submit_decision_by_id(
         &self,
+        ctx: &RequestContext,
         id: &PartnerShopApplicationId,
         decision: PartnerShopApplicationDecision,
     ) -> Result<PartnerShopApplication, PartnerShopApplicationError> {
@@ -462,7 +482,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             .await?
             .ok_or(PartnerShopApplicationError::NotFoundById(*id))?;
 
-        self.resume_step_function(id, &existing_record, decision)
+        self.resume_step_function(ctx, id, &existing_record, decision)
             .await
     }
 
@@ -487,6 +507,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
 impl<'a> PartnerShopApplicationServiceImpl<'a> {
     async fn resume_step_function(
         &self,
+        ctx: &RequestContext,
         id: &PartnerShopApplicationId,
         existing_record: &PartnerShopApplicationRecord,
         decision: PartnerShopApplicationDecision,
@@ -538,6 +559,7 @@ impl<'a> PartnerShopApplicationServiceImpl<'a> {
             shop_phone: None,
             shop_email: None,
             task_token: None,
+            updated_by: ctx.actor.into(),
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -552,6 +574,7 @@ impl<'a> PartnerShopApplicationServiceImpl<'a> {
             })?;
 
         info!(
+            actor = %ctx.actor,
             partnerShopApplicationId = %id,
             decision = decision_str,
             "Step function resumed with decision, execution_state set to Processing."
@@ -591,6 +614,12 @@ mod tests {
         )
     }
 
+    fn system_ctx() -> RequestContext {
+        RequestContext {
+            actor: common::actor::domain::Actor::System,
+        }
+    }
+
     mod create {
         use super::*;
 
@@ -612,7 +641,7 @@ mod tests {
             };
 
             let actual = service
-                .create_partner_shop_application(cmd.clone())
+                .create_partner_shop_application(&system_ctx(), cmd.clone())
                 .await
                 .unwrap();
 
@@ -653,7 +682,9 @@ mod tests {
             let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
             let service = make_service(&repository, &sfn_adapter);
             let cmd: CreatePartnerShopApplicationCommand = Faker.fake();
-            let actual = service.create_partner_shop_application(cmd).await;
+            let actual = service
+                .create_partner_shop_application(&system_ctx(), cmd)
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -770,6 +801,7 @@ mod tests {
             let service = make_service(&repository, &sfn_adapter);
             let actual = service
                 .update_partner_shop_application(
+                    &system_ctx(),
                     &expected.applicant_user_id,
                     &expected.id,
                     UpdatePartnerShopApplicationCommand::default(),
@@ -800,6 +832,7 @@ mod tests {
             let service = make_service(&repository, &sfn_adapter);
             let actual = service
                 .update_partner_shop_application(
+                    &system_ctx(),
                     &expected.applicant_user_id,
                     &expected.id,
                     UpdatePartnerShopApplicationCommand {
@@ -828,6 +861,7 @@ mod tests {
             let id = PartnerShopApplicationId::new();
             let actual = service
                 .update_partner_shop_application(
+                    &system_ctx(),
                     &user_id,
                     &id,
                     UpdatePartnerShopApplicationCommand {
@@ -868,7 +902,11 @@ mod tests {
             let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
             let service = make_service(&repository, &sfn_adapter);
             let actual = service
-                .delete_partner_shop_application(&expected.applicant_user_id, &expected.id)
+                .delete_partner_shop_application(
+                    &system_ctx(),
+                    &expected.applicant_user_id,
+                    &expected.id,
+                )
                 .await;
 
             assert!(actual.is_ok());
@@ -886,7 +924,7 @@ mod tests {
             let user_id = UserId::new();
             let id = PartnerShopApplicationId::new();
             let actual = service
-                .delete_partner_shop_application(&user_id, &id)
+                .delete_partner_shop_application(&system_ctx(), &user_id, &id)
                 .await
                 .unwrap_err();
 
@@ -933,7 +971,11 @@ mod tests {
             let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
             let service = make_service(&repository, &sfn_adapter);
             let actual = service
-                .delete_partner_shop_application(&existing.applicant_user_id, &existing.id)
+                .delete_partner_shop_application(
+                    &system_ctx(),
+                    &existing.applicant_user_id,
+                    &existing.id,
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -1091,7 +1133,9 @@ mod tests {
                 payload: PartnerShopApplicationPayload::Existing(ShopId::new()),
             };
 
-            let actual = service.create_partner_shop_application(cmd).await;
+            let actual = service
+                .create_partner_shop_application(&system_ctx(), cmd)
+                .await;
             assert!(actual.is_ok());
             let app = actual.unwrap();
             assert_eq!(app.business_state, PartnerShopApplicationState::Submitted);
@@ -1144,7 +1188,7 @@ mod tests {
 
             let service = make_service(&repository, &sfn_adapter);
             let actual = service
-                .submit_decision_by_id(&id, PartnerShopApplicationDecision::Approve)
+                .submit_decision_by_id(&system_ctx(), &id, PartnerShopApplicationDecision::Approve)
                 .await;
 
             assert!(actual.is_ok());
@@ -1192,7 +1236,7 @@ mod tests {
 
             let service = make_service(&repository, &sfn_adapter);
             let actual = service
-                .submit_decision_by_id(&id, PartnerShopApplicationDecision::Reject)
+                .submit_decision_by_id(&system_ctx(), &id, PartnerShopApplicationDecision::Reject)
                 .await;
 
             assert!(actual.is_ok());
@@ -1217,7 +1261,7 @@ mod tests {
             let service = make_service(&repository, &sfn_adapter);
 
             let actual = service
-                .submit_decision_by_id(&id, PartnerShopApplicationDecision::Approve)
+                .submit_decision_by_id(&system_ctx(), &id, PartnerShopApplicationDecision::Approve)
                 .await;
 
             assert!(actual.is_err());
@@ -1247,7 +1291,7 @@ mod tests {
             let service = make_service(&repository, &sfn_adapter);
 
             let actual = service
-                .submit_decision_by_id(&id, PartnerShopApplicationDecision::Approve)
+                .submit_decision_by_id(&system_ctx(), &id, PartnerShopApplicationDecision::Approve)
                 .await;
 
             assert!(actual.is_err());

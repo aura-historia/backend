@@ -1,6 +1,6 @@
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use common::{
-    resource_state::domain::ResourceState, string_newtype, user_id::UserId,
+    actor::domain::Actor, resource_state::domain::ResourceState, string_newtype, user_id::UserId,
     user_search_filter_id::UserSearchFilterId,
 };
 use product::core::product_search::ProductSearch;
@@ -17,6 +17,8 @@ pub struct UserSearchFilterSummary {
     pub enhanced_search_description: Option<EnhancedSearchDescription>,
     pub notifications: bool,
     pub state: ResourceState,
+    pub created_by: Actor,
+    pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
     pub last_hybrid_search_matched: OffsetDateTime,
@@ -31,6 +33,8 @@ pub struct UserSearchFilter {
     pub state: ResourceState,
     pub search: ProductSearch,
     pub enhanced_search_description: Option<EnhancedSearchDescription>,
+    pub created_by: Actor,
+    pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
     pub last_hybrid_search_matched: OffsetDateTime,
@@ -45,6 +49,8 @@ impl From<UserSearchFilter> for UserSearchFilterSummary {
             enhanced_search_description: filter.enhanced_search_description,
             notifications: filter.notifications,
             state: filter.state,
+            created_by: filter.created_by,
+            updated_by: filter.updated_by,
             created: filter.created,
             updated: filter.updated,
             last_hybrid_search_matched: filter.last_hybrid_search_matched,
@@ -67,6 +73,8 @@ mod faker {
                 state: ResourceState::Active,
                 search: config.fake_with_rng(rng),
                 enhanced_search_description: None,
+                created_by: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
                 last_hybrid_search_matched: OffsetDateTime::now_utc(),
@@ -83,6 +91,8 @@ mod faker {
                 enhanced_search_description: None,
                 notifications: true,
                 state: ResourceState::Active,
+                created_by: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
                 last_hybrid_search_matched: OffsetDateTime::now_utc(),
@@ -139,5 +149,28 @@ mod tests {
         let long = "d".repeat(1111);
         let desc = EnhancedSearchDescription::from(long);
         assert_eq!(desc.as_ref().len(), 1000);
+    }
+
+    #[test]
+    fn should_preserve_actor_metadata_when_creating_summary() {
+        let filter = UserSearchFilter {
+            user_id: UserId::new(),
+            user_search_filter_id: UserSearchFilterId::new(),
+            name: "Foo".into(),
+            notifications: true,
+            state: ResourceState::Active,
+            search: ProductSearch::default(),
+            enhanced_search_description: None,
+            created_by: Actor::System,
+            updated_by: Actor::User(UserId::new()),
+            created: OffsetDateTime::now_utc(),
+            updated: OffsetDateTime::now_utc(),
+            last_hybrid_search_matched: OffsetDateTime::now_utc(),
+        };
+
+        let summary = UserSearchFilterSummary::from(filter.clone());
+
+        assert_eq!(summary.created_by, filter.created_by);
+        assert_eq!(summary.updated_by, filter.updated_by);
     }
 }

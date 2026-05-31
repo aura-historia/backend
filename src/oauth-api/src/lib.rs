@@ -1,5 +1,6 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use base64::Engine as _;
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::{ApiError, log_api_error};
 use common::api::error_code::{
@@ -93,8 +94,15 @@ async fn create_client(
     user_service.check_admin(&user_id).await?;
     let data: OAuthClientMetadataRequestData =
         serde_json::from_str(&non_empty_body(event.payload.body)?).map_err(bad_json)?;
-    let response: OAuthClientMetadataResponseData =
-        service.create_client(&user_id, data.into()).await?.into();
+    let response: OAuthClientMetadataResponseData = service
+        .create_client(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            data.into(),
+        )
+        .await?
+        .into();
     Ok(ApiGatewayV2HttpResponseBuilder::json(201)
         .location(
             &format!("oauth/clients/{}", response.client_id),
@@ -151,8 +159,16 @@ async fn update_client(
     let client_id = extract_client_id_path(&event.payload.path_parameters)?;
     let data: OAuthClientMetadataPatchData =
         serde_json::from_str(&non_empty_body(event.payload.body)?).map_err(bad_json)?;
-    let response: OAuthClientMetadataResponseData =
-        service.update_client(&client_id, data.into()).await?.into();
+    let response: OAuthClientMetadataResponseData = service
+        .update_client(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            &client_id,
+            data.into(),
+        )
+        .await?
+        .into();
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .cache_control("no-store", None, None)
         .body_serde(response)?
@@ -169,7 +185,14 @@ async fn delete_client(
     tracing::Span::current().record("userId", user_id.to_string());
     user_service.check_admin(&user_id).await?;
     let client_id = extract_client_id_path(&event.payload.path_parameters)?;
-    service.delete_client(&client_id).await?;
+    service
+        .delete_client(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            &client_id,
+        )
+        .await?;
     Ok(ApiGatewayV2HttpResponseBuilder::new(204).build())
 }
 
@@ -261,7 +284,14 @@ async fn revoke(
         )
         .map_err(|err| ApiError::unauthorized(UNAUTHORIZED).with_detail(err.to_string()))?,
     };
-    service.revoke(request).await?;
+    service
+        .revoke(
+            &RequestContext {
+                actor: Actor::System,
+            },
+            request,
+        )
+        .await?;
     Ok(
         common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder::new(
             200,
@@ -436,7 +466,8 @@ mod tests {
             client_uri: Url::parse("https://client.example").unwrap(),
             logo_uri: Url::parse("https://client.example/logo.png").unwrap(),
             scopes: HashSet::from([Scope::ProductsWrite]),
-            created_by: user_id,
+            created_by: common::actor::domain::Actor::User(user_id),
+            updated_by: common::actor::domain::Actor::User(user_id),
             created: now,
             updated: now,
         }
@@ -485,8 +516,8 @@ mod tests {
         let user_service = admin_ok(user_id);
         service
             .expect_create_client()
-            .return_once(move |actual_user_id, request| {
-                assert_eq!(&user_id, actual_user_id);
+            .return_once(move |ctx, request| {
+                assert_eq!(common::actor::domain::Actor::User(user_id), ctx.actor);
                 assert_eq!(OAuthClientName::from("Client"), request.name);
                 assert_eq!(
                     Url::parse("https://client.example/tos").unwrap(),
@@ -596,7 +627,7 @@ mod tests {
         let user_service = admin_ok(user_id);
         service
             .expect_update_client()
-            .return_once(move |actual_client_id, command| {
+            .return_once(move |_, actual_client_id, command| {
                 assert_eq!(&client_id(), actual_client_id);
                 assert_eq!(Some(OAuthClientName::from("Updated")), command.name);
                 assert_eq!(
@@ -636,7 +667,7 @@ mod tests {
         let user_service = admin_ok(user_id);
         service
             .expect_delete_client()
-            .return_once(|actual_client_id| {
+            .return_once(|_, actual_client_id| {
                 assert_eq!(&client_id(), actual_client_id);
                 Box::pin(async { Ok(()) })
             });
@@ -763,7 +794,7 @@ mod tests {
         let user_id = common::user_id::UserId::new();
         let mut service = MockOAuthService::default();
         let user_service = admin_ok(user_id);
-        service.expect_delete_client().return_once(|_| {
+        service.expect_delete_client().return_once(|_, _| {
             Box::pin(async {
                 Err(oauth::service::oauth_service::OAuthServiceError::ClientNotFound)
             })

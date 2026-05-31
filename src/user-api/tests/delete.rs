@@ -10,6 +10,12 @@ use user::{
 };
 use user_api::handler;
 
+fn system_ctx() -> common::actor::RequestContext {
+    common::actor::RequestContext {
+        actor: common::actor::domain::Actor::System,
+    }
+}
+
 #[localstack_test(services = [DynamoDB()])]
 async fn should_204_when_deleting_existing_user() {
     let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -19,7 +25,10 @@ async fn should_204_when_deleting_existing_user() {
         .return_once(|_| Box::pin(async { Ok(()) }));
     let service = UserServiceImpl::with_cognito(&repository, &cognito);
 
-    let user = service.create_user(Faker.fake()).await.unwrap();
+    let user = service
+        .create_user(&system_ctx(), Faker.fake())
+        .await
+        .unwrap();
 
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()

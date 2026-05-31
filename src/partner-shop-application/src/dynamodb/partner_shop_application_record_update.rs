@@ -1,4 +1,5 @@
 use crate::dynamodb::partner_shop_application_state_record::PartnerShopApplicationStateRecord;
+use common::actor::record::ActorRecord;
 use common::execution_state::record::ExecutionStateRecord;
 use common::{domain::Domain, dynamodb_update::DynamoDbUpdate, shop_name::ShopName};
 use isocountry::CountryCode;
@@ -53,6 +54,7 @@ pub struct PartnerShopApplicationRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_token: Option<String>,
 
+    pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -83,6 +85,7 @@ mod tests {
             shop_phone: None,
             shop_email: None,
             task_token: None,
+            updated_by: ActorRecord::System,
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -111,6 +114,7 @@ mod tests {
             shop_phone: None,
             shop_email: None,
             task_token: None,
+            updated_by: ActorRecord::System,
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -139,6 +143,7 @@ mod tests {
             shop_phone: None,
             shop_email: None,
             task_token: None,
+            updated_by: ActorRecord::System,
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -167,6 +172,7 @@ mod tests {
             shop_phone: None,
             shop_email: None,
             task_token: None,
+            updated_by: ActorRecord::System,
             updated: OffsetDateTime::now_utc(),
         };
 

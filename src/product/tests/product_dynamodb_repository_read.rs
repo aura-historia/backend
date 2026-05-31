@@ -481,6 +481,8 @@ mod batch_get_product_records {
                 embedding: None,
                 auction_start: None,
                 auction_end: None,
+                created_by: common::actor::record::ActorRecord::System,
+                updated_by: common::actor::record::ActorRecord::System,
                 created: now,
                 updated: now,
             }
@@ -626,6 +628,8 @@ mod batch_get_product_records {
                 embedding: None,
                 auction_start: None,
                 auction_end: None,
+                created_by: common::actor::record::ActorRecord::System,
+                updated_by: common::actor::record::ActorRecord::System,
                 created: now,
                 updated: now,
             }
@@ -772,6 +776,8 @@ mod batch_get_product_records {
                 embedding: None,
                 auction_start: None,
                 auction_end: None,
+                created_by: common::actor::record::ActorRecord::System,
+                updated_by: common::actor::record::ActorRecord::System,
                 created: now,
                 updated: now,
             }
@@ -939,6 +945,8 @@ mod batch_exist_product_records {
                 embedding: None,
                 auction_start: None,
                 auction_end: None,
+                created_by: common::actor::record::ActorRecord::System,
+                updated_by: common::actor::record::ActorRecord::System,
                 created: now,
                 updated: now,
             }
@@ -1082,6 +1090,8 @@ mod batch_exist_product_records {
                 embedding: None,
                 auction_start: None,
                 auction_end: None,
+                created_by: common::actor::record::ActorRecord::System,
+                updated_by: common::actor::record::ActorRecord::System,
                 created: now,
                 updated: now,
             }
@@ -1225,6 +1235,8 @@ mod batch_exist_product_records {
                 embedding: None,
                 auction_start: None,
                 auction_end: None,
+                created_by: common::actor::record::ActorRecord::System,
+                updated_by: common::actor::record::ActorRecord::System,
                 created: now,
                 updated: now,
             }
@@ -1387,6 +1399,8 @@ mod get_product_id {
             embedding: None,
             auction_start: None,
             auction_end: None,
+            created_by: common::actor::record::ActorRecord::System,
+            updated_by: common::actor::record::ActorRecord::System,
             created: now,
             updated: now,
         };
@@ -1513,6 +1527,8 @@ mod get_product_id {
             embedding: None,
             auction_start: None,
             auction_end: None,
+            created_by: common::actor::record::ActorRecord::System,
+            updated_by: common::actor::record::ActorRecord::System,
             created: now,
             updated: now,
         };

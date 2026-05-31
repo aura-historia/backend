@@ -1,4 +1,5 @@
 use crate::core::client::{OAuthClient, OAuthClientName};
+use common::actor::record::ActorRecord;
 use common::oauth_client_id::OAuthClientId;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -23,7 +24,8 @@ pub struct OAuthClientRecord {
     pub secret_prefix: String,
     pub secret_short: String,
     pub secret_hash: String,
-    pub created_by: common::user_id::UserId,
+    pub created_by: ActorRecord,
+    pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -54,7 +56,8 @@ impl From<OAuthClient> for OAuthClientRecord {
             secret_prefix: client.hashed_client_secret.prefix().to_owned(),
             secret_short: client.hashed_client_secret.short_token().to_owned(),
             secret_hash: client.hashed_client_secret.long_token_hash().to_owned(),
-            created_by: client.created_by,
+            created_by: client.created_by.into(),
+            updated_by: client.updated_by.into(),
             created: client.created,
             updated: client.updated,
         }
@@ -76,7 +79,8 @@ impl From<OAuthClientRecord> for OAuthClient {
             logo_uri: record.logo_uri,
             redirect_uris: record.redirect_uris,
             scopes: record.scopes.into_iter().map(Into::into).collect(),
-            created_by: record.created_by,
+            created_by: record.created_by.into(),
+            updated_by: record.updated_by.into(),
             created: record.created,
             updated: record.updated,
         }

@@ -23,6 +23,7 @@ use aws_sdk_sesv2::{
     types::{Body, Content, EmailContent, Message, MessageTag},
 };
 use common::{
+    actor::RequestContext,
     batch::Batch,
     currency::domain::Currency,
     event_id::EventId,
@@ -114,18 +115,21 @@ pub trait NotificationService {
 
     async fn create_notification(
         &self,
+        ctx: &RequestContext,
         origin_event_id: &EventId,
         cmd: CreateNotificationCommand,
     ) -> Result<Notification, NotificationError>;
 
     async fn create_notifications(
         &self,
+        ctx: &RequestContext,
         origin_event_id: &EventId,
         cmds: Vec<CreateNotificationCommand>,
     ) -> CreateNotificationsResult;
 
     async fn update_notification(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         origin_event_id: &EventId,
         update: UpdateNotificationCommand,
@@ -141,23 +145,30 @@ pub trait NotificationService {
 
     async fn send_externally(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         origin_event_id: &EventId,
     ) -> Result<Notification, NotificationError>;
 
     async fn update_notifications(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         cmd: UpdateNotificationCommand,
     ) -> Result<CursoredResult<Notification, EventId>, NotificationError>;
 
     async fn delete_notification(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         origin_event_id: &EventId,
     ) -> Result<(), NotificationError>;
 
-    async fn delete_notifications(&self, user_id: &UserId) -> Result<(), NotificationError>;
+    async fn delete_notifications(
+        &self,
+        ctx: &RequestContext,
+        user_id: &UserId,
+    ) -> Result<(), NotificationError>;
 
     async fn find_notifications_by_product(
         &self,
@@ -591,6 +602,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
     async fn create_notification(
         &self,
+        ctx: &RequestContext,
         origin_event_id: &EventId,
         cmd: CreateNotificationCommand,
     ) -> Result<Notification, NotificationError> {
@@ -603,6 +615,8 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             notification_payload: cmd.notification_payload,
             seen: false,
             external: cmd.external,
+            created_by: ctx.actor,
+            updated_by: ctx.actor,
             created: now,
             updated: now,
         };
@@ -616,6 +630,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
     async fn create_notifications(
         &self,
+        ctx: &RequestContext,
         origin_event_id: &EventId,
         cmds: Vec<CreateNotificationCommand>,
     ) -> CreateNotificationsResult {
@@ -640,6 +655,8 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                     notification_payload: cmd.notification_payload.clone(),
                     seen: false,
                     external: cmd.external,
+                    created_by: ctx.actor,
+                    updated_by: ctx.actor,
                     created: now,
                     updated: now,
                 };
@@ -711,6 +728,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                 }
                 Err(err) => {
                     warn!(
+                        actor = %ctx.actor,
                         error = ?err,
                         "Failed writing NotificationRecord batch due to SdkError."
                     );
@@ -736,6 +754,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
     async fn update_notification(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         origin_event_id: &EventId,
         update: UpdateNotificationCommand,
@@ -755,6 +774,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             let record_update = NotificationRecordUpdate {
                 seen: update.seen,
                 notification_type: None,
+                updated_by: ctx.actor.into(),
                 updated: OffsetDateTime::now_utc(),
             };
 
@@ -815,6 +835,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
     async fn send_externally(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         origin_event_id: &EventId,
     ) -> Result<Notification, NotificationError> {
@@ -832,6 +853,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         // Idempotency: if already sent externally, return as-is.
         if notification.notification_type.is_some() {
             info!(
+                actor = %ctx.actor,
                 userId = %user_id,
                 originEventId = %origin_event_id,
                 notificationType = ?notification.notification_type,
@@ -843,6 +865,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         // Only send externally if the user opted in.
         if !notification.external {
             debug!(
+                actor = %ctx.actor,
                 userId = %user_id,
                 originEventId = %origin_event_id,
                 "Notification has external=false. Skipping external send."
@@ -858,6 +881,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         let record_update = NotificationRecordUpdate {
             seen: None,
             notification_type: Some(NotificationTypeRecord::Email),
+            updated_by: ctx.actor.into(),
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -873,6 +897,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
         let updated_notification: Notification = updated_record.try_into()?;
         info!(
+            actor = %ctx.actor,
             userId = %user_id,
             originEventId = %origin_event_id,
             "Notification sent externally as email and persisted."
@@ -883,6 +908,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
     async fn update_notifications(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         cmd: UpdateNotificationCommand,
     ) -> Result<CursoredResult<Notification, EventId>, NotificationError> {
@@ -894,6 +920,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         let record_update = NotificationRecordUpdate {
             seen: cmd.seen,
             notification_type: None,
+            updated_by: ctx.actor.into(),
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -904,6 +931,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         }
 
         info!(
+            actor = %ctx.actor,
             userId = %user_id,
             count = all_records.len(),
             cmd = ?cmd,
@@ -943,6 +971,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
     async fn delete_notification(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         origin_event_id: &EventId,
     ) -> Result<(), NotificationError> {
@@ -959,6 +988,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             .await?;
 
         info!(
+            actor = %ctx.actor,
             userId = %user_id,
             originEventId = %origin_event_id,
             "Notification deleted."
@@ -967,7 +997,11 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         Ok(())
     }
 
-    async fn delete_notifications(&self, user_id: &UserId) -> Result<(), NotificationError> {
+    async fn delete_notifications(
+        &self,
+        ctx: &RequestContext,
+        user_id: &UserId,
+    ) -> Result<(), NotificationError> {
         let all_records = self
             .notification_repository
             .query_all_notification_records(user_id)
@@ -986,6 +1020,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         }
 
         info!(
+            actor = %ctx.actor,
             userId = %user_id,
             count = all_records.len(),
             "All notifications deleted."
@@ -1077,8 +1112,8 @@ mod tests {
     };
     use aws_sdk_sesv2::operation::send_email::SendEmailOutput;
     use common::{
-        currency::domain::Currency, language::domain::Language, price::domain::MonetaryAmount,
-        product_state::domain::ProductState, user_id::UserId,
+        actor::domain::Actor, currency::domain::Currency, language::domain::Language,
+        price::domain::MonetaryAmount, product_state::domain::ProductState, user_id::UserId,
     };
     use fake::{Fake, Faker};
     use std::collections::HashMap;
@@ -1101,6 +1136,12 @@ mod tests {
         )
     }
 
+    fn system_ctx() -> RequestContext {
+        RequestContext {
+            actor: Actor::System,
+        }
+    }
+
     fn make_user(user_id: UserId) -> User {
         User {
             user_id,
@@ -1116,6 +1157,8 @@ mod tests {
             structured_address: None,
             geo_address: None,
             partner_shops: Default::default(),
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -1176,7 +1219,9 @@ mod tests {
             let CreateNotificationsResult {
                 processed,
                 unprocessed,
-            } = service.create_notifications(&Faker.fake(), vec![]).await;
+            } = service
+                .create_notifications(&system_ctx(), &Faker.fake(), vec![])
+                .await;
 
             assert!(processed.is_empty());
             assert!(unprocessed.is_empty());
@@ -1199,7 +1244,9 @@ mod tests {
             let CreateNotificationsResult {
                 processed,
                 unprocessed,
-            } = service.create_notifications(&Faker.fake(), cmds).await;
+            } = service
+                .create_notifications(&system_ctx(), &Faker.fake(), cmds)
+                .await;
 
             assert_eq!(processed.len(), 3);
             assert!(unprocessed.is_empty());
@@ -1247,7 +1294,9 @@ mod tests {
             let CreateNotificationsResult {
                 processed,
                 unprocessed,
-            } = service.create_notifications(&Faker.fake(), cmds).await;
+            } = service
+                .create_notifications(&system_ctx(), &Faker.fake(), cmds)
+                .await;
 
             assert_eq!(processed.len(), 1);
             assert_eq!(unprocessed.len(), 1);
@@ -1277,7 +1326,9 @@ mod tests {
             let CreateNotificationsResult {
                 processed,
                 unprocessed,
-            } = service.create_notifications(&Faker.fake(), cmds).await;
+            } = service
+                .create_notifications(&system_ctx(), &Faker.fake(), cmds)
+                .await;
 
             assert!(processed.is_empty());
             assert_eq!(unprocessed.len(), 3);
@@ -1398,7 +1449,7 @@ mod tests {
             let s3_adapter = MockS3Adapter::default();
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
             let result = service
-                .create_notification(&Faker.fake(), make_test_command())
+                .create_notification(&system_ctx(), &Faker.fake(), make_test_command())
                 .await
                 .unwrap();
 
@@ -1435,7 +1486,7 @@ mod tests {
             let s3_adapter = MockS3Adapter::default();
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
             let actual = service
-                .create_notification(&Faker.fake(), make_test_command())
+                .create_notification(&system_ctx(), &Faker.fake(), make_test_command())
                 .await;
 
             assert!(actual.is_err());
@@ -1477,6 +1528,7 @@ mod tests {
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
             let result = service
                 .update_notification(
+                    &system_ctx(),
                     &Faker.fake(),
                     &Faker.fake(),
                     UpdateNotificationCommand { seen: Some(true) },
@@ -1502,6 +1554,7 @@ mod tests {
             let origin_event_id = EventId::new();
             let actual = service
                 .update_notification(
+                    &system_ctx(),
                     &user_id,
                     &origin_event_id,
                     UpdateNotificationCommand { seen: Some(true) },
@@ -1551,6 +1604,7 @@ mod tests {
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
             let actual = service
                 .update_notification(
+                    &system_ctx(),
                     &Faker.fake(),
                     &Faker.fake(),
                     UpdateNotificationCommand { seen: Some(true) },
@@ -1604,6 +1658,7 @@ mod tests {
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
             let actual = service
                 .update_notification(
+                    &system_ctx(),
                     &Faker.fake(),
                     &Faker.fake(),
                     UpdateNotificationCommand { seen: Some(true) },
@@ -1734,7 +1789,7 @@ mod tests {
 
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
             let result = service
-                .send_externally(&user_id, &origin_event_id)
+                .send_externally(&system_ctx(), &user_id, &origin_event_id)
                 .await
                 .unwrap();
 
@@ -1766,7 +1821,7 @@ mod tests {
 
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
             let result = service
-                .send_externally(&user_id, &origin_event_id)
+                .send_externally(&system_ctx(), &user_id, &origin_event_id)
                 .await
                 .unwrap();
 
@@ -1815,7 +1870,7 @@ mod tests {
 
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
             let result = service
-                .send_externally(&user_id, &origin_event_id)
+                .send_externally(&system_ctx(), &user_id, &origin_event_id)
                 .await
                 .unwrap();
 
@@ -1838,7 +1893,7 @@ mod tests {
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
 
             let actual = service
-                .send_externally(&user_id, &origin_event_id)
+                .send_externally(&system_ctx(), &user_id, &origin_event_id)
                 .await
                 .unwrap_err();
 
@@ -1872,7 +1927,7 @@ mod tests {
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
 
             let actual = service
-                .send_externally(&user_id, &origin_event_id)
+                .send_externally(&system_ctx(), &user_id, &origin_event_id)
                 .await
                 .unwrap_err();
 
@@ -1911,7 +1966,7 @@ mod tests {
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
 
             let actual = service
-                .send_externally(&user_id, &origin_event_id)
+                .send_externally(&system_ctx(), &user_id, &origin_event_id)
                 .await
                 .unwrap_err();
 
@@ -1955,7 +2010,7 @@ mod tests {
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
 
             let actual = service
-                .send_externally(&user_id, &origin_event_id)
+                .send_externally(&system_ctx(), &user_id, &origin_event_id)
                 .await
                 .unwrap_err();
 
@@ -2000,7 +2055,7 @@ mod tests {
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
 
             let actual = service
-                .send_externally(&user_id, &origin_event_id)
+                .send_externally(&system_ctx(), &user_id, &origin_event_id)
                 .await
                 .unwrap_err();
 
@@ -2045,6 +2100,8 @@ mod tests {
                 structured_address: None,
                 geo_address: None,
                 partner_shops: Default::default(),
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2062,7 +2119,7 @@ mod tests {
 
             // Should succeed — defaults to Language::En and Currency::Eur
             let result = service
-                .send_externally(&user_id, &origin_event_id)
+                .send_externally(&system_ctx(), &user_id, &origin_event_id)
                 .await
                 .unwrap();
 
@@ -2091,7 +2148,7 @@ mod tests {
 
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
             let result = service
-                .send_externally(&user_id, &origin_event_id)
+                .send_externally(&system_ctx(), &user_id, &origin_event_id)
                 .await
                 .unwrap();
 
@@ -2121,7 +2178,7 @@ mod tests {
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
 
             let actual = service
-                .send_externally(&user_id, &origin_event_id)
+                .send_externally(&system_ctx(), &user_id, &origin_event_id)
                 .await
                 .unwrap_err();
 
@@ -2160,7 +2217,7 @@ mod tests {
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
 
             let actual = service
-                .send_externally(&user_id, &origin_event_id)
+                .send_externally(&system_ctx(), &user_id, &origin_event_id)
                 .await
                 .unwrap_err();
 
@@ -2273,7 +2330,7 @@ mod tests {
 
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
             service
-                .send_externally(&user_id, &origin_event_id)
+                .send_externally(&system_ctx(), &user_id, &origin_event_id)
                 .await
                 .unwrap();
         }
@@ -2540,6 +2597,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2582,6 +2641,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2623,6 +2684,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2662,6 +2725,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2702,6 +2767,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2745,6 +2812,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2772,6 +2841,8 @@ mod tests {
                 },
                 seen: false,
                 external: true,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2893,7 +2964,11 @@ mod tests {
             let s3_adapter = MockS3Adapter::default();
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
             let result = service
-                .update_notifications(&user_id, UpdateNotificationCommand { seen: Some(true) })
+                .update_notifications(
+                    &system_ctx(),
+                    &user_id,
+                    UpdateNotificationCommand { seen: Some(true) },
+                )
                 .await;
 
             assert!(result.is_ok());
@@ -2919,7 +2994,11 @@ mod tests {
             let s3_adapter = MockS3Adapter::default();
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
             let result = service
-                .update_notifications(&user_id, UpdateNotificationCommand::default())
+                .update_notifications(
+                    &system_ctx(),
+                    &user_id,
+                    UpdateNotificationCommand::default(),
+                )
                 .await;
 
             assert!(result.is_ok());
@@ -2958,7 +3037,9 @@ mod tests {
             let ses_adapter = MockSesAdapter::default();
             let s3_adapter = MockS3Adapter::default();
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
-            let result = service.delete_notification(&user_id, &event_id).await;
+            let result = service
+                .delete_notification(&system_ctx(), &user_id, &event_id)
+                .await;
 
             assert!(result.is_ok());
         }
@@ -2978,7 +3059,9 @@ mod tests {
             let ses_adapter = MockSesAdapter::default();
             let s3_adapter = MockS3Adapter::default();
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
-            let result = service.delete_notification(&user_id, &event_id).await;
+            let result = service
+                .delete_notification(&system_ctx(), &user_id, &event_id)
+                .await;
 
             assert!(result.is_err());
             match result.unwrap_err() {
@@ -3016,7 +3099,7 @@ mod tests {
             let ses_adapter = MockSesAdapter::default();
             let s3_adapter = MockS3Adapter::default();
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
-            let result = service.delete_notifications(&user_id).await;
+            let result = service.delete_notifications(&system_ctx(), &user_id).await;
 
             assert!(result.is_ok());
         }
@@ -3035,7 +3118,7 @@ mod tests {
             let ses_adapter = MockSesAdapter::default();
             let s3_adapter = MockS3Adapter::default();
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
-            let result = service.delete_notifications(&user_id).await;
+            let result = service.delete_notifications(&system_ctx(), &user_id).await;
 
             assert!(result.is_ok());
         }
@@ -3242,6 +3325,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -3280,6 +3365,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -3318,6 +3405,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -3504,6 +3593,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -3698,6 +3789,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -3718,6 +3811,8 @@ mod tests {
                 },
                 seen: false,
                 external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

@@ -1,3 +1,4 @@
+use common::actor::domain::Actor;
 use common::has_key::HasKey;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
@@ -80,6 +81,8 @@ fn make_user(user_id: common::user_id::UserId, shop_id: Option<common::shop_id::
         structured_address: None,
         geo_address: None,
         partner_shops: shop_id.into_iter().collect(),
+        created_by: Actor::User(user_id),
+        updated_by: Actor::User(user_id),
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     }
@@ -95,6 +98,8 @@ fn make_access_token(user_id: common::user_id::UserId) -> AccessToken {
         scopes: HashSet::from([Scope::ProductsWrite]),
         origin: AccessTokenOrigin::User,
         expires: None,
+        created_by: Actor::User(user_id),
+        updated_by: Actor::User(user_id),
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     }

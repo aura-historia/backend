@@ -1,6 +1,7 @@
 use crate::billing::BillingRequest;
 use crate::service::{CreateStripeCustomerCommand, StripeService};
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::{
@@ -75,6 +76,9 @@ pub async fn handle(
 
                     user_service
                         .update_user(
+                            &RequestContext {
+                                actor: Actor::User(user_id),
+                            },
                             &user_id,
                             UpdateUserCommand {
                                 stripe_customer_id: Some(stripe_customer_id.clone()),
@@ -163,7 +167,7 @@ mod tests {
         user_service
             .expect_find_user()
             .return_once(|_| Box::pin(async move { Ok(user_with_tier(UserTier::Free, None)) }));
-        user_service.expect_update_user().return_once(|_, _| {
+        user_service.expect_update_user().return_once(|_, _, _| {
             Box::pin(async move { Ok(user_with_tier(UserTier::Free, Some("cus_freshly_created"))) })
         });
 
