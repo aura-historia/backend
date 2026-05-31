@@ -8,6 +8,7 @@ use oauth::dynamodb::repository::{OAuthDynamoDbRepositoryImpl, OAuthRepository};
 use std::collections::HashSet;
 use test_api::*;
 use time::{Duration, OffsetDateTime};
+use url::Url;
 use user::core::access_token::{RawOAuthClientSecret, Scope};
 use user::dynamodb::access_token_record::ScopeRecord;
 
@@ -22,6 +23,10 @@ fn oauth_client() -> OAuthClient {
         hashed_client_secret: RawOAuthClientSecret::new().into(),
         name: OAuthClientName::from("Test client"),
         redirect_uris: HashSet::from([url::Url::parse("https://client.example/callback").unwrap()]),
+        tos_uri: Url::parse("https://client.example/tos").unwrap(),
+        policy_uri: Url::parse("https://client.example/policy").unwrap(),
+        client_uri: Url::parse("https://client.example").unwrap(),
+        logo_uri: Url::parse("https://client.example/logo.png").unwrap(),
         scopes: HashSet::from([Scope::ProductsWrite]),
         created_by: common::user_id::UserId::new(),
         created: now,
@@ -102,9 +107,13 @@ async fn should_update_client_record() {
             OAuthClientRecordUpdate {
                 name: Some(OAuthClientName::from("Updated client")),
                 redirect_uris: Some(HashSet::from([url::Url::parse(
-                    "https://client.example/updated-callback",
+                 "https://client.example/updated-callback",
                 )
                 .unwrap()])),
+                tos_uri: Some(Url::parse("https://client.example/updated-tos").unwrap()),
+                policy_uri: Some(Url::parse("https://client.example/updated-policy").unwrap()),
+                client_uri: Some(Url::parse("https://updated-client.example").unwrap()),
+                logo_uri: Some(Url::parse("https://updated-client.example/logo.png").unwrap()),
                 scopes: Some(HashSet::from([ScopeRecord::ShopsManage])),
                 updated: now() + Duration::seconds(1),
             },
@@ -118,6 +127,22 @@ async fn should_update_client_record() {
     assert_eq!(
         HashSet::from([url::Url::parse("https://client.example/updated-callback").unwrap()]),
         updated.redirect_uris
+    );
+    assert_eq!(
+        Url::parse("https://client.example/updated-tos").unwrap(),
+        updated.tos_uri
+    );
+    assert_eq!(
+        Url::parse("https://client.example/updated-policy").unwrap(),
+        updated.policy_uri
+    );
+    assert_eq!(
+        Url::parse("https://updated-client.example").unwrap(),
+        updated.client_uri
+    );
+    assert_eq!(
+        Url::parse("https://updated-client.example/logo.png").unwrap(),
+        updated.logo_uri
     );
     assert_eq!(HashSet::from([Scope::ShopsManage]), updated.scopes);
 }

@@ -414,6 +414,7 @@ mod tests {
         AuthorizeResponse, IntrospectionResponse, MockOAuthService, OAuthTokenType, TokenResponse,
     };
     use test_api::ApiGatewayV2httpRequestProxy;
+    use url::Url;
     use user::service::user_service::{MockUserService, UserServiceError};
 
     fn client_id() -> OAuthClientId {
@@ -430,6 +431,10 @@ mod tests {
             redirect_uris: HashSet::from([
                 url::Url::parse("https://client.example/callback").unwrap()
             ]),
+            tos_uri: Url::parse("https://client.example/tos").unwrap(),
+            policy_uri: Url::parse("https://client.example/policy").unwrap(),
+            client_uri: Url::parse("https://client.example").unwrap(),
+            logo_uri: Url::parse("https://client.example/logo.png").unwrap(),
             scopes: HashSet::from([Scope::ProductsWrite]),
             created_by: user_id,
             created: now,
@@ -451,6 +456,10 @@ mod tests {
                         "https://client.example/callback",
                     )
                     .unwrap()]),
+                    tos_uri: Url::parse("https://client.example/tos").unwrap(),
+                    policy_uri: Url::parse("https://client.example/policy").unwrap(),
+                    client_uri: Url::parse("https://client.example").unwrap(),
+                    logo_uri: Url::parse("https://client.example/logo.png").unwrap(),
                     scope: HashSet::from([ScopeData::ProductsWrite]),
                 })
                 .build(),
@@ -479,6 +488,22 @@ mod tests {
             .return_once(move |actual_user_id, request| {
                 assert_eq!(&user_id, actual_user_id);
                 assert_eq!(OAuthClientName::from("Client"), request.name);
+                assert_eq!(
+                    Url::parse("https://client.example/tos").unwrap(),
+                    request.tos_uri
+                );
+                assert_eq!(
+                    Url::parse("https://client.example/policy").unwrap(),
+                    request.policy_uri
+                );
+                assert_eq!(
+                    Url::parse("https://client.example").unwrap(),
+                    request.client_uri
+                );
+                assert_eq!(
+                    Url::parse("https://client.example/logo.png").unwrap(),
+                    request.logo_uri
+                );
                 Box::pin(async move { Ok((RawOAuthClientSecret::new(), oauth_client(user_id))) })
             });
         let event = create_client_event(user_id);
@@ -490,7 +515,23 @@ mod tests {
             aws_lambda_events::encodings::Body::Text(body) => body,
             body => panic!("unexpected response body: {body:?}"),
         };
-        assert!(body.contains("client_secret"));
+        let metadata = serde_json::from_str::<OAuthClientMetadataResponseData>(&body).unwrap();
+        assert_eq!(
+            Url::parse("https://client.example/tos").unwrap(),
+            metadata.tos_uri
+        );
+        assert_eq!(
+            Url::parse("https://client.example/policy").unwrap(),
+            metadata.policy_uri
+        );
+        assert_eq!(
+            Url::parse("https://client.example").unwrap(),
+            metadata.client_uri
+        );
+        assert_eq!(
+            Url::parse("https://client.example/logo.png").unwrap(),
+            metadata.logo_uri
+        );
     }
 
     #[tokio::test]
@@ -558,6 +599,10 @@ mod tests {
             .return_once(move |actual_client_id, command| {
                 assert_eq!(&client_id(), actual_client_id);
                 assert_eq!(Some(OAuthClientName::from("Updated")), command.name);
+                assert_eq!(
+                    Some(Url::parse("https://client.example/updated-tos").unwrap()),
+                    command.tos_uri
+                );
                 Box::pin(async move { Ok(oauth_client(user_id)) })
             });
         let event = LambdaEvent {
@@ -568,6 +613,10 @@ mod tests {
                 .path_parameter("clientId", client_id().to_string())
                 .body_serde(&OAuthClientMetadataPatchData {
                     client_name: Some("Updated".to_owned()),
+                    tos_uri: Some(Url::parse("https://client.example/updated-tos").unwrap()),
+                    policy_uri: None,
+                    client_uri: None,
+                    logo_uri: None,
                     redirect_uris: None,
                     scope: None,
                 })

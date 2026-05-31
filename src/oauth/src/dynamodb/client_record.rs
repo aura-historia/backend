@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashSet;
 use time::OffsetDateTime;
+use url::Url;
 use user::core::access_token::HashedRawOAuthClientSecret;
 use user::dynamodb::access_token_record::ScopeRecord;
 
@@ -14,6 +15,10 @@ pub struct OAuthClientRecord {
     pub client_id: OAuthClientId,
     pub name: OAuthClientName,
     pub redirect_uris: HashSet<url::Url>,
+    pub tos_uri: Url,
+    pub policy_uri: Url,
+    pub client_uri: Url,
+    pub logo_uri: Url,
     pub scopes: HashSet<ScopeRecord>,
     pub secret_prefix: String,
     pub secret_short: String,
@@ -40,6 +45,10 @@ impl From<OAuthClient> for OAuthClientRecord {
             sk: mk_sk(&client.client_id),
             client_id: client.client_id,
             name: client.name,
+            tos_uri: client.tos_uri,
+            policy_uri: client.policy_uri,
+            client_uri: client.client_uri,
+            logo_uri: client.logo_uri,
             redirect_uris: client.redirect_uris,
             scopes: client.scopes.into_iter().map(Into::into).collect(),
             secret_prefix: client.hashed_client_secret.prefix().to_owned(),
@@ -61,6 +70,10 @@ impl From<OAuthClientRecord> for OAuthClient {
                 record.secret_hash,
             ),
             name: record.name,
+            tos_uri: record.tos_uri,
+            policy_uri: record.policy_uri,
+            client_uri: record.client_uri,
+            logo_uri: record.logo_uri,
             redirect_uris: record.redirect_uris,
             scopes: record.scopes.into_iter().map(Into::into).collect(),
             created_by: record.created_by,

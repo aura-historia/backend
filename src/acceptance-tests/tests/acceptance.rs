@@ -1977,6 +1977,10 @@ async fn should_complete_oauth_authorization_code_flow() {
             client_id,
             hashed_client_secret: client_secret.clone().into(),
             name: OAuthClientName::from("Acceptance OAuth client"),
+            tos_uri: url::Url::parse("https://client.example/tos").unwrap(),
+            policy_uri: url::Url::parse("https://client.example/policy").unwrap(),
+            client_uri: url::Url::parse("https://client.example").unwrap(),
+            logo_uri: url::Url::parse("https://client.example/logo.png").unwrap(),
             redirect_uris: HashSet::from([redirect_uri.clone()]),
             scopes: HashSet::from([Scope::ProductsWrite]),
             created_by: UserId::from(user.sub),
@@ -2128,6 +2132,11 @@ async fn should_manage_oauth_client_metadata() {
             redirect_uris: HashSet::from([
                 url::Url::parse("https://client.example/callback").unwrap()
             ]),
+            tos_uri: url::Url::parse("https://client.example/tos").unwrap(),
+            policy_uri: url::Url::parse("https://client.example/policy").unwrap(),
+            client_uri: url::Url::parse("https://client.example").unwrap(),
+            logo_uri: url::Url::parse("https://client.example/logo.png").unwrap(),
+            redirect_uris: HashSet::from(["https://client.example/callback".to_owned()]),
             scope: HashSet::from([ScopeData::ProductsWrite]),
         })
         .send()
@@ -2178,6 +2187,11 @@ async fn should_manage_oauth_client_metadata() {
                 "https://client.example/updated",
             )
             .unwrap()])),
+            tos_uri: Some(url::Url::parse("https://client.example/updated-tos").unwrap()),
+            policy_uri: Some(url::Url::parse("https://client.example/updated-policy").unwrap()),
+            client_uri: Some(url::Url::parse("https://updated-client.example").unwrap()),
+            logo_uri: Some(url::Url::parse("https://updated-client.example/logo.png").unwrap()),
+            redirect_uris: Some(HashSet::from(["https://client.example/updated".to_owned()])),
             scope: Some(HashSet::from([ScopeData::ShopsManage])),
         })
         .send()
