@@ -427,7 +427,9 @@ mod tests {
             client_id: client_id(),
             hashed_client_secret: secret.into(),
             name: OAuthClientName::from("Client"),
-            redirect_uris: HashSet::from([url::Url::parse("https://client.example/callback").unwrap()]),
+            redirect_uris: HashSet::from([
+                url::Url::parse("https://client.example/callback").unwrap()
+            ]),
             scopes: HashSet::from([Scope::ProductsWrite]),
             created_by: user_id,
             created: now,
@@ -445,7 +447,10 @@ mod tests {
                 .jwt_claim("sub", user_id)
                 .body_serde(&OAuthClientMetadataRequestData {
                     client_name: "Client".to_owned(),
-                    redirect_uris: HashSet::from([url::Url::parse("https://client.example/callback").unwrap()]),
+                    redirect_uris: HashSet::from([url::Url::parse(
+                        "https://client.example/callback",
+                    )
+                    .unwrap()]),
                     scope: HashSet::from([ScopeData::ProductsWrite]),
                 })
                 .build(),

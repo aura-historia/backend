@@ -2125,7 +2125,9 @@ async fn should_manage_oauth_client_metadata() {
         .bearer_auth(admin.access_token.clone())
         .json(&OAuthClientMetadataRequestData {
             client_name: "Acceptance OAuth client".to_owned(),
-            redirect_uris: HashSet::from([url::Url::parse("https://client.example/callback").unwrap()]),
+            redirect_uris: HashSet::from([
+                url::Url::parse("https://client.example/callback").unwrap()
+            ]),
             scope: HashSet::from([ScopeData::ProductsWrite]),
         })
         .send()
@@ -2172,7 +2174,10 @@ async fn should_manage_oauth_client_metadata() {
         .bearer_auth(admin.access_token.clone())
         .json(&oauth::data::OAuthClientMetadataPatchData {
             client_name: Some("Updated acceptance OAuth client".to_owned()),
-            redirect_uris: Some(HashSet::from([url::Url::parse("https://client.example/updated").unwrap()])),
+            redirect_uris: Some(HashSet::from([url::Url::parse(
+                "https://client.example/updated",
+            )
+            .unwrap()])),
             scope: Some(HashSet::from([ScopeData::ShopsManage])),
         })
         .send()
