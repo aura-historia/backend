@@ -15,6 +15,7 @@ use common::{string_newtype, user_id::UserId};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
+use url::Url;
 use user::core::access_token::{
     AccessTokenOrigin, HashedRawOAuthClientSecret, RawAccessToken, RawOAuthClientSecret, Scope,
 };
@@ -102,6 +103,10 @@ pub struct TokenRevocationRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateOAuthClientCommand {
     pub name: OAuthClientName,
+    pub tos_uri: Url,
+    pub policy_uri: Url,
+    pub client_uri: Url,
+    pub logo_uri: Url,
     pub redirect_uris: HashSet<OAuthRedirectUri>,
     pub scopes: HashSet<Scope>,
 }
@@ -109,6 +114,10 @@ pub struct CreateOAuthClientCommand {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpdateOAuthClientCommand {
     pub name: Option<OAuthClientName>,
+    pub tos_uri: Option<Url>,
+    pub policy_uri: Option<Url>,
+    pub client_uri: Option<Url>,
+    pub logo_uri: Option<Url>,
     pub redirect_uris: Option<HashSet<OAuthRedirectUri>>,
     pub scopes: Option<HashSet<Scope>>,
 }
@@ -282,6 +291,10 @@ impl OAuthService for OAuthServiceImpl<'_> {
             client_id: OAuthClientId::new(),
             hashed_client_secret: HashedRawOAuthClientSecret::from(raw_secret.clone()),
             name: command.name,
+            tos_uri: command.tos_uri,
+            policy_uri: command.policy_uri,
+            client_uri: command.client_uri,
+            logo_uri: command.logo_uri,
             redirect_uris: command.redirect_uris,
             scopes: command.scopes,
             created_by: *user_id,
@@ -322,6 +335,10 @@ impl OAuthService for OAuthServiceImpl<'_> {
         }
         let update = OAuthClientRecordUpdate {
             name: command.name,
+            tos_uri: command.tos_uri,
+            policy_uri: command.policy_uri,
+            client_uri: command.client_uri,
+            logo_uri: command.logo_uri,
             redirect_uris: command.redirect_uris,
             scopes: command
                 .scopes
@@ -529,6 +546,10 @@ mod tests {
             client_id: client_id(),
             hashed_client_secret: secret.clone().into(),
             name: OAuthClientName::from("Client"),
+            tos_uri: Url::parse("https://client.example/tos").unwrap(),
+            policy_uri: Url::parse("https://client.example/policy").unwrap(),
+            client_uri: Url::parse("https://client.example").unwrap(),
+            logo_uri: Url::parse("https://client.example/logo.png").unwrap(),
             redirect_uris: HashSet::from([OAuthRedirectUri::from(
                 "https://client.example/callback",
             )]),
@@ -542,6 +563,10 @@ mod tests {
     fn create_command(redirect_uri: &str) -> CreateOAuthClientCommand {
         CreateOAuthClientCommand {
             name: OAuthClientName::from("Client"),
+            tos_uri: Url::parse("https://client.example/tos").unwrap(),
+            policy_uri: Url::parse("https://client.example/policy").unwrap(),
+            client_uri: Url::parse("https://client.example").unwrap(),
+            logo_uri: Url::parse("https://client.example/logo.png").unwrap(),
             redirect_uris: HashSet::from([OAuthRedirectUri::from(redirect_uri)]),
             scopes: HashSet::from([Scope::ProductsWrite]),
         }
@@ -630,6 +655,22 @@ mod tests {
             .return_once(move |record| {
                 assert_eq!(user_id, record.created_by);
                 assert_eq!(OAuthClientName::from("Client"), record.name);
+                assert_eq!(
+                    Url::parse("https://client.example/tos").unwrap(),
+                    record.tos_uri
+                );
+                assert_eq!(
+                    Url::parse("https://client.example/policy").unwrap(),
+                    record.policy_uri
+                );
+                assert_eq!(
+                    Url::parse("https://client.example").unwrap(),
+                    record.client_uri
+                );
+                assert_eq!(
+                    Url::parse("https://client.example/logo.png").unwrap(),
+                    record.logo_uri
+                );
                 Box::pin(async {
                     Ok(aws_sdk_dynamodb::operation::put_item::PutItemOutput::builder().build())
                 })
@@ -644,6 +685,22 @@ mod tests {
 
         assert!(secret.check(&client.hashed_client_secret));
         assert_eq!(user_id, client.created_by);
+        assert_eq!(
+            Url::parse("https://client.example/tos").unwrap(),
+            client.tos_uri
+        );
+        assert_eq!(
+            Url::parse("https://client.example/policy").unwrap(),
+            client.policy_uri
+        );
+        assert_eq!(
+            Url::parse("https://client.example").unwrap(),
+            client.client_uri
+        );
+        assert_eq!(
+            Url::parse("https://client.example/logo.png").unwrap(),
+            client.logo_uri
+        );
     }
 
     #[tokio::test]
@@ -705,6 +762,7 @@ mod tests {
             .return_once(move |actual_client_id, update| {
                 assert_eq!(&client.client_id, actual_client_id);
                 client.name = update.name.unwrap();
+                client.tos_uri = update.tos_uri.unwrap();
                 Box::pin(async move { Ok(Some(OAuthClientRecord::from(client))) })
             });
         let user_service = MockUserService::default();
@@ -715,6 +773,10 @@ mod tests {
                 &client_id(),
                 UpdateOAuthClientCommand {
                     name: Some(OAuthClientName::from("Updated")),
+                    tos_uri: Some(Url::parse("https://client.example/updated-tos").unwrap()),
+                    policy_uri: None,
+                    client_uri: None,
+                    logo_uri: None,
                     redirect_uris: None,
                     scopes: None,
                 },
@@ -723,6 +785,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(OAuthClientName::from("Updated"), updated.name);
+        assert_eq!(
+            Url::parse("https://client.example/updated-tos").unwrap(),
+            updated.tos_uri
+        );
     }
 
     #[tokio::test]
@@ -739,6 +805,10 @@ mod tests {
                 &client_id(),
                 UpdateOAuthClientCommand {
                     name: Some(OAuthClientName::from("Updated")),
+                    tos_uri: None,
+                    policy_uri: None,
+                    client_uri: None,
+                    logo_uri: None,
                     redirect_uris: None,
                     scopes: None,
                 },
