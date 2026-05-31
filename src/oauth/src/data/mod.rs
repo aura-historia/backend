@@ -1,4 +1,4 @@
-use crate::core::client::{OAuthClient, OAuthClientName, OAuthRedirectUri};
+use crate::core::client::{OAuthClient, OAuthClientName};
 use crate::service::oauth_service::{IntrospectionResponse, OAuthTokenType, TokenResponse};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -16,7 +16,7 @@ pub struct OAuthClientMetadataRequestData {
     pub client_uri: Url,
     pub logo_uri: Url,
     #[serde(default)]
-    pub redirect_uris: HashSet<String>,
+    pub redirect_uris: HashSet<url::Url>,
     #[serde(default)]
     pub scope: HashSet<ScopeData>,
 }
@@ -27,6 +27,7 @@ pub struct OAuthClientMetadataPatchData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redirect_uris: Option<HashSet<url::Url>>,
     pub tos_uri: Option<Url>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_uri: Option<Url>,
@@ -34,8 +35,6 @@ pub struct OAuthClientMetadataPatchData {
     pub client_uri: Option<Url>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logo_uri: Option<Url>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub redirect_uris: Option<HashSet<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<HashSet<ScopeData>>,
 }
@@ -50,7 +49,7 @@ pub struct OAuthClientMetadataResponseData {
     pub policy_uri: Url,
     pub client_uri: Url,
     pub logo_uri: Url,
-    pub redirect_uris: HashSet<String>,
+    pub redirect_uris: HashSet<Url>,
     pub scope: HashSet<ScopeData>,
     pub client_id_issued_at: i64,
 }
@@ -103,7 +102,7 @@ impl From<OAuthClient> for OAuthClientMetadataResponseData {
             policy_uri: client.policy_uri,
             client_uri: client.client_uri,
             logo_uri: client.logo_uri,
-            redirect_uris: client.redirect_uris.into_iter().map(Into::into).collect(),
+            redirect_uris: client.redirect_uris,
             scope: client.scopes.into_iter().map(Into::into).collect(),
             client_id_issued_at: client.created.unix_timestamp(),
         }
@@ -124,15 +123,11 @@ impl From<OAuthClientMetadataRequestData>
     fn from(data: OAuthClientMetadataRequestData) -> Self {
         Self {
             name: OAuthClientName::from(data.client_name),
+            redirect_uris: data.redirect_uris,
             tos_uri: data.tos_uri,
             policy_uri: data.policy_uri,
             client_uri: data.client_uri,
             logo_uri: data.logo_uri,
-            redirect_uris: data
-                .redirect_uris
-                .into_iter()
-                .map(OAuthRedirectUri::from)
-                .collect(),
             scopes: data.scope.into_iter().map(Into::into).collect(),
         }
     }
@@ -144,13 +139,11 @@ impl From<OAuthClientMetadataPatchData>
     fn from(data: OAuthClientMetadataPatchData) -> Self {
         Self {
             name: data.client_name.map(OAuthClientName::from),
+            redirect_uris: data.redirect_uris,
             tos_uri: data.tos_uri,
             policy_uri: data.policy_uri,
             client_uri: data.client_uri,
             logo_uri: data.logo_uri,
-            redirect_uris: data
-                .redirect_uris
-                .map(|uris| uris.into_iter().map(OAuthRedirectUri::from).collect()),
             scopes: data
                 .scope
                 .map(|scopes| scopes.into_iter().map(Into::into).collect()),

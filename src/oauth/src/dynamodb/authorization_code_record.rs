@@ -1,7 +1,6 @@
 use crate::core::authorization_code::{
     AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge,
 };
-use crate::core::client::OAuthRedirectUri;
 use common::oauth_client_id::OAuthClientId;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -16,7 +15,7 @@ pub struct AuthorizationCodeRecord {
     pub code: OAuthAuthorizationCode,
     pub client_id: OAuthClientId,
     pub user_id: common::user_id::UserId,
-    pub redirect_uri: OAuthRedirectUri,
+    pub redirect_uri: url::Url,
     pub scopes: HashSet<ScopeRecord>,
     pub code_challenge: OAuthCodeChallenge,
     pub code_challenge_method: CodeChallengeMethod,
@@ -88,7 +87,7 @@ mod tests {
             code: code_val,
             client_id: OAuthClientId::new(),
             user_id: UserId::new(),
-            redirect_uri: OAuthRedirectUri::from("https://example.com/callback"),
+            redirect_uri: url::Url::parse("https://example.com/callback").unwrap(),
             scopes: HashSet::from([
                 user::dynamodb::access_token_record::ScopeRecord::ProductsWrite,
             ]),

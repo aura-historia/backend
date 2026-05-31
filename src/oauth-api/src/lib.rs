@@ -11,7 +11,6 @@ use lambda_runtime::LambdaEvent;
 use oauth::core::authorization_code::{
     CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge, OAuthCodeVerifier,
 };
-use oauth::core::client::OAuthRedirectUri;
 use oauth::data::{
     OAuthClientMetadataPatchData, OAuthClientMetadataRequestData, OAuthClientMetadataResponseData,
 };
@@ -191,7 +190,10 @@ async fn authorize(
                     .with_query_field("client_id")
             },
         )?,
-        redirect_uri: OAuthRedirectUri::from(required_query(params, "redirect_uri")?),
+        redirect_uri: url::Url::parse(required_query(params, "redirect_uri")?).map_err(|err| {
+            ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE, Box::new(err))
+                .with_query_field("redirect_uri")
+        })?,
         scope: parse_scope(params.first("scope"))?,
         state: params.first("state").map(OAuthState::from),
         code_challenge: OAuthCodeChallenge::from(required_query(params, "code_challenge")?),
@@ -220,7 +222,9 @@ async fn token(
         code: OAuthAuthorizationCode::try_from(required_form(&form, "code")?.to_owned()).map_err(
             |err| ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_body_field("code"),
         )?,
-        redirect_uri: OAuthRedirectUri::from(required_form(&form, "redirect_uri")?),
+        redirect_uri: url::Url::parse(required_form(&form, "redirect_uri")?).map_err(|err| {
+            ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_body_field("redirect_uri")
+        })?,
         client_id: OAuthClientId::try_from(required_form(&form, "client_id")?).map_err(|err| {
             let msg = err.to_string();
             ApiError::bad_request(INVALID_UUID, Box::new(err))
@@ -424,13 +428,13 @@ mod tests {
             client_id: client_id(),
             hashed_client_secret: secret.into(),
             name: OAuthClientName::from("Client"),
+            redirect_uris: HashSet::from([
+                url::Url::parse("https://client.example/callback").unwrap()
+            ]),
             tos_uri: Url::parse("https://client.example/tos").unwrap(),
             policy_uri: Url::parse("https://client.example/policy").unwrap(),
             client_uri: Url::parse("https://client.example").unwrap(),
             logo_uri: Url::parse("https://client.example/logo.png").unwrap(),
-            redirect_uris: HashSet::from([OAuthRedirectUri::from(
-                "https://client.example/callback",
-            )]),
             scopes: HashSet::from([Scope::ProductsWrite]),
             created_by: user_id,
             created: now,
@@ -448,11 +452,14 @@ mod tests {
                 .jwt_claim("sub", user_id)
                 .body_serde(&OAuthClientMetadataRequestData {
                     client_name: "Client".to_owned(),
+                    redirect_uris: HashSet::from([url::Url::parse(
+                        "https://client.example/callback",
+                    )
+                    .unwrap()]),
                     tos_uri: Url::parse("https://client.example/tos").unwrap(),
                     policy_uri: Url::parse("https://client.example/policy").unwrap(),
                     client_uri: Url::parse("https://client.example").unwrap(),
                     logo_uri: Url::parse("https://client.example/logo.png").unwrap(),
-                    redirect_uris: HashSet::from(["https://client.example/callback".to_owned()]),
                     scope: HashSet::from([ScopeData::ProductsWrite]),
                 })
                 .build(),

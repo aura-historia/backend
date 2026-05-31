@@ -12,6 +12,7 @@ pub struct OAuthClientRecordUpdate {
     pub name: Option<crate::core::client::OAuthClientName>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redirect_uris: Option<HashSet<url::Url>>,
     pub tos_uri: Option<Url>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -22,9 +23,6 @@ pub struct OAuthClientRecordUpdate {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logo_uri: Option<Url>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub redirect_uris: Option<HashSet<crate::core::client::OAuthRedirectUri>>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scopes: Option<HashSet<ScopeRecord>>,
