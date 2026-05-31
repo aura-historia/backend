@@ -1,7 +1,7 @@
 use common::oauth_client_id::OAuthClientId;
 use fake::{Fake, Faker};
 use oauth::core::authorization_code::{AuthorizationCode, CodeChallengeMethod, OAuthCodeChallenge};
-use oauth::core::client::{OAuthClient, OAuthClientName, OAuthRedirectUri};
+use oauth::core::client::{OAuthClient, OAuthClientName};
 use oauth::dynamodb::authorization_code_record::AuthorizationCodeRecord;
 use oauth::dynamodb::client_record::OAuthClientRecord;
 use oauth::dynamodb::client_record_update::OAuthClientRecordUpdate;
@@ -24,11 +24,11 @@ fn oauth_client() -> OAuthClient {
         client_id: OAuthClientId::new(),
         hashed_client_secret: RawOAuthClientSecret::new().into(),
         name: OAuthClientName::from("Test client"),
+        redirect_uris: HashSet::from([url::Url::parse("https://client.example/callback").unwrap()]),
         tos_uri: Url::parse("https://client.example/tos").unwrap(),
         policy_uri: Url::parse("https://client.example/policy").unwrap(),
         client_uri: Url::parse("https://client.example").unwrap(),
         logo_uri: Url::parse("https://client.example/logo.png").unwrap(),
-        redirect_uris: HashSet::from([OAuthRedirectUri::from("https://client.example/callback")]),
         scopes: HashSet::from([Scope::ProductsWrite]),
         created_by: common::actor::domain::Actor::User(user_id),
         updated_by: common::actor::domain::Actor::User(user_id),
@@ -46,7 +46,7 @@ fn authorization_code(client: &OAuthClient) -> AuthorizationCode {
             common::actor::domain::Actor::User(user_id) => user_id,
             common::actor::domain::Actor::System => panic!("expected user actor"),
         },
-        redirect_uri: OAuthRedirectUri::from("https://client.example/callback"),
+        redirect_uri: url::Url::parse("https://client.example/callback").unwrap(),
         scopes: HashSet::from([Scope::ProductsWrite]),
         code_challenge: OAuthCodeChallenge::from("challenge"),
         code_challenge_method: CodeChallengeMethod::S256,
@@ -112,13 +112,14 @@ async fn should_update_client_record() {
             &client.client_id,
             OAuthClientRecordUpdate {
                 name: Some(OAuthClientName::from("Updated client")),
+                redirect_uris: Some(HashSet::from([url::Url::parse(
+                    "https://client.example/updated-callback",
+                )
+                .unwrap()])),
                 tos_uri: Some(Url::parse("https://client.example/updated-tos").unwrap()),
                 policy_uri: Some(Url::parse("https://client.example/updated-policy").unwrap()),
                 client_uri: Some(Url::parse("https://updated-client.example").unwrap()),
                 logo_uri: Some(Url::parse("https://updated-client.example/logo.png").unwrap()),
-                redirect_uris: Some(HashSet::from([OAuthRedirectUri::from(
-                    "https://client.example/updated-callback",
-                )])),
                 scopes: Some(HashSet::from([ScopeRecord::ShopsManage])),
                 updated: now() + Duration::seconds(1),
                 updated_by: Faker.fake(),
@@ -131,9 +132,7 @@ async fn should_update_client_record() {
 
     assert_eq!(OAuthClientName::from("Updated client"), updated.name);
     assert_eq!(
-        HashSet::from([OAuthRedirectUri::from(
-            "https://client.example/updated-callback"
-        )]),
+        HashSet::from([url::Url::parse("https://client.example/updated-callback").unwrap()]),
         updated.redirect_uris
     );
     assert_eq!(

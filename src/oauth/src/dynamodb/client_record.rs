@@ -1,4 +1,4 @@
-use crate::core::client::{OAuthClient, OAuthClientName, OAuthRedirectUri};
+use crate::core::client::{OAuthClient, OAuthClientName};
 use common::actor::record::ActorRecord;
 use common::oauth_client_id::OAuthClientId;
 use serde::{Deserialize, Serialize};
@@ -15,11 +15,11 @@ pub struct OAuthClientRecord {
     pub sk: String,
     pub client_id: OAuthClientId,
     pub name: OAuthClientName,
+    pub redirect_uris: HashSet<url::Url>,
     pub tos_uri: Url,
     pub policy_uri: Url,
     pub client_uri: Url,
     pub logo_uri: Url,
-    pub redirect_uris: HashSet<OAuthRedirectUri>,
     pub scopes: HashSet<ScopeRecord>,
     pub secret_prefix: String,
     pub secret_short: String,

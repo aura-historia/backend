@@ -1,4 +1,3 @@
-use crate::core::client::OAuthRedirectUri;
 use common::{oauth_client_id::OAuthClientId, string_newtype, user_id::UserId, uuid_v7_newtype};
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -16,7 +15,7 @@ pub struct AuthorizationCode {
     pub code: OAuthAuthorizationCode,
     pub client_id: OAuthClientId,
     pub user_id: UserId,
-    pub redirect_uri: OAuthRedirectUri,
+    pub redirect_uri: url::Url,
     pub scopes: HashSet<Scope>,
     pub code_challenge: OAuthCodeChallenge,
     pub code_challenge_method: CodeChallengeMethod,
