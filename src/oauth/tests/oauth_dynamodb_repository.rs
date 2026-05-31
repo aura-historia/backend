@@ -107,7 +107,7 @@ async fn should_update_client_record() {
             OAuthClientRecordUpdate {
                 name: Some(OAuthClientName::from("Updated client")),
                 redirect_uris: Some(HashSet::from([url::Url::parse(
-                 "https://client.example/updated-callback",
+                    "https://client.example/updated-callback",
                 )
                 .unwrap()])),
                 tos_uri: Some(Url::parse("https://client.example/updated-tos").unwrap()),
