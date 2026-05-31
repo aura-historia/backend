@@ -1219,7 +1219,9 @@ mod tests {
             let CreateNotificationsResult {
                 processed,
                 unprocessed,
-            } = service.create_notifications(&system_ctx(), &Faker.fake(), vec![]).await;
+            } = service
+                .create_notifications(&system_ctx(), &Faker.fake(), vec![])
+                .await;
 
             assert!(processed.is_empty());
             assert!(unprocessed.is_empty());
@@ -1242,7 +1244,9 @@ mod tests {
             let CreateNotificationsResult {
                 processed,
                 unprocessed,
-            } = service.create_notifications(&system_ctx(), &Faker.fake(), cmds).await;
+            } = service
+                .create_notifications(&system_ctx(), &Faker.fake(), cmds)
+                .await;
 
             assert_eq!(processed.len(), 3);
             assert!(unprocessed.is_empty());
@@ -1290,7 +1294,9 @@ mod tests {
             let CreateNotificationsResult {
                 processed,
                 unprocessed,
-            } = service.create_notifications(&system_ctx(), &Faker.fake(), cmds).await;
+            } = service
+                .create_notifications(&system_ctx(), &Faker.fake(), cmds)
+                .await;
 
             assert_eq!(processed.len(), 1);
             assert_eq!(unprocessed.len(), 1);
@@ -1320,7 +1326,9 @@ mod tests {
             let CreateNotificationsResult {
                 processed,
                 unprocessed,
-            } = service.create_notifications(&system_ctx(), &Faker.fake(), cmds).await;
+            } = service
+                .create_notifications(&system_ctx(), &Faker.fake(), cmds)
+                .await;
 
             assert!(processed.is_empty());
             assert_eq!(unprocessed.len(), 3);
@@ -2956,7 +2964,11 @@ mod tests {
             let s3_adapter = MockS3Adapter::default();
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
             let result = service
-                .update_notifications(&system_ctx(), &user_id, UpdateNotificationCommand { seen: Some(true) })
+                .update_notifications(
+                    &system_ctx(),
+                    &user_id,
+                    UpdateNotificationCommand { seen: Some(true) },
+                )
                 .await;
 
             assert!(result.is_ok());
@@ -2982,7 +2994,11 @@ mod tests {
             let s3_adapter = MockS3Adapter::default();
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
             let result = service
-                .update_notifications(&system_ctx(), &user_id, UpdateNotificationCommand::default())
+                .update_notifications(
+                    &system_ctx(),
+                    &user_id,
+                    UpdateNotificationCommand::default(),
+                )
                 .await;
 
             assert!(result.is_ok());
@@ -3021,7 +3037,9 @@ mod tests {
             let ses_adapter = MockSesAdapter::default();
             let s3_adapter = MockS3Adapter::default();
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
-            let result = service.delete_notification(&system_ctx(), &user_id, &event_id).await;
+            let result = service
+                .delete_notification(&system_ctx(), &user_id, &event_id)
+                .await;
 
             assert!(result.is_ok());
         }
@@ -3041,7 +3059,9 @@ mod tests {
             let ses_adapter = MockSesAdapter::default();
             let s3_adapter = MockS3Adapter::default();
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
-            let result = service.delete_notification(&system_ctx(), &user_id, &event_id).await;
+            let result = service
+                .delete_notification(&system_ctx(), &user_id, &event_id)
+                .await;
 
             assert!(result.is_err());
             match result.unwrap_err() {

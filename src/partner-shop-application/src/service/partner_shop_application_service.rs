@@ -682,7 +682,9 @@ mod tests {
             let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
             let service = make_service(&repository, &sfn_adapter);
             let cmd: CreatePartnerShopApplicationCommand = Faker.fake();
-            let actual = service.create_partner_shop_application(&system_ctx(), cmd).await;
+            let actual = service
+                .create_partner_shop_application(&system_ctx(), cmd)
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -1131,7 +1133,9 @@ mod tests {
                 payload: PartnerShopApplicationPayload::Existing(ShopId::new()),
             };
 
-            let actual = service.create_partner_shop_application(&system_ctx(), cmd).await;
+            let actual = service
+                .create_partner_shop_application(&system_ctx(), cmd)
+                .await;
             assert!(actual.is_ok());
             let app = actual.unwrap();
             assert_eq!(app.business_state, PartnerShopApplicationState::Submitted);
@@ -1184,11 +1188,7 @@ mod tests {
 
             let service = make_service(&repository, &sfn_adapter);
             let actual = service
-                .submit_decision_by_id(
-                    &system_ctx(),
-                    &id,
-                    PartnerShopApplicationDecision::Approve,
-                )
+                .submit_decision_by_id(&system_ctx(), &id, PartnerShopApplicationDecision::Approve)
                 .await;
 
             assert!(actual.is_ok());
@@ -1236,11 +1236,7 @@ mod tests {
 
             let service = make_service(&repository, &sfn_adapter);
             let actual = service
-                .submit_decision_by_id(
-                    &system_ctx(),
-                    &id,
-                    PartnerShopApplicationDecision::Reject,
-                )
+                .submit_decision_by_id(&system_ctx(), &id, PartnerShopApplicationDecision::Reject)
                 .await;
 
             assert!(actual.is_ok());
@@ -1265,11 +1261,7 @@ mod tests {
             let service = make_service(&repository, &sfn_adapter);
 
             let actual = service
-                .submit_decision_by_id(
-                    &system_ctx(),
-                    &id,
-                    PartnerShopApplicationDecision::Approve,
-                )
+                .submit_decision_by_id(&system_ctx(), &id, PartnerShopApplicationDecision::Approve)
                 .await;
 
             assert!(actual.is_err());
@@ -1299,11 +1291,7 @@ mod tests {
             let service = make_service(&repository, &sfn_adapter);
 
             let actual = service
-                .submit_decision_by_id(
-                    &system_ctx(),
-                    &id,
-                    PartnerShopApplicationDecision::Approve,
-                )
+                .submit_decision_by_id(&system_ctx(), &id, PartnerShopApplicationDecision::Approve)
                 .await;
 
             assert!(actual.is_err());

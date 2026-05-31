@@ -863,9 +863,9 @@ mod tests {
             });
 
         let mut command_shop_service = MockCommandShopService::default();
-        command_shop_service
-            .expect_create()
-            .return_once(|_, _| Box::pin(async { Err(CommandShopError::SdkBatchGetItemUnprocessed) }));
+        command_shop_service.expect_create().return_once(|_, _| {
+            Box::pin(async { Err(CommandShopError::SdkBatchGetItemUnprocessed) })
+        });
 
         let service = SellerServiceImpl {
             repository: &repository,

@@ -130,10 +130,12 @@ mod tests {
         };
 
         let mut service = MockUserService::default();
-        service.expect_update_user().return_once(move |_, user_id, _| {
-            let user_id = *user_id;
-            Box::pin(async move { Err(UserServiceError::UserNotFound(user_id)) })
-        });
+        service
+            .expect_update_user()
+            .return_once(move |_, user_id, _| {
+                let user_id = *user_id;
+                Box::pin(async move { Err(UserServiceError::UserNotFound(user_id)) })
+            });
 
         let response = handle(lambda_event, &service).await.unwrap_err();
         assert_eq!(404, response.status);
