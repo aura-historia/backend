@@ -8,12 +8,21 @@ use user::{
 };
 use user_api::handler;
 
+fn system_ctx() -> common::actor::RequestContext {
+    common::actor::RequestContext {
+        actor: common::actor::domain::Actor::System,
+    }
+}
+
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_respond_user_when_exists() {
     let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = UserServiceImpl::new(&repository);
 
-    let user = service.create_user(Faker.fake()).await.unwrap();
+    let user = service
+        .create_user(&system_ctx(), Faker.fake())
+        .await
+        .unwrap();
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)

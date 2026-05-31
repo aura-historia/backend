@@ -100,7 +100,6 @@ async fn create_client(
             &RequestContext {
                 actor: Actor::User(user_id),
             },
-            &user_id,
             data.into(),
         )
         .await?
@@ -501,8 +500,8 @@ mod tests {
         let user_service = admin_ok(user_id);
         service
             .expect_create_client()
-            .return_once(move |_, actual_user_id, request| {
-                assert_eq!(&user_id, actual_user_id);
+            .return_once(move |ctx, request| {
+                assert_eq!(common::actor::domain::Actor::User(user_id), ctx.actor);
                 assert_eq!(OAuthClientName::from("Client"), request.name);
                 Box::pin(async move { Ok((RawOAuthClientSecret::new(), oauth_client(user_id))) })
             });

@@ -262,6 +262,7 @@ fn should_set_notifications_true_for_update() {
             WatchlistProductRecordUpdate {
                 notifications: Some(true),
                 state: None,
+                updated_by: common::actor::record::ActorRecord::System,
                 updated,
             },
         )
@@ -303,6 +304,7 @@ fn should_set_notifications_false_for_update() {
             WatchlistProductRecordUpdate {
                 notifications: Some(false),
                 state: None,
+                updated_by: common::actor::record::ActorRecord::System,
                 updated,
             },
         )

@@ -1,4 +1,5 @@
 use common::oauth_client_id::OAuthClientId;
+use fake::{Fake, Faker};
 use oauth::core::authorization_code::{AuthorizationCode, CodeChallengeMethod, OAuthCodeChallenge};
 use oauth::core::client::{OAuthClient, OAuthClientName, OAuthRedirectUri};
 use oauth::dynamodb::authorization_code_record::AuthorizationCodeRecord;
@@ -111,6 +112,7 @@ async fn should_update_client_record() {
                 )])),
                 scopes: Some(HashSet::from([ScopeRecord::ShopsManage])),
                 updated: now() + Duration::seconds(1),
+                updated_by: Faker.fake(),
             },
         )
         .await

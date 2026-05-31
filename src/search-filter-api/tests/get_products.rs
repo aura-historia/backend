@@ -24,6 +24,12 @@ use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::command::UpdateUserCommand;
 use user::service::user_service::{UserService, UserServiceImpl};
 
+fn user_ctx(user_id: UserId) -> common::actor::RequestContext {
+    common::actor::RequestContext {
+        actor: common::actor::domain::Actor::User(user_id),
+    }
+}
+
 fn setup_services(
     client: &'static aws_sdk_dynamodb::Client,
     opensearch: &'static opensearch::OpenSearch,
@@ -84,13 +90,16 @@ fn setup_services(
 async fn create_user(client: &'static aws_sdk_dynamodb::Client) -> UserId {
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let user = user_service.create_user(Faker.fake()).await.unwrap();
+    let user = user_service
+        .create_user(&user_ctx(UserId::new()), Faker.fake())
+        .await
+        .unwrap();
     let update_cmd = UpdateUserCommand {
         tier: Some(UserTier::Ultimate),
         ..Default::default()
     };
     user_service
-        .update_user(&user.user_id, update_cmd)
+        .update_user(&user_ctx(user.user_id), &user.user_id, update_cmd)
         .await
         .unwrap();
     user.user_id
@@ -105,7 +114,7 @@ async fn should_200_when_success_without_enhanced_description() {
 
     let user_id = create_user(client).await;
     let search_filter = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), None)
+        .create_user_search_filter(&user_ctx(user_id), &user_id, Faker.fake(), Faker.fake(), None)
         .await
         .unwrap();
 
@@ -148,7 +157,7 @@ async fn should_400_when_search_after_provided() {
 
     let user_id = create_user(client).await;
     let search_filter = service
-        .create_user_search_filter(&user_id, Faker.fake(), Faker.fake(), None)
+        .create_user_search_filter(&user_ctx(user_id), &user_id, Faker.fake(), Faker.fake(), None)
         .await
         .unwrap();
 

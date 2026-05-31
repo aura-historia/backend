@@ -18,6 +18,12 @@ use user::core::tier::UserTier;
 use user::service::command::UpdateUserCommand;
 use user::service::user_service::UserService;
 
+fn user_ctx(user_id: common::user_id::UserId) -> common::actor::RequestContext {
+    common::actor::RequestContext {
+        actor: common::actor::domain::Actor::User(user_id),
+    }
+}
+
 #[localstack_test(services = [DynamoDB()])]
 async fn should_update_search_filter() {
     let repository =
@@ -32,18 +38,22 @@ async fn should_update_search_filter() {
     let query_product_service = MockQueryProductService::default();
     let personalization_service = MockProductPersonalizationService::default();
 
-    let user = user_service.create_user(Faker.fake()).await.unwrap();
+    let user = user_service
+        .create_user(&user_ctx(common::user_id::UserId::new()), Faker.fake())
+        .await
+        .unwrap();
     let update_cmd = UpdateUserCommand {
         tier: Some(UserTier::Ultimate),
         ..Default::default()
     };
     user_service
-        .update_user(&user.user_id, update_cmd)
+        .update_user(&user_ctx(user.user_id), &user.user_id, update_cmd)
         .await
         .unwrap();
 
     let initial = service
         .create_user_search_filter(
+            &user_ctx(user.user_id),
             &user.user_id,
             Faker.fake(),
             Faker.fake::<ProductSearch>(),

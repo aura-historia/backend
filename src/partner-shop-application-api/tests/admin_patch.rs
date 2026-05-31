@@ -23,20 +23,26 @@ use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::command::CreateUserCommand;
 use user::service::user_service::{UserService, UserServiceImpl};
 
+fn system_ctx() -> common::actor::RequestContext {
+    common::actor::RequestContext {
+        actor: common::actor::domain::Actor::System,
+    }
+}
+
 async fn create_admin_user(user_service: &impl UserService) -> UserId {
     let user_id = UserId::new();
     let cmd = CreateUserCommand {
         id: user_id,
         email: format!("admin-{}@test.com", user_id).try_into().unwrap(),
     };
-    user_service.create_user(cmd).await.unwrap();
+    user_service.create_user(&system_ctx(), cmd).await.unwrap();
 
     let update_cmd = user::service::command::UpdateUserCommand {
         role: Some(UserRole::Admin),
         ..Default::default()
     };
     user_service
-        .update_user(&user_id, update_cmd)
+        .update_user(&system_ctx(), &user_id, update_cmd)
         .await
         .unwrap();
     user_id
@@ -61,7 +67,7 @@ async fn should_200_when_admin_updates_application_shop_name() {
     let admin_user_id = create_admin_user(&user_service).await;
 
     let application = service
-        .create_partner_shop_application(Faker.fake())
+        .create_partner_shop_application(&system_ctx(), Faker.fake())
         .await
         .unwrap();
 
@@ -119,7 +125,7 @@ async fn should_200_when_admin_submits_approve_decision() {
     let admin_user_id = create_admin_user(&user_service).await;
 
     let application = service
-        .create_partner_shop_application(Faker.fake())
+        .create_partner_shop_application(&system_ctx(), Faker.fake())
         .await
         .unwrap();
 
@@ -146,6 +152,7 @@ async fn should_200_when_admin_submits_approve_decision() {
             shop_structured_address_country: None,
             shop_phone: None,
             shop_email: None,
+            updated_by: common::actor::record::ActorRecord::System,
             updated: time::OffsetDateTime::now_utc(),
         };
     repository
@@ -206,7 +213,7 @@ async fn should_200_when_admin_submits_reject_decision() {
     let admin_user_id = create_admin_user(&user_service).await;
 
     let application = service
-        .create_partner_shop_application(Faker.fake())
+        .create_partner_shop_application(&system_ctx(), Faker.fake())
         .await
         .unwrap();
 
@@ -233,6 +240,7 @@ async fn should_200_when_admin_submits_reject_decision() {
             shop_structured_address_country: None,
             shop_phone: None,
             shop_email: None,
+            updated_by: common::actor::record::ActorRecord::System,
             updated: time::OffsetDateTime::now_utc(),
         };
     repository

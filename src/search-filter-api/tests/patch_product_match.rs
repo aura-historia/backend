@@ -21,6 +21,12 @@ use test_api::*;
 use time::OffsetDateTime;
 use user::service::user_service::UserService;
 
+fn user_ctx(user_id: common::user_id::UserId) -> common::actor::RequestContext {
+    common::actor::RequestContext {
+        actor: common::actor::domain::Actor::User(user_id),
+    }
+}
+
 async fn seed_match_record(
     repository: &impl UserSearchFilterDynamoDbRepository,
     user_id: UserId,
@@ -62,7 +68,10 @@ async fn patch_existing_match(
     let get_product_service = MockGetProductService::default();
     let query_product_service = MockQueryProductService::default();
     let personalization_service = MockProductPersonalizationService::default();
-    let user = user_service.create_user(Faker.fake()).await.unwrap();
+    let user = user_service
+        .create_user(&user_ctx(common::user_id::UserId::new()), Faker.fake())
+        .await
+        .unwrap();
     let filter_id = UserSearchFilterId::new();
     let shop_id = ShopId::new();
     let shops_product_id = ShopsProductId::new();
@@ -165,7 +174,10 @@ async fn should_404_when_search_filter_product_match_not_found() {
     let get_product_service = MockGetProductService::default();
     let query_product_service = MockQueryProductService::default();
     let personalization_service = MockProductPersonalizationService::default();
-    let user = user_service.create_user(Faker.fake()).await.unwrap();
+    let user = user_service
+        .create_user(&user_ctx(common::user_id::UserId::new()), Faker.fake())
+        .await
+        .unwrap();
 
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()

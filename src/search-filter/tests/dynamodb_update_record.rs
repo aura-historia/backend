@@ -45,6 +45,7 @@ async fn should_update_search_filter_record() {
         auction_end_query: None,
         language: None,
         currency: None,
+        updated_by: common::actor::record::ActorRecord::System,
         updated,
         last_hybrid_search_matched: None,
     };

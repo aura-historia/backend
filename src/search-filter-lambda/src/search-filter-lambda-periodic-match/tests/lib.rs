@@ -155,10 +155,15 @@ async fn index_product(os_repo: &ProductOpenSearchRepositoryImpl<'_>, doc: Produ
 async fn create_user(user_service: &impl UserService, email: &str) -> UserId {
     let user_id = UserId::new();
     user_service
-        .create_user(user::service::command::CreateUserCommand {
-            id: user_id,
-            email: email.parse().unwrap(),
-        })
+        .create_user(
+            &common::actor::RequestContext {
+                actor: Actor::User(user_id),
+            },
+            user::service::command::CreateUserCommand {
+                id: user_id,
+                email: email.parse().unwrap(),
+            },
+        )
         .await
         .unwrap();
     user_id
@@ -202,7 +207,7 @@ fn mock_notification_service_counting_calls() -> (MockNotificationService, Arc<A
     let counter = call_count.clone();
     let mut svc = MockNotificationService::default();
     svc.expect_create_notification()
-        .returning(move |event_id, cmd| {
+        .returning(move |_, event_id, cmd| {
             counter.fetch_add(1, Ordering::SeqCst);
             let user_id = cmd.user_id;
             let eid = *event_id;

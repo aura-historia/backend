@@ -15,20 +15,26 @@ use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::command::CreateUserCommand;
 use user::service::user_service::{UserService, UserServiceImpl};
 
+fn system_ctx() -> common::actor::RequestContext {
+    common::actor::RequestContext {
+        actor: common::actor::domain::Actor::System,
+    }
+}
+
 async fn create_admin_user(user_service: &impl UserService) -> UserId {
     let user_id = UserId::new();
     let cmd = CreateUserCommand {
         id: user_id,
         email: format!("admin-{}@test.com", user_id).try_into().unwrap(),
     };
-    user_service.create_user(cmd).await.unwrap();
+    user_service.create_user(&system_ctx(), cmd).await.unwrap();
 
     let update_cmd = user::service::command::UpdateUserCommand {
         role: Some(UserRole::Admin),
         ..Default::default()
     };
     user_service
-        .update_user(&user_id, update_cmd)
+        .update_user(&system_ctx(), &user_id, update_cmd)
         .await
         .unwrap();
     user_id
@@ -53,7 +59,7 @@ async fn should_200_respond_all_applications_for_admin() {
     let admin_user_id = create_admin_user(&user_service).await;
 
     let application = service
-        .create_partner_shop_application(Faker.fake())
+        .create_partner_shop_application(&system_ctx(), Faker.fake())
         .await
         .unwrap();
 
@@ -94,7 +100,7 @@ async fn should_403_respond_when_non_admin_calls_admin_get_all() {
         id: user_id,
         email: format!("user-{}@test.com", user_id).try_into().unwrap(),
     };
-    user_service.create_user(cmd).await.unwrap();
+    user_service.create_user(&system_ctx(), cmd).await.unwrap();
 
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()

@@ -46,7 +46,7 @@ fn fake_notification(user_id: UserId) -> Notification {
 
 fn mock_notification_service() -> MockNotificationService {
     let mut mock = MockNotificationService::new();
-    mock.expect_create_notification().returning(|_, cmd| {
+    mock.expect_create_notification().returning(|_, _, cmd| {
         let notification = fake_notification(cmd.user_id);
         Box::pin(async move { Ok(notification) })
     });

@@ -44,6 +44,12 @@ use user::dynamodb::{
 };
 use user::service::user_service::UserServiceImpl;
 
+fn system_ctx() -> common::actor::RequestContext {
+    common::actor::RequestContext {
+        actor: common::actor::domain::Actor::System,
+    }
+}
+
 #[localstack_test(services = [DynamoDB()])]
 async fn should_respond_200_without_history_when_anon() {
     let ddb_client = get_dynamodb_client().await;
@@ -313,6 +319,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
 
     let _ = watchlist_service
         .create_watchlist_product(
+            &system_ctx(),
             &user_record.user_id,
             &record.shop_id,
             &record.shops_product_id,
@@ -321,6 +328,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
         .unwrap();
     let _ = watchlist_service
         .update_watchlist_product(
+            &system_ctx(),
             &user_record.user_id,
             &record.shop_id,
             &record.shops_product_id,

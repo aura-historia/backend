@@ -30,6 +30,12 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::{UserService, UserServiceImpl};
 
+fn system_ctx() -> common::actor::RequestContext {
+    common::actor::RequestContext {
+        actor: common::actor::domain::Actor::System,
+    }
+}
+
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_asc() {
     let client = get_dynamodb_client().await;
@@ -71,7 +77,7 @@ async fn should_200_when_sort_created_asc() {
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
 
     let user_id = user_service
-        .create_user(Faker.fake())
+        .create_user(&system_ctx(), Faker.fake())
         .await
         .unwrap()
         .user_id;
@@ -90,6 +96,8 @@ async fn should_200_when_sort_created_asc() {
             shops_product_id: product_record.shops_product_id,
             notifications: false,
             state: common::resource_state::record::ResourceStateRecord::Active,
+            created_by: ActorRecord::System,
+            updated_by: ActorRecord::System,
             created,
             updated: created,
         };
@@ -184,7 +192,7 @@ async fn should_200_when_sort_created_asc_search_after() {
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
 
     let user_id = user_service
-        .create_user(Faker.fake())
+        .create_user(&system_ctx(), Faker.fake())
         .await
         .unwrap()
         .user_id;
@@ -211,6 +219,8 @@ async fn should_200_when_sort_created_asc_search_after() {
             shops_product_id: product_record.shops_product_id,
             notifications: false,
             state: common::resource_state::record::ResourceStateRecord::Active,
+            created_by: ActorRecord::System,
+            updated_by: ActorRecord::System,
             created,
             updated: created,
         };
@@ -307,7 +317,7 @@ async fn should_200_when_sort_created_desc() {
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
 
     let user_id = user_service
-        .create_user(Faker.fake())
+        .create_user(&system_ctx(), Faker.fake())
         .await
         .unwrap()
         .user_id;
@@ -326,6 +336,8 @@ async fn should_200_when_sort_created_desc() {
             shops_product_id: product_record.shops_product_id,
             notifications: false,
             state: common::resource_state::record::ResourceStateRecord::Active,
+            created_by: ActorRecord::System,
+            updated_by: ActorRecord::System,
             created,
             updated: created,
         };
@@ -421,7 +433,7 @@ async fn should_200_when_sort_created_desc_search_after() {
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
 
     let user_id = user_service
-        .create_user(Faker.fake())
+        .create_user(&system_ctx(), Faker.fake())
         .await
         .unwrap()
         .user_id;
@@ -448,6 +460,8 @@ async fn should_200_when_sort_created_desc_search_after() {
             shops_product_id: product_record.shops_product_id,
             notifications: true,
             state: common::resource_state::record::ResourceStateRecord::Active,
+            created_by: ActorRecord::System,
+            updated_by: ActorRecord::System,
             created,
             updated: created,
         };
@@ -571,7 +585,7 @@ async fn should_respond_200_and_respect_language_query_param(
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
 
     let user_id = user_service
-        .create_user(Faker.fake())
+        .create_user(&system_ctx(), Faker.fake())
         .await
         .unwrap()
         .user_id;
@@ -589,6 +603,8 @@ async fn should_respond_200_and_respect_language_query_param(
             shops_product_id: product_record.shops_product_id,
             notifications: false,
             state: common::resource_state::record::ResourceStateRecord::Active,
+            created_by: ActorRecord::System,
+            updated_by: ActorRecord::System,
             created,
             updated: created,
         };
