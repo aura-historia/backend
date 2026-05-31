@@ -19,6 +19,7 @@ use common::{
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
+use tracing::info;
 use user::core::access_token::{
     AccessTokenOrigin, HashedRawOAuthClientSecret, RawAccessToken, RawOAuthClientSecret, Scope,
 };
@@ -198,7 +199,6 @@ pub trait OAuthService {
     async fn create_client(
         &self,
         ctx: &RequestContext,
-        _user_id: &UserId,
         command: CreateOAuthClientCommand,
     ) -> Result<(RawOAuthClientSecret, OAuthClient), OAuthServiceError>;
 
@@ -286,7 +286,6 @@ impl OAuthService for OAuthServiceImpl<'_> {
     async fn create_client(
         &self,
         ctx: &RequestContext,
-        _user_id: &UserId,
         command: CreateOAuthClientCommand,
     ) -> Result<(RawOAuthClientSecret, OAuthClient), OAuthServiceError> {
         validate_redirect_uris(&command.redirect_uris)
@@ -307,6 +306,11 @@ impl OAuthService for OAuthServiceImpl<'_> {
         self.repository
             .put_client_record(OAuthClientRecord::from(client.clone()))
             .await?;
+        info!(
+            actor = %ctx.actor,
+            clientId = %client.client_id,
+            "Created OAuth client."
+        );
         Ok((raw_secret, client))
     }
 
@@ -338,14 +342,21 @@ impl OAuthService for OAuthServiceImpl<'_> {
                 .map_err(OAuthServiceError::InvalidClientMetadata)?;
         }
         let update = OAuthClientRecordUpdate {
-            name: command.name,
-            redirect_uris: command.redirect_uris,
+            name: command.name.clone(),
+            redirect_uris: command.redirect_uris.clone(),
             scopes: command
                 .scopes
+                .clone()
                 .map(|scopes| scopes.into_iter().map(Into::into).collect()),
             updated_by: ctx.actor.into(),
             updated: OffsetDateTime::now_utc(),
         };
+        info!(
+            actor = %ctx.actor,
+            clientId = %client_id,
+            update = ?command,
+            "Updated OAuth client."
+        );
         self.repository
             .update_client_record(client_id, update)
             .await?
@@ -355,10 +366,15 @@ impl OAuthService for OAuthServiceImpl<'_> {
 
     async fn delete_client(
         &self,
-        _ctx: &RequestContext,
+        ctx: &RequestContext,
         client_id: &OAuthClientId,
     ) -> Result<(), OAuthServiceError> {
         self.repository.delete_client_record(client_id).await?;
+        info!(
+            actor = %ctx.actor,
+            clientId = %client_id,
+            "Deleted OAuth client."
+        );
         Ok(())
     }
 
@@ -675,7 +691,6 @@ mod tests {
                 &RequestContext {
                     actor: Actor::User(user_id),
                 },
-                &user_id,
                 create_command("https://client.example/callback"),
             )
             .await
@@ -699,7 +714,6 @@ mod tests {
                 &RequestContext {
                     actor: Actor::System,
                 },
-                &UserId::new(),
                 create_command("http://client.example/callback"),
             )
             .await

@@ -611,6 +611,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
         self.repository
             .put_access_token_record(AccessTokenRecord::from(access_token.clone()))
             .await?;
+        info!(actor = %ctx.actor, userId = %user_id, accessTokenId = %access_token.id, "Created Access Token.");
         Ok((raw_access_token, access_token))
     }
 
@@ -627,16 +628,18 @@ impl<'a> UserService for UserServiceImpl<'a> {
         }
         let expires = cmd.expires.map(|expires| expires.unix_timestamp());
         let update = AccessTokenRecordUpdate {
-            name: cmd.name.map(Into::into),
+            name: cmd.clone().name.map(Into::into),
             scopes: cmd
                 .scopes
+                .clone()
                 .map(|scopes| scopes.into_iter().map(Into::into).collect()),
             expires,
             ttl: expires,
             updated_by: ctx.actor.into(),
             updated: OffsetDateTime::now_utc(),
         };
-        self.repository
+        let access_token = self
+            .repository
             .update_access_token_record(user_id, access_token_id, update)
             .await?
             .map(AccessToken::try_from)
@@ -644,12 +647,15 @@ impl<'a> UserService for UserServiceImpl<'a> {
             .ok_or(UserServiceError::AccessTokenNotFound(
                 *access_token_id,
                 *user_id,
-            ))
+            ))?;
+        info!(actor = %ctx.actor, userId = %user_id, accessTokenId = %access_token.id, update = ?cmd, "Updated Access Token.");
+
+        Ok(access_token)
     }
 
     async fn delete_access_token(
         &self,
-        _ctx: &RequestContext,
+        ctx: &RequestContext,
         user_id: &UserId,
         access_token_id: &AccessTokenId,
     ) -> Result<(), UserServiceError> {
@@ -657,18 +663,20 @@ impl<'a> UserService for UserServiceImpl<'a> {
         self.repository
             .delete_access_token_record(user_id, access_token_id)
             .await?;
+        info!(actor = %ctx.actor, userId = %user_id, accessTokenId = %access_token_id, "Deleted Access Token.");
         Ok(())
     }
 
     async fn delete_access_token_by_raw(
         &self,
-        _ctx: &RequestContext,
+        ctx: &RequestContext,
         raw_access_token: &RawAccessToken,
     ) -> Result<(), UserServiceError> {
         let token = self.find_access_token_by_raw(raw_access_token).await?;
         self.repository
             .delete_access_token_record(&token.user_id, &token.id)
             .await?;
+        info!(actor = %ctx.actor, userId = %token.user_id, accessTokenId = %token.id, "Deleted Access Token.");
         Ok(())
     }
 
@@ -819,7 +827,12 @@ mod tests {
                 .expect_get_user_record()
                 .return_once(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
             let service = UserServiceImpl::new(&repository);
-            let actual = service.create_user(&crate::service::user_service::tests::system_ctx(), cmd.clone()).await;
+            let actual = service
+                .create_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    cmd.clone(),
+                )
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -855,7 +868,12 @@ mod tests {
                 .expect_get_user_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
             let service = UserServiceImpl::new(&repository);
-            let actual = service.create_user(&crate::service::user_service::tests::system_ctx(), Faker.fake()).await;
+            let actual = service
+                .create_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    Faker.fake(),
+                )
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -892,7 +910,12 @@ mod tests {
                 .expect_put_user_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
             let service = UserServiceImpl::new(&repository);
-            let actual = service.create_user(&crate::service::user_service::tests::system_ctx(), Faker.fake()).await;
+            let actual = service
+                .create_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    Faker.fake(),
+                )
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -912,7 +935,13 @@ mod tests {
                 .expect_put_user_record()
                 .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
             let service = UserServiceImpl::new(&repository);
-            let actual = service.create_user(&crate::service::user_service::tests::system_ctx(), Faker.fake()).await.unwrap();
+            let actual = service
+                .create_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    Faker.fake(),
+                )
+                .await
+                .unwrap();
 
             assert!(!actual.prohibited_content_consent);
         }
@@ -941,7 +970,13 @@ mod tests {
                 .expect_get_user_record()
                 .return_once(|_| Box::pin(async { Ok(None) }));
             let service = UserServiceImpl::new(&repository);
-            let actual = service.update_user(&crate::service::user_service::tests::system_ctx(), &user_id, Faker.fake()).await;
+            let actual = service
+                .update_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    &user_id,
+                    Faker.fake(),
+                )
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -977,7 +1012,13 @@ mod tests {
                 .expect_get_user_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
             let service = UserServiceImpl::new(&repository);
-            let actual = service.update_user(&crate::service::user_service::tests::system_ctx(), &user_id, Faker.fake()).await;
+            let actual = service
+                .update_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    &user_id,
+                    Faker.fake(),
+                )
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -1025,7 +1066,13 @@ mod tests {
                 stripe_customer_id: None,
                 structured_address: None,
             };
-            let actual = service.update_user(&crate::service::user_service::tests::system_ctx(), &user_id, update).await;
+            let actual = service
+                .update_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    &user_id,
+                    update,
+                )
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -1048,7 +1095,11 @@ mod tests {
                 .return_once(move |_| Box::pin(async move { Ok(Some(existing_record)) }));
             let service = UserServiceImpl::new(&repository);
             let actual = service
-                .update_user(&crate::service::user_service::tests::system_ctx(), &user_id, UpdateUserCommand::default())
+                .update_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    &user_id,
+                    UpdateUserCommand::default(),
+                )
                 .await
                 .unwrap();
 
@@ -1073,7 +1124,14 @@ mod tests {
                 prohibited_content_consent: Some(true),
                 ..Default::default()
             };
-            let _ = service.update_user(&crate::service::user_service::tests::system_ctx(), &user_id, update).await.unwrap();
+            let _ = service
+                .update_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    &user_id,
+                    update,
+                )
+                .await
+                .unwrap();
         }
     }
 
@@ -1092,7 +1150,12 @@ mod tests {
         async fn should_err_cognito_admin_service_not_configured_when_none() {
             let repository = MockUserDynamoDbRepository::default();
             let service = UserServiceImpl::new(&repository);
-            let actual = service.delete_user(&crate::service::user_service::tests::system_ctx(), &UserId::new()).await;
+            let actual = service
+                .delete_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    &UserId::new(),
+                )
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -1118,7 +1181,9 @@ mod tests {
                 .return_once(|_| Box::pin(async { Ok(()) }));
             let service = UserServiceImpl::with_cognito(&repository, &cognito);
 
-            let actual = service.delete_user(&crate::service::user_service::tests::system_ctx(), &user_id).await;
+            let actual = service
+                .delete_user(&crate::service::user_service::tests::system_ctx(), &user_id)
+                .await;
 
             assert!(actual.is_ok());
         }
@@ -1137,7 +1202,9 @@ mod tests {
             });
             let service = UserServiceImpl::with_cognito(&repository, &cognito);
 
-            let actual = service.delete_user(&crate::service::user_service::tests::system_ctx(), &user_id).await;
+            let actual = service
+                .delete_user(&crate::service::user_service::tests::system_ctx(), &user_id)
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -1159,7 +1226,9 @@ mod tests {
                 .return_once(|_| Box::pin(async { Ok(()) }));
             let service = UserServiceImpl::with_cognito(&repository, &cognito);
 
-            let actual = service.delete_user(&crate::service::user_service::tests::system_ctx(), &user_id).await;
+            let actual = service
+                .delete_user(&crate::service::user_service::tests::system_ctx(), &user_id)
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -1190,7 +1259,9 @@ mod tests {
                 .return_once(|_| Box::pin(async { Ok(()) }));
             let service = UserServiceImpl::with_cognito(&repository, &cognito);
 
-            let actual = service.delete_user(&crate::service::user_service::tests::system_ctx(), &user_id).await;
+            let actual = service
+                .delete_user(&crate::service::user_service::tests::system_ctx(), &user_id)
+                .await;
 
             assert!(actual.is_ok());
             assert_eq!(
@@ -1246,7 +1317,9 @@ mod tests {
                     &opensearch,
                 );
 
-                let actual = service.delete_user(&crate::service::user_service::tests::system_ctx(), &user_id).await;
+                let actual = service
+                    .delete_user(&crate::service::user_service::tests::system_ctx(), &user_id)
+                    .await;
 
                 assert!(actual.is_ok());
             }
@@ -1276,7 +1349,9 @@ mod tests {
                     &opensearch,
                 );
 
-                let actual = service.delete_user(&crate::service::user_service::tests::system_ctx(), &user_id).await;
+                let actual = service
+                    .delete_user(&crate::service::user_service::tests::system_ctx(), &user_id)
+                    .await;
 
                 assert!(actual.is_err());
                 match actual.unwrap_err() {
@@ -1321,7 +1396,9 @@ mod tests {
                     &opensearch,
                 );
 
-                let actual = service.delete_user(&crate::service::user_service::tests::system_ctx(), &user_id).await;
+                let actual = service
+                    .delete_user(&crate::service::user_service::tests::system_ctx(), &user_id)
+                    .await;
 
                 assert!(actual.is_ok());
                 assert_eq!(
@@ -1344,7 +1421,9 @@ mod tests {
                     .return_once(|_| Box::pin(async { Ok(()) }));
                 let service = UserServiceImpl::with_cognito(&repository, &cognito);
 
-                let actual = service.delete_user(&crate::service::user_service::tests::system_ctx(), &user_id).await;
+                let actual = service
+                    .delete_user(&crate::service::user_service::tests::system_ctx(), &user_id)
+                    .await;
 
                 assert!(actual.is_ok());
             }
