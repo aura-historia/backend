@@ -33,7 +33,7 @@ use notification::{
 use notification_api::notification_get::EventIdCursoredData;
 use oauth::dynamodb::repository::OAuthDynamoDbRepositoryImpl;
 use oauth::{
-    core::client::{OAuthClient, OAuthClientName, OAuthRedirectUri},
+    core::client::{OAuthClient, OAuthClientName},
     data::{
         IntrospectionResponseData, OAuthClientMetadataRequestData, OAuthClientMetadataResponseData,
         TokenResponseData,
@@ -1968,7 +1968,7 @@ async fn should_complete_oauth_authorization_code_flow() {
     let user = create_random_test_user().await;
     let client_id = OAuthClientId::new();
     let client_secret = RawOAuthClientSecret::new();
-    let redirect_uri = OAuthRedirectUri::from("https://client.example/callback");
+    let redirect_uri = url::Url::parse("https://client.example/callback").unwrap();
     let now = OffsetDateTime::now_utc();
     let oauth_repository =
         OAuthDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &cfn.dynamodb_table_1_name);
@@ -2125,7 +2125,7 @@ async fn should_manage_oauth_client_metadata() {
         .bearer_auth(admin.access_token.clone())
         .json(&OAuthClientMetadataRequestData {
             client_name: "Acceptance OAuth client".to_owned(),
-            redirect_uris: HashSet::from(["https://client.example/callback".to_owned()]),
+            redirect_uris: HashSet::from([url::Url::parse("https://client.example/callback").unwrap()]),
             scope: HashSet::from([ScopeData::ProductsWrite]),
         })
         .send()
@@ -2172,7 +2172,7 @@ async fn should_manage_oauth_client_metadata() {
         .bearer_auth(admin.access_token.clone())
         .json(&oauth::data::OAuthClientMetadataPatchData {
             client_name: Some("Updated acceptance OAuth client".to_owned()),
-            redirect_uris: Some(HashSet::from(["https://client.example/updated".to_owned()])),
+            redirect_uris: Some(HashSet::from([url::Url::parse("https://client.example/updated").unwrap()])),
             scope: Some(HashSet::from([ScopeData::ShopsManage])),
         })
         .send()

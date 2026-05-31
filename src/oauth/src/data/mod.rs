@@ -1,4 +1,4 @@
-use crate::core::client::{OAuthClient, OAuthClientName, OAuthRedirectUri};
+use crate::core::client::{OAuthClient, OAuthClientName};
 use crate::service::oauth_service::{IntrospectionResponse, OAuthTokenType, TokenResponse};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -11,7 +11,7 @@ use user::data::access_token_data::{AccessTokenTypeData, ScopeData};
 pub struct OAuthClientMetadataRequestData {
     pub client_name: String,
     #[serde(default)]
-    pub redirect_uris: HashSet<String>,
+    pub redirect_uris: HashSet<url::Url>,
     #[serde(default)]
     pub scope: HashSet<ScopeData>,
 }
@@ -22,7 +22,7 @@ pub struct OAuthClientMetadataPatchData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub redirect_uris: Option<HashSet<String>>,
+    pub redirect_uris: Option<HashSet<url::Url>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<HashSet<ScopeData>>,
 }
@@ -82,7 +82,11 @@ impl From<OAuthClient> for OAuthClientMetadataResponseData {
             client_id: client.client_id.into(),
             client_secret: client.hashed_client_secret.to_string(),
             client_name: client.name.into(),
-            redirect_uris: client.redirect_uris.into_iter().map(Into::into).collect(),
+            redirect_uris: client
+                .redirect_uris
+                .into_iter()
+                .map(|u| u.to_string())
+                .collect(),
             scope: client.scopes.into_iter().map(Into::into).collect(),
             client_id_issued_at: client.created.unix_timestamp(),
         }
@@ -103,11 +107,7 @@ impl From<OAuthClientMetadataRequestData>
     fn from(data: OAuthClientMetadataRequestData) -> Self {
         Self {
             name: OAuthClientName::from(data.client_name),
-            redirect_uris: data
-                .redirect_uris
-                .into_iter()
-                .map(OAuthRedirectUri::from)
-                .collect(),
+            redirect_uris: data.redirect_uris,
             scopes: data.scope.into_iter().map(Into::into).collect(),
         }
     }
@@ -119,9 +119,7 @@ impl From<OAuthClientMetadataPatchData>
     fn from(data: OAuthClientMetadataPatchData) -> Self {
         Self {
             name: data.client_name.map(OAuthClientName::from),
-            redirect_uris: data
-                .redirect_uris
-                .map(|uris| uris.into_iter().map(OAuthRedirectUri::from).collect()),
+            redirect_uris: data.redirect_uris,
             scopes: data
                 .scope
                 .map(|scopes| scopes.into_iter().map(Into::into).collect()),

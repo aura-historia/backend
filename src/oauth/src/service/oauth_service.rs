@@ -2,7 +2,7 @@ use crate::core::authorization_code::{
     AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge,
     OAuthCodeVerifier,
 };
-use crate::core::client::{OAuthClient, OAuthClientName, OAuthRedirectUri};
+use crate::core::client::{OAuthClient, OAuthClientName};
 use crate::dynamodb::authorization_code_record::AuthorizationCodeRecord;
 use crate::dynamodb::client_record::OAuthClientRecord;
 use crate::dynamodb::client_record_update::OAuthClientRecordUpdate;
@@ -44,7 +44,7 @@ pub enum OAuthTokenType {
 pub struct AuthorizeRequest {
     pub response_type: OAuthResponseType,
     pub client_id: OAuthClientId,
-    pub redirect_uri: OAuthRedirectUri,
+    pub redirect_uri: url::Url,
     pub scope: HashSet<Scope>,
     pub state: Option<OAuthState>,
     pub code_challenge: OAuthCodeChallenge,
@@ -60,7 +60,7 @@ pub struct AuthorizeResponse {
 pub struct TokenRequest {
     pub grant_type: OAuthGrantType,
     pub code: OAuthAuthorizationCode,
-    pub redirect_uri: OAuthRedirectUri,
+    pub redirect_uri: url::Url,
     pub client_id: OAuthClientId,
     pub client_secret: RawOAuthClientSecret,
     pub code_verifier: OAuthCodeVerifier,
@@ -102,14 +102,14 @@ pub struct TokenRevocationRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateOAuthClientCommand {
     pub name: OAuthClientName,
-    pub redirect_uris: HashSet<OAuthRedirectUri>,
+    pub redirect_uris: HashSet<url::Url>,
     pub scopes: HashSet<Scope>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpdateOAuthClientCommand {
     pub name: Option<OAuthClientName>,
-    pub redirect_uris: Option<HashSet<OAuthRedirectUri>>,
+    pub redirect_uris: Option<HashSet<url::Url>>,
     pub scopes: Option<HashSet<Scope>>,
 }
 
@@ -373,7 +373,7 @@ impl OAuthService for OAuthServiceImpl<'_> {
         if let Some(state) = request.state {
             params.insert("state", state.as_ref().to_owned());
         }
-        let redirect_to = append_query_params(request.redirect_uri.as_ref(), params);
+        let redirect_to = append_query_params(&request.redirect_uri, params);
         Ok(AuthorizeResponse { redirect_to })
     }
 
@@ -481,8 +481,8 @@ impl OAuthService for OAuthServiceImpl<'_> {
     }
 }
 
-fn append_query_params(uri: &str, params: HashMap<&str, String>) -> String {
-    let mut url = url::Url::parse(uri).expect("uri should be a valid URL");
+fn append_query_params(uri: &url::Url, params: HashMap<&str, String>) -> String {
+    let mut url = uri.clone();
     for (key, value) in params {
         url.query_pairs_mut().append_pair(key, &value);
     }
@@ -494,14 +494,12 @@ fn verify_s256(verifier: &str, expected_challenge: &str) -> bool {
     URL_SAFE_NO_PAD.encode(digest) == expected_challenge
 }
 
-fn validate_redirect_uris(redirect_uris: &HashSet<OAuthRedirectUri>) -> Result<(), String> {
+fn validate_redirect_uris(redirect_uris: &HashSet<url::Url>) -> Result<(), String> {
     if redirect_uris.is_empty() {
         return Err("redirect_uris cannot be empty".to_owned());
     }
     for redirect_uri in redirect_uris {
-        let url = url::Url::parse(redirect_uri.as_ref())
-            .map_err(|err| format!("redirect_uri '{redirect_uri}' is not a valid URL: {err}"))?;
-        if url.scheme() != "https" {
+        if redirect_uri.scheme() != "https" {
             return Err(format!("redirect_uri '{redirect_uri}' must use https"));
         }
     }
@@ -529,9 +527,9 @@ mod tests {
             client_id: client_id(),
             hashed_client_secret: secret.clone().into(),
             name: OAuthClientName::from("Client"),
-            redirect_uris: HashSet::from([OAuthRedirectUri::from(
-                "https://client.example/callback",
-            )]),
+            redirect_uris: HashSet::from([
+                url::Url::parse("https://client.example/callback").unwrap()
+            ]),
             scopes: HashSet::from([Scope::ProductsWrite]),
             created_by: UserId::new(),
             created: now,
@@ -542,7 +540,7 @@ mod tests {
     fn create_command(redirect_uri: &str) -> CreateOAuthClientCommand {
         CreateOAuthClientCommand {
             name: OAuthClientName::from("Client"),
-            redirect_uris: HashSet::from([OAuthRedirectUri::from(redirect_uri)]),
+            redirect_uris: HashSet::from([url::Url::parse(redirect_uri).unwrap()]),
             scopes: HashSet::from([Scope::ProductsWrite]),
         }
     }
@@ -579,7 +577,7 @@ mod tests {
                 AuthorizeRequest {
                     response_type: OAuthResponseType::Code,
                     client_id: client.client_id,
-                    redirect_uri: OAuthRedirectUri::from("https://client.example/callback"),
+                    redirect_uri: url::Url::parse("https://client.example/callback").unwrap(),
                     scope: HashSet::from([Scope::ProductsWrite]),
                     state: Some(OAuthState::from("state_1")),
                     code_challenge: OAuthCodeChallenge::from("challenge"),
@@ -780,7 +778,7 @@ mod tests {
                 AuthorizeRequest {
                     response_type: OAuthResponseType::Code,
                     client_id: client_id(),
-                    redirect_uri: OAuthRedirectUri::from("https://client.example/other"),
+                    redirect_uri: url::Url::parse("https://client.example/other").unwrap(),
                     scope: HashSet::from([Scope::ProductsWrite]),
                     state: None,
                     code_challenge: OAuthCodeChallenge::from("challenge"),
@@ -810,7 +808,7 @@ mod tests {
                 AuthorizeRequest {
                     response_type: OAuthResponseType::Code,
                     client_id: client_id(),
-                    redirect_uri: OAuthRedirectUri::from("https://client.example/callback"),
+                    redirect_uri: url::Url::parse("https://client.example/callback").unwrap(),
                     scope: HashSet::from([Scope::ShopsManage]),
                     state: None,
                     code_challenge: OAuthCodeChallenge::from("challenge"),
@@ -833,7 +831,7 @@ mod tests {
             code: OAuthAuthorizationCode::new(),
             client_id: client.client_id,
             user_id: UserId::new(),
-            redirect_uri: OAuthRedirectUri::from("https://client.example/callback"),
+            redirect_uri: url::Url::parse("https://client.example/callback").unwrap(),
             scopes: HashSet::from([Scope::ProductsWrite]),
             code_challenge: OAuthCodeChallenge::from("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"),
             code_challenge_method: CodeChallengeMethod::S256,
@@ -905,7 +903,7 @@ mod tests {
             code: OAuthAuthorizationCode::new(),
             client_id: client.client_id,
             user_id: UserId::new(),
-            redirect_uri: OAuthRedirectUri::from("https://client.example/callback"),
+            redirect_uri: url::Url::parse("https://client.example/callback").unwrap(),
             scopes: HashSet::from([Scope::ProductsWrite]),
             code_challenge: OAuthCodeChallenge::from("challenge"),
             code_challenge_method: CodeChallengeMethod::S256,
@@ -938,7 +936,7 @@ mod tests {
             .token(TokenRequest {
                 grant_type: OAuthGrantType::AuthorizationCode,
                 code: OAuthAuthorizationCode::new(),
-                redirect_uri: OAuthRedirectUri::from("https://client.example/callback"),
+                redirect_uri: url::Url::parse("https://client.example/callback").unwrap(),
                 client_id: client_id(),
                 client_secret: secret,
                 code_verifier: OAuthCodeVerifier::from("verifier"),
