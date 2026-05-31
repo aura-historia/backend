@@ -49,7 +49,7 @@ pub struct OAuthClientMetadataResponseData {
     pub policy_uri: Url,
     pub client_uri: Url,
     pub logo_uri: Url,
-    pub redirect_uris: HashSet<String>,
+    pub redirect_uris: HashSet<Url>,
     pub scope: HashSet<ScopeData>,
     pub client_id_issued_at: i64,
 }
@@ -102,7 +102,7 @@ impl From<OAuthClient> for OAuthClientMetadataResponseData {
             policy_uri: client.policy_uri,
             client_uri: client.client_uri,
             logo_uri: client.logo_uri,
-            redirect_uris: client.redirect_uris.into_iter().map(Into::into).collect(),
+            redirect_uris: client.redirect_uris,
             scope: client.scopes.into_iter().map(Into::into).collect(),
             client_id_issued_at: client.created.unix_timestamp(),
         }
