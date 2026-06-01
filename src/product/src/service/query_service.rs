@@ -48,15 +48,16 @@ pub trait QueryProductService {
         page: &Option<Cursor<serde_json::Value>>,
     ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchProductsError>;
 
-    /// Adaptive hybrid retrieval: BM25 + kNN run server-side, ranked via Reciprocal Rank
-    /// Fusion (RRF). The kNN side uses the supplied query `embedding` (computed by the caller
-    /// via the existing [`product_pipeline_embed_text::service::MultimodalEmbeddingService`]).
-    /// `vector_weight` and `candidate_k` are derived dynamically from soft intent signals
-    /// over the textual query.
+    /// Adaptive hybrid retrieval: BM25 + kNN are fetched independently from OpenSearch and
+    /// fused in Rust with deterministic weighted Reciprocal Rank Fusion (RRF). The kNN side
+    /// uses the supplied query `embedding` (computed by the caller via the existing
+    /// [`product_pipeline_embed_text::service::MultimodalEmbeddingService`]).
+    /// `vector_weight`, candidate window, and semantic cutoffs are derived dynamically from
+    /// soft intent signals over the textual query.
     ///
-    /// `search.product_query` MUST be set; this method always uses `_score desc` ordering
-    /// and is therefore unsuitable for searches with explicit non-score sort.
-    /// Pagination is via `search_after = [fused_score]`; ties on score are non-deterministic.
+    /// `search.product_query` MUST be set; this method always uses relevance ordering and is
+    /// therefore unsuitable for searches with explicit non-score sort. Pagination uses an
+    /// opaque JSON cursor returned by the hybrid search service.
     async fn search_products_with_dynamic_semantics(
         &self,
         search: &ProductSearch,

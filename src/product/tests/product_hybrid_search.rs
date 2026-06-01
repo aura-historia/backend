@@ -1,6 +1,8 @@
 use common::currency::domain::Currency;
 use common::language::document::{LanguageDocument, TextDocument};
 use common::language::domain::Language;
+use common::pagination::cursor::Cursor;
+use common::product_state::domain::ProductState;
 use fake::{Fake, Faker};
 use opensearch::http::Url;
 use product::core::product_search::ProductSearch;
@@ -166,4 +168,179 @@ async fn should_drop_low_similarity_vector_hits_when_query_is_visual_for_dynamic
             "low-similarity vector-only tail hit must be dropped"
         );
     }
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_rank_dual_branch_match_first_for_dynamic_hybrid_search() {
+    let query = "blue ceramic ornate vase";
+    let dual_match = make_product_doc(|doc| {
+        set_titles(doc, query);
+        doc.embedding = Some(one_hot_embedding(60, 1.0).into());
+    });
+    let bm25_only = make_product_doc(|doc| {
+        set_titles(doc, query);
+        doc.embedding = Some(one_hot_embedding(61, 1.0).into());
+    });
+    let vector_only = make_product_doc(|doc| {
+        set_titles(doc, "totally unrelated text");
+        doc.embedding = Some(one_hot_embedding(60, 1.0).into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![
+            dual_match.clone(),
+            bm25_only.clone(),
+            vector_only.clone(),
+        ])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let search = search_with_query(query);
+    let outcome = hybrid_search(
+        &repository,
+        &search,
+        &one_hot_embedding(60, 1.0),
+        &None,
+        &[search.language],
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        outcome.items.items.first().unwrap().product_id,
+        dual_match.product_id
+    );
+    let returned_ids: std::collections::HashSet<_> = outcome
+        .items
+        .items
+        .iter()
+        .map(|item| item.product_id)
+        .collect();
+    assert!(returned_ids.contains(&bm25_only.product_id));
+    assert!(returned_ids.contains(&vector_only.product_id));
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_page_dynamic_hybrid_search_without_duplicate_products() {
+    let query = "art deco lamp";
+    let docs: Vec<ProductDocument> = (0..5)
+        .map(|idx| {
+            make_product_doc(|doc| {
+                set_titles(doc, &format!("{query} {idx}"));
+                doc.embedding = Some(one_hot_embedding(70 + idx, 1.0).into());
+            })
+        })
+        .collect();
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(docs.clone())
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let search = search_with_query(query);
+    let first = hybrid_search(
+        &repository,
+        &search,
+        &one_hot_embedding(70, 1.0),
+        &Some(Cursor {
+            size: 2,
+            search_after: None,
+        }),
+        &[search.language],
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(first.items.items.len(), 2);
+    assert!(first.items.cursor.search_after.is_some());
+
+    let second = hybrid_search(
+        &repository,
+        &search,
+        &one_hot_embedding(70, 1.0),
+        &Some(first.items.cursor.clone()),
+        &[search.language],
+    )
+    .await
+    .unwrap();
+
+    assert!(!second.items.items.is_empty());
+    let first_ids: std::collections::HashSet<_> = first
+        .items
+        .items
+        .iter()
+        .map(|item| item.product_id)
+        .collect();
+    for item in &second.items.items {
+        assert!(
+            !first_ids.contains(&item.product_id),
+            "cursor pagination must not repeat products from the previous page"
+        );
+    }
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_apply_filters_to_semantic_branch_for_dynamic_hybrid_search() {
+    let query = "blue ceramic ornate vase";
+    let bm25_anchor = make_product_doc(|doc| {
+        set_titles(doc, query);
+        doc.state = ProductStateDocument::Available;
+        doc.embedding = Some(one_hot_embedding(81, 1.0).into());
+    });
+    let available_vector = make_product_doc(|doc| {
+        set_titles(doc, "totally unrelated text");
+        doc.state = ProductStateDocument::Available;
+        doc.embedding = Some(one_hot_embedding(80, 1.0).into());
+    });
+    let sold_vector = make_product_doc(|doc| {
+        set_titles(doc, "totally unrelated text");
+        doc.state = ProductStateDocument::Sold;
+        doc.embedding = Some(one_hot_embedding(80, 1.0).into());
+    });
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![
+            bm25_anchor.clone(),
+            available_vector.clone(),
+            sold_vector.clone(),
+        ])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let mut search = search_with_query(query);
+    search.state_query = std::collections::HashSet::from([ProductState::Available]).into();
+    let outcome = hybrid_search(
+        &repository,
+        &search,
+        &one_hot_embedding(80, 1.0),
+        &None,
+        &[search.language],
+    )
+    .await
+    .unwrap();
+
+    let returned_ids: std::collections::HashSet<_> = outcome
+        .items
+        .items
+        .iter()
+        .map(|item| item.product_id)
+        .collect();
+    assert!(returned_ids.contains(&bm25_anchor.product_id));
+    assert!(returned_ids.contains(&available_vector.product_id));
+    assert!(
+        !returned_ids.contains(&sold_vector.product_id),
+        "semantic branch must apply the same filters as the BM25 branch"
+    );
 }
