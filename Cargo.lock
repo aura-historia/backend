@@ -379,10 +379,11 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-account"
-version = "1.104.0"
+version = "1.105.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e04bc2dbb5dd824a686ae1736c4afd45366a055f87c268e64b18db81daed3c87"
+checksum = "505f7fc7c79a0394c577c02a78738ce5b652002b0827b0ecf190ed7142ebfa40"
 dependencies = [
+ "arc-swap",
  "aws-credential-types",
  "aws-runtime",
  "aws-smithy-async",
@@ -586,9 +587,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sesv2"
-version = "1.120.0"
+version = "1.121.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c643509bc04d9302cb9b6d61a733ef0654cf85ac0d8c293413ae3e34ae24e8c"
+checksum = "d8e944a491795ff4c590f16147fa0b05fb118bf3e7983570b04bb4cf5136fefd"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
