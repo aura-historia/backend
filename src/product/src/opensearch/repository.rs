@@ -69,6 +69,18 @@ pub trait ProductOpenSearchRepository {
         k: u16,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error>;
 
+    /// Filter-aware semantic retrieval used by dynamic hybrid search.
+    ///
+    /// This deliberately runs a plain kNN query rather than OpenSearch's native `hybrid`
+    /// query so the service layer can apply absolute relevance cutoffs and deterministic
+    /// BM25/vector fusion in Rust.
+    async fn semantic_search_product_documents(
+        &self,
+        search: &ProductSearch,
+        embedding: &[f32],
+        k: u16,
+    ) -> Result<SearchResponse<ProductDocument>, opensearch::Error>;
+
     /// Native OpenSearch hybrid retrieval. The request body uses the `hybrid` query type
     /// (parallel BM25 + kNN) combined via the pre-registered search pipeline named
     /// [`HYBRID_SEARCH_PIPELINE_NAME`], which is passed as a URL query parameter.
@@ -228,6 +240,29 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
                 ))
             })?;
         Ok(knn_response)
+    }
+
+    async fn semantic_search_product_documents(
+        &self,
+        search: &ProductSearch,
+        embedding: &[f32],
+        k: u16,
+    ) -> Result<SearchResponse<ProductDocument>, opensearch::Error> {
+        let response = self
+            .client
+            .search(SearchParts::Index(&["products"]))
+            .body(build_semantic_search_request(search, embedding, k)?)
+            .send()
+            .await?
+            .error_for_status_code()?;
+        let payload = response.text().await?;
+        let res = serde_json::from_str::<SearchResponse<ProductDocument>>(&payload)
+            .map_err(|err| {
+                serde_json::Error::custom(format!(
+                    "Failed deserializing 'SearchResponse<ProductDocument>' with error '{err}'. Received payload: {payload}"
+                ))
+            })?;
+        Ok(res)
     }
 
     async fn hybrid_search_product_documents(
@@ -633,6 +668,43 @@ fn price_field_for(currency: &Currency) -> &'static str {
         Currency::Sgd => ProductDocumentSerdeField::PriceSgd.as_str(),
         Currency::Chf => ProductDocumentSerdeField::PriceChf.as_str(),
     }
+}
+
+/// Builds the request body for the semantic branch of dynamic hybrid search.
+///
+/// The query reuses all non-text filters from [`ProductSearch`] and returns the embedding in
+/// `_source` so the service can compute exact cosine similarity and prune weak vector-only
+/// candidates before fusion.
+pub fn build_semantic_search_request(
+    search: &ProductSearch,
+    embedding: &[f32],
+    k: u16,
+) -> Result<serde_json::Value, serde_json::Error> {
+    let (must_not, filter) = build_filter_clauses(search)?;
+    let k = k.max(1);
+
+    let mut knn_body = json!({
+        "vector": embedding,
+        "k": k,
+    });
+    if !filter.is_empty() || !must_not.is_empty() {
+        knn_body["filter"] = json!({
+            "bool": {
+                "must_not": must_not,
+                "filter": filter,
+            }
+        });
+    }
+
+    Ok(json!({
+        "_source": true,
+        "size": k,
+        "query": {
+            "knn": {
+                ProductDocumentSerdeField::Embedding.as_str(): knn_body,
+            }
+        }
+    }))
 }
 
 /// Builds the request body for an OpenSearch *native hybrid* search.

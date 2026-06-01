@@ -1,12 +1,14 @@
-//! Adaptive product retrieval that combines a lexical BM25 probe with native OpenSearch
-//! hybrid search.
+//! Adaptive product retrieval that runs lexical BM25 and semantic kNN as separate
+//! OpenSearch queries and fuses the candidates in Rust.
 //!
 //! The flow is:
 //! 1. Run a small BM25 probe to measure how sharp the lexical intent already is.
 //! 2. Derive soft intent signals from query text, embedding, and the probe scores.
 //! 3. Route clearly precision-dominant queries to the regular BM25 path.
-//! 4. Otherwise run the native hybrid query and trim low-confidence vector-only tail hits
-//!    client-side using an adaptive semantic floor.
+//! 4. Otherwise fetch BM25 and filtered semantic candidates independently, apply hard
+//!    semantic relevance cutoffs to vector-only candidates, and rank with weighted RRF.
+//! 5. Return a deterministic cursor over the fused order so user-facing endless scroll
+//!    does not depend on OpenSearch native hybrid pagination quirks.
 
 use crate::core::product::{LocalizedProductView, Product};
 use crate::core::product_search::ProductSearch;
@@ -16,17 +18,41 @@ use crate::opensearch::intent::{
     semantic_dropout_floor, should_prefer_lexical_search,
 };
 use crate::opensearch::product_document::ProductDocument;
-use crate::opensearch::repository::{HYBRID_BM25_QUERY_NAME, ProductOpenSearchRepository};
+use crate::opensearch::repository::ProductOpenSearchRepository;
 use common::language::domain::Language;
 use common::opensearch::search_response::{OpenSearchTimedOutError, SearchHit, SearchResponse};
 use common::pagination::cursor::{Cursor, CursoredResult};
+use common::product_id::ProductId;
 use common::sort::{Sort, SortOrder};
-use serde_json::json;
-use std::collections::HashSet;
+use serde_json::{Value, json};
+use std::cmp::Ordering;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 
 const DEFAULT_PAGE_SIZE: u64 = 20;
 const HYBRID_BM25_PROBE_SIZE: u64 = 8;
-const HYBRID_MAX_SCAN_MULTIPLIER: u64 = 5;
+const HYBRID_CANDIDATE_OVERSAMPLE: u64 = 5;
+const HYBRID_MAX_CANDIDATE_WINDOW: u64 = 1_200;
+const HYBRID_RRF_K: f64 = 60.0;
+const HYBRID_CURSOR_STRATEGY: &str = "manual_hybrid_rrf_v1";
+const SCORE_EPSILON: f64 = 1e-9;
+
+// Empirical semantic-tail guardrails for Gemini Embedding 2 product embeddings.
+//
+// They are not statistically calibrated thresholds; they encode a pragmatic ecommerce
+// relevance policy observed in manual/query-fixture testing for arts & antiques:
+//
+// - vector-only hits must pass the intent-derived absolute cosine floor first;
+// - additionally, they must stay close enough to the best semantic candidate in the current
+//   candidate window so a weak kNN tail cannot pollute the fused result set;
+// - vector-heavy visual/exploratory intents get a wider margin to preserve useful semantic
+//   recall, while precision/style-ish intents stay tighter to avoid topic drift;
+// - the max relative floor avoids turning a near-perfect top hit into a near-duplicate-only
+//   cutoff, which would drop still-relevant alternatives.
+const SEMANTIC_TAIL_MARGIN_MIN: f32 = 0.28;
+const SEMANTIC_TAIL_MARGIN_VECTOR_WEIGHT_BONUS: f32 = 0.18;
+const SEMANTIC_TAIL_MARGIN_MAX: f32 = 0.44;
+const SEMANTIC_RELATIVE_FLOOR_MAX: f32 = 0.72;
 
 struct HybridFilterContext<'a> {
     query_text: &'a str,
@@ -34,6 +60,36 @@ struct HybridFilterContext<'a> {
     languages: &'a [Language],
     params: HybridSearchParams,
     min_semantic_cosine: f32,
+}
+
+#[derive(Debug, Clone, Default)]
+struct HybridCursorState {
+    rank_after: usize,
+    product_id: Option<String>,
+    fused_score: Option<f64>,
+}
+
+struct SemanticCandidate {
+    source: ProductDocument,
+    score: Option<f64>,
+    semantic_cosine: Option<f32>,
+}
+
+struct FusionCandidate {
+    product_id_sort: String,
+    doc: ProductDocument,
+    bm25_rank: Option<usize>,
+    bm25_score: Option<f64>,
+    vector_rank: Option<usize>,
+    semantic_cosine: Option<f32>,
+}
+
+struct RankedHybridHit {
+    product_id_sort: String,
+    doc: ProductDocument,
+    fused_score: f64,
+    bm25_score: Option<f64>,
+    semantic_cosine: Option<f32>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -55,8 +111,8 @@ pub struct HybridSearchOutcome {
 /// Run an adaptive search.
 ///
 /// Highly specific product lookups stay on the lexical BM25 path. Broader visual / style /
-/// exploratory queries continue to use the native OpenSearch hybrid query, but low-quality
-/// vector-only tail hits are dropped before the page is returned to the caller.
+/// exploratory queries use independent BM25 and kNN retrieval, hard-cut weak semantic tail
+/// hits, then fuse the remaining candidates in Rust with deterministic pagination.
 pub async fn hybrid_search(
     repository: &(dyn ProductOpenSearchRepository + Sync),
     search: &ProductSearch,
@@ -128,7 +184,7 @@ pub async fn hybrid_search(
         params,
         min_semantic_cosine: semantic_dropout_floor(&intent),
     };
-    let items = fetch_filtered_hybrid_page(repository, search, page, &filter_context).await?;
+    let items = fetch_fused_hybrid_page(repository, search, page, &filter_context).await?;
 
     Ok(HybridSearchOutcome {
         items,
@@ -137,154 +193,340 @@ pub async fn hybrid_search(
     })
 }
 
-async fn fetch_filtered_hybrid_page(
+async fn fetch_fused_hybrid_page(
     repository: &(dyn ProductOpenSearchRepository + Sync),
     search: &ProductSearch,
     page: &Option<Cursor<serde_json::Value>>,
     context: &HybridFilterContext<'_>,
 ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, HybridSearchError> {
     let requested_size = requested_page_size(page);
-    let max_scanned_hits = requested_size
-        .saturating_mul(HYBRID_MAX_SCAN_MULTIPLIER)
-        .max(requested_size);
+    let cursor_state = parse_hybrid_cursor(page);
+    let candidate_window = candidate_window(requested_size, &cursor_state, context.params);
+    let bm25_cursor = Some(Cursor {
+        size: candidate_window,
+        search_after: None,
+    });
+    let semantic_k = candidate_window.min(u16::MAX as u64) as u16;
+    let sort = score_sort();
 
-    let mut accepted = Vec::with_capacity(requested_size as usize);
-    let mut raw_total = None;
-    let mut dropped_any = false;
-    let mut fetched_pages = 0u64;
-    let mut scanned_hits = 0u64;
-    let mut next_search_after = page.as_ref().and_then(|cursor| cursor.search_after.clone());
-    let mut last_processed_sort = None;
+    let (bm25_response, semantic_response) = tokio::try_join!(
+        repository.search_product_documents(search, &sort, &bm25_cursor),
+        repository.semantic_search_product_documents(search, context.embedding, semantic_k),
+    )?;
 
-    loop {
-        let current_cursor = Some(Cursor {
-            size: requested_size,
-            search_after: next_search_after.clone(),
-        });
-        let response = repository
-            .hybrid_search_product_documents(
-                search,
-                context.embedding,
-                context.params,
-                &current_cursor,
-            )
-            .await?
-            .into_non_timed_out("product hybrid search")?;
-        fetched_pages += 1;
+    let bm25_response = bm25_response.into_non_timed_out("product hybrid bm25 candidates")?;
+    let semantic_response =
+        semantic_response.into_non_timed_out("product hybrid semantic candidates")?;
 
-        if raw_total.is_none() {
-            raw_total = Some(response.hits.total.value);
-        }
+    let bm25_total = bm25_response.hits.total.value;
+    let bm25_hit_count = bm25_response.hits.hits.len() as u64;
+    let semantic_hit_count = semantic_response.hits.hits.len() as u64;
+    let ranked = fuse_hybrid_hits(
+        search,
+        context,
+        bm25_response.hits.hits,
+        semantic_response.hits.hits,
+    );
 
-        let page_hits = response.hits.hits;
-        let page_hit_count = page_hits.len();
-        // When the OpenSearch hybrid normalization pipeline omits `sort` values from hits,
-        // fall back to the hit's `_score` wrapped in an array so that `search_after`
-        // remains usable with the single-field `[_score]` sort clause.
-        let page_last_sort = page_hits
-            .iter()
-            .rev()
-            .find_map(|hit| hit.sort.clone().or_else(|| hit.score.map(|s| json!([s]))));
+    let start_index = page_start_index(&ranked, &cursor_state);
+    let page_hits = ranked
+        .iter()
+        .skip(start_index)
+        .take(requested_size as usize)
+        .collect::<Vec<_>>();
 
-        if page_hit_count == 0 {
-            break;
-        }
+    let items = page_hits
+        .iter()
+        .map(|hit| Product::from(hit.doc.clone()).localized(&search.currency, context.languages))
+        .collect::<Vec<_>>();
 
-        for hit in page_hits {
-            let effective_sort = hit.sort.clone().or_else(|| hit.score.map(|s| json!([s])));
-            if effective_sort.is_some() {
-                last_processed_sort = effective_sort;
-            }
-            scanned_hits += 1;
+    let page_end = start_index.saturating_add(page_hits.len());
+    let bm25_has_more = bm25_hit_count >= candidate_window && bm25_total > candidate_window;
+    let semantic_has_more =
+        semantic_hit_count >= candidate_window && candidate_window < HYBRID_MAX_CANDIDATE_WINDOW;
+    let maybe_more =
+        page_end < ranked.len() || (!page_hits.is_empty() && (bm25_has_more || semantic_has_more));
+    let next_search_after = page_hits
+        .last()
+        .and_then(|last| maybe_more.then(|| build_hybrid_cursor(page_end, last)));
 
-            if should_keep_hybrid_hit(
-                search,
-                context.query_text,
-                context.embedding,
-                context.min_semantic_cosine,
-                &hit,
-            ) {
-                accepted
-                    .push(Product::from(hit.source).localized(&search.currency, context.languages));
-                if accepted.len() as u64 == requested_size {
-                    return Ok(CursoredResult {
-                        items: accepted,
-                        cursor: Cursor {
-                            size: requested_size,
-                            search_after: last_processed_sort,
-                        },
-                        total: if dropped_any || fetched_pages > 1 {
-                            None
-                        } else {
-                            raw_total
-                        },
-                    });
-                }
-            } else {
-                dropped_any = true;
-            }
-
-            if scanned_hits >= max_scanned_hits {
-                let size = accepted.len() as u64;
-                return Ok(CursoredResult {
-                    items: accepted,
-                    cursor: Cursor {
-                        size,
-                        search_after: last_processed_sort,
-                    },
-                    total: None,
-                });
-            }
-        }
-
-        if page_hit_count < requested_size as usize || page_last_sort.is_none() {
-            break;
-        }
-        if page_last_sort == next_search_after {
-            break;
-        }
-        next_search_after = page_last_sort;
-    }
-
-    let size = accepted.len() as u64;
     Ok(CursoredResult {
-        items: accepted,
         cursor: Cursor {
-            size,
-            search_after: last_processed_sort,
+            size: items.len() as u64,
+            search_after: next_search_after,
         },
-        total: if dropped_any || fetched_pages > 1 {
-            None
-        } else {
-            raw_total
-        },
+        items,
+        // The fused result set is intentionally candidate-window based and client-pruned.
+        // Returning the raw BM25 total would be misleading once semantic-only hits are added
+        // and weak vector candidates are removed.
+        total: None,
     })
 }
 
-fn should_keep_hybrid_hit(
+fn fuse_hybrid_hits(
+    search: &ProductSearch,
+    context: &HybridFilterContext<'_>,
+    bm25_hits: Vec<SearchHit<ProductDocument>>,
+    semantic_hits: Vec<SearchHit<ProductDocument>>,
+) -> Vec<RankedHybridHit> {
+    let mut candidates = HashMap::<ProductId, FusionCandidate>::with_capacity(
+        bm25_hits.len().saturating_add(semantic_hits.len()),
+    );
+
+    for (idx, hit) in bm25_hits.into_iter().enumerate() {
+        let doc = hit.source;
+        let product_id = doc.product_id;
+        candidates.insert(
+            product_id,
+            FusionCandidate {
+                product_id_sort: product_id.to_string(),
+                doc,
+                bm25_rank: Some(idx + 1),
+                bm25_score: hit.score,
+                vector_rank: None,
+                semantic_cosine: None,
+            },
+        );
+    }
+
+    let mut semantic_candidates = semantic_hits
+        .into_iter()
+        .map(|hit| SemanticCandidate {
+            semantic_cosine: hit
+                .source
+                .embedding
+                .as_deref()
+                .and_then(|doc_embedding| cosine_similarity(context.embedding, doc_embedding)),
+            score: hit.score,
+            source: hit.source,
+        })
+        .collect::<Vec<_>>();
+
+    let semantic_floor = semantic_acceptance_floor(context, &semantic_candidates);
+    semantic_candidates.retain(|candidate| {
+        should_keep_semantic_candidate(search, context.query_text, semantic_floor, candidate)
+    });
+    semantic_candidates.sort_by(compare_semantic_candidates);
+
+    for (idx, candidate) in semantic_candidates.into_iter().enumerate() {
+        let product_id = candidate.source.product_id;
+        let product_id_sort = product_id.to_string();
+        match candidates.entry(product_id) {
+            Entry::Occupied(mut entry) => {
+                let entry = entry.get_mut();
+                entry.vector_rank = Some(idx + 1);
+                entry.semantic_cosine =
+                    max_optional_f32(entry.semantic_cosine, candidate.semantic_cosine);
+                if entry.doc.embedding.is_none() && candidate.source.embedding.is_some() {
+                    entry.doc = candidate.source;
+                }
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(FusionCandidate {
+                    product_id_sort,
+                    doc: candidate.source,
+                    bm25_rank: None,
+                    bm25_score: None,
+                    vector_rank: Some(idx + 1),
+                    semantic_cosine: candidate.semantic_cosine,
+                });
+            }
+        }
+    }
+
+    let bm25_weight =
+        (1.0 - context.params.vector_weight).max(HybridSearchParams::MIN_BM25_WEIGHT) as f64;
+    let vector_weight = context.params.vector_weight as f64;
+    let mut ranked = candidates
+        .into_values()
+        .map(|candidate| {
+            let fused_score = candidate
+                .bm25_rank
+                .map(|rank| reciprocal_rank_score(rank, bm25_weight))
+                .unwrap_or_default()
+                + candidate
+                    .vector_rank
+                    .map(|rank| reciprocal_rank_score(rank, vector_weight))
+                    .unwrap_or_default();
+
+            RankedHybridHit {
+                product_id_sort: candidate.product_id_sort,
+                doc: candidate.doc,
+                fused_score,
+                bm25_score: candidate.bm25_score,
+                semantic_cosine: candidate.semantic_cosine,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    ranked.sort_by(compare_ranked_hybrid_hits);
+    ranked
+}
+
+fn semantic_acceptance_floor(
+    context: &HybridFilterContext<'_>,
+    candidates: &[SemanticCandidate],
+) -> f32 {
+    let top_semantic = candidates
+        .iter()
+        .filter_map(|candidate| candidate.semantic_cosine)
+        .max_by(|lhs, rhs| lhs.partial_cmp(rhs).unwrap_or(Ordering::Equal));
+
+    match top_semantic {
+        Some(top) => {
+            let relative_floor = top - semantic_tail_margin(context.params);
+            relative_floor
+                .max(context.min_semantic_cosine)
+                .clamp(context.min_semantic_cosine, SEMANTIC_RELATIVE_FLOOR_MAX)
+        }
+        None => context.min_semantic_cosine,
+    }
+}
+
+fn semantic_tail_margin(params: HybridSearchParams) -> f32 {
+    (SEMANTIC_TAIL_MARGIN_MIN + SEMANTIC_TAIL_MARGIN_VECTOR_WEIGHT_BONUS * params.vector_weight)
+        .clamp(SEMANTIC_TAIL_MARGIN_MIN, SEMANTIC_TAIL_MARGIN_MAX)
+}
+
+fn should_keep_semantic_candidate(
     search: &ProductSearch,
     query_text: &str,
-    query_embedding: &[f32],
-    min_semantic_cosine: f32,
-    hit: &SearchHit<ProductDocument>,
+    semantic_floor: f32,
+    candidate: &SemanticCandidate,
 ) -> bool {
-    if hit
-        .matched_queries
-        .iter()
-        .any(|name| name == HYBRID_BM25_QUERY_NAME)
-    {
-        return true;
+    hit_has_text_anchor(search, query_text, &candidate.source)
+        || candidate
+            .semantic_cosine
+            .is_some_and(|cosine| cosine + 1e-6 >= semantic_floor)
+}
+
+fn reciprocal_rank_score(rank: usize, weight: f64) -> f64 {
+    weight / (HYBRID_RRF_K + rank as f64)
+}
+
+fn candidate_window(
+    requested_size: u64,
+    cursor: &HybridCursorState,
+    params: HybridSearchParams,
+) -> u64 {
+    let rank_after = cursor.rank_after as u64;
+    rank_after
+        .saturating_add(requested_size.saturating_mul(HYBRID_CANDIDATE_OVERSAMPLE))
+        .max(params.candidate_k as u64)
+        .max(requested_size)
+        .min(HYBRID_MAX_CANDIDATE_WINDOW)
+}
+
+fn parse_hybrid_cursor(page: &Option<Cursor<Value>>) -> HybridCursorState {
+    let Some(search_after) = page
+        .as_ref()
+        .and_then(|cursor| cursor.search_after.as_ref())
+    else {
+        return HybridCursorState::default();
+    };
+    let Some(obj) = search_after.as_object() else {
+        return HybridCursorState::default();
+    };
+
+    let strategy_matches = obj
+        .get("strategy")
+        .and_then(Value::as_str)
+        .is_some_and(|strategy| strategy == HYBRID_CURSOR_STRATEGY);
+    if !strategy_matches && !obj.contains_key("rankAfter") {
+        return HybridCursorState::default();
     }
 
-    if hit_has_text_anchor(search, query_text, &hit.source) {
-        return true;
+    HybridCursorState {
+        rank_after: obj
+            .get("rankAfter")
+            .and_then(Value::as_u64)
+            .unwrap_or_default() as usize,
+        product_id: obj
+            .get("productId")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        fused_score: obj.get("score").and_then(Value::as_f64),
+    }
+}
+
+fn page_start_index(ranked: &[RankedHybridHit], cursor: &HybridCursorState) -> usize {
+    if let Some(product_id) = cursor.product_id.as_deref() {
+        if let Some(pos) = ranked.iter().position(|hit| {
+            hit.product_id_sort == product_id
+                && cursor
+                    .fused_score
+                    .map(|score| scores_equal(hit.fused_score, score))
+                    .unwrap_or(true)
+        }) {
+            return pos + 1;
+        }
+
+        if let Some(pos) = ranked
+            .iter()
+            .position(|hit| hit.product_id_sort == product_id)
+        {
+            return pos + 1;
+        }
     }
 
-    hit.source
-        .embedding
-        .as_deref()
-        .and_then(|doc_embedding| cosine_similarity(query_embedding, doc_embedding))
-        .is_some_and(|cosine| cosine + 1e-6 >= min_semantic_cosine)
+    cursor.rank_after.min(ranked.len())
+}
+
+fn build_hybrid_cursor(rank_after: usize, last: &RankedHybridHit) -> Value {
+    json!({
+        "strategy": HYBRID_CURSOR_STRATEGY,
+        "rankAfter": rank_after,
+        "score": last.fused_score,
+        "productId": last.product_id_sort,
+    })
+}
+
+fn scores_equal(lhs: f64, rhs: f64) -> bool {
+    (lhs - rhs).abs() <= SCORE_EPSILON
+}
+
+fn compare_ranked_hybrid_hits(lhs: &RankedHybridHit, rhs: &RankedHybridHit) -> Ordering {
+    compare_f64_desc(lhs.fused_score, rhs.fused_score)
+        .then_with(|| compare_option_f32_desc(lhs.semantic_cosine, rhs.semantic_cosine))
+        .then_with(|| compare_option_f64_desc(lhs.bm25_score, rhs.bm25_score))
+        .then_with(|| lhs.product_id_sort.cmp(&rhs.product_id_sort))
+}
+
+fn compare_semantic_candidates(lhs: &SemanticCandidate, rhs: &SemanticCandidate) -> Ordering {
+    compare_option_f32_desc(lhs.semantic_cosine, rhs.semantic_cosine)
+        .then_with(|| compare_option_f64_desc(lhs.score, rhs.score))
+        .then_with(|| lhs.source.product_id.cmp(&rhs.source.product_id))
+}
+
+fn compare_f64_desc(lhs: f64, rhs: f64) -> Ordering {
+    rhs.partial_cmp(&lhs).unwrap_or(Ordering::Equal)
+}
+
+fn compare_option_f64_desc(lhs: Option<f64>, rhs: Option<f64>) -> Ordering {
+    match (lhs, rhs) {
+        (Some(lhs), Some(rhs)) => compare_f64_desc(lhs, rhs),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
+}
+
+fn compare_option_f32_desc(lhs: Option<f32>, rhs: Option<f32>) -> Ordering {
+    match (lhs, rhs) {
+        (Some(lhs), Some(rhs)) => rhs.partial_cmp(&lhs).unwrap_or(Ordering::Equal),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
+}
+
+fn max_optional_f32(lhs: Option<f32>, rhs: Option<f32>) -> Option<f32> {
+    match (lhs, rhs) {
+        (Some(lhs), Some(rhs)) => Some(lhs.max(rhs)),
+        (Some(lhs), None) => Some(lhs),
+        (None, Some(rhs)) => Some(rhs),
+        (None, None) => None,
+    }
 }
 
 fn hit_has_text_anchor(search: &ProductSearch, query_text: &str, doc: &ProductDocument) -> bool {
@@ -469,23 +711,6 @@ mod tests {
         }
     }
 
-    /// Creates a hit with `sort: None` to simulate OpenSearch hybrid pipeline responses that
-    /// omit sort values (e.g. when the normalization pipeline does not forward them).
-    fn mk_hit_no_sort(
-        doc: ProductDocument,
-        score: f64,
-        matched_queries: Vec<&str>,
-    ) -> SearchHit<ProductDocument> {
-        SearchHit {
-            index: "products".to_string(),
-            id: doc.product_id.to_string(),
-            score: Some(score),
-            sort: None,
-            matched_queries: matched_queries.into_iter().map(str::to_string).collect(),
-            source: doc,
-        }
-    }
-
     fn mk_response(hits: Vec<SearchHit<ProductDocument>>) -> SearchResponse<ProductDocument> {
         SearchResponse {
             took: 1,
@@ -507,38 +732,79 @@ mod tests {
         }
     }
 
+    fn timed_out_response() -> SearchResponse<ProductDocument> {
+        SearchResponse {
+            took: 120,
+            timed_out: true,
+            shards: ShardStats {
+                total: 4,
+                successful: 3,
+                skipped: 0,
+                failed: 1,
+            },
+            hits: HitsMetadata {
+                total: TotalHits {
+                    value: 0,
+                    relation: "eq".to_string(),
+                },
+                max_score: None,
+                hits: vec![],
+            },
+        }
+    }
+
+    fn flat_probe() -> SearchResponse<ProductDocument> {
+        mk_response(vec![
+            mk_hit(mk_doc("art deco lamp"), 1.0, json!([1.0]), vec![]),
+            mk_hit(mk_doc("art deco floor lamp"), 0.99, json!([0.99]), vec![]),
+            mk_hit(mk_doc("art deco table lamp"), 0.98, json!([0.98]), vec![]),
+        ])
+    }
+
     #[tokio::test]
-    async fn should_dispatch_native_hybrid_query_for_text_search() {
+    async fn should_dispatch_parallel_bm25_and_semantic_queries_for_text_search() {
         let mut repo = MockProductOpenSearchRepository::default();
-        let probe = mk_response(vec![mk_hit(
-            mk_doc("art deco lamp"),
+        let probe = flat_probe();
+        let bm25_doc = mk_doc("art deco lamp");
+        let bm25_candidates =
+            mk_response(vec![mk_hit(bm25_doc, 1.0, json!([1.0, "bm25"]), vec![])]);
+        let mut semantic_doc = mk_doc("unrelated title");
+        semantic_doc.embedding = Some(one_hot_embedding(0));
+        let semantic_candidates = mk_response(vec![mk_hit(
+            semantic_doc,
             1.0,
-            json!([1.0]),
+            json!([1.0, "semantic"]),
             vec![],
-        )]);
-        let hybrid_response = mk_response(vec![mk_hit(
-            mk_doc("art deco lamp"),
-            1.0,
-            json!([1.0]),
-            vec![HYBRID_BM25_QUERY_NAME],
         )]);
 
         repo.expect_search_product_documents()
+            .times(2)
+            .returning(move |_, _, cursor| {
+                let response = if cursor.as_ref().map(|c| c.size) == Some(HYBRID_BM25_PROBE_SIZE) {
+                    probe.clone()
+                } else {
+                    bm25_candidates.clone()
+                };
+                Box::pin(async move { Ok(response) })
+            });
+        repo.expect_semantic_search_product_documents()
             .times(1)
-            .return_once(move |_, _, _| Box::pin(async move { Ok(probe) }));
-        repo.expect_hybrid_search_product_documents()
-            .times(1)
-            .return_once(move |_, _, _, _| Box::pin(async move { Ok(hybrid_response) }));
+            .return_once(move |_, embedding, k| {
+                assert_eq!(embedding[0], 1.0);
+                assert!(k >= HybridSearchParams::MIN_CANDIDATE_K);
+                Box::pin(async move { Ok(semantic_candidates) })
+            });
 
         let search = mk_search();
         let embedding = one_hot_embedding(0);
         let outcome = hybrid_search(&repo, &search, &embedding, &None, &[search.language])
             .await
             .unwrap();
-        assert_eq!(outcome.items.items.len(), 1);
+        assert_eq!(outcome.items.items.len(), 2);
         assert!(outcome.params.vector_weight <= 1.0 - HybridSearchParams::MIN_BM25_WEIGHT);
         assert!(outcome.params.candidate_k >= HybridSearchParams::MIN_CANDIDATE_K);
         assert!(outcome.params.candidate_k <= HybridSearchParams::MAX_CANDIDATE_K);
+        assert!(outcome.items.total.is_none());
     }
 
     #[tokio::test]
@@ -546,28 +812,43 @@ mod tests {
         let mut repo = MockProductOpenSearchRepository::default();
         repo.expect_search_product_documents()
             .times(1)
-            .return_once(|_, _, _| {
-                Box::pin(async move {
-                    Ok(SearchResponse {
-                        took: 120,
-                        timed_out: true,
-                        shards: ShardStats {
-                            total: 4,
-                            successful: 3,
-                            skipped: 0,
-                            failed: 1,
-                        },
-                        hits: HitsMetadata {
-                            total: TotalHits {
-                                value: 0,
-                                relation: "eq".to_string(),
-                            },
-                            max_score: None,
-                            hits: vec![],
-                        },
-                    })
-                })
+            .return_once(|_, _, _| Box::pin(async move { Ok(timed_out_response()) }));
+
+        let search = mk_search();
+        let result = hybrid_search(
+            &repo,
+            &search,
+            &one_hot_embedding(0),
+            &None,
+            &[search.language],
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(HybridSearchError::OpenSearchTimedOut(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_err_when_semantic_candidate_query_times_out() {
+        let mut repo = MockProductOpenSearchRepository::default();
+        let probe = flat_probe();
+        let bm25_candidates = mk_response(vec![]);
+
+        repo.expect_search_product_documents()
+            .times(2)
+            .returning(move |_, _, cursor| {
+                let response = if cursor.as_ref().map(|c| c.size) == Some(HYBRID_BM25_PROBE_SIZE) {
+                    probe.clone()
+                } else {
+                    bm25_candidates.clone()
+                };
+                Box::pin(async move { Ok(response) })
             });
+        repo.expect_semantic_search_product_documents()
+            .times(1)
+            .return_once(|_, _, _| Box::pin(async move { Ok(timed_out_response()) }));
 
         let search = mk_search();
         let result = hybrid_search(
@@ -611,6 +892,7 @@ mod tests {
             .times(1)
             .in_sequence(&mut seq)
             .return_once(move |_, _, _| Box::pin(async move { Ok(lexical) }));
+        repo.expect_semantic_search_product_documents().times(0);
 
         let mut search = mk_search();
         search.product_query = Some("Rolex Submariner 1965".try_into().unwrap());
@@ -621,151 +903,46 @@ mod tests {
 
         assert_eq!(outcome.items.items.len(), 1);
         assert_eq!(outcome.items.items[0].product_id, exact.product_id);
+        assert_eq!(outcome.items.total, Some(1));
     }
 
     #[tokio::test]
-    async fn should_propagate_pagination_cursor_from_opensearch_response() {
+    async fn should_drop_low_similarity_vector_only_candidates() {
         let mut repo = MockProductOpenSearchRepository::default();
-        let probe = mk_response(vec![mk_hit(
-            mk_doc("art deco lamp"),
+        let probe = flat_probe();
+        let bm25_anchor = mk_doc("blue ceramic ornate vase");
+        let bm25_candidates = mk_response(vec![mk_hit(
+            bm25_anchor.clone(),
             1.0,
-            json!([1.0]),
+            json!([1.0, bm25_anchor.product_id]),
             vec![],
         )]);
-        let hybrid = mk_response(vec![
-            mk_hit(
-                mk_doc("art deco lamp"),
-                1.0,
-                json!([1.0]),
-                vec![HYBRID_BM25_QUERY_NAME],
-            ),
-            mk_hit(
-                mk_doc("art deco floor lamp"),
-                0.9,
-                json!([0.9]),
-                vec![HYBRID_BM25_QUERY_NAME],
-            ),
+
+        let mut vector_target = mk_doc("unrelated text");
+        vector_target.embedding = Some(one_hot_embedding(0));
+        let mut vector_noise = mk_doc("unrelated text");
+        vector_noise.embedding = Some(one_hot_embedding(1));
+        let semantic_candidates = mk_response(vec![
+            mk_hit(vector_target.clone(), 1.0, json!([1.0]), vec![]),
+            mk_hit(vector_noise.clone(), 0.9, json!([0.9]), vec![]),
         ]);
+
         repo.expect_search_product_documents()
-            .times(1)
-            .return_once(move |_, _, _| Box::pin(async move { Ok(probe) }));
-        repo.expect_hybrid_search_product_documents()
-            .times(1)
-            .return_once(move |_, _, _, _| Box::pin(async move { Ok(hybrid) }));
-
-        let search = mk_search();
-        let outcome = hybrid_search(
-            &repo,
-            &search,
-            &one_hot_embedding(0),
-            &None,
-            &[search.language],
-        )
-        .await
-        .unwrap();
-        assert!(outcome.items.cursor.search_after.is_some());
-    }
-
-    #[tokio::test]
-    async fn should_scan_additional_hybrid_pages_when_initial_page_contains_dropouts() {
-        let mut repo = MockProductOpenSearchRepository::default();
-        let mut seq = Sequence::new();
-
-        let probe = mk_response(vec![
-            mk_hit(mk_doc("blue ceramic vase"), 1.0, json!([1.0]), vec![]),
-            mk_hit(mk_doc("blue ceramic jar"), 0.99, json!([0.99]), vec![]),
-            mk_hit(mk_doc("blue glass vase"), 0.98, json!([0.98]), vec![]),
-        ]);
-        repo.expect_search_product_documents()
-            .times(1)
-            .in_sequence(&mut seq)
-            .return_once(move |_, _, _| Box::pin(async move { Ok(probe) }));
-
-        let bm25_hit = mk_hit(
-            mk_doc("blue ceramic vase"),
-            1.0,
-            json!([1.0]),
-            vec![HYBRID_BM25_QUERY_NAME],
-        );
-        let mut junk_doc = mk_doc("totally unrelated text");
-        junk_doc.embedding = Some(one_hot_embedding(1));
-        let junk_hit = mk_hit(junk_doc, 0.9, json!([0.9]), vec![]);
-        let page_one = mk_response(vec![bm25_hit, junk_hit]);
-
-        let mut good_vector_doc = mk_doc("totally unrelated text");
-        good_vector_doc.embedding = Some(one_hot_embedding(0));
-        let page_two = mk_response(vec![mk_hit(good_vector_doc, 0.8, json!([0.8]), vec![])]);
-
-        repo.expect_hybrid_search_product_documents()
-            .times(1)
-            .in_sequence(&mut seq)
-            .return_once(move |_, _, _, cursor| {
-                assert!(
-                    cursor
-                        .as_ref()
-                        .and_then(|page| page.search_after.clone())
-                        .is_none()
-                );
-                Box::pin(async move { Ok(page_one) })
+            .times(2)
+            .returning(move |_, _, cursor| {
+                let response = if cursor.as_ref().map(|c| c.size) == Some(HYBRID_BM25_PROBE_SIZE) {
+                    probe.clone()
+                } else {
+                    bm25_candidates.clone()
+                };
+                Box::pin(async move { Ok(response) })
             });
-        repo.expect_hybrid_search_product_documents()
+        repo.expect_semantic_search_product_documents()
             .times(1)
-            .in_sequence(&mut seq)
-            .return_once(move |_, _, _, cursor| {
-                assert_eq!(
-                    cursor.as_ref().and_then(|page| page.search_after.clone()),
-                    Some(json!([0.9]))
-                );
-                Box::pin(async move { Ok(page_two) })
-            });
+            .return_once(move |_, _, _| Box::pin(async move { Ok(semantic_candidates) }));
 
         let mut search = mk_search();
-        search.product_query = Some("blue ceramic vase".try_into().unwrap());
-        let outcome = hybrid_search(
-            &repo,
-            &search,
-            &one_hot_embedding(0),
-            &Some(Cursor {
-                size: 2,
-                search_after: None,
-            }),
-            &[search.language],
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(outcome.items.items.len(), 2);
-        assert_eq!(outcome.items.cursor.search_after, Some(json!([0.8])));
-    }
-
-    #[tokio::test]
-    async fn should_propagate_pagination_cursor_using_score_fallback_when_sort_values_absent() {
-        // Simulates the case where OpenSearch's hybrid normalization pipeline omits `sort`
-        // values from hits. The fallback should produce `searchAfter: [score]` so the
-        // caller can still paginate.
-        let mut repo = MockProductOpenSearchRepository::default();
-        let probe = mk_response(vec![mk_hit(
-            mk_doc("art deco lamp"),
-            1.0,
-            json!([1.0]),
-            vec![],
-        )]);
-        let hybrid = mk_response(vec![
-            mk_hit_no_sort(mk_doc("art deco lamp"), 1.0, vec![HYBRID_BM25_QUERY_NAME]),
-            mk_hit_no_sort(
-                mk_doc("art deco floor lamp"),
-                0.9,
-                vec![HYBRID_BM25_QUERY_NAME],
-            ),
-        ]);
-        repo.expect_search_product_documents()
-            .times(1)
-            .return_once(move |_, _, _| Box::pin(async move { Ok(probe) }));
-        repo.expect_hybrid_search_product_documents()
-            .times(1)
-            .return_once(move |_, _, _, _| Box::pin(async move { Ok(hybrid) }));
-
-        let search = mk_search();
+        search.product_query = Some("blue ceramic ornate vase".try_into().unwrap());
         let outcome = hybrid_search(
             &repo,
             &search,
@@ -776,73 +953,105 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(outcome.items.items.len(), 2);
-        // searchAfter should be derived from the last hit's score since sort is absent
-        assert_eq!(outcome.items.cursor.search_after, Some(json!([0.9])));
+        let returned_ids = outcome
+            .items
+            .items
+            .iter()
+            .map(|item| item.product_id)
+            .collect::<HashSet<_>>();
+        assert!(returned_ids.contains(&bm25_anchor.product_id));
+        assert!(returned_ids.contains(&vector_target.product_id));
+        assert!(!returned_ids.contains(&vector_noise.product_id));
     }
 
     #[tokio::test]
-    async fn should_scan_additional_hybrid_pages_using_score_fallback_when_sort_values_absent() {
-        // Simulates multi-page scanning where OpenSearch does not return sort values.
-        // The score-based fallback must be forwarded as `search_after` for subsequent pages.
+    async fn should_rank_dual_branch_candidate_above_single_branch_candidates() {
         let mut repo = MockProductOpenSearchRepository::default();
-        let mut seq = Sequence::new();
+        let probe = flat_probe();
 
-        let probe = mk_response(vec![
-            mk_hit(mk_doc("blue ceramic vase"), 1.0, json!([1.0]), vec![]),
-            mk_hit(mk_doc("blue ceramic jar"), 0.99, json!([0.99]), vec![]),
-            mk_hit(mk_doc("blue glass vase"), 0.98, json!([0.98]), vec![]),
+        let bm25_only = mk_doc("blue ceramic ornate vase");
+        let mut dual = mk_doc("blue ceramic ornate vase");
+        dual.embedding = Some(one_hot_embedding(0));
+        let bm25_candidates = mk_response(vec![
+            mk_hit(bm25_only.clone(), 3.0, json!([3.0]), vec![]),
+            mk_hit(dual.clone(), 2.0, json!([2.0]), vec![]),
         ]);
+
+        let mut vector_only = mk_doc("unrelated text");
+        vector_only.embedding = Some(one_hot_embedding(0));
+        let semantic_candidates = mk_response(vec![
+            mk_hit(dual.clone(), 1.0, json!([1.0]), vec![]),
+            mk_hit(vector_only, 0.99, json!([0.99]), vec![]),
+        ]);
+
         repo.expect_search_product_documents()
-            .times(1)
-            .in_sequence(&mut seq)
-            .return_once(move |_, _, _| Box::pin(async move { Ok(probe) }));
-
-        let bm25_hit = mk_hit_no_sort(
-            mk_doc("blue ceramic vase"),
-            1.0,
-            vec![HYBRID_BM25_QUERY_NAME],
-        );
-        let mut junk_doc = mk_doc("totally unrelated text");
-        junk_doc.embedding = Some(one_hot_embedding(1));
-        let junk_hit = mk_hit_no_sort(junk_doc, 0.9, vec![]);
-        let page_one = mk_response(vec![bm25_hit, junk_hit]);
-
-        let mut good_vector_doc = mk_doc("totally unrelated text");
-        good_vector_doc.embedding = Some(one_hot_embedding(0));
-        let page_two = mk_response(vec![mk_hit_no_sort(good_vector_doc, 0.8, vec![])]);
-
-        repo.expect_hybrid_search_product_documents()
-            .times(1)
-            .in_sequence(&mut seq)
-            .return_once(move |_, _, _, cursor| {
-                assert!(
-                    cursor
-                        .as_ref()
-                        .and_then(|page| page.search_after.clone())
-                        .is_none()
-                );
-                Box::pin(async move { Ok(page_one) })
+            .times(2)
+            .returning(move |_, _, cursor| {
+                let response = if cursor.as_ref().map(|c| c.size) == Some(HYBRID_BM25_PROBE_SIZE) {
+                    probe.clone()
+                } else {
+                    bm25_candidates.clone()
+                };
+                Box::pin(async move { Ok(response) })
             });
-        repo.expect_hybrid_search_product_documents()
+        repo.expect_semantic_search_product_documents()
             .times(1)
-            .in_sequence(&mut seq)
-            .return_once(move |_, _, _, cursor| {
-                // The score-based fallback from the junk hit (score=0.9) must be used
-                // as search_after for the second page.
-                assert_eq!(
-                    cursor.as_ref().and_then(|page| page.search_after.clone()),
-                    Some(json!([0.9]))
-                );
-                Box::pin(async move { Ok(page_two) })
-            });
+            .return_once(move |_, _, _| Box::pin(async move { Ok(semantic_candidates) }));
 
         let mut search = mk_search();
-        search.product_query = Some("blue ceramic vase".try_into().unwrap());
+        search.product_query = Some("blue ceramic ornate vase".try_into().unwrap());
         let outcome = hybrid_search(
             &repo,
             &search,
             &one_hot_embedding(0),
+            &None,
+            &[search.language],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.items.items[0].product_id, dual.product_id);
+    }
+
+    #[tokio::test]
+    async fn should_page_fused_results_with_deterministic_cursor_without_duplicates() {
+        let mut repo = MockProductOpenSearchRepository::default();
+        let probe = flat_probe();
+        let docs = [
+            mk_doc("art deco lamp"),
+            mk_doc("art deco floor lamp"),
+            mk_doc("art deco table lamp"),
+        ];
+        let bm25_candidates = mk_response(vec![
+            mk_hit(docs[0].clone(), 3.0, json!([3.0]), vec![]),
+            mk_hit(docs[1].clone(), 2.0, json!([2.0]), vec![]),
+            mk_hit(docs[2].clone(), 1.0, json!([1.0]), vec![]),
+        ]);
+        let semantic_candidates = mk_response(vec![]);
+
+        repo.expect_search_product_documents()
+            .times(4)
+            .returning(move |_, _, cursor| {
+                let response = if cursor.as_ref().map(|c| c.size) == Some(HYBRID_BM25_PROBE_SIZE) {
+                    probe.clone()
+                } else {
+                    bm25_candidates.clone()
+                };
+                Box::pin(async move { Ok(response) })
+            });
+        repo.expect_semantic_search_product_documents()
+            .times(2)
+            .returning(move |_, _, _| {
+                let response = semantic_candidates.clone();
+                Box::pin(async move { Ok(response) })
+            });
+
+        let search = mk_search();
+        let embedding = one_hot_embedding(0);
+        let first = hybrid_search(
+            &repo,
+            &search,
+            &embedding,
             &Some(Cursor {
                 size: 2,
                 search_after: None,
@@ -851,9 +1060,36 @@ mod tests {
         )
         .await
         .unwrap();
+        assert_eq!(first.items.items.len(), 2);
+        assert_eq!(
+            first
+                .items
+                .cursor
+                .search_after
+                .as_ref()
+                .and_then(|value| value.get("strategy"))
+                .and_then(Value::as_str),
+            Some(HYBRID_CURSOR_STRATEGY)
+        );
 
-        assert_eq!(outcome.items.items.len(), 2);
-        // searchAfter of final accepted page should be from the last item's score fallback
-        assert_eq!(outcome.items.cursor.search_after, Some(json!([0.8])));
+        let second = hybrid_search(
+            &repo,
+            &search,
+            &embedding,
+            &Some(first.items.cursor.clone()),
+            &[search.language],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(second.items.items.len(), 1);
+        let first_ids = first
+            .items
+            .items
+            .iter()
+            .map(|item| item.product_id)
+            .collect::<HashSet<_>>();
+        assert!(!first_ids.contains(&second.items.items[0].product_id));
+        assert_eq!(second.items.items[0].product_id, docs[2].product_id);
     }
 }
