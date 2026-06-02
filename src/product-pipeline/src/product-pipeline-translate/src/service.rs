@@ -3,6 +3,7 @@ use common::language::domain::Language;
 use common::logging::{
     LlmInvocationMetrics, LlmModel, LlmOperation, LlmProvider, log_llm_invocation,
 };
+use llm::backends::google::GooglePlatform;
 use llm::chat::ChatMessage;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -47,6 +48,10 @@ impl TranslationServiceImpl {
     pub fn new(api_key: &str) -> Self {
         let llm = llm::builder::LLMBuilder::new()
             .backend(llm::builder::LLMBackend::Google)
+            .google_platform(GooglePlatform::GeminiEnterpriseAgent {
+                project_id: "aura-historial".to_owned(),
+                region: Some("europe-west3".to_owned()),
+            })
             .api_key(api_key)
             .model("gemini-2.5-flash-lite")
             .system("You are a translation assistant for antique product titles.")

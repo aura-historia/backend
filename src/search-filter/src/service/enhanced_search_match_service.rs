@@ -1,7 +1,10 @@
 use crate::core::user_search_filter::EnhancedSearchDescription;
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::language::domain::Language;
-use llm::chat::{ChatMessage, ImageMime};
+use llm::{
+    backends::google::GooglePlatform,
+    chat::{ChatMessage, ImageMime},
+};
 use product::core::description::Description;
 use product::core::product_image::ProductImage;
 use product::core::title::Title;
@@ -47,6 +50,10 @@ impl EnhancedSearchMatchServiceImpl {
     pub fn new(api_key: &str) -> Self {
         let llm = llm::builder::LLMBuilder::new()
             .backend(llm::builder::LLMBackend::Google)
+            .google_platform(GooglePlatform::GeminiEnterpriseAgent {
+                project_id: "aura-historial".to_owned(),
+                region: Some("europe-west3".to_owned()),
+            })
             .api_key(api_key)
             .model("gemini-2.5-flash-lite")
             .temperature(0.0)

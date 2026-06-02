@@ -7,6 +7,7 @@ use fxrate::dynamodb::repository::FxRateDynamoDbRepositoryImpl;
 use fxrate::service::FxRateServiceImpl;
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
+use llm::backends::google::GooglePlatform;
 use llm::builder::{LLMBackend, LLMBuilder};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::command_service::CommandProductServiceImpl;
@@ -73,6 +74,10 @@ async fn main() -> Result<(), Error> {
                 command_shop_service,
                 LLMBuilder::new()
                     .backend(LLMBackend::Google)
+                    .google_platform(GooglePlatform::GeminiEnterpriseAgent {
+                        project_id: "aura-historial".to_owned(),
+                        region: Some("europe-west3".to_owned()),
+                    })
                     .api_key(&llm_api_key)
                     .model("gemini-2.5-flash"),
             )?)
