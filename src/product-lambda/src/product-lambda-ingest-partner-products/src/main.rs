@@ -75,7 +75,7 @@ async fn main() -> Result<(), Error> {
                 LLMBuilder::new()
                     .backend(LLMBackend::Google)
                     .google_platform(GooglePlatform::GeminiEnterpriseAgent {
-                        project_id: "aura-historial".to_owned(),
+                        project_id: "aura-historia".to_owned(),
                         region: Some("europe-west3".to_owned()),
                     })
                     .api_key(&llm_api_key)

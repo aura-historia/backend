@@ -20,7 +20,7 @@ pub fn google_llm_builder(api_key: &str, model: &str, gemini_flex: bool) -> LLMB
     let builder = LLMBuilder::new()
         .backend(LLMBackend::Google)
         .google_platform(GooglePlatform::GeminiEnterpriseAgent {
-            project_id: "aura-historial".to_owned(),
+            project_id: "aura-historia".to_owned(),
             region: Some("europe-west3".to_owned()),
         })
         .api_key(api_key)

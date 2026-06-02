@@ -51,7 +51,7 @@ impl EnhancedSearchMatchServiceImpl {
         let llm = llm::builder::LLMBuilder::new()
             .backend(llm::builder::LLMBackend::Google)
             .google_platform(GooglePlatform::GeminiEnterpriseAgent {
-                project_id: "aura-historial".to_owned(),
+                project_id: "aura-historia".to_owned(),
                 region: Some("europe-west3".to_owned()),
             })
             .api_key(api_key)
