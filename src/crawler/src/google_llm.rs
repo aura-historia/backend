@@ -1,4 +1,4 @@
-use llm::backends::google::GoogleServiceTier;
+use llm::backends::google::{GooglePlatform, GoogleServiceTier};
 use llm::builder::{LLMBackend, LLMBuilder};
 use llm::chat::{ChatMessage, ChatProvider, ChatResponse};
 use llm::error::LLMError;
@@ -19,6 +19,10 @@ const GEMINI_TEST_RETRY_DELAY: Duration = Duration::from_millis(1);
 pub fn google_llm_builder(api_key: &str, model: &str, gemini_flex: bool) -> LLMBuilder {
     let builder = LLMBuilder::new()
         .backend(LLMBackend::Google)
+        .google_platform(GooglePlatform::GeminiEnterpriseAgent {
+            project_id: "aura-historia".to_owned(),
+            region: Some("europe-west3".to_owned()),
+        })
         .api_key(api_key)
         .model(model);
 

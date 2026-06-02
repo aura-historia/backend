@@ -227,7 +227,7 @@ crawler = { path = "src/crawler" }
 spider = { version = "2", default-features = false, features = ["sync", "reqwest_rustls_tls"] }
 scraper = "0.27.0"
 schemars = "1.2.1"
-llm = { git = "https://github.com/graniet/llm", rev = "85d5ac4771ff00dad1ccb9845b4b0c2f0dadb074", default-features = false, features = ["rustls-tls"] }
+llm = { git = "https://github.com/bruderj15/llm", rev = "3f2b5b4a4ca54f981b254857b9bf601f666ac5bf", default-features = false, features = ["rustls-tls"] }
 kuchiki = "0.8.1"
 lingua = { version = "1.7.2", default-features = false, features = ["english", "german", "french", "spanish", "italian", "chinese", "portuguese", "polish", "turkish", "dutch", "czech", "japanese", "russian", "arabic"] }
 dotenvy = "0.15"
