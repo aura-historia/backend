@@ -25,6 +25,9 @@ use user::{
     dynamodb::repository::UserDynamoDbRepositoryImpl, service::user_service::UserServiceImpl,
 };
 
+const DEFAULT_VERTEX_AI_PROJECT_ID: &str = "aura-historia";
+const DEFAULT_VERTEX_AI_LOCATION: &str = "eu";
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     common::logging::init_logging();
@@ -38,7 +41,12 @@ async fn main() -> Result<(), Error> {
     let s3_bucket_name_templates = std::env::var("S3_BUCKET_NAME_TEMPLATES")?;
     let stage_name = std::env::var("STAGE_NAME")?;
     let commit_sha = std::env::var("COMMIT_SHA")?;
+    let _google_application_credentials = std::env::var("GOOGLE_APPLICATION_CREDENTIALS")?;
     let gemini_api_key = std::env::var("GEMINI_API_KEY")?;
+    let vertex_ai_project_id = std::env::var("VERTEX_AI_PROJECT_ID")
+        .unwrap_or_else(|_| DEFAULT_VERTEX_AI_PROJECT_ID.to_string());
+    let vertex_ai_location = std::env::var("VERTEX_AI_LOCATION")
+        .unwrap_or_else(|_| DEFAULT_VERTEX_AI_LOCATION.to_string());
 
     let opensearch_client = common::opensearch::client::load_client().await?;
     let product_opensearch_repo = ProductOpenSearchRepositoryImpl::new(&opensearch_client);
@@ -57,7 +65,8 @@ async fn main() -> Result<(), Error> {
         &user_service,
         &search_filter_opensearch_repo,
     );
-    let embedding_service = MultimodalEmbeddingServiceImpl::new(&gemini_api_key);
+    let embedding_service =
+        MultimodalEmbeddingServiceImpl::new(&vertex_ai_project_id, &vertex_ai_location);
     let enhanced_search_match_service = EnhancedSearchMatchServiceImpl::new(&gemini_api_key);
     let notification_repository = NotificationDynamoDbRepositoryImpl::new(&client, &table_name);
     let ses_adapter = SesAdapterImpl::new(&ses_client);

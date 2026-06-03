@@ -184,7 +184,8 @@ pub async fn handle(
             result_items
         } else {
             // EnhancedSearchDescription present but no match service available — fall through
-            // to standard mapping so the endpoint still works without GEMINI_API_KEY.
+            // to standard mapping so the endpoint still works without the optional
+            // enhanced-match LLM configuration.
             convert_to_summary_response(personalized)
         }
     } else {
