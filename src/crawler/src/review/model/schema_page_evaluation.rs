@@ -1,8 +1,8 @@
 use super::SelectorFieldEvaluation;
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaPageEvaluation {
     pub page_id: uuid::Uuid,
     pub url: String,

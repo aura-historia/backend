@@ -218,10 +218,6 @@ impl SchemaLlmReviewMode {
         }
     }
 
-    pub(crate) fn should_evaluate(self) -> bool {
-        !matches!(self, Self::HumanOnly)
-    }
-
     pub(crate) fn allows_auto_approval(self) -> bool {
         matches!(self, Self::AutoApproveHighConfidence)
     }
@@ -336,10 +332,7 @@ mod tests {
 
     #[test]
     fn auto_approval_is_only_allowed_for_high_confidence_mode() {
-        assert!(!SchemaLlmReviewMode::HumanOnly.should_evaluate());
-        assert!(SchemaLlmReviewMode::ReportOnly.should_evaluate());
         assert!(!SchemaLlmReviewMode::ReportOnly.allows_auto_approval());
-        assert!(SchemaLlmReviewMode::AutoApproveHighConfidence.should_evaluate());
         assert!(SchemaLlmReviewMode::AutoApproveHighConfidence.allows_auto_approval());
     }
 }

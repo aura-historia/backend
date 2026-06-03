@@ -209,21 +209,6 @@ function renderDetail(detail, matrix) {
         ${renderApprovalPanel(review)}
       </div>
       ${renderAutoSchemaEvaluation(review)}
-      <div class="review-card command-card">
-        <div class="panel-head">
-          <div class="panel-title">
-            <strong>Review Controls</strong>
-            <span class="muted">Manual actions for this shop</span>
-          </div>
-          <div class="actions">
-            <button onclick="refreshSelectedReview()">Refresh review</button>
-            <button onclick="triggerAction('trigger-crawl')">Trigger crawl</button>
-            <button onclick="triggerAction('trigger-scrape')">Trigger scrape</button>
-            <button onclick="triggerAction('regenerate-schema')">Regenerate schema</button>
-            <button onclick="triggerAction('regenerate-pattern')">Regenerate pattern</button>
-          </div>
-        </div>
-      </div>
       ${matrix ? renderSchemaWorkbench(detail, matrix) : renderNonSchemaReview(review, urls)}
     </div>`;
     if (matrix) postHighlightSoon();
@@ -983,14 +968,6 @@ async function deleteCurrentSchema() {
 async function discardEdits() {
     dirty = false;
     await loadSelectedReview(false);
-}
-
-async function triggerAction(action) {
-    const detail = await api(`/api/reviews/${selectedId}`);
-    const shopId = detail.review.shop_id;
-    const result = await api(`/api/shops/${shopId}/${action}`, {method: 'POST', body: '{}'});
-    await loadReviews();
-    alert(`${displayName(action)}: ${result.affected} rows affected`);
 }
 
 function markDirty() {

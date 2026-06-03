@@ -2,7 +2,7 @@ use crate::review::assets::{
     APP_JS, INDEX_HTML, STYLES_CSS, instrument_live_html, instrument_review_page,
 };
 use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
-use crate::review::model::CrawlerReviewPage;
+use crate::review::model::{CrawlerReviewPage, SchemaMatrix};
 use crate::review::repository::CrawlerReviewRepository;
 use crate::review::repository::ReviewRepositoryError;
 use crate::scraper::css_selector::rule::ExtractionRule;
@@ -149,15 +149,19 @@ impl ReviewServer {
             let Some(review_id) = parse_review_id_with_suffix(request.path, "/matrix") else {
                 return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
             };
-            return match self.live_review_pages(review_id).await {
-                Ok(pages) => match self
-                    .repository
-                    .evaluate_schema_matrix_for_live_pages(review_id, pages)
-                    .await
-                {
-                    Ok(matrix) => HttpResponse::json(200, &matrix),
-                    Err(err) => internal_error(err),
-                },
+            let refresh = request
+                .query
+                .get("refresh")
+                .is_some_and(|value| value.eq_ignore_ascii_case("true") || value == "1");
+            if !refresh {
+                match self.cached_schema_matrix(review_id).await {
+                    Ok(Some(matrix)) => return HttpResponse::json(200, &matrix),
+                    Ok(None) => {}
+                    Err(err) => return internal_error(err),
+                }
+            }
+            return match self.refresh_schema_matrix(review_id).await {
+                Ok(matrix) => HttpResponse::json(200, &matrix),
                 Err(response) => response,
             };
         }
@@ -319,64 +323,6 @@ impl ReviewServer {
             };
         }
 
-        if request.method == "POST"
-            && request.path.starts_with("/api/shops/")
-            && request.path.ends_with("/trigger-crawl")
-        {
-            let Some(shop_id) = parse_shop_id_with_suffix(request.path, "/trigger-crawl") else {
-                return HttpResponse::json(400, &json!({ "error": "invalid shop id" }));
-            };
-            return match self.repository.trigger_crawl_now(shop_id).await {
-                Ok(rows) => HttpResponse::json(200, &json!({ "ok": true, "affected": rows })),
-                Err(err) => internal_error(err),
-            };
-        }
-
-        if request.method == "POST"
-            && request.path.starts_with("/api/shops/")
-            && request.path.ends_with("/trigger-scrape")
-        {
-            let Some(shop_id) = parse_shop_id_with_suffix(request.path, "/trigger-scrape") else {
-                return HttpResponse::json(400, &json!({ "error": "invalid shop id" }));
-            };
-            return match self.repository.trigger_scrape_now(shop_id).await {
-                Ok(rows) => HttpResponse::json(200, &json!({ "ok": true, "affected": rows })),
-                Err(err) => internal_error(err),
-            };
-        }
-
-        if request.method == "POST"
-            && request.path.starts_with("/api/shops/")
-            && request.path.ends_with("/regenerate-pattern")
-        {
-            let Some(shop_id) = parse_shop_id_with_suffix(request.path, "/regenerate-pattern")
-            else {
-                return HttpResponse::json(400, &json!({ "error": "invalid shop id" }));
-            };
-            return match self
-                .repository
-                .trigger_url_pattern_regeneration(shop_id)
-                .await
-            {
-                Ok(rows) => HttpResponse::json(200, &json!({ "ok": true, "affected": rows })),
-                Err(err) => internal_error(err),
-            };
-        }
-
-        if request.method == "POST"
-            && request.path.starts_with("/api/shops/")
-            && request.path.ends_with("/regenerate-schema")
-        {
-            let Some(shop_id) = parse_shop_id_with_suffix(request.path, "/regenerate-schema")
-            else {
-                return HttpResponse::json(400, &json!({ "error": "invalid shop id" }));
-            };
-            return match self.repository.trigger_schema_regeneration(shop_id).await {
-                Ok(rows) => HttpResponse::json(200, &json!({ "ok": true, "affected": rows })),
-                Err(err) => internal_error(err),
-            };
-        }
-
         HttpResponse::json(404, &json!({ "error": "not found" }))
     }
 
@@ -405,6 +351,51 @@ impl ReviewServer {
             pages.push((page, html));
         }
         Ok(pages)
+    }
+
+    async fn cached_schema_matrix(
+        &self,
+        review_id: uuid::Uuid,
+    ) -> Result<Option<SchemaMatrix>, ReviewRepositoryError> {
+        let detail = self.repository.get_review(review_id).await?;
+        let Some(value) = detail.review.validation_summary.get("schema_matrix") else {
+            return Ok(None);
+        };
+        match serde_json::from_value::<SchemaMatrix>(value.clone()) {
+            Ok(matrix) => Ok(Some(matrix)),
+            Err(err) => {
+                warn!(
+                    review_id = %review_id,
+                    error = %err,
+                    "Cached schema matrix is invalid; refreshing from live pages"
+                );
+                Ok(None)
+            }
+        }
+    }
+
+    async fn refresh_schema_matrix(
+        &self,
+        review_id: uuid::Uuid,
+    ) -> Result<SchemaMatrix, HttpResponse> {
+        let pages = self.live_review_pages(review_id).await?;
+        let matrix = self
+            .repository
+            .evaluate_schema_matrix_for_live_pages(review_id, pages)
+            .await
+            .map_err(internal_error)?;
+        let detail = self
+            .repository
+            .get_review(review_id)
+            .await
+            .map_err(internal_error)?;
+        let validation_summary =
+            with_cached_schema_matrix(detail.review.validation_summary, &matrix);
+        self.repository
+            .update_review_validation_summary(review_id, validation_summary)
+            .await
+            .map_err(internal_error)?;
+        Ok(matrix)
     }
 
     async fn live_review_page(
@@ -474,6 +465,21 @@ fn parse_action_payload(body: &str) -> ActionPayload {
     serde_json::from_str(body).unwrap_or_default()
 }
 
+fn with_cached_schema_matrix(
+    mut validation_summary: serde_json::Value,
+    matrix: &SchemaMatrix,
+) -> serde_json::Value {
+    if let Some(object) = validation_summary.as_object_mut() {
+        object.insert("schema_matrix".to_string(), json!(matrix));
+        validation_summary
+    } else {
+        json!({
+            "summary": validation_summary,
+            "schema_matrix": matrix,
+        })
+    }
+}
+
 fn parse_review_id(path: &str) -> Option<uuid::Uuid> {
     let id = path.strip_prefix("/api/reviews/")?;
     uuid::Uuid::parse_str(id).ok()
@@ -488,14 +494,6 @@ fn parse_page_id_with_suffix(path: &str, suffix: &str) -> Option<uuid::Uuid> {
     let without_suffix = path.strip_suffix(suffix)?;
     let id = without_suffix.strip_prefix("/api/review-pages/")?;
     uuid::Uuid::parse_str(id).ok()
-}
-
-fn parse_shop_id_with_suffix(path: &str, suffix: &str) -> Option<common::shop_id::ShopId> {
-    let without_suffix = path.strip_suffix(suffix)?;
-    let id = without_suffix.strip_prefix("/api/shops/")?;
-    uuid::Uuid::parse_str(id)
-        .ok()
-        .map(common::shop_id::ShopId::from)
 }
 
 fn internal_error(error: impl std::fmt::Display) -> HttpResponse {
@@ -534,4 +532,25 @@ fn live_url_fetch_error(url: &str, error: &FetchError) -> HttpResponse {
             "details": error.to_string(),
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_cache_schema_matrix_in_validation_summary() {
+        let matrix = SchemaMatrix {
+            review_id: uuid::Uuid::new_v4(),
+            candidates: Vec::new(),
+        };
+
+        let summary = with_cached_schema_matrix(json!({ "existing": true }), &matrix);
+
+        assert_eq!(summary["existing"], true);
+        let cached = serde_json::from_value::<SchemaMatrix>(summary["schema_matrix"].clone())
+            .expect("cached matrix should deserialize");
+        assert_eq!(cached.review_id, matrix.review_id);
+        assert!(cached.candidates.is_empty());
+    }
 }

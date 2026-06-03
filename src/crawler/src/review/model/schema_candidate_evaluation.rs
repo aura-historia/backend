@@ -1,7 +1,7 @@
 use super::SchemaPageEvaluation;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaCandidateEvaluation {
     pub schema_index: usize,
     pub pages: Vec<SchemaPageEvaluation>,

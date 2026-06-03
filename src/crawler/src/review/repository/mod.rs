@@ -658,62 +658,21 @@ impl CrawlerReviewRepository {
         ))
     }
 
-    pub async fn trigger_crawl_now(&self, shop_id: ShopId) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query(
-            "UPDATE shop_domains
-             SET next_crawl_at = NULL,
-                 last_crawl_error_kind = NULL
-             WHERE shop_id = $1",
-        )
-        .bind(uuid::Uuid::from(shop_id))
-        .execute(&self.pool)
-        .await?;
-        Ok(result.rows_affected())
-    }
-
-    pub async fn trigger_scrape_now(&self, shop_id: ShopId) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query(
-            "UPDATE shop_urls
-             SET last_scraped = NULL,
-                 last_scraped_hash = NULL,
-                 next_retry_at = NULL,
-                 last_error_kind = NULL,
-                 last_error_message = NULL,
-                 last_status_code = NULL,
-                 updated = NOW()
-             WHERE shop_id = $1
-               AND url_class = 'product'",
-        )
-        .bind(uuid::Uuid::from(shop_id))
-        .execute(&self.pool)
-        .await?;
-        Ok(result.rows_affected())
-    }
-
-    pub async fn trigger_url_pattern_regeneration(
+    pub async fn update_review_validation_summary(
         &self,
-        shop_id: ShopId,
-    ) -> Result<u64, sqlx::Error> {
+        review_id: uuid::Uuid,
+        validation_summary: serde_json::Value,
+    ) -> Result<(), ReviewRepositoryError> {
         sqlx::query(
-            "UPDATE shops
-             SET url_pattern = NULL,
-                 updated = NOW()
-             WHERE shop_id = $1",
+            "UPDATE crawler_reviews
+             SET validation_summary = $2, updated = NOW()
+             WHERE review_id = $1",
         )
-        .bind(uuid::Uuid::from(shop_id))
+        .bind(review_id)
+        .bind(validation_summary)
         .execute(&self.pool)
         .await?;
-
-        self.trigger_crawl_now(shop_id).await
-    }
-
-    pub async fn trigger_schema_regeneration(&self, shop_id: ShopId) -> Result<u64, sqlx::Error> {
-        sqlx::query("DELETE FROM shops_product_schema WHERE shop_id = $1")
-            .bind(uuid::Uuid::from(shop_id))
-            .execute(&self.pool)
-            .await?;
-
-        self.trigger_scrape_now(shop_id).await
+        Ok(())
     }
 
     async fn backfill_legacy_schema_review_payload(

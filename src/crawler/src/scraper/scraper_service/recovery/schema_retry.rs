@@ -55,10 +55,17 @@ impl ScraperServiceImpl {
 
             self.consume_llm_budget_or_err(shop_id, url).await?;
 
-            let generated_schema = self
+            let generated = self
                 .schema_service
                 .append_single_schema(html, last_generated_schema.as_ref(), last_error.as_ref())
                 .await?;
+            let Some(generated_schema) = generated.schemas.first().cloned() else {
+                return Err(ScraperError::SchemaServiceError(
+                    crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError::NoTextResponse(
+                        "LLM produced zero schemas".to_string(),
+                    ),
+                ));
+            };
 
             match try_apply_schemas(std::iter::once(&generated_schema), html) {
                 Ok((selected_schema, raw)) => {
@@ -76,6 +83,7 @@ impl ScraperServiceImpl {
                             url,
                             "append_schema_generation",
                             persisted_schemas,
+                            generated.evaluation,
                             pages,
                             json!({
                                 "attempt": attempt,

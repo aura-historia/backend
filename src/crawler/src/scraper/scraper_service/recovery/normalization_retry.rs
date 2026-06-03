@@ -144,10 +144,17 @@ impl ScraperServiceImpl {
 
             self.consume_llm_budget_or_err(ctx.shop_id, ctx.url).await?;
 
-            let generated_schema = self
+            let generated = self
                 .schema_service
                 .append_single_schema(ctx.html, last_generated_schema.as_ref(), Some(&apply_hint))
                 .await?;
+            let Some(generated_schema) = generated.schemas.first().cloned() else {
+                return Err(ScraperError::SchemaServiceError(
+                    crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError::NoTextResponse(
+                        "LLM produced zero schemas".to_string(),
+                    ),
+                ));
+            };
 
             let mut reapplied =
                 match try_apply_schemas(std::iter::once(&generated_schema), ctx.html) {
@@ -200,6 +207,7 @@ impl ScraperServiceImpl {
                             ctx.url,
                             "normalization_schema_repair",
                             persisted_schemas,
+                            generated.evaluation,
                             pages,
                             json!({
                                 "attempt": attempt,

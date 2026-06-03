@@ -66,7 +66,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
         .once()
         .returning(move |_, _, _| {
             let s = final_schema_for_append.clone();
-            Box::pin(async move { Ok(s) })
+            Box::pin(async move { Ok(generated_schemas(vec![s])) })
         });
     let schema_for_persist = schema.clone();
     schema_svc
@@ -133,7 +133,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
         .withf(|html_pages| html_pages.len() == 1 && html_pages[0] == sample_html())
         .returning(move |_| {
             let s = vec![schema_for_create.clone()];
-            Box::pin(async move { Ok(s) })
+            Box::pin(async move { Ok(generated_schemas(s)) })
         });
     schema_svc
         .expect_save_product_schemas()
@@ -215,7 +215,7 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
         .withf(|html_pages| html_pages.len() == 1 && html_pages[0] == sample_html())
         .returning(move |_| {
             let s = vec![schema_for_create.clone()];
-            Box::pin(async move { Ok(s) })
+            Box::pin(async move { Ok(generated_schemas(s)) })
         });
     schema_svc
         .expect_save_product_schemas()
@@ -286,7 +286,7 @@ async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
         .withf(|html_pages| html_pages.len() == 1 && html_pages[0] == sample_html())
         .returning(move |_| {
             let s = vec![schema_for_create.clone()];
-            Box::pin(async move { Ok(s) })
+            Box::pin(async move { Ok(generated_schemas(s)) })
         });
     schema_svc
         .expect_save_product_schemas()

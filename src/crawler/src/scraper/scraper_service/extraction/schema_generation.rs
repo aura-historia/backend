@@ -53,11 +53,11 @@ impl ScraperServiceImpl {
                 .map(|page| page.raw_html.clone())
                 .collect();
             self.consume_llm_budget_or_err(shop_id, url).await?;
-            let schemas = self
+            let generated = self
                 .schema_service
                 .create_product_schemas(&seed_html_pages)
                 .await?;
-            let schema_count = schemas.len();
+            let schema_count = generated.schemas.len();
             let pages = seed_pages
                 .iter()
                 .enumerate()
@@ -76,7 +76,8 @@ impl ScraperServiceImpl {
                     shop_id,
                     url,
                     "initial_schema_generation",
-                    schemas,
+                    generated.schemas,
+                    generated.evaluation,
                     pages,
                     json!({ "seed_page_count": seed_pages.len(), "schema_count": schema_count }),
                 )
