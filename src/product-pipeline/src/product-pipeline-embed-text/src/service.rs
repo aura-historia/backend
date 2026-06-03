@@ -3,6 +3,7 @@ use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use common::logging::{
     LlmInvocationMetrics, LlmModel, LlmOperation, LlmProvider, log_llm_invocation,
 };
+use google_cloud_auth::credentials::{AccessTokenCredentials, Builder as GoogleCredentialsBuilder};
 use product::core::{description::Description, title::Title};
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
@@ -10,13 +11,23 @@ use thiserror::Error;
 use tracing::{debug, warn};
 use url::Url;
 
+const GEMINI_EMBEDDING_MODEL: &str = "gemini-embedding-2";
+const GOOGLE_APPLICATION_CREDENTIALS_ENV_VAR: &str = "GOOGLE_APPLICATION_CREDENTIALS";
+const GOOGLE_APPLICATION_CREDENTIALS_TMP_PATH: &str = "/tmp/google-application-credentials.json";
+const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
+const OUTPUT_DIMENSIONALITY: usize = 768;
+
 #[derive(Debug, Error)]
 pub enum MultimodalEmbeddingError {
-    #[error("Gemini API request failed: {0}")]
+    #[error("Vertex AI request failed: {0}")]
     RequestFailed(#[from] reqwest::Error),
-    #[error("Gemini API returned error: {0}")]
+    #[error("Vertex AI authentication failed: {0}")]
+    AuthenticationFailed(String),
+    #[error("Vertex AI credentials initialization failed: {0}")]
+    CredentialsInitialization(String),
+    #[error("Vertex AI returned error: {0}")]
     ApiError(String),
-    #[error("Empty embedding response from Gemini API")]
+    #[error("Empty embedding response from Vertex AI")]
     EmptyResponse,
 }
 
@@ -32,10 +43,10 @@ pub trait MultimodalEmbeddingService {
 
     /// Embed a free-text product search query.
     ///
-    /// Uses the Gemini `RETRIEVAL_QUERY` task type as recommended in
-    /// <https://ai.google.dev/gemini-api/docs/embeddings#task-types-embeddings-2>
-    /// so the resulting vector lives in the same space as documents embedded with
-    /// `RETRIEVAL_DOCUMENT` (or its multimodal equivalent used in [`Self::embed`]).
+    /// Gemini Embedding 2 on Vertex AI does not support a dedicated `task_type`
+    /// field. Instead, retrieval intent is encoded directly in the prompt as
+    /// recommended by the model documentation, so query embeddings live in the
+    /// same space as documents embedded by [`Self::embed`].
     async fn embed_query(&self, query: &str) -> Result<Vec<f32>, MultimodalEmbeddingError>;
 }
 
@@ -46,8 +57,9 @@ pub trait MultimodalEmbeddingService {
 const QUERY_EMBEDDING_CACHE_CAPACITY: usize = 4096;
 
 pub struct MultimodalEmbeddingServiceImpl {
-    api_key: String,
+    embed_content_url: String,
     client: reqwest::Client,
+    credentials: tokio::sync::OnceCell<AccessTokenCredentials>,
     /// LRU cache of `embed_query` results, keyed by raw query string. Only `embed_query`
     /// uses this cache — `embed` (multimodal product ingestion) is one-shot per product
     /// event and deduplication should happen upstream.
@@ -55,15 +67,38 @@ pub struct MultimodalEmbeddingServiceImpl {
 }
 
 impl MultimodalEmbeddingServiceImpl {
-    pub fn new(api_key: &str) -> Self {
+    pub fn new(project_id: &str, location: &str) -> Self {
         Self {
-            api_key: api_key.to_string(),
+            embed_content_url: Self::build_embed_content_url(project_id, location),
             client: reqwest::Client::new(),
+            credentials: tokio::sync::OnceCell::new(),
             query_cache: tokio::sync::Mutex::new(lru::LruCache::new(
                 std::num::NonZeroUsize::new(QUERY_EMBEDDING_CACHE_CAPACITY)
                     .expect("QUERY_EMBEDDING_CACHE_CAPACITY must be non-zero"),
             )),
         }
+    }
+
+    fn build_embed_content_url(project_id: &str, location: &str) -> String {
+        let endpoint = match location {
+            "us" | "eu" => format!("https://aiplatform.{location}.rep.googleapis.com"),
+            "global" => "https://aiplatform.googleapis.com".to_string(),
+            _ => format!("https://{location}-aiplatform.googleapis.com"),
+        };
+        format!(
+            "{endpoint}/v1/projects/{project_id}/locations/{location}/publishers/google/models/{GEMINI_EMBEDDING_MODEL}:embedContent"
+        )
+    }
+
+    fn format_error_chain(error: &(dyn std::error::Error + 'static)) -> String {
+        let mut message = error.to_string();
+        let mut source = error.source();
+        while let Some(current) = source {
+            message.push_str(": ");
+            message.push_str(&current.to_string());
+            source = current.source();
+        }
+        message
     }
 
     fn build_content_parts(
@@ -73,8 +108,7 @@ impl MultimodalEmbeddingServiceImpl {
     ) -> Vec<ContentPart> {
         let mut parts = Vec::with_capacity(3);
 
-        // formatting according to official guidelines
-        // https://ai.google.dev/gemini-api/docs/embeddings#task-types-embeddings-2
+        // Formatting according to the Gemini Embedding 2 retrieval guidance.
         let text = format!(
             "title: {title} | text: {}",
             description
@@ -90,6 +124,108 @@ impl MultimodalEmbeddingServiceImpl {
         }
 
         parts
+    }
+
+    fn build_query_prompt(query: &str) -> String {
+        format!("task: search result | query: {query}")
+    }
+
+    // `google-cloud-auth` currently resolves `GOOGLE_APPLICATION_CREDENTIALS` as a
+    // filesystem path. In Lambda we may inject the credential JSON itself via SSM,
+    // so materialize inline JSON values to `/tmp` before initializing ADC.
+    fn materialize_google_application_credentials_from_env() -> Result<(), MultimodalEmbeddingError>
+    {
+        let Some(raw_value) = std::env::var_os(GOOGLE_APPLICATION_CREDENTIALS_ENV_VAR) else {
+            return Ok(());
+        };
+        let raw_value = raw_value.to_string_lossy();
+        if !raw_value.trim_start().starts_with('{') {
+            return Ok(());
+        }
+
+        std::fs::write(GOOGLE_APPLICATION_CREDENTIALS_TMP_PATH, raw_value.as_bytes()).map_err(
+            |err| {
+                MultimodalEmbeddingError::CredentialsInitialization(format!(
+                    "failed to materialize inline GOOGLE_APPLICATION_CREDENTIALS JSON to {GOOGLE_APPLICATION_CREDENTIALS_TMP_PATH}: {err}"
+                ))
+            },
+        )?;
+        unsafe {
+            std::env::set_var(
+                GOOGLE_APPLICATION_CREDENTIALS_ENV_VAR,
+                GOOGLE_APPLICATION_CREDENTIALS_TMP_PATH,
+            );
+        }
+        Ok(())
+    }
+
+    async fn access_token(&self) -> Result<String, MultimodalEmbeddingError> {
+        let credentials = self
+            .credentials
+            .get_or_try_init(|| async {
+                Self::materialize_google_application_credentials_from_env()?;
+                GoogleCredentialsBuilder::default()
+                    .with_scopes([GOOGLE_CLOUD_PLATFORM_SCOPE])
+                    .build_access_token_credentials()
+                    .map_err(|err| {
+                        MultimodalEmbeddingError::CredentialsInitialization(
+                            Self::format_error_chain(&err),
+                        )
+                    })
+            })
+            .await?;
+
+        credentials
+            .access_token()
+            .await
+            .map(|access_token| access_token.token)
+            .map_err(|err| {
+                MultimodalEmbeddingError::AuthenticationFailed(Self::format_error_chain(&err))
+            })
+    }
+
+    async fn request_embedding(
+        &self,
+        request: &EmbedContentRequest,
+    ) -> Result<Vec<f32>, MultimodalEmbeddingError> {
+        let access_token = self.access_token().await?;
+        let response = self
+            .client
+            .post(&self.embed_content_url)
+            .bearer_auth(access_token)
+            .json(request)
+            .send()
+            .await?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|err| format!("<failed reading error body: {err}>"));
+            return Err(MultimodalEmbeddingError::ApiError(format!(
+                "HTTP {status}: {body}"
+            )));
+        }
+
+        let body: EmbedContentResponse = response.json().await?;
+        let mut values = body.into_values()?;
+        Self::normalize_embedding(&mut values)?;
+        Ok(values)
+    }
+
+    fn normalize_embedding(values: &mut [f32]) -> Result<(), MultimodalEmbeddingError> {
+        if values.is_empty() {
+            return Err(MultimodalEmbeddingError::EmptyResponse);
+        }
+        let norm = values.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm == 0.0 {
+            return Err(MultimodalEmbeddingError::EmptyResponse);
+        }
+        for value in values {
+            *value /= norm;
+        }
+        Ok(())
     }
 
     async fn fetch_image(&self, url: &Url) -> Option<(String, String)> {
@@ -141,41 +277,17 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
             None => None,
         };
 
-        let parts = Self::build_content_parts(title, description, image_data);
-
         let request = EmbedContentRequest {
-            model: "models/gemini-embedding-2",
-            content: Content { parts },
-            task_type: None,
+            content: Content {
+                parts: Self::build_content_parts(title, description, image_data),
+            },
+            output_dimensionality: OUTPUT_DIMENSIONALITY,
         };
 
-        debug!("Requesting multimodal embedding from Gemini API.");
+        debug!("Requesting multimodal embedding from Vertex AI.");
 
         let started_at = Instant::now();
-        let response = self
-            .client
-            .post("https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent")
-            .header("x-goog-api-key", &self.api_key)
-            .query(&[("output_dimensionality", "768")])
-            .json(&request)
-            .send()
-            .await?
-            .error_for_status()
-            .map_err(MultimodalEmbeddingError::RequestFailed)?;
-
-        let body: EmbedContentResponse = response.json().await?;
-        // normalize the embedding vector to unit length
-        let mut values = body.embedding.values;
-        if values.is_empty() {
-            return Err(MultimodalEmbeddingError::EmptyResponse);
-        }
-        let norm = values.iter().map(|x| x * x).sum::<f32>().sqrt();
-        if norm == 0.0 {
-            return Err(MultimodalEmbeddingError::EmptyResponse);
-        }
-        for v in &mut values {
-            *v /= norm;
-        }
+        let values = self.request_embedding(&request).await?;
 
         log_llm_invocation(
             LlmOperation::ProductEmbedding,
@@ -211,41 +323,18 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
         }
 
         let request = EmbedContentRequest {
-            model: "models/gemini-embedding-2",
             content: Content {
                 parts: vec![ContentPart::Text {
-                    text: query.to_string(),
+                    text: Self::build_query_prompt(query),
                 }],
             },
-            task_type: Some("RETRIEVAL_QUERY"),
+            output_dimensionality: OUTPUT_DIMENSIONALITY,
         };
 
-        debug!("Requesting query embedding from Gemini API.");
+        debug!("Requesting query embedding from Vertex AI.");
 
         let started_at = Instant::now();
-        let response = self
-            .client
-            .post("https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent")
-            .header("x-goog-api-key", &self.api_key)
-            .query(&[("output_dimensionality", "768")])
-            .json(&request)
-            .send()
-            .await?
-            .error_for_status()
-            .map_err(MultimodalEmbeddingError::RequestFailed)?;
-
-        let body: EmbedContentResponse = response.json().await?;
-        let mut values = body.embedding.values;
-        if values.is_empty() {
-            return Err(MultimodalEmbeddingError::EmptyResponse);
-        }
-        let norm = values.iter().map(|x| x * x).sum::<f32>().sqrt();
-        if norm == 0.0 {
-            return Err(MultimodalEmbeddingError::EmptyResponse);
-        }
-        for v in &mut values {
-            *v /= norm;
-        }
+        let values = self.request_embedding(&request).await?;
 
         // Populate the cache with the freshly computed embedding for subsequent calls.
         self.query_cache
@@ -270,11 +359,9 @@ impl MultimodalEmbeddingService for MultimodalEmbeddingServiceImpl {
 }
 
 #[derive(Debug, Serialize)]
-struct EmbedContentRequest<'a> {
-    model: &'a str,
+struct EmbedContentRequest {
     content: Content,
-    #[serde(rename = "taskType", skip_serializing_if = "Option::is_none")]
-    task_type: Option<&'a str>,
+    output_dimensionality: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -285,25 +372,36 @@ struct Content {
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 enum ContentPart {
-    Text {
-        text: String,
-    },
-    InlineData {
-        #[serde(rename = "inlineData")]
-        inline_data: InlineData,
-    },
+    Text { text: String },
+    InlineData { inline_data: InlineData },
 }
 
 #[derive(Debug, Serialize)]
 struct InlineData {
-    #[serde(rename = "mimeType")]
     mime_type: String,
     data: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct EmbedContentResponse {
-    embedding: Embedding,
+    #[serde(default)]
+    embedding: Option<Embedding>,
+    #[serde(default)]
+    embeddings: Vec<Embedding>,
+}
+
+impl EmbedContentResponse {
+    fn into_values(self) -> Result<Vec<f32>, MultimodalEmbeddingError> {
+        self.embedding
+            .map(|embedding| embedding.values)
+            .or_else(|| {
+                self.embeddings
+                    .into_iter()
+                    .next()
+                    .map(|embedding| embedding.values)
+            })
+            .ok_or(MultimodalEmbeddingError::EmptyResponse)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1087,6 +1185,29 @@ mod tests {
     ];
 
     #[test]
+    fn should_build_embed_content_url_for_vertex_endpoint() {
+        assert_eq!(
+            MultimodalEmbeddingServiceImpl::build_embed_content_url("aura-historia", "us"),
+            "https://aiplatform.us.rep.googleapis.com/v1/projects/aura-historia/locations/us/publishers/google/models/gemini-embedding-2:embedContent"
+        );
+        assert_eq!(
+            MultimodalEmbeddingServiceImpl::build_embed_content_url("aura-historia", "eu"),
+            "https://aiplatform.eu.rep.googleapis.com/v1/projects/aura-historia/locations/eu/publishers/google/models/gemini-embedding-2:embedContent"
+        );
+        assert_eq!(
+            MultimodalEmbeddingServiceImpl::build_embed_content_url(
+                "aura-historia",
+                "europe-west3"
+            ),
+            "https://europe-west3-aiplatform.googleapis.com/v1/projects/aura-historia/locations/europe-west3/publishers/google/models/gemini-embedding-2:embedContent"
+        );
+        assert_eq!(
+            MultimodalEmbeddingServiceImpl::build_embed_content_url("aura-historia", "global"),
+            "https://aiplatform.googleapis.com/v1/projects/aura-historia/locations/global/publishers/google/models/gemini-embedding-2:embedContent"
+        );
+    }
+
+    #[test]
     fn should_build_text_only_parts_when_no_description_and_no_image() {
         let title = Title::from("Antique Vase");
         let parts = MultimodalEmbeddingServiceImpl::build_content_parts(&title, None, None);
@@ -1180,29 +1301,28 @@ mod tests {
         let json = serde_json::to_value(&part).unwrap();
         assert_eq!(
             json,
-            serde_json::json!({"inlineData": {"mimeType": "image/jpeg", "data": "abc123"}})
+            serde_json::json!({"inline_data": {"mime_type": "image/jpeg", "data": "abc123"}})
         );
     }
 
     #[test]
     fn should_serialize_embed_content_request_correctly() {
         let request = EmbedContentRequest {
-            model: "models/gemini-embedding-2",
             content: Content {
                 parts: vec![ContentPart::Text {
                     text: "Test title".to_string(),
                 }],
             },
-            task_type: None,
+            output_dimensionality: OUTPUT_DIMENSIONALITY,
         };
         let json = serde_json::to_value(&request).unwrap();
         assert_eq!(
             json,
             serde_json::json!({
-                "model": "models/gemini-embedding-2",
                 "content": {
                     "parts": [{"text": "Test title"}]
-                }
+                },
+                "output_dimensionality": OUTPUT_DIMENSIONALITY
             })
         );
     }
@@ -1211,7 +1331,14 @@ mod tests {
     fn should_deserialize_embed_content_response_correctly() {
         let json = r#"{"embedding": {"values": [0.1, 0.2, 0.3]}}"#;
         let response: EmbedContentResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(response.embedding.values, vec![0.1, 0.2, 0.3]);
+        assert_eq!(response.into_values().unwrap(), vec![0.1, 0.2, 0.3]);
+    }
+
+    #[test]
+    fn should_deserialize_embed_content_response_with_embeddings_array_correctly() {
+        let json = r#"{"embeddings": [{"values": [0.1, 0.2, 0.3]}]}"#;
+        let response: EmbedContentResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.into_values().unwrap(), vec![0.1, 0.2, 0.3]);
     }
 
     #[test]
@@ -1256,7 +1383,7 @@ mod tests {
         // The LRU cache is a private implementation detail of `MultimodalEmbeddingServiceImpl`;
         // we cannot exercise the network path in a unit test, but we can verify the cache
         // is wired with the expected capacity bound so warm Lambda invocations can hit it.
-        let svc = MultimodalEmbeddingServiceImpl::new("test-key");
+        let svc = MultimodalEmbeddingServiceImpl::new("test-project", "test-location");
         let cache = svc.query_cache.lock().await;
         assert_eq!(cache.cap().get(), QUERY_EMBEDDING_CACHE_CAPACITY);
         assert_eq!(cache.len(), 0);
@@ -1266,7 +1393,7 @@ mod tests {
     async fn should_serve_query_embedding_from_cache_when_repeated_for_paged_calls() {
         // Manually pre-populate the cache to simulate a previous successful call, then
         // verify that the cached value is returned without exercising the HTTP client.
-        let svc = MultimodalEmbeddingServiceImpl::new("test-key");
+        let svc = MultimodalEmbeddingServiceImpl::new("test-project", "test-location");
         let expected = vec![0.1_f32, 0.2, 0.3];
         svc.query_cache
             .lock()
@@ -1280,7 +1407,7 @@ mod tests {
     #[tokio::test]
     async fn should_evict_least_recently_used_entry_when_capacity_exceeded() {
         // Drive the cache directly past capacity to assert LRU semantics.
-        let svc = MultimodalEmbeddingServiceImpl::new("test-key");
+        let svc = MultimodalEmbeddingServiceImpl::new("test-project", "test-location");
         {
             let mut cache = svc.query_cache.lock().await;
             for i in 0..QUERY_EMBEDDING_CACHE_CAPACITY {

@@ -24,6 +24,9 @@ use search_filter_api::handler;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::UserServiceImpl;
 
+const DEFAULT_VERTEX_AI_PROJECT_ID: &str = "aura-historia";
+const DEFAULT_VERTEX_AI_LOCATION: &str = "eu";
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     common::logging::init_logging();
@@ -36,12 +39,18 @@ async fn main() -> Result<(), Error> {
         .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
     let client = Client::new(&aws_config);
 
-    // Hybrid search and enhanced match evaluation are opt-in via GEMINI_API_KEY.
-    // When unset the new /products endpoint falls back to plain BM25 search without
-    // LLM-powered match evaluation.
+    // Hybrid search is opt-in via `GOOGLE_APPLICATION_CREDENTIALS`, while enhanced
+    // match evaluation remains opt-in via `GEMINI_API_KEY`. When unset, the
+    // /products endpoint falls back to plain BM25 search without LLM-powered
+    // match evaluation.
+    let google_application_credentials = std::env::var("GOOGLE_APPLICATION_CREDENTIALS").ok();
     let gemini_api_key = std::env::var("GEMINI_API_KEY")
         .inspect_err(|_| error!("Failed loading GEMINI_API_KEY"))
         .ok();
+    let vertex_ai_project_id = std::env::var("VERTEX_AI_PROJECT_ID")
+        .unwrap_or_else(|_| DEFAULT_VERTEX_AI_PROJECT_ID.to_string());
+    let vertex_ai_location = std::env::var("VERTEX_AI_LOCATION")
+        .unwrap_or_else(|_| DEFAULT_VERTEX_AI_LOCATION.to_string());
 
     let opensearch = common::opensearch::client::load_client()
         .await
@@ -60,9 +69,12 @@ async fn main() -> Result<(), Error> {
     let get_product_service = GetProductServiceImpl::new(&product_dynamodb_repository);
     let query_product_service = QueryProductServiceImpl::new(&product_opensearch_repository);
     let query_embedding_service: Option<Box<dyn MultimodalEmbeddingService + Sync + Send>> =
-        gemini_api_key
-            .as_deref()
-            .map(|key| Box::new(MultimodalEmbeddingServiceImpl::new(key)) as Box<_>);
+        google_application_credentials.as_ref().map(|_| {
+            Box::new(MultimodalEmbeddingServiceImpl::new(
+                &vertex_ai_project_id,
+                &vertex_ai_location,
+            )) as Box<_>
+        });
     let enhanced_match_service: Option<Box<dyn EnhancedSearchMatchService + Sync + Send>> =
         gemini_api_key
             .as_deref()

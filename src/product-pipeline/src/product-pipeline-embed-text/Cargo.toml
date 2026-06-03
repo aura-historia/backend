@@ -25,6 +25,7 @@ lru = "0.16"
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_dynamo = { workspace = true }
+google-cloud-auth = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 url = { workspace = true }
 base64 = { workspace = true }

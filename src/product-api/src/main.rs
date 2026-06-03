@@ -18,9 +18,11 @@ use product_pipeline_embed_text::service::{
 };
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
-use tracing::error;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::UserServiceImpl;
+
+const DEFAULT_VERTEX_AI_PROJECT_ID: &str = "aura-historia";
+const DEFAULT_VERTEX_AI_LOCATION: &str = "eu";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -42,12 +44,16 @@ async fn main() -> Result<(), Error> {
         user_pool_public_client_id.as_str(),
         user_pool_admin_client_id.as_str(),
     ];
-    // Hybrid (BM25 + kNN, OpenSearch-native RRF) search is opt-in via the GEMINI_API_KEY
-    // env-var. When unset, the lambda falls back to the existing pure-BM25 query path so
-    // the lambda continues to work in environments without an embedding provider.
-    let gemini_api_key = std::env::var("GEMINI_API_KEY")
-        .inspect_err(|_| error!("Failed loading GEMINI_API_KEY"))
-        .ok();
+    // Hybrid (BM25 + kNN, OpenSearch-native RRF) search is opt-in via
+    // `GOOGLE_APPLICATION_CREDENTIALS`. When unset, the lambda falls back to the
+    // existing pure-BM25 query path so the lambda continues to work in
+    // environments without an embedding provider. `VERTEX_AI_PROJECT_ID` and
+    // `VERTEX_AI_LOCATION` can override the repo defaults used for Vertex.
+    let google_application_credentials = std::env::var("GOOGLE_APPLICATION_CREDENTIALS").ok();
+    let vertex_ai_project_id = std::env::var("VERTEX_AI_PROJECT_ID")
+        .unwrap_or_else(|_| DEFAULT_VERTEX_AI_PROJECT_ID.to_string());
+    let vertex_ai_location = std::env::var("VERTEX_AI_LOCATION")
+        .unwrap_or_else(|_| DEFAULT_VERTEX_AI_LOCATION.to_string());
 
     let dynamodb = aws_sdk_dynamodb::Client::new(&aws_config);
     let opensearch = common::opensearch::client::load_client()
@@ -68,9 +74,12 @@ async fn main() -> Result<(), Error> {
     let get_product_service = GetProductServiceImpl::new(&product_dynamodb_repository);
     // The impl now caches `embed_query` results internally via a 4096-entry LRU.
     let query_embedding_service: Option<Box<dyn MultimodalEmbeddingService + Sync + Send>> =
-        gemini_api_key
-            .as_deref()
-            .map(|key| Box::new(MultimodalEmbeddingServiceImpl::new(key)) as Box<_>);
+        google_application_credentials.as_ref().map(|_| {
+            Box::new(MultimodalEmbeddingServiceImpl::new(
+                &vertex_ai_project_id,
+                &vertex_ai_location,
+            )) as Box<_>
+        });
     let query_product_service = QueryProductServiceImpl::new(&product_opensearch_repository);
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,

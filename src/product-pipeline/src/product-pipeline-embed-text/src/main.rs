@@ -13,6 +13,9 @@ use shop::service::get_service::GetShopServiceImpl;
 use shop::service::seller_service::MockSellerService;
 use tracing::debug;
 
+const DEFAULT_VERTEX_AI_PROJECT_ID: &str = "aura-historia";
+const DEFAULT_VERTEX_AI_LOCATION: &str = "eu";
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     common::logging::init_logging();
@@ -57,9 +60,14 @@ async fn main() -> Result<(), Error> {
         }))
         .await
     } else {
-        let gemini_api_key = std::env::var("GEMINI_API_KEY")
-            .expect("shouldn't fail loading env-var 'GEMINI_API_KEY'");
-        let embedding_service = MultimodalEmbeddingServiceImpl::new(&gemini_api_key);
+        let _google_application_credentials = std::env::var("GOOGLE_APPLICATION_CREDENTIALS")
+            .expect("shouldn't fail loading env-var 'GOOGLE_APPLICATION_CREDENTIALS'");
+        let vertex_ai_project_id = std::env::var("VERTEX_AI_PROJECT_ID")
+            .unwrap_or_else(|_| DEFAULT_VERTEX_AI_PROJECT_ID.to_string());
+        let vertex_ai_location = std::env::var("VERTEX_AI_LOCATION")
+            .unwrap_or_else(|_| DEFAULT_VERTEX_AI_LOCATION.to_string());
+        let embedding_service =
+            MultimodalEmbeddingServiceImpl::new(&vertex_ai_project_id, &vertex_ai_location);
         run(service_fn(|event: LambdaEvent<SqsEvent>| async {
             handler(&embedding_service, &command_service, event).await
         }))
