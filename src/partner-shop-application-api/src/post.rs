@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
@@ -9,6 +10,7 @@ use partner_shop_application::core::partner_shop_application::PartnerShopApplica
 use partner_shop_application::data::get_partner_shop_application_data::GetPartnerShopApplicationData;
 use partner_shop_application::data::post_partner_shop_application_data::PostPartnerShopApplicationPayloadData;
 use partner_shop_application::service::partner_shop_application_service::PartnerShopApplicationService;
+use shop::core::partner_status::ShopPartnerStatus;
 use shop::service::command::CreateShopCommand;
 
 pub async fn handle(
@@ -48,6 +50,7 @@ pub async fn handle(
         } => PartnerShopApplicationPayload::New(CreateShopCommand {
             name: shop_name,
             shop_type: shop_type.into(),
+            shop_partner_status: ShopPartnerStatus::Partnered,
             domains: shop_domains,
             shopify_domain: None,
             shopify_currency: None,
@@ -69,8 +72,15 @@ pub async fn handle(
         payload,
     };
 
-    let data: GetPartnerShopApplicationData =
-        service.create_partner_shop_application(cmd).await?.into();
+    let data: GetPartnerShopApplicationData = service
+        .create_partner_shop_application(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            cmd,
+        )
+        .await?
+        .into();
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(201)
         .last_modified(data.updated)
@@ -97,7 +107,7 @@ mod tests {
         let mut service = MockPartnerShopApplicationService::default();
         service
             .expect_create_partner_shop_application()
-            .return_once(move |_| {
+            .return_once(move |_, _| {
                 let app: PartnerShopApplication = Faker.fake();
                 Box::pin(async move { Ok(app) })
             });

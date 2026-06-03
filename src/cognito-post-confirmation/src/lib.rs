@@ -1,4 +1,5 @@
 use aws_lambda_events::cognito::CognitoEventUserPoolsPostConfirmation;
+use common::actor::{RequestContext, domain::Actor};
 use common::user_id::UserId;
 use lambda_runtime::LambdaEvent;
 use serde_email::Email;
@@ -31,7 +32,14 @@ pub async fn handler(
         .expect("shouldn't fail parsing user-attribute 'email' as valid E-Mail because Cognito forces validity on sign-up");
 
     let create_cmd = CreateUserCommand { id, email };
-    let _ = service.create_user(create_cmd).await?;
+    let _ = service
+        .create_user(
+            &RequestContext {
+                actor: Actor::User(id),
+            },
+            create_cmd,
+        )
+        .await?;
 
     Ok(event.payload)
 }

@@ -1,40 +1,47 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
-use cognito::access_token_verifier_service::AccessTokenVerifierService;
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::shop_id::api::extract_shop_id_path;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
-use shop::core::partner_shop_api_key::api::extract_api_key;
 use shop::data::get_shop_data::GetShopData;
 use shop::data::patch_shop_data::PatchShopData;
 use shop::service::command::UpdateShopCommand;
 use shop::service::command_service::CommandShopService;
 use shop::service::get_service::GetShopService;
-use user::service::user_service::UserService;
+use user::service::{
+    authenticator_service::{AuthenticatedPrincipal, AuthenticatorService},
+    user_service::UserService,
+};
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     command_shop_service: &(impl CommandShopService + Sync),
-    get_shop_service: &(impl GetShopService + Sync),
+    _get_shop_service: &(impl GetShopService + Sync),
     user_service: &(impl UserService + Sync),
-    access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
+    authenticator_service: &(impl AuthenticatorService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
 
-    let cognito_user_id = access_token_verifier_service
-        .verify_extract_user_id(&event.payload.headers)
+    let authenticated = match authenticator_service
+        .authenticate(&event.payload.headers)
         .await?
-        .or_else(|| extract_user_id_request_context(&event.payload.request_context).ok());
+    {
+        Some(principal) => Some(principal),
+        None => extract_user_id_request_context(&event.payload.request_context)
+            .ok()
+            .map(AuthenticatedPrincipal::UserId),
+    };
 
-    match cognito_user_id {
-        Some(user_id) => {
+    match authenticated {
+        Some(AuthenticatedPrincipal::UserId(user_id)) => {
             tracing::Span::current().record("userId", user_id.to_string());
             let is_admin = user_service.check_admin(&user_id).await.is_ok();
             if !is_admin {
-                let partner_shop = get_shop_service.find_partner_shop(&shop_id).await?;
-                if partner_shop.partner_user_id != user_id {
+                let user = user_service.find_user(&user_id).await?;
+                if !user.partner_shops.contains(&shop_id) {
                     return Err(
                         shop::service::command_service::CommandShopError::NotThePartnerUser(
                             user_id, shop_id,
@@ -44,12 +51,24 @@ pub async fn handle(
                 }
             }
         }
+        Some(AuthenticatedPrincipal::AccessToken(ref access_token)) => {
+            tracing::Span::current().record("userId", access_token.user_id.to_string());
+            let user = user_service.find_user(&access_token.user_id).await?;
+            if !user.partner_shops.contains(&shop_id) {
+                return Err(
+                    shop::service::command_service::CommandShopError::NotThePartnerUser(
+                        access_token.user_id,
+                        shop_id,
+                    )
+                    .into(),
+                );
+            }
+        }
         None => {
-            let api_key = extract_api_key(&event.payload)?;
-            // Authorization only: the update itself is applied by shop id from the path.
-            let _ = get_shop_service
-                .verify_partner_shop(&api_key, &shop_id)
-                .await?;
+            return Err(
+                ApiError::unauthorized(common::api::error_code::UNAUTHORIZED)
+                    .with_header_field("Authorization"),
+            );
         }
     }
 
@@ -69,6 +88,7 @@ pub async fn handle(
 
     let update_command = UpdateShopCommand {
         shop_type: patch_data.shop_type.map(Into::into),
+        shop_partner_status: None,
         domains: patch_data.domains,
         shopify_domain: patch_data.shopify_domain,
         shopify_currency: patch_data.shopify_currency.map(Into::into),
@@ -83,8 +103,16 @@ pub async fn handle(
         email: patch_data.email,
     };
 
+    let actor = match authenticated {
+        Some(AuthenticatedPrincipal::UserId(user_id)) => Actor::User(user_id),
+        Some(AuthenticatedPrincipal::AccessToken(access_token)) => {
+            Actor::User(access_token.user_id)
+        }
+        None => unreachable!("authentication already checked"),
+    };
+
     let updated_shop = command_shop_service
-        .update(&shop_id, update_command)
+        .update(&RequestContext { actor }, &shop_id, update_command)
         .await?;
 
     let shop_data: GetShopData = GetShopData::from(updated_shop);
@@ -98,26 +126,28 @@ pub async fn handle(
 #[cfg(test)]
 mod tests {
     use super::handle;
-    use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
     use common::shop_id::ShopId;
     use common::user_id::UserId;
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
     use shop::core::partner_shop::PartnerShop;
-    use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
     use shop::core::shop::Shop;
     use shop::data::patch_shop_data::PatchShopData;
     use shop::service::command_service::MockCommandShopService;
     use shop::service::get_service::MockGetShopService;
     use test_api::ApiGatewayV2httpRequestProxy;
-    use user::service::user_service::{MockUserService, UserServiceError};
+    use user::core::access_token::AccessToken;
+    use user::service::{
+        authenticator_service::{AuthenticatedPrincipal, MockAuthenticatorService},
+        user_service::{MockUserService, UserServiceError},
+    };
 
-    fn no_access_token_verifier() -> MockAccessTokenVerifierService {
-        let mut verifier = MockAccessTokenVerifierService::default();
-        verifier
-            .expect_verify_extract_user_id()
+    fn no_authenticator() -> MockAuthenticatorService {
+        let mut authenticator = MockAuthenticatorService::default();
+        authenticator
+            .expect_authenticate()
             .returning(|_| Box::pin(async { Ok(None) }));
-        verifier
+        authenticator
     }
 
     #[tokio::test]
@@ -127,7 +157,6 @@ mod tests {
 
         let mut partner_shop: PartnerShop = Faker.fake();
         partner_shop.shop_id = shop_id;
-        partner_shop.partner_user_id = user_id;
 
         let mut get_shop_service = MockGetShopService::default();
         get_shop_service
@@ -135,7 +164,7 @@ mod tests {
             .return_once(move |_| Box::pin(async move { Ok(partner_shop) }));
 
         let mut command_service = MockCommandShopService::default();
-        command_service.expect_update().return_once(move |_, _| {
+        command_service.expect_update().return_once(move |_, _, _| {
             let shop: Shop = Faker.fake();
             Box::pin(async move { Ok(shop) })
         });
@@ -144,6 +173,12 @@ mod tests {
         user_service
             .expect_check_admin()
             .return_once(move |_| Box::pin(async { Err(UserServiceError::AdminRoleRequired) }));
+        user_service.expect_find_user().return_once(move |_| {
+            let mut user: user::core::user::User = Faker.fake();
+            user.user_id = user_id;
+            user.partner_shops.insert(shop_id);
+            Box::pin(async move { Ok(user) })
+        });
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -161,7 +196,7 @@ mod tests {
             &command_service,
             &get_shop_service,
             &user_service,
-            &no_access_token_verifier(),
+            &no_authenticator(),
         )
         .await
         .unwrap();
@@ -174,7 +209,7 @@ mod tests {
         let shop_id = ShopId::new();
 
         let mut command_service = MockCommandShopService::default();
-        command_service.expect_update().return_once(move |_, _| {
+        command_service.expect_update().return_once(move |_, _, _| {
             let shop: Shop = Faker.fake();
             Box::pin(async move { Ok(shop) })
         });
@@ -202,7 +237,7 @@ mod tests {
             &command_service,
             &get_shop_service,
             &user_service,
-            &no_access_token_verifier(),
+            &no_authenticator(),
         )
         .await
         .unwrap();
@@ -210,23 +245,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_200_when_api_key_updates_shop_without_cognito() {
-        let api_key = PartnerShopApiKey::new();
+    async fn should_return_200_when_access_token_updates_shop() {
         let shop_id = ShopId::new();
+        let access_token_user_id = UserId::new();
 
-        let mut partner_shop: PartnerShop = Faker.fake();
-        partner_shop.shop_id = shop_id;
-        partner_shop.hashed_api_key = Some(HashedPartnerShopApiKey::from(api_key.clone()));
+        let get_shop_service = MockGetShopService::default();
+        let mut access_token: AccessToken = Faker.fake();
+        access_token.user_id = access_token_user_id;
 
-        let mut get_shop_service = MockGetShopService::default();
-        get_shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| Box::pin(async move { Ok(partner_shop) }));
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().return_once(move |_| {
+            let mut user: user::core::user::User = Faker.fake();
+            user.user_id = access_token_user_id;
+            user.partner_shops.insert(shop_id);
+            Box::pin(async move { Ok(user) })
+        });
 
         let mut command_service = MockCommandShopService::default();
         command_service
             .expect_update()
-            .return_once(move |_, command| {
+            .return_once(move |_, _, command| {
                 Box::pin(async move {
                     assert!(command.woocommerce_webhook_secret.is_some());
                     let shop: Shop = Faker.fake();
@@ -234,13 +272,18 @@ mod tests {
                 })
             });
 
-        let api_key_header: String = api_key.into();
+        let mut authenticator_service = MockAuthenticatorService::default();
+        authenticator_service
+            .expect_authenticate()
+            .return_once(move |_| {
+                Box::pin(async move { Ok(Some(AuthenticatedPrincipal::AccessToken(access_token))) })
+            });
+
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
                 .route_key("PATCH /api/v1/shops/{shopId}")
                 .path_parameter("shopId", shop_id.to_string())
-                .header("x-api-key", api_key_header)
                 .body_serde(&serde_json::json!({
                     "woocommerceWebhookSecret": "secret"
                 }))
@@ -252,8 +295,8 @@ mod tests {
             lambda_event,
             &command_service,
             &get_shop_service,
-            &MockUserService::default(),
-            &no_access_token_verifier(),
+            &user_service,
+            &authenticator_service,
         )
         .await
         .unwrap();
@@ -277,7 +320,7 @@ mod tests {
             &MockCommandShopService::default(),
             &MockGetShopService::default(),
             &MockUserService::default(),
-            &no_access_token_verifier(),
+            &no_authenticator(),
         )
         .await
         .unwrap_err();
@@ -291,7 +334,6 @@ mod tests {
 
         let mut partner_shop: PartnerShop = Faker.fake();
         partner_shop.shop_id = shop_id;
-        partner_shop.partner_user_id = UserId::new(); // different user
 
         let mut get_shop_service = MockGetShopService::default();
         get_shop_service
@@ -302,6 +344,11 @@ mod tests {
         user_service
             .expect_check_admin()
             .return_once(move |_| Box::pin(async { Err(UserServiceError::AdminRoleRequired) }));
+        user_service.expect_find_user().return_once(move |_| {
+            let mut user: user::core::user::User = Faker.fake();
+            user.user_id = user_id;
+            Box::pin(async move { Ok(user) })
+        });
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -319,7 +366,7 @@ mod tests {
             &MockCommandShopService::default(),
             &get_shop_service,
             &user_service,
-            &no_access_token_verifier(),
+            &no_authenticator(),
         )
         .await
         .unwrap_err();
@@ -351,7 +398,7 @@ mod tests {
             &MockCommandShopService::default(),
             &MockGetShopService::default(),
             &user_service,
-            &no_access_token_verifier(),
+            &no_authenticator(),
         )
         .await
         .unwrap_err();

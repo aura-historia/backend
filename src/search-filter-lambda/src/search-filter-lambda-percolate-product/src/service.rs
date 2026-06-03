@@ -1,3 +1,4 @@
+use common::actor::domain::Actor;
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
 use common::has_key::HasKey;
@@ -168,6 +169,8 @@ impl<'a> ProductMatcherServiceImpl<'a> {
                 embedding: None,
                 auction_start: created_payload.auction_start,
                 auction_end: created_payload.auction_end,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: event.timestamp,
                 updated: event.timestamp,
             },
@@ -370,6 +373,8 @@ impl<'a> ProductMatcherService for ProductMatcherServiceImpl<'a> {
                 origin_event_id: event_id,
                 enhanced_match_reason: m.enhanced_match_reason.clone(),
                 feedback: None,
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: now,
                 updated: now,
             })
@@ -495,17 +500,27 @@ mod tests {
         }
     }
 
-    fn mk_filter_summary(user_id: UserId) -> UserSearchFilterSummary {
+    fn mk_filter_summary_with_state(
+        user_id: UserId,
+        state: ResourceState,
+    ) -> UserSearchFilterSummary {
         UserSearchFilterSummary {
             user_id,
             user_search_filter_id: UserSearchFilterId::new(),
             name: UserSearchFilterName::from("Test Filter"),
             enhanced_search_description: None,
             notifications: true,
-            state: ResourceState::Active,
+            state,
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
+            last_hybrid_search_matched: OffsetDateTime::now_utc(),
         }
+    }
+
+    fn mk_filter_summary(user_id: UserId) -> UserSearchFilterSummary {
+        mk_filter_summary_with_state(user_id, ResourceState::Active)
     }
 
     fn mk_filter_summary_with_enhanced(
@@ -519,8 +534,11 @@ mod tests {
             enhanced_search_description: Some(EnhancedSearchDescription::from(description)),
             notifications: true,
             state: ResourceState::Active,
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
+            last_hybrid_search_matched: OffsetDateTime::now_utc(),
         }
     }
 
@@ -626,6 +644,96 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_return_empty_when_only_inactive_filters_match() {
+        let product: Product = Faker.fake();
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+        let summary = mk_filter_summary_with_state(UserId::new(), ResourceState::InactiveByUser);
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| Box::pin(async move { Ok(vec![summary]) }));
+
+        let enhanced_service = mk_default_enhanced_match_service();
+        let user_service = mk_default_user_service();
+
+        let service = ProductMatcherServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
+
+        let result = service.process_product_event(event).await;
+
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert!(r.matches.is_empty());
+        assert!(r.notification_commands.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_return_matches_and_commands_only_for_active_filters_when_active_and_inactive_filters_match()
+     {
+        let product: Product = Faker.fake();
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+        let active_user_id = UserId::new();
+        let inactive_user_id = UserId::new();
+        let active_summary = mk_filter_summary(active_user_id);
+        let active_filter_id = active_summary.user_search_filter_id;
+        let inactive_summary =
+            mk_filter_summary_with_state(inactive_user_id, ResourceState::InactiveByRestrictedPlan);
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| {
+                Box::pin(async move { Ok(vec![active_summary, inactive_summary]) })
+            });
+        filter_service
+            .expect_find_search_filter_product_match()
+            .withf(move |user_id, filter_id, _, _| {
+                *user_id == active_user_id && *filter_id == active_filter_id
+            })
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+        filter_service
+            .expect_count_user_search_filter_matches_for_this_month()
+            .withf(move |user_id| *user_id == active_user_id)
+            .return_once(|_| Box::pin(async { Ok(0) }));
+
+        let enhanced_service = mk_default_enhanced_match_service();
+        let user_service = mk_default_user_service();
+
+        let service = ProductMatcherServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
+
+        let result = service.process_product_event(event).await;
+
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert_eq!(r.matches.len(), 1);
+        assert_eq!(r.matches[0].user_id, active_user_id);
+        assert_eq!(r.notification_commands.len(), 1);
+        assert_eq!(r.notification_commands[0].user_id, active_user_id);
+    }
+
+    #[tokio::test]
     async fn should_propagate_get_product_error_when_find_product_fails() {
         let product: Product = Faker.fake();
         let event = mk_event(&product);
@@ -710,8 +818,11 @@ mod tests {
             enhanced_search_description: None,
             notifications: true,
             state: ResourceState::Active,
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
+            last_hybrid_search_matched: OffsetDateTime::now_utc(),
         };
 
         let mut get_service = MockGetProductService::default();
@@ -950,6 +1061,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_return_empty_when_only_inactive_filters_match_for_created_events() {
+        let product: Product = Faker.fake();
+        let event = mk_created_event(&product);
+        let summary =
+            mk_filter_summary_with_state(UserId::new(), ResourceState::InactiveByRestrictedPlan);
+
+        let get_service = MockGetProductService::default();
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| Box::pin(async move { Ok(vec![summary]) }));
+
+        let enhanced_service = mk_default_enhanced_match_service();
+        let user_service = mk_default_user_service();
+
+        let service = ProductMatcherServiceImpl::new(
+            &filter_service,
+            &get_service,
+            &enhanced_service,
+            &user_service,
+        );
+
+        let result = service.process_product_event(event).await;
+
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert!(r.matches.is_empty());
+        assert!(r.notification_commands.is_empty());
+    }
+
+    #[tokio::test]
     async fn should_not_call_get_product_service_when_event_is_created() {
         let product: Product = Faker.fake();
         let event = mk_created_event(&product);
@@ -1128,7 +1271,9 @@ mod tests {
         let second_image: product::core::product_image::ProductImage = Faker.fake();
         let base: Product = Faker.fake();
         let product = Product {
-            images: vec![first_image.clone(), second_image],
+            images: vec![first_image.clone(), second_image]
+                .into_iter()
+                .collect(),
             ..base
         };
         let expected_image = first_image;
@@ -1181,7 +1326,7 @@ mod tests {
     async fn should_set_image_to_none_when_product_has_no_images_for_search_filter_command() {
         let base: Product = Faker.fake();
         let product = Product {
-            images: vec![],
+            images: Default::default(),
             ..base
         };
         let event = mk_event(&product);
@@ -1709,7 +1854,7 @@ mod tests {
             (0..7).map(|_| Faker.fake()).collect();
         let base: Product = Faker.fake();
         let product = Product {
-            images: images.clone(),
+            images: images.clone().into_iter().collect(),
             ..base
         };
         let event = mk_event(&product);
@@ -1771,7 +1916,7 @@ mod tests {
     async fn should_forward_empty_images_to_enhanced_match_service_when_product_has_no_images() {
         let base: Product = Faker.fake();
         let product = Product {
-            images: vec![],
+            images: Default::default(),
             ..base
         };
         let event = mk_event(&product);

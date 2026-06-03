@@ -1,7 +1,7 @@
 use crate::core::watchlist_product::WatchlistProduct;
 use common::{
-    product_id::ProductId, resource_state::record::ResourceStateRecord, shop_id::ShopId,
-    shops_product_id::ShopsProductId, user_id::UserId,
+    actor::record::ActorRecord, product_id::ProductId, resource_state::record::ResourceStateRecord,
+    shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -31,6 +31,8 @@ pub struct WatchlistProductRecord {
 
     #[serde(default)]
     pub state: ResourceStateRecord,
+    pub created_by: ActorRecord,
+    pub updated_by: ActorRecord,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -71,6 +73,8 @@ impl From<WatchlistProductRecord> for WatchlistProduct {
             product_id: record.product_id,
             notifications: record.notifications,
             state: record.state.into(),
+            created_by: record.created_by.into(),
+            updated_by: record.updated_by.into(),
             created: record.created,
             updated: record.updated,
         }
@@ -103,6 +107,8 @@ mod faker {
                 shops_product_id: shops_product_id.clone(),
                 notifications,
                 state: ResourceStateRecord::Active,
+                created_by: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 created,
                 updated: created,
             }

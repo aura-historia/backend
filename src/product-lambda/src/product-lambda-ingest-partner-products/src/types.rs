@@ -8,6 +8,7 @@ use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
+use indexmap::IndexSet;
 use product::core::product_image::ProductImage;
 use product::core::prohibited_content::ProhibitedContent;
 use product::data::patch_product_data::PatchProductData;
@@ -66,7 +67,7 @@ pub struct CreateAsyncProductCommandData {
     pub price_estimate_max: Option<PriceData>,
     pub state: ProductStateData,
     pub url: Url,
-    pub images: Vec<Url>,
+    pub images: IndexSet<Url>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         default,
@@ -103,7 +104,7 @@ pub struct UpdateAsyncProductCommandData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub images: Option<Vec<Url>>,
+    pub images: Option<IndexSet<Url>>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         default,
@@ -138,7 +139,7 @@ pub struct UpsertAsyncProductCommandData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub images: Option<Vec<Url>>,
+    pub images: Option<IndexSet<Url>>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         default,

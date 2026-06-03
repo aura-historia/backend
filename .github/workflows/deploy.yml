@@ -70,6 +70,7 @@ jobs:
           - src/search-filter-api
           - src/search-filter-lambda/src/search-filter-lambda-opensearch-sync
           - src/search-filter-lambda/src/search-filter-lambda-percolate-product
+          - src/search-filter-lambda/src/search-filter-lambda-periodic-match
           - src/product-api
           - src/product-api-partner
           - src/product-watchlist-api
@@ -83,11 +84,11 @@ jobs:
           - src/shop-lambda/src/shop-lambda-opensearch-index
           - src/shopify-lambda
           - src/user-api
+          - src/oauth-api
           - src/user-lambda/src/user-lambda-index-opensearch
           - src/user-lambda/src/user-lambda-tier-update
           - src/partner-shop-application-api
           - src/partner-shop-application-lambda
-          - src/partner-api
           - src/cognito-post-confirmation
           - src/notification-send
           - src/notification-api
@@ -138,7 +139,7 @@ jobs:
           cp target/lambda/$BIN_NAME/bootstrap.zip $OUT_DIR/$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}.zip
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6.1.1
+        uses: aws-actions/configure-aws-credentials@6.2
         with:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -193,7 +194,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6.1.1
+        uses: aws-actions/configure-aws-credentials@6.2
         with:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -237,7 +238,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6.1.1
+        uses: aws-actions/configure-aws-credentials@6.2
         with:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -279,7 +280,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6.1.1
+        uses: aws-actions/configure-aws-credentials@6.2
         with:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -323,7 +324,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6.1.1
+        uses: aws-actions/configure-aws-credentials@6.2
         with:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}

@@ -1,9 +1,11 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::{BAD_BODY_VALUE, FORBIDDEN};
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
+use shop::core::partner_status::ShopPartnerStatus;
 use shop::data::get_shop_data::GetShopData;
 use shop::data::post_shop_data::PostShopData;
 use shop::service::command::CreateShopCommand;
@@ -40,6 +42,7 @@ pub async fn handle(
     let create_command = CreateShopCommand {
         name: post_data.name,
         shop_type: post_data.shop_type.into(),
+        shop_partner_status: ShopPartnerStatus::Scraped,
         domains: post_data.domains,
         shopify_domain: post_data.shopify_domain,
         shopify_currency: post_data.shopify_currency.map(Into::into),
@@ -55,7 +58,14 @@ pub async fn handle(
         affiliate_configuration: None,
     };
 
-    let created_shop = command_shop_service.create(create_command).await?;
+    let created_shop = command_shop_service
+        .create(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            create_command,
+        )
+        .await?;
 
     let shop_data: GetShopData = GetShopData::from(created_shop);
 
@@ -82,7 +92,7 @@ mod tests {
         let admin_user_id = UserId::new();
 
         let mut command_service = MockCommandShopService::default();
-        command_service.expect_create().return_once(move |_| {
+        command_service.expect_create().return_once(move |_, _| {
             let shop: Shop = Faker.fake();
             Box::pin(async move { Ok(shop) })
         });

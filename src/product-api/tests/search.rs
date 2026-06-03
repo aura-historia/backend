@@ -1014,11 +1014,17 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     let user_id = UserId::new();
+    let user_ctx = common::actor::RequestContext {
+        actor: common::actor::domain::Actor::User(user_id),
+    };
     user_service
-        .create_user(user::service::command::CreateUserCommand {
-            id: user_id,
-            email: "foo@bar.de".try_into().unwrap(),
-        })
+        .create_user(
+            &user_ctx,
+            user::service::command::CreateUserCommand {
+                id: user_id,
+                email: "foo@bar.de".try_into().unwrap(),
+            },
+        )
         .await
         .unwrap();
     access_token_verifier_service

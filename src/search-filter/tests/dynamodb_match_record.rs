@@ -74,6 +74,7 @@ async fn should_update_match_record_feedback() {
             &expected.shops_product_id,
             UserSearchFilterMatchRecordUpdate {
                 feedback: Some(true),
+                updated_by: common::actor::record::ActorRecord::System,
                 updated: OffsetDateTime::now_utc(),
             },
         )

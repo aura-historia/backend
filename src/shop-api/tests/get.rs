@@ -1,4 +1,3 @@
-use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use shop::{
@@ -13,7 +12,15 @@ use shop::{
 };
 use shop_api::handle;
 use test_api::*;
-use user::service::user_service::MockUserService;
+use user::service::{
+    authenticator_service::MockAuthenticatorService, user_service::MockUserService,
+};
+
+fn system_ctx() -> common::actor::RequestContext {
+    common::actor::RequestContext {
+        actor: common::actor::domain::Actor::System,
+    }
+}
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_respond_shop() {
@@ -26,7 +33,10 @@ async fn should_200_respond_shop() {
 
     let mut create_cmd: CreateShopCommand = Faker.fake();
     create_cmd.url = None;
-    let expected = command_service.create(create_cmd).await.unwrap();
+    let expected = command_service
+        .create(&system_ctx(), create_cmd)
+        .await
+        .unwrap();
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
@@ -35,9 +45,9 @@ async fn should_200_respond_shop() {
             .build(),
         context: Default::default(),
     };
-    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    let mut access_token_verifier_service = MockAuthenticatorService::default();
     access_token_verifier_service
-        .expect_verify_extract_user_id()
+        .expect_authenticate()
         .return_once(|_| Box::pin(async { Ok(None) }));
 
     let response = handle(
@@ -66,7 +76,10 @@ async fn should_200_respond_shop_for_slug() {
 
     let mut create_cmd: CreateShopCommand = Faker.fake();
     create_cmd.url = None;
-    let expected = command_service.create(create_cmd).await.unwrap();
+    let expected = command_service
+        .create(&system_ctx(), create_cmd)
+        .await
+        .unwrap();
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
@@ -75,9 +88,9 @@ async fn should_200_respond_shop_for_slug() {
             .build(),
         context: Default::default(),
     };
-    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    let mut access_token_verifier_service = MockAuthenticatorService::default();
     access_token_verifier_service
-        .expect_verify_extract_user_id()
+        .expect_authenticate()
         .return_once(|_| Box::pin(async { Ok(None) }));
 
     let response = handle(

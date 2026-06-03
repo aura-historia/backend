@@ -28,6 +28,12 @@ use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryI
 use user::dynamodb::user_record::UserRecord;
 use user::service::user_service::UserServiceImpl;
 
+fn system_ctx() -> common::actor::RequestContext {
+    common::actor::RequestContext {
+        actor: common::actor::domain::Actor::System,
+    }
+}
+
 const EXAMPLE_EMBEDDING: [f32; 768] = [
     -0.036270842,
     0.02361682,
@@ -1052,6 +1058,7 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
     for product_record in product_records.iter() {
         let _ = watchlist_service
             .create_watchlist_product(
+                &system_ctx(),
                 &user_id,
                 &product_record.shop_id,
                 &product_record.shops_product_id,

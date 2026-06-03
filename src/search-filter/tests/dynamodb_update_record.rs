@@ -34,6 +34,9 @@ async fn should_update_search_filter_record() {
         seller_slug_id_query: None,
         exclude_seller_slug_id_query: None,
         shop_type_query: None,
+        country_query: None,
+        continent_query: None,
+        geo_address_distance_query: None,
         price_query: None,
         state_query: None,
         created_query: None,
@@ -42,7 +45,9 @@ async fn should_update_search_filter_record() {
         auction_end_query: None,
         language: None,
         currency: None,
+        updated_by: common::actor::record::ActorRecord::System,
         updated,
+        last_hybrid_search_matched: None,
     };
     let _ = repository
         .update_user_search_filter_record(&record.user_id, &record.user_search_filter_id, update)
@@ -52,6 +57,7 @@ async fn should_update_search_filter_record() {
     let mut expected = record.clone();
     expected.name = "my cool name".into();
     expected.product_query = Some("boopel boop doop".try_into().unwrap());
+    expected.updated_by = common::actor::record::ActorRecord::System;
     expected.updated = updated;
 
     let actual = repository

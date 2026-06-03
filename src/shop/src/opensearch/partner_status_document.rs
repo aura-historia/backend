@@ -1,4 +1,7 @@
-use crate::core::partner_status::ShopPartnerStatus;
+use crate::{
+    core::partner_status::ShopPartnerStatus,
+    dynamodb::partner_status_record::ShopPartnerStatusRecord,
+};
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -32,6 +35,24 @@ impl From<ShopPartnerStatusDocument> for ShopPartnerStatus {
         match document {
             ShopPartnerStatusDocument::Scraped => ShopPartnerStatus::Scraped,
             ShopPartnerStatusDocument::Partnered => ShopPartnerStatus::Partnered,
+        }
+    }
+}
+
+impl From<ShopPartnerStatusDocument> for ShopPartnerStatusRecord {
+    fn from(document: ShopPartnerStatusDocument) -> Self {
+        match document {
+            ShopPartnerStatusDocument::Scraped => ShopPartnerStatusRecord::Scraped,
+            ShopPartnerStatusDocument::Partnered => ShopPartnerStatusRecord::Partnered,
+        }
+    }
+}
+
+impl From<ShopPartnerStatusRecord> for ShopPartnerStatusDocument {
+    fn from(record: ShopPartnerStatusRecord) -> Self {
+        match record {
+            ShopPartnerStatusRecord::Scraped => ShopPartnerStatusDocument::Scraped,
+            ShopPartnerStatusRecord::Partnered => ShopPartnerStatusDocument::Partnered,
         }
     }
 }

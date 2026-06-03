@@ -1,5 +1,6 @@
 use crate::core::user_search_filter::UserSearchFilter;
 use crate::core::user_search_filter_name::UserSearchFilterName;
+use common::actor::record::ActorRecord;
 use common::distance::data::GeoDistanceQueryData;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
@@ -94,11 +95,15 @@ pub struct UserSearchFilterRecord {
 
     pub language: LanguageRecord,
     pub currency: CurrencyRecord,
+    pub created_by: ActorRecord,
+    pub updated_by: ActorRecord,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub last_hybrid_search_matched: OffsetDateTime,
 }
 
 pub fn mk_pk(user_id: &UserId) -> String {
@@ -159,8 +164,11 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                 auction_start_query: record.auction_start_query,
                 auction_end_query: record.auction_end_query,
             },
+            created_by: record.created_by.into(),
+            updated_by: record.updated_by.into(),
             created: record.created,
             updated: record.updated,
+            last_hybrid_search_matched: record.last_hybrid_search_matched,
         }
     }
 }
@@ -223,8 +231,11 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
             updated_query: user_search_filter.search.updated_query,
             auction_start_query: user_search_filter.search.auction_start_query,
             auction_end_query: user_search_filter.search.auction_end_query,
+            created_by: user_search_filter.created_by.into(),
+            updated_by: user_search_filter.updated_by.into(),
             created: user_search_filter.created,
             updated: user_search_filter.updated,
+            last_hybrid_search_matched: user_search_filter.last_hybrid_search_matched,
         }
     }
 }
@@ -271,8 +282,11 @@ mod fake {
                 auction_end_query: fake_range_query_datetime(config, rng),
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
+                created_by: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
+                last_hybrid_search_matched: OffsetDateTime::now_utc(),
             }
         }
     }

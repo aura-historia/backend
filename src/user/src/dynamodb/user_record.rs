@@ -3,8 +3,10 @@ use crate::{
     dynamodb::{role_record::UserRoleRecord, tier_record::UserTierRecord},
 };
 use common::{
+    actor::record::ActorRecord,
     currency::{domain::Currency, record::CurrencyRecord},
     language::{domain::Language, record::LanguageRecord},
+    shop_id::ShopId,
     stripe_customer_id::StripeCustomerId,
     user_id::UserId,
 };
@@ -13,6 +15,7 @@ use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use serde_fields::SerdeField;
+use std::collections::HashSet;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
@@ -63,12 +66,21 @@ pub struct UserRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub geo_address_lon: Option<f64>,
 
+    #[serde(
+        default,
+        skip_serializing_if = "HashSet::is_empty",
+        with = "serde_dynamo::string_set"
+    )]
+    pub partner_shops: HashSet<ShopId>,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gsi1_pk: Option<String>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gsi1_sk: Option<String>,
 
+    pub created_by: ActorRecord,
+    pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -128,8 +140,11 @@ impl From<User> for UserRecord {
             structured_address_country: structured_address.as_ref().and_then(|a| a.country),
             geo_address_lat: geo_address.map(|address| address.lat),
             geo_address_lon: geo_address.map(|address| address.lon),
+            partner_shops: user.partner_shops,
             gsi1_pk,
             gsi1_sk,
+            created_by: user.created_by.into(),
+            updated_by: user.updated_by.into(),
             created: user.created,
             updated: user.updated,
         }
@@ -158,6 +173,9 @@ impl From<UserRecord> for User {
                 record.structured_address_country,
             ),
             geo_address: geo_address_from_record(record.geo_address_lat, record.geo_address_lon),
+            partner_shops: record.partner_shops,
+            created_by: record.created_by.into(),
+            updated_by: record.updated_by.into(),
             created: record.created,
             updated: record.updated,
         }

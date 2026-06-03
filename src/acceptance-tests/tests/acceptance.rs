@@ -1,6 +1,7 @@
 use aws_tests_common::get_cfn_output;
 use base64::Engine;
 use common::execution_state::data::ExecutionStateData;
+use common::oauth_client_id::OAuthClientId;
 use common::personalized::api::PersonalizedData;
 use common::resource_state::record::ResourceStateRecord;
 use common::{
@@ -30,6 +31,15 @@ use notification::{
     },
 };
 use notification_api::notification_get::EventIdCursoredData;
+use oauth::dynamodb::repository::OAuthDynamoDbRepositoryImpl;
+use oauth::{
+    core::client::{OAuthClient, OAuthClientName},
+    data::{
+        IntrospectionResponseData, OAuthClientMetadataRequestData, OAuthClientMetadataResponseData,
+        TokenResponseData,
+    },
+    dynamodb::{client_record::OAuthClientRecord, repository::OAuthRepository},
+};
 use opensearch::GetParts;
 use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
 use partner_shop_application::data::{
@@ -87,11 +97,11 @@ use search_filter_api::{
     post_types::PostUserSearchFilterData,
 };
 use serde::de::DeserializeOwned;
-use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
 use shop::core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop::data::get_shop_data::GetShopData;
 use shop::data::patch_shop_data::PatchShopData;
 use shop::data::post_shop_data::PostShopData;
+use shop::dynamodb::partner_status_record::ShopPartnerStatusRecord;
 use shop::dynamodb::repository::ShopDynamoDbRepository;
 use shop::dynamodb::shop_record::ShopRecord;
 use shop::{
@@ -103,8 +113,15 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 use test_api::*;
 use time::OffsetDateTime;
+use user::core::access_token::{
+    AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, RawAccessToken,
+    RawOAuthClientSecret, Scope,
+};
 use user::core::role::UserRole;
 use user::core::tier::UserTier;
+use user::data::access_token_data::{
+    GetAccessTokenData, PatchAccessTokenData, PostAccessTokenData, ScopeData,
+};
 use user::data::patch_admin_user_data::PatchAdminUserData;
 use user::data::role_data::UserRoleData;
 use user::data::tier_data::UserTierData;
@@ -114,10 +131,18 @@ use user::service::user_service::UserService;
 use user::{
     data::{get_user_data::GetUserAccountData, patch_user_data::PatchUserAccountData},
     dynamodb::{
+        access_token_record::AccessTokenRecord,
         repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl},
+        user_record::UserRecord,
         user_record_update::UserRecordUpdate,
     },
 };
+
+fn request_context_for_user(user_id: UserId) -> common::actor::RequestContext {
+    common::actor::RequestContext {
+        actor: common::actor::domain::Actor::User(user_id),
+    }
+}
 
 // Shared 1024-dimensional text embedding used across multiple tests.
 // Values are real embedding coordinates that produce meaningful ANN results in OpenSearch.
@@ -1307,7 +1332,7 @@ async fn should_materialize_product_in_dynamodb_for_images_changed_event() {
     let mut materialized_old: ProductRecord = Faker.fake();
     materialized_old.pk = mk_pk(&shop.shop_id, &materialized_old.shops_product_id);
     materialized_old.shop_id = shop.shop_id;
-    materialized_old.images = vec![];
+    materialized_old.images = Default::default();
     materialized_old
         .url
         .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
@@ -1327,7 +1352,7 @@ async fn should_materialize_product_in_dynamodb_for_images_changed_event() {
     let update_cmd = UpdateProductCommand {
         native_price: materialized_old.price_native.map(|p| p.into()),
         state: Some(materialized_old.state.into()),
-        images: Some(new_images.clone()),
+        images: Some(new_images.clone().into_iter().collect()),
         ..empty_update_product_command()
     };
 
@@ -1871,6 +1896,328 @@ async fn should_delete_user_from_cognito_and_dynamodb() {
 }
 */
 
+#[localstack_test(services = [Cloudformation()])]
+async fn should_manage_user_access_tokens() {
+    let user = create_random_test_user().await;
+    let url = format!(
+        "{}/api/v1/me/access-tokens",
+        get_cfn_output().api_gateway_endpoint_url,
+    );
+
+    let post_response = reqwest::Client::new()
+        .post(url.clone())
+        .bearer_auth(user.access_token.clone())
+        .json(&PostAccessTokenData {
+            name: "Acceptance token".to_owned(),
+            scope: HashSet::from_iter([ScopeData::ProductsWrite].into_iter()),
+            expires_at: None,
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(201, post_response.status());
+    let created = post_response.json::<GetAccessTokenData>().await.unwrap();
+
+    let get_response = reqwest::Client::new()
+        .get(url.clone())
+        .bearer_auth(user.access_token.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, get_response.status());
+    let tokens = get_response
+        .json::<Vec<GetAccessTokenData>>()
+        .await
+        .unwrap();
+    assert!(
+        tokens
+            .iter()
+            .any(|token| token.access_token_id == created.access_token_id)
+    );
+
+    let get_one_response = reqwest::Client::new()
+        .get(format!("{}/{}", url, created.access_token_id))
+        .bearer_auth(user.access_token.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, get_one_response.status());
+    let token = get_one_response.json::<GetAccessTokenData>().await.unwrap();
+    assert_eq!(created.access_token_id, token.access_token_id);
+
+    let patch_response = reqwest::Client::new()
+        .patch(url.clone())
+        .bearer_auth(user.access_token.clone())
+        .json(&PatchAccessTokenData {
+            access_token_id: created.access_token_id,
+            name: Some("Renamed acceptance token".to_owned()),
+            scope: Some(HashSet::from_iter([ScopeData::ProductsWrite].into_iter())),
+            expires_at: None,
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, patch_response.status());
+
+    let delete_response = reqwest::Client::new()
+        .delete(format!("{}/{}", url, created.access_token_id))
+        .bearer_auth(user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(204, delete_response.status());
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_complete_oauth_authorization_code_flow() {
+    let cfn = get_cfn_output();
+    let user = create_random_test_user().await;
+    let client_id = OAuthClientId::new();
+    let client_secret = RawOAuthClientSecret::new();
+    let redirect_uri = url::Url::parse("https://client.example/callback").unwrap();
+    let now = OffsetDateTime::now_utc();
+    let oauth_repository =
+        OAuthDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &cfn.dynamodb_table_1_name);
+    oauth_repository
+        .put_client_record(OAuthClientRecord::from(OAuthClient {
+            client_id,
+            hashed_client_secret: client_secret.clone().into(),
+            name: OAuthClientName::from("Acceptance OAuth client"),
+            tos_uri: url::Url::parse("https://client.example/tos").unwrap(),
+            policy_uri: url::Url::parse("https://client.example/policy").unwrap(),
+            client_uri: url::Url::parse("https://client.example").unwrap(),
+            logo_uri: url::Url::parse("https://client.example/logo.png").unwrap(),
+            redirect_uris: HashSet::from([redirect_uri.clone()]),
+            scopes: HashSet::from([Scope::ProductsWrite]),
+            created_by: common::actor::domain::Actor::User(UserId::from(user.sub)),
+            updated_by: common::actor::domain::Actor::User(UserId::from(user.sub)),
+            created: now,
+            updated: now,
+        }))
+        .await
+        .unwrap();
+
+    let http = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    let authorize_response = http
+        .get(format!(
+            "{}/api/v1/oauth/authorize",
+            cfn.api_gateway_endpoint_url
+        ))
+        .bearer_auth(user.access_token)
+        .query(&[
+            ("response_type", "code"),
+            ("client_id", &client_id.to_string()),
+            ("redirect_uri", redirect_uri.as_ref()),
+            ("scope", "products:write"),
+            ("state", "state_1"),
+            (
+                "code_challenge",
+                "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            ),
+            ("code_challenge_method", "S256"),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(302, authorize_response.status());
+    let location = authorize_response
+        .headers()
+        .get(http::header::LOCATION)
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let callback = url::Url::parse(location).unwrap();
+    assert_eq!(
+        Some("state_1"),
+        callback
+            .query_pairs()
+            .find_map(|(key, value)| { (key == "state").then_some(value) })
+            .as_deref()
+    );
+    let code = callback
+        .query_pairs()
+        .find_map(|(key, value)| (key == "code").then_some(value.into_owned()))
+        .unwrap();
+    let client_secret_string = String::from(client_secret.clone());
+
+    let token_response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/oauth/token",
+            cfn.api_gateway_endpoint_url
+        ))
+        .form(&[
+            ("grant_type", "authorization_code"),
+            ("code", code.as_str()),
+            ("redirect_uri", redirect_uri.as_ref()),
+            ("client_id", &client_id.to_string()),
+            ("client_secret", client_secret_string.as_str()),
+            (
+                "code_verifier",
+                "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+            ),
+        ])
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(200, token_response.status());
+    let token = token_response.json::<TokenResponseData>().await.unwrap();
+    assert_eq!("products:write", token.scope);
+
+    let introspect_response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/oauth/introspect",
+            cfn.api_gateway_endpoint_url
+        ))
+        .form(&[
+            ("token", token.access_token.as_str()),
+            ("client_id", &client_id.to_string()),
+            ("client_secret", client_secret_string.as_str()),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, introspect_response.status());
+    let introspection = introspect_response
+        .json::<IntrospectionResponseData>()
+        .await
+        .unwrap();
+    assert!(introspection.active);
+    assert_eq!(Some("products:write"), introspection.scope.as_deref());
+    assert_eq!(Some(client_id.to_string()), introspection.client_id.clone());
+
+    let revoke_response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/oauth/revoke",
+            cfn.api_gateway_endpoint_url
+        ))
+        .form(&[
+            ("token", token.access_token.as_str()),
+            ("client_id", &client_id.to_string()),
+            ("client_secret", client_secret_string.as_str()),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, revoke_response.status());
+
+    let introspect_after_revoke_response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/oauth/introspect",
+            cfn.api_gateway_endpoint_url
+        ))
+        .form(&[
+            ("token", token.access_token.as_str()),
+            ("client_id", &client_id.to_string()),
+            ("client_secret", client_secret_string.as_str()),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, introspect_after_revoke_response.status());
+    let introspection = introspect_after_revoke_response
+        .json::<IntrospectionResponseData>()
+        .await
+        .unwrap();
+    assert!(!introspection.active);
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_manage_oauth_client_metadata() {
+    let cfn = get_cfn_output();
+    let admin = create_admin_test_user().await;
+    let url = format!("{}/api/v1/oauth/clients", cfn.api_gateway_endpoint_url);
+
+    let create_response = reqwest::Client::new()
+        .post(&url)
+        .bearer_auth(admin.access_token.clone())
+        .json(&OAuthClientMetadataRequestData {
+            client_name: "Acceptance OAuth client".to_owned(),
+            redirect_uris: HashSet::from([
+                url::Url::parse("https://client.example/callback").unwrap()
+            ]),
+            tos_uri: url::Url::parse("https://client.example/tos").unwrap(),
+            policy_uri: url::Url::parse("https://client.example/policy").unwrap(),
+            client_uri: url::Url::parse("https://client.example").unwrap(),
+            logo_uri: url::Url::parse("https://client.example/logo.png").unwrap(),
+            scope: HashSet::from([ScopeData::ProductsWrite]),
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(201, create_response.status());
+    assert!(
+        create_response
+            .headers()
+            .contains_key(http::header::LOCATION)
+    );
+    let created = create_response
+        .json::<OAuthClientMetadataResponseData>()
+        .await
+        .unwrap();
+
+    let get_all_response = reqwest::Client::new()
+        .get(&url)
+        .bearer_auth(admin.access_token.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, get_all_response.status());
+    let clients = get_all_response
+        .json::<Vec<OAuthClientMetadataResponseData>>()
+        .await
+        .unwrap();
+    assert!(
+        clients
+            .iter()
+            .any(|client| client.client_id == created.client_id)
+    );
+
+    let get_one_response = reqwest::Client::new()
+        .get(format!("{}/{}", url, created.client_id))
+        .bearer_auth(admin.access_token.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, get_one_response.status());
+
+    let patch_response = reqwest::Client::new()
+        .patch(format!("{}/{}", url, created.client_id))
+        .bearer_auth(admin.access_token.clone())
+        .json(&oauth::data::OAuthClientMetadataPatchData {
+            client_name: Some("Updated acceptance OAuth client".to_owned()),
+            redirect_uris: Some(HashSet::from([url::Url::parse(
+                "https://client.example/updated",
+            )
+            .unwrap()])),
+            tos_uri: Some(url::Url::parse("https://client.example/updated-tos").unwrap()),
+            policy_uri: Some(url::Url::parse("https://client.example/updated-policy").unwrap()),
+            client_uri: Some(url::Url::parse("https://updated-client.example").unwrap()),
+            logo_uri: Some(url::Url::parse("https://updated-client.example/logo.png").unwrap()),
+            scope: Some(HashSet::from([ScopeData::ShopsManage])),
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, patch_response.status());
+    let updated = patch_response
+        .json::<OAuthClientMetadataResponseData>()
+        .await
+        .unwrap();
+    assert_eq!("Updated acceptance OAuth client", updated.client_name);
+
+    let delete_response = reqwest::Client::new()
+        .delete(format!("{}/{}", url, created.client_id))
+        .bearer_auth(admin.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(204, delete_response.status());
+}
+
 // ---------------------------------------------------------------------------
 // Product update → notify user
 // Verifies EventBridge → SQS → Lambda → Cognito/DynamoDB → SES routing
@@ -1902,6 +2249,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
 
     // Create and configure user
     let user = create_test_user("watchlist-test@example.com").await;
+    let user_id = UserId::from(user.sub);
     tokio::time::sleep(Duration::from_secs(10)).await;
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
@@ -1914,7 +2262,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     );
     user_repository
         .update_user_record(
-            &user.sub.into(),
+            &user_id,
             UserRecordUpdate {
                 first_name: Some("Thomas".into()),
                 last_name: Some("Testperson".into()),
@@ -1934,6 +2282,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
                 geo_address_lon: None,
                 gsi1_pk: None,
                 gsi1_sk: None,
+                updated_by: common::actor::record::ActorRecord::User(user_id),
                 updated: OffsetDateTime::now_utc(),
             },
         )
@@ -2540,6 +2889,7 @@ async fn should_respond_200_and_personalize_similar_products_for_authenticated()
     for pr in product_records.iter() {
         watchlist_service
             .create_watchlist_product(
+                &request_context_for_user(user_id),
                 &user_id,
                 &pr.shop_id,
                 &pr.shops_product_id,
@@ -2771,12 +3121,14 @@ async fn should_get_all_search_filters_when_authorized() {
     let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
     let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+    let user_ctx = request_context_for_user(user_id);
     let update_cmd = UpdateUserCommand {
         tier: Some(UserTier::Ultimate),
         ..Default::default()
     };
     user_service
-        .update_user(&user.sub.into(), update_cmd)
+        .update_user(&user_ctx, &user_id, update_cmd)
         .await
         .unwrap();
 
@@ -2786,7 +3138,8 @@ async fn should_get_all_search_filters_when_authorized() {
     let expected2_name = Faker.fake::<UserSearchFilterName>();
     service
         .create_user_search_filter(
-            &user.sub.into(),
+            &user_ctx,
+            &user_id,
             expected1_name.clone(),
             expected1.clone(),
             None,
@@ -2795,7 +3148,8 @@ async fn should_get_all_search_filters_when_authorized() {
         .unwrap();
     service
         .create_user_search_filter(
-            &user.sub.into(),
+            &user_ctx,
+            &user_id,
             expected2_name.clone(),
             expected2.clone(),
             None,
@@ -2837,6 +3191,8 @@ async fn should_get_all_search_filters_when_authorized() {
 #[localstack_test(services = [Cloudformation()])]
 async fn should_post_get_patch_delete_search_filter() {
     let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+    let user_ctx = request_context_for_user(user_id);
     let update_cmd = UpdateUserCommand {
         tier: Some(UserTier::Ultimate),
         ..Default::default()
@@ -2847,7 +3203,7 @@ async fn should_post_get_patch_delete_search_filter() {
     );
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
     user_service
-        .update_user(&user.sub.into(), update_cmd)
+        .update_user(&user_ctx, &user_id, update_cmd)
         .await
         .unwrap();
 
@@ -3102,14 +3458,9 @@ async fn should_respond_200_for_shop_get_by_slug() {
 #[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_for_shop_patch_by_partner() {
     let user = create_random_test_user().await;
-    let user_id = UserId::from(user.sub);
 
     let mut shop_record: ShopRecord = Faker.fake();
-    shop_record.partner_user_id = Some(user_id);
-    shop_record.gsi1_pk = Some(shop::dynamodb::shop_record::mk_gsi1_pk(&user_id));
-    shop_record.gsi1_sk = Some(shop::dynamodb::shop_record::mk_gsi1_sk(
-        &shop_record.shop_id,
-    ));
+    shop_record.shop_partner_status = ShopPartnerStatusRecord::Partnered;
     let stack = get_cfn_output();
     let dynamodb_repository =
         ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
@@ -3117,6 +3468,18 @@ async fn should_respond_200_for_shop_patch_by_partner() {
         .put_shop_record(shop_record.clone())
         .await
         .unwrap();
+
+    // Link the shop to the user's partner_shops so the PATCH succeeds
+    let user_id = UserId::from(user.sub);
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    let mut user_record = user_repository
+        .get_user_record(&user_id)
+        .await
+        .unwrap()
+        .expect("user record must exist after create_random_test_user");
+    user_record.partner_shops.insert(shop_record.shop_id);
+    user_repository.put_user_record(user_record).await.unwrap();
 
     let patch_data = PatchShopData {
         shop_type: None,
@@ -3167,48 +3530,12 @@ async fn should_respond_201_for_shop_post_by_admin() {
 }
 
 #[localstack_test(services = [Cloudformation()])]
-async fn should_respond_200_for_shop_put_api_key_by_partner() {
-    let user = create_random_test_user().await;
-    let user_id = UserId::from(user.sub);
-
-    let mut shop_record: ShopRecord = Faker.fake();
-    shop_record.partner_user_id = Some(user_id);
-    shop_record.gsi1_pk = Some(shop::dynamodb::shop_record::mk_gsi1_pk(&user_id));
-    shop_record.gsi1_sk = Some(shop::dynamodb::shop_record::mk_gsi1_sk(
-        &shop_record.shop_id,
-    ));
-    let stack = get_cfn_output();
-    let dynamodb_repository =
-        ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
-    dynamodb_repository
-        .put_shop_record(shop_record.clone())
-        .await
-        .unwrap();
-
-    let url = format!(
-        "{}/api/v1/shops/{}/api-key",
-        stack.api_gateway_endpoint_url, shop_record.shop_id,
-    );
-    let response = reqwest::Client::new()
-        .put(&url)
-        .bearer_auth(&user.access_token)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, response.status());
-}
-
-#[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_for_partner_get_shops() {
     let user = create_random_test_user().await;
     let user_id = UserId::from(user.sub);
 
     let mut shop_record: ShopRecord = Faker.fake();
-    shop_record.partner_user_id = Some(user_id);
-    shop_record.gsi1_pk = Some(shop::dynamodb::shop_record::mk_gsi1_pk(&user_id));
-    shop_record.gsi1_sk = Some(shop::dynamodb::shop_record::mk_gsi1_sk(
-        &shop_record.shop_id,
-    ));
+    shop_record.shop_partner_status = ShopPartnerStatusRecord::Partnered;
     let stack = get_cfn_output();
     let dynamodb_repository =
         ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
@@ -3217,10 +3544,18 @@ async fn should_respond_200_for_partner_get_shops() {
         .await
         .unwrap();
 
-    let url = format!(
-        "{}/api/v1/partner/{}/shops",
-        stack.api_gateway_endpoint_url, user_id,
-    );
+    // Link the shop to the user's partner_shops so the GET returns it
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    let mut user_record = user_repository
+        .get_user_record(&user_id)
+        .await
+        .unwrap()
+        .expect("user record must exist after create_random_test_user");
+    user_record.partner_shops.insert(shop_record.shop_id);
+    user_repository.put_user_record(user_record).await.unwrap();
+
+    let url = format!("{}/api/v1/me/partner-shops", stack.api_gateway_endpoint_url);
     let response = reqwest::Client::new()
         .get(&url)
         .bearer_auth(&user.access_token)
@@ -3591,12 +3926,14 @@ async fn create_admin_test_user() -> TestUser {
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &cfn.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_id = UserId::from(user.sub);
+    let user_ctx = request_context_for_user(user_id);
     let update_cmd = UpdateUserCommand {
         role: Some(UserRole::Admin),
         ..Default::default()
     };
     user_service
-        .update_user(&user.sub.into(), update_cmd)
+        .update_user(&user_ctx, &user_id, update_cmd)
         .await
         .unwrap();
     user
@@ -4020,22 +4357,50 @@ async fn seed_fixed_fx_rates() {
         .expect("shouldn't fail seeding FX rates record");
 }
 
-async fn prepare_partner_shop() -> (ShopRecord, PartnerShopApiKey) {
+async fn prepare_partner_shop() -> (ShopRecord, RawAccessToken) {
     seed_fixed_fx_rates().await;
     let stack = get_cfn_output();
-    let api_key = PartnerShopApiKey::new();
-    let hashed: HashedPartnerShopApiKey = api_key.clone().into();
+
+    // Create the partnered shop record
     let mut record: ShopRecord = Faker.fake();
-    record.partner_api_key_short = Some(hashed.short_token().to_string());
-    record.partner_api_key_long_hash = Some(hashed.long_token_hash().to_string());
-    record.partner_user_id = Some(Faker.fake());
-    let dynamodb_repository =
-        ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
-    dynamodb_repository
+    record.shop_partner_status = ShopPartnerStatusRecord::Partnered;
+    let shop_id = record.shop_id;
+    ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name)
         .put_shop_record(record.clone())
         .await
         .unwrap();
-    (record, api_key)
+
+    // Create a user record with the shop in partner_shops
+    let mut user: user::core::user::User = Faker.fake();
+    user.partner_shops = [shop_id].into();
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    user_repository
+        .put_user_record(UserRecord::from(user.clone()))
+        .await
+        .unwrap();
+
+    // Create an access token in DynamoDB so the partner can authenticate
+    let raw_token = RawAccessToken::new();
+    let access_token = AccessToken {
+        id: AccessTokenId::new(),
+        hashed_token: raw_token.clone().into(),
+        user_id: user.user_id,
+        name: AccessTokenName::from("partner-shop"),
+        scopes: [Scope::ProductsWrite].into(),
+        origin: AccessTokenOrigin::User,
+        expires: None,
+        created_by: common::actor::domain::Actor::User(user.user_id),
+        updated_by: common::actor::domain::Actor::User(user.user_id),
+        created: time::OffsetDateTime::now_utc(),
+        updated: time::OffsetDateTime::now_utc(),
+    };
+    user_repository
+        .put_access_token_record(AccessTokenRecord::from(access_token))
+        .await
+        .unwrap();
+
+    (record, raw_token)
 }
 
 async fn wait_for_partner_product_record(
@@ -4100,7 +4465,7 @@ fn woocommerce_signature(body: &str) -> String {
     base64::engine::general_purpose::STANDARD.encode(signer.sign_to_vec().unwrap())
 }
 
-async fn prepare_woocommerce_partner_shop() -> (ShopRecord, PartnerShopApiKey) {
+async fn prepare_woocommerce_partner_shop() -> (ShopRecord, RawAccessToken) {
     let (mut shop_record, api_key) = prepare_partner_shop().await;
     shop_record.woocommerce_webhook_secret =
         Some(WoocommerceWebhookSecret::from(WOOCOMMERCE_WEBHOOK_SECRET));
@@ -4128,7 +4493,7 @@ async fn post_woocommerce_webhook(topic: &str, body: &str) {
 
     let response = reqwest::Client::new()
         .post(url)
-        .header("x-api-key", api_key)
+        .bearer_auth(api_key)
         .header("x-wc-webhook-topic", topic)
         .header("x-wc-webhook-signature", woocommerce_signature(body))
         .header("content-type", "application/json")
@@ -4195,7 +4560,7 @@ async fn should_respond_200_for_partner_post_products() {
     );
     let response = reqwest::Client::new()
         .post(&url)
-        .header("x-api-key", &api_key_str)
+        .bearer_auth(&api_key_str)
         .json(&vec![serde_json::json!({
             "shopsProductId": "acceptance-test-product-1",
             "title": { "text": "Test Product", "language": "en" },
@@ -4218,6 +4583,62 @@ async fn should_respond_200_for_partner_post_products() {
         product.shops_product_id.to_string(),
         "acceptance-test-product-1"
     );
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_preserve_partner_post_product_image_order_when_read_via_rest_api() {
+    let (shop_record, api_key) = prepare_partner_shop().await;
+    let api_key_str: String = api_key.into();
+    let shops_product_id = "acceptance-test-product-image-order-1";
+    let expected_images = [
+        "https://example.com/img-3.jpg",
+        "https://example.com/img-1.jpg",
+        "https://example.com/img-2.jpg",
+    ];
+
+    let post_url = format!(
+        "{}/api/v1/shops/{}/products",
+        get_cfn_output().api_gateway_endpoint_url,
+        shop_record.shop_id,
+    );
+    let response = reqwest::Client::new()
+        .post(&post_url)
+        .bearer_auth(&api_key_str)
+        .json(&vec![serde_json::json!({
+            "shopsProductId": shops_product_id,
+            "title": { "text": "Ordered Product Images", "language": "en" },
+            "description": { "text": "A test product with ordered images", "language": "en" },
+            "state": "AVAILABLE",
+            "url": "https://example.com/product/ordered-images",
+            "images": expected_images
+        })])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(202, response.status());
+
+    let body: Vec<String> = response.json().await.unwrap();
+    assert!(body.is_empty());
+
+    wait_for_partner_product_record(shop_record.shop_id, shops_product_id.into()).await;
+
+    let get_url = format!(
+        "{}/api/v1/shops/{}/products/{}?currency=EUR",
+        get_cfn_output().api_gateway_endpoint_url,
+        shop_record.shop_id,
+        shops_product_id
+    );
+    let response = reqwest::get(get_url).await.unwrap();
+    assert_eq!(200, response.status());
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    let actual_images: Vec<&str> = body["item"]["images"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|image| image["url"].as_str().unwrap())
+        .collect();
+    assert_eq!(expected_images.to_vec(), actual_images);
 }
 
 // ─── Product Pipeline Embed Text (Lambda) ─────────────────────────────────────
@@ -4326,7 +4747,7 @@ async fn should_respond_200_for_partner_patch_products() {
     // Then update the product via PATCH
     let response = reqwest::Client::new()
         .patch(&url)
-        .header("x-api-key", &api_key_str)
+        .bearer_auth(&api_key_str)
         .json(&vec![serde_json::json!({
             "shopsProductId": "acceptance-test-patch-product-1",
             "state": "SOLD"
@@ -4358,7 +4779,7 @@ async fn should_respond_200_for_partner_put_products_when_creating_new() {
     );
     let response = reqwest::Client::new()
         .put(&url)
-        .header("x-api-key", &api_key_str)
+        .bearer_auth(&api_key_str)
         .json(&vec![serde_json::json!({
             "shopsProductId": "acceptance-test-put-product-1",
             "title": { "text": "Test Product via PUT", "language": "en" },
@@ -4416,7 +4837,7 @@ async fn should_respond_200_for_partner_put_products_when_updating_existing() {
     // Then update the product via PUT
     let response = reqwest::Client::new()
         .put(&url)
-        .header("x-api-key", &api_key_str)
+        .bearer_auth(&api_key_str)
         .json(&vec![serde_json::json!({
             "shopsProductId": "acceptance-test-put-existing-product-1",
             "state": "SOLD"
@@ -4466,11 +4887,15 @@ async fn should_count_search_filter_matches_for_current_month_for_quota_enforcem
 
     // Create a Free tier user
     let user_id = UserId::new();
+    let user_ctx = request_context_for_user(user_id);
     let user = user_service
-        .create_user(user::service::command::CreateUserCommand {
-            id: user_id,
-            email: "quota-test@example.com".parse().unwrap(),
-        })
+        .create_user(
+            &user_ctx,
+            user::service::command::CreateUserCommand {
+                id: user_id,
+                email: "quota-test@example.com".parse().unwrap(),
+            },
+        )
         .await
         .unwrap();
     assert_eq!(user.tier, UserTier::Free);
@@ -4656,11 +5081,13 @@ async fn should_update_tier_when_subscription_updated_event() {
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_ctx = request_context_for_user(user_id);
 
     // First, set the user to Pro with a stripe_customer_id via the created flow
     let stripe_customer_id = common::stripe_customer_id::StripeCustomerId::from("cus_test_updated");
     user_service
         .update_user(
+            &user_ctx,
             &user_id,
             UpdateUserCommand {
                 tier: Some(UserTier::Pro),
@@ -4736,11 +5163,13 @@ async fn should_set_free_tier_when_subscription_deleted_event() {
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_ctx = request_context_for_user(user_id);
 
     // First, set the user to Ultimate with a stripe_customer_id
     let stripe_customer_id = common::stripe_customer_id::StripeCustomerId::from("cus_test_deleted");
     user_service
         .update_user(
+            &user_ctx,
             &user_id,
             UpdateUserCommand {
                 tier: Some(UserTier::Ultimate),
@@ -4869,9 +5298,12 @@ async fn should_409_for_billing_checkout_when_user_already_has_stripe_customer_i
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_id = UserId::from(user.sub);
+    let user_ctx = request_context_for_user(user_id);
     user_service
         .update_user(
-            &user.sub.into(),
+            &user_ctx,
+            &user_id,
             UpdateUserCommand {
                 stripe_customer_id: Some(stripe_customer_id),
                 ..Default::default()
@@ -4911,9 +5343,12 @@ async fn should_201_for_billing_portal_when_user_has_stripe_customer_id() {
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_id = UserId::from(user.sub);
+    let user_ctx = request_context_for_user(user_id);
     user_service
         .update_user(
-            &user.sub.into(),
+            &user_ctx,
+            &user_id,
             UpdateUserCommand {
                 stripe_customer_id: Some(stripe_customer_id),
                 ..Default::default()
@@ -5023,9 +5458,12 @@ async fn should_201_for_billing_manage_with_checkout_for_free_and_portal_for_pai
     );
 
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_id = UserId::from(user.sub);
+    let user_ctx = request_context_for_user(user_id);
     user_service
         .update_user(
-            &user.sub.into(),
+            &user_ctx,
+            &user_id,
             UpdateUserCommand {
                 tier: Some(UserTier::Pro),
                 stripe_customer_id: Some(common::stripe_customer_id::StripeCustomerId::from(
@@ -5268,6 +5706,7 @@ async fn should_deactivate_over_quota_search_filters_when_tier_is_downgraded() {
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_ctx = request_context_for_user(user_id);
 
     let sf_repository = UserSearchFilterDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -5315,6 +5754,7 @@ async fn should_deactivate_over_quota_search_filters_when_tier_is_downgraded() {
     // Downgrade triggers DynamoDB stream → EventBridge → UserTierUpdateQ → Lambda
     user_service
         .update_user(
+            &user_ctx,
             &user_id,
             UpdateUserCommand {
                 tier: Some(UserTier::Free),
@@ -5371,6 +5811,7 @@ async fn should_reactivate_plan_restricted_search_filters_when_tier_is_upgraded(
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_ctx = request_context_for_user(user_id);
 
     let sf_repository = UserSearchFilterDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -5416,6 +5857,7 @@ async fn should_reactivate_plan_restricted_search_filters_when_tier_is_upgraded(
     // Upgrade triggers DynamoDB stream → Lambda reactivates all filters
     user_service
         .update_user(
+            &user_ctx,
             &user_id,
             UpdateUserCommand {
                 tier: Some(UserTier::Ultimate),
@@ -5472,6 +5914,7 @@ async fn should_deactivate_over_quota_watchlist_entries_when_tier_is_downgraded(
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_ctx = request_context_for_user(user_id);
 
     let watchlist_repo = WatchlistProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -5498,6 +5941,8 @@ async fn should_deactivate_over_quota_watchlist_entries_when_tier_is_downgraded(
             shops_product_id,
             notifications: true,
             state: ResourceStateRecord::Active,
+            created_by: common::actor::record::ActorRecord::User(user_id),
+            updated_by: common::actor::record::ActorRecord::User(user_id),
             created,
             updated: created,
         };
@@ -5506,6 +5951,7 @@ async fn should_deactivate_over_quota_watchlist_entries_when_tier_is_downgraded(
 
     user_service
         .update_user(
+            &user_ctx,
             &user_id,
             UpdateUserCommand {
                 tier: Some(UserTier::Free),
@@ -5565,6 +6011,7 @@ async fn should_reactivate_plan_restricted_watchlist_entries_when_tier_is_upgrad
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    let user_ctx = request_context_for_user(user_id);
 
     let watchlist_repo = WatchlistProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -5590,6 +6037,8 @@ async fn should_reactivate_plan_restricted_watchlist_entries_when_tier_is_upgrad
             shops_product_id,
             notifications: true,
             state: ResourceStateRecord::InactiveByRestrictedPlan,
+            created_by: common::actor::record::ActorRecord::User(user_id),
+            updated_by: common::actor::record::ActorRecord::User(user_id),
             created,
             updated: created,
         };
@@ -5599,6 +6048,7 @@ async fn should_reactivate_plan_restricted_watchlist_entries_when_tier_is_upgrad
     // Upgrade triggers DynamoDB stream → Lambda reactivates all entries
     user_service
         .update_user(
+            &user_ctx,
             &user_id,
             UpdateUserCommand {
                 tier: Some(UserTier::Ultimate),
@@ -5651,7 +6101,6 @@ async fn seed_shopify_acceptance_shop() -> ShopRecord {
     let shop_repo = ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
 
     let shopify_domain = common::domain::Domain::try_from(SHOPIFY_ACCEPTANCE_DOMAIN).unwrap();
-    let user_id = UserId::new();
     let shop_id = common::shop_id::ShopId::new();
     let slug = common::slug_id::SlugId::raw("shopify-acc-test-shop");
 
@@ -5662,6 +6111,7 @@ async fn seed_shopify_acceptance_shop() -> ShopRecord {
         shop_slug_id: slug.clone(),
         name: common::shop_name::ShopName::from("Shopify Acceptance Shop"),
         shop_type: shop::dynamodb::shop_type_record::ShopTypeRecord::Marketplace,
+        shop_partner_status: ShopPartnerStatusRecord::Partnered,
         domains: Default::default(),
         shopify_domain: Some(shopify_domain.clone()),
         shopify_currency: Some(common::currency::record::CurrencyRecord::Usd),
@@ -5682,16 +6132,13 @@ async fn seed_shopify_acceptance_shop() -> ShopRecord {
         geo_address_lon: None,
         phone: None,
         email: None,
-        partner_api_key_short: None,
-        partner_api_key_long_hash: None,
-        partner_user_id: Some(user_id),
-        gsi1_pk: Some(shop::dynamodb::shop_record::mk_gsi1_pk(&user_id)),
-        gsi1_sk: Some(shop::dynamodb::shop_record::mk_gsi1_sk(&shop_id)),
         gsi2_pk: Some(shop::dynamodb::shop_record::mk_gsi2_pk(&slug)),
         gsi2_sk: Some(shop::dynamodb::shop_record::mk_gsi2_sk().to_owned()),
         gsi3_pk: Some(shop::dynamodb::shop_record::mk_gsi3_pk(&shopify_domain)),
         gsi3_sk: Some(shop::dynamodb::shop_record::mk_gsi3_sk().to_owned()),
         affiliate_configuration: None,
+        created_by: common::actor::record::ActorRecord::System,
+        updated_by: common::actor::record::ActorRecord::System,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };

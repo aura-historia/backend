@@ -3,12 +3,13 @@ use crate::{
     data::{role_data::UserRoleData, tier_data::UserTierData},
 };
 use common::{
-    currency::data::CurrencyData, language::data::LanguageData,
-    stripe_customer_id::StripeCustomerId, user_id::UserId,
+    actor::data::ActorData, currency::data::CurrencyData, language::data::LanguageData,
+    shop_id::ShopId, stripe_customer_id::StripeCustomerId, user_id::UserId,
 };
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
+use std::collections::HashSet;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -44,6 +45,11 @@ pub struct GetUserAccountData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub geo_address: Option<GeoAddressData>,
 
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    pub partner_shops: HashSet<ShopId>,
+
+    pub created_by: ActorData,
+    pub updated_by: ActorData,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -65,6 +71,9 @@ impl From<User> for GetUserAccountData {
             stripe_customer_id: user.stripe_customer_id,
             structured_address: user.structured_address.map(StructuredAddressData::from),
             geo_address: user.geo_address.map(GeoAddressData::from),
+            partner_shops: user.partner_shops,
+            created_by: user.created_by.into(),
+            updated_by: user.updated_by.into(),
             created: user.created,
             updated: user.updated,
         }

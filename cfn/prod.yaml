@@ -763,7 +763,7 @@ Resources:
           USER_POOL_ID: !Ref PrimaryUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
           USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
-          GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/gemini-api-key}}"
+          GOOGLE_APPLICATION_CREDENTIALS: !Sub "{{resolve:ssm:/secrets/prod/google-application-credentials}}"
   ProductApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -880,6 +880,9 @@ Resources:
           ASYNC_PRODUCT_COMMAND_QUEUE_URL: !Ref ProductPartnerIngestQ
           GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/gemini-api-key}}"
           GOOGLE_GEOCODING_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/google-geocoding-api-key}}"
+          USER_POOL_ID: !Ref PrimaryUserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
   ProductApiPartnerLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -951,6 +954,9 @@ Resources:
           OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/prod/password}}"
           DYNAMODB_TABLE_NAME: !Ref TableOne
           ASYNC_PRODUCT_COMMAND_QUEUE_URL: !Ref ProductPartnerIngestQ
+          USER_POOL_ID: !Ref PrimaryUserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
           GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/gemini-api-key}}"
   WebhookApiLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -1280,6 +1286,46 @@ Resources:
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiPostAccessTokensRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/me/access-tokens"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiGetAccessTokensRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/me/access-tokens"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiGetAccessTokenRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/me/access-tokens/{accessTokenId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiPatchAccessTokensRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PATCH /api/v1/me/access-tokens"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiDeleteAccessTokensRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "DELETE /api/v1/me/access-tokens/{accessTokenId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
   UserApiDeleteUserRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -1348,6 +1394,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
+                  - dynamodb:PutItem
                   - dynamodb:UpdateItem
                   - dynamodb:DeleteItem
                   - dynamodb:Query
@@ -1390,6 +1437,137 @@ Resources:
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Ref UserApiLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
+
+  # --- OAuth API ---
+  OAuthApiCreateClientRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/oauth/clients"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiGetClientsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/oauth/clients"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiGetClientRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/oauth/clients/{clientId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiUpdateClientRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PATCH /api/v1/oauth/clients/{clientId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiDeleteClientRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "DELETE /api/v1/oauth/clients/{clientId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiAuthorizeRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/oauth/authorize"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiTokenRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/oauth/token"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiRevokeRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/oauth/revoke"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiIntrospectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/oauth/introspect"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${OAuthApiLambda}"
+      PayloadFormatVersion: "2.0"
+  OAuthApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "oauth-api-role-prod"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+  OAuthApiLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "oauth-api-prod"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt OAuthApiRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "oauth-api-prod-${CommitSHA}.zip"
+      MemorySize: 128
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          STAGE: "prod"
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  OAuthApiLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OAuthApiLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
@@ -1627,75 +1805,6 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
-  # --- Partner API Routes ---
-  PartnerApiGetPartnerShopsRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "GET /api/v1/partner/{partnerId}/shops"
-      AuthorizationType: JWT
-      AuthorizerId: !Ref ApiCognitoAuthorizer
-      Target: !Sub "integrations/${PartnerApiLambdaIntegration}"
-  PartnerApiLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref Api
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${PartnerApiLambda}"
-      PayloadFormatVersion: "2.0"
-
-  # --- Partner API ---
-  PartnerApiRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "partner-api-role-prod"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:Query
-                Resource:
-                  - !GetAtt TableOne.Arn
-                  - !Sub "${TableOne.Arn}/index/*"
-  PartnerApiLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "partner-api-prod"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt PartnerApiRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "partner-api-prod-${CommitSHA}.zip"
-      MemorySize: 256
-      Timeout: 10
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          STAGE: "prod"
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-  PartnerApiLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref PartnerApiLambda
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
-
   # --- Partner Shop Application Step Function ---
   PartnerShopApplicationStepFunctionRole:
     Type: AWS::IAM::Role
@@ -1903,6 +2012,14 @@ Resources:
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${ShopApiLambdaIntegration}"
+  ShopApiGetPartnerShopsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/me/partner-shops"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
   ShopApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
@@ -2097,6 +2214,7 @@ Resources:
           OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/prod/username}}"
           OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/prod/password}}"
           GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/gemini-api-key}}"
+          GOOGLE_APPLICATION_CREDENTIALS: !Sub "{{resolve:ssm:/secrets/prod/google-application-credentials}}"
   SearchFilterApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -3274,6 +3392,110 @@ Resources:
       FunctionResponseTypes:
         - ReportBatchItemFailures
 
+  SearchFilterPeriodicMatchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "search-filter-periodic-match-role-prod"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: SESAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: "*"
+        - PolicyName: S3ReadTemplateAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${MailTemplateBucket}/*"
+  SearchFilterPeriodicMatchLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "search-filter-periodic-match-prod"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt SearchFilterPeriodicMatchRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "search-filter-lambda-periodic-match-prod-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 900
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
+          STAGE_NAME: prod
+          COMMIT_SHA: !Ref CommitSHA
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/prod/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/prod/password}}"
+          GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/gemini-api-key}}"
+          GOOGLE_APPLICATION_CREDENTIALS: !Sub "{{resolve:ssm:/secrets/prod/google-application-credentials}}"
+  SearchFilterPeriodicMatchScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: cron(0 15 * * ? *) # 17 CEST
+      State: ENABLED
+      Targets:
+        - Id: SearchFilterPeriodicMatchLambda
+          Arn: !GetAtt SearchFilterPeriodicMatchLambda.Arn
+  SearchFilterPeriodicMatchSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SearchFilterPeriodicMatchLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SearchFilterPeriodicMatchScheduleRule.Arn
+  SearchFilterPeriodicMatchLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-search-filter-periodic-match-errors"
+      AlarmDescription: "Alarm when search-filter-periodic-match Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref SearchFilterPeriodicMatchLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
   DynamoDbProductMaterializeOpenSearchEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -3621,7 +3843,7 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          GEMINI_API_KEY: !Sub "{{resolve:ssm:/secrets/prod/gemini-api-key}}"
+          GOOGLE_APPLICATION_CREDENTIALS: !Sub "{{resolve:ssm:/secrets/prod/google-application-credentials}}"
   ProductPipelineEmbedTextMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:

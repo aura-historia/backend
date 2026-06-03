@@ -2,7 +2,6 @@ pub mod address;
 pub mod affiliate_configuration;
 pub mod continent;
 pub mod partner_shop;
-pub mod partner_shop_api_key;
 pub mod partner_status;
 pub mod shop;
 pub mod shop_search;

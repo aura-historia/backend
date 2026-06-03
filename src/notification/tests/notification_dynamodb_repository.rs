@@ -258,6 +258,7 @@ fn should_set_seen_true_for_update() {
                 seen: Some(true),
                 notification_type: None,
                 updated,
+                updated_by: Faker.fake(),
             },
         )
         .await
@@ -292,6 +293,7 @@ fn should_set_seen_false_for_update() {
                 seen: Some(false),
                 notification_type: None,
                 updated,
+                updated_by: Faker.fake(),
             },
         )
         .await
@@ -326,6 +328,7 @@ fn should_set_type_email_for_update() {
                 seen: None,
                 notification_type: Some(NotificationTypeRecord::Email),
                 updated,
+                updated_by: Faker.fake(),
             },
         )
         .await

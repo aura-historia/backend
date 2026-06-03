@@ -1,5 +1,6 @@
 use crate::notification_get::EventIdCursoredData;
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
@@ -34,7 +35,13 @@ pub async fn handle(
         .unwrap_or_default();
 
     let notifications = service
-        .update_notifications(&user_id, patch.into())
+        .update_notifications(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            &user_id,
+            patch.into(),
+        )
         .await?
         .map_item(|n| {
             let localized = n.localized(&currency.into(), &[language.into()]);
@@ -82,7 +89,7 @@ mod tests {
         let mut service = MockNotificationService::default();
         service
             .expect_update_notifications()
-            .return_once(|_, _| Box::pin(async { Ok(empty_result()) }));
+            .return_once(|_, _, _| Box::pin(async { Ok(empty_result()) }));
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -102,7 +109,7 @@ mod tests {
         let mut service = MockNotificationService::default();
         service
             .expect_update_notifications()
-            .return_once(|_, _| Box::pin(async { Ok(empty_result()) }));
+            .return_once(|_, _, _| Box::pin(async { Ok(empty_result()) }));
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -129,7 +136,7 @@ mod tests {
         let mut service = MockNotificationService::default();
         service
             .expect_update_notifications()
-            .return_once(move |_, _| Box::pin(async move { Ok(one_result(record)) }));
+            .return_once(move |_, _, _| Box::pin(async move { Ok(one_result(record)) }));
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()

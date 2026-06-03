@@ -1,2 +1,3 @@
 pub use search_filter_lambda_opensearch_sync;
 pub use search_filter_lambda_percolate_product;
+pub use search_filter_lambda_periodic_match;

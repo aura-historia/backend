@@ -2,7 +2,10 @@ pub mod service;
 
 use crate::service::ProductMatcherService;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
+use common::{
+    actor::{RequestContext, domain::Actor},
+    dynamodb_stream::extract_sqs_event_bridge_dynamodb_record,
+};
 use lambda_runtime::LambdaEvent;
 use notification::service::notification_service::NotificationService;
 use product::core::product_event::{ProductDomainEvent, ProductEvent};
@@ -83,7 +86,12 @@ pub async fn handler(
                     // First: persist all eligible matches
                     if !result.matches.is_empty() {
                         let match_result = search_filter_service
-                            .create_search_filter_product_matches(result.matches)
+                            .create_search_filter_product_matches(
+                                &RequestContext {
+                                    actor: Actor::System,
+                                },
+                                result.matches,
+                            )
                             .await;
                         match match_result {
                             Ok(res) if !res.unprocessed.is_empty() => {
@@ -111,7 +119,13 @@ pub async fn handler(
                     // Then: create notifications for quota-eligible users
                     if !result.notification_commands.is_empty() {
                         let create_notifications_res = notification_service
-                            .create_notifications(&event_id, result.notification_commands)
+                            .create_notifications(
+                                &RequestContext {
+                                    actor: Actor::System,
+                                },
+                                &event_id,
+                                result.notification_commands,
+                            )
                             .await;
 
                         if !create_notifications_res.unprocessed.is_empty() {
@@ -310,7 +324,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_create_notifications()
-            .return_once(|_, _| {
+            .return_once(|_, _, _| {
                 Box::pin(async {
                     CreateNotificationsResult {
                         unprocessed: vec![],
@@ -322,7 +336,7 @@ mod tests {
         let mut search_filter_service = MockUserSearchFilterService::default();
         search_filter_service
             .expect_create_search_filter_product_matches()
-            .return_once(|_| {
+            .return_once(|_, _| {
                 Box::pin(async {
                     Ok(search_filter::service::user_search_filter_service::CreateSearchFilterProductMatchesResult {
                         processed: vec![],

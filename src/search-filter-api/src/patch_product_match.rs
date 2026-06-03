@@ -1,5 +1,6 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::{
+    actor::{RequestContext, domain::Actor},
     api::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError,
         error_code::BAD_BODY_VALUE,
@@ -54,6 +55,9 @@ pub async fn handle(
 
     let patched: SearchFilterProductMatchData = service
         .update_search_filter_product_match(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
             user_id,
             search_filter_id,
             shop_id,
@@ -88,7 +92,7 @@ mod tests {
         let mut service = MockUserSearchFilterService::default();
         service
             .expect_update_search_filter_product_match()
-            .return_once(|_, _, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
+            .return_once(|_, _, _, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -158,7 +162,7 @@ mod tests {
         let mut service = MockUserSearchFilterService::default();
         service
             .expect_update_search_filter_product_match()
-            .return_once(|_, _, _, _, _| {
+            .return_once(|_, _, _, _, _, _| {
                 Box::pin(async {
                     Err(UserSearchFilterError::UserSearchFilterMatchNotFound(
                         Faker.fake(),

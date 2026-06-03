@@ -6,9 +6,9 @@ use crate::core::notification_id::NotificationId;
 use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::{
-    event_id::EventId, language::data::LocalizedTextData, price::data::PriceData,
-    product_id::ProductId, shop_id::ShopId, shop_name::ShopName, shops_product_id::ShopsProductId,
-    slug_id::SlugId,
+    actor::data::ActorData, event_id::EventId, language::data::LocalizedTextData,
+    price::data::PriceData, product_id::ProductId, shop_id::ShopId, shop_name::ShopName,
+    shops_product_id::ShopsProductId, slug_id::SlugId,
 };
 use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
@@ -25,6 +25,8 @@ pub struct GetNotificationData {
     pub payload: NotificationPayloadData,
     pub seen: bool,
     pub external: bool,
+    pub created_by: ActorData,
+    pub updated_by: ActorData,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -71,6 +73,8 @@ pub enum NotificationPayloadData {
     },
     PartnerApplication {
         shop_name: ShopName,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<url::Url>,
         partner_application_payload: PartnerApplicationPayloadData,
     },
 }
@@ -198,9 +202,11 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
             },
             LocalizedNotificationPayload::PartnerApplication {
                 shop_name,
+                image,
                 partner_application_payload,
             } => NotificationPayloadData::PartnerApplication {
                 shop_name,
+                image,
                 partner_application_payload: match partner_application_payload {
                     NotificationPartnerApplicationPayload::Approved {
                         partner_application_id,
@@ -226,6 +232,8 @@ impl From<LocalizedNotification> for GetNotificationData {
             payload: notification.notification_payload.into(),
             seen: notification.seen,
             external: notification.external,
+            created_by: notification.created_by.into(),
+            updated_by: notification.updated_by.into(),
             created: notification.created,
             updated: notification.updated,
         }
@@ -329,6 +337,7 @@ mod tests {
             "payload": {
                 "type": "PARTNER_APPLICATION",
                 "shopName": "Test Shop",
+                "image": "https://test.example/logo.jpg",
                 "partnerApplicationPayload": {
                     "type": "REJECTED",
                     "partnerApplicationId": "0196580c-e4ca-723f-a7e0-1a73588380f0"
@@ -336,6 +345,8 @@ mod tests {
             },
             "seen": false,
             "external": true,
+            "createdBy": "SYSTEM",
+            "updatedBy": "SYSTEM",
             "created": "2026-04-22T00:00:00Z",
             "updated": "2026-04-22T01:00:00Z",
         });

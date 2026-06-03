@@ -12,6 +12,12 @@ use test_api::*;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::UserServiceImpl;
 
+fn system_ctx() -> common::actor::RequestContext {
+    common::actor::RequestContext {
+        actor: common::actor::domain::Actor::System,
+    }
+}
+
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_respond_empty_list_when_no_applications_exist() {
     let repository =
@@ -62,7 +68,7 @@ async fn should_200_respond_applications_when_they_exist() {
     let user_service = UserServiceImpl::new(&user_repository);
 
     let application = service
-        .create_partner_shop_application(Faker.fake())
+        .create_partner_shop_application(&system_ctx(), Faker.fake())
         .await
         .unwrap();
 

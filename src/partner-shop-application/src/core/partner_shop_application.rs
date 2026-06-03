@@ -3,8 +3,8 @@ use crate::core::{
     partner_shop_application_state::PartnerShopApplicationState,
 };
 use common::{
-    domain::Domain, execution_state::ExecutionState, shop_id::ShopId, shop_name::ShopName,
-    user_id::UserId,
+    actor::domain::Actor, domain::Domain, execution_state::ExecutionState, shop_id::ShopId,
+    shop_name::ShopName, user_id::UserId,
 };
 use serde_email::Email;
 use shop::core::{address::StructuredAddress, shop_type::ShopType};
@@ -21,6 +21,8 @@ pub struct PartnerShopApplication {
     pub execution_state: ExecutionState,
     pub applicant_user_id: UserId,
     pub payload: PartnerShopApplicationPayload,
+    pub created_by: Actor,
+    pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -58,6 +60,8 @@ mod faker {
                 execution_state: config.fake_with_rng(rng),
                 applicant_user_id: config.fake_with_rng(rng),
                 payload: config.fake_with_rng(rng),
+                created_by: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 created,
                 updated: created,
             }

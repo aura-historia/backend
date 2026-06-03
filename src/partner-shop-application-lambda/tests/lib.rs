@@ -1,3 +1,4 @@
+use common::actor::domain::Actor;
 use common::shop_name::ShopName;
 use common::user_id::UserId;
 use fake::{Fake, Faker};
@@ -13,11 +14,15 @@ use partner_shop_application::dynamodb::repository::{
     PartnerShopApplicationDynamoDbRepository, PartnerShopApplicationDynamoDbRepositoryImpl,
 };
 use partner_shop_application_lambda::handler;
+use shop::dynamodb::partner_status_record::ShopPartnerStatusRecord;
 use shop::dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl};
 use shop::dynamodb::shop_record::ShopRecord;
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use shop::service::command_service::CommandShopServiceImpl;
 use test_api::*;
+use user::core::user::User;
+use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
+use user::dynamodb::user_record::UserRecord;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -32,6 +37,8 @@ fn fake_notification(user_id: UserId) -> Notification {
         notification_payload: Faker.fake(),
         seen: false,
         external: true,
+        created_by: Actor::System,
+        updated_by: Actor::System,
         created: time::OffsetDateTime::now_utc(),
         updated: time::OffsetDateTime::now_utc(),
     }
@@ -39,7 +46,7 @@ fn fake_notification(user_id: UserId) -> Notification {
 
 fn mock_notification_service() -> MockNotificationService {
     let mut mock = MockNotificationService::new();
-    mock.expect_create_notification().returning(|_, cmd| {
+    mock.expect_create_notification().returning(|_, _, cmd| {
         let notification = fake_notification(cmd.user_id);
         Box::pin(async move { Ok(notification) })
     });
@@ -60,6 +67,16 @@ async fn seed_shop_record(repository: &ShopDynamoDbRepositoryImpl<'_>, record: &
     repository.put_shop_record(record.clone()).await.unwrap();
 }
 
+async fn seed_user_record(user_repo: &UserDynamoDbRepositoryImpl<'_>, user_id: UserId) {
+    let mut user: User = Faker.fake();
+    user.user_id = user_id;
+    user.partner_shops = Default::default();
+    user_repo
+        .put_user_record(UserRecord::from(user))
+        .await
+        .unwrap();
+}
+
 // ---------------------------------------------------------------------------
 // WAIT_FOR_REVIEW integration tests
 // ---------------------------------------------------------------------------
@@ -69,6 +86,7 @@ async fn should_set_state_to_in_review_and_store_task_token_for_wait_for_review(
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_repo = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_service = CommandShopServiceImpl::new(
         &shop_repo,
         &shop::service::geocoding_service::NoopGeocodingService,
@@ -95,6 +113,7 @@ async fn should_set_state_to_in_review_and_store_task_token_for_wait_for_review(
         &partner_app_repo,
         &shop_service,
         &shop_repo,
+        &user_repo,
         &mock_notification,
         event,
     )
@@ -127,6 +146,7 @@ async fn should_create_shop_and_approve_for_new_application() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_repo = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_service = CommandShopServiceImpl::new(
         &shop_repo,
         &shop::service::geocoding_service::NoopGeocodingService,
@@ -145,6 +165,7 @@ async fn should_create_shop_and_approve_for_new_application() {
     let user_id = record.applicant_user_id;
 
     seed_application_record(&partner_app_repo, &record).await;
+    seed_user_record(&user_repo, user_id).await;
 
     let payload = serde_json::json!({
         "step": "APPROVE",
@@ -157,6 +178,7 @@ async fn should_create_shop_and_approve_for_new_application() {
         &partner_app_repo,
         &shop_service,
         &shop_repo,
+        &user_repo,
         &mock_notification,
         event,
     )
@@ -174,6 +196,12 @@ async fn should_create_shop_and_approve_for_new_application() {
         updated.business_state,
         PartnerShopApplicationStateRecord::Approved
     );
+
+    let updated_user = user_repo.get_user_record(&user_id).await.unwrap().unwrap();
+    assert!(
+        !updated_user.partner_shops.is_empty(),
+        "partner_shops should contain the newly created shop"
+    );
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -181,6 +209,7 @@ async fn should_link_existing_shop_and_approve_for_existing_application() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_repo = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_service = CommandShopServiceImpl::new(
         &shop_repo,
         &shop::service::geocoding_service::NoopGeocodingService,
@@ -203,6 +232,7 @@ async fn should_link_existing_shop_and_approve_for_existing_application() {
     let user_id = record.applicant_user_id;
 
     seed_application_record(&partner_app_repo, &record).await;
+    seed_user_record(&user_repo, user_id).await;
 
     let payload = serde_json::json!({
         "step": "APPROVE",
@@ -215,6 +245,7 @@ async fn should_link_existing_shop_and_approve_for_existing_application() {
         &partner_app_repo,
         &shop_service,
         &shop_repo,
+        &user_repo,
         &mock_notification,
         event,
     )
@@ -239,9 +270,13 @@ async fn should_link_existing_shop_and_approve_for_existing_application() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(updated_shop.partner_user_id, Some(user_id));
-    assert!(updated_shop.gsi1_pk.is_some());
-    assert!(updated_shop.gsi1_sk.is_some());
+    assert!(updated_shop.shop_partner_status == ShopPartnerStatusRecord::Partnered);
+
+    let updated_user = user_repo.get_user_record(&user_id).await.unwrap().unwrap();
+    assert!(
+        updated_user.partner_shops.contains(&existing_shop_id),
+        "partner_shops should contain the linked shop_id"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -249,10 +284,11 @@ async fn should_link_existing_shop_and_approve_for_existing_application() {
 // ---------------------------------------------------------------------------
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_set_state_to_rejected_for_reject() {
+async fn should_set_state_to_rejected_for_new_application_reject() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_repo = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_service = CommandShopServiceImpl::new(
         &shop_repo,
         &shop::service::geocoding_service::NoopGeocodingService,
@@ -261,7 +297,10 @@ async fn should_set_state_to_rejected_for_reject() {
 
     let mut record: PartnerShopApplicationRecord = Faker.fake();
     record.business_state = PartnerShopApplicationStateRecord::InReview;
+    record.payload_type = PartnerShopApplicationPayloadTypeRecord::New;
     record.shop_name = Some(ShopName::from("Rejected Shop"));
+    record.shop_image = None;
+    record.existing_shop_id = None;
     let app_id = record.id;
     let user_id = record.applicant_user_id;
 
@@ -278,6 +317,65 @@ async fn should_set_state_to_rejected_for_reject() {
         &partner_app_repo,
         &shop_service,
         &shop_repo,
+        &user_repo,
+        &mock_notification,
+        event,
+    )
+    .await;
+
+    assert!(result.is_ok());
+
+    let updated = partner_app_repo
+        .get_partner_shop_application_record(&user_id, &app_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        updated.business_state,
+        PartnerShopApplicationStateRecord::Rejected
+    );
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_set_state_to_rejected_for_existing_application_reject() {
+    let partner_app_repo =
+        PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_repo = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let shop_service = CommandShopServiceImpl::new(
+        &shop_repo,
+        &shop::service::geocoding_service::NoopGeocodingService,
+    );
+    let mock_notification = mock_notification_service();
+
+    let existing_shop: ShopRecord = Faker.fake();
+    let existing_shop_id = existing_shop.shop_id;
+    seed_shop_record(&shop_repo, &existing_shop).await;
+
+    let mut record: PartnerShopApplicationRecord = Faker.fake();
+    record.business_state = PartnerShopApplicationStateRecord::InReview;
+    record.payload_type = PartnerShopApplicationPayloadTypeRecord::Existing;
+    record.existing_shop_id = Some(existing_shop_id);
+    record.shop_name = None;
+    record.shop_image = None;
+    let app_id = record.id;
+    let user_id = record.applicant_user_id;
+
+    seed_application_record(&partner_app_repo, &record).await;
+
+    let payload = serde_json::json!({
+        "step": "REJECT",
+        "partner_application_id": app_id.to_string(),
+        "applicant_user_id": user_id.to_string(),
+    });
+
+    let event = LambdaEvent::new(payload, Context::default());
+    let result = handler(
+        &partner_app_repo,
+        &shop_service,
+        &shop_repo,
+        &user_repo,
         &mock_notification,
         event,
     )
@@ -306,6 +404,7 @@ async fn should_return_error_when_application_not_found_for_approve() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_repo = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_service = CommandShopServiceImpl::new(
         &shop_repo,
         &shop::service::geocoding_service::NoopGeocodingService,
@@ -323,6 +422,7 @@ async fn should_return_error_when_application_not_found_for_approve() {
         &partner_app_repo,
         &shop_service,
         &shop_repo,
+        &user_repo,
         &mock_notification,
         event,
     )
@@ -336,6 +436,7 @@ async fn should_return_error_when_application_not_found_for_reject() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_repo = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_service = CommandShopServiceImpl::new(
         &shop_repo,
         &shop::service::geocoding_service::NoopGeocodingService,
@@ -353,6 +454,7 @@ async fn should_return_error_when_application_not_found_for_reject() {
         &partner_app_repo,
         &shop_service,
         &shop_repo,
+        &user_repo,
         &mock_notification,
         event,
     )
@@ -366,6 +468,7 @@ async fn should_return_error_when_task_token_missing_for_wait_for_review() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_repo = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_repo = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_service = CommandShopServiceImpl::new(
         &shop_repo,
         &shop::service::geocoding_service::NoopGeocodingService,
@@ -383,6 +486,7 @@ async fn should_return_error_when_task_token_missing_for_wait_for_review() {
         &partner_app_repo,
         &shop_service,
         &shop_repo,
+        &user_repo,
         &mock_notification,
         event,
     )

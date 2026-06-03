@@ -12,6 +12,7 @@ use crate::{
 };
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::{
+    actor::RequestContext,
     pagination::cursor::{Cursor, CursoredResult},
     price::domain::MonetaryAmountOverflowError,
     product_id::ProductId,
@@ -23,6 +24,7 @@ use common::{
 use common::{resource_state::domain::ResourceState, slug_id::SlugId};
 use product::dynamodb::repository::ProductDynamoDbRepository;
 use time::OffsetDateTime;
+use tracing::info;
 use user::service::user_service::{UserService, UserServiceError};
 
 #[derive(thiserror::Error, Debug)]
@@ -148,6 +150,7 @@ pub trait ProductWatchListService {
 
     async fn create_watchlist_product(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -155,6 +158,7 @@ pub trait ProductWatchListService {
 
     async fn delete_watchlist_product(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -162,6 +166,7 @@ pub trait ProductWatchListService {
 
     async fn update_watchlist_product(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -237,6 +242,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
 
     async fn create_watchlist_product(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -282,18 +288,22 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
             shops_product_id: product_record.shops_product_id,
             notifications: false,
             state: ResourceState::Active.into(),
+            created_by: ctx.actor.into(),
+            updated_by: ctx.actor.into(),
             created: now,
             updated: now,
         };
         self.watchlist_repository
             .put_watchlist_record(watchlist_record.clone())
             .await?;
+        info!(actor = %ctx.actor, userId = %user_id, shopId = %shop_id, shopsProductId = %shops_product_id, "Created watchlist product");
 
         Ok(watchlist_record.into())
     }
 
     async fn delete_watchlist_product(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -312,12 +322,14 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
         self.watchlist_repository
             .delete_watchlist_record(user_id, shop_id, shops_product_id)
             .await?;
+        info!(actor = %ctx.actor, userId = %user_id, shopId = %shop_id, shopsProductId = %shops_product_id, "Deleted watchlist product");
 
         Ok(())
     }
 
     async fn update_watchlist_product(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -363,7 +375,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
                     user_id,
                     shop_id,
                     shops_product_id,
-                    WatchlistProductRecordUpdate::from_cmd(update),
+                    WatchlistProductRecordUpdate::from_cmd(update, ctx.actor),
                 )
                 .await?
                 .ok_or_else(|| {
@@ -371,6 +383,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
                         "Failed parsing DynamoDB UpdateItem Response-Payload",
                     ))
                 })?;
+            info!(actor = %ctx.actor, userId = %user_id, shopId = %shop_id, shopsProductId = %shops_product_id, update = ?update, "Updated watchlist product");
 
             Ok(updated_watchlist_record.into())
         }
@@ -429,6 +442,12 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
+    fn system_ctx() -> common::actor::RequestContext {
+        common::actor::RequestContext {
+            actor: common::actor::domain::Actor::System,
+        }
+    }
+
     mod find_watchlist_product {
         use crate::{
             dynamodb::repository::MockWatchlistProductDynamoDbRepository,
@@ -578,7 +597,12 @@ mod tests {
                 &user_service,
             );
             service
-                .create_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .create_watchlist_product(
+                    &super::system_ctx(),
+                    &Faker.fake(),
+                    &Faker.fake(),
+                    &Faker.fake(),
+                )
                 .await
                 .unwrap();
         }
@@ -604,7 +628,12 @@ mod tests {
                 &user_service,
             );
             let actual = service
-                .create_watchlist_product(&user_id, &ShopId::new(), &ShopsProductId::new())
+                .create_watchlist_product(
+                    &super::system_ctx(),
+                    &user_id,
+                    &ShopId::new(),
+                    &ShopsProductId::new(),
+                )
                 .await
                 .unwrap_err();
 
@@ -638,7 +667,12 @@ mod tests {
             let shop_id = ShopId::new();
             let shops_product_id = ShopsProductId::new();
             let actual = service
-                .create_watchlist_product(&Faker.fake(), &shop_id, &shops_product_id)
+                .create_watchlist_product(
+                    &super::system_ctx(),
+                    &Faker.fake(),
+                    &shop_id,
+                    &shops_product_id,
+                )
                 .await
                 .unwrap_err();
 
@@ -690,7 +724,12 @@ mod tests {
             let shop_id = ShopId::new();
             let shops_product_id = ShopsProductId::new();
             let actual = service
-                .create_watchlist_product(&Faker.fake(), &shop_id, &shops_product_id)
+                .create_watchlist_product(
+                    &super::system_ctx(),
+                    &Faker.fake(),
+                    &shop_id,
+                    &shops_product_id,
+                )
                 .await
                 .unwrap_err();
 
@@ -750,7 +789,12 @@ mod tests {
             );
 
             let actual = service
-                .create_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .create_watchlist_product(
+                    &super::system_ctx(),
+                    &Faker.fake(),
+                    &Faker.fake(),
+                    &Faker.fake(),
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -805,7 +849,12 @@ mod tests {
             );
 
             let actual = service
-                .create_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .create_watchlist_product(
+                    &super::system_ctx(),
+                    &Faker.fake(),
+                    &Faker.fake(),
+                    &Faker.fake(),
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -850,7 +899,12 @@ mod tests {
                 &user_service,
             );
             service
-                .delete_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .delete_watchlist_product(
+                    &super::system_ctx(),
+                    &Faker.fake(),
+                    &Faker.fake(),
+                    &Faker.fake(),
+                )
                 .await
                 .unwrap();
         }
@@ -874,7 +928,12 @@ mod tests {
             let shop_id = ShopId::new();
             let shops_product_id = ShopsProductId::new();
             let actual = service
-                .delete_watchlist_product(&user_id, &shop_id, &shops_product_id)
+                .delete_watchlist_product(
+                    &super::system_ctx(),
+                    &user_id,
+                    &shop_id,
+                    &shops_product_id,
+                )
                 .await
                 .unwrap_err();
 
@@ -930,7 +989,12 @@ mod tests {
             );
 
             let actual = service
-                .delete_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .delete_watchlist_product(
+                    &super::system_ctx(),
+                    &Faker.fake(),
+                    &Faker.fake(),
+                    &Faker.fake(),
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -977,7 +1041,12 @@ mod tests {
             );
 
             let actual = service
-                .delete_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .delete_watchlist_product(
+                    &super::system_ctx(),
+                    &Faker.fake(),
+                    &Faker.fake(),
+                    &Faker.fake(),
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -1030,6 +1099,7 @@ mod tests {
             );
             service
                 .update_watchlist_product(
+                    &super::system_ctx(),
                     &Faker.fake(),
                     &Faker.fake(),
                     &Faker.fake(),
@@ -1062,6 +1132,7 @@ mod tests {
             let shops_product_id = ShopsProductId::new();
             let actual = service
                 .update_watchlist_product(
+                    &super::system_ctx(),
                     &user_id,
                     &shop_id,
                     &shops_product_id,
@@ -1126,6 +1197,7 @@ mod tests {
 
             let actual = service
                 .update_watchlist_product(
+                    &super::system_ctx(),
                     &Faker.fake(),
                     &Faker.fake(),
                     &Faker.fake(),
@@ -1187,6 +1259,7 @@ mod tests {
 
             let actual = service
                 .update_watchlist_product(
+                    &super::system_ctx(),
                     &Faker.fake(),
                     &Faker.fake(),
                     &Faker.fake(),

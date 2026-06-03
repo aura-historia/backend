@@ -2,7 +2,10 @@ pub mod service;
 
 use crate::service::ProductEventWatchlistNotificationsService;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
+use common::{
+    actor::{RequestContext, domain::Actor},
+    dynamodb_stream::extract_sqs_event_bridge_dynamodb_record,
+};
 use lambda_runtime::LambdaEvent;
 use notification::service::notification_service::NotificationService;
 use product::core::product_event::ProductDomainEvent;
@@ -40,7 +43,13 @@ pub async fn handler(
                     match notification_cmds_res {
                         Ok(cmds) => {
                             let create_notifications_res = notification_service
-                                .create_notifications(&event_id, cmds)
+                                .create_notifications(
+                                    &RequestContext {
+                                        actor: Actor::System,
+                                    },
+                                    &event_id,
+                                    cmds,
+                                )
                                 .await;
                             // strictly fail on partial failure
                             // this is fine as all downstream components dedup on origin_event_id
@@ -213,7 +222,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_create_notifications()
-            .returning(|_, _| {
+            .returning(|_, _, _| {
                 Box::pin(async {
                     CreateNotificationsResult {
                         processed: vec![],
@@ -248,7 +257,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_create_notifications()
-            .returning(|_, _| {
+            .returning(|_, _, _| {
                 Box::pin(async {
                     CreateNotificationsResult {
                         processed: vec![],
@@ -316,7 +325,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_create_notifications()
-            .returning(|_, cmds| {
+            .returning(|_, _, cmds| {
                 let unprocessed = cmds
                     .into_iter()
                     .map(|cmd| {
@@ -364,7 +373,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_create_notifications()
-            .returning(|_, _| {
+            .returning(|_, _, _| {
                 Box::pin(async {
                     CreateNotificationsResult {
                         processed: vec![],
@@ -539,7 +548,7 @@ mod tests {
         // Called twice for the two succeeding messages
         notification_service
             .expect_create_notifications()
-            .returning(|_, _| {
+            .returning(|_, _, _| {
                 Box::pin(async {
                     CreateNotificationsResult {
                         processed: vec![],
@@ -583,7 +592,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_create_notifications()
-            .returning(|_, mut cmds| {
+            .returning(|_, _, mut cmds| {
                 // Only one of three commands fails — the message is still failed (strict mode)
                 let unprocessed_cmd = cmds.pop().unwrap();
                 Box::pin(async move {
@@ -632,7 +641,7 @@ mod tests {
         notification_service
             .expect_create_notifications()
             .times(1)
-            .returning(|_, _| {
+            .returning(|_, _, _| {
                 Box::pin(async {
                     CreateNotificationsResult {
                         processed: vec![],
@@ -668,7 +677,7 @@ mod tests {
         notification_service
             .expect_create_notifications()
             .times(1)
-            .returning(|_, _| {
+            .returning(|_, _, _| {
                 Box::pin(async {
                     CreateNotificationsResult {
                         processed: vec![],
@@ -710,7 +719,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_create_notifications()
-            .returning(move |_, cmds| {
+            .returning(move |_, _, cmds| {
                 let call_count = call_count.clone();
                 let mut count = call_count.lock().unwrap();
                 *count += 1;
@@ -788,7 +797,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_create_notifications()
-            .returning(|_, _| {
+            .returning(|_, _, _| {
                 Box::pin(async {
                     CreateNotificationsResult {
                         processed: vec![],

@@ -3,6 +3,7 @@ use crate::core::product_image::ProductImage;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
+use common::actor::record::ActorRecord;
 use common::currency::domain::Currency;
 use common::error::mapping_error::PersistenceMappingError;
 use common::error::missing_field::MissingPersistenceField;
@@ -19,6 +20,7 @@ use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use field::field;
 use geo::dynamodb::{geo_address_from_record, structured_address_from_record};
+use indexmap::IndexSet;
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -199,8 +201,8 @@ pub struct ProductRecord {
     pub state: ProductStateRecord,
     pub url: Url,
     pub view_url: Url,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub images: Vec<ProductImageRecord>,
+    #[serde(skip_serializing_if = "IndexSet::is_empty", default)]
+    pub images: IndexSet<ProductImageRecord>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub embedding: Option<Vec<f32>>,
 
@@ -217,6 +219,8 @@ pub struct ProductRecord {
     )]
     pub auction_end: Option<OffsetDateTime>,
 
+    pub created_by: ActorRecord,
+    pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -479,6 +483,8 @@ impl From<ProductRecord> for Product {
             embedding: record.embedding,
             auction_start: record.auction_start,
             auction_end: record.auction_end,
+            created_by: record.created_by.into(),
+            updated_by: record.updated_by.into(),
             created: record.created,
             updated: record.updated,
         }
@@ -607,6 +613,8 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
             embedding: None,
             auction_start: event_record.auction_start,
             auction_end: event_record.auction_end,
+            created_by: ActorRecord::System,
+            updated_by: ActorRecord::System,
             created: event_record.timestamp,
             updated: event_record.timestamp,
         };
@@ -743,7 +751,10 @@ mod faker {
                     config.fake_with_rng::<u16, _>(rng)
                 ))
                 .unwrap(),
-                images: config.fake_with_rng(rng),
+                images: config
+                    .fake_with_rng::<Vec<ProductImageRecord>, _>(rng)
+                    .into_iter()
+                    .collect(),
                 embedding: if config.fake_with_rng(rng) {
                     Some(fake::vec![f32; 768])
                 } else {
@@ -759,6 +770,8 @@ mod faker {
                 } else {
                     None
                 },
+                created_by: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 created: now,
                 updated: now,
             }

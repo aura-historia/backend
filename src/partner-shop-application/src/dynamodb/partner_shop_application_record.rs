@@ -8,14 +8,15 @@ use crate::dynamodb::{
     partner_shop_application_payload_type_record::PartnerShopApplicationPayloadTypeRecord,
     partner_shop_application_state_record::PartnerShopApplicationStateRecord,
 };
+use common::actor::record::ActorRecord;
 use common::execution_state::record::ExecutionStateRecord;
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, user_id::UserId};
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use serde_fields::SerdeField;
-use shop::core::address::StructuredAddress;
 use shop::core::continent::Continent;
+use shop::core::{address::StructuredAddress, partner_status::ShopPartnerStatus};
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -71,6 +72,8 @@ pub struct PartnerShopApplicationRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub task_token: Option<String>,
 
+    pub created_by: ActorRecord,
+    pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -183,6 +186,8 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
             shop_phone,
             shop_email,
             task_token: None,
+            created_by: application.created_by.into(),
+            updated_by: application.updated_by.into(),
             created: application.created,
             updated: application.updated,
         }
@@ -213,6 +218,7 @@ impl TryFrom<PartnerShopApplicationRecord> for PartnerShopApplication {
                 PartnerShopApplicationPayload::New(CreateShopCommand {
                     name,
                     shop_type: shop_type_record.into(),
+                    shop_partner_status: ShopPartnerStatus::Partnered,
                     domains,
                     shopify_domain: None,
                     shopify_currency: None,
@@ -243,6 +249,8 @@ impl TryFrom<PartnerShopApplicationRecord> for PartnerShopApplication {
             execution_state: record.execution_state.into(),
             applicant_user_id: record.applicant_user_id,
             payload,
+            created_by: record.created_by.into(),
+            updated_by: record.updated_by.into(),
             created: record.created,
             updated: record.updated,
         })
@@ -286,6 +294,7 @@ mod faker {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use common::actor::domain::Actor;
         use fake::{Fake, Faker};
 
         #[test]
@@ -301,6 +310,8 @@ mod faker {
                 execution_state: common::execution_state::ExecutionState::Processing,
                 applicant_user_id: UserId::new(),
                 payload: PartnerShopApplicationPayload::Existing(ShopId::new()),
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -323,6 +334,7 @@ mod faker {
             let cmd = CreateShopCommand {
                 name: ShopName::from("Test Shop".to_string()),
                 shop_type: ShopType::CommercialDealer,
+                shop_partner_status: ShopPartnerStatus::Partnered,
                 domains: [Domain::try_from("https://www.test.com/".to_string()).unwrap()].into(),
                 shopify_domain: None,
                 shopify_currency: None,
@@ -344,6 +356,8 @@ mod faker {
                 execution_state: common::execution_state::ExecutionState::Waiting,
                 applicant_user_id: UserId::new(),
                 payload: PartnerShopApplicationPayload::New(cmd),
+                created_by: Actor::System,
+                updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };

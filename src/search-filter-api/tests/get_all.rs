@@ -15,6 +15,12 @@ use search_filter_api::handle;
 use test_api::*;
 use user::service::user_service::UserService;
 
+fn user_ctx(user_id: common::user_id::UserId) -> common::actor::RequestContext {
+    common::actor::RequestContext {
+        actor: common::actor::domain::Actor::User(user_id),
+    }
+}
+
 #[localstack_test(services = [DynamoDB()])]
 async fn should_return_actual_search_filters_sorted_oldest_for_order_asc() {
     let repository =
@@ -30,7 +36,7 @@ async fn should_return_actual_search_filters_sorted_oldest_for_order_asc() {
     let personalization_service = MockProductPersonalizationService::default();
 
     let user_id = user_service
-        .create_user(Faker.fake())
+        .create_user(&user_ctx(common::user_id::UserId::new()), Faker.fake())
         .await
         .unwrap()
         .user_id;
@@ -45,8 +51,11 @@ async fn should_return_actual_search_filters_sorted_oldest_for_order_asc() {
             notifications: true,
             state: ResourceState::Active,
             search: search_filter,
+            created_by: common::actor::domain::Actor::User(user_id),
+            updated_by: common::actor::domain::Actor::User(user_id),
             created: time::OffsetDateTime::now_utc(),
             updated: time::OffsetDateTime::now_utc(),
+            last_hybrid_search_matched: time::OffsetDateTime::now_utc(),
         };
         repository
             .put_user_search_filter_record(filter.clone().into())
@@ -115,7 +124,7 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
     let personalization_service = MockProductPersonalizationService::default();
 
     let user_id = user_service
-        .create_user(Faker.fake())
+        .create_user(&user_ctx(common::user_id::UserId::new()), Faker.fake())
         .await
         .unwrap()
         .user_id;
@@ -130,8 +139,11 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
             notifications: true,
             state: ResourceState::Active,
             search: search_filter,
+            created_by: common::actor::domain::Actor::User(user_id),
+            updated_by: common::actor::domain::Actor::User(user_id),
             created: time::OffsetDateTime::now_utc(),
             updated: time::OffsetDateTime::now_utc(),
+            last_hybrid_search_matched: time::OffsetDateTime::now_utc(),
         };
         repository
             .put_user_search_filter_record(filter.clone().into())

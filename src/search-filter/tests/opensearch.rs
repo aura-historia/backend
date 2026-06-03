@@ -10,7 +10,6 @@ use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
-use fake::{Fake, Faker};
 use opensearch::http::Url;
 use product::opensearch::product_document::ProductDocument;
 use product::opensearch::product_state_document::ProductStateDocument;
@@ -785,8 +784,11 @@ fn base_record() -> UserSearchFilterRecord {
         auction_end_query: None,
         language: common::language::record::LanguageRecord::En,
         currency: common::currency::record::CurrencyRecord::Eur,
+        created_by: common::actor::record::ActorRecord::System,
+        updated_by: common::actor::record::ActorRecord::System,
         created: datetime!(2024-01-01 00:00:00 UTC),
         updated: datetime!(2024-01-02 00:00:00 UTC),
+        last_hybrid_search_matched: datetime!(2024-01-02 00:00:00 UTC),
     }
 }
 
@@ -888,10 +890,12 @@ fn base_product_document() -> ProductDocument {
         state: ProductStateDocument::Listed,
         url: Url::parse("https://example.com/products/renaissance-cabinet").unwrap(),
         view_url: Url::parse("https://example.com/products/renaissance-cabinet?utm_source=aura_historia&utm_medium=referral").unwrap(),
-        images: Faker.fake(),
+        images: Default::default(),
         embedding: None,
         auction_start: Some(datetime!(2024-01-20 10:00:00 UTC)),
         auction_end: Some(datetime!(2024-01-25 18:00:00 UTC)),
+        created_by: common::actor::document::ActorDocument::System,
+        updated_by: common::actor::document::ActorDocument::System,
         created: datetime!(2024-01-10 08:00:00 UTC),
         updated: datetime!(2024-01-15 09:00:00 UTC),
     }
@@ -947,8 +951,11 @@ fn base_query_record() -> UserSearchFilterRecord {
         auction_end_query: None,
         language: LanguageRecord::En,
         currency: CurrencyRecord::Eur,
+        created_by: common::actor::record::ActorRecord::System,
+        updated_by: common::actor::record::ActorRecord::System,
         created: datetime!(2024-01-01 00:00:00 UTC),
         updated: datetime!(2024-01-02 00:00:00 UTC),
+        last_hybrid_search_matched: datetime!(2024-01-02 00:00:00 UTC),
     }
 }
 
@@ -987,11 +994,11 @@ fn silver_tea_set_product_document() -> ProductDocument {
         title_de: Some("Viktorianisches Sterling-Silber-Teeservice London 1872".to_string()),
         title_en: Some("Victorian sterling silver tea service London 1872".to_string()),
         title_fr: Some("Service argent sterling victorien Londres 1872".to_string()),
-        title_es: Some("Servicio plata esterlina victoriano Londres 1872".to_string()),
-        title_it: Some("Servizio argento sterling vittoriano Londra 1872".to_string()),
-        price_eur: None,
+        title_es: Some("Servicio de té plata esterlina victoriano Londres 1872".to_string()),
+        title_it: Some("Servizio da tè argento sterling vittoriano Londra 1872".to_string()),
+        price_eur: Some(3_200),
         price_usd: None,
-        price_gbp: Some(800),
+        price_gbp: None,
         price_aud: None,
         price_cad: None,
         price_nzd: None,
@@ -1046,12 +1053,14 @@ fn silver_tea_set_product_document() -> ProductDocument {
         state: ProductStateDocument::Listed,
         url: Url::parse("https://example.com/products/victorian-silver-tea-service").unwrap(),
         view_url: Url::parse("https://example.com/products/victorian-silver-tea-service?utm_source=aura_historia&utm_medium=referral").unwrap(),
-        images: Faker.fake(),
+        images: Default::default(),
         embedding: None,
         auction_start: None,
         auction_end: None,
-        created: datetime!(2024-03-01 10:00:00 UTC),
-        updated: datetime!(2024-03-05 14:00:00 UTC),
+        created_by: common::actor::document::ActorDocument::System,
+        updated_by: common::actor::document::ActorDocument::System,
+        created: datetime!(2024-02-01 09:30:00 UTC),
+        updated: datetime!(2024-02-03 11:15:00 UTC),
     }
 }
 
@@ -1218,10 +1227,12 @@ fn ming_vase_product_document() -> ProductDocument {
         state: ProductStateDocument::Listed,
         url: Url::parse("https://example.com/products/ming-dynasty-blue-white-vase").unwrap(),
         view_url: Url::parse("https://example.com/products/ming-dynasty-blue-white-vase?utm_source=aura_historia&utm_medium=referral").unwrap(),
-        images: Faker.fake(),
+        images: Default::default(),
         embedding: None,
         auction_start: None,
         auction_end: None,
+        created_by: common::actor::document::ActorDocument::System,
+        updated_by: common::actor::document::ActorDocument::System,
         created: datetime!(2024-03-10 10:00:00 UTC),
         updated: datetime!(2024-03-12 14:00:00 UTC),
     }
@@ -1384,10 +1395,12 @@ fn louis_xv_fauteuil_product_document() -> ProductDocument {
         state: ProductStateDocument::Listed,
         url: Url::parse("https://example.com/products/louis-xv-walnut-fauteuil").unwrap(),
         view_url: Url::parse("https://example.com/products/louis-xv-walnut-fauteuil?utm_source=aura_historia&utm_medium=referral").unwrap(),
-        images: Faker.fake(),
+        images: Default::default(),
         embedding: None,
         auction_start: None,
         auction_end: None,
+        created_by: common::actor::document::ActorDocument::System,
+        updated_by: common::actor::document::ActorDocument::System,
         created: datetime!(2024-03-15 10:00:00 UTC),
         updated: datetime!(2024-03-18 14:00:00 UTC),
     }

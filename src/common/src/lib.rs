@@ -1,3 +1,4 @@
+pub mod actor;
 pub mod currency;
 pub mod distance;
 
@@ -28,6 +29,7 @@ pub mod mergeable;
 pub mod product_id;
 pub mod product_state;
 
+pub mod oauth_client_id;
 #[cfg(feature = "opensearch")]
 pub mod opensearch;
 pub mod pagination;

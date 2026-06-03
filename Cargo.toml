@@ -35,13 +35,14 @@ notification-send = { workspace = true }
 notification = { workspace = true }
 newsletter-api = { workspace = true }
 notification-api = { workspace = true }
+oauth = { workspace = true }
+oauth-api = { workspace = true }
 product-pipeline = { workspace = true }
 fxrate = { workspace = true }
 fxrate-lambda = { workspace = true }
 partner-shop-application = { workspace = true }
 partner-shop-application-api = { workspace = true }
 partner-shop-application-lambda = { workspace = true }
-partner-api = { workspace = true }
 
 [workspace]
 members = [
@@ -76,6 +77,8 @@ members = [
     "src/notification",
     "src/notification-api",
     "src/newsletter-api",
+    "src/oauth",
+    "src/oauth-api",
     "src/product-pipeline",
     "src/fxrate",
     "src/fxrate-lambda",
@@ -84,7 +87,6 @@ members = [
     "src/partner-shop-application",
     "src/partner-shop-application-api",
     "src/partner-shop-application-lambda",
-    "src/partner-api",
 ]
 
 [workspace.dependencies]
@@ -92,22 +94,23 @@ async-stream = "0.3.6"
 base64 = "0.22.1"
 async-trait = "0.1.89"
 aws-config = "1.8.17"
-aws-sdk-account = "1.103.0"
+aws-sdk-account = "1.105.0"
 aws-sdk-autoscaling = "1.115.0"
-aws-sdk-cloudformation = "1.112.0"
-aws-sdk-dynamodb = "1.112.0"
-aws-sdk-eventbridge = "1.106.0"
+aws-sdk-cloudformation = "1.113.0"
+aws-sdk-dynamodb = "1.113.0"
+aws-sdk-eventbridge = "1.107.0"
 aws-sdk-lambda = "1.100.0"
-aws-sdk-opensearch = "1.129.0"
-aws-sdk-sqs = "1.99.0"
-aws-sdk-sesv2 = "1.119.0"
-aws-sdk-s3 = "1.133.0"
-aws-sdk-sfn = "1.105.0"
+aws-sdk-opensearch = "1.130.0"
+aws-sdk-sqs = "1.100.0"
+aws-sdk-sesv2 = "1.121.0"
+aws-sdk-s3 = "1.134.0"
+aws-sdk-sfn = "1.106.0"
 aws-sdk-cloudwatch = "1.111.0"
-aws-sdk-cloudwatchlogs = "1.132.0"
+aws-sdk-cloudwatchlogs = "1.133.0"
 aws_lambda_events = { version = "1.2.0", default-features = false }
 common = { path = "src/common" }
 geo = { path = "src/geo" }
+google-cloud-auth = "1.10.0"
 derive_builder = "0.20.2"
 fake = { version = "5.1.0", features = ["derive", "time", "uuid", "url"] }
 field = "0.1.0"
@@ -117,6 +120,7 @@ search-filter-api = { path = "src/search-filter-api" }
 search-filter-lambda = { path = "src/search-filter-lambda" }
 search-filter-lambda-opensearch-sync = { path = "src/search-filter-lambda/src/search-filter-lambda-opensearch-sync" }
 search-filter-lambda-percolate-product = { path = "src/search-filter-lambda/src/search-filter-lambda-percolate-product" }
+search-filter-lambda-periodic-match = { path = "src/search-filter-lambda/src/search-filter-lambda-periodic-match" }
 shop = { path = "src/shop" }
 shop-lambda = { path = "src/shop-lambda" }
 shop-lambda-opensearch-index = { path = "src/shop-lambda/src/shop-lambda-opensearch-index" }
@@ -127,9 +131,11 @@ notification-send = { path = "src/notification-send" }
 newsletter-api = { path = "src/newsletter-api" }
 notification = { path = "src/notification" }
 notification-api = { path = "src/notification-api" }
+oauth = { path = "src/oauth" }
+oauth-api = { path = "src/oauth-api" }
 futures = { version = "0.3.32", default-features = false }
 hex = "0.4.3"
-http = "1.4.0"
+http = "1.4.1"
 httpdate = "1.0.3"
 product = { path = "src/product" }
 product-api = { path = "src/product-api" }
@@ -146,7 +152,7 @@ product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lam
 product-lambda-ingest-partner-products = { path = "src/product-lambda/src/product-lambda-ingest-partner-products" }
 isocountry = "0.3.2"
 itertools = "0.14.0"
-lambda_runtime = "1.2.0"
+lambda_runtime = "1.2.1"
 libc = "0.2.186"
 ctrlc = { version = "3.5.2", features = ["termination"] }
 mockall = "0.14.0"
@@ -167,7 +173,7 @@ serde_json = "1.0.150"
 serde_qs = "1.1.2"
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "time", "json", "macros", "migrate"] }
 serde_fields = "0.1.0"
-serial_test = "3.4.0"
+serial_test = "3.5.0"
 sha2 = "0.11.0"
 aws-tests = { path = "src/aws-tests" }
 aws-tests-common = { path = "src/aws-tests/src/aws-tests-common" }
@@ -189,8 +195,8 @@ tracing-cloudwatch = { version = "=0.4.1", features = ["awssdk", "ordered_logs"]
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 typed-builder = "0.23.2"
 percent-encoding = "2.3.2"
-url = "2.5.8"
-uuid = { version = "1.23.1", features = ["serde"] }
+url = { version = "2.5.8", features = ["serde"] }
+uuid = { version = "1.23.2", features = ["serde"] }
 walkdir = "2.5.0"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 futures-util = "0.3.32"
@@ -211,11 +217,10 @@ once_cell = "1.21.4"
 openssl = { version = "0.10.80", default-features = false }
 jsonwebtokens = "1.2.0"
 jsonwebtokens-cognito = "0.1.1"
-aws-sdk-cognitoidentityprovider = "1.117.0"
+aws-sdk-cognitoidentityprovider = "1.118.0"
 html-escape = "0.2.13"
-pyo3 = "0.27.2"
-pyo3-ffi = "0.27.0"
 regex = "1.12.3"
+indexmap = { version = "2.14.0", features = ["serde"] }
 fxrate = { path = "src/fxrate" }
 fxrate-lambda = { path = "src/fxrate-lambda" }
 slug = "0.1.6"
@@ -223,7 +228,7 @@ crawler = { path = "src/crawler" }
 spider = { version = "2", default-features = false, features = ["sync", "reqwest_rustls_tls"] }
 scraper = "0.27.0"
 schemars = "1.2.1"
-llm = { git = "https://github.com/graniet/llm", rev = "85d5ac4771ff00dad1ccb9845b4b0c2f0dadb074", default-features = false, features = ["rustls-tls"] }
+llm = { git = "https://github.com/bruderj15/llm", rev = "3f2b5b4a4ca54f981b254857b9bf601f666ac5bf", default-features = false, features = ["rustls-tls"] }
 kuchiki = "0.8.1"
 lingua = { version = "1.7.2", default-features = false, features = ["english", "german", "french", "spanish", "italian", "chinese", "portuguese", "polish", "turkish", "dutch", "czech", "japanese", "russian", "arabic"] }
 dotenvy = "0.15"
@@ -233,6 +238,5 @@ prefixed-api-key = { version = "0.3.0" }
 partner-shop-application = { path = "src/partner-shop-application" }
 partner-shop-application-api = { path = "src/partner-shop-application-api" }
 partner-shop-application-lambda = { path = "src/partner-shop-application-lambda" }
-partner-api = { path = "src/partner-api" }
 shopify-lambda = { path = "src/shopify-lambda" }
 webhook-api = { path = "src/webhook-api" }

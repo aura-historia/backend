@@ -78,7 +78,7 @@ pub async fn handle(
     let product_search: product::core::product_search::ProductSearch = product_search_data.into();
 
     // Adaptive hybrid retrieval is only chosen when:
-    //   * an embedding service is configured (Lambda has GEMINI_API_KEY), AND
+    //   * an embedding service is configured (Lambda has Vertex ADC configured), AND
     //   * the request carries a non-empty textual `product_query`, AND
     //   * the user did not request a non-score sort (e.g. price/created/updated).
     // Otherwise we fall back to the existing pure-BM25 path.

@@ -1,15 +1,15 @@
 use crate::{
     core::{
-        affiliate_configuration::AffiliateConfiguration,
-        partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey},
-        partner_status::ShopPartnerStatus,
+        affiliate_configuration::AffiliateConfiguration, partner_status::ShopPartnerStatus,
         shop::Shop,
     },
     dynamodb::{repository::ShopDynamoDbRepository, shop_record_update::ShopRecordUpdate},
     service::command::{CreateShopCommand, UpdateShopCommand},
 };
 use aws_sdk_dynamodb::error::SdkError;
-use common::{shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::UserId};
+use common::{
+    actor::RequestContext, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::UserId,
+};
 use time::OffsetDateTime;
 use tracing::info;
 
@@ -98,17 +98,17 @@ pub mod api {
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait CommandShopService {
-    async fn create(&self, command: CreateShopCommand) -> Result<Shop, CommandShopError>;
+    async fn create(
+        &self,
+        ctx: &RequestContext,
+        command: CreateShopCommand,
+    ) -> Result<Shop, CommandShopError>;
     async fn update(
         &self,
+        ctx: &RequestContext,
         shop_id: &ShopId,
         command: UpdateShopCommand,
     ) -> Result<Shop, CommandShopError>;
-    async fn create_api_key(
-        &self,
-        user_id: &UserId,
-        shop_id: &ShopId,
-    ) -> Result<PartnerShopApiKey, CommandShopError>;
 }
 
 pub struct CommandShopServiceImpl<'a> {
@@ -130,7 +130,11 @@ impl<'a> CommandShopServiceImpl<'a> {
 
 #[async_trait::async_trait]
 impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
-    async fn create(&self, command: CreateShopCommand) -> Result<Shop, CommandShopError> {
+    async fn create(
+        &self,
+        ctx: &RequestContext,
+        command: CreateShopCommand,
+    ) -> Result<Shop, CommandShopError> {
         let shop_slug_id = SlugId::from(command.name.as_ref());
         let existing_shop_opt = self.repository.query_shop_id(&shop_slug_id).await?;
         if existing_shop_opt.is_some() {
@@ -173,19 +177,22 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             email: command.email,
             partner_status: ShopPartnerStatus::default(),
             affiliate_configuration: command.affiliate_configuration,
+            created_by: ctx.actor,
+            updated_by: ctx.actor,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };
 
         let _ = self.repository.put_shop_record(shop.clone().into()).await?;
 
-        info!(shopId = %shop.shop_id, name = %shop.name, slug = %shop.shop_slug_id, domains = ?shop.domains, "Created Shop.");
+        info!(actor = %ctx.actor, shopId = %shop.shop_id, name = %shop.name, slug = %shop.shop_slug_id, domains = ?shop.domains, "Created Shop.");
 
         Ok(shop)
     }
 
     async fn update(
         &self,
+        ctx: &RequestContext,
         shop_id: &ShopId,
         command: UpdateShopCommand,
     ) -> Result<Shop, CommandShopError> {
@@ -205,9 +212,6 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
         };
 
         let update = ShopRecordUpdate {
-            partner_user_id: None,
-            gsi1_pk: None,
-            gsi1_sk: None,
             gsi3_pk: command
                 .shopify_domain
                 .as_ref()
@@ -217,6 +221,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
                 .as_ref()
                 .map(|_| crate::dynamodb::shop_record::mk_gsi3_sk().to_owned()),
             shop_type: command.shop_type.map(Into::into),
+            shop_partner_status: command.shop_partner_status.map(Into::into),
             domains: command.domains.clone(),
             shopify_domain: command.shopify_domain.clone(),
             shopify_currency: command.shopify_currency.map(Into::into),
@@ -259,8 +264,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             geo_address_lon: geo_address.as_ref().map(|address| address.lon),
             phone: command.phone.clone(),
             email: command.email.clone(),
-            partner_api_key_short: None,
-            partner_api_key_long_hash: None,
+            updated_by: ctx.actor.into(),
             updated: OffsetDateTime::now_utc(),
         };
         let shop_record = self
@@ -273,81 +277,20 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
                 ))
             })?;
 
-        info!(shopId = %shop_record.shop_id, name = %shop_record.name, slug = %shop_record.shop_slug_id, payload = ?command, "Updated Shop.");
+        info!(actor = %ctx.actor, shopId = %shop_record.shop_id, name = %shop_record.name, slug = %shop_record.shop_slug_id, payload = ?command, "Updated Shop.");
 
         Ok(shop_record.into())
-    }
-
-    async fn create_api_key(
-        &self,
-        user_id: &UserId,
-        shop_id: &ShopId,
-    ) -> Result<PartnerShopApiKey, CommandShopError> {
-        let shop_record = self
-            .repository
-            .get_shop_record(shop_id)
-            .await?
-            .ok_or_else(|| CommandShopError::ShopNotFound(*shop_id))?;
-
-        let partner_user_id = shop_record
-            .partner_user_id
-            .ok_or_else(|| CommandShopError::NotAPartnerShop(*shop_id))?;
-
-        if partner_user_id != *user_id {
-            return Err(CommandShopError::NotThePartnerUser(*user_id, *shop_id));
-        }
-
-        let api_key = PartnerShopApiKey::new();
-        let hashed: HashedPartnerShopApiKey = api_key.clone().into();
-
-        let update = ShopRecordUpdate {
-            partner_user_id: None,
-            gsi1_pk: None,
-            gsi1_sk: None,
-            gsi3_pk: None,
-            gsi3_sk: None,
-            shop_type: None,
-            domains: None,
-            shopify_domain: None,
-            shopify_currency: None,
-            shopify_language: None,
-            woocommerce_webhook_secret: None,
-            woocommerce_currency: None,
-            woocommerce_language: None,
-            url: None,
-            view_url: None,
-            image: None,
-            structured_address_addressline: None,
-            structured_address_addressline_extra: None,
-            structured_address_locality: None,
-            structured_address_region: None,
-            structured_address_postal_code: None,
-            structured_address_country: None,
-            geo_address_lat: None,
-            geo_address_lon: None,
-            phone: None,
-            email: None,
-            partner_api_key_short: Some(hashed.short_token().to_string()),
-            partner_api_key_long_hash: Some(hashed.long_token_hash().to_string()),
-            updated: OffsetDateTime::now_utc(),
-        };
-
-        self.repository.update_shop_record(shop_id, update).await?;
-
-        info!(
-            shopId = %shop_id,
-            userId = %user_id,
-            apiKeyShort = %hashed.short_token(),
-            apiKeyLongHash = %hashed.long_token_hash(),
-            "Created API key for partner shop."
-        );
-
-        Ok(api_key)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    fn system_ctx() -> common::actor::RequestContext {
+        common::actor::RequestContext {
+            actor: common::actor::domain::Actor::System,
+        }
+    }
+
     mod create {
         use crate::{
             core::{
@@ -384,6 +327,7 @@ mod tests {
             let cmd = CreateShopCommand {
                 name: Faker.fake(),
                 shop_type: Faker.fake(),
+                shop_partner_status: Faker.fake(),
                 domains: HashSet::new(),
                 shopify_domain: None,
                 shopify_currency: None,
@@ -398,7 +342,7 @@ mod tests {
                 email: None,
                 affiliate_configuration: None,
             };
-            let actual = service.create(cmd).await.unwrap_err();
+            let actual = service.create(&super::system_ctx(), cmd).await.unwrap_err();
             match actual {
                 CommandShopError::ShopSlugExistsAlready(_, _) => {}
                 other => {
@@ -423,7 +367,10 @@ mod tests {
             );
 
             let create_cmd: CreateShopCommand = Faker.fake();
-            let actual = service.create(create_cmd.clone()).await.unwrap();
+            let actual = service
+                .create(&super::system_ctx(), create_cmd.clone())
+                .await
+                .unwrap();
 
             assert_eq!(create_cmd.name, actual.name);
             assert_eq!(create_cmd.shop_type, actual.shop_type);
@@ -468,6 +415,7 @@ mod tests {
             let cmd = CreateShopCommand {
                 name: Faker.fake(),
                 shop_type: Faker.fake(),
+                shop_partner_status: Faker.fake(),
                 domains: HashSet::new(),
                 shopify_domain: None,
                 shopify_currency: None,
@@ -483,7 +431,7 @@ mod tests {
                 affiliate_configuration: None,
             };
 
-            let actual = service.create(cmd).await.unwrap();
+            let actual = service.create(&super::system_ctx(), cmd).await.unwrap();
 
             assert_eq!(Some(geo_address), actual.geo_address);
         }
@@ -514,7 +462,7 @@ mod tests {
                 &crate::service::geocoding_service::NoopGeocodingService,
             );
 
-            let actual = service.create(Faker.fake()).await;
+            let actual = service.create(&super::system_ctx(), Faker.fake()).await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -552,7 +500,7 @@ mod tests {
                 &crate::service::geocoding_service::NoopGeocodingService,
             );
 
-            let actual = service.create(Faker.fake()).await;
+            let actual = service.create(&super::system_ctx(), Faker.fake()).await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -600,7 +548,9 @@ mod tests {
                 &crate::service::geocoding_service::NoopGeocodingService,
             );
 
-            let actual = service.update(&ShopId::new(), Default::default()).await;
+            let actual = service
+                .update(&super::system_ctx(), &ShopId::new(), Default::default())
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -626,7 +576,7 @@ mod tests {
                 &crate::service::geocoding_service::NoopGeocodingService,
             );
             let actual = service
-                .update(&expected.shop_id, Default::default())
+                .update(&super::system_ctx(), &expected.shop_id, Default::default())
                 .await
                 .unwrap();
 
@@ -668,7 +618,10 @@ mod tests {
                 image: Some(new_image_url),
                 ..Default::default()
             };
-            let actual = service.update(&shop.shop_id, cmd).await.unwrap();
+            let actual = service
+                .update(&super::system_ctx(), &shop.shop_id, cmd)
+                .await
+                .unwrap();
 
             assert_eq!(
                 "https://hanses.shoppy/img/foo",
@@ -712,7 +665,10 @@ mod tests {
                 &shop_repository,
                 &crate::service::geocoding_service::NoopGeocodingService,
             );
-            let actual = service.update(&shop.shop_id, cmd).await.unwrap();
+            let actual = service
+                .update(&super::system_ctx(), &shop.shop_id, cmd)
+                .await
+                .unwrap();
 
             assert_eq!(new_domains, actual.domains);
         }
@@ -759,7 +715,10 @@ mod tests {
                 &shop_repository,
                 &crate::service::geocoding_service::NoopGeocodingService,
             );
-            let actual = service.update(&shop.shop_id, cmd).await.unwrap();
+            let actual = service
+                .update(&super::system_ctx(), &shop.shop_id, cmd)
+                .await
+                .unwrap();
 
             assert_eq!(reduced_domains, actual.domains);
         }
@@ -810,6 +769,7 @@ mod tests {
             let service = CommandShopServiceImpl::new(&shop_repository, &geocoding_service);
             let actual = service
                 .update(
+                    &super::system_ctx(),
                     &shop.shop_id,
                     UpdateShopCommand {
                         structured_address: Some(structured_address),
@@ -848,7 +808,9 @@ mod tests {
                 &crate::service::geocoding_service::NoopGeocodingService,
             );
 
-            let actual = service.update(&ShopId::new(), Default::default()).await;
+            let actual = service
+                .update(&super::system_ctx(), &ShopId::new(), Default::default())
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -892,115 +854,15 @@ mod tests {
                 image: Some(Url::parse("https://example.com/img").unwrap()),
                 ..Default::default()
             };
-            let actual = service.update(&ShopId::new(), cmd).await;
+            let actual = service
+                .update(&super::system_ctx(), &ShopId::new(), cmd)
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
                 CommandShopError::SdkUpdateItemError(_) => {}
                 _ => panic!("expected CommandShopError::SdkUpdateItemError"),
             }
-        }
-    }
-
-    mod create_api_key {
-        use crate::{
-            dynamodb::{repository::MockShopDynamoDbRepository, shop_record::ShopRecord},
-            service::command_service::{
-                CommandShopError, CommandShopService, CommandShopServiceImpl,
-            },
-        };
-        use common::{shop_id::ShopId, user_id::UserId};
-        use fake::{Fake, Faker};
-
-        #[tokio::test]
-        async fn should_return_api_key_when_user_is_partner() {
-            let user_id = UserId::new();
-            let mut record: ShopRecord = Faker.fake();
-            record.partner_user_id = Some(user_id);
-            let shop_id = record.shop_id;
-
-            let mut shop_repository = MockShopDynamoDbRepository::default();
-            shop_repository
-                .expect_get_shop_record()
-                .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
-            shop_repository
-                .expect_update_shop_record()
-                .return_once(|_, _| Box::pin(async { Ok(None) }));
-
-            let service = CommandShopServiceImpl::new(
-                &shop_repository,
-                &crate::service::geocoding_service::NoopGeocodingService,
-            );
-            let api_key = service.create_api_key(&user_id, &shop_id).await;
-            assert!(api_key.is_ok());
-        }
-
-        #[tokio::test]
-        async fn should_return_not_found_when_shop_does_not_exist() {
-            let user_id = UserId::new();
-            let shop_id = ShopId::new();
-
-            let mut shop_repository = MockShopDynamoDbRepository::default();
-            shop_repository
-                .expect_get_shop_record()
-                .return_once(move |_| Box::pin(async { Ok(None) }));
-
-            let service = CommandShopServiceImpl::new(
-                &shop_repository,
-                &crate::service::geocoding_service::NoopGeocodingService,
-            );
-            let result = service.create_api_key(&user_id, &shop_id).await;
-            assert!(matches!(
-                result.unwrap_err(),
-                CommandShopError::ShopNotFound(_)
-            ));
-        }
-
-        #[tokio::test]
-        async fn should_return_not_partner_when_shop_has_no_partner_user_id() {
-            let user_id = UserId::new();
-            let mut record: ShopRecord = Faker.fake();
-            record.partner_user_id = None;
-            let shop_id = record.shop_id;
-
-            let mut shop_repository = MockShopDynamoDbRepository::default();
-            shop_repository
-                .expect_get_shop_record()
-                .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
-
-            let service = CommandShopServiceImpl::new(
-                &shop_repository,
-                &crate::service::geocoding_service::NoopGeocodingService,
-            );
-            let result = service.create_api_key(&user_id, &shop_id).await;
-            assert!(matches!(
-                result.unwrap_err(),
-                CommandShopError::NotAPartnerShop(_)
-            ));
-        }
-
-        #[tokio::test]
-        async fn should_return_not_the_partner_user_when_user_does_not_match() {
-            let user_id = UserId::new();
-            let other_user_id = UserId::new();
-            let mut record: ShopRecord = Faker.fake();
-            record.partner_user_id = Some(other_user_id);
-            let shop_id = record.shop_id;
-
-            let mut shop_repository = MockShopDynamoDbRepository::default();
-            shop_repository
-                .expect_get_shop_record()
-                .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
-
-            let service = CommandShopServiceImpl::new(
-                &shop_repository,
-                &crate::service::geocoding_service::NoopGeocodingService,
-            );
-            let result = service.create_api_key(&user_id, &shop_id).await;
-            assert!(matches!(
-                result.unwrap_err(),
-                CommandShopError::NotThePartnerUser(_, _)
-            ));
         }
     }
 }

@@ -4,6 +4,7 @@ use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_record::ProductRecord;
 use crate::opensearch::product_image_document::ProductImageDocument;
 use crate::opensearch::product_state_document::ProductStateDocument;
+use common::actor::document::ActorDocument;
 use common::currency::domain::Currency;
 use common::error::mapping_error::PersistenceMappingError;
 use common::error::missing_field::MissingPersistenceField;
@@ -20,6 +21,7 @@ use geo::core::continent::Continent;
 use geo::opensearch::{
     geo_address_from_document, geo_address_to_document, structured_address_from_document,
 };
+use indexmap::IndexSet;
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -188,8 +190,8 @@ pub struct ProductDocument {
     pub state: ProductStateDocument,
     pub url: Url,
     pub view_url: Url,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub images: Vec<ProductImageDocument>,
+    #[serde(skip_serializing_if = "IndexSet::is_empty", default)]
+    pub images: IndexSet<ProductImageDocument>,
 
     // dim=768 via google/gemini-embedding-2
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -208,6 +210,8 @@ pub struct ProductDocument {
     )]
     pub auction_end: Option<OffsetDateTime>,
 
+    pub created_by: ActorDocument,
+    pub updated_by: ActorDocument,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -364,6 +368,8 @@ impl TryFrom<ProductDomainEventRecord> for ProductDocument {
             embedding: None,
             auction_start: event_product_document.auction_start,
             auction_end: event_product_document.auction_end,
+            created_by: ActorDocument::System,
+            updated_by: ActorDocument::System,
             created: event_product_document.timestamp,
             updated: event_product_document.timestamp,
         };
@@ -471,6 +477,8 @@ impl From<ProductRecord> for ProductDocument {
             embedding: None,
             auction_start: product_document.auction_start,
             auction_end: product_document.auction_end,
+            created_by: product_document.created_by.into(),
+            updated_by: product_document.updated_by.into(),
             created: product_document.created,
             updated: product_document.updated,
         }
@@ -816,6 +824,8 @@ impl From<Product> for ProductDocument {
             embedding: product.embedding,
             auction_start: product.auction_start,
             auction_end: product.auction_end,
+            created_by: product.created_by.into(),
+            updated_by: product.updated_by.into(),
             created: product.created,
             updated: product.updated,
         }
@@ -1053,6 +1063,8 @@ impl From<ProductDocument> for Product {
             embedding: product_document.embedding,
             auction_start: product_document.auction_start,
             auction_end: product_document.auction_end,
+            created_by: product_document.created_by.into(),
+            updated_by: product_document.updated_by.into(),
             created: product_document.created,
             updated: product_document.updated,
         }
@@ -1166,7 +1178,10 @@ mod faker {
                     config.fake_with_rng::<u16, _>(rng)
                 ))
                 .unwrap(),
-                images: config.fake_with_rng(rng),
+                images: config
+                    .fake_with_rng::<Vec<ProductImageDocument>, _>(rng)
+                    .into_iter()
+                    .collect(),
                 embedding: None,
                 auction_start: if config.fake_with_rng(rng) {
                     Some(OffsetDateTime::now_utc())
@@ -1178,6 +1193,8 @@ mod faker {
                 } else {
                     None
                 },
+                created_by: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

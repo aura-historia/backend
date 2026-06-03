@@ -1,7 +1,10 @@
+use crate::core::access_token::{AccessToken, AccessTokenId, HashedRawAccessToken, RawAccessToken};
 use crate::core::role::UserRole;
 use crate::core::tier::UserTier;
 use crate::core::user::User;
 use crate::core::{sort_user_field::SortUserField, user_search::UserSearch};
+use crate::dynamodb::access_token_record::AccessTokenRecord;
+use crate::dynamodb::access_token_record_update::AccessTokenRecordUpdate;
 use crate::dynamodb::repository::UserDynamoDbRepository;
 use crate::dynamodb::role_record::UserRoleRecord;
 use crate::dynamodb::tier_record::UserTierRecord;
@@ -9,10 +12,14 @@ use crate::dynamodb::user_record::{mk_gsi1_pk, mk_gsi1_sk};
 use crate::dynamodb::user_record_update::UserRecordUpdate;
 use crate::opensearch::repository::UserOpenSearchRepository;
 use crate::service::cognito_admin_service::{CognitoAdminError, CognitoAdminService};
-use crate::service::command::{CreateUserCommand, UpdateUserCommand};
+use crate::service::command::{
+    CreateAccessTokenCommand, CreateUserCommand, UpdateAccessTokenCommand, UpdateUserCommand,
+};
 use aws_sdk_dynamodb::error::SdkError;
 use common::{
+    actor::RequestContext,
     currency::record::CurrencyRecord,
+    error::missing_field::MissingPersistenceField,
     language::record::LanguageRecord,
     opensearch::search_response::OpenSearchTimedOutError,
     pagination::cursor::{Cursor, CursoredResult},
@@ -39,6 +46,12 @@ pub enum UserServiceError {
 
     #[error("User for given Stripe customer id not found.")]
     UserNotFoundByStripeCustomerId,
+
+    #[error("Access token with id '{0}' not found for user '{1}'.")]
+    AccessTokenNotFound(AccessTokenId, UserId),
+
+    #[error("Access token not found.")]
+    AccessTokenNotFoundByRaw,
 
     #[error("This action requires the 'ADMIN' role.")]
     AdminRoleRequired,
@@ -73,6 +86,9 @@ pub enum UserServiceError {
     #[error("OpenSearchTimedOut: {0}")]
     OpenSearchTimedOut(#[from] OpenSearchTimedOutError),
 
+    #[error("Missing persistence field: {0}")]
+    MissingPersistenceField(#[from] MissingPersistenceField),
+
     #[error("User OpenSearch repository not configured")]
     UserOpenSearchRepositoryNotConfigured,
 }
@@ -82,7 +98,8 @@ pub mod api {
     use crate::service::user_service::UserServiceError;
     use common::api::error::ApiError;
     use common::api::error_code::{
-        FORBIDDEN, INTERNAL_SERVER_ERROR, USER_EXISTS_ALREADY, USER_NOT_FOUND,
+        ACCESS_TOKEN_NOT_FOUND, FORBIDDEN, INTERNAL_SERVER_ERROR, USER_EXISTS_ALREADY,
+        USER_NOT_FOUND,
     };
 
     impl From<UserServiceError> for ApiError {
@@ -96,6 +113,13 @@ pub mod api {
                 }
                 UserServiceError::UserExistsAlready(_) => {
                     ApiError::conflict(USER_EXISTS_ALREADY, Box::new(err))
+                }
+                UserServiceError::AccessTokenNotFound(_, _) => {
+                    ApiError::not_found(ACCESS_TOKEN_NOT_FOUND, Box::new(err))
+                }
+                UserServiceError::AccessTokenNotFoundByRaw => {
+                    ApiError::unauthorized(ACCESS_TOKEN_NOT_FOUND)
+                        .with_header_field("Authorization")
                 }
                 UserServiceError::AdminRoleRequired => {
                     ApiError::forbidden(FORBIDDEN).with_detail(err.to_string())
@@ -116,6 +140,9 @@ pub mod api {
                 }
                 UserServiceError::OpenSearchError(opensearch_err) => opensearch_err.into(),
                 UserServiceError::OpenSearchTimedOut(timeout_err) => timeout_err.into(),
+                UserServiceError::MissingPersistenceField(_) => {
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
+                }
                 UserServiceError::UserOpenSearchRepositoryNotConfigured => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
@@ -136,22 +163,74 @@ pub trait UserService {
 
     async fn check_admin(&self, user_id: &UserId) -> Result<(), UserServiceError>;
 
-    async fn create_user(&self, cmd: CreateUserCommand) -> Result<User, UserServiceError>;
+    async fn create_user(
+        &self,
+        ctx: &RequestContext,
+        cmd: CreateUserCommand,
+    ) -> Result<User, UserServiceError>;
 
     async fn update_user(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         cmd: UpdateUserCommand,
     ) -> Result<User, UserServiceError>;
 
-    async fn delete_user(&self, user_id: &UserId) -> Result<(), UserServiceError>;
-
+    async fn delete_user(
+        &self,
+        ctx: &RequestContext,
+        user_id: &UserId,
+    ) -> Result<(), UserServiceError>;
     async fn search_users(
         &self,
         search: &UserSearch,
         sort: &Option<Sort<SortUserField>>,
         cursor: &Option<Cursor<serde_json::Value>>,
     ) -> Result<CursoredResult<User, serde_json::Value>, UserServiceError>;
+
+    async fn get_access_tokens(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Vec<AccessToken>, UserServiceError>;
+
+    async fn find_access_token(
+        &self,
+        user_id: &UserId,
+        access_token_id: &AccessTokenId,
+    ) -> Result<AccessToken, UserServiceError>;
+
+    async fn find_access_token_by_raw(
+        &self,
+        raw_access_token: &RawAccessToken,
+    ) -> Result<AccessToken, UserServiceError>;
+
+    async fn create_access_token(
+        &self,
+        ctx: &RequestContext,
+        user_id: &UserId,
+        cmd: CreateAccessTokenCommand,
+    ) -> Result<(RawAccessToken, AccessToken), UserServiceError>;
+
+    async fn update_access_token(
+        &self,
+        ctx: &RequestContext,
+        user_id: &UserId,
+        access_token_id: &AccessTokenId,
+        cmd: UpdateAccessTokenCommand,
+    ) -> Result<AccessToken, UserServiceError>;
+
+    async fn delete_access_token(
+        &self,
+        ctx: &RequestContext,
+        user_id: &UserId,
+        access_token_id: &AccessTokenId,
+    ) -> Result<(), UserServiceError>;
+
+    async fn delete_access_token_by_raw(
+        &self,
+        ctx: &RequestContext,
+        raw_access_token: &RawAccessToken,
+    ) -> Result<(), UserServiceError>;
 }
 
 pub struct UserServiceImpl<'a> {
@@ -256,7 +335,11 @@ impl<'a> UserService for UserServiceImpl<'a> {
         Ok(())
     }
 
-    async fn create_user(&self, cmd: CreateUserCommand) -> Result<User, UserServiceError> {
+    async fn create_user(
+        &self,
+        ctx: &RequestContext,
+        cmd: CreateUserCommand,
+    ) -> Result<User, UserServiceError> {
         let exists_guard = self.repository.get_user_record(&cmd.id).await?;
         match exists_guard {
             Some(_) => Err(UserServiceError::UserExistsAlready(cmd.id)),
@@ -275,11 +358,14 @@ impl<'a> UserService for UserServiceImpl<'a> {
                     stripe_customer_id: None,
                     structured_address: None,
                     geo_address: None,
+                    partner_shops: Default::default(),
+                    created_by: ctx.actor,
+                    updated_by: ctx.actor,
                     created: now,
                     updated: now,
                 };
                 let _ = self.repository.put_user_record(user.clone().into()).await?;
-                info!(userId = %user.user_id, "Created User.");
+                info!(actor = %ctx.actor, userId = %user.user_id, "Created User.");
                 Ok(user)
             }
         }
@@ -287,6 +373,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
 
     async fn update_user(
         &self,
+        ctx: &RequestContext,
         user_id: &UserId,
         cmd: UpdateUserCommand,
     ) -> Result<User, UserServiceError> {
@@ -329,6 +416,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                 structured_address_country: structured_address.and_then(|address| address.country),
                 geo_address_lat: geo_address.map(|address| address.lat),
                 geo_address_lon: geo_address.map(|address| address.lon),
+                updated_by: ctx.actor.into(),
                 updated: OffsetDateTime::now_utc(),
             };
             let user = self.repository
@@ -338,31 +426,36 @@ impl<'a> UserService for UserServiceImpl<'a> {
                     SdkError::construction_failure("Failed deserializing updated UserRecord in UpdateItem-Response from DynamoDB."),
                 )).map(User::from)?;
 
-            info!(userId = %user.user_id, "Updated User.");
+            info!(actor = %ctx.actor, userId = %user.user_id, "Updated User.");
 
             Ok(user)
         }
     }
 
-    async fn delete_user(&self, user_id: &UserId) -> Result<(), UserServiceError> {
+    async fn delete_user(
+        &self,
+        ctx: &RequestContext,
+        user_id: &UserId,
+    ) -> Result<(), UserServiceError> {
         let cognito = self
             .cognito_admin_service
             .ok_or(UserServiceError::CognitoAdminServiceNotConfigured)?;
 
         cognito.admin_delete_user(user_id).await?;
-        info!(userId = %user_id, "Deleted Cognito user.");
+        info!(actor = %ctx.actor, userId = %user_id, "Deleted Cognito user.");
 
         let mut last_err = None;
         for attempt in 1..=MAX_DELETE_RETRIES {
             match self.repository.delete_user_record(user_id).await {
                 Ok(_) => {
-                    info!(userId = %user_id, "Deleted User.");
+                    info!(actor = %ctx.actor, userId = %user_id, "Deleted User.");
                     last_err = None;
                     break;
                 }
                 Err(err) => {
                     if attempt < MAX_DELETE_RETRIES {
                         warn!(
+                            actor = %ctx.actor,
                             userId = %user_id,
                             attempt,
                             error = %err,
@@ -374,6 +467,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                         .await;
                     } else {
                         error!(
+                            actor = %ctx.actor,
                             userId = %user_id,
                             attempt,
                             error = %err,
@@ -394,13 +488,14 @@ impl<'a> UserService for UserServiceImpl<'a> {
             for attempt in 1..=MAX_DELETE_RETRIES {
                 match repository.delete_user_document(user_id).await {
                     Ok(_) => {
-                        info!(userId = %user_id, "Deleted User OpenSearch document.");
+                        info!(actor = %ctx.actor, userId = %user_id, "Deleted User OpenSearch document.");
                         last_os_err = None;
                         break;
                     }
                     Err(err) => {
                         if attempt < MAX_DELETE_RETRIES {
                             warn!(
+                                actor = %ctx.actor,
                                 userId = %user_id,
                                 attempt,
                                 error = %err,
@@ -412,6 +507,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                             .await;
                         } else {
                             error!(
+                                actor = %ctx.actor,
                                 userId = %user_id,
                                 attempt,
                                 error = %err,
@@ -428,6 +524,159 @@ impl<'a> UserService for UserServiceImpl<'a> {
             }
         }
 
+        Ok(())
+    }
+
+    async fn get_access_tokens(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Vec<AccessToken>, UserServiceError> {
+        self.find_user(user_id).await?;
+        Ok(self
+            .repository
+            .query_access_token_records(user_id)
+            .await?
+            .into_iter()
+            .map(AccessToken::try_from)
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter(|token| !token.is_expired())
+            .collect())
+    }
+
+    async fn find_access_token(
+        &self,
+        user_id: &UserId,
+        access_token_id: &AccessTokenId,
+    ) -> Result<AccessToken, UserServiceError> {
+        let token = self
+            .repository
+            .get_access_token_record(user_id, access_token_id)
+            .await?
+            .map(AccessToken::try_from)
+            .transpose()?
+            .ok_or(UserServiceError::AccessTokenNotFound(
+                *access_token_id,
+                *user_id,
+            ))?;
+        if token.is_expired() {
+            return Err(UserServiceError::AccessTokenNotFound(
+                *access_token_id,
+                *user_id,
+            ));
+        }
+        Ok(token)
+    }
+
+    async fn find_access_token_by_raw(
+        &self,
+        raw_access_token: &RawAccessToken,
+    ) -> Result<AccessToken, UserServiceError> {
+        let hashed_token = HashedRawAccessToken::from(raw_access_token.clone());
+        let token = self
+            .repository
+            .query_access_token_record_by_hashed_token(&hashed_token)
+            .await?
+            .map(AccessToken::try_from)
+            .transpose()?
+            .ok_or(UserServiceError::AccessTokenNotFoundByRaw)?;
+        if token.is_expired() || !raw_access_token.check(&token.hashed_token) {
+            return Err(UserServiceError::AccessTokenNotFoundByRaw);
+        }
+        Ok(token)
+    }
+
+    async fn create_access_token(
+        &self,
+        ctx: &RequestContext,
+        user_id: &UserId,
+        cmd: CreateAccessTokenCommand,
+    ) -> Result<(RawAccessToken, AccessToken), UserServiceError> {
+        self.find_user(user_id).await?;
+        let now = OffsetDateTime::now_utc();
+        let raw_access_token = RawAccessToken::new();
+        let access_token = AccessToken {
+            id: AccessTokenId::new(),
+            hashed_token: raw_access_token.clone().into(),
+            user_id: *user_id,
+            name: cmd.name,
+            scopes: cmd.scopes,
+            origin: cmd.origin,
+            expires: cmd.expires,
+            created_by: ctx.actor,
+            updated_by: ctx.actor,
+            created: now,
+            updated: now,
+        };
+        self.repository
+            .put_access_token_record(AccessTokenRecord::from(access_token.clone()))
+            .await?;
+        info!(actor = %ctx.actor, userId = %user_id, accessTokenId = %access_token.id, "Created Access Token.");
+        Ok((raw_access_token, access_token))
+    }
+
+    async fn update_access_token(
+        &self,
+        ctx: &RequestContext,
+        user_id: &UserId,
+        access_token_id: &AccessTokenId,
+        cmd: UpdateAccessTokenCommand,
+    ) -> Result<AccessToken, UserServiceError> {
+        let existing = self.find_access_token(user_id, access_token_id).await?;
+        if cmd.is_empty() {
+            return Ok(existing);
+        }
+        let expires = cmd.expires.map(|expires| expires.unix_timestamp());
+        let update = AccessTokenRecordUpdate {
+            name: cmd.clone().name.map(Into::into),
+            scopes: cmd
+                .scopes
+                .clone()
+                .map(|scopes| scopes.into_iter().map(Into::into).collect()),
+            expires,
+            ttl: expires,
+            updated_by: ctx.actor.into(),
+            updated: OffsetDateTime::now_utc(),
+        };
+        let access_token = self
+            .repository
+            .update_access_token_record(user_id, access_token_id, update)
+            .await?
+            .map(AccessToken::try_from)
+            .transpose()?
+            .ok_or(UserServiceError::AccessTokenNotFound(
+                *access_token_id,
+                *user_id,
+            ))?;
+        info!(actor = %ctx.actor, userId = %user_id, accessTokenId = %access_token.id, update = ?cmd, "Updated Access Token.");
+
+        Ok(access_token)
+    }
+
+    async fn delete_access_token(
+        &self,
+        ctx: &RequestContext,
+        user_id: &UserId,
+        access_token_id: &AccessTokenId,
+    ) -> Result<(), UserServiceError> {
+        self.find_access_token(user_id, access_token_id).await?;
+        self.repository
+            .delete_access_token_record(user_id, access_token_id)
+            .await?;
+        info!(actor = %ctx.actor, userId = %user_id, accessTokenId = %access_token_id, "Deleted Access Token.");
+        Ok(())
+    }
+
+    async fn delete_access_token_by_raw(
+        &self,
+        ctx: &RequestContext,
+        raw_access_token: &RawAccessToken,
+    ) -> Result<(), UserServiceError> {
+        let token = self.find_access_token_by_raw(raw_access_token).await?;
+        self.repository
+            .delete_access_token_record(&token.user_id, &token.id)
+            .await?;
+        info!(actor = %ctx.actor, userId = %token.user_id, accessTokenId = %token.id, "Deleted Access Token.");
         Ok(())
     }
 
@@ -487,6 +736,12 @@ impl<'a> UserService for UserServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
+    pub(crate) fn system_ctx() -> common::actor::RequestContext {
+        common::actor::RequestContext {
+            actor: common::actor::domain::Actor::System,
+        }
+    }
+
     mod find_user {
         use crate::{
             dynamodb::repository::MockUserDynamoDbRepository,
@@ -572,7 +827,12 @@ mod tests {
                 .expect_get_user_record()
                 .return_once(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
             let service = UserServiceImpl::new(&repository);
-            let actual = service.create_user(cmd.clone()).await;
+            let actual = service
+                .create_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    cmd.clone(),
+                )
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -608,7 +868,12 @@ mod tests {
                 .expect_get_user_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
             let service = UserServiceImpl::new(&repository);
-            let actual = service.create_user(Faker.fake()).await;
+            let actual = service
+                .create_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    Faker.fake(),
+                )
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -645,7 +910,12 @@ mod tests {
                 .expect_put_user_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
             let service = UserServiceImpl::new(&repository);
-            let actual = service.create_user(Faker.fake()).await;
+            let actual = service
+                .create_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    Faker.fake(),
+                )
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -665,7 +935,13 @@ mod tests {
                 .expect_put_user_record()
                 .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
             let service = UserServiceImpl::new(&repository);
-            let actual = service.create_user(Faker.fake()).await.unwrap();
+            let actual = service
+                .create_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    Faker.fake(),
+                )
+                .await
+                .unwrap();
 
             assert!(!actual.prohibited_content_consent);
         }
@@ -694,7 +970,13 @@ mod tests {
                 .expect_get_user_record()
                 .return_once(|_| Box::pin(async { Ok(None) }));
             let service = UserServiceImpl::new(&repository);
-            let actual = service.update_user(&user_id, Faker.fake()).await;
+            let actual = service
+                .update_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    &user_id,
+                    Faker.fake(),
+                )
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -730,7 +1012,13 @@ mod tests {
                 .expect_get_user_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
             let service = UserServiceImpl::new(&repository);
-            let actual = service.update_user(&user_id, Faker.fake()).await;
+            let actual = service
+                .update_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    &user_id,
+                    Faker.fake(),
+                )
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -778,7 +1066,13 @@ mod tests {
                 stripe_customer_id: None,
                 structured_address: None,
             };
-            let actual = service.update_user(&user_id, update).await;
+            let actual = service
+                .update_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    &user_id,
+                    update,
+                )
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -801,7 +1095,11 @@ mod tests {
                 .return_once(move |_| Box::pin(async move { Ok(Some(existing_record)) }));
             let service = UserServiceImpl::new(&repository);
             let actual = service
-                .update_user(&user_id, UpdateUserCommand::default())
+                .update_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    &user_id,
+                    UpdateUserCommand::default(),
+                )
                 .await
                 .unwrap();
 
@@ -826,7 +1124,14 @@ mod tests {
                 prohibited_content_consent: Some(true),
                 ..Default::default()
             };
-            let _ = service.update_user(&user_id, update).await.unwrap();
+            let _ = service
+                .update_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    &user_id,
+                    update,
+                )
+                .await
+                .unwrap();
         }
     }
 
@@ -845,7 +1150,12 @@ mod tests {
         async fn should_err_cognito_admin_service_not_configured_when_none() {
             let repository = MockUserDynamoDbRepository::default();
             let service = UserServiceImpl::new(&repository);
-            let actual = service.delete_user(&UserId::new()).await;
+            let actual = service
+                .delete_user(
+                    &crate::service::user_service::tests::system_ctx(),
+                    &UserId::new(),
+                )
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -871,7 +1181,9 @@ mod tests {
                 .return_once(|_| Box::pin(async { Ok(()) }));
             let service = UserServiceImpl::with_cognito(&repository, &cognito);
 
-            let actual = service.delete_user(&user_id).await;
+            let actual = service
+                .delete_user(&crate::service::user_service::tests::system_ctx(), &user_id)
+                .await;
 
             assert!(actual.is_ok());
         }
@@ -890,7 +1202,9 @@ mod tests {
             });
             let service = UserServiceImpl::with_cognito(&repository, &cognito);
 
-            let actual = service.delete_user(&user_id).await;
+            let actual = service
+                .delete_user(&crate::service::user_service::tests::system_ctx(), &user_id)
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -912,7 +1226,9 @@ mod tests {
                 .return_once(|_| Box::pin(async { Ok(()) }));
             let service = UserServiceImpl::with_cognito(&repository, &cognito);
 
-            let actual = service.delete_user(&user_id).await;
+            let actual = service
+                .delete_user(&crate::service::user_service::tests::system_ctx(), &user_id)
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -943,7 +1259,9 @@ mod tests {
                 .return_once(|_| Box::pin(async { Ok(()) }));
             let service = UserServiceImpl::with_cognito(&repository, &cognito);
 
-            let actual = service.delete_user(&user_id).await;
+            let actual = service
+                .delete_user(&crate::service::user_service::tests::system_ctx(), &user_id)
+                .await;
 
             assert!(actual.is_ok());
             assert_eq!(
@@ -999,7 +1317,9 @@ mod tests {
                     &opensearch,
                 );
 
-                let actual = service.delete_user(&user_id).await;
+                let actual = service
+                    .delete_user(&crate::service::user_service::tests::system_ctx(), &user_id)
+                    .await;
 
                 assert!(actual.is_ok());
             }
@@ -1029,7 +1349,9 @@ mod tests {
                     &opensearch,
                 );
 
-                let actual = service.delete_user(&user_id).await;
+                let actual = service
+                    .delete_user(&crate::service::user_service::tests::system_ctx(), &user_id)
+                    .await;
 
                 assert!(actual.is_err());
                 match actual.unwrap_err() {
@@ -1074,7 +1396,9 @@ mod tests {
                     &opensearch,
                 );
 
-                let actual = service.delete_user(&user_id).await;
+                let actual = service
+                    .delete_user(&crate::service::user_service::tests::system_ctx(), &user_id)
+                    .await;
 
                 assert!(actual.is_ok());
                 assert_eq!(
@@ -1097,7 +1421,9 @@ mod tests {
                     .return_once(|_| Box::pin(async { Ok(()) }));
                 let service = UserServiceImpl::with_cognito(&repository, &cognito);
 
-                let actual = service.delete_user(&user_id).await;
+                let actual = service
+                    .delete_user(&crate::service::user_service::tests::system_ctx(), &user_id)
+                    .await;
 
                 assert!(actual.is_ok());
             }
@@ -1140,6 +1466,7 @@ mod tests {
 
             let actual = service
                 .update_user(
+                    &crate::service::user_service::tests::system_ctx(),
                     &user_id,
                     UpdateUserCommand {
                         tier: Some(UserTier::Pro),
@@ -1176,6 +1503,7 @@ mod tests {
 
             let actual = service
                 .update_user(
+                    &crate::service::user_service::tests::system_ctx(),
                     &user_id,
                     UpdateUserCommand {
                         tier: Some(UserTier::Free),

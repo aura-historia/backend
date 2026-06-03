@@ -1,20 +1,20 @@
-use crate::core::partner_shop_api_key::HashedPartnerShopApiKey;
-use crate::core::{
-    address::{GeoAddress, StructuredAddress},
-    affiliate_configuration::AffiliateConfiguration,
-    continent::Continent,
-    partner_shop::PartnerShop,
-    shop::Shop,
-    woocommerce_webhook_secret::WoocommerceWebhookSecret,
-};
 use crate::dynamodb::affiliate_configuration_record::AffiliateConfigurationRecord;
 use crate::dynamodb::shop_type_record::ShopTypeRecord;
-use common::currency::record::CurrencyRecord;
-use common::error::missing_field::MissingPersistenceField;
-use common::language::record::LanguageRecord;
-use common::{
-    domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::UserId,
+use crate::{
+    core::{
+        address::{GeoAddress, StructuredAddress},
+        affiliate_configuration::AffiliateConfiguration,
+        continent::Continent,
+        partner_shop::PartnerShop,
+        shop::Shop,
+        woocommerce_webhook_secret::WoocommerceWebhookSecret,
+    },
+    dynamodb::partner_status_record::ShopPartnerStatusRecord,
 };
+use common::actor::record::ActorRecord;
+use common::currency::record::CurrencyRecord;
+use common::language::record::LanguageRecord;
+use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
@@ -27,10 +27,6 @@ pub struct ShopRecord {
     pub pk: String,
     pub sk: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub gsi1_pk: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub gsi1_sk: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub gsi2_pk: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub gsi2_sk: Option<String>,
@@ -42,6 +38,7 @@ pub struct ShopRecord {
     pub shop_slug_id: SlugId<0>,
     pub name: ShopName,
     pub shop_type: ShopTypeRecord,
+    pub shop_partner_status: ShopPartnerStatusRecord,
 
     #[serde(skip_serializing_if = "HashSet::is_empty", default)]
     pub domains: HashSet<Domain>,
@@ -92,15 +89,10 @@ pub struct ShopRecord {
     pub email: Option<Email>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub partner_api_key_short: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub partner_api_key_long_hash: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub partner_user_id: Option<UserId>,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub affiliate_configuration: Option<AffiliateConfigurationRecord>,
 
+    pub created_by: ActorRecord,
+    pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -121,14 +113,6 @@ pub fn mk_gsi2_pk(shop_slug_id: &SlugId<0>) -> String {
 
 pub fn mk_gsi2_sk() -> &'static str {
     "shop#lookup#shop_id"
-}
-
-pub fn mk_gsi1_pk(partner_user_id: &UserId) -> String {
-    format!("partner_user#{partner_user_id}")
-}
-
-pub fn mk_gsi1_sk(shop_id: &ShopId) -> String {
-    format!("partner_shop_id#{shop_id}")
 }
 
 pub fn mk_gsi3_pk(shopify_domain: &Domain) -> String {
@@ -160,6 +144,7 @@ impl From<Shop> for ShopRecord {
             shop_slug_id: shop.shop_slug_id,
             name: shop.name,
             shop_type: shop.shop_type.into(),
+            shop_partner_status: shop.partner_status.into(),
             domains: shop.domains,
             shopify_domain: shop.shopify_domain,
             shopify_currency: shop.shopify_currency.map(Into::into),
@@ -195,12 +180,9 @@ impl From<Shop> for ShopRecord {
             geo_address_lon: shop.geo_address.map(|address| address.lon),
             phone: shop.phone,
             email: shop.email,
-            partner_api_key_short: None,
-            partner_api_key_long_hash: None,
-            partner_user_id: None,
-            gsi1_pk: None,
-            gsi1_sk: None,
             affiliate_configuration,
+            created_by: shop.created_by.into(),
+            updated_by: shop.updated_by.into(),
             created: shop.created,
             updated: shop.updated,
         }
@@ -235,33 +217,29 @@ impl From<ShopRecord> for Shop {
             geo_address: geo_address_from_flat(record.geo_address_lat, record.geo_address_lon),
             phone: record.phone,
             email: record.email,
-            partner_status: if record.partner_user_id.is_some() {
-                crate::core::partner_status::ShopPartnerStatus::Partnered
-            } else {
-                crate::core::partner_status::ShopPartnerStatus::Scraped
-            },
+            partner_status: record.shop_partner_status.into(),
             affiliate_configuration: record
                 .affiliate_configuration
                 .map(AffiliateConfiguration::from),
+            created_by: record.created_by.into(),
+            updated_by: record.updated_by.into(),
             created: record.created,
             updated: record.updated,
         }
     }
 }
 
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[error("This shop is not a partner-shop.")]
+pub struct NotAPartnerShopError;
+
 impl TryFrom<ShopRecord> for PartnerShop {
-    type Error = MissingPersistenceField;
+    type Error = NotAPartnerShopError;
 
     fn try_from(value: ShopRecord) -> Result<Self, Self::Error> {
-        let partner_user_id = value.partner_user_id.ok_or_else(|| {
-            MissingPersistenceField::new(field::field!(partner_user_id@ShopRecord))
-        })?;
-
-        let hashed_api_key = match (value.partner_api_key_short, value.partner_api_key_long_hash) {
-            (Some(short), Some(hash)) => Some(HashedPartnerShopApiKey::new(short, hash)),
-            _ => None,
-        };
-
+        if value.shop_partner_status != ShopPartnerStatusRecord::Partnered {
+            return Err(NotAPartnerShopError);
+        }
         Ok(PartnerShop {
             shop_id: value.shop_id,
             shop_slug_id: value.shop_slug_id,
@@ -288,11 +266,11 @@ impl TryFrom<ShopRecord> for PartnerShop {
             geo_address: geo_address_from_flat(value.geo_address_lat, value.geo_address_lon),
             phone: value.phone,
             email: value.email,
-            partner_user_id,
-            hashed_api_key,
             affiliate_configuration: value
                 .affiliate_configuration
                 .map(AffiliateConfiguration::from),
+            created_by: value.created_by.into(),
+            updated_by: value.updated_by.into(),
             created: value.created,
             updated: value.updated,
         })
@@ -388,18 +366,6 @@ mod utm_tests {
 #[cfg(test)]
 mod key_tests {
     use super::*;
-
-    #[test]
-    fn should_format_gsi1_pk_correctly() {
-        let user_id = UserId::new();
-        assert_eq!(mk_gsi1_pk(&user_id), format!("partner_user#{user_id}"));
-    }
-
-    #[test]
-    fn should_format_gsi1_sk_correctly() {
-        let shop_id = ShopId::new();
-        assert_eq!(mk_gsi1_sk(&shop_id), format!("partner_shop_id#{shop_id}"));
-    }
 
     #[test]
     fn should_format_gsi3_keys_correctly() {

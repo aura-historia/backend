@@ -2,6 +2,7 @@ use aws_sdk_cognitoidentityprovider::types::{AttributeType, AuthFlowType, Messag
 use aws_sdk_dynamodb::types::WriteRequest;
 use aws_sdk_sqs::types::DeleteMessageBatchRequestEntry;
 use aws_tests_common::get_cfn_output;
+use common::actor::{RequestContext, domain::Actor};
 use fake::Fake;
 use fake::faker::internet::de_de::{Password, SafeEmail};
 use opensearch::http::response::Response;
@@ -144,7 +145,15 @@ pub async fn create_test_user(email: &str) -> TestUser {
         id: sub.into(),
         email: email.try_into().unwrap(),
     };
-    let _ = user_service.create_user(create_user_command).await.unwrap();
+    let _ = user_service
+        .create_user(
+            &RequestContext {
+                actor: Actor::User(sub.into()),
+            },
+            create_user_command,
+        )
+        .await
+        .unwrap();
 
     TestUser {
         access_token: auth.access_token.unwrap(),

@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::user_id::api::extract_user_id_request_context;
@@ -12,7 +13,14 @@ pub async fn handle(
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
 
-    service.delete_user(&user_id).await?;
+    service
+        .delete_user(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            &user_id,
+        )
+        .await?;
 
     Ok(ApiGatewayV2HttpResponseBuilder::new(204).build())
 }
@@ -30,7 +38,7 @@ mod tests {
         let mut service = MockUserService::default();
         service
             .expect_delete_user()
-            .return_once(move |_| Box::pin(async move { Ok(()) }));
+            .return_once(move |_, _| Box::pin(async move { Ok(()) }));
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::DELETE)
@@ -64,7 +72,7 @@ mod tests {
     #[tokio::test]
     async fn should_404_when_user_does_not_exist() {
         let mut service = MockUserService::default();
-        service.expect_delete_user().return_once(move |user_id| {
+        service.expect_delete_user().return_once(move |_, user_id| {
             let user_id = *user_id;
             Box::pin(async move { Err(UserServiceError::UserNotFound(user_id)) })
         });
@@ -85,7 +93,7 @@ mod tests {
     #[tokio::test]
     async fn should_500_when_cognito_admin_service_not_configured() {
         let mut service = MockUserService::default();
-        service.expect_delete_user().return_once(move |_| {
+        service.expect_delete_user().return_once(move |_, _| {
             Box::pin(async move { Err(UserServiceError::CognitoAdminServiceNotConfigured) })
         });
         let lambda_event = LambdaEvent {

@@ -10,6 +10,32 @@ pub mod api {
         user_id::UserId,
     };
     use aws_lambda_events::apigw::ApiGatewayV2httpRequestContext;
+    use std::collections::HashMap;
+
+    pub fn extract_user_id_path(path_params: &HashMap<String, String>) -> Result<UserId, ApiError> {
+        use crate::{
+            api::error_code::{BAD_PATH_PARAMETER_VALUE, INVALID_UUID},
+            error::missing_field::MissingRequiredField,
+        };
+        path_params
+            .get("userId")
+            .map(UserId::try_from)
+            .transpose()
+            .map_err(|err| {
+                let msg = err.to_string();
+                ApiError::bad_request(INVALID_UUID, Box::new(err))
+                    .with_path_field("userId")
+                    .with_detail(msg)
+            })?
+            .ok_or(
+                ApiError::bad_request(
+                    BAD_PATH_PARAMETER_VALUE,
+                    Box::new(MissingRequiredField::new("userId")),
+                )
+                .with_path_field("userId")
+                .with_detail("Missing field 'userId'."),
+            )
+    }
 
     pub fn extract_user_id_request_context(
         request_context: &ApiGatewayV2httpRequestContext,

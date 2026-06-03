@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::currency::data::api::extract_currency_query;
@@ -68,7 +69,15 @@ pub async fn handle(
 
     // 1. Update watchlist entry
     watchlist_service
-        .update_watchlist_product(&user_id, &shop_id, &shops_product_id, patch.into())
+        .update_watchlist_product(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            &user_id,
+            &shop_id,
+            &shops_product_id,
+            patch.into(),
+        )
         .await?;
 
     // 2. Get localized product view
@@ -124,7 +133,7 @@ mod tests {
         let mut watchlist_service = MockProductWatchListService::default();
         watchlist_service
             .expect_update_watchlist_product()
-            .return_once(|_, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
+            .return_once(|_, _, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
         let mut get_product_service = MockGetProductService::default();
         get_product_service
             .expect_view_product()

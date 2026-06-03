@@ -253,7 +253,7 @@ fn anonymize_product(product: &mut LocalizedProductView) {
     product.price_estimate_max = None;
     product.state = ProductState::Unknown;
     product.url = url::Url::parse("https://aura-historia.com/pricing").expect("valid url");
-    product.images = vec![];
+    product.images = Default::default();
     product.auction_start = None;
     product.auction_end = None;
     product.created = OffsetDateTime::UNIX_EPOCH;
@@ -697,6 +697,7 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
 #[cfg(test)]
 mod tests {
     use common::product_id::ProductId;
+    use common::{actor::domain::Actor, actor::record::ActorRecord};
     use fake::{Fake, Faker};
     use product::core::product::LocalizedProductView;
     use product::core::product_image::ProductImage;
@@ -727,6 +728,8 @@ mod tests {
                         product_id,
                         notifications: false,
                         state: common::resource_state::record::ResourceStateRecord::Active,
+                        created_by: ActorRecord::System,
+                        updated_by: ActorRecord::System,
                         created: OffsetDateTime::now_utc(),
                         updated: OffsetDateTime::now_utc(),
                         pk: "dummy".to_owned(),
@@ -777,6 +780,8 @@ mod tests {
                         product_id,
                         notifications: true,
                         state: common::resource_state::record::ResourceStateRecord::Active,
+                        created_by: ActorRecord::System,
+                        updated_by: ActorRecord::System,
                         created: OffsetDateTime::now_utc(),
                         updated: OffsetDateTime::now_utc(),
                         pk: "dummy".to_owned(),
@@ -860,6 +865,8 @@ mod tests {
                             product_id: product1_id,
                             notifications: false,
                             state: common::resource_state::record::ResourceStateRecord::Active,
+                            created_by: ActorRecord::System,
+                            updated_by: ActorRecord::System,
                             created: OffsetDateTime::now_utc(),
                             updated: OffsetDateTime::now_utc(),
                             pk: "dummy".to_owned(),
@@ -875,6 +882,8 @@ mod tests {
                             product_id: product2_id,
                             notifications: true,
                             state: common::resource_state::record::ResourceStateRecord::Active,
+                            created_by: ActorRecord::System,
+                            updated_by: ActorRecord::System,
                             created: OffsetDateTime::now_utc(),
                             updated: OffsetDateTime::now_utc(),
                             pk: "dummy".to_owned(),
@@ -890,6 +899,8 @@ mod tests {
                             product_id: product3_id,
                             notifications: true,
                             state: common::resource_state::record::ResourceStateRecord::Active,
+                            created_by: ActorRecord::System,
+                            updated_by: ActorRecord::System,
                             created: OffsetDateTime::now_utc(),
                             updated: OffsetDateTime::now_utc(),
                             pk: "dummy".to_owned(),
@@ -992,6 +1003,9 @@ mod tests {
             stripe_customer_id: None,
             structured_address: None,
             geo_address: None,
+            partner_shops: Default::default(),
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -1026,6 +1040,8 @@ mod tests {
             },
             seen,
             external: false,
+            created_by: Actor::System,
+            updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -1047,7 +1063,9 @@ mod tests {
         );
 
         let mut input = Faker.fake::<LocalizedProductView>();
-        input.images = vec![make_safe_image(), make_safe_image()];
+        input.images = vec![make_safe_image(), make_safe_image()]
+            .into_iter()
+            .collect();
 
         let actual = service
             .personalize_prohibited_content(&Faker.fake(), input)
@@ -1073,7 +1091,7 @@ mod tests {
         );
 
         let mut input = Faker.fake::<LocalizedProductView>();
-        input.images = vec![];
+        input.images = Default::default();
 
         let actual = service
             .personalize_prohibited_content(&Faker.fake(), input)
@@ -1103,7 +1121,9 @@ mod tests {
         );
 
         let mut input = Faker.fake::<LocalizedProductView>();
-        input.images = vec![make_safe_image(), make_unsafe_image()];
+        input.images = vec![make_safe_image(), make_unsafe_image()]
+            .into_iter()
+            .collect();
 
         let actual = service
             .personalize_prohibited_content(&Faker.fake(), input)
@@ -1133,7 +1153,9 @@ mod tests {
         );
 
         let mut input = Faker.fake::<LocalizedProductView>();
-        input.images = vec![make_safe_image(), make_unsafe_image()];
+        input.images = vec![make_safe_image(), make_unsafe_image()]
+            .into_iter()
+            .collect();
 
         let actual = service
             .personalize_prohibited_content(&Faker.fake(), input)
@@ -1162,7 +1184,7 @@ mod tests {
         );
 
         let mut input = Faker.fake::<LocalizedProductView>();
-        input.images = vec![make_unknown_image()];
+        input.images = vec![make_unknown_image()].into_iter().collect();
 
         let actual = service
             .personalize_prohibited_content(&Faker.fake(), input)
@@ -1188,9 +1210,11 @@ mod tests {
         );
 
         let mut input1 = Faker.fake::<LocalizedProductView>();
-        input1.images = vec![make_safe_image()];
+        input1.images = vec![make_safe_image()].into_iter().collect();
         let mut input2 = Faker.fake::<LocalizedProductView>();
-        input2.images = vec![make_safe_image(), make_safe_image()];
+        input2.images = vec![make_safe_image(), make_safe_image()]
+            .into_iter()
+            .collect();
 
         let actual = service
             .personalize_all_prohibited_content(&Faker.fake(), vec![input1, input2])
@@ -1221,11 +1245,11 @@ mod tests {
         );
 
         let mut input1 = Faker.fake::<LocalizedProductView>();
-        input1.images = vec![make_safe_image()];
+        input1.images = vec![make_safe_image()].into_iter().collect();
         let mut input2 = Faker.fake::<LocalizedProductView>();
-        input2.images = vec![make_unsafe_image()];
+        input2.images = vec![make_unsafe_image()].into_iter().collect();
         let mut input3 = Faker.fake::<LocalizedProductView>();
-        input3.images = vec![make_safe_image()];
+        input3.images = vec![make_safe_image()].into_iter().collect();
 
         let actual = service
             .personalize_all_prohibited_content(&Faker.fake(), vec![input1, input2, input3])
@@ -1254,6 +1278,8 @@ mod tests {
                         product_id,
                         notifications: true,
                         state: common::resource_state::record::ResourceStateRecord::Active,
+                        created_by: ActorRecord::System,
+                        updated_by: ActorRecord::System,
                         created: OffsetDateTime::now_utc(),
                         updated: OffsetDateTime::now_utc(),
                         pk: "dummy".to_owned(),
@@ -1290,7 +1316,7 @@ mod tests {
 
         let mut input = Faker.fake::<LocalizedProductView>();
         input.product_id = product_id;
-        input.images = vec![make_unsafe_image()];
+        input.images = vec![make_unsafe_image()].into_iter().collect();
 
         let actual = service.personalize(&Faker.fake(), input).await.unwrap();
 
@@ -1319,6 +1345,8 @@ mod tests {
                         product_id: product1_id,
                         notifications: true,
                         state: common::resource_state::record::ResourceStateRecord::Active,
+                        created_by: ActorRecord::System,
+                        updated_by: ActorRecord::System,
                         created: OffsetDateTime::now_utc(),
                         updated: OffsetDateTime::now_utc(),
                         pk: "dummy".to_owned(),
@@ -1355,11 +1383,11 @@ mod tests {
 
         let mut input1 = Faker.fake::<LocalizedProductView>();
         input1.product_id = product1_id;
-        input1.images = vec![make_safe_image()];
+        input1.images = vec![make_safe_image()].into_iter().collect();
 
         let mut input2 = Faker.fake::<LocalizedProductView>();
         input2.product_id = product2_id;
-        input2.images = vec![make_unsafe_image()];
+        input2.images = vec![make_unsafe_image()].into_iter().collect();
 
         let actual = service
             .personalize_all(&Faker.fake(), vec![input1, input2])

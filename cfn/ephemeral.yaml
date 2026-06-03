@@ -1384,6 +1384,46 @@ Resources:
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiPostAccessTokensRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/me/access-tokens"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiGetAccessTokensRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/me/access-tokens"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiGetAccessTokenRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/me/access-tokens/{accessTokenId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiPatchAccessTokensRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PATCH /api/v1/me/access-tokens"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiDeleteAccessTokensRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "DELETE /api/v1/me/access-tokens/{accessTokenId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
   UserApiDeleteUserRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -1482,6 +1522,14 @@ Resources:
     Properties:
       ApiId: !Ref Api
       RouteKey: "PUT /api/v1/shops/{shopId}/api-key"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
+  ShopApiGetPartnerShopsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/me/partner-shops"
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${ShopApiLambdaIntegration}"
@@ -1723,6 +1771,9 @@ Resources:
           STAGE: "ephemeral"
           DYNAMODB_TABLE_NAME: !Ref TableOne
           ASYNC_PRODUCT_COMMAND_QUEUE_URL: !Ref ProductPartnerIngestQ
+          USER_POOL_ID: !Ref PrimaryUserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
   ProductApiPartnerLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1807,6 +1858,9 @@ Resources:
           STAGE: "ephemeral"
           DYNAMODB_TABLE_NAME: !Ref TableOne
           ASYNC_PRODUCT_COMMAND_QUEUE_URL: !Ref ProductPartnerIngestQ
+          USER_POOL_ID: !Ref PrimaryUserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
   WebhookApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -2012,6 +2066,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
+                  - dynamodb:PutItem
                   - dynamodb:UpdateItem
                   - dynamodb:DeleteItem
                   - dynamodb:Query
@@ -2065,6 +2120,138 @@ Resources:
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Ref UserApiLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
+
+  # --- OAuth API ---
+  OAuthApiCreateClientRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/oauth/clients"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiGetClientsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/oauth/clients"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiGetClientRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/oauth/clients/{clientId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiUpdateClientRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PATCH /api/v1/oauth/clients/{clientId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiDeleteClientRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "DELETE /api/v1/oauth/clients/{clientId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiAuthorizeRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/oauth/authorize"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiTokenRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/oauth/token"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiRevokeRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/oauth/revoke"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiIntrospectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/oauth/introspect"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${OAuthApiLambda}"
+      PayloadFormatVersion: "2.0"
+  OAuthApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "oauth-api-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+  OAuthApiLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "oauth-api-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt OAuthApiRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "oauth-api-${StageName}-${CommitSHA}.zip"
+      MemorySize: 128
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          LOCALSTACK_MAPPED_PORT: !Ref LocalStackMappedPort
+  OAuthApiLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OAuthApiLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
@@ -2285,75 +2472,6 @@ Resources:
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Ref PartnerShopApplicationApiLambda
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
-
-  # --- Partner API Routes ---
-  PartnerApiGetPartnerShopsRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "GET /api/v1/partner/{partnerId}/shops"
-      AuthorizationType: JWT
-      AuthorizerId: !Ref ApiCognitoAuthorizer
-      Target: !Sub "integrations/${PartnerApiLambdaIntegration}"
-  PartnerApiLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref Api
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${PartnerApiLambda}"
-      PayloadFormatVersion: "2.0"
-
-  # --- Partner API ---
-  PartnerApiRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "partner-api-role-${StageName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:Query
-                Resource:
-                  - !GetAtt TableOne.Arn
-                  - !Sub "${TableOne.Arn}/index/*"
-  PartnerApiLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub "partner-api-${StageName}"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt PartnerApiRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "partner-api-${StageName}-${CommitSHA}.zip"
-      MemorySize: 256
-      Timeout: 10
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          STAGE: !Ref Stage
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-  PartnerApiLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref PartnerApiLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
@@ -3204,6 +3322,98 @@ Resources:
       MaximumBatchingWindowInSeconds: 1
       FunctionResponseTypes:
         - ReportBatchItemFailures
+
+  SearchFilterPeriodicMatchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "search-filter-periodic-match-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:*
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/test-domain/*"
+        - PolicyName: SESAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: !Sub "arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/*"
+        - PolicyName: S3MailTemplateAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: "arn:aws:s3:::aura-historia-mail-templates-eu-central-1/*"
+  SearchFilterPeriodicMatchLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "search-filter-periodic-match-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt SearchFilterPeriodicMatchRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "search-filter-lambda-periodic-match-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 900
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          S3_BUCKET_NAME_TEMPLATES: "aura-historia-mail-templates-eu-central-1"
+          STAGE_NAME: !Sub "${StageName}"
+          COMMIT_SHA: !Sub "${CommitSHA}"
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          LOCALSTACK_MAPPED_PORT: !Ref LocalStackMappedPort
+          GEMINI_API_KEY: "test-key"
+  SearchFilterPeriodicMatchScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: cron(0 15 * * ? *) # 17 CEST
+      State: ENABLED
+      Targets:
+        - Id: SearchFilterPeriodicMatchLambda
+          Arn: !GetAtt SearchFilterPeriodicMatchLambda.Arn
+  SearchFilterPeriodicMatchSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SearchFilterPeriodicMatchLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SearchFilterPeriodicMatchScheduleRule.Arn
 
   # ---------------------------------------------------------------------------
   # Stripe integration (acceptance tests)

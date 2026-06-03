@@ -2,6 +2,7 @@ use crate::core::{notification_id::NotificationId, notification_type::Notificati
 use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::{
+    actor::domain::Actor,
     currency::domain::Currency,
     event_id::EventId,
     language::domain::Language,
@@ -32,6 +33,8 @@ pub struct Notification {
     pub notification_payload: NotificationPayload,
     pub seen: bool,
     pub external: bool,
+    pub created_by: Actor,
+    pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -51,6 +54,8 @@ impl Notification {
                 .localized(currency, preferred_languages),
             seen: self.seen,
             external: self.external,
+            created_by: self.created_by,
+            updated_by: self.updated_by,
             created: self.created,
             updated: self.updated,
         }
@@ -88,6 +93,7 @@ pub enum NotificationPayload {
     },
     PartnerApplication {
         shop_name: ShopName,
+        image: Option<Url>,
         partner_application_payload: NotificationPartnerApplicationPayload,
     },
 }
@@ -157,9 +163,11 @@ impl NotificationPayload {
             },
             NotificationPayload::PartnerApplication {
                 shop_name,
+                image,
                 partner_application_payload,
             } => LocalizedNotificationPayload::PartnerApplication {
                 shop_name,
+                image,
                 partner_application_payload,
             },
         }
@@ -227,8 +235,45 @@ pub struct LocalizedNotification {
     pub notification_payload: LocalizedNotificationPayload,
     pub seen: bool,
     pub external: bool,
+    pub created_by: Actor,
+    pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_preserve_actor_metadata_when_localizing_notification() {
+        let notification = Notification {
+            user_id: UserId::new(),
+            origin_event_id: EventId::new(),
+            notification_id: NotificationId::new(),
+            notification_type: None,
+            notification_payload: NotificationPayload::PartnerApplication {
+                shop_name: ShopName::from("Example Shop"),
+                image: None,
+                partner_application_payload: NotificationPartnerApplicationPayload::Approved {
+                    partner_application_id: PartnerShopApplicationId::new(),
+                },
+            },
+            seen: false,
+            external: false,
+            created_by: Actor::System,
+            updated_by: Actor::User(UserId::new()),
+            created: OffsetDateTime::now_utc(),
+            updated: OffsetDateTime::now_utc(),
+        };
+
+        let localized = notification
+            .clone()
+            .localized(&Currency::Eur, &[Language::En]);
+
+        assert_eq!(localized.created_by, notification.created_by);
+        assert_eq!(localized.updated_by, notification.updated_by);
+    }
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -262,6 +307,7 @@ pub enum LocalizedNotificationPayload {
     },
     PartnerApplication {
         shop_name: ShopName,
+        image: Option<Url>,
         partner_application_payload: NotificationPartnerApplicationPayload,
     },
 }

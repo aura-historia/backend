@@ -1,3 +1,4 @@
+use common::actor::domain::Actor;
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
 use common::product_id::ProductId;
@@ -19,6 +20,8 @@ pub struct SearchFilterProductMatch {
     pub origin_event_id: EventId,
     pub enhanced_match_reason: Option<EnhancedMatchReason>,
     pub feedback: Option<bool>,
+    pub created_by: Actor,
+    pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -40,6 +43,8 @@ mod faker {
                 origin_event_id: config.fake_with_rng(rng),
                 enhanced_match_reason: config.fake_with_rng(rng),
                 feedback: config.fake_with_rng(rng),
+                created_by: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

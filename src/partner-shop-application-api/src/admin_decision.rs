@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
@@ -38,7 +39,13 @@ pub async fn handle(
         })?;
 
     let data: GetPartnerShopApplicationData = service
-        .submit_decision_by_id(&application_id, post_data.decision.into())
+        .submit_decision_by_id(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
+            &application_id,
+            post_data.decision.into(),
+        )
         .await?
         .into();
 
@@ -92,7 +99,7 @@ mod tests {
         let mut service = MockPartnerShopApplicationService::default();
         service
             .expect_submit_decision_by_id()
-            .return_once(move |_, _| {
+            .return_once(move |_, _, _| {
                 let app: PartnerShopApplication = Faker.fake();
                 Box::pin(async move { Ok(app) })
             });
@@ -120,7 +127,7 @@ mod tests {
         let mut service = MockPartnerShopApplicationService::default();
         service
             .expect_submit_decision_by_id()
-            .return_once(move |_, _| {
+            .return_once(move |_, _, _| {
                 let app: PartnerShopApplication = Faker.fake();
                 Box::pin(async move { Ok(app) })
             });
@@ -193,7 +200,7 @@ mod tests {
         let mut service = MockPartnerShopApplicationService::default();
         service
             .expect_submit_decision_by_id()
-            .return_once(move |id, _| {
+            .return_once(move |_, id, _| {
                 let id = *id;
                 Box::pin(async move { Err(PartnerShopApplicationError::NotInReviewState(id)) })
             });

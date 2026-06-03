@@ -1,6 +1,10 @@
+use crate::core::user_search_filter_search::UserSearchFilterSearch;
 use crate::opensearch::user_search_filter_document::UserSearchFilterDocument;
 use common::opensearch::delete_response::DeleteResponse;
 use common::opensearch::index_response::IndexResponse;
+use common::opensearch::search_response::SearchResponse;
+use common::pagination::cursor::Cursor;
+use common::resource_state::document::ResourceStateDocument;
 use common::user_search_filter_id::UserSearchFilterId;
 use opensearch::{DeleteParts, IndexParts, SearchParts};
 use product::opensearch::product_document::ProductDocument;
@@ -27,6 +31,12 @@ pub trait UserSearchFilterOpenSearchRepository {
         &self,
         product_document: &ProductDocument,
     ) -> Result<Vec<UserSearchFilterDocument>, opensearch::Error>;
+
+    async fn query_documents(
+        &self,
+        search: &UserSearchFilterSearch,
+        cursor: &Option<Cursor<serde_json::Value>>,
+    ) -> Result<SearchResponse<UserSearchFilterDocument>, opensearch::Error>;
 }
 
 #[derive(Debug, Clone)]
@@ -129,5 +139,55 @@ impl<'a> UserSearchFilterOpenSearchRepository for UserSearchFilterOpenSearchRepo
             .into_iter()
             .map(|hit| hit.source)
             .collect())
+    }
+
+    async fn query_documents(
+        &self,
+        search: &UserSearchFilterSearch,
+        cursor: &Option<Cursor<serde_json::Value>>,
+    ) -> Result<SearchResponse<UserSearchFilterDocument>, opensearch::Error> {
+        let mut filter = Vec::new();
+        if let Some(state) = search.state {
+            filter.push(json!({
+                "term": {
+                    "state": ResourceStateDocument::from(state)
+                }
+            }));
+        }
+
+        let mut body = json!({
+            "query": {
+                "bool": {
+                    "filter": filter
+                }
+            },
+            "sort": [
+                { "lastHybridSearchMatched": { "order": "asc" } },
+                { "userSearchFilterId": { "order": "asc" } }
+            ]
+        });
+
+        if let Some(c) = cursor {
+            body["size"] = json!(c.size);
+            if let Some(search_after) = &c.search_after {
+                body["search_after"] = json!(search_after);
+            }
+        }
+
+        let response = self
+            .client
+            .search(SearchParts::Index(&[INDEX_NAME]))
+            .body(body)
+            .send()
+            .await?
+            .error_for_status_code()?;
+
+        let payload = response.text().await?;
+        serde_json::from_str::<SearchResponse<UserSearchFilterDocument>>(&payload).map_err(|err| {
+            serde_json::Error::custom(format!(
+                "Failed deserializing 'SearchResponse<UserSearchFilterDocument>' with error '{err}'. Received payload: {payload}"
+            ))
+            .into()
+        })
     }
 }

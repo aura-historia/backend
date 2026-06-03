@@ -1,3 +1,4 @@
+use common::shop_id::ShopId;
 use fake::{Fake, Faker};
 use test_api::*;
 use user::dynamodb::{
@@ -131,6 +132,81 @@ async fn should_find_user_record_by_stripe_customer_id_when_set() {
 
     assert_eq!(record.user_id, actual.user_id);
     assert_eq!(Some(stripe_customer_id), actual.stripe_customer_id);
+}
+
+// ---------------------------------------------------------------------------
+// add_partner_shop
+// ---------------------------------------------------------------------------
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_add_shop_id_to_partner_shops_when_adding_to_empty_set() {
+    let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let shop_id: ShopId = Faker.fake();
+    let mut record = Faker.fake::<UserRecord>();
+    record.partner_shops = Default::default();
+    let user_id = record.user_id;
+
+    repository.put_user_record(record).await.unwrap();
+    repository
+        .add_partner_shop(&user_id, &shop_id)
+        .await
+        .unwrap();
+
+    let updated = repository.get_user_record(&user_id).await.unwrap().unwrap();
+    assert_eq!(updated.partner_shops, std::iter::once(shop_id).collect());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_preserve_existing_shop_when_adding_new_shop_to_partner_shops() {
+    let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let shop_id_1: ShopId = Faker.fake();
+    let shop_id_2: ShopId = Faker.fake();
+    let mut record = Faker.fake::<UserRecord>();
+    record.partner_shops = std::iter::once(shop_id_1).collect();
+    let user_id = record.user_id;
+
+    repository.put_user_record(record).await.unwrap();
+    repository
+        .add_partner_shop(&user_id, &shop_id_2)
+        .await
+        .unwrap();
+
+    let updated = repository.get_user_record(&user_id).await.unwrap().unwrap();
+    assert!(
+        updated.partner_shops.contains(&shop_id_1),
+        "original shop_id must still be present"
+    );
+    assert!(
+        updated.partner_shops.contains(&shop_id_2),
+        "new shop_id must be added"
+    );
+    assert_eq!(updated.partner_shops.len(), 2);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_be_idempotent_when_adding_same_shop_to_partner_shops_twice() {
+    let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let shop_id: ShopId = Faker.fake();
+    let mut record = Faker.fake::<UserRecord>();
+    record.partner_shops = Default::default();
+    let user_id = record.user_id;
+
+    repository.put_user_record(record).await.unwrap();
+    repository
+        .add_partner_shop(&user_id, &shop_id)
+        .await
+        .unwrap();
+    repository
+        .add_partner_shop(&user_id, &shop_id)
+        .await
+        .unwrap();
+
+    let updated = repository.get_user_record(&user_id).await.unwrap().unwrap();
+    assert_eq!(
+        updated.partner_shops,
+        std::iter::once(shop_id).collect(),
+        "set must contain exactly one entry"
+    );
 }
 
 #[localstack_test(services = [DynamoDB()])]

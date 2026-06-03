@@ -1,6 +1,6 @@
 use common::{
-    product_id::ProductId, resource_state::domain::ResourceState, shop_id::ShopId,
-    shops_product_id::ShopsProductId, user_id::UserId,
+    actor::domain::Actor, product_id::ProductId, resource_state::domain::ResourceState,
+    shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId,
 };
 use time::OffsetDateTime;
 
@@ -12,6 +12,8 @@ pub struct WatchlistProduct {
     pub product_id: ProductId,
     pub notifications: bool,
     pub state: ResourceState,
+    pub created_by: Actor,
+    pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -32,6 +34,8 @@ mod faker {
                 product_id: config.fake_with_rng(rng),
                 notifications: config.fake_with_rng(rng),
                 state: ResourceState::Active,
+                created_by: config.fake_with_rng(rng),
+                updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

@@ -10,6 +10,8 @@ fxrate = { workspace = true }
 product = { workspace = true, features = ["data", "service", "dynamodb"] }
 product-lambda-ingest-partner-products = { workspace = true }
 shop = { workspace = true, features = ["dynamodb", "api", "service", "seller"] }
+cognito = { workspace = true }
+user = { workspace = true, features = ["dynamodb", "service", "data", "authenticator"] }
 llm = { workspace = true, features = ["google"] }
 
 tracing = { workspace = true }
@@ -29,6 +31,7 @@ url = { workspace = true }
 time = { workspace = true }
 
 [dev-dependencies]
+user = { workspace = true, features = ["test-data"] }
 common = { workspace = true, features = ["test-data"] }
 product = { workspace = true, features = ["test-data"] }
 

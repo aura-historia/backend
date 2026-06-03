@@ -1,5 +1,5 @@
 use common::resource_state::record::ResourceStateRecord;
-use common::{currency::domain::Currency, language::domain::Language};
+use common::{actor::domain::Actor, currency::domain::Currency, language::domain::Language};
 use fake::{Fake, Faker};
 use product_watchlist::core::quota::WatchlistQuota;
 use product_watchlist::dynamodb::{
@@ -50,8 +50,11 @@ fn search_filter_record(
         state: state.into(),
         search: product::core::product_search::ProductSearch::new(Language::En, Currency::Eur),
         enhanced_search_description: None,
+        created_by: Actor::User(user.user_id),
+        updated_by: Actor::User(user.user_id),
         created,
         updated: created,
+        last_hybrid_search_matched: created,
     };
     filter.into()
 }

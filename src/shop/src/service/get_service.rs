@@ -1,11 +1,11 @@
-use crate::core::partner_shop::PartnerShop;
-use crate::core::partner_shop_api_key::PartnerShopApiKey;
 use crate::core::shop::Shop;
 use crate::dynamodb::repository::ShopDynamoDbRepository;
+use crate::{
+    core::partner_shop::PartnerShop, service::get_service::VerifyPartnerShopError::NotAPartnerShop,
+};
 use async_trait::async_trait;
 use aws_sdk_dynamodb::config::http::HttpResponse;
 use aws_sdk_dynamodb::error::SdkError;
-use common::error::missing_field::MissingPersistenceField;
 use common::{batch::Batch, domain::Domain, shop_id::ShopId, slug_id::SlugId};
 
 #[derive(thiserror::Error, Debug)]
@@ -52,9 +52,6 @@ pub enum VerifyPartnerShopError {
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>),
-
-    #[error("Missing persistence field: {0}")]
-    MissingPersistenceField(#[from] MissingPersistenceField),
 }
 
 #[cfg(feature = "data")]
@@ -62,7 +59,7 @@ pub mod api {
     use crate::service::get_service::{GetShopError, VerifyPartnerShopError};
     use common::api::error::ApiError;
     use common::api::error_code::{
-        PARTNER_SHOP_API_KEY_MISMATCH, PARTNER_SHOP_NOT_PARTNERED, SHOP_NOT_FOUND,
+        AURA_HISTORIA_API_KEY_MISMATCH, PARTNER_SHOP_NOT_PARTNERED, SHOP_NOT_FOUND,
         UNPROCESSED_AFTER_MAX_RETRIES,
     };
 
@@ -96,16 +93,10 @@ pub mod api {
                     ApiError::forbidden(PARTNER_SHOP_NOT_PARTNERED).with_detail(err.to_string())
                 }
                 VerifyPartnerShopError::ApiKeyMismatch(_) => {
-                    ApiError::unauthorized(PARTNER_SHOP_API_KEY_MISMATCH)
-                        .with_header_field("x-api-key")
+                    ApiError::unauthorized(AURA_HISTORIA_API_KEY_MISMATCH)
+                        .with_header_field("Authorization")
                 }
                 VerifyPartnerShopError::SdkGetItemError(err) => err.into(),
-                VerifyPartnerShopError::MissingPersistenceField(_) => {
-                    ApiError::internal_server_error(
-                        common::api::error_code::INTERNAL_SERVER_ERROR,
-                        Box::new(err),
-                    )
-                }
             }
         }
     }
@@ -120,11 +111,6 @@ pub trait GetShopService {
 
     async fn find_shops(&self, shop_ids: Vec<ShopId>) -> Result<Vec<Shop>, GetShopError>;
 
-    async fn find_shops_by_partner(
-        &self,
-        partner_user_id: &common::user_id::UserId,
-    ) -> Result<Vec<Shop>, GetShopError>;
-
     async fn find_shop_by_shopify_domain(
         &self,
         shopify_domain: &Domain,
@@ -132,12 +118,6 @@ pub trait GetShopService {
 
     async fn find_partner_shop(
         &self,
-        shop_id: &ShopId,
-    ) -> Result<PartnerShop, VerifyPartnerShopError>;
-
-    async fn verify_partner_shop(
-        &self,
-        api_key: &PartnerShopApiKey,
         shop_id: &ShopId,
     ) -> Result<PartnerShop, VerifyPartnerShopError>;
 }
@@ -200,17 +180,6 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
         Ok(views)
     }
 
-    async fn find_shops_by_partner(
-        &self,
-        partner_user_id: &common::user_id::UserId,
-    ) -> Result<Vec<Shop>, GetShopError> {
-        let records = self
-            .repository
-            .query_shops_by_partner(partner_user_id)
-            .await?;
-        Ok(records.into_iter().map(Shop::from).collect())
-    }
-
     async fn find_shop_by_shopify_domain(
         &self,
         shopify_domain: &Domain,
@@ -234,48 +203,7 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
             .map_err(VerifyPartnerShopError::SdkGetItemError)?
             .ok_or(VerifyPartnerShopError::ShopNotFound(*shop_id))?;
 
-        if shop_record.partner_user_id.is_none() {
-            return Err(VerifyPartnerShopError::NotAPartnerShop(*shop_id));
-        }
-
-        Ok(PartnerShop::try_from(shop_record)?)
-    }
-
-    async fn verify_partner_shop(
-        &self,
-        api_key: &PartnerShopApiKey,
-        shop_id: &ShopId,
-    ) -> Result<PartnerShop, VerifyPartnerShopError> {
-        use std::sync::OnceLock;
-        static PARTNER_SHOP_CACHE: OnceLock<PartnerShop> = OnceLock::new();
-
-        if let Some(cached) = PARTNER_SHOP_CACHE.get().filter(|c| {
-            c.shop_id == *shop_id && c.hashed_api_key.as_ref().is_some_and(|h| api_key.check(h))
-        }) {
-            return Ok(cached.clone());
-        }
-
-        let shop_record = self
-            .repository
-            .get_shop_record(shop_id)
-            .await
-            .map_err(VerifyPartnerShopError::SdkGetItemError)?
-            .ok_or(VerifyPartnerShopError::ShopNotFound(*shop_id))?;
-
-        if shop_record.partner_user_id.is_none() {
-            return Err(VerifyPartnerShopError::NotAPartnerShop(*shop_id));
-        }
-
-        let partner_shop = PartnerShop::try_from(shop_record)?;
-
-        match &partner_shop.hashed_api_key {
-            Some(hashed) if api_key.check(hashed) => {}
-            _ => return Err(VerifyPartnerShopError::ApiKeyMismatch(*shop_id)),
-        }
-
-        let _ = PARTNER_SHOP_CACHE.set(partner_shop.clone());
-
-        Ok(partner_shop)
+        Ok(PartnerShop::try_from(shop_record).map_err(|_| NotAPartnerShop(*shop_id))?)
     }
 }
 
@@ -301,9 +229,6 @@ impl<'a> GetShopServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
-    use rstest;
-
-    use crate::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
     use crate::dynamodb::repository::MockShopDynamoDbRepository;
     use crate::dynamodb::shop_record::ShopRecord;
     use crate::service::get_service::{
@@ -315,8 +240,8 @@ mod tests {
     };
     use common::domain::Domain;
     use common::shop_id::ShopId;
-    use common::user_id::UserId;
     use fake::{Fake, Faker};
+    use rstest;
 
     #[tokio::test]
     async fn should_return_shop_when_exists() {
@@ -389,133 +314,6 @@ mod tests {
         }
     }
 
-    fn make_partner_shop_record(api_key: &PartnerShopApiKey) -> ShopRecord {
-        let hashed: HashedPartnerShopApiKey = api_key.clone().into();
-        let mut record: ShopRecord = Faker.fake();
-        record.partner_api_key_short = Some(hashed.short_token().to_string());
-        record.partner_api_key_long_hash = Some(hashed.long_token_hash().to_string());
-        record.partner_user_id = Some(UserId::new());
-        record
-    }
-
-    #[tokio::test]
-    async fn should_verify_partner_shop_when_valid_api_key() {
-        let api_key = PartnerShopApiKey::new();
-        let record = make_partner_shop_record(&api_key);
-        let shop_id = record.shop_id;
-
-        let mut repository = MockShopDynamoDbRepository::default();
-        repository
-            .expect_get_shop_record()
-            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
-        let service = GetShopServiceImpl {
-            repository: &repository,
-        };
-
-        let result = service.verify_partner_shop(&api_key, &shop_id).await;
-        assert!(result.is_ok());
-        let partner = result.unwrap();
-        assert_eq!(partner.shop_id, shop_id);
-    }
-
-    #[tokio::test]
-    async fn should_return_shop_not_found_when_verifying_nonexistent_shop() {
-        let shop_id = ShopId::new();
-        let api_key = PartnerShopApiKey::new();
-
-        let mut repository = MockShopDynamoDbRepository::default();
-        repository
-            .expect_get_shop_record()
-            .return_once(|_| Box::pin(async { Ok(None) }));
-        let service = GetShopServiceImpl {
-            repository: &repository,
-        };
-
-        let result = service.verify_partner_shop(&api_key, &shop_id).await;
-        assert!(matches!(
-            result.unwrap_err(),
-            VerifyPartnerShopError::ShopNotFound(_)
-        ));
-    }
-
-    #[tokio::test]
-    async fn should_return_not_partner_when_shop_has_no_partner_user_id() {
-        let api_key = PartnerShopApiKey::new();
-        let mut record: ShopRecord = Faker.fake();
-        record.partner_user_id = None;
-        let shop_id = record.shop_id;
-
-        let mut repository = MockShopDynamoDbRepository::default();
-        repository
-            .expect_get_shop_record()
-            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
-        let service = GetShopServiceImpl {
-            repository: &repository,
-        };
-
-        let result = service.verify_partner_shop(&api_key, &shop_id).await;
-        assert!(matches!(
-            result.unwrap_err(),
-            VerifyPartnerShopError::NotAPartnerShop(_)
-        ));
-    }
-
-    #[tokio::test]
-    async fn should_return_api_key_mismatch_when_wrong_api_key() {
-        let correct_key = PartnerShopApiKey::new();
-        let wrong_key = PartnerShopApiKey::new();
-        let record = make_partner_shop_record(&correct_key);
-        let shop_id = record.shop_id;
-
-        let mut repository = MockShopDynamoDbRepository::default();
-        repository
-            .expect_get_shop_record()
-            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
-        let service = GetShopServiceImpl {
-            repository: &repository,
-        };
-
-        let result = service.verify_partner_shop(&wrong_key, &shop_id).await;
-        assert!(matches!(
-            result.unwrap_err(),
-            VerifyPartnerShopError::ApiKeyMismatch(_)
-        ));
-    }
-
-    #[tokio::test]
-    async fn should_return_shops_when_partner_has_shops_for_find_shops_by_partner() {
-        let user_id = UserId::new();
-        let mut record: ShopRecord = Faker.fake();
-        record.partner_user_id = Some(user_id);
-
-        let mut repository = MockShopDynamoDbRepository::default();
-        repository
-            .expect_query_shops_by_partner()
-            .return_once(move |_| Box::pin(async move { Ok(vec![record]) }));
-
-        let service = GetShopServiceImpl {
-            repository: &repository,
-        };
-        let result = service.find_shops_by_partner(&user_id).await.unwrap();
-        assert_eq!(1, result.len());
-    }
-
-    #[tokio::test]
-    async fn should_return_empty_when_partner_has_no_shops_for_find_shops_by_partner() {
-        let user_id = UserId::new();
-
-        let mut repository = MockShopDynamoDbRepository::default();
-        repository
-            .expect_query_shops_by_partner()
-            .return_once(move |_| Box::pin(async move { Ok(vec![]) }));
-
-        let service = GetShopServiceImpl {
-            repository: &repository,
-        };
-        let result = service.find_shops_by_partner(&user_id).await.unwrap();
-        assert!(result.is_empty());
-    }
-
     #[tokio::test]
     async fn should_return_shop_when_shopify_domain_exists_for_find_shop_by_shopify_domain() {
         let shopify_domain = Domain::try_from("partner-shop.myshopify.com").unwrap();
@@ -554,46 +352,6 @@ mod tests {
         assert!(matches!(
             result.unwrap_err(),
             GetShopError::ShopifyDomainNotFound(_)
-        ));
-    }
-
-    #[tokio::test]
-    async fn should_return_partner_shop_for_find_partner_shop() {
-        let user_id = UserId::new();
-        let mut record: ShopRecord = Faker.fake();
-        record.partner_user_id = Some(user_id);
-        let shop_id = record.shop_id;
-
-        let mut repository = MockShopDynamoDbRepository::default();
-        repository
-            .expect_get_shop_record()
-            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
-
-        let service = GetShopServiceImpl {
-            repository: &repository,
-        };
-        let result = service.find_partner_shop(&shop_id).await.unwrap();
-        assert_eq!(result.partner_user_id, user_id);
-    }
-
-    #[tokio::test]
-    async fn should_return_not_partner_for_find_partner_shop_when_no_partner_user_id() {
-        let mut record: ShopRecord = Faker.fake();
-        record.partner_user_id = None;
-        let shop_id = record.shop_id;
-
-        let mut repository = MockShopDynamoDbRepository::default();
-        repository
-            .expect_get_shop_record()
-            .return_once(move |_| Box::pin(async move { Ok(Some(record)) }));
-
-        let service = GetShopServiceImpl {
-            repository: &repository,
-        };
-        let result = service.find_partner_shop(&shop_id).await;
-        assert!(matches!(
-            result.unwrap_err(),
-            VerifyPartnerShopError::NotAPartnerShop(_)
         ));
     }
 

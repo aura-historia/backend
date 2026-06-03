@@ -1,6 +1,7 @@
 use aws_lambda_events::sqs::SqsEvent;
 use common::{
-    dynamodb_stream::extract_from_dynamodb_stream, resource_state::record::ResourceStateRecord,
+    actor::record::ActorRecord, dynamodb_stream::extract_from_dynamodb_stream,
+    resource_state::record::ResourceStateRecord,
 };
 use lambda_runtime::LambdaEvent;
 use product_watchlist::{
@@ -141,6 +142,7 @@ async fn update_watchlist_state(
             WatchlistProductRecordUpdate {
                 notifications: None,
                 state: Some(target_state),
+                updated_by: ActorRecord::System,
                 updated: OffsetDateTime::now_utc(),
             },
         )
@@ -193,6 +195,9 @@ fn search_filter_state_update(state: ResourceStateRecord) -> UserSearchFilterRec
         seller_slug_id_query: None,
         exclude_seller_slug_id_query: None,
         shop_type_query: None,
+        country_query: None,
+        continent_query: None,
+        geo_address_distance_query: None,
         price_query: None,
         state_query: None,
         created_query: None,
@@ -201,7 +206,9 @@ fn search_filter_state_update(state: ResourceStateRecord) -> UserSearchFilterRec
         auction_end_query: None,
         language: None,
         currency: None,
+        updated_by: ActorRecord::System,
         updated: OffsetDateTime::now_utc(),
+        last_hybrid_search_matched: None,
     }
 }
 
@@ -210,7 +217,7 @@ mod tests {
     use super::*;
     use aws_sdk_dynamodb::error::SdkError;
     use common::{
-        currency::domain::Currency, language::domain::Language,
+        actor::domain::Actor, currency::domain::Currency, language::domain::Language,
         resource_state::record::ResourceStateRecord,
     };
     use fake::{Fake, Faker};
@@ -244,8 +251,11 @@ mod tests {
             state: state.into(),
             search: product::core::product_search::ProductSearch::new(Language::En, Currency::Eur),
             enhanced_search_description: None,
+            created_by: Actor::User(user.user_id),
+            updated_by: Actor::User(user.user_id),
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
+            last_hybrid_search_matched: OffsetDateTime::now_utc(),
         };
         filter.into()
     }

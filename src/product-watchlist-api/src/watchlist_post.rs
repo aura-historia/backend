@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::actor::{RequestContext, domain::Actor};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
@@ -40,6 +41,9 @@ pub async fn handle(
     // 1. Create watchlist entry
     watchlist_service
         .create_watchlist_product(
+            &RequestContext {
+                actor: Actor::User(user_id),
+            },
             &user_id,
             &product_key_data.shop_id,
             &product_key_data.shops_product_id,
@@ -101,7 +105,7 @@ mod tests {
         let mut watchlist_service = MockProductWatchListService::default();
         watchlist_service
             .expect_create_watchlist_product()
-            .return_once(|_, _, _| Box::pin(async { Ok(Faker.fake()) }));
+            .return_once(|_, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
         let mut get_product_service = MockGetProductService::default();
         get_product_service
             .expect_view_product()

@@ -9,20 +9,25 @@ use product::data::patch_product_data::PatchProductData;
 use product_lambda_ingest_partner_products::{
     AsyncProductCommandData, AsyncProductCommandService, UpdateAsyncProductCommandData,
 };
-use shop::core::partner_shop_api_key::api::extract_api_key;
 use shop::service::get_service::GetShopService;
+use user::service::{authenticator_service::AuthenticatorService, user_service::UserService};
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_shop_service: &(impl GetShopService + Sync),
+    user_service: &(impl UserService + Sync),
+    authenticator_service: &(impl AuthenticatorService + Sync),
     async_product_command_service: &(impl AsyncProductCommandService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
-    let api_key = extract_api_key(&event.payload)?;
-
-    let partner_shop = get_shop_service
-        .verify_partner_shop(&api_key, &shop_id)
-        .await?;
+    let partner_shop = crate::authorize_partner_product_request(
+        &event.payload.headers,
+        &shop_id,
+        get_shop_service,
+        user_service,
+        authenticator_service,
+    )
+    .await?;
 
     let products: Vec<PatchProductData> = extract_body(&event.payload)?;
 
@@ -87,12 +92,18 @@ mod tests {
         AsyncProductCommandFailure, MockAsyncProductCommandService,
     };
     use shop::core::partner_shop::PartnerShop;
-    use shop::core::partner_shop_api_key::{HashedPartnerShopApiKey, PartnerShopApiKey};
     use shop::service::get_service::MockGetShopService;
+    use user::{
+        core::access_token::{AccessToken, RawAccessToken, Scope},
+        service::{
+            authenticator_service::{AuthenticatedPrincipal, MockAuthenticatorService},
+            user_service::MockUserService,
+        },
+    };
 
     fn make_event_with_body_and_key(
         shop_id: &common::shop_id::ShopId,
-        api_key: &PartnerShopApiKey,
+        api_key: &RawAccessToken,
         body: Option<String>,
     ) -> LambdaEvent<ApiGatewayV2httpRequest> {
         let mut request = ApiGatewayV2httpRequest::default();
@@ -102,20 +113,47 @@ mod tests {
             .insert("shopId".to_string(), shop_id.to_string());
         let key_str: String = api_key.clone().into();
         let mut headers = HeaderMap::new();
-        headers.insert("x-api-key", key_str.parse().unwrap());
+        headers.insert(
+            http::header::AUTHORIZATION,
+            format!("{}{}", "Bearer ", key_str).parse().unwrap(),
+        );
         request.headers = headers;
         request.body = body;
         LambdaEvent::new(request, lambda_runtime::Context::default())
     }
 
+    fn partner_access_token_auth(
+        shop_id: common::shop_id::ShopId,
+    ) -> (MockUserService, MockAuthenticatorService) {
+        let user_id = common::user_id::UserId::new();
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().return_once(move |_| {
+            let mut user: user::core::user::User = Faker.fake();
+            user.user_id = user_id;
+            user.partner_shops.insert(shop_id);
+            Box::pin(async move { Ok(user) })
+        });
+
+        let mut access_token: AccessToken = Faker.fake();
+        access_token.user_id = user_id;
+        access_token.scopes = [Scope::ProductsWrite].into();
+
+        let mut authenticator_service = MockAuthenticatorService::default();
+        authenticator_service
+            .expect_authenticate()
+            .return_once(move |_| {
+                Box::pin(async move { Ok(Some(AuthenticatedPrincipal::AccessToken(access_token))) })
+            });
+
+        (user_service, authenticator_service)
+    }
+
     #[tokio::test]
     async fn should_return_202_with_empty_failures_when_all_products_forwarded_successfully() {
-        let api_key = PartnerShopApiKey::new();
+        let api_key = RawAccessToken::new();
         let partner_shop: PartnerShop = Faker.fake();
         let shop_id = partner_shop.shop_id;
-        let hashed: HashedPartnerShopApiKey = api_key.clone().into();
-        let mut partner_shop_with_key = partner_shop;
-        partner_shop_with_key.hashed_api_key = Some(hashed);
+        let partner_shop_with_key = partner_shop;
 
         let body = serde_json::to_string(&vec![serde_json::json!({
             "shopsProductId": "test-product-1",
@@ -128,15 +166,23 @@ mod tests {
         let expected_partner = partner_shop_with_key.clone();
         let mut shop_service = MockGetShopService::default();
         shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| Box::pin(async move { Ok(expected_partner) }));
+            .expect_find_partner_shop()
+            .return_once(move |_| Box::pin(async move { Ok(expected_partner) }));
 
         let mut command_service = MockAsyncProductCommandService::default();
         command_service
             .expect_send()
             .return_once(|_| Box::pin(async { vec![] }));
 
-        let result = handle(event, &shop_service, &command_service).await;
+        let (user_service, authenticator_service) = partner_access_token_auth(shop_id);
+        let result = handle(
+            event,
+            &shop_service,
+            &user_service,
+            &authenticator_service,
+            &command_service,
+        )
+        .await;
         assert!(result.is_ok());
         let response = result.unwrap();
         assert_eq!(response.status_code, 202);
@@ -152,12 +198,10 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_202_with_failed_product_ids_when_some_products_fail_to_forward() {
-        let api_key = PartnerShopApiKey::new();
+        let api_key = RawAccessToken::new();
         let partner_shop: PartnerShop = Faker.fake();
         let shop_id = partner_shop.shop_id;
-        let hashed: HashedPartnerShopApiKey = api_key.clone().into();
-        let mut partner_shop_with_key = partner_shop;
-        partner_shop_with_key.hashed_api_key = Some(hashed);
+        let partner_shop_with_key = partner_shop;
 
         let shops_product_id = ShopsProductId::from("failing-product".to_string());
 
@@ -178,8 +222,8 @@ mod tests {
         let expected_partner = partner_shop_with_key.clone();
         let mut shop_service = MockGetShopService::default();
         shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| Box::pin(async move { Ok(expected_partner) }));
+            .expect_find_partner_shop()
+            .return_once(move |_| Box::pin(async move { Ok(expected_partner) }));
 
         let failed_command =
             AsyncProductCommandData::Update(UpdateAsyncProductCommandData::from((
@@ -207,9 +251,16 @@ mod tests {
             })
         });
 
-        let response = handle(event, &shop_service, &command_service)
-            .await
-            .unwrap();
+        let (user_service, authenticator_service) = partner_access_token_auth(shop_id);
+        let response = handle(
+            event,
+            &shop_service,
+            &user_service,
+            &authenticator_service,
+            &command_service,
+        )
+        .await
+        .unwrap();
         assert_eq!(response.status_code, 202);
         let body: Vec<String> = match response.body {
             Some(aws_lambda_events::encodings::Body::Text(body_str)) => {
@@ -222,42 +273,58 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_400_when_body_is_empty() {
-        let api_key = PartnerShopApiKey::new();
+        let api_key = RawAccessToken::new();
         let shop_id = common::shop_id::ShopId::new();
 
         let event = make_event_with_body_and_key(&shop_id, &api_key, None);
 
         let mut shop_service = MockGetShopService::default();
         shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| {
+            .expect_find_partner_shop()
+            .return_once(move |_| {
                 let partner: PartnerShop = Faker.fake();
                 Box::pin(async move { Ok(partner) })
             });
         let command_service = MockAsyncProductCommandService::default();
 
-        let result = handle(event, &shop_service, &command_service).await;
+        let (user_service, authenticator_service) = partner_access_token_auth(shop_id);
+        let result = handle(
+            event,
+            &shop_service,
+            &user_service,
+            &authenticator_service,
+            &command_service,
+        )
+        .await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status, 400);
     }
 
     #[tokio::test]
     async fn should_return_400_when_body_is_invalid_json() {
-        let api_key = PartnerShopApiKey::new();
+        let api_key = RawAccessToken::new();
         let shop_id = common::shop_id::ShopId::new();
 
         let event = make_event_with_body_and_key(&shop_id, &api_key, Some("not json".to_string()));
 
         let mut shop_service = MockGetShopService::default();
         shop_service
-            .expect_verify_partner_shop()
-            .return_once(move |_, _| {
+            .expect_find_partner_shop()
+            .return_once(move |_| {
                 let partner: PartnerShop = Faker.fake();
                 Box::pin(async move { Ok(partner) })
             });
         let command_service = MockAsyncProductCommandService::default();
 
-        let result = handle(event, &shop_service, &command_service).await;
+        let (user_service, authenticator_service) = partner_access_token_auth(shop_id);
+        let result = handle(
+            event,
+            &shop_service,
+            &user_service,
+            &authenticator_service,
+            &command_service,
+        )
+        .await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status, 400);
     }

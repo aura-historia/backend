@@ -5,6 +5,7 @@ use crate::{
     },
     data::partner_shop_application_state_data::PartnerShopApplicationStateData,
 };
+use common::actor::data::ActorData;
 use common::execution_state::data::ExecutionStateData;
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, user_id::UserId};
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,8 @@ pub struct GetPartnerShopApplicationData {
     pub business_state: PartnerShopApplicationStateData,
     pub execution_state: ExecutionStateData,
     pub payload: GetPartnerShopApplicationPayloadData,
+    pub created_by: ActorData,
+    pub updated_by: ActorData,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -82,6 +85,8 @@ impl From<PartnerShopApplication> for GetPartnerShopApplicationData {
             business_state: application.business_state.into(),
             execution_state: application.execution_state.into(),
             payload,
+            created_by: application.created_by.into(),
+            updated_by: application.updated_by.into(),
             created: application.created,
             updated: application.updated,
         }
@@ -162,6 +167,8 @@ mod tests {
                 "shopDomains": ["test.example"],
                 "shopImage": "https://test.example/logo.svg"
             },
+            "createdBy": "SYSTEM",
+            "updatedBy": "SYSTEM",
             "created": "2026-04-22T00:00:00Z",
             "updated": "2026-04-22T01:00:00Z",
         });

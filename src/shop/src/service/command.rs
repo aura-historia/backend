@@ -1,3 +1,4 @@
+use crate::core::partner_status::ShopPartnerStatus;
 use crate::core::{
     address::StructuredAddress, affiliate_configuration::AffiliateConfiguration,
     shop_type::ShopType, woocommerce_webhook_secret::WoocommerceWebhookSecret,
@@ -13,6 +14,7 @@ use url::Url;
 pub struct CreateShopCommand {
     pub name: ShopName,
     pub shop_type: ShopType,
+    pub shop_partner_status: ShopPartnerStatus,
     pub domains: HashSet<Domain>,
     pub shopify_domain: Option<Domain>,
     pub shopify_currency: Option<Currency>,
@@ -31,6 +33,7 @@ pub struct CreateShopCommand {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdateShopCommand {
     pub shop_type: Option<ShopType>,
+    pub shop_partner_status: Option<ShopPartnerStatus>,
     pub domains: Option<HashSet<Domain>>,
     pub shopify_domain: Option<Domain>,
     pub shopify_currency: Option<Currency>,
@@ -48,6 +51,7 @@ pub struct UpdateShopCommand {
 impl UpdateShopCommand {
     pub fn is_empty(&self) -> bool {
         self.shop_type.is_none()
+            && self.shop_partner_status.is_none()
             && self.domains.is_none()
             && self.shopify_domain.is_none()
             && self.shopify_currency.is_none()
@@ -73,6 +77,7 @@ mod faker {
             CreateShopCommand {
                 name: config.fake_with_rng(rng),
                 shop_type: config.fake_with_rng(rng),
+                shop_partner_status: config.fake_with_rng(rng),
                 domains: [Domain::try_from(format!(
                     "https://www.{}.com/",
                     config.fake_with_rng::<String, R>(rng)
@@ -99,6 +104,7 @@ mod faker {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             UpdateShopCommand {
                 shop_type: config.fake_with_rng(rng),
+                shop_partner_status: config.fake_with_rng(rng),
                 domains: config.fake_with_rng(rng),
                 shopify_domain: config.fake_with_rng(rng),
                 shopify_currency: config.fake_with_rng(rng),
