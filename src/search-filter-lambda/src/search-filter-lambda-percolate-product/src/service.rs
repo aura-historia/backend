@@ -515,7 +515,6 @@ mod tests {
             updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
-            last_hybrid_search_matched: OffsetDateTime::now_utc(),
         }
     }
 
@@ -538,7 +537,6 @@ mod tests {
             updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
-            last_hybrid_search_matched: OffsetDateTime::now_utc(),
         }
     }
 
@@ -822,7 +820,6 @@ mod tests {
             updated_by: Actor::System,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
-            last_hybrid_search_matched: OffsetDateTime::now_utc(),
         };
 
         let mut get_service = MockGetProductService::default();

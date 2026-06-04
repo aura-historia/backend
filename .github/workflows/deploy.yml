@@ -70,7 +70,6 @@ jobs:
           - src/search-filter-api
           - src/search-filter-lambda/src/search-filter-lambda-opensearch-sync
           - src/search-filter-lambda/src/search-filter-lambda-percolate-product
-          - src/search-filter-lambda/src/search-filter-lambda-periodic-match
           - src/product-api
           - src/product-api-partner
           - src/product-watchlist-api

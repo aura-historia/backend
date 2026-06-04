@@ -162,7 +162,6 @@ impl<'a> UserSearchFilterOpenSearchRepository for UserSearchFilterOpenSearchRepo
                 }
             },
             "sort": [
-                { "lastHybridSearchMatched": { "order": "asc" } },
                 { "userSearchFilterId": { "order": "asc" } }
             ]
         });

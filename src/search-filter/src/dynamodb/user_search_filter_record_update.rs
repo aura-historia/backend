@@ -91,12 +91,6 @@ pub struct UserSearchFilterRecordUpdate {
     pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
-    #[serde(
-        with = "time::serde::rfc3339::option",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub last_hybrid_search_matched: Option<OffsetDateTime>,
 }
 
 impl DynamoDbUpdate for UserSearchFilterRecordUpdate {}
@@ -138,7 +132,6 @@ mod fake {
                 currency: config.fake_with_rng(rng),
                 updated_by: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),
-                last_hybrid_search_matched: Some(OffsetDateTime::now_utc()),
             }
         }
     }

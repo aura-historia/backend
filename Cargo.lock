@@ -6500,7 +6500,6 @@ version = "0.1.0"
 dependencies = [
  "search-filter-lambda-opensearch-sync",
  "search-filter-lambda-percolate-product",
- "search-filter-lambda-periodic-match",
 ]
 
 [[package]]
@@ -6546,37 +6545,6 @@ dependencies = [
  "search-filter",
  "serde",
  "serde-email",
- "serde_dynamo",
- "serde_json",
- "serial_test",
- "test-api",
- "thiserror 2.0.18",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "user",
- "uuid",
-]
-
-[[package]]
-name = "search-filter-lambda-periodic-match"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-s3",
- "aws-sdk-sesv2",
- "common",
- "fake",
- "lambda_runtime",
- "mockall",
- "notification",
- "opensearch",
- "product",
- "product-pipeline-embed-text",
- "search-filter",
  "serde_dynamo",
  "serde_json",
  "serial_test",

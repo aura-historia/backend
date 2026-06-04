@@ -68,7 +68,6 @@ const LAMBDA_BINARIES: &[&str] = &[
     "user-lambda-tier-update",
     "search-filter-lambda-opensearch-sync",
     "product-lambda-update-notify-user",
-    "search-filter-lambda-periodic-match",
     "search-filter-lambda-percolate-product",
     "stripe-lambda",
     "stripe-api",

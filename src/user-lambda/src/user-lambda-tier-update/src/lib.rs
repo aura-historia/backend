@@ -208,7 +208,6 @@ fn search_filter_state_update(state: ResourceStateRecord) -> UserSearchFilterRec
         currency: None,
         updated_by: ActorRecord::System,
         updated: OffsetDateTime::now_utc(),
-        last_hybrid_search_matched: None,
     }
 }
 
@@ -255,7 +254,6 @@ mod tests {
             updated_by: Actor::User(user.user_id),
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
-            last_hybrid_search_matched: OffsetDateTime::now_utc(),
         };
         filter.into()
     }
