@@ -101,7 +101,7 @@ impl<'a> QueryProductService for QueryProductServiceImpl<'a> {
             .await?
             .into_non_timed_out("product hybrid search")?;
 
-        Ok(map_search_response(search, search_response))
+        Ok(map_hybrid_search_response(search, search_response, page))
     }
 }
 
@@ -118,20 +118,63 @@ fn map_search_response(
             .and_then(|last| last.sort.clone()),
     };
 
-    let product_views = search_response
-        .hits
-        .hits
-        .into_iter()
-        .map(|hit| hit.source)
-        .map(Product::from)
-        .map(|product| product.localized(&search.currency, &[search.language]))
-        .collect::<Vec<_>>();
+    let product_views = map_product_views(search, search_response.hits.hits);
 
     CursoredResult {
         items: product_views,
         cursor,
         total: Some(search_response.hits.total.value),
     }
+}
+
+fn map_hybrid_search_response(
+    search: &ProductSearch,
+    search_response: SearchResponse<ProductDocument>,
+    page: &Option<Cursor<serde_json::Value>>,
+) -> CursoredResult<LocalizedProductView, serde_json::Value> {
+    let requested_size = page.as_ref().map(|cursor| cursor.size).unwrap_or(20).max(1);
+    let page_size = search_response.hits.hits.len() as u64;
+    let search_after = if page_size >= requested_size {
+        search_response
+            .hits
+            .hits
+            .last()
+            .and_then(hybrid_search_after)
+    } else {
+        None
+    };
+
+    CursoredResult {
+        items: map_product_views(search, search_response.hits.hits),
+        cursor: Cursor {
+            size: page_size,
+            search_after,
+        },
+        // Native hybrid `hits.total` is bounded by the fused candidate pool (for example
+        // by kNN `k`), so exposing it as a product result count is misleading.
+        total: None,
+    }
+}
+
+fn hybrid_search_after(
+    hit: &common::opensearch::search_response::SearchHit<ProductDocument>,
+) -> Option<serde_json::Value> {
+    hit.sort.clone().or_else(|| {
+        hit.score
+            .filter(|score| score.is_finite())
+            .map(|score| serde_json::json!([score]))
+    })
+}
+
+fn map_product_views(
+    search: &ProductSearch,
+    hits: Vec<common::opensearch::search_response::SearchHit<ProductDocument>>,
+) -> Vec<LocalizedProductView> {
+    hits.into_iter()
+        .map(|hit| hit.source)
+        .map(Product::from)
+        .map(|product| product.localized(&search.currency, &[search.language]))
+        .collect::<Vec<_>>()
 }
 
 #[cfg(test)]
@@ -637,7 +680,37 @@ mod tests {
             .unwrap();
 
         assert_eq!(7, actual.items.len());
-        assert_eq!(Some(7), actual.total);
+        assert!(actual.total.is_none());
+        assert!(actual.cursor.search_after.is_none());
+    }
+
+    #[tokio::test]
+    async fn should_return_search_after_from_score_when_hybrid_hit_sort_is_missing() {
+        let mut repository = MockProductOpenSearchRepository::default();
+        repository
+            .expect_hybrid_search_product_documents()
+            .return_once(|_, _, _| {
+                let mut response = mk_search_response(fake::vec![ProductDocument; 2]);
+                response.hits.hits[0].score = Some(0.42);
+                response.hits.hits[1].score = Some(0.21);
+                Box::pin(async move { Ok(response) })
+            });
+        let service = QueryProductServiceImpl::new(&repository);
+
+        let actual = service
+            .search_products_hybrid(
+                &Faker.fake(),
+                &[0.1_f32; 3],
+                &Some(Cursor {
+                    size: 2,
+                    search_after: None,
+                }),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(Some(json!([0.21])), actual.cursor.search_after);
+        assert!(actual.total.is_none());
     }
 
     #[tokio::test]

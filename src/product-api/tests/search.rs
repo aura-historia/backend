@@ -637,7 +637,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
 }
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
-async fn should_return_first_native_hybrid_page_for_product_api() {
+async fn should_200_when_following_search_after_for_native_hybrid_product_api() {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -659,7 +659,7 @@ async fn should_return_first_native_hybrid_page_for_product_api() {
     let mut embedding_service = MockMultimodalEmbeddingService::default();
     embedding_service
         .expect_embed_query()
-        .times(1)
+        .times(3)
         .returning(|_| Box::pin(async { Ok(one_hot_embedding(0)) }));
 
     let search = ProductSearchData {
@@ -703,16 +703,17 @@ async fn should_return_first_native_hybrid_page_for_product_api() {
     refresh_index("products").await;
     tokio::time::sleep(Duration::from_secs(3)).await;
 
-    let lambda_event_1 = LambdaEvent {
-        payload: ApiGatewayV2httpRequestProxy::builder()
-            .http_method(http::Method::POST)
-            .body_serde(&search)
-            .build(),
-        context: Default::default(),
-    };
-
     let response_1 = handle(
-        lambda_event_1,
+        LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::POST)
+                .query_string_parameter("size", "30")
+                .query_string_parameter("sort", "score")
+                .query_string_parameter("order", "desc")
+                .body_serde(&search)
+                .build(),
+            context: Default::default(),
+        },
         &query_service,
         Some(&embedding_service),
         &access_token_verifier_service,
@@ -721,17 +722,100 @@ async fn should_return_first_native_hybrid_page_for_product_api() {
     .await
     .unwrap();
     assert_eq!(200, response_1.status_code);
-    let response_data: JsonCursoredData<
+    let response_data_1: JsonCursoredData<
         PersonalizedData<GetProductSummaryData, ProductUserStateData>,
     > = serde_json::from_value(extract_apigw_response_json_body!(response_1)).unwrap();
-    assert_eq!(21, response_data.size);
-    assert_eq!(21, response_data.items.len());
-    // LocalStack currently rejects `search_after` for native hybrid queries with
-    // `Sort must contain at least one field`, even though the production cluster
-    // supports paging on `_score`. This integration test therefore validates only
-    // the first native hybrid page and leaves follow-up paging coverage to the
-    // non-LocalStack unit/integration layers.
-    assert!(response_data.search_after.is_none());
+    assert_eq!(30, response_data_1.size);
+    assert_eq!(30, response_data_1.items.len());
+    assert!(response_data_1.total.is_none());
+    let search_after_1 = response_data_1.search_after.clone().unwrap();
+    assert!(search_after_1.is_array());
+
+    let ids_1: HashSet<_> = response_data_1
+        .items
+        .iter()
+        .map(|item| item.item.product_id)
+        .collect();
+
+    let response_2 = handle(
+        LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::POST)
+                .query_string_parameter("size", "30")
+                .query_string_parameter("sort", "score")
+                .query_string_parameter("order", "desc")
+                .query_string_parameter(
+                    "searchAfter",
+                    serde_json::to_string(&search_after_1).unwrap(),
+                )
+                .body_serde(&search)
+                .build(),
+            context: Default::default(),
+        },
+        &query_service,
+        Some(&embedding_service),
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response_2.status_code);
+    let response_data_2: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(extract_apigw_response_json_body!(response_2)).unwrap();
+    assert_eq!(30, response_data_2.size);
+    assert_eq!(30, response_data_2.items.len());
+    assert!(response_data_2.total.is_none());
+    let search_after_2 = response_data_2.search_after.clone().unwrap();
+    assert!(search_after_2.is_array());
+    assert_ne!(search_after_1, search_after_2);
+
+    let ids_2: HashSet<_> = response_data_2
+        .items
+        .iter()
+        .map(|item| item.item.product_id)
+        .collect();
+    assert!(ids_1.is_disjoint(&ids_2));
+
+    let response_3 = handle(
+        LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::POST)
+                .query_string_parameter("size", "30")
+                .query_string_parameter("sort", "score")
+                .query_string_parameter("order", "desc")
+                .query_string_parameter(
+                    "searchAfter",
+                    serde_json::to_string(&search_after_2).unwrap(),
+                )
+                .body_serde(&search)
+                .build(),
+            context: Default::default(),
+        },
+        &query_service,
+        Some(&embedding_service),
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response_3.status_code);
+    let response_data_3: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(extract_apigw_response_json_body!(response_3)).unwrap();
+    assert_eq!(15, response_data_3.size);
+    assert_eq!(15, response_data_3.items.len());
+    assert!(response_data_3.total.is_none());
+    assert!(response_data_3.search_after.is_none());
+
+    let ids_3: HashSet<_> = response_data_3
+        .items
+        .iter()
+        .map(|item| item.item.product_id)
+        .collect();
+    assert!(ids_1.is_disjoint(&ids_3));
+    assert!(ids_2.is_disjoint(&ids_3));
+    assert_eq!(75, ids_1.len() + ids_2.len() + ids_3.len());
 }
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
