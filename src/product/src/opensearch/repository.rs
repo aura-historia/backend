@@ -34,7 +34,7 @@ use time::format_description::well_known;
 pub const HYBRID_SEARCH_PIPELINE_NAME: &str = "hybrid-search-pipeline";
 
 const DEFAULT_HYBRID_PAGE_SIZE: u64 = 20;
-const MIN_HYBRID_CANDIDATE_K: u16 = 200;
+const HYBRID_K: u16 = 100;
 
 #[async_trait]
 #[mockall::automock]
@@ -666,7 +666,7 @@ pub fn build_hybrid_search_request(
     let page_size = hybrid_page_size(cursor);
     let mut knn_body = json!({
         "vector": embedding,
-        "k": hybrid_candidate_k(page_size),
+        "k": HYBRID_K,
     });
     if !filter.is_empty() || !must_not.is_empty() {
         knn_body["filter"] = json!({
@@ -717,12 +717,6 @@ fn hybrid_page_size(cursor: &Option<Cursor<serde_json::Value>>) -> u64 {
         .map(|c| c.size)
         .unwrap_or(DEFAULT_HYBRID_PAGE_SIZE)
         .max(1)
-}
-
-fn hybrid_candidate_k(page_size: u64) -> u16 {
-    page_size
-        .max(MIN_HYBRID_CANDIDATE_K as u64)
-        .min(u16::MAX as u64) as u16
 }
 
 fn apply_any_of_filter<T: Hash + Eq + EnumCount>(
