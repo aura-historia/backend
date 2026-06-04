@@ -830,17 +830,18 @@ impl HybridSearchParams {
     pub const MIN_CANDIDATE_K: u16 = 60;
     pub const MAX_CANDIDATE_K: u16 = 600;
     pub const MIN_BM25_WEIGHT: f32 = 0.2;
-    pub const MIN_SEMANTIC_COSINE: f32 = 0.35;
-    pub const MAX_SEMANTIC_COSINE: f32 = 0.55;
+    pub const MIN_SEMANTIC_COSINE: f32 = 0.48;
+    pub const MAX_SEMANTIC_COSINE: f32 = 0.68;
 }
 
-/// Adaptive cosine floor used to prune low-confidence vector-only hits after the hybrid
-/// query returns. BM25-anchored hits are exempt from this floor.
+/// Adaptive cosine floor used to prune low-confidence semantic hits after the hybrid
+/// query returns. The downstream hybrid service may raise this further based on the
+/// semantic score distribution in the candidate window.
 pub fn semantic_dropout_floor(signals: &IntentSignals) -> f32 {
-    let raw_floor = 0.35
-        + 0.20 * signals.precision_score
-        + 0.10 * signals.style_score
-        + 0.08 * signals.visual_score;
+    let raw_floor = 0.48
+        + 0.16 * signals.precision_score
+        + 0.08 * signals.style_score
+        + 0.06 * signals.visual_score;
     raw_floor.clamp(
         HybridSearchParams::MIN_SEMANTIC_COSINE,
         HybridSearchParams::MAX_SEMANTIC_COSINE,
