@@ -312,14 +312,11 @@ fn check_status_allow_not_found(response: &Response) -> Result<(), Error> {
 /// [`product::opensearch::repository::hybrid_search_product_documents`] references via the
 /// `search_pipeline` query parameter.
 ///
-/// Attempts to register a `score-ranker-processor` pipeline using Reciprocal Rank Fusion
-/// (RRF, `rank_constant = 60`) — the same technique used in production (OpenSearch 2.11+).
-/// If the cluster does not support `score-ranker-processor` (e.g. an older LocalStack
-/// image), the function falls back to a `normalization-processor` pipeline with `min_max`
-/// normalisation and `arithmetic_mean` combination, which is available since OpenSearch 2.9.
+/// Registers a `score-ranker-processor` pipeline using Reciprocal Rank Fusion (RRF) —
+/// the same native hybrid-fusion technique used in production.
 ///
-/// Panics if neither pipeline variant can be registered, so hybrid tests fail fast with a
-/// meaningful message rather than surfacing a confusing "pipeline not defined" 400 error.
+/// Panics if the pipeline cannot be registered, so hybrid tests fail fast with a meaningful
+/// message rather than surfacing a confusing "pipeline not defined" 400 error later.
 async fn register_hybrid_search_pipeline(client: &Client) {
     // The pipeline name constant contains only alphanumeric characters and hyphens, which
     // are safe to embed in a URL path without encoding.
@@ -362,8 +359,7 @@ async fn register_hybrid_search_pipeline(client: &Client) {
         Ok(resp) => {
             debug!(
                 status = %resp.status_code(),
-                "score-ranker-processor RRF pipeline registration returned non-success; \
-                 will attempt normalization-processor fallback"
+                "score-ranker-processor RRF pipeline registration returned non-success"
             );
             panic!(
                 "Failed to register hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' with score-ranker-processor: HTTP {status}",
@@ -373,8 +369,7 @@ async fn register_hybrid_search_pipeline(client: &Client) {
         Err(e) => {
             debug!(
                 error = %e,
-                "score-ranker-processor RRF pipeline registration failed; \
-                 will attempt normalization-processor fallback"
+                "score-ranker-processor RRF pipeline registration failed"
             );
             panic!(
                 "Failed to register hybrid search pipeline '{HYBRID_SEARCH_PIPELINE_NAME}' with score-ranker-processor: {e}"
@@ -386,9 +381,7 @@ async fn register_hybrid_search_pipeline(client: &Client) {
 async fn set_up_indices() -> Result<Response, Error> {
     let client = get_opensearch_client().await;
 
-    // Register hybrid search pipeline (idempotent PUT; errors are logged but do not abort
-    // test setup so that non-hybrid tests are unaffected even on engines without pipeline
-    // support).
+    // Register the native-hybrid RRF search pipeline before creating indices.
     register_hybrid_search_pipeline(client).await;
 
     // Index 'products'
