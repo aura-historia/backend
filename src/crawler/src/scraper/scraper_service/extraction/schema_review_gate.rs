@@ -13,7 +13,6 @@ use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use common::shop_id::ShopId;
 use serde_json::{Value, json};
 use tracing::info;
-use url::Url;
 
 pub(crate) enum GeneratedSchemaReviewOutcome {
     Persisted(ShopsProductSchema),
@@ -24,7 +23,6 @@ impl ScraperServiceImpl {
     pub(crate) async fn handle_generated_schema_review(
         &self,
         shop_id: &ShopId,
-        _url: &Url,
         reason: &str,
         schemas: Vec<ProductCssSelectorSchema>,
         evaluation: SchemaLlmEvaluation,

@@ -694,7 +694,7 @@ fn project_node(node: &NodeRef, projected_count: &mut usize) -> Vec<HtmlYamlNode
 
     let attrs = {
         let attrs = element.attributes.borrow();
-        projected_attrs(&attrs)
+        projected_attrs(&tag, &attrs)
     };
     let text = direct_text(node).map(|text| truncate_chars(&text, DSL_TEXT_LIMIT));
     let children = project_children(node, projected_count);
@@ -727,14 +727,34 @@ fn is_layout_only_attrs(attrs: &BTreeMap<String, String>) -> bool {
     attrs.is_empty() || (attrs.len() == 1 && attrs.contains_key("class"))
 }
 
-fn projected_attrs(attrs: &kuchiki::Attributes) -> BTreeMap<String, String> {
+fn projected_attrs(tag: &str, attrs: &kuchiki::Attributes) -> BTreeMap<String, String> {
     let mut result = BTreeMap::new();
     for name in PROJECTED_ATTRS {
         if let Some(value) = attrs.get(*name).filter(|value| !value.trim().is_empty()) {
+            if !should_project_attr(tag, name, value) {
+                continue;
+            }
             result.insert((*name).to_string(), truncate_chars(value, DSL_ATTR_LIMIT));
         }
     }
     result
+}
+
+fn should_project_attr(tag: &str, name: &str, value: &str) -> bool {
+    match name {
+        "href" => has_known_image_extension(value),
+        "rel" => tag == "a",
+        _ => true,
+    }
+}
+
+fn has_known_image_extension(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.contains(".jpg")
+        || lower.contains(".jpeg")
+        || lower.contains(".png")
+        || lower.contains(".webp")
+        || lower.contains(".gif")
 }
 
 const PROJECTED_ATTRS: &[&str] = &[
@@ -746,6 +766,12 @@ const PROJECTED_ATTRS: &[&str] = &[
     "content",
     "value",
     "type",
+    "href",
+    "rel",
+    "role",
+    "aria-label",
+    "aria-labelledby",
+    "aria-describedby",
     "src",
     "srcset",
     "alt",
@@ -758,6 +784,11 @@ const PROJECTED_ATTRS: &[&str] = &[
     "data-full",
     "data-original",
     "data-zoom-image",
+    "data-product-id",
+    "data-sku",
+    "data-price",
+    "data-currency",
+    "data-availability",
     "data-testid",
     "data-test",
     "data-cy",
@@ -1227,7 +1258,10 @@ mod tests {
                 <input id="ProductId" name="ProductId" type="hidden" value="SKU-42">
                 <section class="product">
                   <h1 class="title">Example "Vase"</h1>
-                  <div class="gallery"><img src="/image.jpg" data-large_image="/large.jpg"></div>
+                  <a class="full-image" href="/large-link.jpg" rel="gallery">
+                    <img src="/image.jpg" data-large_image="/large.jpg">
+                  </a>
+                  <button role="button" aria-label="Add to basket" data-product-id="SKU-42" data-price="10.00" data-currency="EUR" data-availability="available">Buy</button>
                 </section>
               </body>
             </html>
@@ -1244,8 +1278,16 @@ mod tests {
         assert!(dsl.contains("tag: h1"));
         assert!(dsl.contains("class: title"));
         assert!(dsl.contains("tag: img"));
+        assert!(dsl.contains("href: /large-link.jpg"));
+        assert!(dsl.contains("rel: gallery"));
+        assert!(dsl.contains("role: button"));
+        assert!(dsl.contains("aria-label: Add to basket"));
         assert!(dsl.contains("src: /image.jpg"));
         assert!(dsl.contains("data-large_image: /large.jpg"));
+        assert!(dsl.contains("data-product-id: SKU-42"));
+        assert!(dsl.contains("data-price: '10.00'"));
+        assert!(dsl.contains("data-currency: EUR"));
+        assert!(dsl.contains("data-availability: available"));
         assert!(dsl.contains("Example \"Vase\""));
         assert!(!dsl.contains("<script"));
         assert!(!dsl.contains("<nav"));

@@ -13,7 +13,7 @@ const GEMINI_CHAT_MAX_ATTEMPTS: usize = 3;
 const GEMINI_RATE_LIMIT_DELAY: Duration = Duration::from_secs(30);
 const GEMINI_SERVICE_UNAVAILABLE_DELAY: Duration = Duration::from_secs(10 * 60);
 const GEMINI_TRANSIENT_ERROR_DELAY: Duration = Duration::from_secs(1);
-const DEFAULT_CHEAP_GEMINI_MODEL: &str = "gemini-2.5-flash-lite";
+const DEFAULT_CHEAP_GEMINI_MODEL: &str = "gemini-3.1-flash-lite";
 #[cfg(test)]
 const GEMINI_TEST_RETRY_DELAY: Duration = Duration::from_millis(1);
 

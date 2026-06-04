@@ -74,7 +74,6 @@ impl ScraperServiceImpl {
             match self
                 .handle_generated_schema_review(
                     shop_id,
-                    url,
                     "initial_schema_generation",
                     generated.schemas,
                     generated.evaluation,

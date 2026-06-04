@@ -80,7 +80,6 @@ impl ScraperServiceImpl {
                     match self
                         .handle_generated_schema_review(
                             shop_id,
-                            url,
                             "append_schema_generation",
                             persisted_schemas,
                             generated.evaluation,

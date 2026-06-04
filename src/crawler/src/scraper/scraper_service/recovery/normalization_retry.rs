@@ -204,7 +204,6 @@ impl ScraperServiceImpl {
                     match self
                         .handle_generated_schema_review(
                             ctx.shop_id,
-                            ctx.url,
                             "normalization_schema_repair",
                             persisted_schemas,
                             generated.evaluation,
