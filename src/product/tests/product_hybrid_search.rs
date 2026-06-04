@@ -123,7 +123,7 @@ async fn should_drop_low_similarity_vector_hits_when_query_is_visual_for_dynamic
         doc.embedding = Some(one_hot_embedding(41, 1.0).into());
     });
     let vector_target = make_product_doc(|doc| {
-        set_titles(doc, "totally unrelated text");
+        set_titles(doc, "blue ceramic vase");
         doc.embedding = Some(one_hot_embedding(40, 1.0).into());
     });
     let vector_noise: Vec<ProductDocument> = (0..6)
@@ -181,8 +181,8 @@ async fn should_rank_dual_branch_match_first_for_dynamic_hybrid_search() {
         set_titles(doc, query);
         doc.embedding = Some(one_hot_embedding(61, 1.0).into());
     });
-    let vector_only = make_product_doc(|doc| {
-        set_titles(doc, "totally unrelated text");
+    let semantic_only = make_product_doc(|doc| {
+        set_titles(doc, "blue ceramic vase");
         doc.embedding = Some(one_hot_embedding(60, 1.0).into());
     });
 
@@ -192,7 +192,7 @@ async fn should_rank_dual_branch_match_first_for_dynamic_hybrid_search() {
         .create_product_documents(vec![
             dual_match.clone(),
             bm25_only.clone(),
-            vector_only.clone(),
+            semantic_only.clone(),
         ])
         .await
         .unwrap();
@@ -221,7 +221,7 @@ async fn should_rank_dual_branch_match_first_for_dynamic_hybrid_search() {
         .map(|item| item.product_id)
         .collect();
     assert!(returned_ids.contains(&bm25_only.product_id));
-    assert!(returned_ids.contains(&vector_only.product_id));
+    assert!(returned_ids.contains(&semantic_only.product_id));
 }
 
 #[localstack_test(services = [OpenSearch()])]
@@ -296,12 +296,12 @@ async fn should_apply_filters_to_semantic_branch_for_dynamic_hybrid_search() {
         doc.embedding = Some(one_hot_embedding(81, 1.0).into());
     });
     let available_vector = make_product_doc(|doc| {
-        set_titles(doc, "totally unrelated text");
+        set_titles(doc, "blue ceramic vase");
         doc.state = ProductStateDocument::Available;
         doc.embedding = Some(one_hot_embedding(80, 1.0).into());
     });
     let sold_vector = make_product_doc(|doc| {
-        set_titles(doc, "totally unrelated text");
+        set_titles(doc, "blue ceramic vase");
         doc.state = ProductStateDocument::Sold;
         doc.embedding = Some(one_hot_embedding(80, 1.0).into());
     });
