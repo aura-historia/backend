@@ -20,6 +20,7 @@ use product::opensearch::{
 use product::service::query_service::QueryProductServiceImpl;
 use product_api::search::handle;
 use product_personalization::service::ProductPersonalizationServiceImpl;
+use product_pipeline_embed_text::service::MockMultimodalEmbeddingService;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use search_filter::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
 use shop::data::shop_type_data::ShopTypeData;
@@ -31,6 +32,12 @@ use time::OffsetDateTime;
 use time::macros::datetime;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::{UserService, UserServiceImpl};
+
+fn one_hot_embedding(slot: usize) -> Vec<f32> {
+    let mut embedding = vec![0.0_f32; 768];
+    embedding[slot] = 1.0;
+    embedding
+}
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_no_hits() {
@@ -627,6 +634,136 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
             .collect::<Vec<_>>()
             .contains(&item.item.product_id)
     }))
+}
+
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_page_hybrid_search_when_only_search_after_is_given_for_product_api() {
+    let ddb_client = get_dynamodb_client().await;
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository);
+    let notification_service = MockNotificationService::default();
+    let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+        &search_filter_repository,
+    );
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .returning(|_| Box::pin(async { Ok(None) }));
+    let mut embedding_service = MockMultimodalEmbeddingService::default();
+    embedding_service
+        .expect_embed_query()
+        .times(2)
+        .returning(|_| Box::pin(async { Ok(one_hot_embedding(0)) }));
+
+    let search = ProductSearchData {
+        language: LanguageData::En,
+        currency: CurrencyData::Eur,
+        product_query: Some("art deco lamp".try_into().unwrap()),
+        shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
+        shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
+    };
+
+    let mut products = fake::vec![ProductDocument; 75];
+    for product in &mut products {
+        product.title_en = Some("art deco lamp".to_string());
+        product.title_native = TextDocument {
+            text: "art deco lamp".to_string(),
+            language: LanguageDocument::En,
+        };
+        product.embedding = Some(one_hot_embedding(0));
+    }
+    let create_res = opensearch_repository
+        .create_product_documents(products)
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let lambda_event_1 = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let response_1 = handle(
+        lambda_event_1,
+        &query_service,
+        Some(&embedding_service),
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response_1.status_code);
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(extract_apigw_response_json_body!(response_1)).unwrap();
+    assert_eq!(21, response_data.size);
+    let first_page_ids = response_data
+        .items
+        .iter()
+        .map(|item| item.item.product_id)
+        .collect::<HashSet<_>>();
+
+    let lambda_event_2 = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .query_string_parameter(
+                "searchAfter",
+                serde_json::to_string(&response_data.search_after.unwrap()).unwrap(),
+            )
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let response_2 = handle(
+        lambda_event_2,
+        &query_service,
+        Some(&embedding_service),
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response_2.status_code);
+    let response_data_2: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(extract_apigw_response_json_body!(response_2)).unwrap();
+    assert_eq!(21, response_data_2.size);
+
+    assert!(
+        response_data_2
+            .items
+            .iter()
+            .all(|item| !first_page_ids.contains(&item.item.product_id))
+    );
 }
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]

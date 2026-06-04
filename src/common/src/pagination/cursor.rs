@@ -146,8 +146,11 @@ pub mod api {
             })?
             .map(|size| size.min(100));
 
-        if let Some(size) = size {
-            Ok(Some(Cursor { search_after, size }))
+        if size.is_some() || search_after.is_some() {
+            Ok(Some(Cursor {
+                search_after,
+                size: size.unwrap_or_else(|| Cursor::<Value>::default().size),
+            }))
         } else {
             Ok(None)
         }
@@ -220,6 +223,7 @@ pub mod api {
         #[rstest::rstest]
         #[trace]
         #[case([].into(), None)]
+        #[case([("searchAfter".to_owned(), vec!["5".to_owned()])].into(), Some(Cursor { size: 21, search_after: Some(json!(5)) }))]
         #[case([("size".to_owned(), vec!["10".to_owned()]), ("searchAfter".to_owned(), vec!["5".to_owned()])].into(), Some(Cursor { size: 10, search_after: Some(json!(5)) }))]
         #[case([("size".to_owned(), vec!["10".to_owned()]), ("searchAfter".to_owned(), vec!["6ba7b810-9dad-11d1-80b4-00c04fd430c8".to_owned()])].into(), Some(Cursor { size: 10, search_after: Some(json!("6ba7b810-9dad-11d1-80b4-00c04fd430c8")) }))]
         #[case([("size".to_owned(), vec!["10".to_owned()]), ("searchAfter".to_owned(), vec!["5".to_owned(), "42". to_owned()])].into(), Some(Cursor { size: 10, search_after: Some(json!([5, 42])) }))]

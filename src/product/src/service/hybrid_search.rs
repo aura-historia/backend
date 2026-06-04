@@ -37,22 +37,24 @@ const HYBRID_RRF_K: f64 = 60.0;
 const HYBRID_CURSOR_STRATEGY: &str = "manual_hybrid_rrf_v1";
 const SCORE_EPSILON: f64 = 1e-9;
 
-// Empirical semantic-tail guardrails for Gemini Embedding 2 product embeddings.
+// Empirical relevance guardrails for Gemini Embedding 2 product embeddings.
 //
-// They are not statistically calibrated thresholds; they encode a pragmatic ecommerce
-// relevance policy observed in manual/query-fixture testing for arts & antiques:
-//
-// - vector-only hits must pass the intent-derived absolute cosine floor first;
-// - additionally, they must stay close enough to the best semantic candidate in the current
-//   candidate window so a weak kNN tail cannot pollute the fused result set;
-// - vector-heavy visual/exploratory intents get a wider margin to preserve useful semantic
-//   recall, while precision/style-ish intents stay tighter to avoid topic drift;
-// - the max relative floor avoids turning a near-perfect top hit into a near-duplicate-only
-//   cutoff, which would drop still-relevant alternatives.
-const SEMANTIC_TAIL_MARGIN_MIN: f32 = 0.28;
-const SEMANTIC_TAIL_MARGIN_VECTOR_WEIGHT_BONUS: f32 = 0.18;
-const SEMANTIC_TAIL_MARGIN_MAX: f32 = 0.44;
-const SEMANTIC_RELATIVE_FLOOR_MAX: f32 = 0.72;
+// These thresholds deliberately prefer precision over recall. Hybrid search is used for
+// user-facing product discovery where false positives are worse than false negatives, so
+// semantic candidates must clear both an absolute intent-derived floor and a tight relative
+// tail cutoff from the best semantic hit. A significant score gap is treated as the start of
+// the noisy ANN tail and raises the floor further.
+const SEMANTIC_TAIL_MARGIN_MIN: f32 = 0.10;
+const SEMANTIC_TAIL_MARGIN_VECTOR_WEIGHT_BONUS: f32 = 0.08;
+const SEMANTIC_TAIL_MARGIN_MAX: f32 = 0.18;
+const SEMANTIC_RELATIVE_FLOOR_MAX: f32 = 0.84;
+const SEMANTIC_SIGNIFICANT_GAP: f32 = 0.05;
+
+// BM25 scores are not globally comparable, but within one request a candidate that falls far
+// below the best lexical hit is usually broad-query tail noise. Keep the floor relative and low
+// enough to preserve flat exact-title result sets while dropping clearly weak lexical tails.
+const BM25_RELATIVE_FLOOR_MIN: f64 = 0.12;
+const BM25_RELATIVE_FLOOR_VECTOR_WEIGHT_BONUS: f64 = 0.08;
 
 struct HybridFilterContext<'a> {
     query_text: &'a str,
@@ -303,9 +305,8 @@ fn fuse_hybrid_hits(
         .collect::<Vec<_>>();
 
     let semantic_floor = semantic_acceptance_floor(context, &semantic_candidates);
-    semantic_candidates.retain(|candidate| {
-        should_keep_semantic_candidate(search, context.query_text, semantic_floor, candidate)
-    });
+    semantic_candidates
+        .retain(|candidate| should_keep_semantic_candidate(semantic_floor, candidate));
     semantic_candidates.sort_by(compare_semantic_candidates);
 
     for (idx, candidate) in semantic_candidates.into_iter().enumerate() {
@@ -334,11 +335,15 @@ fn fuse_hybrid_hits(
         }
     }
 
+    let bm25_floor = bm25_acceptance_floor(candidates.values(), context.params);
     let bm25_weight =
         (1.0 - context.params.vector_weight).max(HybridSearchParams::MIN_BM25_WEIGHT) as f64;
     let vector_weight = context.params.vector_weight as f64;
     let mut ranked = candidates
         .into_values()
+        .filter(|candidate| {
+            should_keep_fusion_candidate(search, context, bm25_floor, semantic_floor, candidate)
+        })
         .map(|candidate| {
             let fused_score = candidate
                 .bm25_rank
@@ -372,10 +377,20 @@ fn semantic_acceptance_floor(
         .filter_map(|candidate| candidate.semantic_cosine)
         .max_by(|lhs, rhs| lhs.partial_cmp(rhs).unwrap_or(Ordering::Equal));
 
+    let mut semantic_cosines = candidates
+        .iter()
+        .filter_map(|candidate| candidate.semantic_cosine)
+        .filter(|cosine| cosine.is_finite())
+        .collect::<Vec<_>>();
+    semantic_cosines.sort_by(|lhs, rhs| rhs.partial_cmp(lhs).unwrap_or(Ordering::Equal));
+
     match top_semantic {
         Some(top) => {
             let relative_floor = top - semantic_tail_margin(context.params);
+            let gap_floor =
+                semantic_gap_floor(&semantic_cosines).unwrap_or(context.min_semantic_cosine);
             relative_floor
+                .max(gap_floor)
                 .max(context.min_semantic_cosine)
                 .clamp(context.min_semantic_cosine, SEMANTIC_RELATIVE_FLOOR_MAX)
         }
@@ -388,16 +403,52 @@ fn semantic_tail_margin(params: HybridSearchParams) -> f32 {
         .clamp(SEMANTIC_TAIL_MARGIN_MIN, SEMANTIC_TAIL_MARGIN_MAX)
 }
 
-fn should_keep_semantic_candidate(
+fn semantic_gap_floor(sorted_cosines_desc: &[f32]) -> Option<f32> {
+    sorted_cosines_desc.windows(2).find_map(|window| {
+        let before_gap = window[0];
+        let after_gap = window[1];
+        (before_gap - after_gap >= SEMANTIC_SIGNIFICANT_GAP).then_some(before_gap)
+    })
+}
+
+fn should_keep_semantic_candidate(semantic_floor: f32, candidate: &SemanticCandidate) -> bool {
+    candidate
+        .semantic_cosine
+        .is_some_and(|cosine| cosine + 1e-6 >= semantic_floor)
+}
+
+fn bm25_acceptance_floor<'a>(
+    candidates: impl Iterator<Item = &'a FusionCandidate>,
+    params: HybridSearchParams,
+) -> Option<f64> {
+    let top_bm25 = candidates
+        .filter_map(|candidate| candidate.bm25_score)
+        .filter(|score| score.is_finite() && *score > 0.0)
+        .max_by(|lhs, rhs| lhs.partial_cmp(rhs).unwrap_or(Ordering::Equal))?;
+    let relative_floor = BM25_RELATIVE_FLOOR_MIN
+        + BM25_RELATIVE_FLOOR_VECTOR_WEIGHT_BONUS * params.vector_weight as f64;
+    Some(top_bm25 * relative_floor)
+}
+
+fn should_keep_fusion_candidate(
     search: &ProductSearch,
-    query_text: &str,
+    context: &HybridFilterContext<'_>,
+    bm25_floor: Option<f64>,
     semantic_floor: f32,
-    candidate: &SemanticCandidate,
+    candidate: &FusionCandidate,
 ) -> bool {
-    hit_has_text_anchor(search, query_text, &candidate.source)
-        || candidate
-            .semantic_cosine
-            .is_some_and(|cosine| cosine + 1e-6 >= semantic_floor)
+    let has_lexical_quality = bm25_floor.is_some_and(|floor| {
+        candidate
+            .bm25_score
+            .is_some_and(|score| score + SCORE_EPSILON >= floor)
+            && hit_has_text_anchor(search, context.query_text, &candidate.doc)
+    });
+    let has_semantic_quality = candidate.semantic_cosine.is_some_and(|cosine| {
+        cosine + 1e-6 >= semantic_floor
+            && semantic_has_required_anchor(search, context.query_text, &candidate.doc)
+    });
+
+    has_lexical_quality || has_semantic_quality
 }
 
 fn reciprocal_rank_score(rank: usize, weight: f64) -> f64 {
@@ -530,15 +581,33 @@ fn max_optional_f32(lhs: Option<f32>, rhs: Option<f32>) -> Option<f32> {
 }
 
 fn hit_has_text_anchor(search: &ProductSearch, query_text: &str, doc: &ProductDocument) -> bool {
+    searchable_titles(search, doc)
+        .into_iter()
+        .any(|title| title_has_query_anchor(title, query_text))
+}
+
+fn semantic_has_required_anchor(
+    search: &ProductSearch,
+    query_text: &str,
+    doc: &ProductDocument,
+) -> bool {
+    let required_tokens = semantic_required_anchor_tokens(query_text);
+    if required_tokens.is_empty() {
+        return true;
+    }
+
+    searchable_titles(search, doc)
+        .into_iter()
+        .any(|title| title_satisfies_required_anchor(title, &required_tokens))
+}
+
+fn searchable_titles<'a>(search: &ProductSearch, doc: &'a ProductDocument) -> Vec<&'a str> {
     let mut titles = Vec::with_capacity(2);
     if let Some(title) = localized_title_for_search(search, doc) {
         titles.push(title);
     }
     titles.push(doc.title_native.text.as_str());
-
     titles
-        .into_iter()
-        .any(|title| title_has_query_anchor(title, query_text))
 }
 
 fn localized_title_for_search<'a>(
@@ -553,6 +622,148 @@ fn localized_title_for_search<'a>(
         Language::It => doc.title_it.as_deref(),
         _ => doc.title_en.as_deref(),
     }
+}
+
+fn title_satisfies_required_anchor(title: &str, required_tokens: &[String]) -> bool {
+    let title_tokens = anchor_tokens(title);
+    let object_anchor_matches = required_tokens
+        .last()
+        .is_none_or(|token| title_tokens.contains(token));
+    if !object_anchor_matches {
+        return false;
+    }
+
+    let matched = required_tokens
+        .iter()
+        .filter(|token| title_tokens.contains(*token))
+        .count();
+
+    if required_tokens.len() <= 3 {
+        matched == required_tokens.len()
+    } else {
+        matched as f32 / required_tokens.len() as f32 >= 0.75
+    }
+}
+
+fn semantic_required_anchor_tokens(query_text: &str) -> Vec<String> {
+    anchor_tokens_in_order(query_text)
+        .into_iter()
+        .filter(|token| !is_low_precision_semantic_anchor_token(token))
+        .collect()
+}
+
+fn is_low_precision_semantic_anchor_token(token: &str) -> bool {
+    // These broad browsing / condition words are too generic to prove semantic relevance on
+    // their own. Style/period wording is ignored only for generic translations of "style" or
+    // "period"; concrete period names like "deco", "nouveau", "bauhaus", or "biedermeier"
+    // intentionally stay anchorable. Colour, material, origin, and object words also stay
+    // anchorable because false positives are worse than dropping a plausible but unanchored hit.
+    matches!(
+        token,
+        // English
+        "antique"
+            | "antiques"
+            | "antiquity"
+            | "antiquities"
+            | "vintage"
+            | "ancient"
+            | "old"
+            | "rare"
+            | "style"
+            | "period"
+            | "pair"
+            | "set"
+            // German
+            | "antik"
+            | "antike"
+            | "antikes"
+            | "antiker"
+            | "antiken"
+            | "antiquität"
+            | "antiquitaet"
+            | "antiquitäten"
+            | "antiquitaeten"
+            | "alt"
+            | "alte"
+            | "altes"
+            | "alter"
+            | "alten"
+            | "selten"
+            | "seltene"
+            | "seltener"
+            | "seltenes"
+            | "seltenen"
+            | "seltenem"
+            | "stil"
+            | "periode"
+            | "epoche"
+            | "paar"
+            | "satz"
+            | "garnitur"
+            // French
+            | "antiquité"
+            | "antiquite"
+            | "antiquités"
+            | "antiquites"
+            | "ancien"
+            | "ancienne"
+            | "anciens"
+            | "anciennes"
+            | "vieux"
+            | "vieille"
+            | "vieilles"
+            | "rares"
+            | "période"
+            | "époque"
+            | "epoque"
+            | "paire"
+            | "ensemble"
+            | "lot"
+            | "série"
+            | "serie"
+            // Spanish
+            | "antigüedad"
+            | "antiguedad"
+            | "antigüedades"
+            | "antiguedades"
+            | "antiguo"
+            | "antigua"
+            | "antiguos"
+            | "antiguas"
+            | "viejo"
+            | "vieja"
+            | "viejos"
+            | "viejas"
+            | "raro"
+            | "rara"
+            | "raros"
+            | "raras"
+            | "estilo"
+            | "período"
+            | "periodo"
+            | "época"
+            | "epoca"
+            | "par"
+            | "pareja"
+            | "conjunto"
+            | "juego"
+            | "lote"
+            // Italian
+            | "antico"
+            | "antica"
+            | "antichi"
+            | "antiche"
+            | "antichità"
+            | "antichita"
+            | "vecchio"
+            | "vecchia"
+            | "vecchi"
+            | "vecchie"
+            | "rari"
+            | "stile"
+            | "coppia"
+            | "paio"
+    )
 }
 
 fn title_has_query_anchor(title: &str, query_text: &str) -> bool {
@@ -592,12 +803,20 @@ fn normalize_phrase_for_anchor(text: &str) -> String {
 }
 
 fn anchor_tokens(text: &str) -> HashSet<String> {
+    anchor_tokens_in_order(text).into_iter().collect()
+}
+
+fn anchor_tokens_in_order(text: &str) -> Vec<String> {
+    let mut seen = HashSet::new();
     text.to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
         .filter(|token| {
             !token.is_empty() && (token.len() >= 3 || token.chars().all(|ch| ch.is_ascii_digit()))
         })
-        .map(ToOwned::to_owned)
+        .filter_map(|token| {
+            let token = token.to_string();
+            seen.insert(token.clone()).then_some(token)
+        })
         .collect()
 }
 
@@ -695,6 +914,14 @@ mod tests {
         embedding
     }
 
+    fn embedding_with_cosine(cosine: f32) -> Vec<f32> {
+        let cosine = cosine.clamp(-1.0, 1.0);
+        let mut embedding = vec![0.0_f32; 768];
+        embedding[0] = cosine;
+        embedding[1] = (1.0 - cosine * cosine).sqrt();
+        embedding
+    }
+
     fn mk_hit(
         doc: ProductDocument,
         score: f64,
@@ -768,7 +995,7 @@ mod tests {
         let bm25_doc = mk_doc("art deco lamp");
         let bm25_candidates =
             mk_response(vec![mk_hit(bm25_doc, 1.0, json!([1.0, "bm25"]), vec![])]);
-        let mut semantic_doc = mk_doc("unrelated title");
+        let mut semantic_doc = mk_doc("art deco lamp");
         semantic_doc.embedding = Some(one_hot_embedding(0));
         let semantic_candidates = mk_response(vec![mk_hit(
             semantic_doc,
@@ -918,7 +1145,7 @@ mod tests {
             vec![],
         )]);
 
-        let mut vector_target = mk_doc("unrelated text");
+        let mut vector_target = mk_doc("blue ceramic ornate vase");
         vector_target.embedding = Some(one_hot_embedding(0));
         let mut vector_noise = mk_doc("unrelated text");
         vector_noise.embedding = Some(one_hot_embedding(1));
@@ -962,6 +1189,181 @@ mod tests {
         assert!(returned_ids.contains(&bm25_anchor.product_id));
         assert!(returned_ids.contains(&vector_target.product_id));
         assert!(!returned_ids.contains(&vector_noise.product_id));
+    }
+
+    #[tokio::test]
+    async fn should_drop_semantic_tail_after_significant_similarity_gap() {
+        let mut repo = MockProductOpenSearchRepository::default();
+        let probe = flat_probe();
+        let bm25_candidates = mk_response(vec![]);
+
+        let mut vector_target = mk_doc("art deco lamp");
+        vector_target.embedding = Some(one_hot_embedding(0));
+        let mut semantic_tail = mk_doc("decorative object");
+        semantic_tail.embedding = Some(embedding_with_cosine(0.65));
+        let semantic_candidates = mk_response(vec![
+            mk_hit(vector_target.clone(), 1.0, json!([1.0]), vec![]),
+            mk_hit(semantic_tail.clone(), 0.9, json!([0.9]), vec![]),
+        ]);
+
+        repo.expect_search_product_documents()
+            .times(2)
+            .returning(move |_, _, cursor| {
+                let response = if cursor.as_ref().map(|c| c.size) == Some(HYBRID_BM25_PROBE_SIZE) {
+                    probe.clone()
+                } else {
+                    bm25_candidates.clone()
+                };
+                Box::pin(async move { Ok(response) })
+            });
+        repo.expect_semantic_search_product_documents()
+            .times(1)
+            .return_once(move |_, _, _| Box::pin(async move { Ok(semantic_candidates) }));
+
+        let search = mk_search();
+        let outcome = hybrid_search(
+            &repo,
+            &search,
+            &one_hot_embedding(0),
+            &None,
+            &[search.language],
+        )
+        .await
+        .unwrap();
+
+        let returned_ids = outcome
+            .items
+            .items
+            .iter()
+            .map(|item| item.product_id)
+            .collect::<HashSet<_>>();
+        assert!(returned_ids.contains(&vector_target.product_id));
+        assert!(!returned_ids.contains(&semantic_tail.product_id));
+    }
+
+    #[test]
+    fn should_ignore_low_precision_semantic_anchor_tokens_across_supported_languages() {
+        assert_eq!(
+            vec!["silber".to_string(), "löffel".to_string()],
+            semantic_required_anchor_tokens("antiker seltener silber löffel")
+        );
+        assert_eq!(
+            vec![
+                "montre".to_string(),
+                "poche".to_string(),
+                "argent".to_string()
+            ],
+            semantic_required_anchor_tokens("ancienne paire montre de poche argent")
+        );
+        assert_eq!(
+            vec!["silla".to_string(), "art".to_string(), "déco".to_string()],
+            semantic_required_anchor_tokens("antigua silla estilo art déco")
+        );
+        assert_eq!(
+            vec![
+                "lampada".to_string(),
+                "art".to_string(),
+                "nouveau".to_string()
+            ],
+            semantic_required_anchor_tokens("antica coppia lampada stile art nouveau")
+        );
+    }
+
+    #[tokio::test]
+    async fn should_drop_medium_semantic_candidate_without_required_object_anchor() {
+        let mut repo = MockProductOpenSearchRepository::default();
+        let probe = flat_probe();
+        let bm25_candidates = mk_response(vec![]);
+
+        let mut anchored = mk_doc("Art Deco bronze table lamp");
+        anchored.embedding = Some(embedding_with_cosine(0.70));
+        let mut missing_object = mk_doc("Art Deco gilt bronze herons");
+        missing_object.embedding = Some(embedding_with_cosine(0.69));
+        let semantic_candidates = mk_response(vec![
+            mk_hit(anchored.clone(), 1.0, json!([1.0]), vec![]),
+            mk_hit(missing_object.clone(), 0.99, json!([0.99]), vec![]),
+        ]);
+
+        repo.expect_search_product_documents()
+            .times(2)
+            .returning(move |_, _, cursor| {
+                let response = if cursor.as_ref().map(|c| c.size) == Some(HYBRID_BM25_PROBE_SIZE) {
+                    probe.clone()
+                } else {
+                    bm25_candidates.clone()
+                };
+                Box::pin(async move { Ok(response) })
+            });
+        repo.expect_semantic_search_product_documents()
+            .times(1)
+            .return_once(move |_, _, _| Box::pin(async move { Ok(semantic_candidates) }));
+
+        let search = mk_search();
+        let outcome = hybrid_search(
+            &repo,
+            &search,
+            &one_hot_embedding(0),
+            &None,
+            &[search.language],
+        )
+        .await
+        .unwrap();
+
+        let returned_ids = outcome
+            .items
+            .items
+            .iter()
+            .map(|item| item.product_id)
+            .collect::<HashSet<_>>();
+        assert!(returned_ids.contains(&anchored.product_id));
+        assert!(!returned_ids.contains(&missing_object.product_id));
+    }
+
+    #[tokio::test]
+    async fn should_drop_weak_bm25_tail_candidates() {
+        let mut repo = MockProductOpenSearchRepository::default();
+        let probe = flat_probe();
+        let strong = mk_doc("art deco lamp");
+        let weak_tail = mk_doc("art deco lamp");
+        let bm25_candidates = mk_response(vec![
+            mk_hit(strong.clone(), 10.0, json!([10.0]), vec![]),
+            mk_hit(weak_tail.clone(), 1.0, json!([1.0]), vec![]),
+        ]);
+        let semantic_candidates = mk_response(vec![]);
+
+        repo.expect_search_product_documents()
+            .times(2)
+            .returning(move |_, _, cursor| {
+                let response = if cursor.as_ref().map(|c| c.size) == Some(HYBRID_BM25_PROBE_SIZE) {
+                    probe.clone()
+                } else {
+                    bm25_candidates.clone()
+                };
+                Box::pin(async move { Ok(response) })
+            });
+        repo.expect_semantic_search_product_documents()
+            .times(1)
+            .return_once(move |_, _, _| Box::pin(async move { Ok(semantic_candidates) }));
+
+        let search = mk_search();
+        let outcome = hybrid_search(
+            &repo,
+            &search,
+            &one_hot_embedding(0),
+            &None,
+            &[search.language],
+        )
+        .await
+        .unwrap();
+
+        let returned_ids = outcome
+            .items
+            .items
+            .iter()
+            .map(|item| item.product_id)
+            .collect::<HashSet<_>>();
+        assert!(returned_ids.contains(&strong.product_id));
+        assert!(!returned_ids.contains(&weak_tail.product_id));
     }
 
     #[tokio::test]
