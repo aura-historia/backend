@@ -109,7 +109,7 @@ impl ScraperServiceImpl {
                     warn!(
                         attempt,
                         max_attempts = attempts,
-                        error = %err,
+                        error = ?err,
                         "Generated schema did not apply; discarding and retrying"
                     );
                     last_error = Some(err);

@@ -318,7 +318,7 @@ impl CrawlerCronJob {
                                     .await
                                 {
                                     warn!(
-                                        error = %err,
+                                        error = ?err,
                                         domain = %candidate.shop_domain,
                                         "Failed to reset crawl failure metadata"
                                     );
@@ -346,7 +346,7 @@ impl CrawlerCronJob {
                                     .await
                                 {
                                     warn!(
-                                        error = %err,
+                                        error = ?err,
                                         domain = %candidate.shop_domain,
                                         "Failed to persist crawl failure metadata"
                                     );
@@ -356,7 +356,7 @@ impl CrawlerCronJob {
                             }
                         }
                     }
-                    .instrument(span));
+                        .instrument(span));
                 }
 
                 let mut results: Vec<bool> = Vec::new();

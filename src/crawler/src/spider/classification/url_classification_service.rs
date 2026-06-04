@@ -235,7 +235,7 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
                 Err(error) => {
                     warn!(
                         pattern = %pattern,
-                        error = %error,
+                        error = ?error,
                         "LLM returned an invalid regex pattern"
                     );
                     Ok(None)

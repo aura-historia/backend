@@ -179,7 +179,7 @@ pub(crate) async fn run_with_gemini_rate_limiter(
                     attempt,
                     max_attempts = GEMINI_CHAT_MAX_ATTEMPTS,
                     delay_ms = delay.as_millis(),
-                    error = %error,
+                    error = ?error,
                     "Retrying Gemini chat request after retryable provider error"
                 );
                 sleep(delay).await;

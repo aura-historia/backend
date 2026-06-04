@@ -174,7 +174,7 @@ async fn main() {
 
         let db_url = demo_db_url();
         if let Err(error) = bootstrap_local_database(DEMO_DB_NAME).await {
-            error!(error = %error, "Failed to bootstrap local Postgres database");
+            error!(error = ?error, "Failed to bootstrap local Postgres database");
             return;
         }
 
@@ -188,7 +188,7 @@ async fn main() {
         };
 
         if let Err(error) = sqlx::migrate!("./migrations").run(&pool).await {
-            error!(error = %error, "Failed to apply database migrations");
+            error!(error = ?error, "Failed to apply database migrations");
             return;
         }
         info!("Database migrations applied successfully");

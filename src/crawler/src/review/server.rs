@@ -77,7 +77,7 @@ impl ReviewServer {
             let server = self.clone();
             tokio::spawn(async move {
                 if let Err(err) = server.handle_connection(stream).await {
-                    warn!(peer = %peer, error = %err, "Review console request failed");
+                    warn!(peer = %peer, error = ?err, "Review console request failed");
                 }
             });
         }
@@ -366,7 +366,7 @@ impl ReviewServer {
             Err(err) => {
                 warn!(
                     review_id = %review_id,
-                    error = %err,
+                    error = ?err,
                     "Cached schema matrix is invalid; refreshing from live pages"
                 );
                 Ok(None)
@@ -496,8 +496,8 @@ fn parse_page_id_with_suffix(path: &str, suffix: &str) -> Option<uuid::Uuid> {
     uuid::Uuid::parse_str(id).ok()
 }
 
-fn internal_error(error: impl std::fmt::Display) -> HttpResponse {
-    error!(error = %error, "Review API error");
+fn internal_error(error: impl std::fmt::Display + std::fmt::Debug) -> HttpResponse {
+    error!(error = ?error, "Review API error");
     HttpResponse::json(500, &json!({ "error": error.to_string() }))
 }
 
@@ -505,7 +505,7 @@ fn live_fetch_error(page: &CrawlerReviewPage, error: &FetchError) -> HttpRespons
     warn!(
         review_page_id = %page.review_page_id,
         url = %page.url,
-        error = %error,
+        error = ?error,
         "Failed to fetch live review HTML"
     );
     HttpResponse::json(
@@ -521,7 +521,7 @@ fn live_fetch_error(page: &CrawlerReviewPage, error: &FetchError) -> HttpRespons
 fn live_url_fetch_error(url: &str, error: &FetchError) -> HttpResponse {
     warn!(
         url,
-        error = %error,
+        error = ?error,
         "Failed to fetch live preview HTML"
     );
     HttpResponse::json(

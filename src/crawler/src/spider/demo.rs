@@ -94,7 +94,7 @@ async fn main() {
         let api_key = match read_api_key() {
             Ok(api_key) => api_key,
             Err(error) => {
-                error!(error = %error, "Failed to load configuration");
+                error!(error = ?error, "Failed to load configuration");
                 return;
             }
         };
@@ -102,7 +102,7 @@ async fn main() {
         let pool = match connect_and_migrate().await {
             Ok(p) => p,
             Err(error) => {
-                error!(error = %error, "Failed to connect to Postgres");
+                error!(error = ?error, "Failed to connect to Postgres");
                 return;
             }
         };
@@ -163,7 +163,7 @@ async fn main() {
         let demo_domain_id = match insert_demo_shop(&pool, &shop_id, &demo_domain).await {
             Ok(id) => id,
             Err(error) => {
-                error!(error = %error, "Failed to insert demo shop rows into DB");
+                error!(error = ?error, "Failed to insert demo shop rows into DB");
                 return;
             }
         };
@@ -184,13 +184,13 @@ async fn main() {
                     "Spider run finished successfully"
                 );
                 if let Err(error) = write_output(&result) {
-                    error!(error = %error, "Failed to write demo output file");
+                    error!(error = ?error, "Failed to write demo output file");
                 } else {
                     info!("Output written to 'spider_output.json'");
                 }
             }
             Err(error) => {
-                error!(error = %error, "Spider run failed");
+                error!(error = ?error, "Spider run failed");
             }
         }
     }
@@ -318,7 +318,8 @@ fn init_logging() {
         .init();
 }
 
-#[tracing::instrument(skip(result), fields(total_links = result.total_links, product_urls_count = result.product_urls_count))]
+#[tracing::instrument(skip(result), fields(total_links = result.total_links, product_urls_count = result.product_urls_count
+))]
 fn write_output(result: &SpiderRunResult) -> Result<(), std::io::Error> {
     let file = File::create("spider_output.json")?;
     let writer = BufWriter::new(file);

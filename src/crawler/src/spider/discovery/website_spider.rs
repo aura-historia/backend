@@ -81,7 +81,7 @@ impl SpiderImpl {
         {
             Ok(client) => client,
             Err(error) => {
-                warn!(shop_url, error = %error, "Failed to build canonical URL resolver");
+                warn!(shop_url, error = ?error, "Failed to build canonical URL resolver");
                 return shop_url.to_string();
             }
         };
@@ -89,7 +89,7 @@ impl SpiderImpl {
         let response = match client.get(original_url.clone()).send().await {
             Ok(response) => response,
             Err(error) => {
-                warn!(shop_url, error = %error, "Canonical URL resolution failed");
+                warn!(shop_url, error = ?error, "Canonical URL resolution failed");
                 return shop_url.to_string();
             }
         };
