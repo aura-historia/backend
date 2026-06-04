@@ -692,13 +692,24 @@ pub fn build_hybrid_search_request(
                 "queries": [bm25_subquery, knn_subquery]
             }
         },
-        // OpenSearch's `hybrid` query type forbids combining `_score` with any other sort
-        // criterion — only a single sort field is allowed.  Sorting by `_score` preserves the
-        // pipeline's RRF-fused relevance ordering so the most-relevant documents come first.
-        // Ties on score (rare in practice) may produce non-deterministic page splits, which is
-        // acceptable given that relevance ordering is the primary concern.
+        // Sort by the RRF-fused score through a numeric script so OpenSearch emits a concrete
+        // sort value that can be fed back via `search_after`. Native hybrid rejects `_score` as
+        // a `search_after` sort key, and also forbids adding a second field sort criterion.
+        // The tiny productId-derived tiebreaker keeps cursor paging stable when scores tie
+        // without materially changing relevance ordering.
         "sort": [
-            { "_score": { "order": "desc" } }
+            {
+                "_script": {
+                    "type": "number",
+                    "script": {
+                        "source": format!(
+                            "return _score + (Math.abs(doc['{}'].value.hashCode()) * 1.0e-20);",
+                            ProductDocumentSerdeField::ProductId.as_str()
+                        )
+                    },
+                    "order": "desc"
+                }
+            }
         ]
     });
 
