@@ -77,7 +77,7 @@ pub async fn handle(
 
     let product_search: product::core::product_search::ProductSearch = product_search_data.into();
 
-    // Adaptive hybrid retrieval is only chosen when:
+    // OpenSearch-native hybrid retrieval is only chosen when:
     //   * an embedding service is configured (Lambda has Vertex ADC configured), AND
     //   * the request carries a non-empty textual `product_query`, AND
     //   * the user did not request a non-score sort (e.g. price/created/updated).
@@ -103,11 +103,7 @@ pub async fn handle(
         match es.embed_query(&query_text).await {
             Ok(embedding) => {
                 service
-                    .search_products_with_dynamic_semantics(
-                        &product_search,
-                        &embedding,
-                        &Some(cursor),
-                    )
+                    .search_products_hybrid(&product_search, &embedding, &Some(cursor))
                     .await?
             }
             Err(err) => {

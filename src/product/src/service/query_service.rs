@@ -2,10 +2,10 @@ use crate::core::product::LocalizedProductView;
 use crate::core::product::Product;
 use crate::core::product_search::ProductSearch;
 use crate::core::sort_product_field::SortProductField;
+use crate::opensearch::product_document::ProductDocument;
 use crate::opensearch::repository::ProductOpenSearchRepository;
-use crate::service::hybrid_search::HybridSearchError;
 use async_trait::async_trait;
-use common::opensearch::search_response::OpenSearchTimedOutError;
+use common::opensearch::search_response::{OpenSearchTimedOutError, SearchResponse};
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::sort::{Sort, SortOrder};
 
@@ -15,13 +15,10 @@ pub enum SearchProductsError {
     OpenSearchError(#[from] opensearch::Error),
     #[error("OpenSearchTimedOut: {0}")]
     OpenSearchTimedOut(#[from] OpenSearchTimedOutError),
-    #[error("HybridSearchError: {0}")]
-    HybridSearchError(#[from] HybridSearchError),
 }
 
 #[cfg(feature = "data")]
 pub mod api {
-    use crate::service::hybrid_search::HybridSearchError;
     use crate::service::query_service::SearchProductsError;
     use common::api::error::ApiError;
     impl From<SearchProductsError> for ApiError {
@@ -29,10 +26,6 @@ pub mod api {
             match err {
                 SearchProductsError::OpenSearchError(opensearch_err) => opensearch_err.into(),
                 SearchProductsError::OpenSearchTimedOut(timeout_err) => timeout_err.into(),
-                SearchProductsError::HybridSearchError(err) => match err {
-                    HybridSearchError::OpenSearchError(opensearch_err) => opensearch_err.into(),
-                    HybridSearchError::OpenSearchTimedOut(timeout_err) => timeout_err.into(),
-                },
             }
         }
     }
@@ -48,17 +41,13 @@ pub trait QueryProductService {
         page: &Option<Cursor<serde_json::Value>>,
     ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchProductsError>;
 
-    /// Adaptive hybrid retrieval: BM25 + kNN are fetched independently from OpenSearch and
-    /// fused in Rust with deterministic weighted Reciprocal Rank Fusion (RRF). The kNN side
-    /// uses the supplied query `embedding` (computed by the caller via the existing
-    /// [`product_pipeline_embed_text::service::MultimodalEmbeddingService`]).
-    /// `vector_weight`, candidate window, and semantic cutoffs are derived dynamically from
-    /// soft intent signals over the textual query.
+    /// Run OpenSearch-native hybrid search (BM25 + kNN) combined by the configured RRF
+    /// search pipeline.
     ///
     /// `search.product_query` MUST be set; this method always uses relevance ordering and is
-    /// therefore unsuitable for searches with explicit non-score sort. Pagination uses an
-    /// opaque JSON cursor returned by the hybrid search service.
-    async fn search_products_with_dynamic_semantics(
+    /// therefore unsuitable for searches with explicit non-score sort. Pagination uses the
+    /// raw OpenSearch `search_after` cursor from the hybrid response.
+    async fn search_products_hybrid(
         &self,
         search: &ProductSearch,
         embedding: &[f32],
@@ -96,46 +85,52 @@ impl<'a> QueryProductService for QueryProductServiceImpl<'a> {
             )
             .await?
             .into_non_timed_out("product search")?;
-        let cursor = Cursor {
-            size: search_response.hits.hits.len() as u64,
-            search_after: search_response
-                .hits
-                .hits
-                .last()
-                .and_then(|last| last.sort.clone()),
-        };
 
-        let product_views = search_response
-            .hits
-            .hits
-            .into_iter()
-            .map(|hit| hit.source)
-            .map(Product::from)
-            .map(|product| product.localized(&search.currency, &[search.language]))
-            .collect::<Vec<_>>();
-
-        Ok(CursoredResult {
-            items: product_views,
-            cursor,
-            total: Some(search_response.hits.total.value),
-        })
+        Ok(map_search_response(search, search_response))
     }
 
-    async fn search_products_with_dynamic_semantics(
+    async fn search_products_hybrid(
         &self,
         search: &ProductSearch,
         embedding: &[f32],
         page: &Option<Cursor<serde_json::Value>>,
     ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchProductsError> {
-        let outcome = crate::service::hybrid_search::hybrid_search(
-            self.repository,
-            search,
-            embedding,
-            page,
-            &[search.language],
-        )
-        .await?;
-        Ok(outcome.items)
+        let search_response = self
+            .repository
+            .hybrid_search_product_documents(search, embedding, page)
+            .await?
+            .into_non_timed_out("product hybrid search")?;
+
+        Ok(map_search_response(search, search_response))
+    }
+}
+
+fn map_search_response(
+    search: &ProductSearch,
+    search_response: SearchResponse<ProductDocument>,
+) -> CursoredResult<LocalizedProductView, serde_json::Value> {
+    let cursor = Cursor {
+        size: search_response.hits.hits.len() as u64,
+        search_after: search_response
+            .hits
+            .hits
+            .last()
+            .and_then(|last| last.sort.clone()),
+    };
+
+    let product_views = search_response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source)
+        .map(Product::from)
+        .map(|product| product.localized(&search.currency, &[search.language]))
+        .collect::<Vec<_>>();
+
+    CursoredResult {
+        items: product_views,
+        cursor,
+        total: Some(search_response.hits.total.value),
     }
 }
 
@@ -624,5 +619,61 @@ mod tests {
                 .iter()
                 .all(|item| { item.title.payload.as_ref() == expected })
         );
+    }
+
+    #[tokio::test]
+    async fn should_search_items_with_hybrid_search() {
+        let mut repository = MockProductOpenSearchRepository::default();
+        repository
+            .expect_hybrid_search_product_documents()
+            .return_once(|_, _, _| {
+                Box::pin(async move { Ok(mk_search_response(fake::vec![ProductDocument; 7])) })
+            });
+        let service = QueryProductServiceImpl::new(&repository);
+
+        let actual = service
+            .search_products_hybrid(&Faker.fake(), &[0.1_f32; 3], &None)
+            .await
+            .unwrap();
+
+        assert_eq!(7, actual.items.len());
+        assert_eq!(Some(7), actual.total);
+    }
+
+    #[tokio::test]
+    async fn should_err_when_product_hybrid_search_times_out() {
+        let mut repository = MockProductOpenSearchRepository::default();
+        repository
+            .expect_hybrid_search_product_documents()
+            .return_once(|_, _, _| {
+                Box::pin(async move {
+                    Ok(SearchResponse {
+                        took: 250,
+                        timed_out: true,
+                        shards: ShardStats {
+                            total: 4,
+                            successful: 3,
+                            skipped: 0,
+                            failed: 1,
+                        },
+                        hits: HitsMetadata {
+                            total: TotalHits {
+                                value: 0,
+                                relation: "eq".to_string(),
+                            },
+                            max_score: None,
+                            hits: vec![],
+                        },
+                    })
+                })
+            });
+        let service = QueryProductServiceImpl::new(&repository);
+
+        let actual = service
+            .search_products_hybrid(&Faker.fake(), &[0.1_f32; 3], &None)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(actual, SearchProductsError::OpenSearchTimedOut(_)));
     }
 }

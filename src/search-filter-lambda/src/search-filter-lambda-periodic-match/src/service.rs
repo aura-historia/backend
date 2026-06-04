@@ -126,7 +126,7 @@ impl<'a> PeriodicMatcherServiceImpl<'a> {
             let products = match embedding.as_ref() {
                 Some(embedding) => {
                     self.query_product_service
-                        .search_products_with_dynamic_semantics(&product_search, embedding, &cursor)
+                        .search_products_hybrid(&product_search, embedding, &cursor)
                         .await?
                 }
                 None => {
@@ -657,9 +657,7 @@ mod tests {
                 );
                 Box::pin(async { Ok(CursoredResult::default()) })
             });
-        query_service
-            .expect_search_products_with_dynamic_semantics()
-            .times(0);
+        query_service.expect_search_products_hybrid().times(0);
 
         let mut embedding_service = MockMultimodalEmbeddingService::default();
         embedding_service.expect_embed_query().times(0);
@@ -721,9 +719,8 @@ mod tests {
 
         let mut query_service = MockQueryProductService::default();
         query_service.expect_search_products().times(0);
-        query_service
-            .expect_search_products_with_dynamic_semantics()
-            .return_once(move |search, embedding, cursor| {
+        query_service.expect_search_products_hybrid().return_once(
+            move |search, embedding, cursor| {
                 assert_eq!(
                     search.product_query.as_ref().map(|query| query.as_ref()),
                     Some("gold ring")
@@ -738,7 +735,8 @@ mod tests {
                 );
                 let product = product.clone();
                 Box::pin(async move { Ok(mk_search_result(vec![product], None)) })
-            });
+            },
+        );
 
         let mut embedding_service = MockMultimodalEmbeddingService::default();
         embedding_service.expect_embed_query().return_once(|query| {
@@ -1096,9 +1094,7 @@ mod tests {
             .expect_search_products()
             .times(2)
             .returning(|_, _, _| Box::pin(async { Ok(CursoredResult::default()) }));
-        query_service
-            .expect_search_products_with_dynamic_semantics()
-            .times(0);
+        query_service.expect_search_products_hybrid().times(0);
 
         let mut embedding_service = MockMultimodalEmbeddingService::default();
         embedding_service.expect_embed_query().times(0);
@@ -1163,9 +1159,7 @@ mod tests {
                 let product = product.clone();
                 Box::pin(async move { Ok(mk_search_result(vec![product], None)) })
             });
-        query_service
-            .expect_search_products_with_dynamic_semantics()
-            .times(0);
+        query_service.expect_search_products_hybrid().times(0);
 
         let mut embedding_service = MockMultimodalEmbeddingService::default();
         embedding_service.expect_embed_query().times(0);
@@ -1227,9 +1221,7 @@ mod tests {
                 let product = product.clone();
                 Box::pin(async move { Ok(mk_search_result(vec![product], None)) })
             });
-        query_service
-            .expect_search_products_with_dynamic_semantics()
-            .times(0);
+        query_service.expect_search_products_hybrid().times(0);
 
         let mut embedding_service = MockMultimodalEmbeddingService::default();
         embedding_service.expect_embed_query().times(0);
@@ -1304,9 +1296,7 @@ mod tests {
                 let product = product.clone();
                 Box::pin(async move { Ok(mk_search_result(vec![product], None)) })
             });
-        query_service
-            .expect_search_products_with_dynamic_semantics()
-            .times(0);
+        query_service.expect_search_products_hybrid().times(0);
 
         let embedding_service = MockMultimodalEmbeddingService::default();
         let enhanced_service = MockEnhancedSearchMatchService::default();
@@ -1381,9 +1371,7 @@ mod tests {
                 let b = product_b.clone();
                 Box::pin(async move { Ok(mk_search_result(vec![a, b], None)) })
             });
-        query_service
-            .expect_search_products_with_dynamic_semantics()
-            .times(0);
+        query_service.expect_search_products_hybrid().times(0);
 
         let embedding_service = MockMultimodalEmbeddingService::default();
         let enhanced_service = MockEnhancedSearchMatchService::default();
@@ -1455,9 +1443,7 @@ mod tests {
             .expect_search_products()
             .times(MAX_ATTEMPTS)
             .returning(|_, _, _| Box::pin(async { Ok(CursoredResult::default()) }));
-        query_service
-            .expect_search_products_with_dynamic_semantics()
-            .times(0);
+        query_service.expect_search_products_hybrid().times(0);
 
         let mut embedding_service = MockMultimodalEmbeddingService::default();
         embedding_service.expect_embed_query().times(0);
@@ -1532,9 +1518,7 @@ mod tests {
             .expect_search_products()
             .times(3)
             .returning(|_, _, _| Box::pin(async { Ok(CursoredResult::default()) }));
-        query_service
-            .expect_search_products_with_dynamic_semantics()
-            .times(0);
+        query_service.expect_search_products_hybrid().times(0);
 
         let mut embedding_service = MockMultimodalEmbeddingService::default();
         embedding_service.expect_embed_query().times(0);
