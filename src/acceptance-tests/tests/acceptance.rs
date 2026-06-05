@@ -2066,6 +2066,24 @@ async fn should_complete_oauth_authorization_code_flow() {
     assert_eq!(200, token_response.status());
     let token = token_response.json::<TokenResponseData>().await.unwrap();
     assert_eq!("products:write", token.scope);
+    let third_party_exchange_code = token.third_party_exchange_code.clone().unwrap();
+
+    let third_party_token_response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/oauth/tokens/by-third-party-code/{}",
+            cfn.api_gateway_endpoint_url, third_party_exchange_code
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, third_party_token_response.status());
+    let third_party_token = third_party_token_response
+        .json::<TokenResponseData>()
+        .await
+        .unwrap();
+    assert_eq!("products:write", third_party_token.scope);
+    assert_eq!(token.access_token, third_party_token.access_token);
+    assert!(third_party_token.third_party_exchange_code.is_none());
 
     let introspect_response = reqwest::Client::new()
         .post(format!(

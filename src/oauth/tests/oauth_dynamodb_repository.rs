@@ -2,15 +2,17 @@ use common::oauth_client_id::OAuthClientId;
 use fake::{Fake, Faker};
 use oauth::core::authorization_code::{AuthorizationCode, CodeChallengeMethod, OAuthCodeChallenge};
 use oauth::core::client::{OAuthClient, OAuthClientName};
+use oauth::core::third_party_exchange_code::{ThirdPartyExchangeCode, ThirdPartyExchangeCodeGrant};
 use oauth::dynamodb::authorization_code_record::AuthorizationCodeRecord;
 use oauth::dynamodb::client_record::OAuthClientRecord;
 use oauth::dynamodb::client_record_update::OAuthClientRecordUpdate;
 use oauth::dynamodb::repository::{OAuthDynamoDbRepositoryImpl, OAuthRepository};
+use oauth::dynamodb::third_party_exchange_code_record::ThirdPartyExchangeCodeRecord;
 use std::collections::HashSet;
 use test_api::*;
 use time::{Duration, OffsetDateTime};
 use url::Url;
-use user::core::access_token::{RawOAuthClientSecret, Scope};
+use user::core::access_token::{RawAccessToken, RawOAuthClientSecret, Scope};
 use user::dynamodb::access_token_record::ScopeRecord;
 
 fn now() -> OffsetDateTime {
@@ -51,6 +53,18 @@ fn authorization_code(client: &OAuthClient) -> AuthorizationCode {
         code_challenge: OAuthCodeChallenge::from("challenge"),
         code_challenge_method: CodeChallengeMethod::S256,
         expires: now + Duration::minutes(10),
+        created: now,
+    }
+}
+
+fn third_party_exchange_code() -> ThirdPartyExchangeCodeGrant {
+    let now = now();
+    ThirdPartyExchangeCodeGrant {
+        code: ThirdPartyExchangeCode::new(),
+        access_token: RawAccessToken::new(),
+        access_token_expires: Some(now + Duration::hours(1)),
+        scopes: HashSet::from([Scope::ProductsWrite]),
+        expires: now + Duration::seconds(60),
         created: now,
     }
 }
@@ -215,6 +229,48 @@ async fn should_delete_authorization_code_record() {
     assert!(
         repository
             .get_authorization_code_record(&code.code)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_put_and_get_third_party_exchange_code_record() {
+    let repository = repository().await;
+    let code = third_party_exchange_code();
+
+    repository
+        .put_third_party_exchange_code_record(ThirdPartyExchangeCodeRecord::from(code.clone()))
+        .await
+        .unwrap();
+
+    let actual = repository
+        .get_third_party_exchange_code_record(&code.code)
+        .await
+        .unwrap()
+        .map(ThirdPartyExchangeCodeGrant::from)
+        .unwrap();
+    assert_eq!(code, actual);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_delete_third_party_exchange_code_record() {
+    let repository = repository().await;
+    let code = third_party_exchange_code();
+    repository
+        .put_third_party_exchange_code_record(ThirdPartyExchangeCodeRecord::from(code.clone()))
+        .await
+        .unwrap();
+
+    repository
+        .delete_third_party_exchange_code_record(&code.code)
+        .await
+        .unwrap();
+
+    assert!(
+        repository
+            .get_third_party_exchange_code_record(&code.code)
             .await
             .unwrap()
             .is_none()

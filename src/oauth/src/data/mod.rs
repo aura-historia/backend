@@ -60,6 +60,8 @@ pub struct TokenResponseData {
     pub token_type: AccessTokenTypeData,
     pub expires_in: Option<i64>,
     pub scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub third_party_exchange_code: Option<String>,
 }
 
 impl From<TokenResponse> for TokenResponseData {
@@ -71,6 +73,7 @@ impl From<TokenResponse> for TokenResponseData {
                 .expires
                 .map(|expires| (expires - OffsetDateTime::now_utc()).whole_seconds().max(0)),
             scope: scope_string(&response.scopes),
+            third_party_exchange_code: response.third_party_exchange_code.map(Into::into),
         }
     }
 }

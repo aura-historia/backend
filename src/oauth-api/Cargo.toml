@@ -25,3 +25,4 @@ base64 = { workspace = true }
 [dev-dependencies]
 test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
 fake = { workspace = true }
+serial_test = { workspace = true }

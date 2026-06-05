@@ -1,7 +1,9 @@
 use crate::core::authorization_code::OAuthAuthorizationCode;
+use crate::core::third_party_exchange_code::ThirdPartyExchangeCode;
 use crate::dynamodb::authorization_code_record::{self, AuthorizationCodeRecord};
 use crate::dynamodb::client_record::{self, OAuthClientRecord};
 use crate::dynamodb::client_record_update::OAuthClientRecordUpdate;
+use crate::dynamodb::third_party_exchange_code_record::{self, ThirdPartyExchangeCodeRecord};
 use aws_sdk_dynamodb::{
     Client,
     error::SdkError,
@@ -57,6 +59,21 @@ pub trait OAuthRepository {
     async fn delete_authorization_code_record(
         &self,
         code: &OAuthAuthorizationCode,
+    ) -> Result<DeleteItemOutput, SdkError<DeleteItemError>>;
+
+    async fn put_third_party_exchange_code_record(
+        &self,
+        record: ThirdPartyExchangeCodeRecord,
+    ) -> Result<PutItemOutput, SdkError<PutItemError>>;
+
+    async fn get_third_party_exchange_code_record(
+        &self,
+        code: &ThirdPartyExchangeCode,
+    ) -> Result<Option<ThirdPartyExchangeCodeRecord>, SdkError<GetItemError>>;
+
+    async fn delete_third_party_exchange_code_record(
+        &self,
+        code: &ThirdPartyExchangeCode,
     ) -> Result<DeleteItemOutput, SdkError<DeleteItemError>>;
 }
 
@@ -246,6 +263,68 @@ impl OAuthRepository for OAuthDynamoDbRepositoryImpl<'_> {
             .key(
                 "sk",
                 AttributeValue::S(authorization_code_record::mk_sk().to_owned()),
+            )
+            .send()
+            .await
+    }
+
+    async fn put_third_party_exchange_code_record(
+        &self,
+        record: ThirdPartyExchangeCodeRecord,
+    ) -> Result<PutItemOutput, SdkError<PutItemError>> {
+        let payload = serde_dynamo::to_item(record).map_err(SdkError::construction_failure)?;
+        self.client
+            .put_item()
+            .table_name(&self.table)
+            .set_item(Some(payload))
+            .send()
+            .await
+    }
+
+    async fn get_third_party_exchange_code_record(
+        &self,
+        code: &ThirdPartyExchangeCode,
+    ) -> Result<Option<ThirdPartyExchangeCodeRecord>, SdkError<GetItemError>> {
+        let rec = self
+            .client
+            .get_item()
+            .table_name(&self.table)
+            .key(
+                "pk",
+                AttributeValue::S(third_party_exchange_code_record::mk_pk(code)),
+            )
+            .key(
+                "sk",
+                AttributeValue::S(third_party_exchange_code_record::mk_sk().to_owned()),
+            )
+            .send()
+            .await?
+            .item
+            .map(serde_dynamo::from_item::<_, ThirdPartyExchangeCodeRecord>)
+            .and_then(|record_res| match record_res {
+                Ok(record) => Some(record),
+                Err(err) => {
+                    error!(error = %err, type = %std::any::type_name::<ThirdPartyExchangeCodeRecord>(), "Failed deserializing ThirdPartyExchangeCodeRecord.");
+                    None
+                }
+            });
+        Ok(rec)
+    }
+
+    async fn delete_third_party_exchange_code_record(
+        &self,
+        code: &ThirdPartyExchangeCode,
+    ) -> Result<DeleteItemOutput, SdkError<DeleteItemError>> {
+        self.client
+            .delete_item()
+            .table_name(&self.table)
+            .key(
+                "pk",
+                AttributeValue::S(third_party_exchange_code_record::mk_pk(code)),
+            )
+            .key(
+                "sk",
+                AttributeValue::S(third_party_exchange_code_record::mk_sk().to_owned()),
             )
             .send()
             .await

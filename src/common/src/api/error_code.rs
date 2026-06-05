@@ -66,6 +66,25 @@ pub const STRIPE_CUSTOMER_ALREADY_EXISTS: ApiErrorCode =
 pub const STRIPE_CUSTOMER_DOES_NOT_EXIST: ApiErrorCode =
     ApiErrorCode("STRIPE_CUSTOMER_DOES_NOT_EXIST");
 
+pub const OAUTH_INVALID_CLIENT_SECRET: ApiErrorCode = ApiErrorCode("INVALID_OAUTH_CLIENT_SECRET");
+pub const OAUTH_CLIENT_NOT_FOUND: ApiErrorCode = ApiErrorCode("OAUTH_CLIENT_NOT_FOUND");
+pub const OAUTH_INVALID_REDIRECT_URI: ApiErrorCode = ApiErrorCode("OAUTH_INVALID_REDIRECT_URI");
+pub const OAUTH_INVALID_SCOPE: ApiErrorCode = ApiErrorCode("OAUTH_INVALID_SCOPE");
+pub const OAUTH_CLIENT_FORBIDDEN: ApiErrorCode = ApiErrorCode("OAUTH_CLIENT_FORBIDDEN");
+pub const OAUTH_INVALID_CLIENT_METADATA: ApiErrorCode =
+    ApiErrorCode("OAUTH_INVALID_CLIENT_METADATA");
+pub const OAUTH_THIRD_PARTY_EXCHANGE_CODE_NOT_FOUND: ApiErrorCode =
+    ApiErrorCode("OAUTH_THIRD_PARTY_EXCHANGE_CODE_NOT_FOUND");
+pub const OAUTH_AUTHORIZATION_CODE_NOT_FOUND: ApiErrorCode =
+    ApiErrorCode("OAUTH_AUTHORIZATION_CODE_NOT_FOUND");
+pub const OAUTH_AUTHORIZATION_CODE_EXPIRED: ApiErrorCode =
+    ApiErrorCode("OAUTH_AUTHORIZATION_CODE_EXPIRED");
+pub const OAUTH_AUTHORIZATION_CODE_CLIENT_MISMATCH: ApiErrorCode =
+    ApiErrorCode("OAUTH_AUTHORIZATION_CODE_CLIENT_MISMATCH");
+pub const OAUTH_AUTHORIZATION_REDIRECT_URI_MISMATCH: ApiErrorCode =
+    ApiErrorCode("OAUTH_AUTHORIZATION_REDIRECT_URI_MISMATCH");
+pub const OAUTH_INVALID_CODE_VERIFIER: ApiErrorCode = ApiErrorCode("OAUTH_INVALID_CODE_VERIFIER");
+
 impl Display for ApiErrorCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
