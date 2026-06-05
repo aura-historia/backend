@@ -3,13 +3,22 @@ use crate::core::authorization_code::{
     OAuthCodeVerifier,
 };
 use crate::core::client::{OAuthClient, OAuthClientName};
+use crate::core::third_party_exchange_code::{ThirdPartyExchangeCode, ThirdPartyExchangeCodeGrant};
 use crate::dynamodb::authorization_code_record::AuthorizationCodeRecord;
 use crate::dynamodb::client_record::OAuthClientRecord;
 use crate::dynamodb::client_record_update::OAuthClientRecordUpdate;
 use crate::dynamodb::repository::OAuthRepository;
+use crate::dynamodb::third_party_exchange_code_record::ThirdPartyExchangeCodeRecord;
 use aws_sdk_dynamodb::error::SdkError;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use common::api::error_code::{
+    OAUTH_AUTHORIZATION_CODE_CLIENT_MISMATCH, OAUTH_AUTHORIZATION_CODE_EXPIRED,
+    OAUTH_AUTHORIZATION_CODE_NOT_FOUND, OAUTH_AUTHORIZATION_REDIRECT_URI_MISMATCH,
+    OAUTH_CLIENT_FORBIDDEN, OAUTH_CLIENT_NOT_FOUND, OAUTH_INVALID_CLIENT_METADATA,
+    OAUTH_INVALID_CLIENT_SECRET, OAUTH_INVALID_CODE_VERIFIER, OAUTH_INVALID_REDIRECT_URI,
+    OAUTH_INVALID_SCOPE, OAUTH_THIRD_PARTY_EXCHANGE_CODE_NOT_FOUND,
+};
 use common::oauth_client_id::OAuthClientId;
 use common::{
     actor::{RequestContext, domain::Actor},
@@ -28,6 +37,7 @@ use user::service::command::CreateAccessTokenCommand;
 use user::service::user_service::{UserService, UserServiceError};
 
 const AUTHORIZATION_CODE_TTL: time::Duration = time::Duration::minutes(10);
+const THIRD_PARTY_EXCHANGE_CODE_TTL: time::Duration = time::Duration::seconds(60);
 
 string_newtype!(OAuthState);
 
@@ -78,6 +88,7 @@ pub struct TokenResponse {
     pub token_type: OAuthTokenType,
     pub expires: Option<OffsetDateTime>,
     pub scopes: HashSet<Scope>,
+    pub third_party_exchange_code: Option<ThirdPartyExchangeCode>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -147,6 +158,10 @@ pub enum OAuthServiceError {
     AuthorizationCodeRedirectUriMismatch,
     #[error("PKCE code_verifier did not match code_challenge.")]
     InvalidCodeVerifier,
+    #[error("Third-party exchange code not found.")]
+    ThirdPartyExchangeCodeNotFound,
+    #[error("Third-party exchange code expired.")]
+    ThirdPartyExchangeCodeExpired,
     #[error("OAuth client does not belong to the authenticated user.")]
     ClientForbidden,
     #[error("OAuth client metadata is invalid: {0}")]
@@ -167,31 +182,66 @@ pub enum OAuthServiceError {
 
 impl From<OAuthServiceError> for common::api::error::ApiError {
     fn from(err: OAuthServiceError) -> Self {
-        use common::api::error_code::{
-            BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE, FORBIDDEN, UNAUTHORIZED,
-        };
-
         match err {
-            OAuthServiceError::InvalidClientSecret | OAuthServiceError::ClientNotFound => {
-                common::api::error::ApiError::unauthorized(UNAUTHORIZED)
+            OAuthServiceError::InvalidClientSecret => {
+                common::api::error::ApiError::unauthorized(OAUTH_INVALID_CLIENT_SECRET)
                     .with_detail(err.to_string())
             }
-            OAuthServiceError::InvalidRedirectUri | OAuthServiceError::InvalidScope => {
-                common::api::error::ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE, Box::new(err))
+            OAuthServiceError::ClientNotFound => {
+                common::api::error::ApiError::unauthorized(OAUTH_CLIENT_NOT_FOUND)
+                    .with_detail(err.to_string())
+            }
+            OAuthServiceError::InvalidRedirectUri => {
+                common::api::error::ApiError::bad_request(OAUTH_INVALID_REDIRECT_URI, Box::new(err))
+            }
+            OAuthServiceError::InvalidScope => {
+                common::api::error::ApiError::bad_request(OAUTH_INVALID_SCOPE, Box::new(err))
             }
             OAuthServiceError::ClientForbidden => {
-                common::api::error::ApiError::forbidden(FORBIDDEN).with_detail(err.to_string())
+                common::api::error::ApiError::forbidden(OAUTH_CLIENT_FORBIDDEN)
+                    .with_detail(err.to_string())
             }
             OAuthServiceError::InvalidClientMetadata(_) => {
-                common::api::error::ApiError::bad_request(BAD_BODY_VALUE, Box::new(err))
+                common::api::error::ApiError::bad_request(
+                    OAUTH_INVALID_CLIENT_METADATA,
+                    Box::new(err),
+                )
             }
-            OAuthServiceError::AuthorizationCodeNotFound
-            | OAuthServiceError::AuthorizationCodeExpired
-            | OAuthServiceError::AuthorizationCodeClientMismatch
-            | OAuthServiceError::AuthorizationCodeRedirectUriMismatch
-            | OAuthServiceError::InvalidCodeVerifier => {
-                common::api::error::ApiError::bad_request(BAD_BODY_VALUE, Box::new(err))
+            OAuthServiceError::ThirdPartyExchangeCodeNotFound
+            | OAuthServiceError::ThirdPartyExchangeCodeExpired => {
+                common::api::error::ApiError::bad_request(
+                    OAUTH_THIRD_PARTY_EXCHANGE_CODE_NOT_FOUND,
+                    Box::new(err),
+                )
             }
+            OAuthServiceError::AuthorizationCodeNotFound => {
+                common::api::error::ApiError::bad_request(
+                    OAUTH_AUTHORIZATION_CODE_NOT_FOUND,
+                    Box::new(err),
+                )
+            }
+            OAuthServiceError::AuthorizationCodeExpired => {
+                common::api::error::ApiError::bad_request(
+                    OAUTH_AUTHORIZATION_CODE_EXPIRED,
+                    Box::new(err),
+                )
+            }
+            OAuthServiceError::AuthorizationCodeClientMismatch => {
+                common::api::error::ApiError::bad_request(
+                    OAUTH_AUTHORIZATION_CODE_CLIENT_MISMATCH,
+                    Box::new(err),
+                )
+            }
+            OAuthServiceError::AuthorizationCodeRedirectUriMismatch => {
+                common::api::error::ApiError::bad_request(
+                    OAUTH_AUTHORIZATION_REDIRECT_URI_MISMATCH,
+                    Box::new(err),
+                )
+            }
+            OAuthServiceError::InvalidCodeVerifier => common::api::error::ApiError::bad_request(
+                OAUTH_INVALID_CODE_VERIFIER,
+                Box::new(err),
+            ),
             OAuthServiceError::SdkGetItemError(sdk_error) => sdk_error.into(),
             OAuthServiceError::SdkPutItemError(sdk_error) => sdk_error.into(),
             OAuthServiceError::SdkQueryError(sdk_error) => sdk_error.into(),
@@ -236,6 +286,11 @@ pub trait OAuthService {
     ) -> Result<AuthorizeResponse, OAuthServiceError>;
 
     async fn token(&self, request: TokenRequest) -> Result<TokenResponse, OAuthServiceError>;
+
+    async fn token_by_third_party_code(
+        &self,
+        code: &ThirdPartyExchangeCode,
+    ) -> Result<TokenResponse, OAuthServiceError>;
 
     async fn revoke(
         &self,
@@ -475,11 +530,52 @@ impl OAuthService for OAuthServiceImpl<'_> {
                 },
             )
             .await?;
+        let now = OffsetDateTime::now_utc();
+        let third_party_exchange_code = ThirdPartyExchangeCodeGrant {
+            code: ThirdPartyExchangeCode::new(),
+            access_token: raw.clone(),
+            access_token_expires: access_token.expires,
+            scopes: access_token.scopes.clone(),
+            expires: now + THIRD_PARTY_EXCHANGE_CODE_TTL,
+            created: now,
+        };
+        self.repository
+            .put_third_party_exchange_code_record(ThirdPartyExchangeCodeRecord::from(
+                third_party_exchange_code.clone(),
+            ))
+            .await?;
         Ok(TokenResponse {
             access_token: raw,
             token_type: OAuthTokenType::Bearer,
             expires: access_token.expires,
             scopes: access_token.scopes,
+            third_party_exchange_code: Some(third_party_exchange_code.code),
+        })
+    }
+
+    async fn token_by_third_party_code(
+        &self,
+        code: &ThirdPartyExchangeCode,
+    ) -> Result<TokenResponse, OAuthServiceError> {
+        let exchange_code = self
+            .repository
+            .get_third_party_exchange_code_record(code)
+            .await?
+            .map(ThirdPartyExchangeCodeGrant::from)
+            .ok_or(OAuthServiceError::ThirdPartyExchangeCodeNotFound)?;
+        self.repository
+            .delete_third_party_exchange_code_record(code)
+            .await?;
+        if exchange_code.is_expired() {
+            return Err(OAuthServiceError::ThirdPartyExchangeCodeExpired);
+        }
+
+        Ok(TokenResponse {
+            access_token: exchange_code.access_token,
+            token_type: OAuthTokenType::Bearer,
+            expires: exchange_code.access_token_expires,
+            scopes: exchange_code.scopes,
+            third_party_exchange_code: None,
         })
     }
 
@@ -1000,6 +1096,20 @@ mod tests {
                     )
                 })
             });
+        repository
+            .expect_put_third_party_exchange_code_record()
+            .return_once(|record| {
+                assert_eq!(
+                    HashSet::from([
+                        user::dynamodb::access_token_record::ScopeRecord::ProductsWrite
+                    ]),
+                    record.scopes
+                );
+                assert_eq!(60, record.expires - record.created.unix_timestamp());
+                Box::pin(async {
+                    Ok(aws_sdk_dynamodb::operation::put_item::PutItemOutput::builder().build())
+                })
+            });
         let mut user_service = MockUserService::default();
         user_service
             .expect_create_access_token()
@@ -1037,6 +1147,170 @@ mod tests {
 
         assert_eq!(HashSet::from([Scope::ProductsWrite]), response.scopes);
         assert_eq!(None, response.expires);
+        assert!(response.third_party_exchange_code.is_some());
+    }
+
+    #[tokio::test]
+    async fn should_exchange_third_party_exchange_code_for_access_token() {
+        let now = OffsetDateTime::from_unix_timestamp(OffsetDateTime::now_utc().unix_timestamp())
+            .unwrap();
+        let code = ThirdPartyExchangeCode::new();
+        let raw = RawAccessToken::new();
+        let grant = ThirdPartyExchangeCodeGrant {
+            code,
+            access_token: raw.clone(),
+            access_token_expires: Some(now + time::Duration::hours(1)),
+            scopes: HashSet::from([Scope::ProductsWrite]),
+            expires: now + THIRD_PARTY_EXCHANGE_CODE_TTL,
+            created: now,
+        };
+        let mut repository = MockOAuthRepository::default();
+        repository
+            .expect_get_third_party_exchange_code_record()
+            .return_once(move |actual_code| {
+                assert_eq!(&code, actual_code);
+                Box::pin(async move { Ok(Some(ThirdPartyExchangeCodeRecord::from(grant))) })
+            });
+        repository
+            .expect_delete_third_party_exchange_code_record()
+            .return_once(move |actual_code| {
+                assert_eq!(&code, actual_code);
+                Box::pin(async {
+                    Ok(
+                        aws_sdk_dynamodb::operation::delete_item::DeleteItemOutput::builder()
+                            .build(),
+                    )
+                })
+            });
+        let user_service = MockUserService::default();
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        let response = service.token_by_third_party_code(&code).await.unwrap();
+
+        assert_eq!(raw, response.access_token);
+        assert_eq!(Some(now + time::Duration::hours(1)), response.expires);
+        assert_eq!(HashSet::from([Scope::ProductsWrite]), response.scopes);
+        assert!(response.third_party_exchange_code.is_none());
+    }
+
+    #[tokio::test]
+    async fn should_reject_missing_third_party_exchange_code() {
+        let code = ThirdPartyExchangeCode::new();
+        let mut repository = MockOAuthRepository::default();
+        repository
+            .expect_get_third_party_exchange_code_record()
+            .return_once(move |actual_code| {
+                assert_eq!(&code, actual_code);
+                Box::pin(async { Ok(None) })
+            });
+        let user_service = MockUserService::default();
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        let err = service.token_by_third_party_code(&code).await.unwrap_err();
+
+        assert!(matches!(
+            err,
+            OAuthServiceError::ThirdPartyExchangeCodeNotFound
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_reject_expired_third_party_exchange_code() {
+        let now = OffsetDateTime::from_unix_timestamp(OffsetDateTime::now_utc().unix_timestamp())
+            .unwrap();
+        let code = ThirdPartyExchangeCode::new();
+        let grant = ThirdPartyExchangeCodeGrant {
+            code,
+            access_token: RawAccessToken::new(),
+            access_token_expires: None,
+            scopes: HashSet::from([Scope::ProductsWrite]),
+            expires: now - time::Duration::seconds(1),
+            created: now - THIRD_PARTY_EXCHANGE_CODE_TTL,
+        };
+        let mut repository = MockOAuthRepository::default();
+        repository
+            .expect_get_third_party_exchange_code_record()
+            .return_once(move |actual_code| {
+                assert_eq!(&code, actual_code);
+                Box::pin(async move { Ok(Some(ThirdPartyExchangeCodeRecord::from(grant))) })
+            });
+        repository
+            .expect_delete_third_party_exchange_code_record()
+            .return_once(move |actual_code| {
+                assert_eq!(&code, actual_code);
+                Box::pin(async {
+                    Ok(
+                        aws_sdk_dynamodb::operation::delete_item::DeleteItemOutput::builder()
+                            .build(),
+                    )
+                })
+            });
+        let user_service = MockUserService::default();
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        let err = service.token_by_third_party_code(&code).await.unwrap_err();
+
+        assert!(matches!(
+            err,
+            OAuthServiceError::ThirdPartyExchangeCodeExpired
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_propagate_get_error_when_exchanging_third_party_exchange_code() {
+        let code = ThirdPartyExchangeCode::new();
+        let mut repository = MockOAuthRepository::default();
+        repository
+            .expect_get_third_party_exchange_code_record()
+            .return_once(|_| {
+                Box::pin(async {
+                    Err(aws_sdk_dynamodb::error::SdkError::construction_failure(
+                        "get failed",
+                    ))
+                })
+            });
+        let user_service = MockUserService::default();
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        let err = service.token_by_third_party_code(&code).await.unwrap_err();
+
+        assert!(matches!(err, OAuthServiceError::SdkGetItemError(_)));
+    }
+
+    #[tokio::test]
+    async fn should_propagate_delete_error_when_exchanging_third_party_exchange_code() {
+        let now = OffsetDateTime::from_unix_timestamp(OffsetDateTime::now_utc().unix_timestamp())
+            .unwrap();
+        let code = ThirdPartyExchangeCode::new();
+        let grant = ThirdPartyExchangeCodeGrant {
+            code,
+            access_token: RawAccessToken::new(),
+            access_token_expires: None,
+            scopes: HashSet::from([Scope::ProductsWrite]),
+            expires: now + THIRD_PARTY_EXCHANGE_CODE_TTL,
+            created: now,
+        };
+        let mut repository = MockOAuthRepository::default();
+        repository
+            .expect_get_third_party_exchange_code_record()
+            .return_once(move |_| {
+                Box::pin(async move { Ok(Some(ThirdPartyExchangeCodeRecord::from(grant))) })
+            });
+        repository
+            .expect_delete_third_party_exchange_code_record()
+            .return_once(|_| {
+                Box::pin(async {
+                    Err(aws_sdk_dynamodb::error::SdkError::construction_failure(
+                        "delete failed",
+                    ))
+                })
+            });
+        let user_service = MockUserService::default();
+        let service = OAuthServiceImpl::new(&repository, &user_service);
+
+        let err = service.token_by_third_party_code(&code).await.unwrap_err();
+
+        assert!(matches!(err, OAuthServiceError::SdkDeleteItemError(_)));
     }
 
     #[tokio::test]

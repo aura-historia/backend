@@ -1332,6 +1332,13 @@ Resources:
       RouteKey: "POST /api/v1/oauth/token"
       AuthorizationType: NONE
       Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
+  OAuthApiTokenByThirdPartyCodeRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/oauth/tokens/by-third-party-code/{thirdPartyCode}"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${OAuthApiLambdaIntegration}"
   OAuthApiRevokeRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:

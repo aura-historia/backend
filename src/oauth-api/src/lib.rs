@@ -12,6 +12,7 @@ use lambda_runtime::LambdaEvent;
 use oauth::core::authorization_code::{
     CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge, OAuthCodeVerifier,
 };
+use oauth::core::third_party_exchange_code::ThirdPartyExchangeCode;
 use oauth::data::{
     OAuthClientMetadataPatchData, OAuthClientMetadataRequestData, OAuthClientMetadataResponseData,
 };
@@ -70,6 +71,9 @@ pub async fn handle(
         }
         Some("GET /api/v1/oauth/authorize") => authorize(event, service).await,
         Some("POST /api/v1/oauth/token") => token(event, service).await,
+        Some("GET /api/v1/oauth/tokens/by-third-party-code/{thirdPartyCode}") => {
+            token_by_third_party_code(event, service).await
+        }
         Some("POST /api/v1/oauth/revoke") => revoke(event, service).await,
         Some("POST /api/v1/oauth/introspect") => introspect(event, service).await,
         Some(unknown) => Err(ApiError::internal_server_error(
@@ -264,6 +268,15 @@ async fn token(
     response::json_no_store(200, oauth::data::TokenResponseData::from(response))
 }
 
+async fn token_by_third_party_code(
+    event: LambdaEvent<ApiGatewayV2httpRequest>,
+    service: &impl OAuthService,
+) -> Result<ApiGatewayV2httpResponse, ApiError> {
+    let third_party_code = extract_third_party_code_path(&event.payload.path_parameters)?;
+    let response = service.token_by_third_party_code(&third_party_code).await?;
+    response::json_no_store(200, oauth::data::TokenResponseData::from(response))
+}
+
 async fn revoke(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl OAuthService,
@@ -358,6 +371,29 @@ fn extract_client_id_path(
             )
             .with_detail("Missing path parameter clientId")
             .with_path_field("clientId")
+        })
+}
+
+fn extract_third_party_code_path(
+    path_parameters: &std::collections::HashMap<String, String>,
+) -> Result<ThirdPartyExchangeCode, ApiError> {
+    path_parameters
+        .get("thirdPartyCode")
+        .map(ThirdPartyExchangeCode::try_from)
+        .transpose()
+        .map_err(|err| {
+            let msg = err.to_string();
+            ApiError::bad_request(INVALID_UUID, Box::new(err))
+                .with_detail(msg)
+                .with_path_field("thirdPartyCode")
+        })?
+        .ok_or_else(|| {
+            ApiError::bad_request(
+                BAD_PATH_PARAMETER_VALUE,
+                "Missing path parameter thirdPartyCode".into(),
+            )
+            .with_detail("Missing path parameter thirdPartyCode")
+            .with_path_field("thirdPartyCode")
         })
 }
 
@@ -862,6 +898,7 @@ mod tests {
                     token_type: OAuthTokenType::Bearer,
                     expires: Some(time::OffsetDateTime::now_utc() + time::Duration::hours(1)),
                     scopes: HashSet::from([Scope::ProductsWrite]),
+                    third_party_exchange_code: Some(ThirdPartyExchangeCode::new()),
                 })
             })
         });
@@ -886,6 +923,126 @@ mod tests {
 
         let response = token(event, &service).await.unwrap();
         assert_eq!(200, response.status_code);
+        let body = match response.body.unwrap() {
+            aws_lambda_events::encodings::Body::Text(body) => body,
+            body => panic!("unexpected response body: {body:?}"),
+        };
+        let data = serde_json::from_str::<oauth::data::TokenResponseData>(&body).unwrap();
+        assert!(data.third_party_exchange_code.is_some());
+    }
+
+    #[tokio::test]
+    async fn should_exchange_token_by_third_party_code() {
+        let third_party_code = ThirdPartyExchangeCode::new();
+        let token_value: String = RawAccessToken::new().into();
+        let mut service = MockOAuthService::default();
+        service
+            .expect_token_by_third_party_code()
+            .return_once(move |actual_code| {
+                assert_eq!(&third_party_code, actual_code);
+                Box::pin(async move {
+                    Ok(TokenResponse {
+                        access_token: RawAccessToken::try_from(token_value).unwrap(),
+                        token_type: OAuthTokenType::Bearer,
+                        expires: None,
+                        scopes: HashSet::from([Scope::ProductsWrite]),
+                        third_party_exchange_code: None,
+                    })
+                })
+            });
+        let event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/oauth/tokens/by-third-party-code/{thirdPartyCode}")
+                .path_parameter("thirdPartyCode", third_party_code.to_string())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = token_by_third_party_code(event, &service).await.unwrap();
+
+        assert_eq!(200, response.status_code);
+        let body = match response.body.unwrap() {
+            aws_lambda_events::encodings::Body::Text(body) => body,
+            body => panic!("unexpected response body: {body:?}"),
+        };
+        let data = serde_json::from_str::<oauth::data::TokenResponseData>(&body).unwrap();
+        assert_eq!("products:write", data.scope);
+        assert!(data.third_party_exchange_code.is_none());
+    }
+
+    #[tokio::test]
+    async fn should_reject_invalid_third_party_code_path() {
+        let service = MockOAuthService::default();
+        let event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/oauth/tokens/by-third-party-code/{thirdPartyCode}")
+                .path_parameter("thirdPartyCode", "not-a-uuid")
+                .build(),
+            context: Default::default(),
+        };
+
+        let err = token_by_third_party_code(event, &service)
+            .await
+            .unwrap_err();
+
+        assert_eq!(400, err.status);
+        assert_eq!(
+            Some("thirdPartyCode"),
+            err.source.map(|source| source.field)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_reject_missing_third_party_code_path() {
+        let service = MockOAuthService::default();
+        let event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/oauth/tokens/by-third-party-code/{thirdPartyCode}")
+                .build(),
+            context: Default::default(),
+        };
+
+        let err = token_by_third_party_code(event, &service)
+            .await
+            .unwrap_err();
+
+        assert_eq!(400, err.status);
+        assert_eq!(
+            Some("thirdPartyCode"),
+            err.source.map(|source| source.field)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_map_third_party_code_service_errors() {
+        let third_party_code = ThirdPartyExchangeCode::new();
+        let mut service = MockOAuthService::default();
+        service
+            .expect_token_by_third_party_code()
+            .return_once(move |_| {
+                Box::pin(async {
+                    Err(
+                        oauth::service::oauth_service::OAuthServiceError::ThirdPartyExchangeCodeNotFound,
+                    )
+                })
+            });
+        let event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/oauth/tokens/by-third-party-code/{thirdPartyCode}")
+                .path_parameter("thirdPartyCode", third_party_code.to_string())
+                .build(),
+            context: Default::default(),
+        };
+
+        let err = token_by_third_party_code(event, &service)
+            .await
+            .unwrap_err();
+
+        assert_eq!(400, err.status);
     }
 
     #[tokio::test]

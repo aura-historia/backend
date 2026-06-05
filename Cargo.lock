@@ -4584,6 +4584,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_qs",
+ "serial_test",
  "test-api",
  "thiserror 2.0.18",
  "time",
