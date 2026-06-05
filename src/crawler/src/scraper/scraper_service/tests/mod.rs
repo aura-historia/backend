@@ -21,10 +21,10 @@ use crate::scraper::css_selector::rule::{
 };
 use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::normalization::product_normalization_service::MockProductNormalizationService;
-use crate::scraper::scraper_service::service::{
-    MockHtmlFetcher, ScraperServiceImpl, DEFAULT_MAX_LLM_CALLS_PER_SHOP,
-};
 use crate::scraper::scraper_service::ScraperService;
+use crate::scraper::scraper_service::service::{
+    DEFAULT_MAX_LLM_CALLS_PER_SHOP, MockHtmlFetcher, ScraperServiceImpl,
+};
 use crate::spider::classification::url_metadata::UrlState;
 use common::language::domain::Language;
 use common::localized::Localized;

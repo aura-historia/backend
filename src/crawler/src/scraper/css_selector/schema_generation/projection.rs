@@ -1,5 +1,5 @@
 use kuchiki::traits::*;
-use kuchiki::{parse_html, NodeRef};
+use kuchiki::{NodeRef, parse_html};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
@@ -138,8 +138,8 @@ fn is_layout_only_attrs(attrs: &BTreeMap<String, String>) -> bool {
     attrs.is_empty()
         || (attrs.len() == 1 && attrs.contains_key("class"))
         || attrs
-        .keys()
-        .all(|key| matches!(key.as_str(), "class" | "id"))
+            .keys()
+            .all(|key| matches!(key.as_str(), "class" | "id"))
 }
 
 fn has_product_specific_context(attrs: &BTreeMap<String, String>) -> bool {
@@ -234,8 +234,8 @@ fn is_image_like_anchor_context(
 ) -> bool {
     tag == "a"
         && (anchor_wraps_image(node)
-        || attrs_have_image_context(attrs)
-        || path_has_image_context(href))
+            || attrs_have_image_context(attrs)
+            || path_has_image_context(href))
 }
 
 fn anchor_wraps_image(node: &NodeRef) -> bool {
@@ -270,11 +270,11 @@ fn attrs_have_image_context(attrs: &kuchiki::Attributes) -> bool {
         attrs.get("data-lightbox"),
         attrs.get("data-fancybox"),
     ]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_ascii_lowercase();
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" ")
+    .to_ascii_lowercase();
 
     IMAGE_CONTEXT_TERMS
         .iter()
@@ -286,8 +286,8 @@ fn path_has_image_context(href: &str) -> bool {
     [
         "/photo", "/photos", "/image", "/images", "/media", "/uploads", "/cdn/", "cdn.",
     ]
-        .iter()
-        .any(|term| lower.contains(term))
+    .iter()
+    .any(|term| lower.contains(term))
 }
 
 fn projected_attr_limit(name: &str) -> usize {

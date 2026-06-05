@@ -1,10 +1,10 @@
-use crate::google_llm::{run_with_gemini_rate_limiter, GeminiRateLimiter};
+use crate::google_llm::{GeminiRateLimiter, run_with_gemini_rate_limiter};
 use crate::logging::llm_metrics;
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, ShopsProductSchema,
 };
 use crate::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepository;
-use common::logging::{log_llm_invocation, GeminiServiceTier, LlmModel, LlmOperation, LlmProvider};
+use common::logging::{GeminiServiceTier, LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
 use common::shop_id::ShopId;
 use llm::{
     chat::{ChatMessage, ChatProvider},
@@ -31,8 +31,8 @@ mod response;
 pub use projection::{clean_html_for_schema_generation, html_to_schema_prompt_dsl};
 pub use prompt::SchemaPromptSource;
 pub use response::{
-    strip_markdown_json_embedding, GeneratedProductSchemas, SchemaLlmEvaluation,
-    SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision, SchemaLlmPageFinding,
+    GeneratedProductSchemas, SchemaLlmEvaluation, SchemaLlmEvaluationConfidence,
+    SchemaLlmEvaluationDecision, SchemaLlmPageFinding, strip_markdown_json_embedding,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -436,7 +436,7 @@ mod tests {
             "risks": [],
             "page_findings": [],
         }))
-            .expect("generated response should serialize")
+        .expect("generated response should serialize")
     }
 
     #[test]
@@ -958,7 +958,7 @@ mod tests {
             "schemas": [sample_css_schema()],
             "summary": "missing confidence"
         }))
-            .unwrap();
+        .unwrap();
         let parsed = parse_product_schemas_response(&payload);
         assert!(parsed.is_err());
     }
@@ -974,7 +974,7 @@ mod tests {
                 {"role": "PRIMARY", "schema_index": 0, "finding": "Required fields are present."}
             ]
         }))
-            .unwrap();
+        .unwrap();
 
         let generated = parse_product_schemas_response(&payload).unwrap();
         let evaluation = generated.evaluation;

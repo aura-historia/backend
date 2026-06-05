@@ -3,6 +3,25 @@ use crate::scraper::css_selector::product_schema::ApplySchemaError;
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::normalization::error::NormalizationError;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
+use crate::scraper::scraper_service::util::html::normalization_error_to_schema_hint;
+
+#[test]
+fn should_not_map_no_valid_images_to_schema_repair_hint() {
+    assert!(
+        normalization_error_to_schema_hint(&NormalizationError::NoValidImages { candidates: 2 })
+            .is_none()
+    );
+}
+
+#[test]
+fn should_still_map_fixable_normalization_errors_to_schema_repair_hint() {
+    assert!(matches!(
+        normalization_error_to_schema_hint(&NormalizationError::TitleEmpty),
+        Some(ApplySchemaError::Title(
+            ExtractionError::NoElementMatched { .. }
+        ))
+    ));
+}
 
 #[tokio::test]
 async fn should_regenerate_schema_when_normalization_error_is_fixable() {
@@ -154,6 +173,64 @@ async fn should_not_regenerate_schema_when_normalization_error_is_not_fixable() 
 }
 
 #[tokio::test]
+async fn should_not_regenerate_schema_when_image_policy_rejects_all_candidates() {
+    let id = shop_id();
+    let url = product_url();
+    let html = r#"<!DOCTYPE html>
+    <html>
+    <body>
+      <main>
+        <span id="product-id">SKU-42</span>
+        <h1>Biedermeier Chair</h1>
+        <span id="state">In Stock</span>
+        <img src="/image-100x100.jpg">
+        <img src="/image-120x120.jpg">
+      </main>
+    </body>
+    </html>"#
+        .to_string();
+
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher.expect_fetch().once().returning(move |_| {
+        let html = html.clone();
+        Box::pin(async move { Ok(html) })
+    });
+
+    let schema = shops_product_schema(id);
+    let mut schema_svc = MockProductSchemaService::new();
+    schema_svc
+        .expect_find_product_schema()
+        .once()
+        .returning(move |_| {
+            let schema = schema.clone();
+            Box::pin(async move { Ok(Some(schema)) })
+        });
+    schema_svc.expect_append_single_schema().never();
+    schema_svc.expect_save_product_schemas().never();
+
+    let mut norm_svc = MockProductNormalizationService::new();
+    norm_svc.expect_normalize().never();
+
+    let cand_svc = MockScraperCandidateService::new();
+
+    let service = ScraperServiceImpl::new_with_schema_seed_pages(
+        Box::new(fetcher),
+        Box::new(schema_svc),
+        Box::new(norm_svc),
+        Arc::new(cand_svc),
+        3,
+        1,
+        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+    );
+
+    let err = service.scrape(&id, &url, None).await.unwrap_err();
+    assert!(matches!(
+        err,
+        ScraperError::NormalizationError(NormalizationError::NoValidImages { candidates: 2 })
+    ));
+}
+
+#[tokio::test]
 async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
     let id = shop_id();
     let url = product_url();
@@ -270,8 +347,7 @@ async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
 /// `fix_normalization_with_schema_retry` must exhaust its attempts and
 /// return `NormalizationFixExhausted` rather than `SchemaRegenerationExhausted`.
 #[tokio::test]
-async fn should_return_normalization_fix_exhausted_when_schema_applies_but_normalization_keeps_failing()
-{
+async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_keeps_failing() {
     let id = shop_id();
     let url = product_url();
 

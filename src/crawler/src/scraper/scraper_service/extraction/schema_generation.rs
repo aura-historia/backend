@@ -1,4 +1,4 @@
-use crate::review::model::{SchemaReviewPageInput, PAGE_ROLE_PRIMARY, PAGE_ROLE_SEED};
+use crate::review::model::{PAGE_ROLE_PRIMARY, PAGE_ROLE_SEED, SchemaReviewPageInput};
 use crate::review::schema_evaluation::{
     evaluate_schema_matrix_for_inputs, schema_matrix_has_required_coverage, unused_schema_indices,
 };
@@ -10,7 +10,7 @@ use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use common::shop_id::ShopId;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::{debug, info};
 use url::Url;
 

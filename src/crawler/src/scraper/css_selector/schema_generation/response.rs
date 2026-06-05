@@ -1,5 +1,5 @@
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
-use schemars::{schema_for, JsonSchema};
+use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

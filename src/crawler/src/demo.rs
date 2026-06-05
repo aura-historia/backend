@@ -40,10 +40,10 @@ use common::domain::Domain;
 use common::logging::GeminiServiceTier;
 use common::shop_id::ShopId;
 use crawler::google_llm::{
-    gemini_flex_enabled, google_llm_builder, state_mapping_gemini_model, url_classification_gemini_model,
-    GeminiRateLimitConfig, GeminiRateLimiter,
+    GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
+    state_mapping_gemini_model, url_classification_gemini_model,
 };
-use crawler::local_db::{bootstrap_local_database, demo_db_url, DEMO_DB_NAME};
+use crawler::local_db::{DEMO_DB_NAME, bootstrap_local_database, demo_db_url};
 use crawler::review::repository::CrawlerReviewRepository;
 use crawler::review::server::{ReviewServer, ReviewServerConfig};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
@@ -53,7 +53,7 @@ use crawler::scraper::normalization::product_normalization_service::ProductNorma
 use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
 use crawler::scraper::scraper_service::{
-    ReqwestHtmlFetcher, ScraperServiceImpl, DEFAULT_SCHEMA_SEED_PAGES,
+    DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
 };
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crawler::service::product_push::FileProductPushService;
@@ -70,7 +70,7 @@ use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
 use shop::core::shop_type::ShopType;
-use tracing::{error, info, Instrument};
+use tracing::{Instrument, error, info};
 
 // ---------------------------------------------------------------------------
 // Demo shop source — returns hardcoded shops (no OpenSearch needed)
@@ -207,7 +207,7 @@ async fn main() {
             state_mapping_repo,
             Some(Arc::clone(&gemini_rate_limiter)),
         )
-            .expect("failed to build ProductStateMappingServiceImpl");
+        .expect("failed to build ProductStateMappingServiceImpl");
         let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
         let schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
@@ -221,7 +221,7 @@ async fn main() {
             schema_repo,
             Some(Arc::clone(&gemini_rate_limiter)),
         )
-            .expect("failed to build ProductSchemaServiceImpl");
+        .expect("failed to build ProductSchemaServiceImpl");
 
         let scraper_candidates = Box::new(
             ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
@@ -246,7 +246,7 @@ async fn main() {
                 config.scraper_schema_seed_pages,
                 config.scraper_max_llm_calls_per_shop,
             )
-                .with_review_gate(review_repo.clone(), review_required),
+            .with_review_gate(review_repo.clone(), review_required),
         );
 
         let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
@@ -259,7 +259,7 @@ async fn main() {
                 llm_service_tier,
                 Some(Arc::clone(&gemini_rate_limiter)),
             )
-                .unwrap(),
+            .unwrap(),
         );
         let pattern_svc = Box::new(UrlPatternServiceImpl::new_with_review(
             Arc::new(*url_pattern_repo),
@@ -328,12 +328,12 @@ async fn main() {
             }
         }
     }
-        .instrument(tracing::info_span!(
+    .instrument(tracing::info_span!(
         "crawler_demo",
         entrypoint = "demo",
         database = DEMO_DB_NAME
     ))
-        .await;
+    .await;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 use crate::review::model::SchemaMatrix;
-use crate::review::model::{SchemaReviewPageInput, STATUS_APPROVED};
+use crate::review::model::{STATUS_APPROVED, SchemaReviewPageInput};
 use crate::review::repository::SchemaReviewWithStatusInput;
 use crate::review::schema_evaluation::{
     evaluate_schema_matrix_for_inputs, schema_matrix_has_required_coverage, unused_schema_indices,
@@ -11,7 +11,7 @@ use crate::scraper::css_selector::product_schema_service::{
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use common::shop_id::ShopId;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::info;
 
 pub(crate) enum GeneratedSchemaReviewOutcome {
