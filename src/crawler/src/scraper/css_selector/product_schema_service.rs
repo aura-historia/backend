@@ -454,7 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn should_project_compact_product_json_ld_summary() {
+    fn should_not_project_product_json_ld_scripts() {
         let html = r#"
             <script type="application/ld+json">
             {
@@ -478,12 +478,10 @@ mod tests {
 
         let dsl = html_to_schema_prompt_dsl(html);
 
-        assert!(dsl.contains("tag: json_ld_product"));
-        assert!(dsl.contains("sku: SKU-42"));
-        assert!(dsl.contains("name: Biedermeier Chair"));
-        assert!(dsl.contains("offers.price: '1200'"));
-        assert!(dsl.contains("offers.priceCurrency: EUR"));
-        assert!(dsl.contains("offers.availability: https://schema.org/InStock"));
+        assert!(!dsl.contains("tag: json_ld_product"));
+        assert!(!dsl.contains("SKU-42"));
+        assert!(!dsl.contains("Biedermeier Chair"));
+        assert!(!dsl.contains("offers"));
         assert!(!dsl.contains("window.noise"));
         assert!(!dsl.contains("tag: script"));
     }

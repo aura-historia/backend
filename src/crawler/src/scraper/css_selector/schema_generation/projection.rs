@@ -58,7 +58,6 @@ struct HtmlYamlNode {
 
 pub fn html_to_schema_prompt_dsl(input: &str) -> String {
     let document = parse_html().one(input);
-    let product_json_ld_nodes = product_json_ld_nodes(&document);
 
     for selector in REMOVED_DSL_TAGS {
         if let Ok(nodes) = document.select(selector) {
@@ -70,8 +69,7 @@ pub fn html_to_schema_prompt_dsl(input: &str) -> String {
     remove_comments(&document);
 
     let mut projected_count = 0;
-    let mut nodes = product_json_ld_nodes;
-    nodes.extend(project_children(&document, &mut projected_count));
+    let nodes = project_children(&document, &mut projected_count);
     let page = PageDsl { nodes };
 
     yaml_serde::to_string(&PageDslRoot { page_dsl: page })
@@ -346,138 +344,6 @@ const PROJECTED_ATTRS: &[&str] = &[
     "data-test",
     "data-cy",
 ];
-
-fn product_json_ld_nodes(document: &NodeRef) -> Vec<HtmlYamlNode> {
-    let Ok(scripts) = document.select(r#"script[type="application/ld+json"]"#) else {
-        return Vec::new();
-    };
-
-    scripts
-        .filter_map(|script| {
-            let raw = script.as_node().text_contents();
-            let parsed = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
-            product_json_ld_attrs(&parsed).map(|attrs| HtmlYamlNode {
-                tag: "json_ld_product".to_string(),
-                attrs,
-                text: None,
-                children: Vec::new(),
-            })
-        })
-        .collect()
-}
-
-fn product_json_ld_attrs(value: &serde_json::Value) -> Option<BTreeMap<String, String>> {
-    let product = find_product_json_ld(value)?;
-    let mut attrs = BTreeMap::new();
-    insert_json_ld_field(&mut attrs, "@type", product.get("@type"));
-    insert_json_ld_field(&mut attrs, "sku", product.get("sku"));
-    insert_json_ld_field(&mut attrs, "name", product.get("name"));
-    insert_json_ld_field(&mut attrs, "image", product.get("image"));
-    insert_json_ld_field(&mut attrs, "brand", product.get("brand"));
-    insert_json_ld_field(&mut attrs, "seller", product.get("seller"));
-
-    if let Some(offers) = product.get("offers") {
-        insert_json_ld_field(
-            &mut attrs,
-            "offers.price",
-            json_ld_nested_field(offers, "price"),
-        );
-        insert_json_ld_field(
-            &mut attrs,
-            "offers.priceCurrency",
-            json_ld_nested_field(offers, "priceCurrency"),
-        );
-        insert_json_ld_field(
-            &mut attrs,
-            "offers.availability",
-            json_ld_nested_field(offers, "availability"),
-        );
-    }
-
-    if attrs.is_empty() { None } else { Some(attrs) }
-}
-
-fn find_product_json_ld(
-    value: &serde_json::Value,
-) -> Option<&serde_json::Map<String, serde_json::Value>> {
-    match value {
-        serde_json::Value::Object(object) => {
-            if json_ld_type_contains_product(object.get("@type")) {
-                return Some(object);
-            }
-            if let Some(graph) = object.get("@graph")
-                && let Some(product) = find_product_json_ld(graph)
-            {
-                return Some(product);
-            }
-            None
-        }
-        serde_json::Value::Array(items) => items.iter().find_map(find_product_json_ld),
-        _ => None,
-    }
-}
-
-fn json_ld_type_contains_product(value: Option<&serde_json::Value>) -> bool {
-    match value {
-        Some(serde_json::Value::String(kind)) => kind.eq_ignore_ascii_case("product"),
-        Some(serde_json::Value::Array(kinds)) => kinds.iter().any(|kind| {
-            kind.as_str()
-                .is_some_and(|kind| kind.eq_ignore_ascii_case("product"))
-        }),
-        _ => false,
-    }
-}
-
-fn json_ld_nested_field<'a>(
-    value: &'a serde_json::Value,
-    field: &str,
-) -> Option<&'a serde_json::Value> {
-    match value {
-        serde_json::Value::Object(object) => object.get(field),
-        serde_json::Value::Array(items) => items
-            .iter()
-            .find_map(|item| json_ld_nested_field(item, field)),
-        _ => None,
-    }
-}
-
-fn insert_json_ld_field(
-    attrs: &mut BTreeMap<String, String>,
-    name: &str,
-    value: Option<&serde_json::Value>,
-) {
-    let Some(value) = value.and_then(json_ld_value_to_string) else {
-        return;
-    };
-    attrs.insert(
-        name.to_string(),
-        truncate_chars(&value, projected_attr_limit(name)),
-    );
-}
-
-fn json_ld_value_to_string(value: &serde_json::Value) -> Option<String> {
-    match value {
-        serde_json::Value::String(value) => Some(value.clone()),
-        serde_json::Value::Number(value) => Some(value.to_string()),
-        serde_json::Value::Array(values) => {
-            let joined = values
-                .iter()
-                .filter_map(json_ld_value_to_string)
-                .collect::<Vec<_>>()
-                .join(", ");
-            if joined.is_empty() {
-                None
-            } else {
-                Some(joined)
-            }
-        }
-        serde_json::Value::Object(object) => object
-            .get("name")
-            .or_else(|| object.get("@id"))
-            .and_then(json_ld_value_to_string),
-        _ => None,
-    }
-}
 
 fn normalize_text(raw: &str) -> Option<String> {
     let text = raw.split_whitespace().collect::<Vec<_>>().join(" ");
