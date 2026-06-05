@@ -20,6 +20,7 @@ use product::opensearch::{
 use product::service::query_service::QueryProductServiceImpl;
 use product_api::search::handle;
 use product_personalization::service::ProductPersonalizationServiceImpl;
+use product_pipeline_embed_text::service::MockMultimodalEmbeddingService;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use search_filter::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
 use shop::data::shop_type_data::ShopTypeData;
@@ -31,6 +32,24 @@ use time::OffsetDateTime;
 use time::macros::datetime;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::{UserService, UserServiceImpl};
+
+fn one_hot_embedding(slot: usize) -> Vec<f32> {
+    let mut embedding = vec![0.0_f32; 768];
+    embedding[slot] = 1.0;
+    embedding
+}
+
+fn ranked_embedding(rank: usize) -> Vec<f32> {
+    let mut embedding = one_hot_embedding(0);
+    embedding[1] = rank as f32 / 100.0;
+    embedding
+}
+
+fn repeated_query_text(query: &str, repetitions: usize) -> String {
+    std::iter::repeat_n(query, repetitions.max(1))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_no_hits() {
@@ -173,6 +192,7 @@ async fn should_200_filter_products_when_geo_filters_are_given() {
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_following_search_after_from_previous_response_for_sort_price_asc() {
+    let product_query = "search after price asc title";
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -195,7 +215,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: Some("Der erwartete Titel".try_into().unwrap()),
+        product_query: Some(product_query.try_into().unwrap()),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -218,9 +238,9 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
 
     let mut products = fake::vec![ProductDocument; 1370];
     for (idx, product) in products.iter_mut().enumerate() {
-        product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_de = Some(product_query.to_string());
         product.title_native = TextDocument {
-            text: "Der erwartete Titel".to_string(),
+            text: product_query.to_string(),
             language: LanguageDocument::De,
         };
         product.price_eur = Some(1 + idx as u64);
@@ -335,6 +355,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_following_search_after_from_previous_response_for_sort_price_desc() {
+    let product_query = "search after price desc title";
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -357,7 +378,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: Some("Der erwartete Titel".try_into().unwrap()),
+        product_query: Some(product_query.try_into().unwrap()),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -380,9 +401,9 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
 
     let mut products = fake::vec![ProductDocument; 1370];
     for (idx, product) in products.iter_mut().enumerate() {
-        product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_de = Some(product_query.to_string());
         product.title_native = TextDocument {
-            text: "Der erwartete Titel".to_string(),
+            text: product_query.to_string(),
             language: LanguageDocument::De,
         };
         product.price_eur = Some(1 + idx as u64);
@@ -502,6 +523,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_following_search_after_from_previous_response_for_implicit_sort_score() {
+    let product_query = "search after implicit score title";
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -524,7 +546,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Usd,
-        product_query: Some("Der erwartete Titel".try_into().unwrap()),
+        product_query: Some(product_query.try_into().unwrap()),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -547,9 +569,9 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
 
     let mut products = fake::vec![ProductDocument; 1370];
     for product in &mut products {
-        product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_de = Some(product_query.to_string());
         product.title_native = TextDocument {
-            text: "Der erwartete Titel".to_string(),
+            text: product_query.to_string(),
             language: LanguageDocument::De,
         };
     }
@@ -630,7 +652,320 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
 }
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_200_when_following_search_after_for_native_hybrid_product_api() {
+    let product_query = "search after native hybrid title";
+    let ddb_client = get_dynamodb_client().await;
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository);
+    let notification_service = MockNotificationService::default();
+    let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+        &search_filter_repository,
+    );
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .returning(|_| Box::pin(async { Ok(None) }));
+    let mut embedding_service = MockMultimodalEmbeddingService::default();
+    embedding_service
+        .expect_embed_query()
+        .times(3)
+        .returning(|_| Box::pin(async { Ok(one_hot_embedding(0)) }));
+
+    let search = ProductSearchData {
+        language: LanguageData::En,
+        currency: CurrencyData::Eur,
+        product_query: Some(product_query.try_into().unwrap()),
+        shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
+        shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
+    };
+
+    let mut products = fake::vec![ProductDocument; 75];
+    let product_count = products.len();
+    for (idx, product) in products.iter_mut().enumerate() {
+        let title = repeated_query_text(product_query, product_count - idx);
+        product.title_en = Some(title.clone());
+        product.title_native = TextDocument {
+            text: title,
+            language: LanguageDocument::En,
+        };
+        product.embedding = Some(ranked_embedding(idx));
+    }
+    let create_res = opensearch_repository
+        .create_product_documents(products)
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let response_1 = handle(
+        LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::POST)
+                .query_string_parameter("size", "30")
+                .query_string_parameter("sort", "score")
+                .query_string_parameter("order", "desc")
+                .body_serde(&search)
+                .build(),
+            context: Default::default(),
+        },
+        &query_service,
+        Some(&embedding_service),
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response_1.status_code);
+    let response_data_1: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(extract_apigw_response_json_body!(response_1)).unwrap();
+    assert_eq!(30, response_data_1.size);
+    assert_eq!(30, response_data_1.items.len());
+    assert!(response_data_1.total.is_none());
+    let search_after_1 = response_data_1.search_after.clone().unwrap();
+    assert!(search_after_1.is_array());
+
+    let ids_1: HashSet<_> = response_data_1
+        .items
+        .iter()
+        .map(|item| item.item.product_id)
+        .collect();
+
+    let response_2 = handle(
+        LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::POST)
+                .query_string_parameter("size", "30")
+                .query_string_parameter("sort", "score")
+                .query_string_parameter("order", "desc")
+                .query_string_parameter(
+                    "searchAfter",
+                    serde_json::to_string(&search_after_1).unwrap(),
+                )
+                .body_serde(&search)
+                .build(),
+            context: Default::default(),
+        },
+        &query_service,
+        Some(&embedding_service),
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response_2.status_code);
+    let response_data_2: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(extract_apigw_response_json_body!(response_2)).unwrap();
+    assert_eq!(30, response_data_2.size);
+    assert_eq!(30, response_data_2.items.len());
+    assert!(response_data_2.total.is_none());
+    let search_after_2 = response_data_2.search_after.clone().unwrap();
+    assert!(search_after_2.is_array());
+    assert_ne!(search_after_1, search_after_2);
+
+    let ids_2: HashSet<_> = response_data_2
+        .items
+        .iter()
+        .map(|item| item.item.product_id)
+        .collect();
+    assert!(ids_1.is_disjoint(&ids_2));
+
+    let response_3 = handle(
+        LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::POST)
+                .query_string_parameter("size", "30")
+                .query_string_parameter("sort", "score")
+                .query_string_parameter("order", "desc")
+                .query_string_parameter(
+                    "searchAfter",
+                    serde_json::to_string(&search_after_2).unwrap(),
+                )
+                .body_serde(&search)
+                .build(),
+            context: Default::default(),
+        },
+        &query_service,
+        Some(&embedding_service),
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response_3.status_code);
+    let response_data_3: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(extract_apigw_response_json_body!(response_3)).unwrap();
+    assert_eq!(15, response_data_3.size);
+    assert_eq!(15, response_data_3.items.len());
+    assert!(response_data_3.total.is_none());
+    assert!(response_data_3.search_after.is_none());
+
+    let ids_3: HashSet<_> = response_data_3
+        .items
+        .iter()
+        .map(|item| item.item.product_id)
+        .collect();
+    assert!(ids_1.is_disjoint(&ids_3));
+    assert!(ids_2.is_disjoint(&ids_3));
+    assert_eq!(75, ids_1.len() + ids_2.len() + ids_3.len());
+}
+
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_200_when_following_scalar_search_after_for_native_hybrid_get_product_api() {
+    let ddb_client = get_dynamodb_client().await;
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository);
+    let notification_service = MockNotificationService::default();
+    let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+        &search_filter_repository,
+    );
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .returning(|_| Box::pin(async { Ok(None) }));
+    let mut embedding_service = MockMultimodalEmbeddingService::default();
+    embedding_service
+        .expect_embed_query()
+        .times(2)
+        .returning(|_| Box::pin(async { Ok(one_hot_embedding(0)) }));
+
+    let product_query = "art deco scalar cursor";
+    let product_query_encoded = "art%20deco%20scalar%20cursor";
+    let mut products = fake::vec![ProductDocument; 31];
+    let product_count = products.len();
+    for (idx, product) in products.iter_mut().enumerate() {
+        let title = repeated_query_text(product_query, product_count - idx);
+        product.title_en = Some(title.clone());
+        product.title_native = TextDocument {
+            text: title,
+            language: LanguageDocument::En,
+        };
+        product.embedding = Some(ranked_embedding(idx));
+    }
+    let create_res = opensearch_repository
+        .create_product_documents(products)
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let response_1 = handle(
+        LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/products")
+                .raw_query_string(format!(
+                    "language=en&currency=EUR&productQuery={product_query_encoded}&size=30&sort=score&order=desc"
+                ))
+                .query_string_parameter("language", "en")
+                .query_string_parameter("currency", "EUR")
+                .query_string_parameter("productQuery", product_query)
+                .query_string_parameter("size", "30")
+                .query_string_parameter("sort", "score")
+                .query_string_parameter("order", "desc")
+                .build(),
+            context: Default::default(),
+        },
+        &query_service,
+        Some(&embedding_service),
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response_1.status_code);
+    let response_data_1: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(extract_apigw_response_json_body!(response_1)).unwrap();
+    assert_eq!(30, response_data_1.size);
+    assert_eq!(30, response_data_1.items.len());
+    let search_after_1 = response_data_1.search_after.clone().unwrap();
+    let search_after_scalar = search_after_1
+        .as_array()
+        .and_then(|values| values.first())
+        .cloned()
+        .expect("hybrid search cursor should contain one sort value");
+    assert!(search_after_scalar.is_number());
+
+    let search_after_scalar_query = search_after_scalar.to_string();
+    let response_2 = handle(
+        LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/products")
+                .raw_query_string(format!(
+                    "language=en&currency=EUR&productQuery={product_query_encoded}&searchAfter={search_after_scalar_query}&size=30&sort=score&order=desc"
+                ))
+                .query_string_parameter("language", "en")
+                .query_string_parameter("currency", "EUR")
+                .query_string_parameter("productQuery", product_query)
+                .query_string_parameter("searchAfter", search_after_scalar_query)
+                .query_string_parameter("size", "30")
+                .query_string_parameter("sort", "score")
+                .query_string_parameter("order", "desc")
+                .build(),
+            context: Default::default(),
+        },
+        &query_service,
+        Some(&embedding_service),
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response_2.status_code);
+    let response_data_2: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(extract_apigw_response_json_body!(response_2)).unwrap();
+    assert_eq!(1, response_data_2.size);
+    assert_eq!(1, response_data_2.items.len());
+    assert!(response_data_2.search_after.is_none());
+
+    let ids_1: HashSet<_> = response_data_1
+        .items
+        .iter()
+        .map(|item| item.item.product_id)
+        .collect();
+    assert!(!ids_1.contains(&response_data_2.items[0].item.product_id));
+}
+
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_following_search_after_from_previous_response_for_explicit_sort_score() {
+    let product_query = "search after explicit score title";
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -653,7 +988,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Usd,
-        product_query: Some("Der erwartete Titel".try_into().unwrap()),
+        product_query: Some(product_query.try_into().unwrap()),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -676,9 +1011,9 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
 
     let mut products = fake::vec![ProductDocument; 1370];
     for product in &mut products {
-        product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_de = Some(product_query.to_string());
         product.title_native = TextDocument {
-            text: "Der erwartete Titel".to_string(),
+            text: product_query.to_string(),
             language: LanguageDocument::De,
         };
     }

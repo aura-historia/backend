@@ -307,10 +307,6 @@
                 "type": "date",
                 "format": "strict_date_time"
             },
-            "lastHybridSearchMatched": {
-                "type": "date",
-                "format": "strict_date_time"
-            },
             "structuredAddressCountry": {
                 "type": "keyword"
             },

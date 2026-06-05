@@ -53,7 +53,6 @@ pub struct UserSearchFilterUpdate {
     pub language: Option<Language>,
     pub currency: Option<Currency>,
     pub updated: OffsetDateTime,
-    pub last_hybrid_search_matched: Option<OffsetDateTime>,
 }
 
 impl Default for UserSearchFilterUpdate {
@@ -85,7 +84,6 @@ impl Default for UserSearchFilterUpdate {
             language: None,
             currency: None,
             updated: OffsetDateTime::now_utc(),
-            last_hybrid_search_matched: None,
         }
     }
 }
@@ -119,7 +117,6 @@ impl UserSearchFilterUpdate {
             language,
             currency,
             updated: _,
-            last_hybrid_search_matched,
         } = self;
 
         name.is_none()
@@ -147,7 +144,6 @@ impl UserSearchFilterUpdate {
             && auction_end_query.is_none()
             && language.is_none()
             && currency.is_none()
-            && last_hybrid_search_matched.is_none()
     }
 }
 
@@ -189,7 +185,6 @@ impl From<(UserSearchFilterUpdate, Actor)> for UserSearchFilterRecordUpdate {
             currency: update.currency.map(CurrencyRecord::from),
             updated_by: actor.into(),
             updated: update.updated,
-            last_hybrid_search_matched: update.last_hybrid_search_matched,
         }
     }
 }
@@ -230,7 +225,6 @@ mod fake {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),
-                last_hybrid_search_matched: Some(OffsetDateTime::now_utc()),
             }
         }
     }

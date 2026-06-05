@@ -1,6 +1,5 @@
 use crate::core::product_search::ProductSearch;
 use crate::core::sort_product_field::SortProductField;
-use crate::opensearch::intent::HybridSearchParams;
 use crate::opensearch::product_document::{ProductDocument, ProductDocumentSerdeField};
 use crate::opensearch::product_state_document::ProductStateDocument;
 use crate::opensearch::product_update_document::ProductUpdateDocument;
@@ -34,9 +33,8 @@ use time::format_description::well_known;
 /// In tests this is done by [`test_api::opensearch::set_up_indices`].
 pub const HYBRID_SEARCH_PIPELINE_NAME: &str = "hybrid-search-pipeline";
 
-/// Name attached to the BM25 branch of the hybrid query so the client-side dropout filter
-/// can distinguish text-anchored hits from vector-only hits.
-pub const HYBRID_BM25_QUERY_NAME: &str = "hybrid_bm25_text";
+const DEFAULT_HYBRID_PAGE_SIZE: u64 = 20;
+const HYBRID_K: u16 = 100;
 
 #[async_trait]
 #[mockall::automock]
@@ -69,18 +67,6 @@ pub trait ProductOpenSearchRepository {
         k: u16,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error>;
 
-    /// Filter-aware semantic retrieval used by dynamic hybrid search.
-    ///
-    /// This deliberately runs a plain kNN query rather than OpenSearch's native `hybrid`
-    /// query so the service layer can apply absolute relevance cutoffs and deterministic
-    /// BM25/vector fusion in Rust.
-    async fn semantic_search_product_documents(
-        &self,
-        search: &ProductSearch,
-        embedding: &[f32],
-        k: u16,
-    ) -> Result<SearchResponse<ProductDocument>, opensearch::Error>;
-
     /// Native OpenSearch hybrid retrieval. The request body uses the `hybrid` query type
     /// (parallel BM25 + kNN) combined via the pre-registered search pipeline named
     /// [`HYBRID_SEARCH_PIPELINE_NAME`], which is passed as a URL query parameter.
@@ -89,7 +75,6 @@ pub trait ProductOpenSearchRepository {
         &self,
         search: &ProductSearch,
         embedding: &[f32],
-        params: HybridSearchParams,
         cursor: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error>;
 }
@@ -242,37 +227,13 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         Ok(knn_response)
     }
 
-    async fn semantic_search_product_documents(
-        &self,
-        search: &ProductSearch,
-        embedding: &[f32],
-        k: u16,
-    ) -> Result<SearchResponse<ProductDocument>, opensearch::Error> {
-        let response = self
-            .client
-            .search(SearchParts::Index(&["products"]))
-            .body(build_semantic_search_request(search, embedding, k)?)
-            .send()
-            .await?
-            .error_for_status_code()?;
-        let payload = response.text().await?;
-        let res = serde_json::from_str::<SearchResponse<ProductDocument>>(&payload)
-            .map_err(|err| {
-                serde_json::Error::custom(format!(
-                    "Failed deserializing 'SearchResponse<ProductDocument>' with error '{err}'. Received payload: {payload}"
-                ))
-            })?;
-        Ok(res)
-    }
-
     async fn hybrid_search_product_documents(
         &self,
         search: &ProductSearch,
         embedding: &[f32],
-        params: HybridSearchParams,
         cursor: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error> {
-        let body = build_hybrid_search_request(search, embedding, params, cursor)?;
+        let body = build_hybrid_search_request(search, embedding, cursor)?;
         // Pass the pipeline name as a URL query parameter so `reqwest` URL-encodes it,
         // rather than interpolating it into the path string directly.
         let pipeline_param = &[("search_pipeline", HYBRID_SEARCH_PIPELINE_NAME)];
@@ -319,7 +280,7 @@ pub fn build_search_request(
     if let Some(c) = cursor {
         body["size"] = json!(c.size);
         if let Some(sa) = &c.search_after {
-            body["search_after"] = json!(sa);
+            body["search_after"] = opensearch_search_after(sa);
         }
     }
 
@@ -670,43 +631,6 @@ fn price_field_for(currency: &Currency) -> &'static str {
     }
 }
 
-/// Builds the request body for the semantic branch of dynamic hybrid search.
-///
-/// The query reuses all non-text filters from [`ProductSearch`] and returns the embedding in
-/// `_source` so the service can compute exact cosine similarity and prune weak vector-only
-/// candidates before fusion.
-pub fn build_semantic_search_request(
-    search: &ProductSearch,
-    embedding: &[f32],
-    k: u16,
-) -> Result<serde_json::Value, serde_json::Error> {
-    let (must_not, filter) = build_filter_clauses(search)?;
-    let k = k.max(1);
-
-    let mut knn_body = json!({
-        "vector": embedding,
-        "k": k,
-    });
-    if !filter.is_empty() || !must_not.is_empty() {
-        knn_body["filter"] = json!({
-            "bool": {
-                "must_not": must_not,
-                "filter": filter,
-            }
-        });
-    }
-
-    Ok(json!({
-        "_source": true,
-        "size": k,
-        "query": {
-            "knn": {
-                ProductDocumentSerdeField::Embedding.as_str(): knn_body,
-            }
-        }
-    }))
-}
-
 /// Builds the request body for an OpenSearch *native hybrid* search.
 ///
 /// Combines a BM25 sub-query (text-match + filters) and a kNN sub-query in a single
@@ -718,7 +642,6 @@ pub fn build_semantic_search_request(
 pub fn build_hybrid_search_request(
     search: &ProductSearch,
     embedding: &[f32],
-    params: HybridSearchParams,
     cursor: &Option<Cursor<serde_json::Value>>,
 ) -> Result<serde_json::Value, serde_json::Error> {
     let (must_not, filter) = build_filter_clauses(search)?;
@@ -733,7 +656,6 @@ pub fn build_hybrid_search_request(
     };
     let bm25_subquery = json!({
         "bool": {
-            "_name": HYBRID_BM25_QUERY_NAME,
             "must": [bm25_text_clause],
             "filter": filter.clone(),
             "must_not": must_not.clone(),
@@ -741,9 +663,10 @@ pub fn build_hybrid_search_request(
     });
 
     // ---------- kNN sub-query: vector + filters ----------
+    let page_size = hybrid_page_size(cursor);
     let mut knn_body = json!({
         "vector": embedding,
-        "k": params.candidate_k,
+        "k": HYBRID_K,
     });
     if !filter.is_empty() || !must_not.is_empty() {
         knn_body["filter"] = json!({
@@ -759,34 +682,59 @@ pub fn build_hybrid_search_request(
         }
     });
 
-    let page_size = cursor.as_ref().map(|c| c.size).unwrap_or(20).max(1);
     let mut body = json!({
-        // Keep the document embedding in `_source` so the service layer can compute an
-        // absolute semantic similarity floor for vector-only hits and trim the hybrid tail.
-        "_source": true,
+        "_source": {
+            "excludes": [ProductDocumentSerdeField::Embedding]
+        },
         "size": page_size,
         "query": {
             "hybrid": {
                 "queries": [bm25_subquery, knn_subquery]
             }
         },
-        // OpenSearch's `hybrid` query type forbids combining `_score` with any other sort
-        // criterion — only a single sort field is allowed.  Sorting by `_score` preserves the
-        // pipeline's RRF-fused relevance ordering so the most-relevant documents come first.
-        // Ties on score (rare in practice) may produce non-deterministic page splits, which is
-        // acceptable given that relevance ordering is the primary concern.
+        // Sort by the RRF-fused score through a numeric script so OpenSearch emits a concrete
+        // sort value that can be fed back via `search_after`. Native hybrid rejects `_score` as
+        // a `search_after` sort key, and also forbids adding a second field sort criterion.
+        // The tiny productId-derived tiebreaker keeps cursor paging stable when scores tie
+        // without materially changing relevance ordering.
         "sort": [
-            { "_score": { "order": "desc" } }
+            {
+                "_script": {
+                    "type": "number",
+                    "script": {
+                        "source": format!(
+                            "return _score + (Math.abs(doc['{}'].value.hashCode()) * 1.0e-15);",
+                            ProductDocumentSerdeField::ProductId.as_str()
+                        )
+                    },
+                    "order": "desc"
+                }
+            }
         ]
     });
 
     if let Some(c) = cursor
         && let Some(sa) = &c.search_after
     {
-        body["search_after"] = sa.clone();
+        body["search_after"] = opensearch_search_after(sa);
     }
 
     Ok(body)
+}
+
+fn opensearch_search_after(search_after: &serde_json::Value) -> serde_json::Value {
+    match search_after {
+        serde_json::Value::Array(_) => search_after.clone(),
+        _ => serde_json::Value::Array(vec![search_after.clone()]),
+    }
+}
+
+fn hybrid_page_size(cursor: &Option<Cursor<serde_json::Value>>) -> u64 {
+    cursor
+        .as_ref()
+        .map(|c| c.size)
+        .unwrap_or(DEFAULT_HYBRID_PAGE_SIZE)
+        .max(1)
 }
 
 fn apply_any_of_filter<T: Hash + Eq + EnumCount>(

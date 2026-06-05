@@ -102,8 +102,6 @@ pub struct UserSearchFilterRecord {
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
-    #[serde(with = "time::serde::rfc3339")]
-    pub last_hybrid_search_matched: OffsetDateTime,
 }
 
 pub fn mk_pk(user_id: &UserId) -> String {
@@ -168,7 +166,6 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
             updated_by: record.updated_by.into(),
             created: record.created,
             updated: record.updated,
-            last_hybrid_search_matched: record.last_hybrid_search_matched,
         }
     }
 }
@@ -235,7 +232,6 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
             updated_by: user_search_filter.updated_by.into(),
             created: user_search_filter.created,
             updated: user_search_filter.updated,
-            last_hybrid_search_matched: user_search_filter.last_hybrid_search_matched,
         }
     }
 }
@@ -286,7 +282,6 @@ mod fake {
                 updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
-                last_hybrid_search_matched: OffsetDateTime::now_utc(),
             }
         }
     }

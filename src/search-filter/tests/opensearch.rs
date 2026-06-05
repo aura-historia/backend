@@ -788,7 +788,6 @@ fn base_record() -> UserSearchFilterRecord {
         updated_by: common::actor::record::ActorRecord::System,
         created: datetime!(2024-01-01 00:00:00 UTC),
         updated: datetime!(2024-01-02 00:00:00 UTC),
-        last_hybrid_search_matched: datetime!(2024-01-02 00:00:00 UTC),
     }
 }
 
@@ -955,7 +954,6 @@ fn base_query_record() -> UserSearchFilterRecord {
         updated_by: common::actor::record::ActorRecord::System,
         created: datetime!(2024-01-01 00:00:00 UTC),
         updated: datetime!(2024-01-02 00:00:00 UTC),
-        last_hybrid_search_matched: datetime!(2024-01-02 00:00:00 UTC),
     }
 }
 

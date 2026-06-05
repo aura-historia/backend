@@ -21,7 +21,6 @@ pub struct UserSearchFilterSummary {
     pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
-    pub last_hybrid_search_matched: OffsetDateTime,
 }
 
 #[derive(Debug, Clone, SerdeField)]
@@ -37,7 +36,6 @@ pub struct UserSearchFilter {
     pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
-    pub last_hybrid_search_matched: OffsetDateTime,
 }
 
 impl From<UserSearchFilter> for UserSearchFilterSummary {
@@ -53,7 +51,6 @@ impl From<UserSearchFilter> for UserSearchFilterSummary {
             updated_by: filter.updated_by,
             created: filter.created,
             updated: filter.updated,
-            last_hybrid_search_matched: filter.last_hybrid_search_matched,
         }
     }
 }
@@ -77,7 +74,6 @@ mod faker {
                 updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
-                last_hybrid_search_matched: OffsetDateTime::now_utc(),
             }
         }
     }
@@ -95,7 +91,6 @@ mod faker {
                 updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
-                last_hybrid_search_matched: OffsetDateTime::now_utc(),
             }
         }
     }
@@ -165,7 +160,6 @@ mod tests {
             updated_by: Actor::User(UserId::new()),
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
-            last_hybrid_search_matched: OffsetDateTime::now_utc(),
         };
 
         let summary = UserSearchFilterSummary::from(filter.clone());

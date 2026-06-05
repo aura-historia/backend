@@ -73,8 +73,8 @@ pub async fn handle(
     product_search.language = language.into();
     product_search.currency = currency.into();
 
-    // Adaptive hybrid retrieval: only when an embedding service is available and the filter
-    // contains a non-empty textual product_query.
+    // OpenSearch-native hybrid retrieval: only when an embedding service is available and the
+    // filter contains a non-empty textual product_query.
     let sort = None::<common::sort::Sort<SortProductField>>;
     let use_hybrid = embedding_service.is_some()
         && product_search
@@ -98,7 +98,7 @@ pub async fn handle(
         match es.embed_query(&query_text).await {
             Ok(embedding) => {
                 query_service
-                    .search_products_with_dynamic_semantics(&product_search, &embedding, &cursor)
+                    .search_products_hybrid(&product_search, &embedding, &cursor)
                     .await?
             }
             Err(err) => {
@@ -607,7 +607,7 @@ mod tests {
 
         let mut query_service = MockQueryProductService::default();
         query_service
-            .expect_search_products_with_dynamic_semantics()
+            .expect_search_products_hybrid()
             .return_once(|_, _, _| {
                 Box::pin(async {
                     Ok(CursoredResult {

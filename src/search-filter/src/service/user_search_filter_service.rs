@@ -400,7 +400,6 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             updated_by: ctx.actor,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
-            last_hybrid_search_matched: OffsetDateTime::now_utc(),
         };
 
         let () = user

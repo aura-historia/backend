@@ -50,6 +50,9 @@
                 <mj-text font-size="14px" color="#6d625d" padding-bottom="16px">
                     Angeboten von <b>{{shop_name}}</b>
                 </mj-text>
+                {{#if image_url}}
+                <mj-image src="{{image_url}}" alt="{{title}}" padding="0 0 16px" border-radius="8px" />
+                {{/if}}
             </mj-column>
         </mj-section>
 
