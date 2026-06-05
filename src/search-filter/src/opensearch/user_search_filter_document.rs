@@ -35,8 +35,6 @@ pub struct UserSearchFilterDocument {
 
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
-    #[serde(with = "time::serde::rfc3339")]
-    pub last_hybrid_search_matched: OffsetDateTime,
 }
 
 impl UserSearchFilterDocument {
@@ -56,7 +54,6 @@ impl From<UserSearchFilterDocument> for UserSearchFilterSummary {
                 .map(EnhancedSearchDescription::from),
             notifications: document.notifications,
             state: document.state.into(),
-            last_hybrid_search_matched: document.last_hybrid_search_matched,
             created_by: document.created_by.into(),
             updated_by: document.updated_by.into(),
             created: document.created,
@@ -81,7 +78,6 @@ impl From<UserSearchFilterDocument> for UserSearchFilter {
             updated_by: document.updated_by.into(),
             created: document.created,
             updated: document.updated,
-            last_hybrid_search_matched: document.last_hybrid_search_matched,
         }
     }
 }
@@ -107,7 +103,6 @@ impl TryFrom<UserSearchFilterRecord> for UserSearchFilterDocument {
             updated_by: user_search_filter.updated_by.into(),
             created: user_search_filter.created,
             updated: user_search_filter.updated,
-            last_hybrid_search_matched: user_search_filter.last_hybrid_search_matched,
         };
         Ok(user_search_filter_doc)
     }

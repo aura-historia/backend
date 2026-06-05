@@ -454,6 +454,7 @@ fn build_email_template_data(
             product_slug_id,
             shop_name,
             title,
+            image,
             url,
             view_url,
             watchlist_payload,
@@ -476,6 +477,10 @@ fn build_email_template_data(
 
             data["url"] = serde_json::json!(url.as_str());
             data["view_url"] = serde_json::json!(view_url.as_str());
+
+            if let Some(image) = image {
+                data["image_url"] = serde_json::json!(image.url.as_str());
+            }
 
             if let Some(first_name) = user_first_name {
                 data["user_first_name"] = serde_json::json!(first_name.to_string());
@@ -519,6 +524,7 @@ fn build_email_template_data(
             product_slug_id,
             shop_name,
             title,
+            image,
             view_url,
             search_filter_payload,
             ..
@@ -541,6 +547,10 @@ fn build_email_template_data(
             });
 
             data["view_url"] = serde_json::json!(view_url.as_str());
+
+            if let Some(image) = image {
+                data["image_url"] = serde_json::json!(image.url.as_str());
+            }
 
             if let Some(first_name) = user_first_name {
                 data["user_first_name"] = serde_json::json!(first_name.to_string());
@@ -1116,6 +1126,7 @@ mod tests {
         price::domain::MonetaryAmount, product_state::domain::ProductState, user_id::UserId,
     };
     use fake::{Fake, Faker};
+    use product::core::{product_image::ProductImage, prohibited_content::ProhibitedContent};
     use std::collections::HashMap;
     use user::{core::user::User, service::user_service::MockUserService};
 
@@ -2567,6 +2578,7 @@ mod tests {
 
     mod build_email_template_data_tests {
         use super::*;
+        use crate::core::notification::NotificationSearchFilterPayload;
         use common::partner_shop_application_id::PartnerShopApplicationId;
 
         #[test]
@@ -2611,6 +2623,51 @@ mod tests {
             assert_eq!(data["old_state"], "Listed");
             assert_eq!(data["new_state"], "Sold");
             assert_eq!(data["notification_type"], "state_change");
+        }
+
+        #[test]
+        fn should_include_watchlist_image_url_when_present() {
+            let image_url =
+                url::Url::parse("https://example.com/item/1.png?size=large&fit=cover").unwrap();
+            let notification = Notification {
+                user_id: UserId::new(),
+                origin_event_id: EventId::new(),
+                notification_id: NotificationId::new(),
+                notification_type: None,
+                notification_payload: NotificationPayload::Watchlist {
+                    product_id: Faker.fake(),
+                    shop_id: Faker.fake(),
+                    shops_product_id: "test-product-123".into(),
+                    shop_slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
+                    shop_name: "Test Shop".into(),
+                    title: HashMap::from([(Language::En, "Antique Vase".into())]),
+                    image: Some(ProductImage {
+                        url: image_url.clone(),
+                        prohibited_content: ProhibitedContent::None,
+                    }),
+                    url: url::Url::parse("https://example.com/item/1").unwrap(),
+                    view_url: url::Url::parse(
+                        "https://example.com/item/1?utm_source=aura_historia&utm_medium=referral",
+                    )
+                    .unwrap(),
+                    watchlist_payload: NotificationWatchlistPayload::StateChange {
+                        old_state: ProductState::Listed,
+                        new_state: ProductState::Sold,
+                    },
+                },
+                seen: false,
+                external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
+
+            assert_eq!(data["image_url"], image_url.as_str());
         }
 
         #[test]
@@ -2822,6 +2879,52 @@ mod tests {
                 build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
 
             assert!(data.get("user_first_name").is_none());
+        }
+
+        #[test]
+        fn should_include_search_filter_image_url_when_present() {
+            let image_url =
+                url::Url::parse("https://example.com/item/1.png?size=large&fit=cover").unwrap();
+            let notification = Notification {
+                user_id: UserId::new(),
+                origin_event_id: EventId::new(),
+                notification_id: NotificationId::new(),
+                notification_type: None,
+                notification_payload: NotificationPayload::SearchFilter {
+                    product_id: Faker.fake(),
+                    shop_id: Faker.fake(),
+                    shops_product_id: "test-product-123".into(),
+                    shop_slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
+                    shop_name: "Test Shop".into(),
+                    title: HashMap::from([(Language::En, "Antique Vase".into())]),
+                    image: Some(ProductImage {
+                        url: image_url.clone(),
+                        prohibited_content: ProhibitedContent::None,
+                    }),
+                    url: url::Url::parse("https://example.com/item/1").unwrap(),
+                    view_url: url::Url::parse(
+                        "https://example.com/item/1?utm_source=aura_historia&utm_medium=referral",
+                    )
+                    .unwrap(),
+                    search_filter_payload: NotificationSearchFilterPayload {
+                        user_search_filter_id:
+                            common::user_search_filter_id::UserSearchFilterId::new(),
+                        user_search_filter_name: "Victorian Furniture".into(),
+                    },
+                },
+                seen: false,
+                external: false,
+                created_by: Actor::System,
+                updated_by: Actor::System,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
+
+            assert_eq!(data["image_url"], image_url.as_str());
         }
 
         #[test]
@@ -3423,6 +3526,13 @@ mod tests {
             }
         }
 
+        fn make_product_image(url: &str) -> ProductImage {
+            ProductImage {
+                url: url::Url::parse(url).unwrap(),
+                prohibited_content: ProhibitedContent::None,
+            }
+        }
+
         fn assert_two_button_template_links(
             rendered: &str,
             data: &serde_json::Value,
@@ -3771,6 +3881,78 @@ mod tests {
             assert!(
                 rendered.contains("Victorian Furniture"),
                 "Rendered template should contain search filter name"
+            );
+        }
+
+        #[test]
+        fn should_include_product_image_in_rendered_watchlist_price_template() {
+            let template_path = "mjml/watchlist/product-update/price/en.mjml";
+            let template = load_template(template_path);
+            let mut notification = make_watchlist_price_notification();
+            let image_url =
+                "https://example.com/image.png?size=large&fit=cover&title=victorian%20desk";
+            if let NotificationPayload::Watchlist { image, .. } =
+                &mut notification.notification_payload
+            {
+                *image = Some(make_product_image(image_url));
+            }
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars.render_template(&template, &data).unwrap();
+
+            assert!(
+                rendered.contains(&format!("src=\"{}\"", handlebars::html_escape(image_url))),
+                "Rendered template should contain product image"
+            );
+        }
+
+        #[test]
+        fn should_include_product_image_in_rendered_watchlist_state_template() {
+            let template_path = "mjml/watchlist/product-update/state/en.mjml";
+            let template = load_template(template_path);
+            let mut notification = make_watchlist_state_notification();
+            let image_url =
+                "https://example.com/image.png?size=large&fit=cover&title=victorian%20desk";
+            if let NotificationPayload::Watchlist { image, .. } =
+                &mut notification.notification_payload
+            {
+                *image = Some(make_product_image(image_url));
+            }
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars.render_template(&template, &data).unwrap();
+
+            assert!(
+                rendered.contains(&format!("src=\"{}\"", handlebars::html_escape(image_url))),
+                "Rendered template should contain product image"
+            );
+        }
+
+        #[test]
+        fn should_include_product_image_in_rendered_search_filter_template() {
+            let template_path = "mjml/search-filter/match/en.mjml";
+            let template = load_template(template_path);
+            let mut notification = make_search_filter_notification();
+            let image_url =
+                "https://example.com/image.png?size=large&fit=cover&title=victorian%20desk";
+            if let NotificationPayload::SearchFilter { image, .. } =
+                &mut notification.notification_payload
+            {
+                *image = Some(make_product_image(image_url));
+            }
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars.render_template(&template, &data).unwrap();
+
+            assert!(
+                rendered.contains(&format!("src=\"{}\"", handlebars::html_escape(image_url))),
+                "Rendered template should contain product image"
             );
         }
 
