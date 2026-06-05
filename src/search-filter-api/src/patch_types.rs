@@ -247,7 +247,6 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
             auction_start_query: patch.search.as_ref().and_then(|sf| sf.auction_start_query),
             auction_end_query: patch.search.as_ref().and_then(|sf| sf.auction_end_query),
             updated: OffsetDateTime::now_utc(),
-            last_hybrid_search_matched: None,
         }
     }
 }
