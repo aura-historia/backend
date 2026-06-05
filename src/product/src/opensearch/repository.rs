@@ -280,7 +280,7 @@ pub fn build_search_request(
     if let Some(c) = cursor {
         body["size"] = json!(c.size);
         if let Some(sa) = &c.search_after {
-            body["search_after"] = json!(sa);
+            body["search_after"] = opensearch_search_after(sa);
         }
     }
 
@@ -716,10 +716,17 @@ pub fn build_hybrid_search_request(
     if let Some(c) = cursor
         && let Some(sa) = &c.search_after
     {
-        body["search_after"] = sa.clone();
+        body["search_after"] = opensearch_search_after(sa);
     }
 
     Ok(body)
+}
+
+fn opensearch_search_after(search_after: &serde_json::Value) -> serde_json::Value {
+    match search_after {
+        serde_json::Value::Array(_) => search_after.clone(),
+        _ => serde_json::Value::Array(vec![search_after.clone()]),
+    }
 }
 
 fn hybrid_page_size(cursor: &Option<Cursor<serde_json::Value>>) -> u64 {
