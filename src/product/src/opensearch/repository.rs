@@ -703,7 +703,7 @@ pub fn build_hybrid_search_request(
                     "type": "number",
                     "script": {
                         "source": format!(
-                            "return _score + (Math.abs(doc['{}'].value.hashCode()) * 1.0e-20);",
+                            "return _score + (Math.abs(doc['{}'].value.hashCode()) * 1.0e-15);",
                             ProductDocumentSerdeField::ProductId.as_str()
                         )
                     },
