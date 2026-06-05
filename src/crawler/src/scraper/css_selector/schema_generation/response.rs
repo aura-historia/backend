@@ -19,13 +19,6 @@ pub enum SchemaLlmEvaluationConfidence {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct SchemaLlmPageFinding {
-    pub role: String,
-    pub schema_index: Option<usize>,
-    pub finding: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct SchemaLlmEvaluation {
     pub decision: SchemaLlmEvaluationDecision,
     pub confidence: SchemaLlmEvaluationConfidence,
@@ -34,8 +27,6 @@ pub struct SchemaLlmEvaluation {
     pub summary: String,
     #[serde(default)]
     pub risks: Vec<String>,
-    #[serde(default)]
-    pub page_findings: Vec<SchemaLlmPageFinding>,
 }
 
 impl SchemaLlmEvaluation {
@@ -47,7 +38,6 @@ impl SchemaLlmEvaluation {
             approved_by_llm: false,
             summary: reason.clone(),
             risks: vec![reason],
-            page_findings: Vec::new(),
         }
     }
 
@@ -75,8 +65,6 @@ struct ProductSchemaGenerationResponse {
     pub summary: String,
     #[serde(default)]
     pub risks: Vec<String>,
-    #[serde(default)]
-    pub page_findings: Vec<SchemaLlmPageFinding>,
 }
 
 impl ProductSchemaGenerationResponse {
@@ -95,7 +83,6 @@ impl ProductSchemaGenerationResponse {
                 approved_by_llm: false,
                 summary: self.summary,
                 risks: self.risks,
-                page_findings: self.page_findings,
             },
         }
     }

@@ -230,7 +230,6 @@ mod tests {
             approved_by_llm: false,
             summary: "good".to_string(),
             risks: Vec::new(),
-            page_findings: Vec::new(),
         };
         let medium = SchemaLlmEvaluation {
             decision: crate::scraper::css_selector::product_schema_service::SchemaLlmEvaluationDecision::NeedsHumanReview,
@@ -238,7 +237,6 @@ mod tests {
             approved_by_llm: false,
             summary: "uncertain".to_string(),
             risks: Vec::new(),
-            page_findings: Vec::new(),
         };
 
         assert!(should_auto_approve_generated_schema(

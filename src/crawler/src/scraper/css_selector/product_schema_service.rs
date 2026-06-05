@@ -32,7 +32,7 @@ pub use projection::{clean_html_for_schema_generation, html_to_schema_prompt_dsl
 pub use prompt::SchemaPromptSource;
 pub use response::{
     GeneratedProductSchemas, SchemaLlmEvaluation, SchemaLlmEvaluationConfidence,
-    SchemaLlmEvaluationDecision, SchemaLlmPageFinding, strip_markdown_json_embedding,
+    SchemaLlmEvaluationDecision, strip_markdown_json_embedding,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -434,7 +434,6 @@ mod tests {
             "confidence": "HIGH",
             "summary": "Selectors are product-specific.",
             "risks": [],
-            "page_findings": [],
         }))
         .expect("generated response should serialize")
     }
@@ -970,9 +969,6 @@ mod tests {
             "confidence": "HIGH",
             "summary": "Selectors are product-specific.",
             "risks": [],
-            "page_findings": [
-                {"role": "PRIMARY", "schema_index": 0, "finding": "Required fields are present."}
-            ]
         }))
         .unwrap();
 
@@ -981,7 +977,7 @@ mod tests {
 
         assert!(evaluation.is_high_confidence_approval());
         assert!(!evaluation.approved_by_llm);
-        assert_eq!(evaluation.page_findings.len(), 1);
+        assert_eq!(evaluation.summary, "Selectors are product-specific.");
     }
 
     #[test]

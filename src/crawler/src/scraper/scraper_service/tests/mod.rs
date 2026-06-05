@@ -115,7 +115,6 @@ pub(super) fn generated_schemas(
             approved_by_llm: false,
             summary: "Selectors are product-specific.".to_string(),
             risks: Vec::new(),
-            page_findings: Vec::new(),
         },
     }
 }
