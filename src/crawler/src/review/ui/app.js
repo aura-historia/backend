@@ -172,11 +172,11 @@ async function selectReview(id) {
     await loadSelectedReview(true);
 }
 
-async function loadSelectedReview(resetSelection) {
+async function loadSelectedReview(resetSelection, refreshMatrix = false) {
     if (!selectedId) return;
     const detail = await api(`/api/reviews/${selectedId}`);
     const matrix = detail.review.artifact_type === 'PRODUCT_SCHEMA'
-        ? await api(`/api/reviews/${selectedId}/matrix`)
+        ? await api(`/api/reviews/${selectedId}/matrix${refreshMatrix ? '?refresh=true' : ''}`)
         : null;
     selectedDetail = detail;
     selectedMatrix = matrix;
@@ -681,7 +681,7 @@ function rerenderWorkbench() {
 
 async function reloadMatrix() {
     dirty = false;
-    await loadSelectedReview(false);
+    await loadSelectedReview(false, true);
     await loadReviews();
 }
 
@@ -839,7 +839,7 @@ async function saveCurrentField() {
         body: JSON.stringify({schema_index: selectedSchemaIndex, field: selectedField, rule})
     });
     dirty = false;
-    await loadSelectedReview(false);
+    await loadSelectedReview(false, true);
     await loadReviews();
 }
 
@@ -850,7 +850,7 @@ async function deleteCurrentRule() {
         body: JSON.stringify({schema_index: selectedSchemaIndex, field: selectedField, rule: null})
     });
     dirty = false;
-    await loadSelectedReview(false);
+    await loadSelectedReview(false, true);
     await loadReviews();
 }
 
@@ -926,7 +926,7 @@ async function saveCandidate() {
 async function saveCandidatePayload(payload) {
     await api(`/api/reviews/${selectedId}/candidate`, {method: 'POST', body: JSON.stringify(payload)});
     dirty = false;
-    await loadSelectedReview(false);
+    await loadSelectedReview(false, true);
     await loadReviews();
 }
 
